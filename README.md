@@ -70,3 +70,5 @@ own licences: [THIRD_PARTY_NOTICES.md](docs/release/THIRD_PARTY_NOTICES.md)).
 A non-commercial fan preservation project: no donations, no paid builds. Not affiliated with or endorsed by WWE, 2K,
 Take-Two Interactive, Yuke's or Visual Concepts. WWE 2K14 and all related names, logos and characters belong to their
 owners. This repository contains no game code or data: you need your own copy of the game.
+
+Developed with the assistance of [Claude](https://www.anthropic.com/claude), Anthropic's AI model.
