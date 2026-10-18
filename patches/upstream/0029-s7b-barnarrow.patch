@@ -1,0 +1,418 @@
+Subject: [ReXGlue] merge s7b/barnarrow
+
+Class: RGO
+What: Upload WAR barrier waits only for tracked stages.
+Evidence: No effect measured (run 163).
+On / off: vulkan_shared_memory_narrow_barrier, off.
+Commit: c3d7ca2 (diff against c3d7ca2^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 5c07a0b..bb783ce 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -199,6 +199,15 @@ class VulkanCommandProcessor : public CommandProcessor {
+                               uint32_t src_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
+                               uint32_t dst_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
+                               bool skip_if_equal = true);
++  // wwe2k14 patch (Session 7b, BARNARROW): the union of the source stage masks of the barriers pushed but not
++  // submitted yet (measurement only: which stages the next SubmitBarriers waits for).
++  VkPipelineStageFlags GetPendingBarriersSrcStageMask() const {
++    VkPipelineStageFlags src_stage_mask = current_pending_barrier_.src_stage_mask;
++    for (const PendingBarrier& pending_barrier : pending_barriers_) {
++      src_stage_mask |= pending_barrier.src_stage_mask;
++    }
++    return src_stage_mask;
++  }
+   // Returns whether any barriers have been submitted - if true is returned, the
+   // render pass will also be closed.
+   bool SubmitBarriers(bool force_end_render_pass);
+diff --git a/include/rex/graphics/vulkan/shared_memory.h b/include/rex/graphics/vulkan/shared_memory.h
+index 3c85c72..68d9594 100644
+--- a/include/rex/graphics/vulkan/shared_memory.h
++++ b/include/rex/graphics/vulkan/shared_memory.h
+@@ -45,7 +45,26 @@ class VulkanSharedMemory : public SharedMemory {
+   };
+   // Inserts a pipeline barrier for the target usage, also ensuring consecutive
+   // read-write accesses are ordered with each other.
+-  void Use(Usage usage, std::pair<uint32_t, uint32_t> written_range = {});
++  // wwe2k14 patch (Session 7b, BARNARROW): access_stages = the pipeline stages in which the GPU work recorded
++  // after this call (until the next Use) reads or writes the buffer, a subset of the usage's stages; 0 (the
++  // default) = all of the usage's stages (conservative). Tracked for vulkan_shared_memory_narrow_barrier.
++  void Use(Usage usage, std::pair<uint32_t, uint32_t> written_range = {},
++           VkPipelineStageFlags access_stages = 0);
++
++  // wwe2k14 patch (Session 7b, BARNARROW): access_stages for a guest draw: vertex input (a guest DMA index
++  // buffer in the shared memory) and every guest vertex-side stage (vertex fetch, index loads in the vertex /
++  // tessellation evaluation shader, vertex shader memexport), plus the fragment shader if the pixel shader
++  // vertex-fetches or memexports (the only shared memory accesses the SPIR-V translator emits in a pixel
++  // shader; the FSI EDRAM is a separate buffer).
++  VkPipelineStageFlags GetGuestDrawAccessStages(bool pixel_shader_accesses_shared_memory) const {
++    return VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
++           (guest_shader_pipeline_stages_ & ~VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)) |
++           (pixel_shader_accesses_shared_memory ? VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
++                                                : VkPipelineStageFlags(0));
++  }
++  // wwe2k14 patch (Session 7b, BARNARROW): at each frame boundary - the cpf_bar timeline event and the
++  // [s7][BARNARROW] log about every 300 frames.
++  void RecordNarrowBarrierFrameCounters(uint64_t frame);
+ 
+   VkBuffer buffer() const { return buffer_; }
+ 
+@@ -117,6 +136,32 @@ class VulkanSharedMemory : public SharedMemory {
+     uint64_t verify_mismatches_logged = 0;
+   };
+   UploadCopyStats upload_copy_stats_;
++
++  // wwe2k14 patch (Session 7b, BARNARROW): vulkan_shared_memory_narrow_barrier. The pipeline stages that may
++  // have accessed buffer_ since the last barrier Use pushed on it, plus one stage of that barrier's destination
++  // scope (a later barrier with these stages in its source scope chains to it, which covers every access before
++  // it). Kept whether the setting is on or off, so it can be toggled at any upload. Command processor thread
++  // only, like Use.
++  void NarrowUploadBarrierSource(VkPipelineStageFlags& src_stage_mask, VkAccessFlags& src_access_mask);
++  void CountNarrowBarrierBatch();
++  VkPipelineStageFlags stages_accessed_since_barrier_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
++  // The upload barrier Use just pushed has no fragment stage in its source scope (UploadRanges checks what
++  // else is batched with it).
++  bool narrow_barrier_batch_check_ = false;
++  struct NarrowBarrierStats {
++    uint32_t upload_barriers = 0;      // cpf_bar a: barriers pushed by Use for an upload copy
++    uint32_t narrowed = 0;             // cpf_bar b: of those, no fragment stage in the source scope
++    uint32_t narrowed_no_compute = 0;  // cpf_bar c: of those, also no compute stage
++    uint32_t from_read = 0;            // upload barriers after kRead / kGuestDrawReadWrite (the ones narrowed)
++    uint32_t tracked_fragment = 0;     // of those, a pixel shader accessed the buffer since the last barrier
++    uint32_t tracked_compute = 0;      // of those, a compute dispatch accessed it since the last barrier
++    uint32_t would_narrow = 0;         // of those, the narrowed mask has no fragment stage (on or off)
++    uint32_t not_narrowable = 0;       // of those, kept full (a write access bit not covered; not expected)
++    uint32_t batched_fragment = 0;     // narrowed, but submitted with another pending barrier from fragment
++  };
++  NarrowBarrierStats narrow_barrier_frame_stats_;
++  NarrowBarrierStats narrow_barrier_window_stats_;
++  uint64_t narrow_barrier_window_first_frame_ = UINT64_MAX;
+ };
+ 
+ }  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index f8e6aa7..7658ebb 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -5849,7 +5849,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         return draw_fail("guest_dma_index_scratch_buffer");
+       }
+ 
+-      shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
++      // wwe2k14 patch (Session 7b, BARNARROW): read by the copy (transfer stage).
++      shared_memory_->Use(VulkanSharedMemory::Usage::kRead, {}, VK_PIPELINE_STAGE_TRANSFER_BIT);
+       SubmitBarriers(true);
+ 
+       VkBufferCopy guest_dma_index_copy_region = {};
+@@ -5872,18 +5873,36 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // TODO(Triang3l): Find some PM4 command that can be used for indication of
+   // when memexports should be awaited instead of inserting the barrier in Use
+   // every time if memory export was done in the previous draw?
++  // wwe2k14 patch (Session 7b, BARNARROW): the stages in which this draw may access the shared memory, for
++  // vulkan_shared_memory_narrow_barrier. The translated pixel shader only accesses it for vertex fetch and
++  // memexport (SpirvShaderTranslator::LoadUint32FromSharedMemory / StoreUint32ToSharedMemory callers); any
++  // vfetch that loads data has a vertex binding (Shader::GatherVertexFetchInformation), and the fetch
++  // constant bitmap is checked too (conservative).
++  bool pixel_shader_accesses_shared_memory = memexport_used_pixel;
++  if (pixel_shader && !pixel_shader_accesses_shared_memory) {
++    pixel_shader_accesses_shared_memory = !pixel_shader->vertex_bindings().empty();
++    const Shader::ConstantRegisterMap& constant_map_pixel = pixel_shader->constant_register_map();
++    for (uint32_t i = 0; i < rex::countof(constant_map_pixel.vertex_fetch_bitmap); ++i) {
++      if (constant_map_pixel.vertex_fetch_bitmap[i]) {
++        pixel_shader_accesses_shared_memory = true;
++      }
++    }
++  }
++  VkPipelineStageFlags shared_memory_access_stages =
++      shared_memory_->GetGuestDrawAccessStages(pixel_shader_accesses_shared_memory);
+   if (memexport_extent_start < memexport_extent_end) {
+     shared_memory_->Use(
+         VulkanSharedMemory::Usage::kGuestDrawReadWrite,
+-        std::make_pair(memexport_extent_start, memexport_extent_end - memexport_extent_start));
++        std::make_pair(memexport_extent_start, memexport_extent_end - memexport_extent_start),
++        shared_memory_access_stages);
+   } else if (memexport_writes_possible) {
+     // Stream constants can be invalid or dynamic, making the exact destination
+     // unknown. Keep synchronization conservative similarly to D3D12 UAV
+     // handling for memexport-capable draws.
+     shared_memory_->Use(VulkanSharedMemory::Usage::kGuestDrawReadWrite,
+-                        std::make_pair(0u, SharedMemory::kBufferSize));
++                        std::make_pair(0u, SharedMemory::kBufferSize), shared_memory_access_stages);
+   } else {
+-    shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
++    shared_memory_->Use(VulkanSharedMemory::Usage::kRead, {}, shared_memory_access_stages);
+   }
+ 
+   // After all commands that may dispatch, copy or insert barriers, submit
+@@ -6334,7 +6353,8 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_
+     return true;
+   }
+ 
+-  shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
++  // wwe2k14 patch (Session 7b, BARNARROW): read by the readback copy (transfer stage).
++  shared_memory_->Use(VulkanSharedMemory::Usage::kRead, {}, VK_PIPELINE_STAGE_TRANSFER_BIT);
+   SubmitBarriers(true);
+ 
+   uint32_t readback_offset = 0;
+@@ -6459,7 +6479,8 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_
+     return IssueDraw_MemexportReadbackFullPath(total_size);
+   }
+ 
+-  shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
++  // wwe2k14 patch (Session 7b, BARNARROW): read by the readback copy (transfer stage).
++  shared_memory_->Use(VulkanSharedMemory::Usage::kRead, {}, VK_PIPELINE_STAGE_TRANSFER_BIT);
+   SubmitBarriers(true);
+ 
+   uint32_t readback_offset = 0;
+@@ -6951,7 +6972,8 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     deferred_command_buffer_.CmdVkCopyBuffer(resolve_downscale_buffer_,
+                                              readback.buffers[write_index], 1, &readback_region);
+   } else {
+-    shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
++    // wwe2k14 patch (Session 7b, BARNARROW): read by the readback copy (transfer stage).
++    shared_memory_->Use(VulkanSharedMemory::Usage::kRead, {}, VK_PIPELINE_STAGE_TRANSFER_BIT);
+     SubmitBarriers(true);
+ 
+     VkBufferCopy readback_region = {};
+@@ -10246,6 +10268,8 @@ void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
+     perf::timeline::Record("cpf_up2", upload_skip_stats.pages_uploaded,
+                            uint32_t(upload_skip_stats.bytes_hashed >> 10),
+                            uint32_t(upload_skip_stats.hash_ns / 1000));
++    // wwe2k14 patch (Session 7b, BARNARROW): cpf_bar (recorded here, before the cpf* events) and its log.
++    shared_memory_->RecordNarrowBarrierFrameCounters(GetCurrentFrame());
+   }
+   counters.checkpoint_next_id = crash_checkpoints_enabled() ? uint32_t(crash_checkpoint_next_id_) : 0;
+ }
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 367794f..905b650 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -21,6 +21,7 @@
+ #include <rex/graphics/vulkan/shared_memory.h>
+ #include <rex/logging.h>
+ #include <rex/math.h>
++#include <rex/perf/timeline.h>
+ #include <rex/platform.h>
+ #include <rex/ui/vulkan/util.h>
+ 
+@@ -44,6 +45,20 @@ REXCVAR_DEFINE_BOOL(gpu_upload_streaming_copy_verify, false, "GPU/Vulkan",
+                     "With gpu_upload_streaming_copy: compare every streamed chunk with guest memory (slow - "
+                     "reads the upload buffer back), count and log mismatches ([s6][RESID])");
+ 
++// wwe2k14 patch (Session 7b, BARNARROW): the barrier before each shared memory upload copy (Use with
++// kTransferDestination after kRead / kGuestDrawReadWrite) has every stage that may read the buffer in its
++// source scope, the fragment shader included - with the FSI render target path that waits for all the pixel
++// work in flight, ~1,000 times per heavy frame while clear_memory_page_state re-uploads pages every frame.
++// Use tracks the stages that actually accessed the buffer since its last barrier; with this setting the upload
++// barrier waits only for those. The same hazards are covered (see NarrowUploadBarrierSource).
++REXCVAR_DEFINE_BOOL(vulkan_shared_memory_narrow_barrier, false, "GPU/Vulkan",
++                    "Before each shared memory upload copy, wait only for the pipeline stages that accessed "
++                    "the shared memory buffer since its last barrier (draws: vertex stages, plus fragment if "
++                    "the pixel shader vertex-fetches or memexports; compute texture loads and resolves; "
++                    "copies) instead of every stage that may read it (fragment included = all the pixel work "
++                    "in flight). Covers the same hazards. Read per upload (toggle-safe); cpf_bar counters and "
++                    "a [s7][BARNARROW] log about every 300 frames either way");
++
+ // wwe2k14 patch (Session 7, PROTECT): page protection counters, defined in src/system/xmemory.cpp
+ // (rexruntime exports all symbols) - declared here, not in rex/system/xmemory.h, which the game executable
+ // includes.
+@@ -382,7 +397,8 @@ void VulkanSharedMemory::ReportUploadCopyStats(uint64_t frame) {
+   stats = next_stats;
+ }
+ 
+-void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_range) {
++void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_range,
++                             VkPipelineStageFlags access_stages) {
+   written_range.first = std::min(written_range.first, kBufferSize);
+   written_range.second = std::min(written_range.second, kBufferSize - written_range.first);
+   assert_true(usage != Usage::kRead || !written_range.second);
+@@ -397,6 +413,24 @@ void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_
+     VkAccessFlags src_access_mask, dst_access_mask;
+     GetUsageMasks(last_usage_, src_stage_mask, src_access_mask);
+     GetUsageMasks(usage, dst_stage_mask, dst_access_mask);
++    // wwe2k14 patch (Session 7b, BARNARROW): the barrier before an upload copy - narrowed with
++    // vulkan_shared_memory_narrow_barrier, counted either way.
++    if (usage == Usage::kTransferDestination) {
++      NarrowUploadBarrierSource(src_stage_mask, src_access_mask);
++    }
++    // wwe2k14 patch (Session 7b, BARNARROW): every access tracked so far is in this barrier's source scope
++    // (directly, or through the stage kept from the previous barrier's destination scope), so it happens before
++    // the work after it in the destination stages. Start over with one stage of that destination scope: a
++    // later barrier with it in its source scope chains to this one. Prefer the transfer stage (always in an
++    // upload barrier's source scope), then vertex input (every draw has it); kComputeWrite has only compute.
++    VkPipelineStageFlags chain_stage_mask = dst_stage_mask & VK_PIPELINE_STAGE_TRANSFER_BIT;
++    if (!chain_stage_mask) {
++      chain_stage_mask = dst_stage_mask & VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
++    }
++    if (!chain_stage_mask) {
++      chain_stage_mask = dst_stage_mask;
++    }
++    stages_accessed_since_barrier_ = chain_stage_mask;
+     VkDeviceSize offset, size;
+     if (last_usage_ == usage) {
+       // Committing the previous write, while not changing the access mask
+@@ -416,6 +450,140 @@ void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_
+         VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, false);
+   }
+   last_written_range_ = written_range;
++  // wwe2k14 patch (Session 7b, BARNARROW): the stages of the work recorded after this call. Within the usage's
++  // stages (the source scope of the next barrier without the setting); 0 or anything outside them = all of
++  // them.
++  VkPipelineStageFlags usage_stage_mask;
++  VkAccessFlags usage_access_mask;
++  GetUsageMasks(usage, usage_stage_mask, usage_access_mask);
++  access_stages &= usage_stage_mask;
++  stages_accessed_since_barrier_ |= access_stages ? access_stages : usage_stage_mask;
++}
++
++void VulkanSharedMemory::NarrowUploadBarrierSource(VkPipelineStageFlags& src_stage_mask,
++                                                   VkAccessFlags& src_access_mask) {
++  // wwe2k14 patch (Session 7b, BARNARROW): src_stage_mask / src_access_mask are GetUsageMasks(last_usage_) -
++  // every stage and access the buffer may have had since the last barrier on it. Every GPU access of buffer_
++  // is recorded after a Use naming its stages, with no barrier on buffer_ in between (draws, texture load
++  // dispatches, resolve dispatches, copies; the FSI EDRAM is a different buffer), so:
++  // - the accesses since the last barrier are in stages_accessed_since_barrier_, so in this source scope;
++  // - every access before the last barrier is in that barrier's source scope (the full mask, or this same
++  //   argument), and this source scope intersects that barrier's destination scope - in the chain stage kept
++  //   in stages_accessed_since_barrier_, and in the stages of the access that barrier was pushed for (recorded
++  //   between the two barriers) - which forms an execution dependency chain.
++  // So every earlier access of the buffer happens before the copy (write-after-read and write-after-write),
++  // as with the full mask. Read bits in the source access scope have no effect (availability operations only
++  // apply to writes); the ones without a stage left are dropped (they would be invalid). Write bits stay as
++  // they are, or nothing is narrowed.
++  NarrowBarrierStats& stats = narrow_barrier_frame_stats_;
++  ++stats.upload_barriers;
++  narrow_barrier_batch_check_ = false;
++  if (last_usage_ == Usage::kRead || last_usage_ == Usage::kGuestDrawReadWrite) {
++    ++stats.from_read;
++    // Never wider than the full mask. Transfer is kept where the full mask has it (after kRead); after
++    // kGuestDrawReadWrite only draws accessed the buffer, and the chain stage is vertex input.
++    VkPipelineStageFlags narrow_stage_mask =
++        (stages_accessed_since_barrier_ | VK_PIPELINE_STAGE_TRANSFER_BIT) & src_stage_mask;
++    if (narrow_stage_mask & VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT) {
++      ++stats.tracked_fragment;
++    }
++    if (narrow_stage_mask & VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT) {
++      ++stats.tracked_compute;
++    }
++    constexpr VkPipelineStageFlags kShaderStages =
++        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
++        VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
++        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++    VkAccessFlags narrow_access_mask = 0;
++    if (narrow_stage_mask & VK_PIPELINE_STAGE_VERTEX_INPUT_BIT) {
++      narrow_access_mask |= VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
++    }
++    if (narrow_stage_mask & kShaderStages) {
++      narrow_access_mask |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
++    }
++    if (narrow_stage_mask & VK_PIPELINE_STAGE_TRANSFER_BIT) {
++      narrow_access_mask |= VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
++    }
++    narrow_access_mask &= src_access_mask;
++    constexpr VkAccessFlags kReadAccesses = VK_ACCESS_INDEX_READ_BIT |
++                                            VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
++                                            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
++    if (!narrow_stage_mask || ((src_access_mask & ~narrow_access_mask) & ~kReadAccesses)) {
++      // Not expected (a write is always tracked with its stage) - keep the full masks.
++      ++stats.not_narrowable;
++    } else {
++      if (!(narrow_stage_mask & VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)) {
++        ++stats.would_narrow;
++      }
++      if (REXCVAR_GET(vulkan_shared_memory_narrow_barrier)) {
++        src_stage_mask = narrow_stage_mask;
++        src_access_mask = narrow_access_mask;
++        narrow_barrier_batch_check_ = !(narrow_stage_mask & VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
++      }
++    }
++  }
++  if (!(src_stage_mask & VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)) {
++    ++stats.narrowed;
++    if (!(src_stage_mask & VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)) {
++      ++stats.narrowed_no_compute;
++    }
++  }
++}
++
++void VulkanSharedMemory::CountNarrowBarrierBatch() {
++  // wwe2k14 patch (Session 7b, BARNARROW): measurement only. Called by UploadRanges between Use and
++  // SubmitBarriers: if another pending barrier (an EDRAM buffer or image barrier) waits for the fragment
++  // shader, the pipeline still waits for the pixel work at this point despite the narrowed shared memory
++  // barrier.
++  if (!narrow_barrier_batch_check_) {
++    return;
++  }
++  narrow_barrier_batch_check_ = false;
++  if (command_processor_.GetPendingBarriersSrcStageMask() & VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT) {
++    ++narrow_barrier_frame_stats_.batched_fragment;
++  }
++}
++
++void VulkanSharedMemory::RecordNarrowBarrierFrameCounters(uint64_t frame) {
++  // wwe2k14 patch (Session 7b, BARNARROW): cpf_bar a = upload barriers issued, b = of those, without the
++  // fragment stage in the source scope, c = of those, also without the compute stage. Then the log window.
++  NarrowBarrierStats& frame_stats = narrow_barrier_frame_stats_;
++  if (perf::timeline::Enabled()) {
++    perf::timeline::Record("cpf_bar", frame_stats.upload_barriers, frame_stats.narrowed,
++                           frame_stats.narrowed_no_compute);
++  }
++  NarrowBarrierStats& window = narrow_barrier_window_stats_;
++  window.upload_barriers += frame_stats.upload_barriers;
++  window.narrowed += frame_stats.narrowed;
++  window.narrowed_no_compute += frame_stats.narrowed_no_compute;
++  window.from_read += frame_stats.from_read;
++  window.tracked_fragment += frame_stats.tracked_fragment;
++  window.tracked_compute += frame_stats.tracked_compute;
++  window.would_narrow += frame_stats.would_narrow;
++  window.not_narrowable += frame_stats.not_narrowable;
++  window.batched_fragment += frame_stats.batched_fragment;
++  frame_stats = NarrowBarrierStats();
++  if (narrow_barrier_window_first_frame_ == UINT64_MAX) {
++    narrow_barrier_window_first_frame_ = frame;
++    window = NarrowBarrierStats();
++    return;
++  }
++  if (frame - narrow_barrier_window_first_frame_ < 300) {
++    return;
++  }
++  if (window.upload_barriers) {
++    REXGPU_INFO(
++        "[s7][BARNARROW] frames {}-{} (vulkan_shared_memory_narrow_barrier {}): {} upload barriers, {} without "
++        "the fragment stage ({} also without compute); {} after a read usage: {} with a pixel shader access "
++        "tracked, {} with a compute access tracked, {} narrowable without fragment, {} not narrowable; {} "
++        "narrowed but submitted with another pending barrier from the fragment stage",
++        narrow_barrier_window_first_frame_, frame,
++        REXCVAR_GET(vulkan_shared_memory_narrow_barrier) ? "on" : "off", window.upload_barriers,
++        window.narrowed, window.narrowed_no_compute, window.from_read, window.tracked_fragment,
++        window.tracked_compute, window.would_narrow, window.not_narrowable, window.batched_fragment);
++  }
++  window = NarrowBarrierStats();
++  narrow_barrier_window_first_frame_ = frame;
+ }
+ 
+ bool VulkanSharedMemory::AllocateSparseHostGpuMemoryRange(uint32_t offset_allocations,
+@@ -471,6 +639,7 @@ bool VulkanSharedMemory::UploadRanges(
+                      (upload_page_ranges.back().first + upload_page_ranges.back().second -
+                       upload_page_ranges.front().first)
+                          << page_size_log2()));
++  CountNarrowBarrierBatch();  // wwe2k14 patch (Session 7b, BARNARROW): measurement only
+   command_processor_.SubmitBarriers(true);
+   DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
+   uint64_t submission_current = command_processor_.GetCurrentSubmission();
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 60b8b85..cdce162 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1845,7 +1845,8 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   if (texture_key.scaled_resolve) {
+     UseScaledResolveBufferForRead();
+   } else {
+-    vulkan_shared_memory.Use(VulkanSharedMemory::Usage::kRead);
++    // wwe2k14 patch (Session 7b, BARNARROW): read by the load dispatches (compute stage).
++    vulkan_shared_memory.Use(VulkanSharedMemory::Usage::kRead, {}, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+   }
+ 
+   // Submit the copy buffer population commands.

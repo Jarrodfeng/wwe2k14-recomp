@@ -1,0 +1,28 @@
+# harness: fast-forward ok (Session 27.5 item A: screen an entrance pair for odd-frame motion strays; untimed)
+# Use with --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=A,B
+# --wwe2k14_fix_secondary_motion=true --wwe2k14_fix_secondary_motion_log=true [--wwe2k14_fix_secondary_motion_min=1e9
+# to measure only]. Boot part as s27_quick_check.txt; waits for the scene word to leave the entrances (4 -> 1), then
+# 60 frames, and quits; screenshots every 300 frames from INGAMELUA.PAC.
+on_fail quit
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log launch: in-game sequence loading
+screenshot_every 300 acc
+wait_state scene_word 4 3000 optional
+log entrances: scene word 4
+wait_state scene_word 1 12000 optional
+log entrances: over (scene word 1)
+screenshot_every 0
+wait_frames 60
+quit

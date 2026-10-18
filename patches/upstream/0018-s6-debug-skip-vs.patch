@@ -1,0 +1,66 @@
+Subject: [ReXGlue] s6 debug: gpu_debug_skip_vertex_shader (skip draws by vertex shader hash, to see what a shader draws)
+
+Class: DIAG
+What: Skip draws by vertex-shader hash (to see what a shader draws).
+Evidence: Tool.
+On / off: gpu_debug_skip_vertex_shader (empty = off).
+Commit: ef1b119 (diff against ef1b119^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 40d2184..009ab92 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -387,6 +387,8 @@ class CommandProcessor {
+   // Whether the GPU logger may log at debug level (true until the first refresh, which keeps the original
+   // full check).
+   bool gpu_debug_log_may_be_enabled_ = true;
++  // wwe2k14 patch (Session 6, debug): gpu_debug_skip_vertex_shader, parsed at each swap (0 = off).
++  uint64_t debug_skip_vertex_shader_hash_ = 0;
+   // Cached GetReadbackResolveMode inputs derived from readback_resolve (valid after the first refresh).
+   bool readback_resolve_cache_valid_ = false;
+   bool readback_resolve_cached_overrides_legacy_ = false;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 880603a..727a38b 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -61,6 +61,10 @@ REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes, false, "GPU",
+                     "(WriteRegisterRangeFromRing, as SET_CONSTANT does): shader constant ranges become one "
+                     "copy plus one range invalidation, other ranges still use per-register writes. Same "
+                     "results; read per packet, so it can be toggled mid-run");
++// wwe2k14 patch (Session 6, debug): drop every draw whose vertex shader has this ucode hash (hex, as in the frame
++// anatomy CSV), to see on screen what a shader draws. Read once per frame. Empty = off. Debug only.
++REXCVAR_DEFINE_STRING(gpu_debug_skip_vertex_shader, "", "GPU",
++                      "Debug: skip draws whose vertex shader ucode hash equals this hex value (empty = off)");
+ REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes_verify, false, "GPU",
+                     "With gpu_type0_bulk_writes: replay every bulk-written shader constant range through "
+                     "per-register writes and compare register values, invalidation bits and ring offset; "
+@@ -1569,6 +1573,11 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+ 
+   // wwe2k14 patch (Session 6, CP10): once per frame, see GetReadbackResolveMode.
+   RefreshReadbackResolveModeCache();
++  // wwe2k14 patch (Session 6, debug): parse gpu_debug_skip_vertex_shader once per frame (empty or invalid = off).
++  {
++    const std::string skip = REXCVAR_GET(gpu_debug_skip_vertex_shader);
++    debug_skip_vertex_shader_hash_ = skip.empty() ? 0 : std::strtoull(skip.c_str(), nullptr, 16);
++  }
+   // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split summary.
+   Type0BlockSplitFrameEnd();
+ 
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 244de91..b0e2812 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -5185,6 +5185,12 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+     draw_util::AddMemExportRanges(regs, *vertex_shader, memexport_ranges_);
+   }
++  // wwe2k14 patch (Session 6, debug): gpu_debug_skip_vertex_shader.
++  if (debug_skip_vertex_shader_hash_ && !memexport_used_vertex &&
++      vertex_shader->ucode_data_hash() == debug_skip_vertex_shader_hash_) {
++    anatomy_skip_reason_ = kAnatomySkipOther;
++    return true;
++  }
+ 
+   // Pixel shader analysis.
+   bool primitive_polygonal = draw_util::IsPrimitivePolygonal(regs);

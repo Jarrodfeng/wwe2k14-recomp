@@ -1,0 +1,1664 @@
+{
+  "about": "WWE 2K14 (Xbox 360) character ids confirmed in this project (Session 9, 2026-10-09/10). Our own observations plus a community list as the second source; names are the public ring names as the game's menus show them. Only ids we have seen ourselves are listed: the full community list is the cited source, not copied here. The id is also the character archive pac\\ch\\CHnnn.PAC and, for most wrestlers, the titantron movies\\titantron\\NNN.bik2 (see evidence 'ch_load' / 'tron'). Session 10: every character archive in the dump was launched once in slot 0 (evidence 's10_launch'); entries added from that sweep take their name from the community list and stay 'medium' until Jarrod has checked the faces; 'titantron' / 'entrance_archive' record which files the entrance used.",
+  "evidence_key": {
+    "rumble_screen": "Jarrod's 40-man Royal Rumble (capture rumble_40, run 486): the menu state object holds the 40 picks in screen order (left column top to bottom, then the right column) at +11024; matched to Jarrod's screenshot of the participant screen. Every id known beforehand sat in its screen position",
+    "rumble_entry": "Rumble entry order read from G+84 at apply; entrants #1-#5 seen by Jarrod as predicted (run 486)",
+    "match_pick": "a participant id in a match Jarrod set up and named (captures lesnar_bryan route, bryan_lesnar_mitb, chamber_6man, hiac_cena_brodus, tag_hellno_shield)",
+    "ch_load": "CHnnn.PAC opened at match load or during the entrance for this participant",
+    "tron": "NNN.bik2 opened as this wrestler's titantron during his entrance",
+    "seen": "Jarrod saw this character on screen at the moment the file loaded or the id was in use",
+    "wiki": "community list 'WWE 2K14 Character List (Xbox 360)', https://wiki.prowrestlingmods.io/books/wwe-2k14-18-wwe-12-13/page/wwe-2k14-character-list-xbox-360 (CHAR ID column; read through a fetch summary, 2026-10-10)",
+    "s10_launch": "Session 10 roster sweep (2026-10-10 03:10-04:17, runs 553-648 except 593, tools/sweep): launched in slot 0 of the lesnar_bryan scenario (--wwe2k14_launch_participants=ID,324; 343 as the opponent for 324); CHnnn.PAC opened at match load; 'titantron' = the first titantron file of the entrance (slot 0 enters first), 'entrance_archive' = the first EVT/ENTRANCEnn.PAC; screenshots in out/harness/review/session10/roster (local). Faces not yet checked by Jarrod, so new ids stay medium",
+    "s10_no_entrance": "Session 10 roster sweep: in slot 0 no titantron of its own and no entrance shown; the first titantron is the opponent's (324), the screenshots show Daniel Bryan's entrance"
+  },
+  "team_trons": [
+    {
+      "tron": 403,
+      "team": "The Shield",
+      "evidence": [
+        "one 403.bik2 for Rollins (369) and Reigns (368), who came out together through the crowd (tag_hellno_shield, run 486; Jarrod)",
+        "Ambrose (367), Reigns, Rollins have no titantron of their own; Jarrod: they share the Shield tron"
+      ],
+      "confidence": "high"
+    },
+    {
+      "tron": 400,
+      "team": "3MB (Drew McIntyre, Jinder Mahal, Heath Slater; the community list's names)",
+      "evidence": [
+        "Session 10 roster sweep: 400.bik2 is the first titantron of 278 (run 606), 318 and 339 in slot 0",
+        "none of the three has a titantron file of its own (no 278 / 318 / 339 .bik2 in the dump)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "tron": 402,
+      "team": "Prime Time Players (Darren Young, Titus O'Neil; the community list's names)",
+      "evidence": [
+        "Session 10 roster sweep: 402.bik2 is the first titantron of 370 and 371 in slot 0",
+        "neither has a titantron file of its own"
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "entries": [
+    {
+      "id": 100,
+      "name": "The Rock",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 553,
+      "titantron": 100,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 101,
+      "name": "Stone Cold Steve Austin",
+      "kind": "wrestler",
+      "evidence": [
+        "the 6th leftover participant entry in rumble_40's match description",
+        "101.bik2 exists in movies\\titantron",
+        "wiki (name: this source only)",
+        "s10_launch",
+        "ch_load"
+      ],
+      "confidence": "medium",
+      "run": 554,
+      "titantron": 658,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 102,
+      "name": "Triple H",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 555,
+      "titantron": 102,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 103,
+      "name": "Undertaker",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "tron (103.bik2, Session 6)",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 556,
+      "titantron": 103,
+      "entrance_archive": "ENTRANCE03"
+    },
+    {
+      "id": 104,
+      "name": "Chris Jericho",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "rumble_entry (#4, seen by Jarrod)",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 557,
+      "titantron": 104,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 107,
+      "name": "Kane",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "tron (107.bik2)",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 558,
+      "titantron": 107,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 109,
+      "name": "Hulk Hogan",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 559,
+      "titantron": 109,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 114,
+      "name": "John Bradshaw Layfield",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 560,
+      "titantron": 114,
+      "entrance_archive": "ENTRANCE03"
+    },
+    {
+      "id": 115,
+      "name": "Mr. McMahon",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 561,
+      "titantron": 115,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 119,
+      "name": "Andre the Giant",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 562,
+      "titantron": 119,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 123,
+      "name": "Rey Mysterio",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 563,
+      "titantron": 123,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 125,
+      "name": "Big Show",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "rumble_entry (#1, seen by Jarrod)",
+        "ch_load",
+        "tron (125.bik2)",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 564,
+      "titantron": 125,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 130,
+      "name": "Ric Flair (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 565,
+      "titantron": 130,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 131,
+      "name": "CM Punk",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 566,
+      "titantron": 131,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 136,
+      "name": "Million Dollar Man",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 567,
+      "titantron": 136,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 138,
+      "name": "Sgt. Slaughter",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 568,
+      "titantron": 798,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 139,
+      "name": "John Cena",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "tron (139.bik2)",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 569,
+      "titantron": 139,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 144,
+      "name": "Mick Foley",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 570,
+      "titantron": 144,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 145,
+      "name": "Shawn Michaels (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 571,
+      "titantron": 145,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 147,
+      "name": "Stephanie McMahon",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 572,
+      "titantron": 147,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 150,
+      "name": "Michael Cole",
+      "kind": "commentator",
+      "evidence": [
+        "one of the three extra people in every capture (M+544..552, slots 40-42)",
+        "Jarrod: commentator models (Cole, Lawler) at ringside",
+        "wiki (which of 150 / 153 is Cole: this source only)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 153,
+      "name": "Jerry Lawler",
+      "kind": "commentator",
+      "evidence": [
+        "one of the three extra people in every capture (M+544..552, slots 40-42)",
+        "Jarrod: commentator models (Cole, Lawler) at ringside",
+        "wiki (which of 150 / 153 is Lawler: this source only)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 156,
+      "name": "Eddie Guerrero",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 573,
+      "titantron": 156,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 160,
+      "name": "Batista",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 574,
+      "titantron": 160,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 161,
+      "name": "Randy Orton",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 575,
+      "titantron": 161,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 166,
+      "name": "The Great Khali",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "rumble_entry (#3, seen by Jarrod)",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 576,
+      "titantron": 166,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 172,
+      "name": "Jim Ross",
+      "kind": "commentator",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 577,
+      "titantron": null,
+      "entrance_archive": null
+    },
+    {
+      "id": 176,
+      "name": "Kofi Kingston",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 578,
+      "titantron": 176,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 177,
+      "name": "Bret Hart",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 579,
+      "titantron": 177,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 179,
+      "name": "Mark Henry",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 580,
+      "titantron": 179,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 187,
+      "name": "Justin Roberts",
+      "kind": "ring announcer",
+      "evidence": [
+        "CH187.PAC loads with every announcer scene: after ENTRANCE02 / 06 / 00 in 1v1, Hell in a Cell and tag matches, after ENTRANCE08 in the Rumble's opening (rules) scene; never for the Elimination Chamber, which has none; also in matches without Lesnar (runs 486, 490, 491)",
+        "seen: Jarrod saw Justin Roberts read the Rumble rules",
+        "wiki"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 192,
+      "name": "Moveset",
+      "kind": "unknown",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 581,
+      "titantron": null,
+      "entrance_archive": null
+    },
+    {
+      "id": 193,
+      "name": "Mr. Perfect",
+      "kind": "manager",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 582,
+      "titantron": null,
+      "entrance_archive": "ENTRANCE05",
+      "note": "a manager with an entrance motion and no assigned titantron (Jarrod, 2026-10-10, from a video of the original game): the game asks for titantron 255.bik2, which is not in the dump (255 = 0xFF = none), so no titantron plays, as in the original. A ready-made test case for an entrance with no titantron"
+    },
+    {
+      "id": 196,
+      "name": "King Kong Bundy",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 583,
+      "titantron": 196,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 197,
+      "name": "Macho Man Randy Savage",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 584,
+      "titantron": 197,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 198,
+      "name": "Yokozuna",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 585,
+      "titantron": 198,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 201,
+      "name": "Santino Marella",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 586,
+      "titantron": 201,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 205,
+      "name": "Cody Rhodes",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 587,
+      "titantron": 205,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 210,
+      "name": "The Undertaker (American Badass)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 588,
+      "titantron": 210,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 215,
+      "name": "Big John Studd",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 589,
+      "titantron": 215,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 218,
+      "name": "The Miz",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 590,
+      "titantron": 218,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 219,
+      "name": "Zack Ryder",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 591,
+      "titantron": 219,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 228,
+      "name": "Layla",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 592,
+      "titantron": 228,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 229,
+      "name": "Kaitlyn",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 594,
+      "titantron": 229,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 230,
+      "name": "Aksana",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 595,
+      "titantron": 230,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 246,
+      "name": "Mankind",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 596,
+      "titantron": null,
+      "entrance_archive": null,
+      "note": "a wrestler (Mick Foley's Mankind persona) but no entrance of his own in this launch; cause unconfirmed"
+    },
+    {
+      "id": 249,
+      "name": "Bobby Heenan",
+      "kind": "manager",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 597,
+      "titantron": null,
+      "entrance_archive": null
+    },
+    {
+      "id": 250,
+      "name": "Mr. Fuji",
+      "kind": "manager",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 598,
+      "titantron": null,
+      "entrance_archive": null
+    },
+    {
+      "id": 251,
+      "name": "Paul Bearer",
+      "kind": "manager",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 599,
+      "titantron": null,
+      "entrance_archive": null
+    },
+    {
+      "id": 252,
+      "name": "Howard Finkel",
+      "kind": "ring announcer",
+      "evidence": [
+        "CH252.PAC loads in the place of CH187 (Justin Roberts) in a WrestleMania arena: after ENTRANCE00 in the WrestleMania X-Seven launch (run 492, lesnar_bryan with --wwe2k14_launch_arena=44 --wwe2k14_launch_participants=101,100)",
+        "Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas (30 Years of WrestleMania)",
+        "wiki"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 253,
+      "name": "Miss Elizabeth",
+      "kind": "manager",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 600,
+      "titantron": 197,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 254,
+      "name": "Ultimate Warrior",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 601,
+      "titantron": 254,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 255,
+      "name": "Referee",
+      "kind": "referee",
+      "evidence": [
+        "one of the three extra people in every capture (M+544..552, slots 40-42)",
+        "CH255.PAC loads when the match starts in menu-driven runs (run 486: frames 9812, 102068)",
+        "seen: Jarrod saw the referee appear inside the cell at that moment, not during the entrances",
+        "wiki"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 267,
+      "name": "Jack Swagger",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 602,
+      "titantron": 267,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 272,
+      "name": "R-Truth",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 603,
+      "titantron": 272,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 275,
+      "name": "Dolph Ziggler",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 604,
+      "titantron": 275,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 276,
+      "name": "Christian",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 605,
+      "titantron": 276,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 278,
+      "name": "Drew McIntyre",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 606,
+      "titantron": 400,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 279,
+      "name": "Sheamus",
+      "kind": "wrestler",
+      "evidence": [
+        "match_pick (chamber_6man slot 4, named by Jarrod)",
+        "ch_load",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 607,
+      "titantron": 279,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 287,
+      "name": "Security Guard 1 (Blonde)",
+      "kind": "security guard",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 608,
+      "titantron": null,
+      "entrance_archive": null
+    },
+    {
+      "id": 288,
+      "name": "Security Guard 2 (Brown)",
+      "kind": "security guard",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 609,
+      "titantron": null,
+      "entrance_archive": null
+    },
+    {
+      "id": 290,
+      "name": "Natalya",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 610,
+      "titantron": 290,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 298,
+      "name": "AJ Lee",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 611,
+      "titantron": 298,
+      "entrance_archive": "ENTRANCE01"
+    },
+    {
+      "id": 318,
+      "name": "Jinder Mahal",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 612,
+      "titantron": 400,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 319,
+      "name": "Brodus Clay",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "tron (319.bik2)",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 613,
+      "titantron": 319,
+      "entrance_archive": "ENTRANCE03"
+    },
+    {
+      "id": 322,
+      "name": "Alberto Del Rio",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "rumble_entry (#2, seen by Jarrod)",
+        "ch_load",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 614,
+      "titantron": 322,
+      "entrance_archive": "ENTRANCE03"
+    },
+    {
+      "id": 323,
+      "name": "Ricardo Rodriguez",
+      "kind": "ring announcer / manager",
+      "evidence": [
+        "companion of Alberto Del Rio (322): CH323.PAC loads at match load whenever 322 is launched in slot 0 and in no other roster run (Session 10 run 614, Session 11 run 722; CHnnn.PAC opens in the roster sweep logs, checked 2026-10-10 19:58)",
+        "s10_launch",
+        "ch_load",
+        "s10_no_entrance",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 615,
+      "titantron": null,
+      "entrance_archive": null
+    },
+    {
+      "id": 324,
+      "name": "Daniel Bryan",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "tron (324.bik2)",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 616,
+      "titantron": 324,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 325,
+      "name": "Wade Barrett",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 617,
+      "titantron": 325,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 326,
+      "name": "David Otunga",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 618,
+      "titantron": 326,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 327,
+      "name": "Justin Gabriel",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 619,
+      "titantron": 327,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 334,
+      "name": "Razor Ramon",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 620,
+      "titantron": 334,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 335,
+      "name": "Diesel",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 621,
+      "titantron": 335,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 336,
+      "name": "Ricky Steamboat",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 622,
+      "titantron": 336,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 339,
+      "name": "Heath Slater",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 623,
+      "titantron": 400,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 342,
+      "name": "Sin Cara",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 624,
+      "titantron": 342,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 343,
+      "name": "Brock Lesnar",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "tron (343.bik2)",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 625,
+      "titantron": 343,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 344,
+      "name": "The Rock (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 626,
+      "titantron": 344,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 346,
+      "name": "The Undertaker (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 627,
+      "titantron": 346,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 347,
+      "name": "Chris Jericho (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 628,
+      "titantron": 347,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 348,
+      "name": "Kane (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 629,
+      "titantron": 348,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 349,
+      "name": "Edge",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 630,
+      "titantron": 733,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 351,
+      "name": "The Big Show (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 631,
+      "titantron": 351,
+      "entrance_archive": "ENTRANCE03"
+    },
+    {
+      "id": 353,
+      "name": "Ryback",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 632,
+      "titantron": 353,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 354,
+      "name": "Naomi",
+      "kind": "valet",
+      "evidence": [
+        "CH354.PAC and CH355.PAC load only around Brodus Clay's entrance (hiac_cena_brodus, runs 486, 490)",
+        "seen: Jarrod saw the two Funkadactyls come out with Brodus",
+        "wiki (which of 354 / 355 is Naomi: this source only)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 355,
+      "name": "Cameron",
+      "kind": "valet",
+      "evidence": [
+        "CH354.PAC and CH355.PAC load only around Brodus Clay's entrance (hiac_cena_brodus, runs 486, 490)",
+        "seen: Jarrod saw the two Funkadactyls come out with Brodus",
+        "wiki (which of 354 / 355 is Cameron: this source only)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 356,
+      "name": "John Cena (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 633,
+      "titantron": 356,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 357,
+      "name": "Lita",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 634,
+      "titantron": 357,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 358,
+      "name": "Triple H (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 635,
+      "titantron": 358,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 359,
+      "name": "Antonio Cesaro",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "rumble_entry (#5, seen by Jarrod)",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 636,
+      "titantron": 359,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 360,
+      "name": "Damien Sandow",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 637,
+      "titantron": 360,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 361,
+      "name": "Goldberg",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 638,
+      "titantron": 361,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 362,
+      "name": "Brock Lesnar (Retro)",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 639,
+      "titantron": 362,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 363,
+      "name": "Hollywood Hulk Hogan",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 640,
+      "titantron": 363,
+      "entrance_archive": "ENTRANCE03"
+    },
+    {
+      "id": 364,
+      "name": "Ric Flair",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 641,
+      "titantron": 364,
+      "entrance_archive": "ENTRANCE00"
+    },
+    {
+      "id": 365,
+      "name": "Shawn Michaels",
+      "kind": "wrestler",
+      "evidence": [
+        "s10_launch",
+        "ch_load",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "medium",
+      "run": 642,
+      "titantron": 365,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 366,
+      "name": "Tensai",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "s10_launch",
+        "tron",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 643,
+      "titantron": 366,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 367,
+      "name": "Dean Ambrose",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 644,
+      "titantron": 403,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 368,
+      "name": "Roman Reigns",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "s10_launch",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 645,
+      "titantron": 403,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 369,
+      "name": "Seth Rollins",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "match_pick",
+        "ch_load",
+        "s10_launch",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 646,
+      "titantron": 403,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 370,
+      "name": "Darren Young",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 647,
+      "titantron": 402,
+      "entrance_archive": "ENTRANCE02"
+    },
+    {
+      "id": 371,
+      "name": "Titus O'Neil",
+      "kind": "wrestler",
+      "evidence": [
+        "rumble_screen",
+        "s10_launch",
+        "ch_load",
+        "wiki"
+      ],
+      "confidence": "high",
+      "run": 648,
+      "titantron": 402,
+      "entrance_archive": "ENTRANCE02"
+    }
+  ],
+  "other_trons": [
+    {
+      "tron": 658,
+      "note": "played for Stone Cold (101) instead of 101.bik2: in WrestleMania X-Seven (run 492) and in the Over the Limit arena of the lesnar_bryan scenario (BG04; Session 10 roster sweep, run 554), so it is his titantron in every arena seen so far, not a WrestleMania-only one (unconfirmed why 101.bik2 exists)",
+      "confidence": "medium"
+    },
+    {
+      "tron": 798,
+      "note": "first titantron of 138 (Sgt. Slaughter) in slot 0 (Session 10 roster sweep); 138 has no 138.bik2 in the dump",
+      "confidence": "medium"
+    },
+    {
+      "tron": 733,
+      "note": "first titantron of 349 (Edge) in slot 0 (Session 10 roster sweep), instead of 349.bik2",
+      "confidence": "medium"
+    },
+    {
+      "tron": 197,
+      "note": "first titantron of 253 (Miss Elizabeth) in slot 0 (Session 10 roster sweep): 197 is Macho Man Randy Savage's id and file (community list), so she enters with his titantron",
+      "confidence": "medium"
+    }
+  ],
+  "titantron_ranges": [
+    {
+      "files": "100-399",
+      "format": "320x320, ~30 fps (75 files)",
+      "what": "character titantrons: file number = character id (125 Big Show, 139 Cena, 319 Brodus, 107 Kane, 324 Bryan, 343 Lesnar, 100 Rock seen playing)",
+      "confidence": "high"
+    },
+    {
+      "files": "400-499",
+      "format": "320x320 (4 files)",
+      "what": "team titantrons (403 = The Shield, seen playing for Rollins + Reigns)",
+      "confidence": "high for 403, medium for the range"
+    },
+    {
+      "files": "500-599",
+      "format": "880x720, mostly 300 frames (19 files)",
+      "what": "transparent title reveal videos; 500 = the modern WWE Championship (Jarrod, RAD Video Tools)",
+      "confidence": "high (viewed)"
+    },
+    {
+      "files": "600-899",
+      "format": "320x320 (36 files)",
+      "what": "alternate / era character titantrons (658 played for Stone Cold in WrestleMania X-Seven, run 492, instead of 101.bik2)",
+      "confidence": "medium"
+    },
+    {
+      "files": "950-972",
+      "format": "880x720 (22 files)",
+      "what": "transparent title reveal videos; 970 = the WWE United States Championship; Jarrod: probably the retro titles shown in 30 Years of WrestleMania, 950 an older WWE Championship reveal",
+      "confidence": "high that they are title reveals (viewed); retro: Jarrod hypothesis"
+    },
+    {
+      "files": "999",
+      "format": "320x320, 360 frames",
+      "what": "unknown (a default titantron?)",
+      "confidence": "unknown"
+    }
+  ]
+}

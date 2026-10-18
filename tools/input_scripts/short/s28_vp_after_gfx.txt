@@ -1,0 +1,69 @@
+# harness: fast-forward ok (Session 28: VISUAL PRESENTATION from GAMEPLAY after a GRAPHICS visit, with the GRAPHICS menu on: must look and behave as stock; run with --wwe2k14_gfx_menu=true --wwe2k14_settings_file=<test file>; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+log mark: GRAPHICS visit (no change)
+press A
+wait_frames 200
+screenshot avg_0_graphics
+press B
+wait_frames 120
+wait_state menu 4 600 optional
+wait_frames 40
+log mark: back on OPTIONS, now GAMEPLAY -> VISUAL PRESENTATION
+press UP
+wait_frames 30
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 200
+screenshot avg_1_stock_vp
+press RIGHT
+wait_frames 40
+screenshot avg_2_stock_vp_right
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 40
+screenshot avg_3_stock_vp_bottom
+press B
+wait_frames 120
+screenshot avg_4_after_b
+quit

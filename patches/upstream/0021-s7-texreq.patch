@@ -1,0 +1,474 @@
+Subject: [ReXGlue] merge s7/texreq
+
+Class: RGO
+What: Skip per-draw texture request work when nothing changed.
+Evidence: Verify run 127: 0 mismatches; A/B run 128: -1.12 +-0.53 ms/frame heavy (docs\session7_prep_notes.md).
+On / off: gpu_request_textures_skip_unchanged (+_verify), off.
+Commit: 128e712 (diff against 128e712^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index dbe3ba2..16a647b 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -557,7 +557,57 @@ class TextureCache {
+   // implementation to update the internal dependencies of the binding.
+   virtual void UpdateTextureBindingsImpl(uint32_t /*fetch_constant_mask*/) {}
+ 
++  // wwe2k14 patch (Session 7, TEXREQ): for the backend's part of RequestTextures (the backend override runs
++  // right after TextureCache::RequestTextures in the same call).
++  uint64_t current_submission_index() const { return current_submission_index_; }
++  // gpu_request_textures_skip_unchanged / _verify as latched by the RequestTextures call in progress. _verify
++  // runs the full path, so while it is on, skip_unchanged is false.
++  bool request_textures_skip_unchanged() const { return request_textures_skip_unchanged_; }
++  bool request_textures_skip_verify() const { return request_textures_skip_verify_; }
++  // Statistics for the backend's per-draw part: whether it was skipped (or, with _verify, would have been),
++  // and with _verify, the result of running it in full when it would have been skipped.
++  void CountRequestTexturesBackendPart(bool skipped) {
++    if (skipped) {
++      ++request_textures_skip_stats_.backend_parts_skipped;
++    } else {
++      ++request_textures_skip_stats_.backend_parts_run;
++    }
++  }
++  void VerifyRequestTexturesSkip(bool mismatch, const char* part, uint32_t fetch_constant_index,
++                                 const char* detail);
++
+  private:
++  // wwe2k14 patch (Session 7, TEXREQ): gpu_request_textures_skip_unchanged statistics, logged from BeginFrame
++  // every kRequestTexturesSkipSummaryFrames frames while the setting or its _verify is on.
++  static constexpr uint64_t kRequestTexturesSkipSummaryFrames = 300;
++  static constexpr uint32_t kRequestTexturesSkipMismatchesLogged = 16;
++  struct RequestTexturesSkipStats {
++    uint64_t frames = 0;
++    uint64_t calls = 0;
++    // The outdated flag read as false with a plain load, so the atomic exchange was skipped (or, with _verify,
++    // would have been).
++    uint64_t flag_exchanges_skipped = 0;
++    // No used binding was out of sync, so the call returned before setting up the update (or would have).
++    uint64_t early_returns = 0;
++    // Out-of-sync used bindings re-derived from their fetch constant, and ones kept because the fetch constant
++    // still holds the value the binding was derived from (or, with _verify, would have been kept).
++    uint64_t bindings_updated = 0;
++    uint64_t bindings_kept = 0;
++    // The backend's per-draw part (Vulkan: LRU marks and usage transitions of the used textures).
++    uint64_t backend_parts_run = 0;
++    uint64_t backend_parts_skipped = 0;
++    // _verify: would-be skips checked against the full path, and how many of them the full path changed
++    // something in. flag_races: the plain load read false, but the exchange right after it read true - another
++    // thread set the flag between the two instructions (timing, not a logic difference: both paths act on a
++    // set flag in the first call that reads it).
++    uint64_t verify_checks = 0;
++    uint64_t verify_mismatches = 0;
++    uint64_t verify_mismatches_total = 0;
++    uint64_t verify_flag_races = 0;
++    uint32_t verify_mismatches_logged = 0;
++  };
++  void ReportRequestTexturesSkipStats();
++
+   struct PendingTextureLoad {
+     Texture* texture = nullptr;
+     bool load_base = false;
+@@ -631,6 +681,19 @@ class TextureCache {
+   uint32_t texture_bindings_in_sync_ = 0;
+   // wwe2k14 patch (Session 6, CP9): see active_texture_bindings_version().
+   uint64_t active_texture_bindings_version_ = 0;
++
++  // wwe2k14 patch (Session 7, TEXREQ): the fetch constant value each binding was last derived from in
++  // RequestTextures (written there every time a binding is re-derived, whatever the settings, so the
++  // settings can be flipped at any time). Meaningful only while the binding is valid: the only other writer
++  // of a binding, Reset (ResetTextureBindings, or RequestTextures for an invalid fetch constant), makes it
++  // invalid.
++  uint32_t texture_binding_fetch_dwords_[xenos::kTextureFetchConstantCount]
++                                        [sizeof(xenos::xe_gpu_texture_fetch_t) / sizeof(uint32_t)] = {};
++  bool request_textures_skip_unchanged_ = false;
++  bool request_textures_skip_verify_ = false;
++  RequestTexturesSkipStats request_textures_skip_stats_;
++  // _verify: the state of each binding a skip would have kept, before the full path re-derived it.
++  std::array<TextureBinding, xenos::kTextureFetchConstantCount> request_textures_verify_bindings_;
+ };
+ 
+ }  // namespace rex::graphics
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 9489b5e..76a7796 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -222,6 +222,10 @@ class VulkanTextureCache final : public TextureCache {
+     Usage SetUsage(Usage new_usage) {
+       Usage old_usage = usage_;
+       usage_ = new_usage;
++      // wwe2k14 patch (Session 7, TEXREQ): see request_textures_loop_state_.
++      if (old_usage != new_usage) {
++        ++static_cast<VulkanTextureCache&>(texture_cache()).texture_usage_changes_;
++      }
+       return old_usage;
+     }
+ 
+@@ -434,6 +438,19 @@ class VulkanTextureCache final : public TextureCache {
+   std::array<uint32_t, xenos::kTextureFetchConstantCount> texture_binding_generations_{};
+   uint32_t texture_bindings_3d_mask_ = 0;
+ 
++  // wwe2k14 patch (Session 7, TEXREQ): for gpu_request_textures_skip_unchanged. The number of times any
++  // texture's usage changed (VulkanTexture::SetUsage - the only writer of a texture's usage), and the state
++  // in which the per-draw loops of RequestTextures last ran in full (recorded whatever the settings).
++  uint64_t texture_usage_changes_ = 0;
++  struct RequestTexturesLoopState {
++    bool valid = false;
++    uint32_t used_texture_mask = 0;
++    uint64_t bindings_version = 0;
++    uint64_t submission = 0;
++    uint64_t usage_changes = 0;
++  };
++  RequestTexturesLoopState request_textures_loop_state_;
++
+   // Unsupported texture formats used during this frame (for research and
+   // testing).
+   enum : uint8_t {
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index b55ef5b..2a2d866 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -81,6 +81,23 @@ REXCVAR_DEFINE_INT32(resolution_scale, 1, "GPU",
+ REXCVAR_DEFINE_BOOL(pre_mask_resolve_l2_block, true, "GPU",
+                     "Pre-mask scaled resolve L2 blocks to the write range before iterating");
+ 
++// wwe2k14 patch (Session 7, TEXREQ): RequestTextures runs for every draw. In the heavy CH103 entrance window
++// (Session 6 run 111, all Session 6 settings on) it was ~5.5% of the command processor thread, 4.1% self, and
++// ~63% of its time was sampled on the instructions right after the texture_became_outdated_ exchange - a
++// locked read-modify-write done on every draw, although the flag is almost never set. Draws also re-derive
++// texture bindings from fetch constants rewritten with the same value, and the Vulkan part re-marks and
++// re-checks the same textures for every draw of a run (the crowd: thousands of draws with the same textures).
++REXCVAR_DEFINE_BOOL(gpu_request_textures_skip_unchanged, false, "GPU",
++                    "Per-draw texture requests skip what would change nothing: read the 'a texture became "
++                    "outdated' flag before exchanging it, return early when no used binding is out of sync, "
++                    "keep a binding whose fetch constant was rewritten with the value it was derived from, and "
++                    "(Vulkan) skip the LRU marks and usage checks when the used bindings, the submission and "
++                    "every texture usage are unchanged since they last ran. Same results; read per draw");
++REXCVAR_DEFINE_BOOL(gpu_request_textures_skip_unchanged_verify, false, "GPU",
++                    "Shadow-check gpu_request_textures_skip_unchanged (works with it on or off): find what would "
++                    "be skipped, but run the full path and use its results; count and log ([s7][TEXREQ]) every "
++                    "would-be skip the full path changed something in, summary every 300 frames");
++
+ // DEFINE_int32(
+ //     draw_resolution_scale_x, 1,
+ //     "Integer pixel width scale used for scaling the rendering resolution "
+@@ -317,6 +334,58 @@ void TextureCache::BeginFrame() {
+   // sure bindings are reset so a new attempt will surely be made if the texture
+   // is requested again.
+   ResetTextureBindings();
++
++  ReportRequestTexturesSkipStats();  // wwe2k14 patch (Session 7, TEXREQ)
++}
++
++// wwe2k14 patch (Session 7, TEXREQ): gpu_request_textures_skip_unchanged statistics and _verify results.
++
++void TextureCache::ReportRequestTexturesSkipStats() {
++  RequestTexturesSkipStats& stats = request_textures_skip_stats_;
++  if (++stats.frames < kRequestTexturesSkipSummaryFrames) {
++    return;
++  }
++  if (stats.calls) {
++    auto percentage = [](uint64_t part, uint64_t whole) {
++      return whole ? 100.0 * double(part) / double(whole) : 0.0;
++    };
++    uint64_t bindings = stats.bindings_updated + stats.bindings_kept;
++    uint64_t backend_parts = stats.backend_parts_run + stats.backend_parts_skipped;
++    REXGPU_INFO(
++        "[s7][TEXREQ] RequestTextures (skip {}, verify {}), last {} frames: {} calls; outdated-flag "
++        "exchanges skipped {} ({:.1f}%); early returns {} ({:.1f}%); out-of-sync bindings {}, kept {} "
++        "({:.1f}%); backend parts {}, skipped {} ({:.1f}%); verify: {} checks, {} mismatches, {} flag races; "
++        "mismatches since start: {}",
++        REXCVAR_GET(gpu_request_textures_skip_unchanged),
++        REXCVAR_GET(gpu_request_textures_skip_unchanged_verify), stats.frames, stats.calls,
++        stats.flag_exchanges_skipped, percentage(stats.flag_exchanges_skipped, stats.calls),
++        stats.early_returns, percentage(stats.early_returns, stats.calls), bindings, stats.bindings_kept,
++        percentage(stats.bindings_kept, bindings), backend_parts, stats.backend_parts_skipped,
++        percentage(stats.backend_parts_skipped, backend_parts), stats.verify_checks,
++        stats.verify_mismatches, stats.verify_flag_races, stats.verify_mismatches_total);
++  }
++  uint64_t verify_mismatches_total = stats.verify_mismatches_total;
++  uint32_t verify_mismatches_logged = stats.verify_mismatches_logged;
++  stats = RequestTexturesSkipStats();
++  stats.verify_mismatches_total = verify_mismatches_total;
++  stats.verify_mismatches_logged = verify_mismatches_logged;
++}
++
++void TextureCache::VerifyRequestTexturesSkip(bool mismatch, const char* part,
++                                             uint32_t fetch_constant_index, const char* detail) {
++  RequestTexturesSkipStats& stats = request_textures_skip_stats_;
++  ++stats.verify_checks;
++  if (!mismatch) {
++    return;
++  }
++  ++stats.verify_mismatches;
++  ++stats.verify_mismatches_total;
++  if (stats.verify_mismatches_logged < kRequestTexturesSkipMismatchesLogged) {
++    ++stats.verify_mismatches_logged;
++    REXGPU_WARN(
++        "[s7][TEXREQ] verify mismatch #{}: {} (fetch constant {}): the full path {} (submission {})",
++        stats.verify_mismatches_total, part, fetch_constant_index, detail, current_submission_index_);
++  }
+ }
+ 
+ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_unscaled) {
+@@ -454,13 +523,67 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
+ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+   const auto& regs = register_file();
+ 
+-  if (texture_became_outdated_.exchange(false, std::memory_order_acquire)) {
++  // wwe2k14 patch (Session 7, TEXREQ): the settings are latched for this call, including the backend's part
++  // of it (its override runs right after this), so they can be flipped at any time. _verify runs the full
++  // path, checking what would have been skipped.
++  request_textures_skip_verify_ = REXCVAR_GET(gpu_request_textures_skip_unchanged_verify);
++  request_textures_skip_unchanged_ =
++      !request_textures_skip_verify_ && REXCVAR_GET(gpu_request_textures_skip_unchanged);
++  const bool skip_unchanged = request_textures_skip_unchanged_;
++  const bool skip_verify = request_textures_skip_verify_;
++  const bool skip_or_verify = skip_unchanged || skip_verify;
++  if (skip_or_verify) {
++    ++request_textures_skip_stats_.calls;
++  }
++
++  bool texture_became_outdated;
++  if (skip_or_verify) {
++    // wwe2k14 patch (Session 7, TEXREQ): a plain read before the locked exchange. Other threads (memory
++    // watches) only ever set the flag, and only this function clears it, so a load reading false is the
++    // exchange reading false (and writing back the false already there) at the moment of the load; a set flag
++    // is still exchanged, so it is acted on in the same call as before. A flag set by another thread after
++    // the read is acted on in the next call - as it was when set right after the exchange.
++    bool flag_read = texture_became_outdated_.load(std::memory_order_acquire);
++    if (!flag_read) {
++      ++request_textures_skip_stats_.flag_exchanges_skipped;
++    }
++    if (skip_unchanged) {
++      texture_became_outdated =
++          flag_read && texture_became_outdated_.exchange(false, std::memory_order_acquire);
++    } else {
++      texture_became_outdated = texture_became_outdated_.exchange(false, std::memory_order_acquire);
++      if (!flag_read && texture_became_outdated) {
++        ++request_textures_skip_stats_.verify_flag_races;
++      }
++    }
++  } else {
++    texture_became_outdated = texture_became_outdated_.exchange(false, std::memory_order_acquire);
++  }
++  if (texture_became_outdated) {
+     // A texture has become outdated - make sure whether textures are outdated
+     // is rechecked in this draw and in subsequent ones to reload the new data
+     // if needed.
+     ResetTextureBindings();
+   }
+ 
++  // wwe2k14 patch (Session 7, TEXREQ): with every used binding in sync, the rest of this function does nothing
++  // (the loop below runs for no binding, so nothing is loaded and no binding changes).
++  bool would_return_early = false;
++  if (skip_or_verify && !(used_texture_mask & ~texture_bindings_in_sync_)) {
++    ++request_textures_skip_stats_.early_returns;
++    if (skip_unchanged) {
++      COUNT_profile_set("gpu/texture_cache/request_textures_pending_load_count", 0);
++      COUNT_profile_set("gpu/texture_cache/request_textures_pending_range_count", 0);
++      return;
++    }
++    would_return_early = true;
++  }
++  // wwe2k14 patch (Session 7, TEXREQ): bindings kept (or, with _verify, that would have been kept) because
++  // their fetch constant holds the value they were derived from, and of the re-derived bindings, the ones that
++  // requested a texture load.
++  uint32_t bindings_kept = 0;
++  uint32_t bindings_load_requested = 0;
++
+   // Update the texture keys and the textures.
+   uint32_t bindings_changed = 0;
+   // wwe2k14 patch (Session 6, CP9): valid bindings whose swizzled signs changed, possibly with
+@@ -495,6 +618,32 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+     textures_remaining &= ~index_bit;
+     TextureBinding& binding = texture_bindings_[index];
+     xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(index);
++    // wwe2k14 patch (Session 7, TEXREQ): a valid binding whose fetch constant was only rewritten with the value
++    // it was derived from. The update below is a pure function of the fetch constant (through
++    // BindingInfoFromFetchConstant - for kTexture fetch constants independent of
++    // gpu_allow_invalid_fetch_constants - and the host format tables, fixed after initialization) and of the
++    // binding's previous state, and applying it again to its own result changes nothing: the key, host
++    // swizzle and signedness come out the same, so no binding is marked changed, the textures are kept (with
++    // the same key and signedness, FindOrCreateTexture isn't called again and the textures aren't reset), and
++    // no load is queued. A valid binding was last written by that update (with the fetch constant value
++    // stored below), because the only other writer, TextureBinding::Reset, makes it invalid. Only the in-sync
++    // bit remains to be set.
++    uint32_t(&fetch_dwords)[sizeof(fetch) / sizeof(uint32_t)] = texture_binding_fetch_dwords_[index];
++    static_assert(sizeof(fetch_dwords) == sizeof(fetch));
++    if (skip_or_verify && binding.key.is_valid &&
++        fetch.type == xenos::FetchConstantType::kTexture &&
++        !std::memcmp(fetch_dwords, &fetch, sizeof(fetch))) {
++      ++request_textures_skip_stats_.bindings_kept;
++      bindings_kept |= index_bit;
++      if (skip_unchanged) {
++        texture_bindings_in_sync_ |= index_bit;
++        continue;
++      }
++      request_textures_verify_bindings_[index] = binding;
++    } else if (skip_or_verify) {
++      ++request_textures_skip_stats_.bindings_updated;
++    }
++    std::memcpy(fetch_dwords, &fetch, sizeof(fetch));
+     TextureKey old_key = binding.key;
+     uint8_t old_swizzled_signs = binding.swizzled_signs;
+     BindingInfoFromFetchConstant(fetch, binding.key, &binding.swizzled_signs);
+@@ -566,6 +715,43 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+     if (load_signed_data) {
+       queue_pending_texture_load(binding.texture_signed);
+     }
++    if (load_unsigned_data || load_signed_data) {
++      bindings_load_requested |= index_bit;  // wwe2k14 patch (Session 7, TEXREQ)
++    }
++  }
++
++  // wwe2k14 patch (Session 7, TEXREQ): _verify - what the full path did where a skip would have done nothing.
++  if (skip_verify) {
++    if (would_return_early) {
++      bool changed = (bindings_changed | bindings_swizzled_signs_changed) != 0 ||
++                     !pending_texture_loads.empty();
++      VerifyRequestTexturesSkip(changed, "early return", 0,
++                                "changed a binding or queued a load with no used binding out of sync");
++    }
++    uint32_t verify_remaining = bindings_kept;
++    uint32_t verify_index;
++    while (bit_inline::bit_scan_forward(verify_remaining, &verify_index)) {
++      uint32_t verify_index_bit = UINT32_C(1) << verify_index;
++      verify_remaining &= ~verify_index_bit;
++      const TextureBinding& kept = request_textures_verify_bindings_[verify_index];
++      const TextureBinding& updated = texture_bindings_[verify_index];
++      const char* detail = nullptr;
++      if (updated.key != kept.key) {
++        detail = "changed the texture key";
++      } else if (updated.host_swizzle != kept.host_swizzle) {
++        detail = "changed the host swizzle";
++      } else if (updated.swizzled_signs != kept.swizzled_signs) {
++        detail = "changed the swizzled signs";
++      } else if (updated.texture != kept.texture || updated.texture_signed != kept.texture_signed) {
++        detail = "changed the bound textures";
++      } else if ((bindings_changed | bindings_swizzled_signs_changed) & verify_index_bit) {
++        detail = "marked the binding as changed";
++      } else if (bindings_load_requested & verify_index_bit) {
++        detail = "requested a texture load";
++      }
++      VerifyRequestTexturesSkip(detail != nullptr, "binding kept on a same-value fetch constant write",
++                                verify_index, detail ? detail : "");
++    }
+   }
+ 
+   COUNT_profile_set("gpu/texture_cache/request_textures_pending_load_count",
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index e931588..60b8b85 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -575,6 +575,32 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+ 
+   TextureCache::RequestTextures(used_texture_mask);
+ 
++  // wwe2k14 patch (Session 7, TEXREQ): the loops below create 3D-as-2D views for 3D bindings, mark the used
++  // textures as used in the current submission (LRU) and transition them to the guest shader sampled usage.
++  // They would do nothing when, since they last ran in full: the used fetch constant mask is the same and
++  // texture_bindings_ hasn't changed (active_texture_bindings_version - so the same bindings with the same
++  // textures; textures are only destroyed after ResetTextureBindings bumps it), none of the used bindings is
++  // 3D, the submission is the same (MarkAsUsed returns early for a texture already marked in the current
++  // submission), and no texture's usage has changed (texture_usage_changes_: every used texture is still in
++  // the sampled usage, so no barrier). A new submission or frame, a binding change, a texture load
++  // (kTransferDestination) or the swap texture (kSwapSampled) makes them run again.
++  bool loops_would_be_skipped = false;
++  if (request_textures_skip_unchanged() || request_textures_skip_verify()) {
++    const RequestTexturesLoopState& loop_state = request_textures_loop_state_;
++    loops_would_be_skipped = loop_state.valid && loop_state.used_texture_mask == used_texture_mask &&
++                             loop_state.bindings_version == active_texture_bindings_version() &&
++                             loop_state.submission == current_submission_index() &&
++                             loop_state.usage_changes == texture_usage_changes_ &&
++                             !(used_texture_mask & texture_bindings_3d_mask_);
++    CountRequestTexturesBackendPart(loops_would_be_skipped);
++    if (loops_would_be_skipped && request_textures_skip_unchanged()) {
++      return;
++    }
++  }
++  // _verify: whether running the loops in full changed anything where they would have been skipped.
++  const char* loops_verify_detail = nullptr;
++  uint32_t loops_verify_fetch_constant = 0;
++
+   // Pre-create 3D-as-2D wrappers while still in texture request phase.
+   if (REXCVAR_GET(gpu_3d_to_2d_texture)) {
+     uint32_t textures_3d = used_texture_mask;
+@@ -593,6 +619,11 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+       if (texture_signed) {
+         texture_signed->GetOrCreate3DAs2DImageView(true, binding->host_swizzle);
+       }
++      // wwe2k14 patch (Session 7, TEXREQ): _verify - a skip requires no used 3D binding.
++      if (loops_would_be_skipped && !loops_verify_detail) {
++        loops_verify_detail = "found a used 3D binding";
++        loops_verify_fetch_constant = index_3d;
++      }
+     }
+   }
+ 
+@@ -612,10 +643,22 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+     }
+     VulkanTexture* binding_texture = static_cast<VulkanTexture*>(binding->texture);
+     if (binding_texture != nullptr) {
++      // wwe2k14 patch (Session 7, TEXREQ): _verify.
++      uint64_t last_usage_submission =
++          loops_would_be_skipped ? binding_texture->last_usage_submission_index() : 0;
+       // Will be referenced by the command buffer, so mark as used.
+       binding_texture->MarkAsUsed();
+       VulkanTexture::Usage old_usage =
+           binding_texture->SetUsage(VulkanTexture::Usage::kGuestShaderSampled);
++      if (loops_would_be_skipped && !loops_verify_detail) {
++        if (binding_texture->last_usage_submission_index() != last_usage_submission) {
++          loops_verify_detail = "marked a texture as used in the submission";
++          loops_verify_fetch_constant = index;
++        } else if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
++          loops_verify_detail = "transitioned a texture to the sampled usage";
++          loops_verify_fetch_constant = index;
++        }
++      }
+       if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
+         VkPipelineStageFlags src_stage_mask;
+         VkAccessFlags src_access_mask;
+@@ -629,9 +672,21 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+     }
+     VulkanTexture* binding_texture_signed = static_cast<VulkanTexture*>(binding->texture_signed);
+     if (binding_texture_signed != nullptr) {
++      // wwe2k14 patch (Session 7, TEXREQ): _verify.
++      uint64_t last_usage_submission =
++          loops_would_be_skipped ? binding_texture_signed->last_usage_submission_index() : 0;
+       binding_texture_signed->MarkAsUsed();
+       VulkanTexture::Usage old_usage =
+           binding_texture_signed->SetUsage(VulkanTexture::Usage::kGuestShaderSampled);
++      if (loops_would_be_skipped && !loops_verify_detail) {
++        if (binding_texture_signed->last_usage_submission_index() != last_usage_submission) {
++          loops_verify_detail = "marked a signed texture as used in the submission";
++          loops_verify_fetch_constant = index;
++        } else if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
++          loops_verify_detail = "transitioned a signed texture to the sampled usage";
++          loops_verify_fetch_constant = index;
++        }
++      }
+       if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
+         VkPipelineStageFlags src_stage_mask;
+         VkAccessFlags src_access_mask;
+@@ -644,6 +699,20 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+       }
+     }
+   }
++
++  // wwe2k14 patch (Session 7, TEXREQ): the state these loops ran in (whatever the settings, so they can be
++  // flipped at any time), and the _verify result.
++  RequestTexturesLoopState& loop_state = request_textures_loop_state_;
++  loop_state.valid = true;
++  loop_state.used_texture_mask = used_texture_mask;
++  loop_state.bindings_version = active_texture_bindings_version();
++  loop_state.submission = current_submission_index();
++  loop_state.usage_changes = texture_usage_changes_;
++  if (loops_would_be_skipped) {
++    VerifyRequestTexturesSkip(loops_verify_detail != nullptr, "Vulkan texture usage loops",
++                              loops_verify_fetch_constant,
++                              loops_verify_detail ? loops_verify_detail : "");
++  }
+ }
+ 
+ VkImageView VulkanTextureCache::GetActiveBindingOrNullImageView(uint32_t fetch_constant_index,

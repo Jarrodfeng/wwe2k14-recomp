@@ -1,0 +1,34 @@
+# Session 9 (scenario launcher, step 3): boot to the main menu with the title-screen presses of Jarrod's recording
+# 056 (the first lines of bench_lesnar_bryan.txt), then let --wwe2k14_launch=NAME take over (it fires by itself once
+# the main menu has been idle for --wwe2k14_launch_idle_frames). Checks: the arena archive and the first titantron
+# open, entrance and match screenshots. For a scenario in another arena, change the BG04.PAC line.
+# on_fail continue: a failed check ends the script but leaves the game running, and the real controller is active
+# again when the script ends (watched runs). Screenshots l_* are probes (local only).
+on_fail continue
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file BG04.PAC 1800
+log launch: arena archive open
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 100
+screenshot l_brock100
+wait_file 324.bik2 7200
+log scene=tron_324
+wait_frames 440
+screenshot l_second440
+wait_file M3.PAC 9000
+log scene=match
+wait_frames 600
+screenshot l_match600
+log launch: script done (the controller is yours)

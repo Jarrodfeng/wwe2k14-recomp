@@ -1,0 +1,31 @@
+# Session 16 item 4: one seed of the seed sweeper. Run with --wwe2k14_launch=SCENARIO, replay mode and a seed
+# (tools\seeds\sweep.py adds --wwe2k14_replay_mode=true --wwe2k14_fixed_seed=N, entrances skipped, and the peeks).
+# Boots (title presses as det_launch_fast.txt), lets the launcher fire, waits for the match to be decided (finish
+# type G+472 0x8376ACCC != 0), logs the finish type, winner / loser bytes 0x8376E3EC and the match clock, takes a
+# screenshot and quits. CPU vs CPU: the script's pad does nothing in the match. Fast-forward (vsync off). on_fail quit.
+on_fail quit
+log seeds: start
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+log seeds: match launched
+wait_file M3.PAC 72000
+log seeds: match scene
+wait_state match_clock !=0 20000 2 optional
+log seeds: clock running
+wait_state 0x8376ACCC !=0 400000 2 optional
+log seeds: decided
+log_state 0x8376ACCC
+log_state 0x8376E3EC
+log_state match_clock
+screenshot seed_finish
+wait_frames 30
+log seeds: done
+quit

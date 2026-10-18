@@ -1,0 +1,11 @@
+# In-game clip self-test, fixer pass: two clip_start lines with the same NAME must fail when the script LOADS (the
+# second clip would overwrite the first one's files). The log shows "clip_start a: that NAME is already used";
+# run_list kills the idle game after -WaitSeconds. A bad NAME (clip_start e2.4k) is rejected the same way.
+log cliptest_dupname: NOT REACHED (the script must not load)
+clip_start a
+wait_frames 60
+clip_stop a
+clip_start a
+wait_frames 60
+clip_stop a
+quit

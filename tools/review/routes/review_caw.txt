@@ -1,0 +1,61 @@
+# Review route: main menu -> CREATIONS -> SUPERSTAR -> NEW (Create a Superstar = Create a Wrestler) -> stills of the
+# menus and the creation screen. Stills only (no clips). NEVER saves anything: no
+# START / save prompts are answered; the frozen user data is mirrored before every run anyway.
+# Derived from Jarrod's recording tools/input_scripts/recorded_create_logo_lettering.txt (same title -> main menu
+# -> CREATIONS presses as repro_logo_lettering.txt). Run through tools/review/record.py (job caw:<arm>).
+on_fail quit
+log review: start caw
+
+# Title -> storage notice -> main menu (repro_logo_lettering.txt timings).
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A                         # accept the ATTENTION storage notice
+wait_file MNUIHD.PAC 1800       # main menu UI
+wait_frames 150
+screenshot rv_menu_main
+
+# Main menu -> CREATIONS (DOWN x3), open it.
+press DOWN
+press DOWN
+press DOWN
+wait_frames 40
+screenshot rv_menu_main_creations
+press A
+wait_frames 90
+screenshot rv_menu_creations
+
+# First item of CREATIONS = SUPERSTAR (probe run 185: CREATIONS lists SUPERSTAR, SUPERSTAR THREADS, ENTRANCE,
+# MOVE-SET, SPECIAL MOVE, STORY, ARENA, CHAMPIONSHIP); A opens a NEW / EDIT sub-menu.
+press A
+wait_frames 90
+screenshot rv_menu_superstar_new_edit
+# NEW = Create a Superstar (the CAW editor). Run 193: a loading screen, then HEAD > TEMPLATES (SUPERSTAR / DIVA /
+# W SUPERSTAR) with no model yet. Loads (run 193, frames after the press): LOADHD +19, CREATEMODE.PAC +41 (never
+# opened by the match or Create a Logo routes, runs 186/177), EDIT.PAC +77, CASTHUMB +96, BG\BG66.PAC +118 (the CAW stage), SaveData.Dat +135/+163.
+press A
+log review: caw_enter
+wait_file CREATEMODE.PAC 900
+wait_frames 80
+screenshot rv_caw_t02
+wait_frames 180
+screenshot rv_caw_t05
+wait_frames 300
+screenshot rv_caw_t10
+wait_frames 300
+screenshot rv_caw_t15
+wait_frames 600
+screenshot rv_caw_t25
+# A on the highlighted template (SUPERSTAR): the male template model appears with SELECT A PART TO EDIT (run 193;
+# loads EDIT\ED02.PAC +3 frames, then ED04-ED09). Nothing is saved.
+press A
+wait_file ED02.PAC 600
+wait_frames 177
+screenshot rv_caw_t28
+wait_frames 300
+screenshot rv_caw_t33
+# Screenshots are saved on another thread: wait before quitting (run 174).
+wait_frames 90
+log review: done
+quit

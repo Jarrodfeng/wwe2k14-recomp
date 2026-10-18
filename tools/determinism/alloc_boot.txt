@@ -1,0 +1,7 @@
+# Task A: short boot for the allocation trace (--wwe2k14_alloc_trace_frames=N, src/fp_probe.h). Boots, waits past
+# the boot allocations (the pointer at 0x836F3AAC is already set by frame 30 in run 328's det dump) and quits.
+# Run: pwsh -NoProfile -Command "& C:\Users\Jarrod\wwe2k14-recomp\tools\bench\run_list.ps1 -Scripts @('..\..\..\tools\determinism\alloc_boot.txt') -Extra '--wwe2k14_fixed_seed=1234 --wwe2k14_alloc_trace_frames=90'"
+log alloc_boot: start
+wait_frames 200
+log alloc_boot: done
+quit

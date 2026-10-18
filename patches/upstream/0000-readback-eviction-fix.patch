@@ -1,0 +1,162 @@
+Subject: [ReXGlue] Vulkan: never evict a resolve readback buffer a queued copy still writes
+
+Class: MIXED (RGF + RGO + DIAG)
+What: Sessions 3-5 in one commit: Vulkan GPU crash diagnostics (VK_EXT_device_fault + NV checkpoints), the readback eviction fix (also cut alone as 0000), event timeline, WAIT_REG_MEM spin, async submit thread, deferred descriptor writes, cheaper per-draw setting lookups.
+Evidence: PLAYBOOK Sessions 3-5: readback fix 5/5 crashes -> 0/2 (runs 020-026); spin: frames >= 45 ms 10.0% -> 0.1% (runs 062/063); async submit + deferred writes: Bryan entrance slow frames 133 -> 9 (runs 066-073).
+On / off: vulkan_gpu_crash_diagnostics, gpu_wait_reg_mem_spin, vulkan_async_submit, vulkan_submit_on_wait, vulkan_deferred_descriptor_writes (all default off); the readback fix is always on (vulkan_readback_evict_in_flight=true restores the old policy).
+Scope of this patch: only the readback eviction fix out of 285328a (src/graphics/vulkan/command_processor.cpp: the two cvars, the resolve path's submission_written record, and EvictOldReadbackBuffers). Applies alone to f5337cd.
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 001f36b..7e0fa6f 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -55,6 +56,16 @@ REXCVAR_DEFINE_BOOL(vulkan_readback_memexport, false, "GPU/Vulkan",
+                     "Read data written by memory export in shaders on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_INT32(vulkan_readback_max_buffers, 256, "GPU/Vulkan",
++                     "Resolve/memexport readback buffer entries kept before evicting the least "
++                     "recently used (lower it to stress-test eviction)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++REXCVAR_DEFINE_BOOL(vulkan_readback_evict_in_flight, false, "GPU/Vulkan",
++                    "Old readback buffer eviction: over the cap, destroy entries in hash order even "
++                    "if the GPU may still be copying into them (for A/B testing only)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "When async shader compilation is enabled, skip presenting frames that "
+                     "used placeholder pipelines to avoid visible flashing")
+@@ -4648,6 +4997,9 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+   PushBufferMemoryBarrier(readback.buffers[write_index], 0, written_length,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+                           VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT);
++  // Lets EvictOldReadbackBuffers see that the GPU may still be copying into
++  // this buffer (the resolve path didn't record it, only memexport did).
++  readback.submission_written[write_index] = GetCurrentSubmission();
+ 
+   bool use_delayed_sync =
+       readback_mode == ReadbackResolveMode::kFast || readback_mode == ReadbackResolveMode::kSome;
+@@ -4694,6 +5046,7 @@ void VulkanCommandProcessor::EvictOldReadbackBuffers(
+   if (buffer_map.empty()) {
+     return;
+   }
++  const size_t max_buffers = size_t(std::max(REXCVAR_GET(vulkan_readback_max_buffers), int32_t(1)));
+ 
+   const uint64_t eviction_frame_floor = (frame_current_ > kReadbackBufferEvictionAgeFrames)
+                                             ? (frame_current_ - kReadbackBufferEvictionAgeFrames)
+@@ -4701,14 +5054,15 @@ void VulkanCommandProcessor::EvictOldReadbackBuffers(
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+-  for (auto it = buffer_map.begin(); it != buffer_map.end();) {
+-    ReadbackBuffer& readback = it->second;
+-    bool evict =
+-        buffer_map.size() > kMaxReadbackBuffers || readback.last_used_frame < eviction_frame_floor;
+-    if (!evict) {
+-      ++it;
+-      continue;
+-    }
++
++  // A readback buffer may still be the destination of a copy in a submission
++  // the GPU hasn't completed. Destroying it then makes the GPU write to freed
++  // memory, which loses the device.
++  auto is_in_flight = [this](const ReadbackBuffer& readback) {
++    return readback.submission_written[0] > submission_completed_ ||
++           readback.submission_written[1] > submission_completed_;
++  };
++  auto destroy = [&](ReadbackBuffer& readback) {
+     for (uint32_t i = 0; i < 2; ++i) {
+       if (readback.mapped_data[i] && readback.memories[i] != VK_NULL_HANDLE) {
+         dfn.vkUnmapMemory(device, readback.memories[i]);
+@@ -4726,7 +5080,88 @@ void VulkanCommandProcessor::EvictOldReadbackBuffers(
+       readback.submission_written[i] = 0;
+       readback.written_size[i] = 0;
+     }
+-    it = buffer_map.erase(it);
++  };
++
++  // What the original policy (hash order, ignoring GPU progress) would destroy
++  // while the GPU may still be using it. Counted for diagnostics either way.
++  const size_t map_size_before = buffer_map.size();
++  uint32_t original_in_flight_victims = 0;
++  {
++    size_t simulated_size = buffer_map.size();
++    for (const auto& [key, readback] : buffer_map) {
++      if (simulated_size > max_buffers || readback.last_used_frame < eviction_frame_floor) {
++        if (is_in_flight(readback)) {
++          ++original_in_flight_victims;
++        }
++        --simulated_size;
++      }
++    }
++  }
++
++  uint32_t evicted = 0, evicted_in_flight = 0, kept_in_flight = 0;
++  if (REXCVAR_GET(vulkan_readback_evict_in_flight)) {
++    // Original policy.
++    for (auto it = buffer_map.begin(); it != buffer_map.end();) {
++      ReadbackBuffer& readback = it->second;
++      if (buffer_map.size() <= max_buffers &&
++          readback.last_used_frame >= eviction_frame_floor) {
++        ++it;
++        continue;
++      }
++      if (is_in_flight(readback)) {
++        ++evicted_in_flight;
++      }
++      destroy(readback);
++      it = buffer_map.erase(it);
++      ++evicted;
++    }
++  } else {
++    // Least recently used first, never anything the GPU may still be using.
++    std::vector<std::pair<uint64_t, uint64_t>> by_age;  // (last_used_frame, key)
++    by_age.reserve(buffer_map.size());
++    for (const auto& [key, readback] : buffer_map) {
++      by_age.emplace_back(readback.last_used_frame, key);
++    }
++    std::sort(by_age.begin(), by_age.end());
++    for (const auto& [last_used_frame, key] : by_age) {
++      if (buffer_map.size() <= max_buffers && last_used_frame >= eviction_frame_floor) {
++        break;
++      }
++      auto it = buffer_map.find(key);
++      if (is_in_flight(it->second)) {
++        ++kept_in_flight;
++        continue;
++      }
++      destroy(it->second);
++      buffer_map.erase(it);
++      ++evicted;
++    }
++  }
++
++  static size_t largest_size_logged = 16;
++  if (map_size_before >= largest_size_logged * 2) {
++    largest_size_logged = map_size_before;
++    REXGPU_INFO("Readback buffers: map reached {} entries at frame {}", map_size_before,
++                frame_current_);
++  }
++  if (map_size_before > max_buffers) {
++    static uint32_t over_cap_logged = 0;
++    if (over_cap_logged < 20 || !(frame_current_ % 600)) {
++      ++over_cap_logged;
++      REXGPU_INFO("Readback buffers: {} entries over the cap of {} at frame {}: evicted {}",
++                  map_size_before, max_buffers, frame_current_, evicted);
++    }
++  }
++  if (original_in_flight_victims || evicted_in_flight || kept_in_flight) {
++    static uint32_t warnings_logged = 0;
++    if (warnings_logged < 100) {
++      ++warnings_logged;
++      REXGPU_WARN(
++          "Readback buffers: {} entries (cap {}), frame {}, submission completed {}: evicted {} "
++          "({} in flight), kept {} in flight; original policy would destroy {} in flight",
++          map_size_before, max_buffers, frame_current_, submission_completed_, evicted,
++          evicted_in_flight, kept_in_flight, original_in_flight_victims);
++    }
+   }
+ }
+ 

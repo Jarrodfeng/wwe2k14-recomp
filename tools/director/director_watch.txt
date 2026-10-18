@@ -1,0 +1,22 @@
+# Session 17 Track 3 diagnosis: a director run watched after its events. Run with --wwe2k14_director=NAME (and a
+# seed). Boots like director_check.txt, from match clock 0:20 a screenshot every 900 frames for 12,000 frames, quits.
+# Fast-forward OK. on_fail quit.
+on_fail quit
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+wait_file M3.PAC 72000
+wait_state match_clock >=1200 20000 2
+screenshot_every 900 dw
+wait_frames 12000
+screenshot_every 0 dw
+log_state 0x8376ACCC
+wait_frames 30
+quit

@@ -1,0 +1,83 @@
+# harness: fast-forward ok (Session 28: main menu -> OPTIONS -> GAMEPLAY -> VISUAL PRESENTATION; snapshots + screenshots; untimed; frozen user data copy, nothing saved back)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+cvar wwe2k14_snapshot_now mm
+wait_frames 120
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+log_state menu
+log_state cursor
+log_state target
+cvar wwe2k14_snapshot_now op0
+wait_frames 120
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+log_state cursor
+log_state target
+press A
+wait_frames 60
+log_state menu
+log_state cursor
+log_state target
+screenshot gp_0
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+log_state menu
+log_state cursor
+log_state target
+screenshot gp_2
+press A
+wait_frames 120
+log_state menu
+log_state cursor
+log_state target
+screenshot vp_0
+cvar wwe2k14_snapshot_now vp0
+wait_frames 120
+press DOWN
+wait_frames 30
+log_state cursor
+screenshot vp_1
+press DOWN
+wait_frames 30
+log_state cursor
+screenshot vp_2
+press DOWN
+wait_frames 30
+log_state cursor
+screenshot vp_3
+press DOWN
+wait_frames 30
+log_state cursor
+screenshot vp_4
+press DOWN
+wait_frames 30
+log_state cursor
+screenshot vp_5
+press RIGHT
+wait_frames 30
+screenshot vp_5r
+wait_frames 30
+quit

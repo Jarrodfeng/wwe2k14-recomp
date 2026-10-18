@@ -1,0 +1,33 @@
+# harness: fast-forward ok (Session 23: crowd picture check across arenas; untimed)
+# Session 23: launch_boot_check.txt with screenshots through the first entrance (crowd in view) at INGAMELUA.PAC +900,
+# +1300, +1700, +2100, +2500 frames, for the repeat-draw fast path / merge off-on pairs in other arenas
+# (--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=N --wwe2k14_fixed_seed=1 --async_shader_compilation=false).
+on_fail quit (unattended).
+on_fail quit
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log launch: in-game sequence loading
+wait_frames 900
+screenshot c_0900
+wait_frames 400
+screenshot c_1300
+wait_frames 400
+screenshot c_1700
+wait_frames 400
+screenshot c_2100
+wait_frames 400
+screenshot c_2500
+wait_frames 60
+log short route: end (launcher, INGAMELUA.PAC + 900 frames)
+quit

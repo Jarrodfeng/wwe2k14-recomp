@@ -1,0 +1,37 @@
+# harness: fast-forward ok (Session 28: write watch on the options layout's page words (layout AF6109D4 +88 / +136, deterministic in runs 2089 / 2090); patched OPTIONS list, A on GRAPHICS; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+watch 0xAF610A60 4 change
+watch 0xAF610A58 4 change
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+log mark: A on GRAPHICS
+press A
+wait_frames 200
+unwatch
+log mark: end
+quit

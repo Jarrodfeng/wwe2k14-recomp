@@ -1,0 +1,54 @@
+# harness: fast-forward ok (Session 28: probe route, main menu -> OPTIONS -> GAMEPLAY -> VISUAL PRESENTATION, change two values, leave; run with --wwe2k14_gfxmenu_probe=true; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+cvar wwe2k14_gfxmenu_probe_text true
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 60
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+log mark: pressing A on VISUAL PRESENTATION
+press A
+wait_frames 150
+screenshot probe_vp_open
+log mark: RIGHT on row 0
+press RIGHT
+wait_frames 40
+log mark: DOWN, RIGHT on row 1
+press DOWN
+wait_frames 30
+press RIGHT
+wait_frames 40
+screenshot probe_vp_changed
+log mark: B (leave with changes)
+press B
+wait_frames 90
+screenshot probe_after_b
+log mark: after B
+wait_frames 60
+quit

@@ -1,0 +1,3152 @@
+From 4bcfb4b45559ecde3dbc985b95713d63f7b91094 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 21:48:10 +1100
+Subject: [PATCH 1/8] Session 18 DLAA: gpu_dlaa_jitter (sub-pixel viewport
+ jitter of the scene draws, Halton 2,3), gpu_dlaa_jitter_test
+
+---
+ .../rex/graphics/vulkan/command_processor.h   | 18 ++++++
+ src/graphics/vulkan/command_processor.cpp     | 59 +++++++++++++++++++
+ 2 files changed, 77 insertions(+)
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 9ca25eb..c6935da 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1028,6 +1028,24 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool matte_force_readback_ = false;  // this resolve: synchronous readback into a file, guest memory untouched
+   std::string matte_dump_file_;        // the .bin for this resolve
+   uint32_t matte_regs_[8] = {};        // copy control, dest base / info / pitch, surface / depth / color info
++
++  // wwe2k14 patch (Session 18, DLAA): sub-pixel camera jitter for the scene draws (gpu_dlaa_jitter).
++ public:
++  struct DlaaFrameJitter {
++    uint64_t frame = 0;      // swaps processed by this command processor
++    float x = 0, y = 0;      // host pixels added to the scene viewports' origin this frame
++    uint32_t jittered = 0;   // scene draws jittered (last completed frame)
++  };
++  DlaaFrameJitter dlaa_last_jitter() const { return dlaa_last_; }
++
++ private:
++  void DlaaOnSwap();
++  uint64_t dlaa_frame_ = 0;
++  float dlaa_jitter_[2] = {};
++  bool dlaa_scene_done_ = false;   // the frame's scene depth resolve happened: later draws (post, HUD) unjittered
++  uint32_t dlaa_jittered_draws_ = 0;
++  uint32_t dlaa_log_left_ = 8;
++  DlaaFrameJitter dlaa_last_;
+   // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 for the frame being marked (only while
+   // gpu_marks_active_).
+   bool gpu_marks_sparse_ = false;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 8ad7ca6..d32a563 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -76,6 +76,19 @@ REXCVAR_DEFINE_STRING(gpu_depth_dump, "", "GPU",
+                       "bytes as the guest texture would hold them, from a synchronous readback; guest memory is left "
+                       "as it was) + PATH_K.json (registers, range), then reset to empty");
+ 
++// wwe2k14 patch (Session 18, DLAA phase 1): camera jitter. The scene draws of a frame (viewports at least
++// gpu_dlaa_jitter_min_width guest pixels wide, before the frame's scene-size depth resolve) get a sub-pixel offset of
++// the host viewport origin: Halton(2, 3) over gpu_dlaa_jitter_phases phases, in [-0.5, 0.5) host pixels, advanced at
++// each guest swap. The HUD and post passes come after the depth resolve and stay put; shadow maps etc. are smaller.
++REXCVAR_DEFINE_BOOL(gpu_dlaa_jitter, false, "GPU",
++                    "DLAA: sub-pixel jitter of the scene draws (Halton 2,3; host pixels); default off");
++REXCVAR_DEFINE_STRING(gpu_dlaa_jitter_test, "", "GPU",
++                      "DLAA jitter test: a fixed X,Y offset in host pixels instead of the Halton sequence (needs "
++                      "gpu_dlaa_jitter); empty = the sequence");
++REXCVAR_DEFINE_INT32(gpu_dlaa_jitter_phases, 8, "GPU", "DLAA jitter: length of the Halton sequence (DLAA: 8)");
++REXCVAR_DEFINE_INT32(gpu_dlaa_jitter_min_width, 1000, "GPU",
++                     "DLAA jitter: only viewports at least this many guest pixels wide count as scene draws");
++
+ // Legacy backend compatibility aliases for shared readback controls.
+ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                     "Read render-to-texture results on the CPU")
+@@ -3875,9 +3888,43 @@ static void MatteOnSwap(uint32_t& resolve_index, uint32_t& dumped, uint32_t& dep
+   }
+ }
+ 
++// wwe2k14 patch (Session 18, DLAA): the next frame's jitter.
++static float DlaaHalton(uint32_t index, uint32_t base) {
++  float f = 1.0f, r = 0.0f;
++  for (uint32_t i = index; i; i /= base) {
++    f /= float(base);
++    r += f * float(i % base);
++  }
++  return r;
++}
++
++void VulkanCommandProcessor::DlaaOnSwap() {
++  dlaa_last_.frame = dlaa_frame_;
++  dlaa_last_.x = dlaa_jitter_[0], dlaa_last_.y = dlaa_jitter_[1];
++  dlaa_last_.jittered = dlaa_jittered_draws_;
++  if (REXCVAR_GET(gpu_dlaa_jitter) && dlaa_log_left_ && dlaa_frame_ > 0) {
++    --dlaa_log_left_;
++    REXGPU_INFO("[dlaa] frame {}: jitter {:+.4f} {:+.4f} host px on {} scene draw(s)", dlaa_frame_, dlaa_jitter_[0],
++                dlaa_jitter_[1], dlaa_jittered_draws_);
++  }
++  ++dlaa_frame_;
++  dlaa_scene_done_ = false;
++  dlaa_jittered_draws_ = 0;
++  float x = 0, y = 0;
++  const std::string test = REXCVAR_GET(gpu_dlaa_jitter_test);
++  if (!test.empty() && std::sscanf(test.c_str(), "%f,%f", &x, &y) == 2) {
++  } else {
++    const uint32_t phases = uint32_t(std::max(1, REXCVAR_GET(gpu_dlaa_jitter_phases)));
++    const uint32_t i = uint32_t(dlaa_frame_ % phases) + 1;  // Halton from index 1 (index 0 is 0, 0)
++    x = DlaaHalton(i, 2) - 0.5f, y = DlaaHalton(i, 3) - 0.5f;
++  }
++  dlaa_jitter_[0] = x, dlaa_jitter_[1] = y;
++}
++
+ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                        uint32_t frontbuffer_height) {
+   MatteOnSwap(matte_resolve_index_, matte_dumped_, matte_depth_dumped_);  // wwe2k14 patch (Session 16, MATTE)
++  DlaaOnSwap();  // wwe2k14 patch (Session 18, DLAA)
+   SCOPE_profile_cpu_f("gpu");
+   perf::timeline::Scope timeline_scope("vswap_b", "vswap_e", frontbuffer_ptr);
+   // wwe2k14 patch (Session 7b, GPUMARKS): after a capture, write its last marked frames once their submissions
+@@ -7530,6 +7577,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+     const reg::RB_COPY_DEST_PITCH dest_pitch = mregs.Get<reg::RB_COPY_DEST_PITCH>();
+     // Scene-size only (run 1288: shadow maps and other 512x512 targets filled the 16 slots before the depth copy).
+     const bool big = uint32_t(dest_pitch.copy_dest_pitch) >= 1000u && uint32_t(dest_pitch.copy_dest_height) >= 500u;
++    // wwe2k14 patch (Session 18, DLAA): the scene's depth resolve ends the frame's jittered (scene) draws.
++    if (copying_depth && big && copy_control.copy_command != xenos::CopyCommand::kNull) {
++      dlaa_scene_done_ = true;
++    }
+     if ((copying_depth || big) && copy_control.copy_command != xenos::CopyCommand::kNull && matte_dumped_ < 16) {
+       const std::string path = REXCVAR_GET(gpu_depth_dump);
+       if (!path.empty()) {
+@@ -9144,6 +9195,14 @@ void VulkanCommandProcessor::UpdateDynamicState(const draw_util::ViewportInfo& v
+   }
+   viewport.minDepth = viewport_info.z_min;
+   viewport.maxDepth = viewport_info.z_max;
++  // wwe2k14 patch (Session 18, DLAA): sub-pixel jitter of the scene draws (gpu_dlaa_jitter).
++  if (REXCVAR_GET(gpu_dlaa_jitter) && !dlaa_scene_done_ && viewport_info.xy_extent[0] &&
++      viewport_info.xy_extent[0] >= uint32_t(std::max(0, REXCVAR_GET(gpu_dlaa_jitter_min_width))) *
++                                        draw_resolution_scale_x) {
++    viewport.x += dlaa_jitter_[0];
++    viewport.y += dlaa_jitter_[1];
++    ++dlaa_jittered_draws_;
++  }
+   SetViewport(viewport);
+ 
+   // Scissor.
+-- 
+2.52.0.windows.1
+
+
+From 3cd9464f0458c00823e2117255e216c907dc8f84 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:01:02 +1100
+Subject: [PATCH 2/8] Session 18 DLAA step 2: camera motion vectors from the
+ scene depth resolve (gpu_dlaa_motion, gpu_dlaa_debug 1/2), texture-cache
+ storage access for resolve targets, DlaaSetCamera
+
+---
+ include/rex/graphics/pipeline/texture/cache.h |   5 +
+ .../rex/graphics/vulkan/command_processor.h   |  30 ++
+ include/rex/graphics/vulkan/texture_cache.h   |  16 ++
+ src/graphics/pipeline/texture/cache.cpp       |  32 +++
+ src/graphics/shaders/dlaa_motion.cs.glsl      |  75 +++++
+ .../shaders/vulkan_spirv/dlaa_motion_cs.h     | 258 ++++++++++++++++++
+ src/graphics/vulkan/command_processor.cpp     | 257 ++++++++++++++++-
+ src/graphics/vulkan/texture_cache.cpp         |  65 +++++
+ 8 files changed, 737 insertions(+), 1 deletion(-)
+ create mode 100644 src/graphics/shaders/dlaa_motion.cs.glsl
+ create mode 100644 src/graphics/shaders/vulkan_spirv/dlaa_motion_cs.h
+
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index f7f6d3d..1d16aea 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -541,6 +541,11 @@ class TextureCache {
+   // create the texture - if it's nullptr, occasionally a recreation attempt
+   // should be made.
+   Texture* FindOrCreateTexture(TextureKey key);
++  // wwe2k14 patch (Session 18, DLAA): the texture of a 2D tiled resolve target: an existing one with this base page,
++  // size and format (the other key bits as the game's own fetch had them; a scaled one first), else one created as a
++  // fetch of it would be; loaded if outdated. nullptr if unsupported or the load failed.
++  Texture* DlaaFindResolveTexture(uint32_t base_address, uint32_t pitch_texels, uint32_t width, uint32_t height,
++                                  xenos::TextureFormat format, xenos::Endian endian);
+ 
+   static const LoadShaderInfo& GetLoadShaderInfo(LoadShaderIndex load_shader_index) {
+     assert_true(load_shader_index < kLoadShaderCount);
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index c6935da..61542e8 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1038,6 +1038,11 @@ class VulkanCommandProcessor : public CommandProcessor {
+   };
+   DlaaFrameJitter dlaa_last_jitter() const { return dlaa_last_; }
+ 
++  // wwe2k14 patch (Session 18, DLAA step 2): the game's camera of each guest frame, from the app (any thread): the
++  // composed view at the hand-off to the renderer (world -> view, row vectors, x right / y down / z forward), its
++  // field of view (degrees) and near / far planes. `frame` = guest frames (swaps) before this one.
++  void DlaaSetCamera(uint64_t frame, const float view[16], float fov_degrees, float near_z, float far_z);
++
+  private:
+   void DlaaOnSwap();
+   uint64_t dlaa_frame_ = 0;
+@@ -1046,6 +1051,31 @@ class VulkanCommandProcessor : public CommandProcessor {
+   uint32_t dlaa_jittered_draws_ = 0;
+   uint32_t dlaa_log_left_ = 8;
+   DlaaFrameJitter dlaa_last_;
++  // Step 2: camera motion vectors (gpu_dlaa_motion / gpu_dlaa_debug).
++  struct DlaaCamera {
++    uint64_t frame = UINT64_MAX;
++    double view[16] = {};
++    float fov_degrees = 0, near_z = 0, far_z = 0;
++  };
++  std::mutex dlaa_camera_mutex_;
++  DlaaCamera dlaa_cameras_[16];
++  bool DlaaFindCamera(uint64_t frame, DlaaCamera& out);
++  void DlaaMotionPass();
++  bool DlaaEnsureMotionResources(uint32_t width, uint32_t height);
++  uint32_t dlaa_color_regs_[4] = {};  // the frame's last scene-size colour resolve: dest base, pitch, height, info
++  bool dlaa_color_valid_ = false;
++  uint32_t dlaa_depth_regs_[4] = {};
++  VkPipelineLayout dlaa_motion_layout_ = VK_NULL_HANDLE;
++  VkPipeline dlaa_motion_pipeline_ = VK_NULL_HANDLE;
++  bool dlaa_motion_failed_ = false;
++  VkImage dlaa_motion_image_ = VK_NULL_HANDLE;
++  VkDeviceMemory dlaa_motion_memory_ = VK_NULL_HANDLE;
++  VkImageView dlaa_motion_view_ = VK_NULL_HANDLE;
++  VkDescriptorSet dlaa_motion_set_ = VK_NULL_HANDLE;
++  uint32_t dlaa_motion_size_[2] = {};
++  bool dlaa_motion_initialized_layout_ = false;
++  uint32_t dlaa_motion_log_left_ = 6;
++  uint64_t dlaa_motion_passes_ = 0, dlaa_motion_no_camera_ = 0;
+   // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 for the frame being marked (only while
+   // gpu_marks_active_).
+   bool gpu_marks_sparse_ = false;
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index b22b0c8..fd8f85f 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -89,6 +89,22 @@ class VulkanTextureCache final : public TextureCache {
+   // preceding host GPU work.
+   void RequestTextures(uint32_t used_texture_mask) override;
+ 
++  // wwe2k14 patch (Session 18, DLAA): a resolve target's cached texture as a compute storage image (barrier to
++  // GENERAL pushed; usage kComputeStorageWrite, so the next sampling transitions it back). Needs a texture created
++  // with the direct-load storage usage and an R32_UINT view (vulkan_texture_load_direct, scaled 32bpb).
++  struct DlaaStorage {
++    VkImage image = VK_NULL_HANDLE;
++    VkDescriptorSet set = VK_NULL_HANDLE;   // direct-load layout: the R32_UINT storage view of level 0
++    VkFormat host_format = VK_FORMAT_UNDEFINED;
++    uint32_t width = 0, height = 0;          // host pixels
++    const char* failure = nullptr;
++  };
++  bool DlaaResolveStorage(uint32_t base_address, uint32_t pitch_texels, uint32_t width, uint32_t height,
++                          xenos::TextureFormat format, xenos::Endian endian, DlaaStorage& out);
++  VkDescriptorSetLayout dlaa_storage_set_layout() const { return direct_load_descriptor_set_layout_; }
++  // A set of that layout for one of our own images (a storage view in GENERAL layout); VK_NULL_HANDLE on failure.
++  VkDescriptorSet DlaaStorageSetForView(VkImageView view);
++
+   VkImageView GetActiveBindingOrNullImageView(uint32_t fetch_constant_index,
+                                               xenos::FetchOpDimension dimension, bool is_signed);
+ 
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index cf7d7af..f9f2c56 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -1078,6 +1078,38 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+   return texture;
+ }
+ 
++// wwe2k14 patch (Session 18, DLAA): see the header.
++TextureCache::Texture* TextureCache::DlaaFindResolveTexture(uint32_t base_address, uint32_t pitch_texels,
++                                                            uint32_t width, uint32_t height,
++                                                            xenos::TextureFormat format, xenos::Endian endian) {
++  const uint32_t page = (base_address & 0x1FFFFFFFu) >> 12;
++  Texture* found = nullptr;
++  for (auto& entry : textures_) {
++    const TextureKey& key = entry.first;
++    if (key.base_page == page && key.dimension == xenos::DataDimension::k2DOrStacked && key.tiled &&
++        key.GetWidth() == width && key.GetHeight() == height && key.format == format && !key.signed_separate &&
++        key.GetDepthOrArraySize() == 1) {
++      found = entry.second.get();
++      if (key.scaled_resolve) break;
++    }
++  }
++  if (!found) {
++    TextureKey key;
++    key.base_page = page;
++    key.dimension = xenos::DataDimension::k2DOrStacked;
++    key.width_minus_1 = width - 1;
++    key.height_minus_1 = height - 1;
++    key.tiled = 1;
++    key.pitch = pitch_texels >> 5;
++    key.format = format;
++    key.endianness = endian;
++    key.is_valid = 1;
++    found = FindOrCreateTexture(key);
++  }
++  if (found && !LoadTextureData(*found)) return nullptr;
++  return found;
++}
++
+ bool TextureCache::LoadTextureData(Texture& texture) {
+   PendingTextureLoad pending_load;
+   PendingSharedMemoryRange pending_ranges[2];
+diff --git a/src/graphics/shaders/dlaa_motion.cs.glsl b/src/graphics/shaders/dlaa_motion.cs.glsl
+new file mode 100644
+index 0000000..b557fee
+--- /dev/null
++++ b/src/graphics/shaders/dlaa_motion.cs.glsl
+@@ -0,0 +1,75 @@
++// wwe2k14 patch (Session 18, DLAA phase 1): camera motion vectors from the scene depth resolve.
++//
++// Bindings (all through the texture cache's direct-load storage set layout: one storage image at binding 0):
++//   set 0: the scene depth resolve's cached texture, R32_UINT view (the guest word of each texel after the load's
++//          endian swap: D24FS8 = 20e4 float depth in the top 24 bits, reversed: near = 1);
++//   set 1: the scene colour resolve's cached texture, R32_UINT view (written only in a debug mode);
++//   set 2: our motion image, RG16F: where this pixel's surface was last frame, minus where it is now, in host
++//          pixels (the DLSS convention: current -> previous), jitter removed.
++// Camera only: everything is treated as static (wrestlers, crowd and cloth get the camera's motion).
++//
++// Generated header: glslangValidator -V --target-env vulkan1.0 -S comp (glslang from the SDK's submodule, built out
++// of tree: out\glslang-build), see vulkan_spirv/dlaa_motion_cs.h.
++
++#version 460
++
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++
++layout(set = 0, binding = 0, r32ui) uniform readonly uimage2D depth_image;
++layout(set = 1, binding = 0, r32ui) uniform uimage2D color_image;
++layout(set = 2, binding = 0, rg16f) uniform writeonly image2D motion_image;
++
++layout(push_constant) uniform Constants {
++  // Row-vector affine matrix: this frame's view space -> last frame's view space (inverse(V_now) * V_prev).
++  mat4 reproject;
++  vec2 tan_half_fov;   // x, y: tan of half the horizontal / vertical field of view
++  vec2 near_far;       // the camera's near / far planes (view units)
++  vec2 jitter;         // this frame's jitter (host pixels), removed from the pixel position
++  uint size;           // width | height << 16 (host pixels)
++  uint mode;           // bits 0-1: debug 0 off, 1 motion as colour, 2 depth as grey; bits 2-3: depth byte order;
++                       // bit 4: the colour image is B8G8R8A8 (else R8G8B8A8); bits 8-15: motion colour scale (px)
++} c;
++
++float F24ToFloat(uint v) {
++  uint e = v >> 20, m = v & 0xFFFFFu;
++  return e == 0u ? float(m) / 1048576.0 * exp2(-15.0) : (1.0 + float(m) / 1048576.0) * exp2(float(e) - 15.0);
++}
++
++uint ByteSwap(uint v) {
++  return (v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24);
++}
++
++uint PackColor(vec3 rgb) {
++  uvec3 b = uvec3(clamp(rgb, 0.0, 1.0) * 255.0 + 0.5);
++  if ((c.mode & 16u) != 0u) b = b.bgr;
++  return b.x | (b.y << 8) | (b.z << 16) | (255u << 24);
++}
++
++void main() {
++  uvec2 size = uvec2(c.size & 0xFFFFu, c.size >> 16);
++  uvec2 p = gl_GlobalInvocationID.xy;
++  if (any(greaterThanEqual(p, size))) return;
++  uint word = imageLoad(depth_image, ivec2(p)).r;
++  uint order = (c.mode >> 2) & 3u;
++  if (order == 1u) word = ByteSwap(word);
++  uint d24 = order == 2u ? (word & 0xFFFFFFu) : (word >> 8);
++  float dev = F24ToFloat(d24);
++  float d = clamp(1.0 - dev, 0.0, 1.0);  // reversed depth -> 0 = near
++  float n = c.near_far.x, f = c.near_far.y;
++  float z = n * f / (f - d * (f - n));   // distance along the view direction
++  // This pixel without the jitter, in [-1, 1] (y down, like the view's y).
++  vec2 ndc = ((vec2(p) + 0.5 - c.jitter) / vec2(size)) * 2.0 - 1.0;
++  vec4 view_now = vec4(ndc * c.tan_half_fov * z, z, 1.0);
++  vec4 view_prev = view_now * c.reproject;  // row vector
++  vec2 ndc_prev = view_prev.z > 1e-4 ? view_prev.xy / (view_prev.z * c.tan_half_fov) : ndc;
++  vec2 motion = (ndc_prev - ndc) * 0.5 * vec2(size);  // host pixels, current -> previous
++  imageStore(motion_image, ivec2(p), vec4(motion, 0.0, 0.0));
++  uint debug = c.mode & 3u;
++  if (debug == 1u) {
++    float scale = float(max((c.mode >> 8) & 0xFFu, 1u));
++    imageStore(color_image, ivec2(p), uvec4(PackColor(vec3(0.5 + motion / (2.0 * scale), 0.5)), 0u, 0u, 0u));
++  } else if (debug == 2u) {
++    float g = 1.0 - clamp(log(max(z, n) / n) / log(8000.0 / n), 0.0, 1.0);  // white = near, black = 80 m
++    imageStore(color_image, ivec2(p), uvec4(PackColor(vec3(g)), 0u, 0u, 0u));
++  }
++}
+diff --git a/src/graphics/shaders/vulkan_spirv/dlaa_motion_cs.h b/src/graphics/shaders/vulkan_spirv/dlaa_motion_cs.h
+new file mode 100644
+index 0000000..2e712d6
+--- /dev/null
++++ b/src/graphics/shaders/vulkan_spirv/dlaa_motion_cs.h
+@@ -0,0 +1,258 @@
++// wwe2k14 patch (Session 18, DLAA): generated from ../dlaa_motion.cs.glsl with
++// glslangValidator -V --target-env vulkan1.0 -S comp (glslang from the SDK's thirdparty/glslang submodule, built out
++// of tree: out\glslang-build); no spirv-opt.
++
++const uint32_t dlaa_motion_cs[] = {
++    0x07230203, 0x00010000, 0x0008000A, 0x00000163, 0x00000000, 0x00020011, 0x00000001, 0x00020011,
++    0x00000031, 0x0006000B, 0x00000001, 0x4C534C47, 0x6474732E, 0x3035342E, 0x00000000, 0x0003000E,
++    0x00000000, 0x00000001, 0x0006000F, 0x00000005, 0x00000004, 0x6E69616D, 0x00000000, 0x0000008E,
++    0x00060010, 0x00000004, 0x00000011, 0x00000008, 0x00000008, 0x00000001, 0x00030003, 0x00000002,
++    0x000001CC, 0x00040005, 0x00000004, 0x6E69616D, 0x00000000, 0x00060005, 0x0000000B, 0x54343246,
++    0x6F6C466F, 0x75287461, 0x00003B31, 0x00030005, 0x0000000A, 0x00000076, 0x00060005, 0x0000000F,
++    0x65747942, 0x70617753, 0x3B317528, 0x00000000, 0x00030005, 0x0000000E, 0x00000076, 0x00060005,
++    0x00000015, 0x6B636150, 0x6F6C6F43, 0x66762872, 0x00003B33, 0x00030005, 0x00000014, 0x00626772,
++    0x00030005, 0x00000017, 0x00000065, 0x00030005, 0x0000001C, 0x0000006D, 0x00030005, 0x00000052,
++    0x00000062, 0x00050005, 0x00000061, 0x736E6F43, 0x746E6174, 0x00000073, 0x00060006, 0x00000061,
++    0x00000000, 0x72706572, 0x63656A6F, 0x00000074, 0x00070006, 0x00000061, 0x00000001, 0x5F6E6174,
++    0x666C6168, 0x766F665F, 0x00000000, 0x00060006, 0x00000061, 0x00000002, 0x7261656E, 0x7261665F,
++    0x00000000, 0x00050006, 0x00000061, 0x00000003, 0x7474696A, 0x00007265, 0x00050006, 0x00000061,
++    0x00000004, 0x657A6973, 0x00000000, 0x00050006, 0x00000061, 0x00000005, 0x65646F6D, 0x00000000,
++    0x00030005, 0x00000063, 0x00000063, 0x00040005, 0x00000082, 0x657A6973, 0x00000000, 0x00030005,
++    0x0000008C, 0x00000070, 0x00080005, 0x0000008E, 0x475F6C67, 0x61626F6C, 0x766E496C, 0x7461636F,
++    0x496E6F69, 0x00000044, 0x00040005, 0x00000099, 0x64726F77, 0x00000000, 0x00050005, 0x0000009C,
++    0x74706564, 0x6D695F68, 0x00656761, 0x00040005, 0x000000A4, 0x6564726F, 0x00000072, 0x00040005,
++    0x000000AF, 0x61726170, 0x0000006D, 0x00030005, 0x000000B2, 0x00343264, 0x00030005, 0x000000BF,
++    0x00766564, 0x00040005, 0x000000C0, 0x61726170, 0x0000006D, 0x00030005, 0x000000C3, 0x00000064,
++    0x00030005, 0x000000C7, 0x0000006E, 0x00030005, 0x000000CB, 0x00000066, 0x00030005, 0x000000CE,
++    0x0000007A, 0x00030005, 0x000000DB, 0x0063646E, 0x00050005, 0x000000ED, 0x77656976, 0x776F6E5F,
++    0x00000000, 0x00050005, 0x000000F9, 0x77656976, 0x6572705F, 0x00000076, 0x00050005, 0x00000100,
++    0x5F63646E, 0x76657270, 0x00000000, 0x00040005, 0x00000113, 0x69746F6D, 0x00006E6F, 0x00060005,
++    0x0000011D, 0x69746F6D, 0x695F6E6F, 0x6567616D, 0x00000000, 0x00040005, 0x00000125, 0x75626564,
++    0x00000067, 0x00040005, 0x0000012D, 0x6C616373, 0x00000065, 0x00050005, 0x00000135, 0x6F6C6F63,
++    0x6D695F72, 0x00656761, 0x00040005, 0x00000143, 0x61726170, 0x0000006D, 0x00030005, 0x0000014B,
++    0x00000067, 0x00040005, 0x0000015E, 0x61726170, 0x0000006D, 0x00040048, 0x00000061, 0x00000000,
++    0x00000005, 0x00050048, 0x00000061, 0x00000000, 0x00000023, 0x00000000, 0x00050048, 0x00000061,
++    0x00000000, 0x00000007, 0x00000010, 0x00050048, 0x00000061, 0x00000001, 0x00000023, 0x00000040,
++    0x00050048, 0x00000061, 0x00000002, 0x00000023, 0x00000048, 0x00050048, 0x00000061, 0x00000003,
++    0x00000023, 0x00000050, 0x00050048, 0x00000061, 0x00000004, 0x00000023, 0x00000058, 0x00050048,
++    0x00000061, 0x00000005, 0x00000023, 0x0000005C, 0x00030047, 0x00000061, 0x00000002, 0x00040047,
++    0x0000008E, 0x0000000B, 0x0000001C, 0x00040047, 0x0000009C, 0x00000022, 0x00000000, 0x00040047,
++    0x0000009C, 0x00000021, 0x00000000, 0x00030047, 0x0000009C, 0x00000018, 0x00040047, 0x0000011D,
++    0x00000022, 0x00000002, 0x00040047, 0x0000011D, 0x00000021, 0x00000000, 0x00030047, 0x0000011D,
++    0x00000019, 0x00040047, 0x00000135, 0x00000022, 0x00000001, 0x00040047, 0x00000135, 0x00000021,
++    0x00000000, 0x00040047, 0x00000162, 0x0000000B, 0x00000019, 0x00020013, 0x00000002, 0x00030021,
++    0x00000003, 0x00000002, 0x00040015, 0x00000006, 0x00000020, 0x00000000, 0x00040020, 0x00000007,
++    0x00000007, 0x00000006, 0x00030016, 0x00000008, 0x00000020, 0x00040021, 0x00000009, 0x00000008,
++    0x00000007, 0x00040021, 0x0000000D, 0x00000006, 0x00000007, 0x00040017, 0x00000011, 0x00000008,
++    0x00000003, 0x00040020, 0x00000012, 0x00000007, 0x00000011, 0x00040021, 0x00000013, 0x00000006,
++    0x00000012, 0x00040015, 0x00000019, 0x00000020, 0x00000001, 0x0004002B, 0x00000019, 0x0000001A,
++    0x00000014, 0x0004002B, 0x00000006, 0x0000001E, 0x000FFFFF, 0x0004002B, 0x00000006, 0x00000021,
++    0x00000000, 0x00020014, 0x00000022, 0x00040020, 0x00000024, 0x00000007, 0x00000008, 0x0004002B,
++    0x00000008, 0x0000002A, 0x49800000, 0x0004002B, 0x00000008, 0x0000002C, 0x38000000, 0x0004002B,
++    0x00000008, 0x0000002F, 0x3F800000, 0x0004002B, 0x00000008, 0x00000036, 0x41700000, 0x0004002B,
++    0x00000019, 0x0000003E, 0x00000018, 0x0004002B, 0x00000019, 0x00000041, 0x00000008, 0x0004002B,
++    0x00000006, 0x00000043, 0x0000FF00, 0x0004002B, 0x00000006, 0x00000048, 0x00FF0000, 0x00040017,
++    0x00000050, 0x00000006, 0x00000003, 0x00040020, 0x00000051, 0x00000007, 0x00000050, 0x0004002B,
++    0x00000008, 0x00000054, 0x00000000, 0x0004002B, 0x00000008, 0x00000058, 0x437F0000, 0x0004002B,
++    0x00000008, 0x0000005A, 0x3F000000, 0x00040017, 0x0000005E, 0x00000008, 0x00000004, 0x00040018,
++    0x0000005F, 0x0000005E, 0x00000004, 0x00040017, 0x00000060, 0x00000008, 0x00000002, 0x0008001E,
++    0x00000061, 0x0000005F, 0x00000060, 0x00000060, 0x00000060, 0x00000006, 0x00000006, 0x00040020,
++    0x00000062, 0x00000009, 0x00000061, 0x0004003B, 0x00000062, 0x00000063, 0x00000009, 0x0004002B,
++    0x00000019, 0x00000064, 0x00000005, 0x00040020, 0x00000065, 0x00000009, 0x00000006, 0x0004002B,
++    0x00000006, 0x00000068, 0x00000010, 0x0004002B, 0x00000006, 0x00000071, 0x00000001, 0x0004002B,
++    0x00000006, 0x00000076, 0x00000002, 0x0004002B, 0x00000019, 0x00000079, 0x00000010, 0x0004002B,
++    0x00000006, 0x0000007C, 0xFF000000, 0x00040017, 0x00000080, 0x00000006, 0x00000002, 0x00040020,
++    0x00000081, 0x00000007, 0x00000080, 0x0004002B, 0x00000019, 0x00000083, 0x00000004, 0x0004002B,
++    0x00000006, 0x00000086, 0x0000FFFF, 0x00040020, 0x0000008D, 0x00000001, 0x00000050, 0x0004003B,
++    0x0000008D, 0x0000008E, 0x00000001, 0x00040017, 0x00000093, 0x00000022, 0x00000002, 0x00090019,
++    0x0000009A, 0x00000006, 0x00000001, 0x00000000, 0x00000000, 0x00000000, 0x00000002, 0x00000021,
++    0x00040020, 0x0000009B, 0x00000000, 0x0000009A, 0x0004003B, 0x0000009B, 0x0000009C, 0x00000000,
++    0x00040017, 0x0000009F, 0x00000019, 0x00000002, 0x00040017, 0x000000A1, 0x00000006, 0x00000004,
++    0x0004002B, 0x00000019, 0x000000A7, 0x00000002, 0x0004002B, 0x00000006, 0x000000A9, 0x00000003,
++    0x0004002B, 0x00000006, 0x000000B9, 0x00FFFFFF, 0x00040020, 0x000000C8, 0x00000009, 0x00000008,
++    0x00040020, 0x000000DA, 0x00000007, 0x00000060, 0x0004002B, 0x00000019, 0x000000E0, 0x00000003,
++    0x00040020, 0x000000E1, 0x00000009, 0x00000060, 0x0004002B, 0x00000008, 0x000000E8, 0x40000000,
++    0x00040020, 0x000000EC, 0x00000007, 0x0000005E, 0x0004002B, 0x00000019, 0x000000EF, 0x00000001,
++    0x0004002B, 0x00000019, 0x000000FB, 0x00000000, 0x00040020, 0x000000FC, 0x00000009, 0x0000005F,
++    0x0004002B, 0x00000008, 0x00000103, 0x38D1B717, 0x00090019, 0x0000011B, 0x00000008, 0x00000001,
++    0x00000000, 0x00000000, 0x00000000, 0x00000002, 0x00000007, 0x00040020, 0x0000011C, 0x00000000,
++    0x0000011B, 0x0004003B, 0x0000011C, 0x0000011D, 0x00000000, 0x0004002B, 0x00000006, 0x00000131,
++    0x000000FF, 0x0004003B, 0x0000009B, 0x00000135, 0x00000000, 0x0004002B, 0x00000008, 0x00000152,
++    0x45FA0000, 0x0004002B, 0x00000006, 0x00000161, 0x00000008, 0x0006002C, 0x00000050, 0x00000162,
++    0x00000161, 0x00000161, 0x00000071, 0x00050036, 0x00000002, 0x00000004, 0x00000000, 0x00000003,
++    0x000200F8, 0x00000005, 0x0004003B, 0x00000081, 0x00000082, 0x00000007, 0x0004003B, 0x00000081,
++    0x0000008C, 0x00000007, 0x0004003B, 0x00000007, 0x00000099, 0x00000007, 0x0004003B, 0x00000007,
++    0x000000A4, 0x00000007, 0x0004003B, 0x00000007, 0x000000AF, 0x00000007, 0x0004003B, 0x00000007,
++    0x000000B2, 0x00000007, 0x0004003B, 0x00000007, 0x000000B5, 0x00000007, 0x0004003B, 0x00000024,
++    0x000000BF, 0x00000007, 0x0004003B, 0x00000007, 0x000000C0, 0x00000007, 0x0004003B, 0x00000024,
++    0x000000C3, 0x00000007, 0x0004003B, 0x00000024, 0x000000C7, 0x00000007, 0x0004003B, 0x00000024,
++    0x000000CB, 0x00000007, 0x0004003B, 0x00000024, 0x000000CE, 0x00000007, 0x0004003B, 0x000000DA,
++    0x000000DB, 0x00000007, 0x0004003B, 0x000000EC, 0x000000ED, 0x00000007, 0x0004003B, 0x000000EC,
++    0x000000F9, 0x00000007, 0x0004003B, 0x000000DA, 0x00000100, 0x00000007, 0x0004003B, 0x000000DA,
++    0x00000105, 0x00000007, 0x0004003B, 0x000000DA, 0x00000113, 0x00000007, 0x0004003B, 0x00000007,
++    0x00000125, 0x00000007, 0x0004003B, 0x00000024, 0x0000012D, 0x00000007, 0x0004003B, 0x00000012,
++    0x00000143, 0x00000007, 0x0004003B, 0x00000024, 0x0000014B, 0x00000007, 0x0004003B, 0x00000012,
++    0x0000015E, 0x00000007, 0x00050041, 0x00000065, 0x00000084, 0x00000063, 0x00000083, 0x0004003D,
++    0x00000006, 0x00000085, 0x00000084, 0x000500C7, 0x00000006, 0x00000087, 0x00000085, 0x00000086,
++    0x00050041, 0x00000065, 0x00000088, 0x00000063, 0x00000083, 0x0004003D, 0x00000006, 0x00000089,
++    0x00000088, 0x000500C2, 0x00000006, 0x0000008A, 0x00000089, 0x00000079, 0x00050050, 0x00000080,
++    0x0000008B, 0x00000087, 0x0000008A, 0x0003003E, 0x00000082, 0x0000008B, 0x0004003D, 0x00000050,
++    0x0000008F, 0x0000008E, 0x0007004F, 0x00000080, 0x00000090, 0x0000008F, 0x0000008F, 0x00000000,
++    0x00000001, 0x0003003E, 0x0000008C, 0x00000090, 0x0004003D, 0x00000080, 0x00000091, 0x0000008C,
++    0x0004003D, 0x00000080, 0x00000092, 0x00000082, 0x000500AE, 0x00000093, 0x00000094, 0x00000091,
++    0x00000092, 0x0004009A, 0x00000022, 0x00000095, 0x00000094, 0x000300F7, 0x00000097, 0x00000000,
++    0x000400FA, 0x00000095, 0x00000096, 0x00000097, 0x000200F8, 0x00000096, 0x000100FD, 0x000200F8,
++    0x00000097, 0x0004003D, 0x0000009A, 0x0000009D, 0x0000009C, 0x0004003D, 0x00000080, 0x0000009E,
++    0x0000008C, 0x0004007C, 0x0000009F, 0x000000A0, 0x0000009E, 0x00050062, 0x000000A1, 0x000000A2,
++    0x0000009D, 0x000000A0, 0x00050051, 0x00000006, 0x000000A3, 0x000000A2, 0x00000000, 0x0003003E,
++    0x00000099, 0x000000A3, 0x00050041, 0x00000065, 0x000000A5, 0x00000063, 0x00000064, 0x0004003D,
++    0x00000006, 0x000000A6, 0x000000A5, 0x000500C2, 0x00000006, 0x000000A8, 0x000000A6, 0x000000A7,
++    0x000500C7, 0x00000006, 0x000000AA, 0x000000A8, 0x000000A9, 0x0003003E, 0x000000A4, 0x000000AA,
++    0x0004003D, 0x00000006, 0x000000AB, 0x000000A4, 0x000500AA, 0x00000022, 0x000000AC, 0x000000AB,
++    0x00000071, 0x000300F7, 0x000000AE, 0x00000000, 0x000400FA, 0x000000AC, 0x000000AD, 0x000000AE,
++    0x000200F8, 0x000000AD, 0x0004003D, 0x00000006, 0x000000B0, 0x00000099, 0x0003003E, 0x000000AF,
++    0x000000B0, 0x00050039, 0x00000006, 0x000000B1, 0x0000000F, 0x000000AF, 0x0003003E, 0x00000099,
++    0x000000B1, 0x000200F9, 0x000000AE, 0x000200F8, 0x000000AE, 0x0004003D, 0x00000006, 0x000000B3,
++    0x000000A4, 0x000500AA, 0x00000022, 0x000000B4, 0x000000B3, 0x00000076, 0x000300F7, 0x000000B7,
++    0x00000000, 0x000400FA, 0x000000B4, 0x000000B6, 0x000000BB, 0x000200F8, 0x000000B6, 0x0004003D,
++    0x00000006, 0x000000B8, 0x00000099, 0x000500C7, 0x00000006, 0x000000BA, 0x000000B8, 0x000000B9,
++    0x0003003E, 0x000000B5, 0x000000BA, 0x000200F9, 0x000000B7, 0x000200F8, 0x000000BB, 0x0004003D,
++    0x00000006, 0x000000BC, 0x00000099, 0x000500C2, 0x00000006, 0x000000BD, 0x000000BC, 0x00000041,
++    0x0003003E, 0x000000B5, 0x000000BD, 0x000200F9, 0x000000B7, 0x000200F8, 0x000000B7, 0x0004003D,
++    0x00000006, 0x000000BE, 0x000000B5, 0x0003003E, 0x000000B2, 0x000000BE, 0x0004003D, 0x00000006,
++    0x000000C1, 0x000000B2, 0x0003003E, 0x000000C0, 0x000000C1, 0x00050039, 0x00000008, 0x000000C2,
++    0x0000000B, 0x000000C0, 0x0003003E, 0x000000BF, 0x000000C2, 0x0004003D, 0x00000008, 0x000000C4,
++    0x000000BF, 0x00050083, 0x00000008, 0x000000C5, 0x0000002F, 0x000000C4, 0x0008000C, 0x00000008,
++    0x000000C6, 0x00000001, 0x0000002B, 0x000000C5, 0x00000054, 0x0000002F, 0x0003003E, 0x000000C3,
++    0x000000C6, 0x00060041, 0x000000C8, 0x000000C9, 0x00000063, 0x000000A7, 0x00000021, 0x0004003D,
++    0x00000008, 0x000000CA, 0x000000C9, 0x0003003E, 0x000000C7, 0x000000CA, 0x00060041, 0x000000C8,
++    0x000000CC, 0x00000063, 0x000000A7, 0x00000071, 0x0004003D, 0x00000008, 0x000000CD, 0x000000CC,
++    0x0003003E, 0x000000CB, 0x000000CD, 0x0004003D, 0x00000008, 0x000000CF, 0x000000C7, 0x0004003D,
++    0x00000008, 0x000000D0, 0x000000CB, 0x00050085, 0x00000008, 0x000000D1, 0x000000CF, 0x000000D0,
++    0x0004003D, 0x00000008, 0x000000D2, 0x000000CB, 0x0004003D, 0x00000008, 0x000000D3, 0x000000C3,
++    0x0004003D, 0x00000008, 0x000000D4, 0x000000CB, 0x0004003D, 0x00000008, 0x000000D5, 0x000000C7,
++    0x00050083, 0x00000008, 0x000000D6, 0x000000D4, 0x000000D5, 0x00050085, 0x00000008, 0x000000D7,
++    0x000000D3, 0x000000D6, 0x00050083, 0x00000008, 0x000000D8, 0x000000D2, 0x000000D7, 0x00050088,
++    0x00000008, 0x000000D9, 0x000000D1, 0x000000D8, 0x0003003E, 0x000000CE, 0x000000D9, 0x0004003D,
++    0x00000080, 0x000000DC, 0x0000008C, 0x00040070, 0x00000060, 0x000000DD, 0x000000DC, 0x00050050,
++    0x00000060, 0x000000DE, 0x0000005A, 0x0000005A, 0x00050081, 0x00000060, 0x000000DF, 0x000000DD,
++    0x000000DE, 0x00050041, 0x000000E1, 0x000000E2, 0x00000063, 0x000000E0, 0x0004003D, 0x00000060,
++    0x000000E3, 0x000000E2, 0x00050083, 0x00000060, 0x000000E4, 0x000000DF, 0x000000E3, 0x0004003D,
++    0x00000080, 0x000000E5, 0x00000082, 0x00040070, 0x00000060, 0x000000E6, 0x000000E5, 0x00050088,
++    0x00000060, 0x000000E7, 0x000000E4, 0x000000E6, 0x0005008E, 0x00000060, 0x000000E9, 0x000000E7,
++    0x000000E8, 0x00050050, 0x00000060, 0x000000EA, 0x0000002F, 0x0000002F, 0x00050083, 0x00000060,
++    0x000000EB, 0x000000E9, 0x000000EA, 0x0003003E, 0x000000DB, 0x000000EB, 0x0004003D, 0x00000060,
++    0x000000EE, 0x000000DB, 0x00050041, 0x000000E1, 0x000000F0, 0x00000063, 0x000000EF, 0x0004003D,
++    0x00000060, 0x000000F1, 0x000000F0, 0x00050085, 0x00000060, 0x000000F2, 0x000000EE, 0x000000F1,
++    0x0004003D, 0x00000008, 0x000000F3, 0x000000CE, 0x0005008E, 0x00000060, 0x000000F4, 0x000000F2,
++    0x000000F3, 0x0004003D, 0x00000008, 0x000000F5, 0x000000CE, 0x00050051, 0x00000008, 0x000000F6,
++    0x000000F4, 0x00000000, 0x00050051, 0x00000008, 0x000000F7, 0x000000F4, 0x00000001, 0x00070050,
++    0x0000005E, 0x000000F8, 0x000000F6, 0x000000F7, 0x000000F5, 0x0000002F, 0x0003003E, 0x000000ED,
++    0x000000F8, 0x0004003D, 0x0000005E, 0x000000FA, 0x000000ED, 0x00050041, 0x000000FC, 0x000000FD,
++    0x00000063, 0x000000FB, 0x0004003D, 0x0000005F, 0x000000FE, 0x000000FD, 0x00050090, 0x0000005E,
++    0x000000FF, 0x000000FA, 0x000000FE, 0x0003003E, 0x000000F9, 0x000000FF, 0x00050041, 0x00000024,
++    0x00000101, 0x000000F9, 0x00000076, 0x0004003D, 0x00000008, 0x00000102, 0x00000101, 0x000500BA,
++    0x00000022, 0x00000104, 0x00000102, 0x00000103, 0x000300F7, 0x00000107, 0x00000000, 0x000400FA,
++    0x00000104, 0x00000106, 0x00000110, 0x000200F8, 0x00000106, 0x0004003D, 0x0000005E, 0x00000108,
++    0x000000F9, 0x0007004F, 0x00000060, 0x00000109, 0x00000108, 0x00000108, 0x00000000, 0x00000001,
++    0x00050041, 0x00000024, 0x0000010A, 0x000000F9, 0x00000076, 0x0004003D, 0x00000008, 0x0000010B,
++    0x0000010A, 0x00050041, 0x000000E1, 0x0000010C, 0x00000063, 0x000000EF, 0x0004003D, 0x00000060,
++    0x0000010D, 0x0000010C, 0x0005008E, 0x00000060, 0x0000010E, 0x0000010D, 0x0000010B, 0x00050088,
++    0x00000060, 0x0000010F, 0x00000109, 0x0000010E, 0x0003003E, 0x00000105, 0x0000010F, 0x000200F9,
++    0x00000107, 0x000200F8, 0x00000110, 0x0004003D, 0x00000060, 0x00000111, 0x000000DB, 0x0003003E,
++    0x00000105, 0x00000111, 0x000200F9, 0x00000107, 0x000200F8, 0x00000107, 0x0004003D, 0x00000060,
++    0x00000112, 0x00000105, 0x0003003E, 0x00000100, 0x00000112, 0x0004003D, 0x00000060, 0x00000114,
++    0x00000100, 0x0004003D, 0x00000060, 0x00000115, 0x000000DB, 0x00050083, 0x00000060, 0x00000116,
++    0x00000114, 0x00000115, 0x0005008E, 0x00000060, 0x00000117, 0x00000116, 0x0000005A, 0x0004003D,
++    0x00000080, 0x00000118, 0x00000082, 0x00040070, 0x00000060, 0x00000119, 0x00000118, 0x00050085,
++    0x00000060, 0x0000011A, 0x00000117, 0x00000119, 0x0003003E, 0x00000113, 0x0000011A, 0x0004003D,
++    0x0000011B, 0x0000011E, 0x0000011D, 0x0004003D, 0x00000080, 0x0000011F, 0x0000008C, 0x0004007C,
++    0x0000009F, 0x00000120, 0x0000011F, 0x0004003D, 0x00000060, 0x00000121, 0x00000113, 0x00050051,
++    0x00000008, 0x00000122, 0x00000121, 0x00000000, 0x00050051, 0x00000008, 0x00000123, 0x00000121,
++    0x00000001, 0x00070050, 0x0000005E, 0x00000124, 0x00000122, 0x00000123, 0x00000054, 0x00000054,
++    0x00040063, 0x0000011E, 0x00000120, 0x00000124, 0x00050041, 0x00000065, 0x00000126, 0x00000063,
++    0x00000064, 0x0004003D, 0x00000006, 0x00000127, 0x00000126, 0x000500C7, 0x00000006, 0x00000128,
++    0x00000127, 0x000000A9, 0x0003003E, 0x00000125, 0x00000128, 0x0004003D, 0x00000006, 0x00000129,
++    0x00000125, 0x000500AA, 0x00000022, 0x0000012A, 0x00000129, 0x00000071, 0x000300F7, 0x0000012C,
++    0x00000000, 0x000400FA, 0x0000012A, 0x0000012B, 0x00000146, 0x000200F8, 0x0000012B, 0x00050041,
++    0x00000065, 0x0000012E, 0x00000063, 0x00000064, 0x0004003D, 0x00000006, 0x0000012F, 0x0000012E,
++    0x000500C2, 0x00000006, 0x00000130, 0x0000012F, 0x00000041, 0x000500C7, 0x00000006, 0x00000132,
++    0x00000130, 0x00000131, 0x0007000C, 0x00000006, 0x00000133, 0x00000001, 0x00000029, 0x00000132,
++    0x00000071, 0x00040070, 0x00000008, 0x00000134, 0x00000133, 0x0003003E, 0x0000012D, 0x00000134,
++    0x0004003D, 0x0000009A, 0x00000136, 0x00000135, 0x0004003D, 0x00000080, 0x00000137, 0x0000008C,
++    0x0004007C, 0x0000009F, 0x00000138, 0x00000137, 0x0004003D, 0x00000060, 0x00000139, 0x00000113,
++    0x0004003D, 0x00000008, 0x0000013A, 0x0000012D, 0x00050085, 0x00000008, 0x0000013B, 0x000000E8,
++    0x0000013A, 0x00050050, 0x00000060, 0x0000013C, 0x0000013B, 0x0000013B, 0x00050088, 0x00000060,
++    0x0000013D, 0x00000139, 0x0000013C, 0x00050050, 0x00000060, 0x0000013E, 0x0000005A, 0x0000005A,
++    0x00050081, 0x00000060, 0x0000013F, 0x0000013E, 0x0000013D, 0x00050051, 0x00000008, 0x00000140,
++    0x0000013F, 0x00000000, 0x00050051, 0x00000008, 0x00000141, 0x0000013F, 0x00000001, 0x00060050,
++    0x00000011, 0x00000142, 0x00000140, 0x00000141, 0x0000005A, 0x0003003E, 0x00000143, 0x00000142,
++    0x00050039, 0x00000006, 0x00000144, 0x00000015, 0x00000143, 0x00070050, 0x000000A1, 0x00000145,
++    0x00000144, 0x00000021, 0x00000021, 0x00000021, 0x00040063, 0x00000136, 0x00000138, 0x00000145,
++    0x000200F9, 0x0000012C, 0x000200F8, 0x00000146, 0x0004003D, 0x00000006, 0x00000147, 0x00000125,
++    0x000500AA, 0x00000022, 0x00000148, 0x00000147, 0x00000076, 0x000300F7, 0x0000014A, 0x00000000,
++    0x000400FA, 0x00000148, 0x00000149, 0x0000014A, 0x000200F8, 0x00000149, 0x0004003D, 0x00000008,
++    0x0000014C, 0x000000CE, 0x0004003D, 0x00000008, 0x0000014D, 0x000000C7, 0x0007000C, 0x00000008,
++    0x0000014E, 0x00000001, 0x00000028, 0x0000014C, 0x0000014D, 0x0004003D, 0x00000008, 0x0000014F,
++    0x000000C7, 0x00050088, 0x00000008, 0x00000150, 0x0000014E, 0x0000014F, 0x0006000C, 0x00000008,
++    0x00000151, 0x00000001, 0x0000001C, 0x00000150, 0x0004003D, 0x00000008, 0x00000153, 0x000000C7,
++    0x00050088, 0x00000008, 0x00000154, 0x00000152, 0x00000153, 0x0006000C, 0x00000008, 0x00000155,
++    0x00000001, 0x0000001C, 0x00000154, 0x00050088, 0x00000008, 0x00000156, 0x00000151, 0x00000155,
++    0x0008000C, 0x00000008, 0x00000157, 0x00000001, 0x0000002B, 0x00000156, 0x00000054, 0x0000002F,
++    0x00050083, 0x00000008, 0x00000158, 0x0000002F, 0x00000157, 0x0003003E, 0x0000014B, 0x00000158,
++    0x0004003D, 0x0000009A, 0x00000159, 0x00000135, 0x0004003D, 0x00000080, 0x0000015A, 0x0000008C,
++    0x0004007C, 0x0000009F, 0x0000015B, 0x0000015A, 0x0004003D, 0x00000008, 0x0000015C, 0x0000014B,
++    0x00060050, 0x00000011, 0x0000015D, 0x0000015C, 0x0000015C, 0x0000015C, 0x0003003E, 0x0000015E,
++    0x0000015D, 0x00050039, 0x00000006, 0x0000015F, 0x00000015, 0x0000015E, 0x00070050, 0x000000A1,
++    0x00000160, 0x0000015F, 0x00000021, 0x00000021, 0x00000021, 0x00040063, 0x00000159, 0x0000015B,
++    0x00000160, 0x000200F9, 0x0000014A, 0x000200F8, 0x0000014A, 0x000200F9, 0x0000012C, 0x000200F8,
++    0x0000012C, 0x000100FD, 0x00010038, 0x00050036, 0x00000008, 0x0000000B, 0x00000000, 0x00000009,
++    0x00030037, 0x00000007, 0x0000000A, 0x000200F8, 0x0000000C, 0x0004003B, 0x00000007, 0x00000017,
++    0x00000007, 0x0004003B, 0x00000007, 0x0000001C, 0x00000007, 0x0004003B, 0x00000024, 0x00000025,
++    0x00000007, 0x0004003D, 0x00000006, 0x00000018, 0x0000000A, 0x000500C2, 0x00000006, 0x0000001B,
++    0x00000018, 0x0000001A, 0x0003003E, 0x00000017, 0x0000001B, 0x0004003D, 0x00000006, 0x0000001D,
++    0x0000000A, 0x000500C7, 0x00000006, 0x0000001F, 0x0000001D, 0x0000001E, 0x0003003E, 0x0000001C,
++    0x0000001F, 0x0004003D, 0x00000006, 0x00000020, 0x00000017, 0x000500AA, 0x00000022, 0x00000023,
++    0x00000020, 0x00000021, 0x000300F7, 0x00000027, 0x00000000, 0x000400FA, 0x00000023, 0x00000026,
++    0x0000002E, 0x000200F8, 0x00000026, 0x0004003D, 0x00000006, 0x00000028, 0x0000001C, 0x00040070,
++    0x00000008, 0x00000029, 0x00000028, 0x00050088, 0x00000008, 0x0000002B, 0x00000029, 0x0000002A,
++    0x00050085, 0x00000008, 0x0000002D, 0x0000002B, 0x0000002C, 0x0003003E, 0x00000025, 0x0000002D,
++    0x000200F9, 0x00000027, 0x000200F8, 0x0000002E, 0x0004003D, 0x00000006, 0x00000030, 0x0000001C,
++    0x00040070, 0x00000008, 0x00000031, 0x00000030, 0x00050088, 0x00000008, 0x00000032, 0x00000031,
++    0x0000002A, 0x00050081, 0x00000008, 0x00000033, 0x0000002F, 0x00000032, 0x0004003D, 0x00000006,
++    0x00000034, 0x00000017, 0x00040070, 0x00000008, 0x00000035, 0x00000034, 0x00050083, 0x00000008,
++    0x00000037, 0x00000035, 0x00000036, 0x0006000C, 0x00000008, 0x00000038, 0x00000001, 0x0000001D,
++    0x00000037, 0x00050085, 0x00000008, 0x00000039, 0x00000033, 0x00000038, 0x0003003E, 0x00000025,
++    0x00000039, 0x000200F9, 0x00000027, 0x000200F8, 0x00000027, 0x0004003D, 0x00000008, 0x0000003A,
++    0x00000025, 0x000200FE, 0x0000003A, 0x00010038, 0x00050036, 0x00000006, 0x0000000F, 0x00000000,
++    0x0000000D, 0x00030037, 0x00000007, 0x0000000E, 0x000200F8, 0x00000010, 0x0004003D, 0x00000006,
++    0x0000003D, 0x0000000E, 0x000500C2, 0x00000006, 0x0000003F, 0x0000003D, 0x0000003E, 0x0004003D,
++    0x00000006, 0x00000040, 0x0000000E, 0x000500C2, 0x00000006, 0x00000042, 0x00000040, 0x00000041,
++    0x000500C7, 0x00000006, 0x00000044, 0x00000042, 0x00000043, 0x000500C5, 0x00000006, 0x00000045,
++    0x0000003F, 0x00000044, 0x0004003D, 0x00000006, 0x00000046, 0x0000000E, 0x000500C4, 0x00000006,
++    0x00000047, 0x00000046, 0x00000041, 0x000500C7, 0x00000006, 0x00000049, 0x00000047, 0x00000048,
++    0x000500C5, 0x00000006, 0x0000004A, 0x00000045, 0x00000049, 0x0004003D, 0x00000006, 0x0000004B,
++    0x0000000E, 0x000500C4, 0x00000006, 0x0000004C, 0x0000004B, 0x0000003E, 0x000500C5, 0x00000006,
++    0x0000004D, 0x0000004A, 0x0000004C, 0x000200FE, 0x0000004D, 0x00010038, 0x00050036, 0x00000006,
++    0x00000015, 0x00000000, 0x00000013, 0x00030037, 0x00000012, 0x00000014, 0x000200F8, 0x00000016,
++    0x0004003B, 0x00000051, 0x00000052, 0x00000007, 0x0004003D, 0x00000011, 0x00000053, 0x00000014,
++    0x00060050, 0x00000011, 0x00000055, 0x00000054, 0x00000054, 0x00000054, 0x00060050, 0x00000011,
++    0x00000056, 0x0000002F, 0x0000002F, 0x0000002F, 0x0008000C, 0x00000011, 0x00000057, 0x00000001,
++    0x0000002B, 0x00000053, 0x00000055, 0x00000056, 0x0005008E, 0x00000011, 0x00000059, 0x00000057,
++    0x00000058, 0x00060050, 0x00000011, 0x0000005B, 0x0000005A, 0x0000005A, 0x0000005A, 0x00050081,
++    0x00000011, 0x0000005C, 0x00000059, 0x0000005B, 0x0004006D, 0x00000050, 0x0000005D, 0x0000005C,
++    0x0003003E, 0x00000052, 0x0000005D, 0x00050041, 0x00000065, 0x00000066, 0x00000063, 0x00000064,
++    0x0004003D, 0x00000006, 0x00000067, 0x00000066, 0x000500C7, 0x00000006, 0x00000069, 0x00000067,
++    0x00000068, 0x000500AB, 0x00000022, 0x0000006A, 0x00000069, 0x00000021, 0x000300F7, 0x0000006C,
++    0x00000000, 0x000400FA, 0x0000006A, 0x0000006B, 0x0000006C, 0x000200F8, 0x0000006B, 0x0004003D,
++    0x00000050, 0x0000006D, 0x00000052, 0x0008004F, 0x00000050, 0x0000006E, 0x0000006D, 0x0000006D,
++    0x00000002, 0x00000001, 0x00000000, 0x0003003E, 0x00000052, 0x0000006E, 0x000200F9, 0x0000006C,
++    0x000200F8, 0x0000006C, 0x00050041, 0x00000007, 0x0000006F, 0x00000052, 0x00000021, 0x0004003D,
++    0x00000006, 0x00000070, 0x0000006F, 0x00050041, 0x00000007, 0x00000072, 0x00000052, 0x00000071,
++    0x0004003D, 0x00000006, 0x00000073, 0x00000072, 0x000500C4, 0x00000006, 0x00000074, 0x00000073,
++    0x00000041, 0x000500C5, 0x00000006, 0x00000075, 0x00000070, 0x00000074, 0x00050041, 0x00000007,
++    0x00000077, 0x00000052, 0x00000076, 0x0004003D, 0x00000006, 0x00000078, 0x00000077, 0x000500C4,
++    0x00000006, 0x0000007A, 0x00000078, 0x00000079, 0x000500C5, 0x00000006, 0x0000007B, 0x00000075,
++    0x0000007A, 0x000500C5, 0x00000006, 0x0000007D, 0x0000007B, 0x0000007C, 0x000200FE, 0x0000007D,
++    0x00010038,
++};
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index d32a563..09f2189 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -86,6 +86,19 @@ REXCVAR_DEFINE_STRING(gpu_dlaa_jitter_test, "", "GPU",
+                       "DLAA jitter test: a fixed X,Y offset in host pixels instead of the Halton sequence (needs "
+                       "gpu_dlaa_jitter); empty = the sequence");
+ REXCVAR_DEFINE_INT32(gpu_dlaa_jitter_phases, 8, "GPU", "DLAA jitter: length of the Halton sequence (DLAA: 8)");
++REXCVAR_DEFINE_BOOL(gpu_dlaa_motion, false, "GPU",
++                    "DLAA step 2: camera motion vectors from the scene depth resolve (default off)");
++REXCVAR_DEFINE_INT32(gpu_dlaa_debug, 0, "GPU",
++                     "DLAA debug view (runs the motion pass): 1 = motion vectors as colour in the scene (red = left/"
++                     "right, green = up/down, grey = still), 2 = scene depth as grey; 0 = off");
++REXCVAR_DEFINE_INT32(gpu_dlaa_debug_scale, 16, "GPU", "DLAA debug view 1: pixels of motion for full colour");
++REXCVAR_DEFINE_INT32(gpu_dlaa_depth_order, 0, "GPU",
++                     "DLAA: depth word layout in the cached texel: 0 = depth in the top 24 bits, 1 = byte-swapped, "
++                     "2 = the low 24 bits");
++REXCVAR_DEFINE_BOOL(gpu_dlaa_fov_vertical, true, "GPU",
++                    "DLAA: the camera's field of view is vertical (else horizontal); aspect from the depth target");
++REXCVAR_DEFINE_INT32(gpu_dlaa_camera_offset, 0, "GPU",
++                     "DLAA: use the camera the app gave for (processed frame + N) as this frame's");
+ REXCVAR_DEFINE_INT32(gpu_dlaa_jitter_min_width, 1000, "GPU",
+                      "DLAA jitter: only viewports at least this many guest pixels wide count as scene draws");
+ 
+@@ -858,6 +871,7 @@ void NotePipelineNoWaitSwap(bool frame_had_skipped_draws, bool frame_held,
+ 
+ // Generated with `xb buildshaders`.
+ namespace shaders {
++#include "../shaders/vulkan_spirv/dlaa_motion_cs.h"  // wwe2k14 patch (Session 18, DLAA)
+ #include "../shaders/vulkan_spirv/apply_gamma_pwl_cs.h"
+ #include "../shaders/vulkan_spirv/apply_gamma_pwl_fxaa_luma_ps.h"
+ #include "../shaders/vulkan_spirv/apply_gamma_pwl_fxaa_luma_cs.h"
+@@ -3888,6 +3902,233 @@ static void MatteOnSwap(uint32_t& resolve_index, uint32_t& dumped, uint32_t& dep
+   }
+ }
+ 
++// wwe2k14 patch (Session 18, DLAA step 2): camera motion vectors.
++void VulkanCommandProcessor::DlaaSetCamera(uint64_t frame, const float view[16], float fov_degrees, float near_z,
++                                           float far_z) {
++  std::lock_guard<std::mutex> lock(dlaa_camera_mutex_);
++  DlaaCamera& c = dlaa_cameras_[frame % 16];
++  c.frame = frame;
++  for (int i = 0; i < 16; ++i) c.view[i] = view[i];
++  c.fov_degrees = fov_degrees, c.near_z = near_z, c.far_z = far_z;
++}
++
++bool VulkanCommandProcessor::DlaaFindCamera(uint64_t frame, DlaaCamera& out) {
++  std::lock_guard<std::mutex> lock(dlaa_camera_mutex_);
++  const DlaaCamera& c = dlaa_cameras_[frame % 16];
++  if (c.frame != frame) return false;
++  out = c;
++  return true;
++}
++
++// Row-vector rigid inverse (the world -> view matrices are rotation + translation).
++static void DlaaRigidInverse(const double m[16], double out[16]) {
++  for (int i = 0; i < 3; ++i)
++    for (int j = 0; j < 3; ++j) out[i * 4 + j] = m[j * 4 + i];
++  for (int j = 0; j < 3; ++j)
++    out[12 + j] = -(m[12] * out[0 * 4 + j] + m[13] * out[1 * 4 + j] + m[14] * out[2 * 4 + j]);
++  out[3] = out[7] = out[11] = 0, out[15] = 1;
++}
++
++static void DlaaMul(const double a[16], const double b[16], double out[16]) {
++  for (int i = 0; i < 4; ++i)
++    for (int j = 0; j < 4; ++j) {
++      double s = 0;
++      for (int k = 0; k < 4; ++k) s += a[i * 4 + k] * b[k * 4 + j];
++      out[i * 4 + j] = s;
++    }
++}
++
++bool VulkanCommandProcessor::DlaaEnsureMotionResources(uint32_t width, uint32_t height) {
++  if (dlaa_motion_failed_) return false;
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (dlaa_motion_pipeline_ == VK_NULL_HANDLE) {
++    const VkDescriptorSetLayout set_layout = texture_cache_->dlaa_storage_set_layout();
++    if (set_layout == VK_NULL_HANDLE) {
++      REXGPU_ERROR("[dlaa] motion: no storage set layout (vulkan_texture_load_direct off?)");
++      dlaa_motion_failed_ = true;
++      return false;
++    }
++    const VkDescriptorSetLayout layouts[3] = {set_layout, set_layout, set_layout};
++    VkPushConstantRange push;
++    push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
++    push.offset = 0;
++    push.size = 96;
++    VkPipelineLayoutCreateInfo info;
++    info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
++    info.pNext = nullptr;
++    info.flags = 0;
++    info.setLayoutCount = 3;
++    info.pSetLayouts = layouts;
++    info.pushConstantRangeCount = 1;
++    info.pPushConstantRanges = &push;
++    if (dfn.vkCreatePipelineLayout(device, &info, nullptr, &dlaa_motion_layout_) != VK_SUCCESS) {
++      REXGPU_ERROR("[dlaa] motion: pipeline layout failed");
++      dlaa_motion_failed_ = true;
++      return false;
++    }
++    dlaa_motion_pipeline_ = ui::vulkan::util::CreateComputePipeline(
++        vulkan_device, dlaa_motion_layout_, shaders::dlaa_motion_cs, sizeof(shaders::dlaa_motion_cs));
++    if (dlaa_motion_pipeline_ == VK_NULL_HANDLE) {
++      REXGPU_ERROR("[dlaa] motion: compute pipeline failed");
++      dlaa_motion_failed_ = true;
++      return false;
++    }
++  }
++  if (dlaa_motion_image_ != VK_NULL_HANDLE && dlaa_motion_size_[0] == width && dlaa_motion_size_[1] == height) {
++    return true;
++  }
++  if (dlaa_motion_image_ != VK_NULL_HANDLE) {
++    AwaitAllQueueOperationsCompletion();
++    dfn.vkDestroyImageView(device, dlaa_motion_view_, nullptr);
++    dfn.vkDestroyImage(device, dlaa_motion_image_, nullptr);
++    dfn.vkFreeMemory(device, dlaa_motion_memory_, nullptr);
++    dlaa_motion_image_ = VK_NULL_HANDLE, dlaa_motion_view_ = VK_NULL_HANDLE, dlaa_motion_memory_ = VK_NULL_HANDLE;
++  }
++  VkImageCreateInfo image_info = {};
++  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
++  image_info.imageType = VK_IMAGE_TYPE_2D;
++  image_info.format = VK_FORMAT_R16G16_SFLOAT;
++  image_info.extent = {width, height, 1};
++  image_info.mipLevels = 1;
++  image_info.arrayLayers = 1;
++  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
++  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
++  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
++  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++  if (!ui::vulkan::util::CreateDedicatedAllocationImage(vulkan_device, image_info,
++                                                       ui::vulkan::util::MemoryPurpose::kDeviceLocal,
++                                                       dlaa_motion_image_, dlaa_motion_memory_)) {
++    REXGPU_ERROR("[dlaa] motion: image {}x{} failed", width, height);
++    dlaa_motion_failed_ = true;
++    return false;
++  }
++  VkImageViewCreateInfo view_info = {};
++  view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
++  view_info.image = dlaa_motion_image_;
++  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
++  view_info.format = VK_FORMAT_R16G16_SFLOAT;
++  view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange();
++  if (dfn.vkCreateImageView(device, &view_info, nullptr, &dlaa_motion_view_) != VK_SUCCESS) {
++    REXGPU_ERROR("[dlaa] motion: image view failed");
++    dlaa_motion_failed_ = true;
++    return false;
++  }
++  if (dlaa_motion_set_ == VK_NULL_HANDLE) {
++    dlaa_motion_set_ = texture_cache_->DlaaStorageSetForView(dlaa_motion_view_);
++  } else {
++    VkDescriptorImageInfo di = {VK_NULL_HANDLE, dlaa_motion_view_, VK_IMAGE_LAYOUT_GENERAL};
++    VkWriteDescriptorSet w = {};
++    w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++    w.dstSet = dlaa_motion_set_;
++    w.descriptorCount = 1;
++    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++    w.pImageInfo = &di;
++    dfn.vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
++  }
++  if (dlaa_motion_set_ == VK_NULL_HANDLE) {
++    REXGPU_ERROR("[dlaa] motion: descriptor set failed");
++    dlaa_motion_failed_ = true;
++    return false;
++  }
++  dlaa_motion_size_[0] = width, dlaa_motion_size_[1] = height;
++  dlaa_motion_initialized_layout_ = false;
++  return true;
++}
++
++void VulkanCommandProcessor::DlaaMotionPass() {
++  if (!dlaa_color_valid_) return;
++  const auto color_info = reg::RB_COPY_DEST_INFO{dlaa_color_regs_[3]};
++  const auto depth_info = reg::RB_COPY_DEST_INFO{dlaa_depth_regs_[3]};
++  auto tex_format = [](reg::RB_COPY_DEST_INFO di) {
++    return xenos::TextureFormat(uint32_t(di.copy_dest_format));  // k_8_8_8_8 = 6 in both enums
++  };
++  // Both are 1280-wide k_8_8_8_8 targets in 2K14 (run 1287); the resolve's width is its pitch.
++  VulkanTextureCache::DlaaStorage depth, color;
++  const bool have_depth = texture_cache_->DlaaResolveStorage(
++      dlaa_depth_regs_[0], dlaa_depth_regs_[1], dlaa_depth_regs_[1], dlaa_depth_regs_[2], tex_format(depth_info),
++      xenos::Endian(uint32_t(depth_info.copy_dest_endian) & 3), depth);
++  const bool have_color = have_depth && texture_cache_->DlaaResolveStorage(
++      dlaa_color_regs_[0], dlaa_color_regs_[1], dlaa_color_regs_[1], dlaa_color_regs_[2], tex_format(color_info),
++      xenos::Endian(uint32_t(color_info.copy_dest_endian) & 3), color);
++  if (!have_depth || !have_color) {
++    if (dlaa_motion_log_left_) {
++      --dlaa_motion_log_left_;
++      REXGPU_WARN("[dlaa] motion: frame {}: no {} texture: {}", dlaa_frame_, have_depth ? "colour" : "depth",
++                  have_depth ? (color.failure ? color.failure : "?") : (depth.failure ? depth.failure : "?"));
++    }
++    return;
++  }
++  if (!DlaaEnsureMotionResources(depth.width, depth.height)) return;
++  const int64_t offset = REXCVAR_GET(gpu_dlaa_camera_offset);
++  DlaaCamera now, prev;
++  const bool have_now = DlaaFindCamera(uint64_t(int64_t(dlaa_frame_) + offset), now);
++  const bool have_prev = DlaaFindCamera(uint64_t(int64_t(dlaa_frame_) + offset - 1), prev);
++  if (!have_now || !have_prev) {
++    ++dlaa_motion_no_camera_;
++    if (!have_now) return;
++    prev = now;  // no motion
++  }
++  struct {
++    float reproject[16];
++    float tan_half_fov[2];
++    float near_far[2];
++    float jitter[2];
++    uint32_t size;
++    uint32_t mode;
++  } pc;
++  static_assert(sizeof(pc) == 96, "push constants");
++  double inv_now[16], rep[16];
++  DlaaRigidInverse(now.view, inv_now);
++  DlaaMul(inv_now, prev.view, rep);
++  // GLSL mat4 from push constants is column-major: row-vector v * M needs M's columns = our rows -> transpose.
++  for (int i = 0; i < 4; ++i)
++    for (int j = 0; j < 4; ++j) pc.reproject[j * 4 + i] = float(rep[i * 4 + j]);
++  const double aspect = double(depth.width) / double(std::max(1u, depth.height));
++  const double t = std::tan(double(now.fov_degrees) * 0.5 * 3.14159265358979323846 / 180.0);
++  if (REXCVAR_GET(gpu_dlaa_fov_vertical)) {
++    pc.tan_half_fov[0] = float(t * aspect), pc.tan_half_fov[1] = float(t);
++  } else {
++    pc.tan_half_fov[0] = float(t), pc.tan_half_fov[1] = float(t / aspect);
++  }
++  pc.near_far[0] = now.near_z, pc.near_far[1] = now.far_z;
++  pc.jitter[0] = REXCVAR_GET(gpu_dlaa_jitter) ? dlaa_jitter_[0] : 0.0f;
++  pc.jitter[1] = REXCVAR_GET(gpu_dlaa_jitter) ? dlaa_jitter_[1] : 0.0f;
++  pc.size = depth.width | (depth.height << 16);
++  const uint32_t debug = uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_debug), 0, 2));
++  const bool bgra = color.host_format == VK_FORMAT_B8G8R8A8_UNORM || color.host_format == VK_FORMAT_B8G8R8A8_SRGB;
++  pc.mode = debug | (uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_depth_order), 0, 2)) << 2) | (bgra ? 16u : 0u) |
++            (uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_debug_scale), 1, 255)) << 8);
++  // The motion image: previous contents not needed.
++  PushImageMemoryBarrier(dlaa_motion_image_, ui::vulkan::util::InitializeSubresourceRange(),
++                         dlaa_motion_initialized_layout_ ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
++                                                         : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
++                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                         dlaa_motion_initialized_layout_ ? VK_ACCESS_SHADER_READ_BIT : 0,
++                         VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
++  dlaa_motion_initialized_layout_ = true;
++  DeferredCommandBuffer& cb = deferred_command_buffer();
++  BindExternalComputePipeline(dlaa_motion_pipeline_);
++  const VkDescriptorSet sets[3] = {depth.set, color.set, dlaa_motion_set_};
++  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, dlaa_motion_layout_, 0, 3, sets, 0, nullptr);
++  cb.CmdVkPushConstants(dlaa_motion_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
++  SubmitBarriers(true);
++  cb.CmdVkDispatch((depth.width + 7) / 8, (depth.height + 7) / 8, 1);
++  ++dlaa_motion_passes_;
++  if (dlaa_motion_log_left_) {
++    --dlaa_motion_log_left_;
++    REXGPU_INFO("[dlaa] motion: frame {}: depth 0x{:08X} {}x{} (host format {}), colour 0x{:08X} (host format {}), "
++                "cameras {} / {} (offset {}), fov {:.2f} near {} far {}, camera moved {:.3f} / {:.3f} / {:.3f}, "
++                "debug {}; passes {} without camera {}",
++                dlaa_frame_, dlaa_depth_regs_[0], depth.width, depth.height, uint32_t(depth.host_format),
++                dlaa_color_regs_[0], uint32_t(color.host_format), have_now ? "now" : "-", have_prev ? "prev" : "-",
++                offset, now.fov_degrees, now.near_z, now.far_z, rep[12], rep[13], rep[14], debug, dlaa_motion_passes_,
++                dlaa_motion_no_camera_);
++  }
++}
++
+ // wwe2k14 patch (Session 18, DLAA): the next frame's jitter.
+ static float DlaaHalton(uint32_t index, uint32_t base) {
+   float f = 1.0f, r = 0.0f;
+@@ -3909,6 +4150,8 @@ void VulkanCommandProcessor::DlaaOnSwap() {
+   }
+   ++dlaa_frame_;
+   dlaa_scene_done_ = false;
++  dlaa_color_valid_ = false;
++  dlaa_depth_regs_[0] = 0;
+   dlaa_jittered_draws_ = 0;
+   float x = 0, y = 0;
+   const std::string test = REXCVAR_GET(gpu_dlaa_jitter_test);
+@@ -7577,9 +7820,16 @@ bool VulkanCommandProcessor::IssueCopy() {
+     const reg::RB_COPY_DEST_PITCH dest_pitch = mregs.Get<reg::RB_COPY_DEST_PITCH>();
+     // Scene-size only (run 1288: shadow maps and other 512x512 targets filled the 16 slots before the depth copy).
+     const bool big = uint32_t(dest_pitch.copy_dest_pitch) >= 1000u && uint32_t(dest_pitch.copy_dest_height) >= 500u;
+-    // wwe2k14 patch (Session 18, DLAA): the scene's depth resolve ends the frame's jittered (scene) draws.
++    // wwe2k14 patch (Session 18, DLAA): the scene's depth resolve ends the frame's jittered (scene) draws; the
++    // frame's last scene-size colour resolve before it is the scene colour (run 1287: resolve 51 colour, 52 depth).
+     if (copying_depth && big && copy_control.copy_command != xenos::CopyCommand::kNull) {
+       dlaa_scene_done_ = true;
++      dlaa_depth_regs_[0] = matte_regs_[1], dlaa_depth_regs_[1] = uint32_t(dest_pitch.copy_dest_pitch);
++      dlaa_depth_regs_[2] = uint32_t(dest_pitch.copy_dest_height), dlaa_depth_regs_[3] = matte_regs_[2];
++    } else if (!copying_depth && big && copy_control.copy_command != xenos::CopyCommand::kNull) {
++      dlaa_color_regs_[0] = matte_regs_[1], dlaa_color_regs_[1] = uint32_t(dest_pitch.copy_dest_pitch);
++      dlaa_color_regs_[2] = uint32_t(dest_pitch.copy_dest_height), dlaa_color_regs_[3] = matte_regs_[2];
++      dlaa_color_valid_ = true;
+     }
+     if ((copying_depth || big) && copy_control.copy_command != xenos::CopyCommand::kNull && matte_dumped_ < 16) {
+       const std::string path = REXCVAR_GET(gpu_depth_dump);
+@@ -7594,6 +7844,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+ 
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
+   bool copied;
++  const bool dlaa_motion_now = dlaa_scene_done_ && dlaa_depth_regs_[0] == matte_regs_[1] &&
++                               (REXCVAR_GET(gpu_dlaa_motion) || REXCVAR_GET(gpu_dlaa_debug) != 0);
+   if (readback_mode == ReadbackResolveMode::kDisabled && !matte_force_readback_) {
+     uint32_t written_address, written_length;
+     copied = render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
+@@ -7601,6 +7853,9 @@ bool VulkanCommandProcessor::IssueCopy() {
+   } else {
+     copied = IssueCopy_ReadbackResolvePath();
+   }
++  if (copied && dlaa_motion_now) {
++    DlaaMotionPass();  // wwe2k14 patch (Session 18, DLAA step 2)
++  }
+   // No mark if the readback path has ended the submission (GpuMark needs an open one); the submission's cb_end
+   // ends the copy then (GpuMarksWriteFrame).
+   if (gpu_marks_active_) {
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 2398b48..72e1d60 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2708,6 +2708,71 @@ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
+   vmaDestroyImage(vulkan_texture_cache.vma_allocator_, image_, allocation_);
+ }
+ 
++// wwe2k14 patch (Session 18, DLAA): see the header.
++bool VulkanTextureCache::DlaaResolveStorage(uint32_t base_address, uint32_t pitch_texels, uint32_t width,
++                                            uint32_t height, xenos::TextureFormat format, xenos::Endian endian,
++                                            DlaaStorage& out) {
++  out = DlaaStorage();
++  Texture* t = DlaaFindResolveTexture(base_address, pitch_texels, width, height, format, endian);
++  if (!t) {
++    out.failure = "no texture (unsupported or load failed)";
++    return false;
++  }
++  VulkanTexture& vt = static_cast<VulkanTexture&>(*t);
++  if (vt.direct_load_creation() != VulkanTexture::DirectLoadCreation::kCapable ||
++      vt.direct_load_format() != VK_FORMAT_R32_UINT) {
++    out.failure = "texture without the R32_UINT storage view (vulkan_texture_load_direct off or not eligible)";
++    return false;
++  }
++  VkDescriptorSet set = vt.GetDirectLoadDescriptorSet();
++  if (set == VK_NULL_HANDLE) {
++    out.failure = "no storage descriptor";
++    return false;
++  }
++  vt.MarkAsUsed();
++  const VulkanTexture::Usage old_usage = vt.SetUsage(VulkanTexture::Usage::kComputeStorageWrite);
++  VkPipelineStageFlags src_stage;
++  VkAccessFlags src_access;
++  VkImageLayout old_layout;
++  GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
++  command_processor_.PushImageMemoryBarrier(vt.image(), ui::vulkan::util::InitializeSubresourceRange(), src_stage,
++                                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, src_access,
++                                            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, old_layout,
++                                            VK_IMAGE_LAYOUT_GENERAL);
++  const TextureKey& key = t->key();
++  out.image = vt.image();
++  out.set = set;
++  out.host_format = GetHostFormatPair(key).format_unsigned.format;
++  out.width = key.GetWidth() * (key.scaled_resolve ? draw_resolution_scale_x() : 1);
++  out.height = key.GetHeight() * (key.scaled_resolve ? draw_resolution_scale_y() : 1);
++  return true;
++}
++
++VkDescriptorSet VulkanTextureCache::DlaaStorageSetForView(VkImageView view) {
++  if (!direct_load_descriptor_pool_) return VK_NULL_HANDLE;
++  const size_t index = direct_load_descriptor_pool_->Allocate();
++  if (index == SIZE_MAX) return VK_NULL_HANDLE;
++  VkDescriptorSet set = direct_load_descriptor_pool_->Get(index);
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  VkDescriptorImageInfo image_info;
++  image_info.sampler = VK_NULL_HANDLE;
++  image_info.imageView = view;
++  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
++  VkWriteDescriptorSet write;
++  write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++  write.pNext = nullptr;
++  write.dstSet = set;
++  write.dstBinding = 0;
++  write.dstArrayElement = 0;
++  write.descriptorCount = 1;
++  write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++  write.pImageInfo = &image_info;
++  write.pBufferInfo = nullptr;
++  write.pTexelBufferView = nullptr;
++  vulkan_device->functions().vkUpdateDescriptorSets(vulkan_device->device(), 1, &write, 0, nullptr);
++  return set;
++}
++
+ VkDescriptorSet VulkanTextureCache::VulkanTexture::GetDirectLoadDescriptorSet() {
+   // wwe2k14 patch (Session 7c, TEXDIRECT).
+   VulkanTextureCache& vulkan_texture_cache = static_cast<VulkanTextureCache&>(texture_cache());
+-- 
+2.52.0.windows.1
+
+
+From 9eb73af15a3bf79e4c49d94b637aacc0fa6e4648 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:02:39 +1100
+Subject: [PATCH 3/8] Session 18 DLAA: perf/dlaa.h camera sink (rexruntime),
+ registered by the Vulkan command processor
+
+---
+ include/rex/perf/dlaa.h                   | 24 ++++++++++++++
+ src/core/CMakeLists.txt                   |  1 +
+ src/core/perf/dlaa.cpp                    | 38 +++++++++++++++++++++++
+ src/graphics/vulkan/command_processor.cpp |  8 +++++
+ 4 files changed, 71 insertions(+)
+ create mode 100644 include/rex/perf/dlaa.h
+ create mode 100644 src/core/perf/dlaa.cpp
+
+diff --git a/include/rex/perf/dlaa.h b/include/rex/perf/dlaa.h
+new file mode 100644
+index 0000000..a33af21
+--- /dev/null
++++ b/include/rex/perf/dlaa.h
+@@ -0,0 +1,24 @@
++/**
++ * @file        perf/dlaa.h
++ * @brief       The game camera of each frame, from the app to the GPU plugin (wwe2k14 patch, Session 18, DLAA)
++ *
++ * The Vulkan command processor registers a sink at SetupContext; the app calls SubmitCamera at the game's camera
++ * hand-off (any thread). Exported from rexruntime, like perf/flight.h, so the GPU plugin and the app share it
++ * without the app including the command processor's headers.
++ */
++#pragma once
++
++#include <cstdint>
++
++namespace rex::perf::dlaa {
++
++// view: world -> view, row vectors (x right, y down, z forward); fov in degrees; frame = guest swaps before it.
++using CameraFn = void (*)(void* user, uint64_t frame, const float view[16], float fov_degrees, float near_z,
++                          float far_z);
++
++// nullptr unregisters (only if `user` matches the registered one).
++void SetCameraSink(CameraFn fn, void* user);
++// Forwards to the sink; false if none is registered.
++bool SubmitCamera(uint64_t frame, const float view[16], float fov_degrees, float near_z, float far_z);
++
++}  // namespace rex::perf::dlaa
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 3334429..06f9d3b 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -19,6 +19,7 @@ add_library(rexcore OBJECT
+     mutex.cpp
+     perf/timeline.cpp
+     perf/flight.cpp
++    perf/dlaa.cpp
+     ring_buffer.cpp
+     string_buffer.cpp
+     threading.cpp
+diff --git a/src/core/perf/dlaa.cpp b/src/core/perf/dlaa.cpp
+new file mode 100644
+index 0000000..64d4a6a
+--- /dev/null
++++ b/src/core/perf/dlaa.cpp
+@@ -0,0 +1,38 @@
++/**
++ * @file        perf/dlaa.cpp
++ * @brief       DLAA camera sink registry (wwe2k14 patch, Session 18). See perf/dlaa.h.
++ */
++#include <rex/perf/dlaa.h>
++
++#include <mutex>
++
++namespace rex::perf::dlaa {
++
++namespace {
++std::mutex& Mutex() {
++  static std::mutex mutex;
++  return mutex;
++}
++CameraFn g_fn = nullptr;
++void* g_user = nullptr;
++}  // namespace
++
++void SetCameraSink(CameraFn fn, void* user) {
++  std::lock_guard<std::mutex> lock(Mutex());
++  if (fn) {
++    g_fn = fn;
++    g_user = user;
++  } else if (g_user == user) {
++    g_fn = nullptr;
++    g_user = nullptr;
++  }
++}
++
++bool SubmitCamera(uint64_t frame, const float view[16], float fov_degrees, float near_z, float far_z) {
++  std::lock_guard<std::mutex> lock(Mutex());
++  if (!g_fn) return false;
++  g_fn(g_user, frame, view, fov_degrees, near_z, far_z);
++  return true;
++}
++
++}  // namespace rex::perf::dlaa
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 09f2189..2ed401b 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -41,6 +41,7 @@
+ #include <rex/perf/processor.h>
+ #include <rex/perf/timeline.h>
+ #include <rex/perf/flight.h>  // wwe2k14 patch (Session 8, FLIGHT)
++#include <rex/perf/dlaa.h>    // wwe2k14 patch (Session 18, DLAA)
+ #include <rex/math.h>
+ #include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/util/draw.h>
+@@ -2313,6 +2314,12 @@ bool VulkanCommandProcessor::SetupContext() {
+   // wwe2k14 patch (Session 8, FLIGHT): passive registration; the provider answers only with
+   // vulkan_flight_gpu_records on.
+   perf::flight::SetGpuRecordsProvider(&VulkanCommandProcessor::FlightGpuRecords, this);
++  // wwe2k14 patch (Session 18, DLAA): the app's camera of each frame.
++  perf::dlaa::SetCameraSink(
++      [](void* user, uint64_t frame, const float view[16], float fov, float near_z, float far_z) {
++        static_cast<VulkanCommandProcessor*>(user)->DlaaSetCamera(frame, view, fov, near_z, far_z);
++      },
++      this);
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -3490,6 +3497,7 @@ bool VulkanCommandProcessor::SetupContext() {
+ 
+ void VulkanCommandProcessor::ShutdownContext() {
+   perf::flight::SetGpuRecordsProvider(nullptr, this);  // wwe2k14 patch (Session 8, FLIGHT)
++  perf::dlaa::SetCameraSink(nullptr, this);  // wwe2k14 patch (Session 18, DLAA)
+   AwaitAllQueueOperationsCompletion();
+   AsyncSubmitStop();
+   GpuTimestampsShutdown();  // wwe2k14 patch (Session 6, COUNTERS)
+-- 
+2.52.0.windows.1
+
+
+From 36dc519c39021d43cc15c8f225b1a344df9d14e6 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:07:28 +1100
+Subject: [PATCH 4/8] Session 18 DLAA: debug views written through our output
+ image + vkCmdCopyImage into the scene colour texture (the game's has no
+ storage view); deferred CmdVkCopyImage
+
+---
+ .../rex/graphics/vulkan/command_processor.h   |   9 ++
+ .../graphics/vulkan/deferred_command_buffer.h |  27 +++++
+ include/rex/graphics/vulkan/texture_cache.h   |   4 +
+ .../rex/ui/vulkan/functions/device_1_0.inc    |   1 +
+ src/graphics/vulkan/command_processor.cpp     | 111 +++++++++++++++++-
+ .../vulkan/deferred_command_buffer.cpp        |  10 ++
+ src/graphics/vulkan/texture_cache.cpp         |  28 +++++
+ 7 files changed, 185 insertions(+), 5 deletions(-)
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 61542e8..7e76ddf 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1076,6 +1076,15 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool dlaa_motion_initialized_layout_ = false;
+   uint32_t dlaa_motion_log_left_ = 6;
+   uint64_t dlaa_motion_passes_ = 0, dlaa_motion_no_camera_ = 0;
++  // Our output colour image (the scene colour's host format, MUTABLE, R32_UINT storage view), copied into the
++  // scene colour texture after the pass (debug views; later the DLAA result).
++  bool DlaaEnsureOutputImage(VkFormat format, uint32_t width, uint32_t height);
++  VkImage dlaa_out_image_ = VK_NULL_HANDLE;
++  VkDeviceMemory dlaa_out_memory_ = VK_NULL_HANDLE;
++  VkImageView dlaa_out_view_ = VK_NULL_HANDLE;
++  VkDescriptorSet dlaa_out_set_ = VK_NULL_HANDLE;
++  VkFormat dlaa_out_format_ = VK_FORMAT_UNDEFINED;
++  uint32_t dlaa_out_size_[2] = {};
+   // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 for the frame being marked (only while
+   // gpu_marks_active_).
+   bool gpu_marks_sparse_ = false;
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 64e94f4..9116d8c 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -234,6 +234,22 @@ class DeferredCommandBuffer {
+                 regions, sizeof(VkBufferImageCopy) * region_count);
+   }
+ 
++  // wwe2k14 patch (Session 18, DLAA): image to image (the DLAA pass's output into a cached texture).
++  void CmdVkCopyImage(VkImage src_image, VkImageLayout src_image_layout, VkImage dst_image,
++                      VkImageLayout dst_image_layout, uint32_t region_count, const VkImageCopy* regions) {
++    BeforeEventCommand();  // A copy, like the other copies (Session 7c, CAUSES).
++    const size_t header_size = rex::align(sizeof(ArgsVkCopyImage), alignof(VkImageCopy));
++    uint8_t* args_ptr = reinterpret_cast<uint8_t*>(
++        WriteCommand(Command::kVkCopyImage, header_size + sizeof(VkImageCopy) * region_count));
++    auto& args = *reinterpret_cast<ArgsVkCopyImage*>(args_ptr);
++    args.src_image = src_image;
++    args.src_image_layout = src_image_layout;
++    args.dst_image = dst_image;
++    args.dst_image_layout = dst_image_layout;
++    args.region_count = region_count;
++    std::memcpy(args_ptr + header_size, regions, sizeof(VkImageCopy) * region_count);
++  }
++
+   // wwe2k14 patch (Session 7c, TEXDIRECT): for the vulkan_texture_load_direct_verify readback.
+   void CmdVkCopyImageToBuffer(VkImage src_image, VkImageLayout src_image_layout, VkBuffer dst_buffer,
+                               uint32_t region_count, const VkBufferImageCopy* regions) {
+@@ -456,6 +472,7 @@ class DeferredCommandBuffer {
+     kVkSetViewport,
+     kVkUpdateDescriptorSets,
+     kVkWriteTimestamp,  // wwe2k14 patch (Session 7b, GPUMARKS)
++    kVkCopyImage,       // wwe2k14 patch (Session 18, DLAA)
+   };
+ 
+   struct CommandHeader {
+@@ -560,6 +577,16 @@ class DeferredCommandBuffer {
+   };
+ 
+   // wwe2k14 patch (Session 7c, TEXDIRECT).
++  struct ArgsVkCopyImage {  // wwe2k14 patch (Session 18, DLAA)
++    VkImage src_image;
++    VkImageLayout src_image_layout;
++    VkImage dst_image;
++    VkImageLayout dst_image_layout;
++    uint32_t region_count;
++    // Followed by aligned VkImageCopy[].
++    static_assert(alignof(VkImageCopy) <= alignof(uintmax_t));
++  };
++
+   struct ArgsVkCopyImageToBuffer {
+     VkImage src_image;
+     VkImageLayout src_image_layout;
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index fd8f85f..c73f1d0 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -101,6 +101,10 @@ class VulkanTextureCache final : public TextureCache {
+   };
+   bool DlaaResolveStorage(uint32_t base_address, uint32_t pitch_texels, uint32_t width, uint32_t height,
+                           xenos::TextureFormat format, xenos::Endian endian, DlaaStorage& out);
++  // The same texture as a copy destination (barrier to TRANSFER_DST_OPTIMAL pushed; usage kTransferDestination,
++  // so the next sampling transitions it back); no storage view needed. out.set stays VK_NULL_HANDLE.
++  bool DlaaResolveCopyTarget(uint32_t base_address, uint32_t pitch_texels, uint32_t width, uint32_t height,
++                             xenos::TextureFormat format, xenos::Endian endian, DlaaStorage& out);
+   VkDescriptorSetLayout dlaa_storage_set_layout() const { return direct_load_descriptor_set_layout_; }
+   // A set of that layout for one of our own images (a storage view in GENERAL layout); VK_NULL_HANDLE on failure.
+   VkDescriptorSet DlaaStorageSetForView(VkImageView view);
+diff --git a/include/rex/ui/vulkan/functions/device_1_0.inc b/include/rex/ui/vulkan/functions/device_1_0.inc
+index 0a33603..1403d16 100644
+--- a/include/rex/ui/vulkan/functions/device_1_0.inc
++++ b/include/rex/ui/vulkan/functions/device_1_0.inc
+@@ -14,6 +14,7 @@ XE_UI_VULKAN_FUNCTION(vkCmdClearAttachments)
+ XE_UI_VULKAN_FUNCTION(vkCmdClearColorImage)
+ XE_UI_VULKAN_FUNCTION(vkCmdCopyBuffer)
+ XE_UI_VULKAN_FUNCTION(vkCmdCopyBufferToImage)
++XE_UI_VULKAN_FUNCTION(vkCmdCopyImage)  // wwe2k14 patch (Session 18, DLAA)
+ XE_UI_VULKAN_FUNCTION(vkCmdCopyImageToBuffer)
+ XE_UI_VULKAN_FUNCTION(vkCmdCopyQueryPoolResults)
+ XE_UI_VULKAN_FUNCTION(vkCmdDispatch)
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 2ed401b..2dfe6d1 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -4046,8 +4046,78 @@ bool VulkanCommandProcessor::DlaaEnsureMotionResources(uint32_t width, uint32_t
+   return true;
+ }
+ 
++bool VulkanCommandProcessor::DlaaEnsureOutputImage(VkFormat format, uint32_t width, uint32_t height) {
++  if (dlaa_out_image_ != VK_NULL_HANDLE && dlaa_out_format_ == format && dlaa_out_size_[0] == width &&
++      dlaa_out_size_[1] == height) {
++    return true;
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (dlaa_out_image_ != VK_NULL_HANDLE) {
++    AwaitAllQueueOperationsCompletion();
++    dfn.vkDestroyImageView(device, dlaa_out_view_, nullptr);
++    dfn.vkDestroyImage(device, dlaa_out_image_, nullptr);
++    dfn.vkFreeMemory(device, dlaa_out_memory_, nullptr);
++    dlaa_out_image_ = VK_NULL_HANDLE, dlaa_out_view_ = VK_NULL_HANDLE, dlaa_out_memory_ = VK_NULL_HANDLE;
++  }
++  const VkFormat view_formats[2] = {format, VK_FORMAT_R32_UINT};
++  VkImageFormatListCreateInfo format_list = {};
++  format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
++  format_list.viewFormatCount = 2;
++  format_list.pViewFormats = view_formats;
++  VkImageCreateInfo image_info = {};
++  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
++  image_info.pNext = &format_list;
++  image_info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
++  image_info.imageType = VK_IMAGE_TYPE_2D;
++  image_info.format = format;
++  image_info.extent = {width, height, 1};
++  image_info.mipLevels = 1;
++  image_info.arrayLayers = 1;
++  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
++  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
++  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
++                     VK_IMAGE_USAGE_TRANSFER_DST_BIT;
++  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++  if (!ui::vulkan::util::CreateDedicatedAllocationImage(vulkan_device, image_info,
++                                                       ui::vulkan::util::MemoryPurpose::kDeviceLocal,
++                                                       dlaa_out_image_, dlaa_out_memory_)) {
++    REXGPU_ERROR("[dlaa] output image {}x{} (format {}) failed", width, height, uint32_t(format));
++    dlaa_out_image_ = VK_NULL_HANDLE;
++    return false;
++  }
++  VkImageViewCreateInfo view_info = {};
++  view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
++  view_info.image = dlaa_out_image_;
++  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
++  view_info.format = VK_FORMAT_R32_UINT;
++  view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange();
++  if (dfn.vkCreateImageView(device, &view_info, nullptr, &dlaa_out_view_) != VK_SUCCESS) {
++    REXGPU_ERROR("[dlaa] output image view failed");
++    return false;
++  }
++  if (dlaa_out_set_ == VK_NULL_HANDLE) {
++    dlaa_out_set_ = texture_cache_->DlaaStorageSetForView(dlaa_out_view_);
++  } else {
++    VkDescriptorImageInfo di = {VK_NULL_HANDLE, dlaa_out_view_, VK_IMAGE_LAYOUT_GENERAL};
++    VkWriteDescriptorSet w = {};
++    w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++    w.dstSet = dlaa_out_set_;
++    w.descriptorCount = 1;
++    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++    w.pImageInfo = &di;
++    dfn.vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
++  }
++  if (dlaa_out_set_ == VK_NULL_HANDLE) return false;
++  dlaa_out_format_ = format, dlaa_out_size_[0] = width, dlaa_out_size_[1] = height;
++  return true;
++}
++
+ void VulkanCommandProcessor::DlaaMotionPass() {
+-  if (!dlaa_color_valid_) return;
++  const uint32_t debug = uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_debug), 0, 2));
++  if (debug && !dlaa_color_valid_) return;
+   const auto color_info = reg::RB_COPY_DEST_INFO{dlaa_color_regs_[3]};
+   const auto depth_info = reg::RB_COPY_DEST_INFO{dlaa_depth_regs_[3]};
+   auto tex_format = [](reg::RB_COPY_DEST_INFO di) {
+@@ -4058,9 +4128,11 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+   const bool have_depth = texture_cache_->DlaaResolveStorage(
+       dlaa_depth_regs_[0], dlaa_depth_regs_[1], dlaa_depth_regs_[1], dlaa_depth_regs_[2], tex_format(depth_info),
+       xenos::Endian(uint32_t(depth_info.copy_dest_endian) & 3), depth);
+-  const bool have_color = have_depth && texture_cache_->DlaaResolveStorage(
++  // The colour only for a debug view: written through our output image and a copy (the game's own colour texture
++  // has no storage view: run 1389).
++  const bool have_color = have_depth && (!debug || texture_cache_->DlaaResolveCopyTarget(
+       dlaa_color_regs_[0], dlaa_color_regs_[1], dlaa_color_regs_[1], dlaa_color_regs_[2], tex_format(color_info),
+-      xenos::Endian(uint32_t(color_info.copy_dest_endian) & 3), color);
++      xenos::Endian(uint32_t(color_info.copy_dest_endian) & 3), color));
+   if (!have_depth || !have_color) {
+     if (dlaa_motion_log_left_) {
+       --dlaa_motion_log_left_;
+@@ -4070,6 +4142,15 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+     return;
+   }
+   if (!DlaaEnsureMotionResources(depth.width, depth.height)) return;
++  if (debug && (color.width != depth.width || color.height != depth.height ||
++                !DlaaEnsureOutputImage(color.host_format, color.width, color.height))) {
++    if (dlaa_motion_log_left_) {
++      --dlaa_motion_log_left_;
++      REXGPU_WARN("[dlaa] motion: frame {}: colour {}x{} vs depth {}x{}, or no output image", dlaa_frame_,
++                  color.width, color.height, depth.width, depth.height);
++    }
++    return;
++  }
+   const int64_t offset = REXCVAR_GET(gpu_dlaa_camera_offset);
+   DlaaCamera now, prev;
+   const bool have_now = DlaaFindCamera(uint64_t(int64_t(dlaa_frame_) + offset), now);
+@@ -4105,7 +4186,6 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+   pc.jitter[0] = REXCVAR_GET(gpu_dlaa_jitter) ? dlaa_jitter_[0] : 0.0f;
+   pc.jitter[1] = REXCVAR_GET(gpu_dlaa_jitter) ? dlaa_jitter_[1] : 0.0f;
+   pc.size = depth.width | (depth.height << 16);
+-  const uint32_t debug = uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_debug), 0, 2));
+   const bool bgra = color.host_format == VK_FORMAT_B8G8R8A8_UNORM || color.host_format == VK_FORMAT_B8G8R8A8_SRGB;
+   pc.mode = debug | (uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_depth_order), 0, 2)) << 2) | (bgra ? 16u : 0u) |
+             (uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_debug_scale), 1, 255)) << 8);
+@@ -4117,13 +4197,34 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+                          dlaa_motion_initialized_layout_ ? VK_ACCESS_SHADER_READ_BIT : 0,
+                          VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+   dlaa_motion_initialized_layout_ = true;
++  // Our output image (debug): its old contents are not needed (every pixel is written).
++  if (debug) {
++    PushImageMemoryBarrier(dlaa_out_image_, ui::vulkan::util::InitializeSubresourceRange(),
++                           VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                           VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
++                           VK_IMAGE_LAYOUT_GENERAL);
++  }
+   DeferredCommandBuffer& cb = deferred_command_buffer();
+   BindExternalComputePipeline(dlaa_motion_pipeline_);
+-  const VkDescriptorSet sets[3] = {depth.set, color.set, dlaa_motion_set_};
++  // Set 1 must be valid even without a debug view (the shader only writes it in one): the depth's set stands in.
++  const VkDescriptorSet sets[3] = {depth.set, debug ? dlaa_out_set_ : depth.set, dlaa_motion_set_};
+   cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, dlaa_motion_layout_, 0, 3, sets, 0, nullptr);
+   cb.CmdVkPushConstants(dlaa_motion_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+   SubmitBarriers(true);
+   cb.CmdVkDispatch((depth.width + 7) / 8, (depth.height + 7) / 8, 1);
++  if (debug) {
++    PushImageMemoryBarrier(dlaa_out_image_, ui::vulkan::util::InitializeSubresourceRange(),
++                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                           VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
++                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
++    SubmitBarriers(true);
++    VkImageCopy region = {};
++    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
++    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
++    region.extent = {color.width, color.height, 1};
++    cb.CmdVkCopyImage(dlaa_out_image_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, color.image,
++                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
++  }
+   ++dlaa_motion_passes_;
+   if (dlaa_motion_log_left_) {
+     --dlaa_motion_log_left_;
+diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
+index 659f059..8fccf54 100644
+--- a/src/graphics/vulkan/deferred_command_buffer.cpp
++++ b/src/graphics/vulkan/deferred_command_buffer.cpp
+@@ -238,6 +238,16 @@ void DeferredCommandBuffer::ExecuteStream(const std::vector<uintmax_t>& command_
+                 rex::align(sizeof(ArgsVkCopyBufferToImage), alignof(VkBufferImageCopy))));
+       } break;
+ 
++      // wwe2k14 patch (Session 18, DLAA).
++      case Command::kVkCopyImage: {
++        auto& args = *reinterpret_cast<const ArgsVkCopyImage*>(stream);
++        dfn.vkCmdCopyImage(command_buffer, args.src_image, args.src_image_layout, args.dst_image,
++                           args.dst_image_layout, args.region_count,
++                           reinterpret_cast<const VkImageCopy*>(
++                               reinterpret_cast<const uint8_t*>(stream) +
++                               rex::align(sizeof(ArgsVkCopyImage), alignof(VkImageCopy))));
++      } break;
++
+       // wwe2k14 patch (Session 7c, TEXDIRECT).
+       case Command::kVkCopyImageToBuffer: {
+         auto& args = *reinterpret_cast<const ArgsVkCopyImageToBuffer*>(stream);
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 72e1d60..2c5d57b 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2748,6 +2748,34 @@ bool VulkanTextureCache::DlaaResolveStorage(uint32_t base_address, uint32_t pitc
+   return true;
+ }
+ 
++bool VulkanTextureCache::DlaaResolveCopyTarget(uint32_t base_address, uint32_t pitch_texels, uint32_t width,
++                                               uint32_t height, xenos::TextureFormat format, xenos::Endian endian,
++                                               DlaaStorage& out) {
++  out = DlaaStorage();
++  Texture* t = DlaaFindResolveTexture(base_address, pitch_texels, width, height, format, endian);
++  if (!t) {
++    out.failure = "no texture (unsupported or load failed)";
++    return false;
++  }
++  VulkanTexture& vt = static_cast<VulkanTexture&>(*t);
++  vt.MarkAsUsed();
++  const VulkanTexture::Usage old_usage = vt.SetUsage(VulkanTexture::Usage::kTransferDestination);
++  VkPipelineStageFlags src_stage;
++  VkAccessFlags src_access;
++  VkImageLayout old_layout;
++  GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
++  command_processor_.PushImageMemoryBarrier(vt.image(), ui::vulkan::util::InitializeSubresourceRange(), src_stage,
++                                            VK_PIPELINE_STAGE_TRANSFER_BIT, src_access,
++                                            VK_ACCESS_TRANSFER_WRITE_BIT, old_layout,
++                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
++  const TextureKey& key = t->key();
++  out.image = vt.image();
++  out.host_format = GetHostFormatPair(key).format_unsigned.format;
++  out.width = key.GetWidth() * (key.scaled_resolve ? draw_resolution_scale_x() : 1);
++  out.height = key.GetHeight() * (key.scaled_resolve ? draw_resolution_scale_y() : 1);
++  return true;
++}
++
+ VkDescriptorSet VulkanTextureCache::DlaaStorageSetForView(VkImageView view) {
+   if (!direct_load_descriptor_pool_) return VK_NULL_HANDLE;
+   const size_t index = direct_load_descriptor_pool_->Allocate();
+-- 
+2.52.0.windows.1
+
+
+From b2095aa05111daf2ee655680d4333ba047fc1925 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:10:23 +1100
+Subject: [PATCH 5/8] Session 18 DLAA: gpu_dlaa_color_base override, periodic
+ pass log
+
+---
+ src/graphics/vulkan/command_processor.cpp | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 2dfe6d1..6765d4b 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -98,6 +98,9 @@ REXCVAR_DEFINE_INT32(gpu_dlaa_depth_order, 0, "GPU",
+                      "2 = the low 24 bits");
+ REXCVAR_DEFINE_BOOL(gpu_dlaa_fov_vertical, true, "GPU",
+                     "DLAA: the camera's field of view is vertical (else horizontal); aspect from the depth target");
++REXCVAR_DEFINE_STRING(gpu_dlaa_color_base, "", "GPU",
++                      "DLAA debug: write the debug view into the colour resolve with this destination address (hex, "
++                      "e.g. 0x1F0CA000) instead of the frame's last scene-size colour resolve before the depth");
+ REXCVAR_DEFINE_INT32(gpu_dlaa_camera_offset, 0, "GPU",
+                      "DLAA: use the camera the app gave for (processed frame + N) as this frame's");
+ REXCVAR_DEFINE_INT32(gpu_dlaa_jitter_min_width, 1000, "GPU",
+@@ -4226,8 +4229,8 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+   }
+   ++dlaa_motion_passes_;
+-  if (dlaa_motion_log_left_) {
+-    --dlaa_motion_log_left_;
++  if (dlaa_motion_log_left_ || dlaa_motion_passes_ % 600 == 0) {
++    if (dlaa_motion_log_left_) --dlaa_motion_log_left_;
+     REXGPU_INFO("[dlaa] motion: frame {}: depth 0x{:08X} {}x{} (host format {}), colour 0x{:08X} (host format {}), "
+                 "cameras {} / {} (offset {}), fov {:.2f} near {} far {}, camera moved {:.3f} / {:.3f} / {:.3f}, "
+                 "debug {}; passes {} without camera {}",
+@@ -7935,7 +7938,9 @@ bool VulkanCommandProcessor::IssueCopy() {
+       dlaa_scene_done_ = true;
+       dlaa_depth_regs_[0] = matte_regs_[1], dlaa_depth_regs_[1] = uint32_t(dest_pitch.copy_dest_pitch);
+       dlaa_depth_regs_[2] = uint32_t(dest_pitch.copy_dest_height), dlaa_depth_regs_[3] = matte_regs_[2];
+-    } else if (!copying_depth && big && copy_control.copy_command != xenos::CopyCommand::kNull) {
++    } else if (!copying_depth && big && copy_control.copy_command != xenos::CopyCommand::kNull &&
++               (REXCVAR_GET(gpu_dlaa_color_base).empty() ||
++                std::strtoul(REXCVAR_GET(gpu_dlaa_color_base).c_str(), nullptr, 16) == matte_regs_[1])) {
+       dlaa_color_regs_[0] = matte_regs_[1], dlaa_color_regs_[1] = uint32_t(dest_pitch.copy_dest_pitch);
+       dlaa_color_regs_[2] = uint32_t(dest_pitch.copy_dest_height), dlaa_color_regs_[3] = matte_regs_[2];
+       dlaa_color_valid_ = true;
+-- 
+2.52.0.windows.1
+
+
+From a472f82c0792930fb497bc16aaff152de9ba6dbc Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:12:34 +1100
+Subject: [PATCH 6/8] Session 18 DLAA: the pass can run after a chosen colour
+ resolve (gpu_dlaa_color_base); auto = the last colour before the depth
+
+---
+ src/graphics/vulkan/command_processor.cpp | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 6765d4b..98c5605 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7939,8 +7939,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+       dlaa_depth_regs_[0] = matte_regs_[1], dlaa_depth_regs_[1] = uint32_t(dest_pitch.copy_dest_pitch);
+       dlaa_depth_regs_[2] = uint32_t(dest_pitch.copy_dest_height), dlaa_depth_regs_[3] = matte_regs_[2];
+     } else if (!copying_depth && big && copy_control.copy_command != xenos::CopyCommand::kNull &&
+-               (REXCVAR_GET(gpu_dlaa_color_base).empty() ||
+-                std::strtoul(REXCVAR_GET(gpu_dlaa_color_base).c_str(), nullptr, 16) == matte_regs_[1])) {
++               (REXCVAR_GET(gpu_dlaa_color_base).empty() ? !dlaa_scene_done_
++                : std::strtoul(REXCVAR_GET(gpu_dlaa_color_base).c_str(), nullptr, 16) == matte_regs_[1])) {
+       dlaa_color_regs_[0] = matte_regs_[1], dlaa_color_regs_[1] = uint32_t(dest_pitch.copy_dest_pitch);
+       dlaa_color_regs_[2] = uint32_t(dest_pitch.copy_dest_height), dlaa_color_regs_[3] = matte_regs_[2];
+       dlaa_color_valid_ = true;
+@@ -7958,8 +7958,13 @@ bool VulkanCommandProcessor::IssueCopy() {
+ 
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
+   bool copied;
+-  const bool dlaa_motion_now = dlaa_scene_done_ && dlaa_depth_regs_[0] == matte_regs_[1] &&
+-                               (REXCVAR_GET(gpu_dlaa_motion) || REXCVAR_GET(gpu_dlaa_debug) != 0);
++  // The pass runs after the scene depth resolve, or (gpu_dlaa_color_base set) after that colour resolve, later in
++  // the frame (the colour the post passes sample can be resolved after the depth: run 1391, resolve 47).
++  const std::string dlaa_color_base = REXCVAR_GET(gpu_dlaa_color_base);
++  const bool dlaa_motion_now =
++      dlaa_scene_done_ && (REXCVAR_GET(gpu_dlaa_motion) || REXCVAR_GET(gpu_dlaa_debug) != 0) &&
++      (dlaa_color_base.empty() ? dlaa_depth_regs_[0] == matte_regs_[1]
++                               : (dlaa_color_valid_ && dlaa_color_regs_[0] == matte_regs_[1]));
+   if (readback_mode == ReadbackResolveMode::kDisabled && !matte_force_readback_) {
+     uint32_t written_address, written_length;
+     copied = render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
+-- 
+2.52.0.windows.1
+
+
+From 294d333a394daa7b80247332962fb6f1eae9827a Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:26:13 +1100
+Subject: [PATCH 7/8] Session 18 DLAA step 3: Streamline loader
+ (vulkan_streamline_dir: signed sl.interposer.dll, slInit manual hooking, no
+ OTA, Vulkan through its proxies), DLSS DLAA evaluation through a deferred
+ host callback, write-back into the post chain's colour (gpu_dlaa)
+
+---
+ .../rex/graphics/vulkan/command_processor.h   |  19 +
+ .../graphics/vulkan/deferred_command_buffer.h |  22 +
+ include/rex/graphics/vulkan/texture_cache.h   |   6 +-
+ include/rex/ui/vulkan/streamline.h            |  63 +++
+ src/graphics/shaders/dlaa_motion.cs.glsl      |  10 +-
+ .../shaders/vulkan_spirv/dlaa_motion_cs.h     | 380 +++++++++---------
+ src/graphics/vulkan/command_processor.cpp     | 294 +++++++++++++-
+ .../vulkan/deferred_command_buffer.cpp        |   7 +
+ src/graphics/vulkan/texture_cache.cpp         |  13 +-
+ src/ui/CMakeLists.txt                         |  11 +
+ src/ui/vulkan/streamline.cpp                  | 268 ++++++++++++
+ src/ui/vulkan/vulkan_device.cpp               |   4 +
+ src/ui/vulkan/vulkan_instance.cpp             |   6 +
+ 13 files changed, 899 insertions(+), 204 deletions(-)
+ create mode 100644 include/rex/ui/vulkan/streamline.h
+ create mode 100644 src/ui/vulkan/streamline.cpp
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 7e76ddf..a8381fa 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1085,6 +1085,25 @@ class VulkanCommandProcessor : public CommandProcessor {
+   VkDescriptorSet dlaa_out_set_ = VK_NULL_HANDLE;
+   VkFormat dlaa_out_format_ = VK_FORMAT_UNDEFINED;
+   uint32_t dlaa_out_size_[2] = {};
++  // Step 3: DLAA through Streamline (gpu_dlaa).
++  struct DlaaImage {
++    VkImage image = VK_NULL_HANDLE;
++    VkDeviceMemory memory = VK_NULL_HANDLE;
++    VkImageView view = VK_NULL_HANDLE;          // typed view (format)
++    VkImageView storage_view = VK_NULL_HANDLE;  // R32_UINT view (if requested)
++    VkDescriptorSet set = VK_NULL_HANDLE;       // storage set for storage_view
++    VkFormat format = VK_FORMAT_UNDEFINED;
++    VkImageUsageFlags usage = 0;
++    VkImageCreateFlags flags = 0;
++    uint32_t width = 0, height = 0;
++  };
++  bool DlaaEnsureImage(DlaaImage& img, VkFormat format, bool r32_storage_view, uint32_t width, uint32_t height);
++  void DlaaRunDlss(const VulkanTextureCache::DlaaStorage& color, uint32_t width, uint32_t height, const double rep[16],
++                   const double view_now[16], float fov_degrees, float near_z, float far_z, bool reset);
++  DlaaImage dlaa_depthf_, dlaa_in_, dlaa_dlss_out_;
++  bool dlaa_post_color_seen_ = false;  // this frame: the first scene-size colour resolve after the depth happened
++  uint64_t dlaa_dlss_frames_ = 0;
++  uint32_t dlaa_dlss_log_left_ = 6;
+   // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 for the frame being marked (only while
+   // gpu_marks_active_).
+   bool gpu_marks_sparse_ = false;
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 9116d8c..877d017 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -234,6 +234,21 @@ class DeferredCommandBuffer {
+                 regions, sizeof(VkBufferImageCopy) * region_count);
+   }
+ 
++  // wwe2k14 patch (Session 18, DLAA): calls fn(command_buffer, copy of `data`) when the buffer is executed (for a
++  // library that records into a real command buffer itself: Streamline's slEvaluateFeature). The caller must
++  // re-bind any state the callback may change.
++  using HostCallback = void (*)(VkCommandBuffer command_buffer, const void* data);
++  void CmdHostCallback(HostCallback fn, const void* data, size_t data_size) {
++    BeforeEventCommand();
++    const size_t header_size = rex::align(sizeof(ArgsHostCallback), alignof(uintmax_t));
++    uint8_t* args_ptr =
++        reinterpret_cast<uint8_t*>(WriteCommand(Command::kHostCallback, header_size + data_size));
++    auto& args = *reinterpret_cast<ArgsHostCallback*>(args_ptr);
++    args.fn = fn;
++    args.data_size = data_size;
++    std::memcpy(args_ptr + header_size, data, data_size);
++  }
++
+   // wwe2k14 patch (Session 18, DLAA): image to image (the DLAA pass's output into a cached texture).
+   void CmdVkCopyImage(VkImage src_image, VkImageLayout src_image_layout, VkImage dst_image,
+                       VkImageLayout dst_image_layout, uint32_t region_count, const VkImageCopy* regions) {
+@@ -473,6 +488,7 @@ class DeferredCommandBuffer {
+     kVkUpdateDescriptorSets,
+     kVkWriteTimestamp,  // wwe2k14 patch (Session 7b, GPUMARKS)
+     kVkCopyImage,       // wwe2k14 patch (Session 18, DLAA)
++    kHostCallback,      // wwe2k14 patch (Session 18, DLAA)
+   };
+ 
+   struct CommandHeader {
+@@ -577,6 +593,12 @@ class DeferredCommandBuffer {
+   };
+ 
+   // wwe2k14 patch (Session 7c, TEXDIRECT).
++  struct ArgsHostCallback {  // wwe2k14 patch (Session 18, DLAA)
++    HostCallback fn;
++    size_t data_size;
++    // Followed by the data (aligned to uintmax_t).
++  };
++
+   struct ArgsVkCopyImage {  // wwe2k14 patch (Session 18, DLAA)
+     VkImage src_image;
+     VkImageLayout src_image_layout;
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index c73f1d0..f3f6e61 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -103,8 +103,12 @@ class VulkanTextureCache final : public TextureCache {
+                           xenos::TextureFormat format, xenos::Endian endian, DlaaStorage& out);
+   // The same texture as a copy destination (barrier to TRANSFER_DST_OPTIMAL pushed; usage kTransferDestination,
+   // so the next sampling transitions it back); no storage view needed. out.set stays VK_NULL_HANDLE.
++  // general: GENERAL layout instead (read and written by copies; usage kComputeStorageWrite: the caller must end
++  // with a barrier from its last access to COMPUTE_SHADER / SHADER_WRITE in GENERAL, which the next sampling
++  // transition chains from).
+   bool DlaaResolveCopyTarget(uint32_t base_address, uint32_t pitch_texels, uint32_t width, uint32_t height,
+-                             xenos::TextureFormat format, xenos::Endian endian, DlaaStorage& out);
++                             xenos::TextureFormat format, xenos::Endian endian, DlaaStorage& out,
++                             bool general = false);
+   VkDescriptorSetLayout dlaa_storage_set_layout() const { return direct_load_descriptor_set_layout_; }
+   // A set of that layout for one of our own images (a storage view in GENERAL layout); VK_NULL_HANDLE on failure.
+   VkDescriptorSet DlaaStorageSetForView(VkImageView view);
+diff --git a/include/rex/ui/vulkan/streamline.h b/include/rex/ui/vulkan/streamline.h
+new file mode 100644
+index 0000000..f2ea173
+--- /dev/null
++++ b/include/rex/ui/vulkan/streamline.h
+@@ -0,0 +1,63 @@
++/**
++ * @file        ui/vulkan/streamline.h
++ * @brief       NVIDIA Streamline (DLSS / DLAA) for the Vulkan backend (wwe2k14 patch, Session 18, DLAA step 3)
++ *
++ * Optional, default off. With vulkan_streamline_dir set to a folder holding the user's own Streamline runtime
++ * (sl.interposer.dll, sl.common.dll, sl.dlss.dll, nvngx_dlss.dll: the signed production DLLs of the Streamline SDK
++ * release), InitializeBeforeInstance verifies sl.interposer.dll's signature, loads it, calls slInit (manual hooking,
++ * DLSS only) and returns the interposer's vkGetInstanceProcAddr: the Vulkan instance, the device and every function
++ * are then resolved through Streamline's proxies (it adds its extensions / queues and hooks the swapchain and
++ * present), as ProgrammingGuideManualHooking.md describes for an engine that creates its own device. Without the
++ * folder (or if anything fails) nothing changes: plain Vulkan. Built without the Streamline headers
++ * (thirdparty/streamline/sdk/include next to the SDK source), everything here is a stub that reports "not built".
++ *
++ * Nothing from NVIDIA is part of this project: the headers come from the user's own download at build time and the
++ * DLLs from the folder the user points at.
++ */
++#pragma once
++
++#include <cstdint>
++#include <string>
++
++#include <rex/ui/vulkan/api.h>  // ReXGlue's Vulkan include (its macros first)
++
++namespace rex::ui::vulkan::streamline {
++
++// Before vkCreateInstance: the interposer's vkGetInstanceProcAddr, or nullptr (not configured, or it failed: logged).
++PFN_vkGetInstanceProcAddr InitializeBeforeInstance();
++// slInit succeeded (the instance and device go through Streamline).
++bool Active();
++// After the device exists: whether DLSS is supported on it (cached; the reason is logged once).
++bool DlssAvailable();
++void Shutdown();
++// vulkan_device.cpp: the physical device of the created device (for the DLSS support check).
++void SetPhysicalDevice(VkPhysicalDevice physical_device);
++
++struct Image {
++  VkImage image = VK_NULL_HANDLE;
++  VkImageView view = VK_NULL_HANDLE;
++  VkDeviceMemory memory = VK_NULL_HANDLE;
++  VkFormat format = VK_FORMAT_UNDEFINED;
++  VkImageLayout layout = VK_IMAGE_LAYOUT_GENERAL;
++  VkImageCreateFlags flags = 0;
++  VkImageUsageFlags usage = 0;
++};
++
++// One DLAA evaluation (all images width x height; matrices row-major, row vectors, no jitter).
++struct DlaaFrame {
++  uint32_t frame_index = 0;
++  uint32_t width = 0, height = 0;
++  Image color_in, depth, motion, color_out;
++  float view_to_clip[16], clip_to_view[16], clip_to_prev_clip[16], prev_clip_to_clip[16];
++  float jitter[2] = {};      // host pixels
++  float mvec_scale[2] = {};  // multiplies the motion vectors (pixels) into normalized units
++  float near_z = 0, far_z = 0, vertical_fov_radians = 0, aspect = 1;
++  float camera_pos[3] = {}, camera_up[3] = {}, camera_right[3] = {}, camera_fwd[3] = {};
++  bool depth_inverted = true;
++  bool reset = false;
++};
++
++// Records the DLAA evaluation into `command_buffer` (a real one, at execution time). False + `reason` on failure.
++bool EvaluateDlaa(VkCommandBuffer command_buffer, const DlaaFrame& frame, std::string* reason);
++
++}  // namespace rex::ui::vulkan::streamline
+diff --git a/src/graphics/shaders/dlaa_motion.cs.glsl b/src/graphics/shaders/dlaa_motion.cs.glsl
+index b557fee..cd320d8 100644
+--- a/src/graphics/shaders/dlaa_motion.cs.glsl
++++ b/src/graphics/shaders/dlaa_motion.cs.glsl
+@@ -3,7 +3,7 @@
+ // Bindings (all through the texture cache's direct-load storage set layout: one storage image at binding 0):
+ //   set 0: the scene depth resolve's cached texture, R32_UINT view (the guest word of each texel after the load's
+ //          endian swap: D24FS8 = 20e4 float depth in the top 24 bits, reversed: near = 1);
+-//   set 1: the scene colour resolve's cached texture, R32_UINT view (written only in a debug mode);
++//   set 1: an output image, R32_UINT view: a debug view's colours, or (DLAA) the hardware depth as float bits;
+ //   set 2: our motion image, RG16F: where this pixel's surface was last frame, minus where it is now, in host
+ //          pixels (the DLSS convention: current -> previous), jitter removed.
+ // Camera only: everything is treated as static (wrestlers, crowd and cloth get the camera's motion).
+@@ -27,7 +27,9 @@ layout(push_constant) uniform Constants {
+   vec2 jitter;         // this frame's jitter (host pixels), removed from the pixel position
+   uint size;           // width | height << 16 (host pixels)
+   uint mode;           // bits 0-1: debug 0 off, 1 motion as colour, 2 depth as grey; bits 2-3: depth byte order;
+-                       // bit 4: the colour image is B8G8R8A8 (else R8G8B8A8); bits 8-15: motion colour scale (px)
++                       // bit 4: the colour image is B8G8R8A8 (else R8G8B8A8); bit 5: (no debug) write the
++                       // hardware depth (0..1, reversed) as float bits to set 1 (DLAA's depth input);
++                       // bits 8-15: motion colour scale (px)
+ } c;
+ 
+ float F24ToFloat(uint v) {
+@@ -65,7 +67,9 @@ void main() {
+   vec2 motion = (ndc_prev - ndc) * 0.5 * vec2(size);  // host pixels, current -> previous
+   imageStore(motion_image, ivec2(p), vec4(motion, 0.0, 0.0));
+   uint debug = c.mode & 3u;
+-  if (debug == 1u) {
++  if (debug == 0u && (c.mode & 32u) != 0u) {
++    imageStore(color_image, ivec2(p), uvec4(floatBitsToUint(dev), 0u, 0u, 0u));
++  } else if (debug == 1u) {
+     float scale = float(max((c.mode >> 8) & 0xFFu, 1u));
+     imageStore(color_image, ivec2(p), uvec4(PackColor(vec3(0.5 + motion / (2.0 * scale), 0.5)), 0u, 0u, 0u));
+   } else if (debug == 2u) {
+diff --git a/src/graphics/shaders/vulkan_spirv/dlaa_motion_cs.h b/src/graphics/shaders/vulkan_spirv/dlaa_motion_cs.h
+index 2e712d6..68ccdc6 100644
+--- a/src/graphics/shaders/vulkan_spirv/dlaa_motion_cs.h
++++ b/src/graphics/shaders/vulkan_spirv/dlaa_motion_cs.h
+@@ -3,7 +3,7 @@
+ // of tree: out\glslang-build); no spirv-opt.
+ 
+ const uint32_t dlaa_motion_cs[] = {
+-    0x07230203, 0x00010000, 0x0008000A, 0x00000163, 0x00000000, 0x00020011, 0x00000001, 0x00020011,
++    0x07230203, 0x00010000, 0x0008000A, 0x00000176, 0x00000000, 0x00020011, 0x00000001, 0x00020011,
+     0x00000031, 0x0006000B, 0x00000001, 0x4C534C47, 0x6474732E, 0x3035342E, 0x00000000, 0x0003000E,
+     0x00000000, 0x00000001, 0x0006000F, 0x00000005, 0x00000004, 0x6E69616D, 0x00000000, 0x0000008E,
+     0x00060010, 0x00000004, 0x00000011, 0x00000008, 0x00000008, 0x00000001, 0x00030003, 0x00000002,
+@@ -28,9 +28,9 @@ const uint32_t dlaa_motion_cs[] = {
+     0x00000000, 0x00050005, 0x000000F9, 0x77656976, 0x6572705F, 0x00000076, 0x00050005, 0x00000100,
+     0x5F63646E, 0x76657270, 0x00000000, 0x00040005, 0x00000113, 0x69746F6D, 0x00006E6F, 0x00060005,
+     0x0000011D, 0x69746F6D, 0x695F6E6F, 0x6567616D, 0x00000000, 0x00040005, 0x00000125, 0x75626564,
+-    0x00000067, 0x00040005, 0x0000012D, 0x6C616373, 0x00000065, 0x00050005, 0x00000135, 0x6F6C6F63,
+-    0x6D695F72, 0x00656761, 0x00040005, 0x00000143, 0x61726170, 0x0000006D, 0x00030005, 0x0000014B,
+-    0x00000067, 0x00040005, 0x0000015E, 0x61726170, 0x0000006D, 0x00040048, 0x00000061, 0x00000000,
++    0x00000067, 0x00050005, 0x00000135, 0x6F6C6F63, 0x6D695F72, 0x00656761, 0x00040005, 0x00000141,
++    0x6C616373, 0x00000065, 0x00040005, 0x00000156, 0x61726170, 0x0000006D, 0x00030005, 0x0000015E,
++    0x00000067, 0x00040005, 0x00000171, 0x61726170, 0x0000006D, 0x00040048, 0x00000061, 0x00000000,
+     0x00000005, 0x00050048, 0x00000061, 0x00000000, 0x00000023, 0x00000000, 0x00050048, 0x00000061,
+     0x00000000, 0x00000007, 0x00000010, 0x00050048, 0x00000061, 0x00000001, 0x00000023, 0x00000040,
+     0x00050048, 0x00000061, 0x00000002, 0x00000023, 0x00000048, 0x00050048, 0x00000061, 0x00000003,
+@@ -40,7 +40,7 @@ const uint32_t dlaa_motion_cs[] = {
+     0x0000009C, 0x00000021, 0x00000000, 0x00030047, 0x0000009C, 0x00000018, 0x00040047, 0x0000011D,
+     0x00000022, 0x00000002, 0x00040047, 0x0000011D, 0x00000021, 0x00000000, 0x00030047, 0x0000011D,
+     0x00000019, 0x00040047, 0x00000135, 0x00000022, 0x00000001, 0x00040047, 0x00000135, 0x00000021,
+-    0x00000000, 0x00040047, 0x00000162, 0x0000000B, 0x00000019, 0x00020013, 0x00000002, 0x00030021,
++    0x00000000, 0x00040047, 0x00000175, 0x0000000B, 0x00000019, 0x00020013, 0x00000002, 0x00030021,
+     0x00000003, 0x00000002, 0x00040015, 0x00000006, 0x00000020, 0x00000000, 0x00040020, 0x00000007,
+     0x00000007, 0x00000006, 0x00030016, 0x00000008, 0x00000020, 0x00040021, 0x00000009, 0x00000008,
+     0x00000007, 0x00040021, 0x0000000D, 0x00000006, 0x00000007, 0x00040017, 0x00000011, 0x00000008,
+@@ -76,183 +76,195 @@ const uint32_t dlaa_motion_cs[] = {
+     0x0004002B, 0x00000019, 0x000000FB, 0x00000000, 0x00040020, 0x000000FC, 0x00000009, 0x0000005F,
+     0x0004002B, 0x00000008, 0x00000103, 0x38D1B717, 0x00090019, 0x0000011B, 0x00000008, 0x00000001,
+     0x00000000, 0x00000000, 0x00000000, 0x00000002, 0x00000007, 0x00040020, 0x0000011C, 0x00000000,
+-    0x0000011B, 0x0004003B, 0x0000011C, 0x0000011D, 0x00000000, 0x0004002B, 0x00000006, 0x00000131,
+-    0x000000FF, 0x0004003B, 0x0000009B, 0x00000135, 0x00000000, 0x0004002B, 0x00000008, 0x00000152,
+-    0x45FA0000, 0x0004002B, 0x00000006, 0x00000161, 0x00000008, 0x0006002C, 0x00000050, 0x00000162,
+-    0x00000161, 0x00000161, 0x00000071, 0x00050036, 0x00000002, 0x00000004, 0x00000000, 0x00000003,
+-    0x000200F8, 0x00000005, 0x0004003B, 0x00000081, 0x00000082, 0x00000007, 0x0004003B, 0x00000081,
+-    0x0000008C, 0x00000007, 0x0004003B, 0x00000007, 0x00000099, 0x00000007, 0x0004003B, 0x00000007,
+-    0x000000A4, 0x00000007, 0x0004003B, 0x00000007, 0x000000AF, 0x00000007, 0x0004003B, 0x00000007,
+-    0x000000B2, 0x00000007, 0x0004003B, 0x00000007, 0x000000B5, 0x00000007, 0x0004003B, 0x00000024,
+-    0x000000BF, 0x00000007, 0x0004003B, 0x00000007, 0x000000C0, 0x00000007, 0x0004003B, 0x00000024,
+-    0x000000C3, 0x00000007, 0x0004003B, 0x00000024, 0x000000C7, 0x00000007, 0x0004003B, 0x00000024,
+-    0x000000CB, 0x00000007, 0x0004003B, 0x00000024, 0x000000CE, 0x00000007, 0x0004003B, 0x000000DA,
+-    0x000000DB, 0x00000007, 0x0004003B, 0x000000EC, 0x000000ED, 0x00000007, 0x0004003B, 0x000000EC,
+-    0x000000F9, 0x00000007, 0x0004003B, 0x000000DA, 0x00000100, 0x00000007, 0x0004003B, 0x000000DA,
+-    0x00000105, 0x00000007, 0x0004003B, 0x000000DA, 0x00000113, 0x00000007, 0x0004003B, 0x00000007,
+-    0x00000125, 0x00000007, 0x0004003B, 0x00000024, 0x0000012D, 0x00000007, 0x0004003B, 0x00000012,
+-    0x00000143, 0x00000007, 0x0004003B, 0x00000024, 0x0000014B, 0x00000007, 0x0004003B, 0x00000012,
+-    0x0000015E, 0x00000007, 0x00050041, 0x00000065, 0x00000084, 0x00000063, 0x00000083, 0x0004003D,
+-    0x00000006, 0x00000085, 0x00000084, 0x000500C7, 0x00000006, 0x00000087, 0x00000085, 0x00000086,
+-    0x00050041, 0x00000065, 0x00000088, 0x00000063, 0x00000083, 0x0004003D, 0x00000006, 0x00000089,
+-    0x00000088, 0x000500C2, 0x00000006, 0x0000008A, 0x00000089, 0x00000079, 0x00050050, 0x00000080,
+-    0x0000008B, 0x00000087, 0x0000008A, 0x0003003E, 0x00000082, 0x0000008B, 0x0004003D, 0x00000050,
+-    0x0000008F, 0x0000008E, 0x0007004F, 0x00000080, 0x00000090, 0x0000008F, 0x0000008F, 0x00000000,
+-    0x00000001, 0x0003003E, 0x0000008C, 0x00000090, 0x0004003D, 0x00000080, 0x00000091, 0x0000008C,
+-    0x0004003D, 0x00000080, 0x00000092, 0x00000082, 0x000500AE, 0x00000093, 0x00000094, 0x00000091,
+-    0x00000092, 0x0004009A, 0x00000022, 0x00000095, 0x00000094, 0x000300F7, 0x00000097, 0x00000000,
+-    0x000400FA, 0x00000095, 0x00000096, 0x00000097, 0x000200F8, 0x00000096, 0x000100FD, 0x000200F8,
+-    0x00000097, 0x0004003D, 0x0000009A, 0x0000009D, 0x0000009C, 0x0004003D, 0x00000080, 0x0000009E,
+-    0x0000008C, 0x0004007C, 0x0000009F, 0x000000A0, 0x0000009E, 0x00050062, 0x000000A1, 0x000000A2,
+-    0x0000009D, 0x000000A0, 0x00050051, 0x00000006, 0x000000A3, 0x000000A2, 0x00000000, 0x0003003E,
+-    0x00000099, 0x000000A3, 0x00050041, 0x00000065, 0x000000A5, 0x00000063, 0x00000064, 0x0004003D,
+-    0x00000006, 0x000000A6, 0x000000A5, 0x000500C2, 0x00000006, 0x000000A8, 0x000000A6, 0x000000A7,
+-    0x000500C7, 0x00000006, 0x000000AA, 0x000000A8, 0x000000A9, 0x0003003E, 0x000000A4, 0x000000AA,
+-    0x0004003D, 0x00000006, 0x000000AB, 0x000000A4, 0x000500AA, 0x00000022, 0x000000AC, 0x000000AB,
+-    0x00000071, 0x000300F7, 0x000000AE, 0x00000000, 0x000400FA, 0x000000AC, 0x000000AD, 0x000000AE,
+-    0x000200F8, 0x000000AD, 0x0004003D, 0x00000006, 0x000000B0, 0x00000099, 0x0003003E, 0x000000AF,
+-    0x000000B0, 0x00050039, 0x00000006, 0x000000B1, 0x0000000F, 0x000000AF, 0x0003003E, 0x00000099,
+-    0x000000B1, 0x000200F9, 0x000000AE, 0x000200F8, 0x000000AE, 0x0004003D, 0x00000006, 0x000000B3,
+-    0x000000A4, 0x000500AA, 0x00000022, 0x000000B4, 0x000000B3, 0x00000076, 0x000300F7, 0x000000B7,
+-    0x00000000, 0x000400FA, 0x000000B4, 0x000000B6, 0x000000BB, 0x000200F8, 0x000000B6, 0x0004003D,
+-    0x00000006, 0x000000B8, 0x00000099, 0x000500C7, 0x00000006, 0x000000BA, 0x000000B8, 0x000000B9,
+-    0x0003003E, 0x000000B5, 0x000000BA, 0x000200F9, 0x000000B7, 0x000200F8, 0x000000BB, 0x0004003D,
+-    0x00000006, 0x000000BC, 0x00000099, 0x000500C2, 0x00000006, 0x000000BD, 0x000000BC, 0x00000041,
+-    0x0003003E, 0x000000B5, 0x000000BD, 0x000200F9, 0x000000B7, 0x000200F8, 0x000000B7, 0x0004003D,
+-    0x00000006, 0x000000BE, 0x000000B5, 0x0003003E, 0x000000B2, 0x000000BE, 0x0004003D, 0x00000006,
+-    0x000000C1, 0x000000B2, 0x0003003E, 0x000000C0, 0x000000C1, 0x00050039, 0x00000008, 0x000000C2,
+-    0x0000000B, 0x000000C0, 0x0003003E, 0x000000BF, 0x000000C2, 0x0004003D, 0x00000008, 0x000000C4,
+-    0x000000BF, 0x00050083, 0x00000008, 0x000000C5, 0x0000002F, 0x000000C4, 0x0008000C, 0x00000008,
+-    0x000000C6, 0x00000001, 0x0000002B, 0x000000C5, 0x00000054, 0x0000002F, 0x0003003E, 0x000000C3,
+-    0x000000C6, 0x00060041, 0x000000C8, 0x000000C9, 0x00000063, 0x000000A7, 0x00000021, 0x0004003D,
+-    0x00000008, 0x000000CA, 0x000000C9, 0x0003003E, 0x000000C7, 0x000000CA, 0x00060041, 0x000000C8,
+-    0x000000CC, 0x00000063, 0x000000A7, 0x00000071, 0x0004003D, 0x00000008, 0x000000CD, 0x000000CC,
+-    0x0003003E, 0x000000CB, 0x000000CD, 0x0004003D, 0x00000008, 0x000000CF, 0x000000C7, 0x0004003D,
+-    0x00000008, 0x000000D0, 0x000000CB, 0x00050085, 0x00000008, 0x000000D1, 0x000000CF, 0x000000D0,
+-    0x0004003D, 0x00000008, 0x000000D2, 0x000000CB, 0x0004003D, 0x00000008, 0x000000D3, 0x000000C3,
+-    0x0004003D, 0x00000008, 0x000000D4, 0x000000CB, 0x0004003D, 0x00000008, 0x000000D5, 0x000000C7,
+-    0x00050083, 0x00000008, 0x000000D6, 0x000000D4, 0x000000D5, 0x00050085, 0x00000008, 0x000000D7,
+-    0x000000D3, 0x000000D6, 0x00050083, 0x00000008, 0x000000D8, 0x000000D2, 0x000000D7, 0x00050088,
+-    0x00000008, 0x000000D9, 0x000000D1, 0x000000D8, 0x0003003E, 0x000000CE, 0x000000D9, 0x0004003D,
+-    0x00000080, 0x000000DC, 0x0000008C, 0x00040070, 0x00000060, 0x000000DD, 0x000000DC, 0x00050050,
+-    0x00000060, 0x000000DE, 0x0000005A, 0x0000005A, 0x00050081, 0x00000060, 0x000000DF, 0x000000DD,
+-    0x000000DE, 0x00050041, 0x000000E1, 0x000000E2, 0x00000063, 0x000000E0, 0x0004003D, 0x00000060,
+-    0x000000E3, 0x000000E2, 0x00050083, 0x00000060, 0x000000E4, 0x000000DF, 0x000000E3, 0x0004003D,
+-    0x00000080, 0x000000E5, 0x00000082, 0x00040070, 0x00000060, 0x000000E6, 0x000000E5, 0x00050088,
+-    0x00000060, 0x000000E7, 0x000000E4, 0x000000E6, 0x0005008E, 0x00000060, 0x000000E9, 0x000000E7,
+-    0x000000E8, 0x00050050, 0x00000060, 0x000000EA, 0x0000002F, 0x0000002F, 0x00050083, 0x00000060,
+-    0x000000EB, 0x000000E9, 0x000000EA, 0x0003003E, 0x000000DB, 0x000000EB, 0x0004003D, 0x00000060,
+-    0x000000EE, 0x000000DB, 0x00050041, 0x000000E1, 0x000000F0, 0x00000063, 0x000000EF, 0x0004003D,
+-    0x00000060, 0x000000F1, 0x000000F0, 0x00050085, 0x00000060, 0x000000F2, 0x000000EE, 0x000000F1,
+-    0x0004003D, 0x00000008, 0x000000F3, 0x000000CE, 0x0005008E, 0x00000060, 0x000000F4, 0x000000F2,
+-    0x000000F3, 0x0004003D, 0x00000008, 0x000000F5, 0x000000CE, 0x00050051, 0x00000008, 0x000000F6,
+-    0x000000F4, 0x00000000, 0x00050051, 0x00000008, 0x000000F7, 0x000000F4, 0x00000001, 0x00070050,
+-    0x0000005E, 0x000000F8, 0x000000F6, 0x000000F7, 0x000000F5, 0x0000002F, 0x0003003E, 0x000000ED,
+-    0x000000F8, 0x0004003D, 0x0000005E, 0x000000FA, 0x000000ED, 0x00050041, 0x000000FC, 0x000000FD,
+-    0x00000063, 0x000000FB, 0x0004003D, 0x0000005F, 0x000000FE, 0x000000FD, 0x00050090, 0x0000005E,
+-    0x000000FF, 0x000000FA, 0x000000FE, 0x0003003E, 0x000000F9, 0x000000FF, 0x00050041, 0x00000024,
+-    0x00000101, 0x000000F9, 0x00000076, 0x0004003D, 0x00000008, 0x00000102, 0x00000101, 0x000500BA,
+-    0x00000022, 0x00000104, 0x00000102, 0x00000103, 0x000300F7, 0x00000107, 0x00000000, 0x000400FA,
+-    0x00000104, 0x00000106, 0x00000110, 0x000200F8, 0x00000106, 0x0004003D, 0x0000005E, 0x00000108,
+-    0x000000F9, 0x0007004F, 0x00000060, 0x00000109, 0x00000108, 0x00000108, 0x00000000, 0x00000001,
+-    0x00050041, 0x00000024, 0x0000010A, 0x000000F9, 0x00000076, 0x0004003D, 0x00000008, 0x0000010B,
+-    0x0000010A, 0x00050041, 0x000000E1, 0x0000010C, 0x00000063, 0x000000EF, 0x0004003D, 0x00000060,
+-    0x0000010D, 0x0000010C, 0x0005008E, 0x00000060, 0x0000010E, 0x0000010D, 0x0000010B, 0x00050088,
+-    0x00000060, 0x0000010F, 0x00000109, 0x0000010E, 0x0003003E, 0x00000105, 0x0000010F, 0x000200F9,
+-    0x00000107, 0x000200F8, 0x00000110, 0x0004003D, 0x00000060, 0x00000111, 0x000000DB, 0x0003003E,
+-    0x00000105, 0x00000111, 0x000200F9, 0x00000107, 0x000200F8, 0x00000107, 0x0004003D, 0x00000060,
+-    0x00000112, 0x00000105, 0x0003003E, 0x00000100, 0x00000112, 0x0004003D, 0x00000060, 0x00000114,
+-    0x00000100, 0x0004003D, 0x00000060, 0x00000115, 0x000000DB, 0x00050083, 0x00000060, 0x00000116,
+-    0x00000114, 0x00000115, 0x0005008E, 0x00000060, 0x00000117, 0x00000116, 0x0000005A, 0x0004003D,
+-    0x00000080, 0x00000118, 0x00000082, 0x00040070, 0x00000060, 0x00000119, 0x00000118, 0x00050085,
+-    0x00000060, 0x0000011A, 0x00000117, 0x00000119, 0x0003003E, 0x00000113, 0x0000011A, 0x0004003D,
+-    0x0000011B, 0x0000011E, 0x0000011D, 0x0004003D, 0x00000080, 0x0000011F, 0x0000008C, 0x0004007C,
+-    0x0000009F, 0x00000120, 0x0000011F, 0x0004003D, 0x00000060, 0x00000121, 0x00000113, 0x00050051,
+-    0x00000008, 0x00000122, 0x00000121, 0x00000000, 0x00050051, 0x00000008, 0x00000123, 0x00000121,
+-    0x00000001, 0x00070050, 0x0000005E, 0x00000124, 0x00000122, 0x00000123, 0x00000054, 0x00000054,
+-    0x00040063, 0x0000011E, 0x00000120, 0x00000124, 0x00050041, 0x00000065, 0x00000126, 0x00000063,
+-    0x00000064, 0x0004003D, 0x00000006, 0x00000127, 0x00000126, 0x000500C7, 0x00000006, 0x00000128,
+-    0x00000127, 0x000000A9, 0x0003003E, 0x00000125, 0x00000128, 0x0004003D, 0x00000006, 0x00000129,
+-    0x00000125, 0x000500AA, 0x00000022, 0x0000012A, 0x00000129, 0x00000071, 0x000300F7, 0x0000012C,
+-    0x00000000, 0x000400FA, 0x0000012A, 0x0000012B, 0x00000146, 0x000200F8, 0x0000012B, 0x00050041,
+-    0x00000065, 0x0000012E, 0x00000063, 0x00000064, 0x0004003D, 0x00000006, 0x0000012F, 0x0000012E,
+-    0x000500C2, 0x00000006, 0x00000130, 0x0000012F, 0x00000041, 0x000500C7, 0x00000006, 0x00000132,
+-    0x00000130, 0x00000131, 0x0007000C, 0x00000006, 0x00000133, 0x00000001, 0x00000029, 0x00000132,
+-    0x00000071, 0x00040070, 0x00000008, 0x00000134, 0x00000133, 0x0003003E, 0x0000012D, 0x00000134,
+-    0x0004003D, 0x0000009A, 0x00000136, 0x00000135, 0x0004003D, 0x00000080, 0x00000137, 0x0000008C,
+-    0x0004007C, 0x0000009F, 0x00000138, 0x00000137, 0x0004003D, 0x00000060, 0x00000139, 0x00000113,
+-    0x0004003D, 0x00000008, 0x0000013A, 0x0000012D, 0x00050085, 0x00000008, 0x0000013B, 0x000000E8,
+-    0x0000013A, 0x00050050, 0x00000060, 0x0000013C, 0x0000013B, 0x0000013B, 0x00050088, 0x00000060,
+-    0x0000013D, 0x00000139, 0x0000013C, 0x00050050, 0x00000060, 0x0000013E, 0x0000005A, 0x0000005A,
+-    0x00050081, 0x00000060, 0x0000013F, 0x0000013E, 0x0000013D, 0x00050051, 0x00000008, 0x00000140,
+-    0x0000013F, 0x00000000, 0x00050051, 0x00000008, 0x00000141, 0x0000013F, 0x00000001, 0x00060050,
+-    0x00000011, 0x00000142, 0x00000140, 0x00000141, 0x0000005A, 0x0003003E, 0x00000143, 0x00000142,
+-    0x00050039, 0x00000006, 0x00000144, 0x00000015, 0x00000143, 0x00070050, 0x000000A1, 0x00000145,
+-    0x00000144, 0x00000021, 0x00000021, 0x00000021, 0x00040063, 0x00000136, 0x00000138, 0x00000145,
+-    0x000200F9, 0x0000012C, 0x000200F8, 0x00000146, 0x0004003D, 0x00000006, 0x00000147, 0x00000125,
+-    0x000500AA, 0x00000022, 0x00000148, 0x00000147, 0x00000076, 0x000300F7, 0x0000014A, 0x00000000,
+-    0x000400FA, 0x00000148, 0x00000149, 0x0000014A, 0x000200F8, 0x00000149, 0x0004003D, 0x00000008,
+-    0x0000014C, 0x000000CE, 0x0004003D, 0x00000008, 0x0000014D, 0x000000C7, 0x0007000C, 0x00000008,
+-    0x0000014E, 0x00000001, 0x00000028, 0x0000014C, 0x0000014D, 0x0004003D, 0x00000008, 0x0000014F,
+-    0x000000C7, 0x00050088, 0x00000008, 0x00000150, 0x0000014E, 0x0000014F, 0x0006000C, 0x00000008,
+-    0x00000151, 0x00000001, 0x0000001C, 0x00000150, 0x0004003D, 0x00000008, 0x00000153, 0x000000C7,
+-    0x00050088, 0x00000008, 0x00000154, 0x00000152, 0x00000153, 0x0006000C, 0x00000008, 0x00000155,
+-    0x00000001, 0x0000001C, 0x00000154, 0x00050088, 0x00000008, 0x00000156, 0x00000151, 0x00000155,
+-    0x0008000C, 0x00000008, 0x00000157, 0x00000001, 0x0000002B, 0x00000156, 0x00000054, 0x0000002F,
+-    0x00050083, 0x00000008, 0x00000158, 0x0000002F, 0x00000157, 0x0003003E, 0x0000014B, 0x00000158,
+-    0x0004003D, 0x0000009A, 0x00000159, 0x00000135, 0x0004003D, 0x00000080, 0x0000015A, 0x0000008C,
+-    0x0004007C, 0x0000009F, 0x0000015B, 0x0000015A, 0x0004003D, 0x00000008, 0x0000015C, 0x0000014B,
+-    0x00060050, 0x00000011, 0x0000015D, 0x0000015C, 0x0000015C, 0x0000015C, 0x0003003E, 0x0000015E,
+-    0x0000015D, 0x00050039, 0x00000006, 0x0000015F, 0x00000015, 0x0000015E, 0x00070050, 0x000000A1,
+-    0x00000160, 0x0000015F, 0x00000021, 0x00000021, 0x00000021, 0x00040063, 0x00000159, 0x0000015B,
+-    0x00000160, 0x000200F9, 0x0000014A, 0x000200F8, 0x0000014A, 0x000200F9, 0x0000012C, 0x000200F8,
+-    0x0000012C, 0x000100FD, 0x00010038, 0x00050036, 0x00000008, 0x0000000B, 0x00000000, 0x00000009,
+-    0x00030037, 0x00000007, 0x0000000A, 0x000200F8, 0x0000000C, 0x0004003B, 0x00000007, 0x00000017,
+-    0x00000007, 0x0004003B, 0x00000007, 0x0000001C, 0x00000007, 0x0004003B, 0x00000024, 0x00000025,
+-    0x00000007, 0x0004003D, 0x00000006, 0x00000018, 0x0000000A, 0x000500C2, 0x00000006, 0x0000001B,
+-    0x00000018, 0x0000001A, 0x0003003E, 0x00000017, 0x0000001B, 0x0004003D, 0x00000006, 0x0000001D,
+-    0x0000000A, 0x000500C7, 0x00000006, 0x0000001F, 0x0000001D, 0x0000001E, 0x0003003E, 0x0000001C,
+-    0x0000001F, 0x0004003D, 0x00000006, 0x00000020, 0x00000017, 0x000500AA, 0x00000022, 0x00000023,
+-    0x00000020, 0x00000021, 0x000300F7, 0x00000027, 0x00000000, 0x000400FA, 0x00000023, 0x00000026,
+-    0x0000002E, 0x000200F8, 0x00000026, 0x0004003D, 0x00000006, 0x00000028, 0x0000001C, 0x00040070,
+-    0x00000008, 0x00000029, 0x00000028, 0x00050088, 0x00000008, 0x0000002B, 0x00000029, 0x0000002A,
+-    0x00050085, 0x00000008, 0x0000002D, 0x0000002B, 0x0000002C, 0x0003003E, 0x00000025, 0x0000002D,
+-    0x000200F9, 0x00000027, 0x000200F8, 0x0000002E, 0x0004003D, 0x00000006, 0x00000030, 0x0000001C,
+-    0x00040070, 0x00000008, 0x00000031, 0x00000030, 0x00050088, 0x00000008, 0x00000032, 0x00000031,
+-    0x0000002A, 0x00050081, 0x00000008, 0x00000033, 0x0000002F, 0x00000032, 0x0004003D, 0x00000006,
+-    0x00000034, 0x00000017, 0x00040070, 0x00000008, 0x00000035, 0x00000034, 0x00050083, 0x00000008,
+-    0x00000037, 0x00000035, 0x00000036, 0x0006000C, 0x00000008, 0x00000038, 0x00000001, 0x0000001D,
+-    0x00000037, 0x00050085, 0x00000008, 0x00000039, 0x00000033, 0x00000038, 0x0003003E, 0x00000025,
+-    0x00000039, 0x000200F9, 0x00000027, 0x000200F8, 0x00000027, 0x0004003D, 0x00000008, 0x0000003A,
+-    0x00000025, 0x000200FE, 0x0000003A, 0x00010038, 0x00050036, 0x00000006, 0x0000000F, 0x00000000,
+-    0x0000000D, 0x00030037, 0x00000007, 0x0000000E, 0x000200F8, 0x00000010, 0x0004003D, 0x00000006,
+-    0x0000003D, 0x0000000E, 0x000500C2, 0x00000006, 0x0000003F, 0x0000003D, 0x0000003E, 0x0004003D,
+-    0x00000006, 0x00000040, 0x0000000E, 0x000500C2, 0x00000006, 0x00000042, 0x00000040, 0x00000041,
+-    0x000500C7, 0x00000006, 0x00000044, 0x00000042, 0x00000043, 0x000500C5, 0x00000006, 0x00000045,
+-    0x0000003F, 0x00000044, 0x0004003D, 0x00000006, 0x00000046, 0x0000000E, 0x000500C4, 0x00000006,
+-    0x00000047, 0x00000046, 0x00000041, 0x000500C7, 0x00000006, 0x00000049, 0x00000047, 0x00000048,
+-    0x000500C5, 0x00000006, 0x0000004A, 0x00000045, 0x00000049, 0x0004003D, 0x00000006, 0x0000004B,
+-    0x0000000E, 0x000500C4, 0x00000006, 0x0000004C, 0x0000004B, 0x0000003E, 0x000500C5, 0x00000006,
+-    0x0000004D, 0x0000004A, 0x0000004C, 0x000200FE, 0x0000004D, 0x00010038, 0x00050036, 0x00000006,
+-    0x00000015, 0x00000000, 0x00000013, 0x00030037, 0x00000012, 0x00000014, 0x000200F8, 0x00000016,
+-    0x0004003B, 0x00000051, 0x00000052, 0x00000007, 0x0004003D, 0x00000011, 0x00000053, 0x00000014,
+-    0x00060050, 0x00000011, 0x00000055, 0x00000054, 0x00000054, 0x00000054, 0x00060050, 0x00000011,
+-    0x00000056, 0x0000002F, 0x0000002F, 0x0000002F, 0x0008000C, 0x00000011, 0x00000057, 0x00000001,
+-    0x0000002B, 0x00000053, 0x00000055, 0x00000056, 0x0005008E, 0x00000011, 0x00000059, 0x00000057,
+-    0x00000058, 0x00060050, 0x00000011, 0x0000005B, 0x0000005A, 0x0000005A, 0x0000005A, 0x00050081,
+-    0x00000011, 0x0000005C, 0x00000059, 0x0000005B, 0x0004006D, 0x00000050, 0x0000005D, 0x0000005C,
+-    0x0003003E, 0x00000052, 0x0000005D, 0x00050041, 0x00000065, 0x00000066, 0x00000063, 0x00000064,
+-    0x0004003D, 0x00000006, 0x00000067, 0x00000066, 0x000500C7, 0x00000006, 0x00000069, 0x00000067,
+-    0x00000068, 0x000500AB, 0x00000022, 0x0000006A, 0x00000069, 0x00000021, 0x000300F7, 0x0000006C,
+-    0x00000000, 0x000400FA, 0x0000006A, 0x0000006B, 0x0000006C, 0x000200F8, 0x0000006B, 0x0004003D,
+-    0x00000050, 0x0000006D, 0x00000052, 0x0008004F, 0x00000050, 0x0000006E, 0x0000006D, 0x0000006D,
+-    0x00000002, 0x00000001, 0x00000000, 0x0003003E, 0x00000052, 0x0000006E, 0x000200F9, 0x0000006C,
+-    0x000200F8, 0x0000006C, 0x00050041, 0x00000007, 0x0000006F, 0x00000052, 0x00000021, 0x0004003D,
+-    0x00000006, 0x00000070, 0x0000006F, 0x00050041, 0x00000007, 0x00000072, 0x00000052, 0x00000071,
+-    0x0004003D, 0x00000006, 0x00000073, 0x00000072, 0x000500C4, 0x00000006, 0x00000074, 0x00000073,
+-    0x00000041, 0x000500C5, 0x00000006, 0x00000075, 0x00000070, 0x00000074, 0x00050041, 0x00000007,
+-    0x00000077, 0x00000052, 0x00000076, 0x0004003D, 0x00000006, 0x00000078, 0x00000077, 0x000500C4,
+-    0x00000006, 0x0000007A, 0x00000078, 0x00000079, 0x000500C5, 0x00000006, 0x0000007B, 0x00000075,
+-    0x0000007A, 0x000500C5, 0x00000006, 0x0000007D, 0x0000007B, 0x0000007C, 0x000200FE, 0x0000007D,
+-    0x00010038,
++    0x0000011B, 0x0004003B, 0x0000011C, 0x0000011D, 0x00000000, 0x0004002B, 0x00000006, 0x0000012F,
++    0x00000020, 0x0004003B, 0x0000009B, 0x00000135, 0x00000000, 0x0004002B, 0x00000006, 0x00000145,
++    0x000000FF, 0x0004002B, 0x00000008, 0x00000165, 0x45FA0000, 0x0004002B, 0x00000006, 0x00000174,
++    0x00000008, 0x0006002C, 0x00000050, 0x00000175, 0x00000174, 0x00000174, 0x00000071, 0x00050036,
++    0x00000002, 0x00000004, 0x00000000, 0x00000003, 0x000200F8, 0x00000005, 0x0004003B, 0x00000081,
++    0x00000082, 0x00000007, 0x0004003B, 0x00000081, 0x0000008C, 0x00000007, 0x0004003B, 0x00000007,
++    0x00000099, 0x00000007, 0x0004003B, 0x00000007, 0x000000A4, 0x00000007, 0x0004003B, 0x00000007,
++    0x000000AF, 0x00000007, 0x0004003B, 0x00000007, 0x000000B2, 0x00000007, 0x0004003B, 0x00000007,
++    0x000000B5, 0x00000007, 0x0004003B, 0x00000024, 0x000000BF, 0x00000007, 0x0004003B, 0x00000007,
++    0x000000C0, 0x00000007, 0x0004003B, 0x00000024, 0x000000C3, 0x00000007, 0x0004003B, 0x00000024,
++    0x000000C7, 0x00000007, 0x0004003B, 0x00000024, 0x000000CB, 0x00000007, 0x0004003B, 0x00000024,
++    0x000000CE, 0x00000007, 0x0004003B, 0x000000DA, 0x000000DB, 0x00000007, 0x0004003B, 0x000000EC,
++    0x000000ED, 0x00000007, 0x0004003B, 0x000000EC, 0x000000F9, 0x00000007, 0x0004003B, 0x000000DA,
++    0x00000100, 0x00000007, 0x0004003B, 0x000000DA, 0x00000105, 0x00000007, 0x0004003B, 0x000000DA,
++    0x00000113, 0x00000007, 0x0004003B, 0x00000007, 0x00000125, 0x00000007, 0x0004003B, 0x00000024,
++    0x00000141, 0x00000007, 0x0004003B, 0x00000012, 0x00000156, 0x00000007, 0x0004003B, 0x00000024,
++    0x0000015E, 0x00000007, 0x0004003B, 0x00000012, 0x00000171, 0x00000007, 0x00050041, 0x00000065,
++    0x00000084, 0x00000063, 0x00000083, 0x0004003D, 0x00000006, 0x00000085, 0x00000084, 0x000500C7,
++    0x00000006, 0x00000087, 0x00000085, 0x00000086, 0x00050041, 0x00000065, 0x00000088, 0x00000063,
++    0x00000083, 0x0004003D, 0x00000006, 0x00000089, 0x00000088, 0x000500C2, 0x00000006, 0x0000008A,
++    0x00000089, 0x00000079, 0x00050050, 0x00000080, 0x0000008B, 0x00000087, 0x0000008A, 0x0003003E,
++    0x00000082, 0x0000008B, 0x0004003D, 0x00000050, 0x0000008F, 0x0000008E, 0x0007004F, 0x00000080,
++    0x00000090, 0x0000008F, 0x0000008F, 0x00000000, 0x00000001, 0x0003003E, 0x0000008C, 0x00000090,
++    0x0004003D, 0x00000080, 0x00000091, 0x0000008C, 0x0004003D, 0x00000080, 0x00000092, 0x00000082,
++    0x000500AE, 0x00000093, 0x00000094, 0x00000091, 0x00000092, 0x0004009A, 0x00000022, 0x00000095,
++    0x00000094, 0x000300F7, 0x00000097, 0x00000000, 0x000400FA, 0x00000095, 0x00000096, 0x00000097,
++    0x000200F8, 0x00000096, 0x000100FD, 0x000200F8, 0x00000097, 0x0004003D, 0x0000009A, 0x0000009D,
++    0x0000009C, 0x0004003D, 0x00000080, 0x0000009E, 0x0000008C, 0x0004007C, 0x0000009F, 0x000000A0,
++    0x0000009E, 0x00050062, 0x000000A1, 0x000000A2, 0x0000009D, 0x000000A0, 0x00050051, 0x00000006,
++    0x000000A3, 0x000000A2, 0x00000000, 0x0003003E, 0x00000099, 0x000000A3, 0x00050041, 0x00000065,
++    0x000000A5, 0x00000063, 0x00000064, 0x0004003D, 0x00000006, 0x000000A6, 0x000000A5, 0x000500C2,
++    0x00000006, 0x000000A8, 0x000000A6, 0x000000A7, 0x000500C7, 0x00000006, 0x000000AA, 0x000000A8,
++    0x000000A9, 0x0003003E, 0x000000A4, 0x000000AA, 0x0004003D, 0x00000006, 0x000000AB, 0x000000A4,
++    0x000500AA, 0x00000022, 0x000000AC, 0x000000AB, 0x00000071, 0x000300F7, 0x000000AE, 0x00000000,
++    0x000400FA, 0x000000AC, 0x000000AD, 0x000000AE, 0x000200F8, 0x000000AD, 0x0004003D, 0x00000006,
++    0x000000B0, 0x00000099, 0x0003003E, 0x000000AF, 0x000000B0, 0x00050039, 0x00000006, 0x000000B1,
++    0x0000000F, 0x000000AF, 0x0003003E, 0x00000099, 0x000000B1, 0x000200F9, 0x000000AE, 0x000200F8,
++    0x000000AE, 0x0004003D, 0x00000006, 0x000000B3, 0x000000A4, 0x000500AA, 0x00000022, 0x000000B4,
++    0x000000B3, 0x00000076, 0x000300F7, 0x000000B7, 0x00000000, 0x000400FA, 0x000000B4, 0x000000B6,
++    0x000000BB, 0x000200F8, 0x000000B6, 0x0004003D, 0x00000006, 0x000000B8, 0x00000099, 0x000500C7,
++    0x00000006, 0x000000BA, 0x000000B8, 0x000000B9, 0x0003003E, 0x000000B5, 0x000000BA, 0x000200F9,
++    0x000000B7, 0x000200F8, 0x000000BB, 0x0004003D, 0x00000006, 0x000000BC, 0x00000099, 0x000500C2,
++    0x00000006, 0x000000BD, 0x000000BC, 0x00000041, 0x0003003E, 0x000000B5, 0x000000BD, 0x000200F9,
++    0x000000B7, 0x000200F8, 0x000000B7, 0x0004003D, 0x00000006, 0x000000BE, 0x000000B5, 0x0003003E,
++    0x000000B2, 0x000000BE, 0x0004003D, 0x00000006, 0x000000C1, 0x000000B2, 0x0003003E, 0x000000C0,
++    0x000000C1, 0x00050039, 0x00000008, 0x000000C2, 0x0000000B, 0x000000C0, 0x0003003E, 0x000000BF,
++    0x000000C2, 0x0004003D, 0x00000008, 0x000000C4, 0x000000BF, 0x00050083, 0x00000008, 0x000000C5,
++    0x0000002F, 0x000000C4, 0x0008000C, 0x00000008, 0x000000C6, 0x00000001, 0x0000002B, 0x000000C5,
++    0x00000054, 0x0000002F, 0x0003003E, 0x000000C3, 0x000000C6, 0x00060041, 0x000000C8, 0x000000C9,
++    0x00000063, 0x000000A7, 0x00000021, 0x0004003D, 0x00000008, 0x000000CA, 0x000000C9, 0x0003003E,
++    0x000000C7, 0x000000CA, 0x00060041, 0x000000C8, 0x000000CC, 0x00000063, 0x000000A7, 0x00000071,
++    0x0004003D, 0x00000008, 0x000000CD, 0x000000CC, 0x0003003E, 0x000000CB, 0x000000CD, 0x0004003D,
++    0x00000008, 0x000000CF, 0x000000C7, 0x0004003D, 0x00000008, 0x000000D0, 0x000000CB, 0x00050085,
++    0x00000008, 0x000000D1, 0x000000CF, 0x000000D0, 0x0004003D, 0x00000008, 0x000000D2, 0x000000CB,
++    0x0004003D, 0x00000008, 0x000000D3, 0x000000C3, 0x0004003D, 0x00000008, 0x000000D4, 0x000000CB,
++    0x0004003D, 0x00000008, 0x000000D5, 0x000000C7, 0x00050083, 0x00000008, 0x000000D6, 0x000000D4,
++    0x000000D5, 0x00050085, 0x00000008, 0x000000D7, 0x000000D3, 0x000000D6, 0x00050083, 0x00000008,
++    0x000000D8, 0x000000D2, 0x000000D7, 0x00050088, 0x00000008, 0x000000D9, 0x000000D1, 0x000000D8,
++    0x0003003E, 0x000000CE, 0x000000D9, 0x0004003D, 0x00000080, 0x000000DC, 0x0000008C, 0x00040070,
++    0x00000060, 0x000000DD, 0x000000DC, 0x00050050, 0x00000060, 0x000000DE, 0x0000005A, 0x0000005A,
++    0x00050081, 0x00000060, 0x000000DF, 0x000000DD, 0x000000DE, 0x00050041, 0x000000E1, 0x000000E2,
++    0x00000063, 0x000000E0, 0x0004003D, 0x00000060, 0x000000E3, 0x000000E2, 0x00050083, 0x00000060,
++    0x000000E4, 0x000000DF, 0x000000E3, 0x0004003D, 0x00000080, 0x000000E5, 0x00000082, 0x00040070,
++    0x00000060, 0x000000E6, 0x000000E5, 0x00050088, 0x00000060, 0x000000E7, 0x000000E4, 0x000000E6,
++    0x0005008E, 0x00000060, 0x000000E9, 0x000000E7, 0x000000E8, 0x00050050, 0x00000060, 0x000000EA,
++    0x0000002F, 0x0000002F, 0x00050083, 0x00000060, 0x000000EB, 0x000000E9, 0x000000EA, 0x0003003E,
++    0x000000DB, 0x000000EB, 0x0004003D, 0x00000060, 0x000000EE, 0x000000DB, 0x00050041, 0x000000E1,
++    0x000000F0, 0x00000063, 0x000000EF, 0x0004003D, 0x00000060, 0x000000F1, 0x000000F0, 0x00050085,
++    0x00000060, 0x000000F2, 0x000000EE, 0x000000F1, 0x0004003D, 0x00000008, 0x000000F3, 0x000000CE,
++    0x0005008E, 0x00000060, 0x000000F4, 0x000000F2, 0x000000F3, 0x0004003D, 0x00000008, 0x000000F5,
++    0x000000CE, 0x00050051, 0x00000008, 0x000000F6, 0x000000F4, 0x00000000, 0x00050051, 0x00000008,
++    0x000000F7, 0x000000F4, 0x00000001, 0x00070050, 0x0000005E, 0x000000F8, 0x000000F6, 0x000000F7,
++    0x000000F5, 0x0000002F, 0x0003003E, 0x000000ED, 0x000000F8, 0x0004003D, 0x0000005E, 0x000000FA,
++    0x000000ED, 0x00050041, 0x000000FC, 0x000000FD, 0x00000063, 0x000000FB, 0x0004003D, 0x0000005F,
++    0x000000FE, 0x000000FD, 0x00050090, 0x0000005E, 0x000000FF, 0x000000FA, 0x000000FE, 0x0003003E,
++    0x000000F9, 0x000000FF, 0x00050041, 0x00000024, 0x00000101, 0x000000F9, 0x00000076, 0x0004003D,
++    0x00000008, 0x00000102, 0x00000101, 0x000500BA, 0x00000022, 0x00000104, 0x00000102, 0x00000103,
++    0x000300F7, 0x00000107, 0x00000000, 0x000400FA, 0x00000104, 0x00000106, 0x00000110, 0x000200F8,
++    0x00000106, 0x0004003D, 0x0000005E, 0x00000108, 0x000000F9, 0x0007004F, 0x00000060, 0x00000109,
++    0x00000108, 0x00000108, 0x00000000, 0x00000001, 0x00050041, 0x00000024, 0x0000010A, 0x000000F9,
++    0x00000076, 0x0004003D, 0x00000008, 0x0000010B, 0x0000010A, 0x00050041, 0x000000E1, 0x0000010C,
++    0x00000063, 0x000000EF, 0x0004003D, 0x00000060, 0x0000010D, 0x0000010C, 0x0005008E, 0x00000060,
++    0x0000010E, 0x0000010D, 0x0000010B, 0x00050088, 0x00000060, 0x0000010F, 0x00000109, 0x0000010E,
++    0x0003003E, 0x00000105, 0x0000010F, 0x000200F9, 0x00000107, 0x000200F8, 0x00000110, 0x0004003D,
++    0x00000060, 0x00000111, 0x000000DB, 0x0003003E, 0x00000105, 0x00000111, 0x000200F9, 0x00000107,
++    0x000200F8, 0x00000107, 0x0004003D, 0x00000060, 0x00000112, 0x00000105, 0x0003003E, 0x00000100,
++    0x00000112, 0x0004003D, 0x00000060, 0x00000114, 0x00000100, 0x0004003D, 0x00000060, 0x00000115,
++    0x000000DB, 0x00050083, 0x00000060, 0x00000116, 0x00000114, 0x00000115, 0x0005008E, 0x00000060,
++    0x00000117, 0x00000116, 0x0000005A, 0x0004003D, 0x00000080, 0x00000118, 0x00000082, 0x00040070,
++    0x00000060, 0x00000119, 0x00000118, 0x00050085, 0x00000060, 0x0000011A, 0x00000117, 0x00000119,
++    0x0003003E, 0x00000113, 0x0000011A, 0x0004003D, 0x0000011B, 0x0000011E, 0x0000011D, 0x0004003D,
++    0x00000080, 0x0000011F, 0x0000008C, 0x0004007C, 0x0000009F, 0x00000120, 0x0000011F, 0x0004003D,
++    0x00000060, 0x00000121, 0x00000113, 0x00050051, 0x00000008, 0x00000122, 0x00000121, 0x00000000,
++    0x00050051, 0x00000008, 0x00000123, 0x00000121, 0x00000001, 0x00070050, 0x0000005E, 0x00000124,
++    0x00000122, 0x00000123, 0x00000054, 0x00000054, 0x00040063, 0x0000011E, 0x00000120, 0x00000124,
++    0x00050041, 0x00000065, 0x00000126, 0x00000063, 0x00000064, 0x0004003D, 0x00000006, 0x00000127,
++    0x00000126, 0x000500C7, 0x00000006, 0x00000128, 0x00000127, 0x000000A9, 0x0003003E, 0x00000125,
++    0x00000128, 0x0004003D, 0x00000006, 0x00000129, 0x00000125, 0x000500AA, 0x00000022, 0x0000012A,
++    0x00000129, 0x00000021, 0x000300F7, 0x0000012C, 0x00000000, 0x000400FA, 0x0000012A, 0x0000012B,
++    0x0000012C, 0x000200F8, 0x0000012B, 0x00050041, 0x00000065, 0x0000012D, 0x00000063, 0x00000064,
++    0x0004003D, 0x00000006, 0x0000012E, 0x0000012D, 0x000500C7, 0x00000006, 0x00000130, 0x0000012E,
++    0x0000012F, 0x000500AB, 0x00000022, 0x00000131, 0x00000130, 0x00000021, 0x000200F9, 0x0000012C,
++    0x000200F8, 0x0000012C, 0x000700F5, 0x00000022, 0x00000132, 0x0000012A, 0x00000107, 0x00000131,
++    0x0000012B, 0x000300F7, 0x00000134, 0x00000000, 0x000400FA, 0x00000132, 0x00000133, 0x0000013C,
++    0x000200F8, 0x00000133, 0x0004003D, 0x0000009A, 0x00000136, 0x00000135, 0x0004003D, 0x00000080,
++    0x00000137, 0x0000008C, 0x0004007C, 0x0000009F, 0x00000138, 0x00000137, 0x0004003D, 0x00000008,
++    0x00000139, 0x000000BF, 0x0004007C, 0x00000006, 0x0000013A, 0x00000139, 0x00070050, 0x000000A1,
++    0x0000013B, 0x0000013A, 0x00000021, 0x00000021, 0x00000021, 0x00040063, 0x00000136, 0x00000138,
++    0x0000013B, 0x000200F9, 0x00000134, 0x000200F8, 0x0000013C, 0x0004003D, 0x00000006, 0x0000013D,
++    0x00000125, 0x000500AA, 0x00000022, 0x0000013E, 0x0000013D, 0x00000071, 0x000300F7, 0x00000140,
++    0x00000000, 0x000400FA, 0x0000013E, 0x0000013F, 0x00000159, 0x000200F8, 0x0000013F, 0x00050041,
++    0x00000065, 0x00000142, 0x00000063, 0x00000064, 0x0004003D, 0x00000006, 0x00000143, 0x00000142,
++    0x000500C2, 0x00000006, 0x00000144, 0x00000143, 0x00000041, 0x000500C7, 0x00000006, 0x00000146,
++    0x00000144, 0x00000145, 0x0007000C, 0x00000006, 0x00000147, 0x00000001, 0x00000029, 0x00000146,
++    0x00000071, 0x00040070, 0x00000008, 0x00000148, 0x00000147, 0x0003003E, 0x00000141, 0x00000148,
++    0x0004003D, 0x0000009A, 0x00000149, 0x00000135, 0x0004003D, 0x00000080, 0x0000014A, 0x0000008C,
++    0x0004007C, 0x0000009F, 0x0000014B, 0x0000014A, 0x0004003D, 0x00000060, 0x0000014C, 0x00000113,
++    0x0004003D, 0x00000008, 0x0000014D, 0x00000141, 0x00050085, 0x00000008, 0x0000014E, 0x000000E8,
++    0x0000014D, 0x00050050, 0x00000060, 0x0000014F, 0x0000014E, 0x0000014E, 0x00050088, 0x00000060,
++    0x00000150, 0x0000014C, 0x0000014F, 0x00050050, 0x00000060, 0x00000151, 0x0000005A, 0x0000005A,
++    0x00050081, 0x00000060, 0x00000152, 0x00000151, 0x00000150, 0x00050051, 0x00000008, 0x00000153,
++    0x00000152, 0x00000000, 0x00050051, 0x00000008, 0x00000154, 0x00000152, 0x00000001, 0x00060050,
++    0x00000011, 0x00000155, 0x00000153, 0x00000154, 0x0000005A, 0x0003003E, 0x00000156, 0x00000155,
++    0x00050039, 0x00000006, 0x00000157, 0x00000015, 0x00000156, 0x00070050, 0x000000A1, 0x00000158,
++    0x00000157, 0x00000021, 0x00000021, 0x00000021, 0x00040063, 0x00000149, 0x0000014B, 0x00000158,
++    0x000200F9, 0x00000140, 0x000200F8, 0x00000159, 0x0004003D, 0x00000006, 0x0000015A, 0x00000125,
++    0x000500AA, 0x00000022, 0x0000015B, 0x0000015A, 0x00000076, 0x000300F7, 0x0000015D, 0x00000000,
++    0x000400FA, 0x0000015B, 0x0000015C, 0x0000015D, 0x000200F8, 0x0000015C, 0x0004003D, 0x00000008,
++    0x0000015F, 0x000000CE, 0x0004003D, 0x00000008, 0x00000160, 0x000000C7, 0x0007000C, 0x00000008,
++    0x00000161, 0x00000001, 0x00000028, 0x0000015F, 0x00000160, 0x0004003D, 0x00000008, 0x00000162,
++    0x000000C7, 0x00050088, 0x00000008, 0x00000163, 0x00000161, 0x00000162, 0x0006000C, 0x00000008,
++    0x00000164, 0x00000001, 0x0000001C, 0x00000163, 0x0004003D, 0x00000008, 0x00000166, 0x000000C7,
++    0x00050088, 0x00000008, 0x00000167, 0x00000165, 0x00000166, 0x0006000C, 0x00000008, 0x00000168,
++    0x00000001, 0x0000001C, 0x00000167, 0x00050088, 0x00000008, 0x00000169, 0x00000164, 0x00000168,
++    0x0008000C, 0x00000008, 0x0000016A, 0x00000001, 0x0000002B, 0x00000169, 0x00000054, 0x0000002F,
++    0x00050083, 0x00000008, 0x0000016B, 0x0000002F, 0x0000016A, 0x0003003E, 0x0000015E, 0x0000016B,
++    0x0004003D, 0x0000009A, 0x0000016C, 0x00000135, 0x0004003D, 0x00000080, 0x0000016D, 0x0000008C,
++    0x0004007C, 0x0000009F, 0x0000016E, 0x0000016D, 0x0004003D, 0x00000008, 0x0000016F, 0x0000015E,
++    0x00060050, 0x00000011, 0x00000170, 0x0000016F, 0x0000016F, 0x0000016F, 0x0003003E, 0x00000171,
++    0x00000170, 0x00050039, 0x00000006, 0x00000172, 0x00000015, 0x00000171, 0x00070050, 0x000000A1,
++    0x00000173, 0x00000172, 0x00000021, 0x00000021, 0x00000021, 0x00040063, 0x0000016C, 0x0000016E,
++    0x00000173, 0x000200F9, 0x0000015D, 0x000200F8, 0x0000015D, 0x000200F9, 0x00000140, 0x000200F8,
++    0x00000140, 0x000200F9, 0x00000134, 0x000200F8, 0x00000134, 0x000100FD, 0x00010038, 0x00050036,
++    0x00000008, 0x0000000B, 0x00000000, 0x00000009, 0x00030037, 0x00000007, 0x0000000A, 0x000200F8,
++    0x0000000C, 0x0004003B, 0x00000007, 0x00000017, 0x00000007, 0x0004003B, 0x00000007, 0x0000001C,
++    0x00000007, 0x0004003B, 0x00000024, 0x00000025, 0x00000007, 0x0004003D, 0x00000006, 0x00000018,
++    0x0000000A, 0x000500C2, 0x00000006, 0x0000001B, 0x00000018, 0x0000001A, 0x0003003E, 0x00000017,
++    0x0000001B, 0x0004003D, 0x00000006, 0x0000001D, 0x0000000A, 0x000500C7, 0x00000006, 0x0000001F,
++    0x0000001D, 0x0000001E, 0x0003003E, 0x0000001C, 0x0000001F, 0x0004003D, 0x00000006, 0x00000020,
++    0x00000017, 0x000500AA, 0x00000022, 0x00000023, 0x00000020, 0x00000021, 0x000300F7, 0x00000027,
++    0x00000000, 0x000400FA, 0x00000023, 0x00000026, 0x0000002E, 0x000200F8, 0x00000026, 0x0004003D,
++    0x00000006, 0x00000028, 0x0000001C, 0x00040070, 0x00000008, 0x00000029, 0x00000028, 0x00050088,
++    0x00000008, 0x0000002B, 0x00000029, 0x0000002A, 0x00050085, 0x00000008, 0x0000002D, 0x0000002B,
++    0x0000002C, 0x0003003E, 0x00000025, 0x0000002D, 0x000200F9, 0x00000027, 0x000200F8, 0x0000002E,
++    0x0004003D, 0x00000006, 0x00000030, 0x0000001C, 0x00040070, 0x00000008, 0x00000031, 0x00000030,
++    0x00050088, 0x00000008, 0x00000032, 0x00000031, 0x0000002A, 0x00050081, 0x00000008, 0x00000033,
++    0x0000002F, 0x00000032, 0x0004003D, 0x00000006, 0x00000034, 0x00000017, 0x00040070, 0x00000008,
++    0x00000035, 0x00000034, 0x00050083, 0x00000008, 0x00000037, 0x00000035, 0x00000036, 0x0006000C,
++    0x00000008, 0x00000038, 0x00000001, 0x0000001D, 0x00000037, 0x00050085, 0x00000008, 0x00000039,
++    0x00000033, 0x00000038, 0x0003003E, 0x00000025, 0x00000039, 0x000200F9, 0x00000027, 0x000200F8,
++    0x00000027, 0x0004003D, 0x00000008, 0x0000003A, 0x00000025, 0x000200FE, 0x0000003A, 0x00010038,
++    0x00050036, 0x00000006, 0x0000000F, 0x00000000, 0x0000000D, 0x00030037, 0x00000007, 0x0000000E,
++    0x000200F8, 0x00000010, 0x0004003D, 0x00000006, 0x0000003D, 0x0000000E, 0x000500C2, 0x00000006,
++    0x0000003F, 0x0000003D, 0x0000003E, 0x0004003D, 0x00000006, 0x00000040, 0x0000000E, 0x000500C2,
++    0x00000006, 0x00000042, 0x00000040, 0x00000041, 0x000500C7, 0x00000006, 0x00000044, 0x00000042,
++    0x00000043, 0x000500C5, 0x00000006, 0x00000045, 0x0000003F, 0x00000044, 0x0004003D, 0x00000006,
++    0x00000046, 0x0000000E, 0x000500C4, 0x00000006, 0x00000047, 0x00000046, 0x00000041, 0x000500C7,
++    0x00000006, 0x00000049, 0x00000047, 0x00000048, 0x000500C5, 0x00000006, 0x0000004A, 0x00000045,
++    0x00000049, 0x0004003D, 0x00000006, 0x0000004B, 0x0000000E, 0x000500C4, 0x00000006, 0x0000004C,
++    0x0000004B, 0x0000003E, 0x000500C5, 0x00000006, 0x0000004D, 0x0000004A, 0x0000004C, 0x000200FE,
++    0x0000004D, 0x00010038, 0x00050036, 0x00000006, 0x00000015, 0x00000000, 0x00000013, 0x00030037,
++    0x00000012, 0x00000014, 0x000200F8, 0x00000016, 0x0004003B, 0x00000051, 0x00000052, 0x00000007,
++    0x0004003D, 0x00000011, 0x00000053, 0x00000014, 0x00060050, 0x00000011, 0x00000055, 0x00000054,
++    0x00000054, 0x00000054, 0x00060050, 0x00000011, 0x00000056, 0x0000002F, 0x0000002F, 0x0000002F,
++    0x0008000C, 0x00000011, 0x00000057, 0x00000001, 0x0000002B, 0x00000053, 0x00000055, 0x00000056,
++    0x0005008E, 0x00000011, 0x00000059, 0x00000057, 0x00000058, 0x00060050, 0x00000011, 0x0000005B,
++    0x0000005A, 0x0000005A, 0x0000005A, 0x00050081, 0x00000011, 0x0000005C, 0x00000059, 0x0000005B,
++    0x0004006D, 0x00000050, 0x0000005D, 0x0000005C, 0x0003003E, 0x00000052, 0x0000005D, 0x00050041,
++    0x00000065, 0x00000066, 0x00000063, 0x00000064, 0x0004003D, 0x00000006, 0x00000067, 0x00000066,
++    0x000500C7, 0x00000006, 0x00000069, 0x00000067, 0x00000068, 0x000500AB, 0x00000022, 0x0000006A,
++    0x00000069, 0x00000021, 0x000300F7, 0x0000006C, 0x00000000, 0x000400FA, 0x0000006A, 0x0000006B,
++    0x0000006C, 0x000200F8, 0x0000006B, 0x0004003D, 0x00000050, 0x0000006D, 0x00000052, 0x0008004F,
++    0x00000050, 0x0000006E, 0x0000006D, 0x0000006D, 0x00000002, 0x00000001, 0x00000000, 0x0003003E,
++    0x00000052, 0x0000006E, 0x000200F9, 0x0000006C, 0x000200F8, 0x0000006C, 0x00050041, 0x00000007,
++    0x0000006F, 0x00000052, 0x00000021, 0x0004003D, 0x00000006, 0x00000070, 0x0000006F, 0x00050041,
++    0x00000007, 0x00000072, 0x00000052, 0x00000071, 0x0004003D, 0x00000006, 0x00000073, 0x00000072,
++    0x000500C4, 0x00000006, 0x00000074, 0x00000073, 0x00000041, 0x000500C5, 0x00000006, 0x00000075,
++    0x00000070, 0x00000074, 0x00050041, 0x00000007, 0x00000077, 0x00000052, 0x00000076, 0x0004003D,
++    0x00000006, 0x00000078, 0x00000077, 0x000500C4, 0x00000006, 0x0000007A, 0x00000078, 0x00000079,
++    0x000500C5, 0x00000006, 0x0000007B, 0x00000075, 0x0000007A, 0x000500C5, 0x00000006, 0x0000007D,
++    0x0000007B, 0x0000007C, 0x000200FE, 0x0000007D, 0x00010038,
+ };
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 98c5605..b9fef20 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -42,6 +42,7 @@
+ #include <rex/perf/timeline.h>
+ #include <rex/perf/flight.h>  // wwe2k14 patch (Session 8, FLIGHT)
+ #include <rex/perf/dlaa.h>    // wwe2k14 patch (Session 18, DLAA)
++#include <rex/ui/vulkan/streamline.h>  // wwe2k14 patch (Session 18, DLAA step 3)
+ #include <rex/math.h>
+ #include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/util/draw.h>
+@@ -87,6 +88,13 @@ REXCVAR_DEFINE_STRING(gpu_dlaa_jitter_test, "", "GPU",
+                       "DLAA jitter test: a fixed X,Y offset in host pixels instead of the Halton sequence (needs "
+                       "gpu_dlaa_jitter); empty = the sequence");
+ REXCVAR_DEFINE_INT32(gpu_dlaa_jitter_phases, 8, "GPU", "DLAA jitter: length of the Halton sequence (DLAA: 8)");
++REXCVAR_DEFINE_BOOL(gpu_dlaa, false, "GPU",
++                    "DLAA step 3 (needs vulkan_streamline_dir + DLSS): the scene colour the post passes sample (the "
++                    "first scene-size colour resolve after the depth, or gpu_dlaa_color_base) goes through DLSS in "
++                    "DLAA mode with the jitter, depth and camera motion vectors; default off");
++REXCVAR_DEFINE_DOUBLE(gpu_dlaa_jitter_sign, 1.0, "GPU", "DLAA: multiplies the jitter given to DLSS (+1 / -1)");
++REXCVAR_DEFINE_DOUBLE(gpu_dlaa_reset_degrees, 15.0, "GPU",
++                      "DLAA: a camera turn bigger than this (degrees) between frames counts as a cut (DLSS reset)");
+ REXCVAR_DEFINE_BOOL(gpu_dlaa_motion, false, "GPU",
+                     "DLAA step 2: camera motion vectors from the scene depth resolve (default off)");
+ REXCVAR_DEFINE_INT32(gpu_dlaa_debug, 0, "GPU",
+@@ -4118,9 +4126,241 @@ bool VulkanCommandProcessor::DlaaEnsureOutputImage(VkFormat format, uint32_t wid
+   return true;
+ }
+ 
++bool VulkanCommandProcessor::DlaaEnsureImage(DlaaImage& img, VkFormat format, bool r32_storage_view, uint32_t width,
++                                             uint32_t height) {
++  if (img.image != VK_NULL_HANDLE && img.format == format && img.width == width && img.height == height) {
++    return true;
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (img.image != VK_NULL_HANDLE) {
++    AwaitAllQueueOperationsCompletion();
++    if (img.storage_view) dfn.vkDestroyImageView(device, img.storage_view, nullptr);
++    dfn.vkDestroyImageView(device, img.view, nullptr);
++    dfn.vkDestroyImage(device, img.image, nullptr);
++    dfn.vkFreeMemory(device, img.memory, nullptr);
++    const VkDescriptorSet keep_set = img.set;
++    img = DlaaImage();
++    img.set = keep_set;
++  }
++  const VkFormat view_formats[2] = {format, VK_FORMAT_R32_UINT};
++  VkImageFormatListCreateInfo format_list = {};
++  format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
++  format_list.viewFormatCount = 2;
++  format_list.pViewFormats = view_formats;
++  VkImageCreateInfo info = {};
++  info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
++  info.pNext = r32_storage_view ? &format_list : nullptr;
++  info.flags = r32_storage_view ? VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT : 0;
++  info.imageType = VK_IMAGE_TYPE_2D;
++  info.format = format;
++  info.extent = {width, height, 1};
++  info.mipLevels = 1;
++  info.arrayLayers = 1;
++  info.samples = VK_SAMPLE_COUNT_1_BIT;
++  info.tiling = VK_IMAGE_TILING_OPTIMAL;
++  info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
++               VK_IMAGE_USAGE_TRANSFER_DST_BIT;
++  info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++  info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++  if (!ui::vulkan::util::CreateDedicatedAllocationImage(vulkan_device, info,
++                                                       ui::vulkan::util::MemoryPurpose::kDeviceLocal, img.image,
++                                                       img.memory)) {
++    REXGPU_ERROR("[dlaa] image {}x{} format {} failed", width, height, uint32_t(format));
++    img.image = VK_NULL_HANDLE;
++    return false;
++  }
++  VkImageViewCreateInfo view_info = {};
++  view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
++  view_info.image = img.image;
++  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
++  view_info.format = format;
++  view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange();
++  if (dfn.vkCreateImageView(device, &view_info, nullptr, &img.view) != VK_SUCCESS) return false;
++  if (r32_storage_view) {
++    view_info.format = VK_FORMAT_R32_UINT;
++    if (dfn.vkCreateImageView(device, &view_info, nullptr, &img.storage_view) != VK_SUCCESS) return false;
++    if (img.set == VK_NULL_HANDLE) {
++      img.set = texture_cache_->DlaaStorageSetForView(img.storage_view);
++    } else {
++      VkDescriptorImageInfo di = {VK_NULL_HANDLE, img.storage_view, VK_IMAGE_LAYOUT_GENERAL};
++      VkWriteDescriptorSet w = {};
++      w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++      w.dstSet = img.set;
++      w.descriptorCount = 1;
++      w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++      w.pImageInfo = &di;
++      dfn.vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
++    }
++    if (img.set == VK_NULL_HANDLE) return false;
++  }
++  img.format = format, img.width = width, img.height = height;
++  img.usage = info.usage, img.flags = info.flags;
++  return true;
++}
++
++// Runs on the submission thread when the deferred command buffer is executed.
++static void DlaaEvaluateCallback(VkCommandBuffer command_buffer, const void* data) {
++  static std::atomic<uint32_t> failures_logged{0}, evaluations{0};
++  const auto& frame = *static_cast<const ui::vulkan::streamline::DlaaFrame*>(data);
++  std::string reason;
++  if (!ui::vulkan::streamline::EvaluateDlaa(command_buffer, frame, &reason)) {
++    if (failures_logged.fetch_add(1) < 5) REXGPU_WARN("[dlaa] DLSS evaluate failed: {}", reason);
++  } else if (evaluations.fetch_add(1) < 3) {
++    REXGPU_INFO("[dlaa] DLSS evaluated (DLAA, {}x{}, frame index {}, jitter {:+.3f} {:+.3f}{})", frame.width,
++                frame.height, frame.frame_index, frame.jitter[0], frame.jitter[1], frame.reset ? ", reset" : "");
++  }
++}
++
++static void DlaaMat(const double m[16], float out[16]) {
++  for (int i = 0; i < 16; ++i) out[i] = float(m[i]);
++}
++
++static bool DlaaInverse(const double m[16], double inv[16]) {  // general 4x4 (Gauss-Jordan)
++  double a[4][8];
++  for (int i = 0; i < 4; ++i)
++    for (int j = 0; j < 8; ++j) a[i][j] = j < 4 ? m[i * 4 + j] : (j - 4 == i ? 1.0 : 0.0);
++  for (int c = 0; c < 4; ++c) {
++    int p = c;
++    for (int r = c + 1; r < 4; ++r)
++      if (std::abs(a[r][c]) > std::abs(a[p][c])) p = r;
++    if (std::abs(a[p][c]) < 1e-30) return false;
++    if (p != c)
++      for (int j = 0; j < 8; ++j) std::swap(a[p][j], a[c][j]);
++    const double d = a[c][c];
++    for (int j = 0; j < 8; ++j) a[c][j] /= d;
++    for (int r = 0; r < 4; ++r)
++      if (r != c) {
++        const double f = a[r][c];
++        for (int j = 0; j < 8; ++j) a[r][j] -= f * a[c][j];
++      }
++  }
++  for (int i = 0; i < 4; ++i)
++    for (int j = 0; j < 4; ++j) inv[i * 4 + j] = a[i][j + 4];
++  return true;
++}
++
++void VulkanCommandProcessor::DlaaRunDlss(const VulkanTextureCache::DlaaStorage& color, uint32_t width,
++                                         uint32_t height, const double rep[16], const double view_now[16],
++                                         float fov_degrees, float near_z, float far_z, bool reset) {
++  DeferredCommandBuffer& cb = deferred_command_buffer();
++  const VkImageSubresourceRange range = ui::vulkan::util::InitializeSubresourceRange();
++  // The motion pass's outputs -> DLSS (compute) reads.
++  PushImageMemoryBarrier(dlaa_depthf_.image, range, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
++                         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
++  PushImageMemoryBarrier(dlaa_motion_image_, range, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
++                         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
++  // The scene colour (GENERAL, from DlaaResolveCopyTarget) -> our input copy.
++  PushImageMemoryBarrier(dlaa_in_.image, range, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                         VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
++                         VK_IMAGE_LAYOUT_GENERAL);
++  SubmitBarriers(true);
++  VkImageCopy region = {};
++  region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
++  region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
++  region.extent = {width, height, 1};
++  cb.CmdVkCopyImage(color.image, VK_IMAGE_LAYOUT_GENERAL, dlaa_in_.image, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
++  PushImageMemoryBarrier(dlaa_in_.image, range, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
++                         VK_IMAGE_LAYOUT_GENERAL);
++  PushImageMemoryBarrier(dlaa_dlss_out_.image, range, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
++                         VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
++  SubmitBarriers(true);
++
++  // The frame for Streamline: projection (row vectors, view x right / y down / z forward, reversed depth).
++  ui::vulkan::streamline::DlaaFrame f;
++  f.frame_index = uint32_t(dlaa_frame_);
++  f.width = width, f.height = height;
++  auto set_image = [](ui::vulkan::streamline::Image& o, const DlaaImage& i) {
++    o.image = i.image, o.view = i.view, o.memory = i.memory, o.format = i.format;
++    o.layout = VK_IMAGE_LAYOUT_GENERAL, o.flags = i.flags, o.usage = i.usage;
++  };
++  set_image(f.color_in, dlaa_in_);
++  set_image(f.depth, dlaa_depthf_);
++  set_image(f.color_out, dlaa_dlss_out_);
++  f.motion.image = dlaa_motion_image_, f.motion.view = dlaa_motion_view_, f.motion.memory = dlaa_motion_memory_;
++  f.motion.format = VK_FORMAT_R16G16_SFLOAT, f.motion.layout = VK_IMAGE_LAYOUT_GENERAL;
++  f.motion.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
++  const double aspect = double(width) / double(std::max(1u, height));
++  const double tv = std::tan(double(fov_degrees) * 0.5 * 3.14159265358979323846 / 180.0), th = tv * aspect;
++  const double n = near_z, fz = far_z;
++  double proj[16] = {1.0 / th, 0, 0, 0, 0, 1.0 / tv, 0, 0, 0, 0, -n / (fz - n), 1, 0, 0, fz * n / (fz - n), 0};
++  double inv_proj[16], tmp[16], c2p[16], p2c[16];
++  DlaaInverse(proj, inv_proj);
++  // clip -> view_now -> view_prev -> prev clip (row vectors: left to right).
++  for (int i = 0; i < 4; ++i)
++    for (int j = 0; j < 4; ++j) {
++      double s = 0;
++      for (int k = 0; k < 4; ++k) s += inv_proj[i * 4 + k] * rep[k * 4 + j];
++      tmp[i * 4 + j] = s;
++    }
++  for (int i = 0; i < 4; ++i)
++    for (int j = 0; j < 4; ++j) {
++      double s = 0;
++      for (int k = 0; k < 4; ++k) s += tmp[i * 4 + k] * proj[k * 4 + j];
++      c2p[i * 4 + j] = s;
++    }
++  if (!DlaaInverse(c2p, p2c)) std::memcpy(p2c, c2p, sizeof(p2c));
++  DlaaMat(proj, f.view_to_clip);
++  DlaaMat(inv_proj, f.clip_to_view);
++  DlaaMat(c2p, f.clip_to_prev_clip);
++  DlaaMat(p2c, f.prev_clip_to_clip);
++  const float sign = float(REXCVAR_GET(gpu_dlaa_jitter_sign));
++  f.jitter[0] = REXCVAR_GET(gpu_dlaa_jitter) ? sign * dlaa_jitter_[0] : 0.0f;
++  f.jitter[1] = REXCVAR_GET(gpu_dlaa_jitter) ? sign * dlaa_jitter_[1] : 0.0f;
++  f.mvec_scale[0] = 1.0f / float(width), f.mvec_scale[1] = 1.0f / float(height);
++  f.near_z = near_z, f.far_z = far_z;
++  f.vertical_fov_radians = float(double(fov_degrees) * 3.14159265358979323846 / 180.0);
++  f.aspect = float(aspect);
++  // World-space camera: the world -> view matrix's columns are right / down / forward; position from the translation.
++  for (int i = 0; i < 3; ++i) {
++    f.camera_right[i] = float(view_now[i * 4 + 0]);
++    f.camera_up[i] = float(-view_now[i * 4 + 1]);
++    f.camera_fwd[i] = float(view_now[i * 4 + 2]);
++    f.camera_pos[i] = float(-(view_now[12] * view_now[i * 4 + 0] + view_now[13] * view_now[i * 4 + 1] +
++                              view_now[14] * view_now[i * 4 + 2]));
++  }
++  // A cut: no previous camera, or a big turn (the rotation part of view_now -> view_prev).
++  const double trace = rep[0] + rep[5] + rep[10];
++  const double angle = std::acos(std::clamp((trace - 1.0) * 0.5, -1.0, 1.0)) * 180.0 / 3.14159265358979323846;
++  f.depth_inverted = true;
++  f.reset = reset || angle > REXCVAR_GET(gpu_dlaa_reset_degrees);
++  cb.CmdHostCallback(&DlaaEvaluateCallback, &f, sizeof(f));
++  current_external_compute_pipeline_ = VK_NULL_HANDLE;  // Streamline bound its own compute state
++  // DLSS's output -> the scene colour texture (GENERAL), then the barrier the next sampling transition chains from.
++  PushImageMemoryBarrier(dlaa_dlss_out_.image, range, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
++                         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
++  PushImageMemoryBarrier(color.image, range, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                         VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL,
++                         VK_IMAGE_LAYOUT_GENERAL);
++  SubmitBarriers(true);
++  if (REXCVAR_GET(gpu_dlaa)) {
++    cb.CmdVkCopyImage(dlaa_dlss_out_.image, VK_IMAGE_LAYOUT_GENERAL, color.image, VK_IMAGE_LAYOUT_GENERAL, 1,
++                      &region);
++  }
++  PushImageMemoryBarrier(color.image, range, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
++                         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
++  ++dlaa_dlss_frames_;
++  if (dlaa_dlss_log_left_ || dlaa_dlss_frames_ % 600 == 0) {
++    if (dlaa_dlss_log_left_) --dlaa_dlss_log_left_;
++    REXGPU_INFO("[dlaa] DLSS: frame {}: colour 0x{:08X} {}x{} (format {}), jitter {:+.3f} {:+.3f}, turn {:.2f} deg{}; "
++                "{} frame(s)", dlaa_frame_, dlaa_color_regs_[0], width, height, uint32_t(color.host_format),
++                f.jitter[0], f.jitter[1], angle, f.reset ? " (reset)" : "", dlaa_dlss_frames_);
++  }
++}
++
+ void VulkanCommandProcessor::DlaaMotionPass() {
+   const uint32_t debug = uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_debug), 0, 2));
+-  if (debug && !dlaa_color_valid_) return;
++  // DLAA (step 3): needs Streamline + DLSS on this device; debug views take precedence.
++  const bool dlss = !debug && REXCVAR_GET(gpu_dlaa) && ui::vulkan::streamline::Active() &&
++                    ui::vulkan::streamline::DlssAvailable();
++  if ((debug || dlss) && !dlaa_color_valid_) return;
+   const auto color_info = reg::RB_COPY_DEST_INFO{dlaa_color_regs_[3]};
+   const auto depth_info = reg::RB_COPY_DEST_INFO{dlaa_depth_regs_[3]};
+   auto tex_format = [](reg::RB_COPY_DEST_INFO di) {
+@@ -4133,9 +4373,12 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+       xenos::Endian(uint32_t(depth_info.copy_dest_endian) & 3), depth);
+   // The colour only for a debug view: written through our output image and a copy (the game's own colour texture
+   // has no storage view: run 1389).
+-  const bool have_color = have_depth && (!debug || texture_cache_->DlaaResolveCopyTarget(
++  const bool have_color = have_depth && (!(debug || dlss) || texture_cache_->DlaaResolveCopyTarget(
+       dlaa_color_regs_[0], dlaa_color_regs_[1], dlaa_color_regs_[1], dlaa_color_regs_[2], tex_format(color_info),
+-      xenos::Endian(uint32_t(color_info.copy_dest_endian) & 3), color));
++      xenos::Endian(uint32_t(color_info.copy_dest_endian) & 3), color, dlss));
++  if (have_color && (debug || dlss) && color.host_format == VK_FORMAT_UNDEFINED) {
++    color.host_format = VK_FORMAT_R8G8B8A8_UNORM;  // k_8_8_8_8 (runs 1390-1395 reported none); size-compatible
++  }
+   if (!have_depth || !have_color) {
+     if (dlaa_motion_log_left_) {
+       --dlaa_motion_log_left_;
+@@ -4145,6 +4388,17 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+     return;
+   }
+   if (!DlaaEnsureMotionResources(depth.width, depth.height)) return;
++  if (dlss && (color.width != depth.width || color.height != depth.height ||
++               !DlaaEnsureImage(dlaa_depthf_, VK_FORMAT_R32_SFLOAT, true, depth.width, depth.height) ||
++               !DlaaEnsureImage(dlaa_in_, color.host_format, false, color.width, color.height) ||
++               !DlaaEnsureImage(dlaa_dlss_out_, color.host_format, false, color.width, color.height))) {
++    if (dlaa_dlss_log_left_) {
++      --dlaa_dlss_log_left_;
++      REXGPU_WARN("[dlaa] DLSS: frame {}: colour {}x{} vs depth {}x{}, or our images failed", dlaa_frame_,
++                  color.width, color.height, depth.width, depth.height);
++    }
++    return;
++  }
+   if (debug && (color.width != depth.width || color.height != depth.height ||
+                 !DlaaEnsureOutputImage(color.host_format, color.width, color.height))) {
+     if (dlaa_motion_log_left_) {
+@@ -4191,6 +4445,7 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+   pc.size = depth.width | (depth.height << 16);
+   const bool bgra = color.host_format == VK_FORMAT_B8G8R8A8_UNORM || color.host_format == VK_FORMAT_B8G8R8A8_SRGB;
+   pc.mode = debug | (uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_depth_order), 0, 2)) << 2) | (bgra ? 16u : 0u) |
++            (dlss ? 32u : 0u) |
+             (uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_debug_scale), 1, 255)) << 8);
+   // The motion image: previous contents not needed.
+   PushImageMemoryBarrier(dlaa_motion_image_, ui::vulkan::util::InitializeSubresourceRange(),
+@@ -4200,6 +4455,12 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+                          dlaa_motion_initialized_layout_ ? VK_ACCESS_SHADER_READ_BIT : 0,
+                          VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+   dlaa_motion_initialized_layout_ = true;
++  if (dlss) {  // the depth for DLSS: every pixel written
++    PushImageMemoryBarrier(dlaa_depthf_.image, ui::vulkan::util::InitializeSubresourceRange(),
++                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                           VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
++                           VK_IMAGE_LAYOUT_GENERAL);
++  }
+   // Our output image (debug): its old contents are not needed (every pixel is written).
+   if (debug) {
+     PushImageMemoryBarrier(dlaa_out_image_, ui::vulkan::util::InitializeSubresourceRange(),
+@@ -4210,7 +4471,8 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+   DeferredCommandBuffer& cb = deferred_command_buffer();
+   BindExternalComputePipeline(dlaa_motion_pipeline_);
+   // Set 1 must be valid even without a debug view (the shader only writes it in one): the depth's set stands in.
+-  const VkDescriptorSet sets[3] = {depth.set, debug ? dlaa_out_set_ : depth.set, dlaa_motion_set_};
++  const VkDescriptorSet sets[3] = {depth.set, debug ? dlaa_out_set_ : dlss ? dlaa_depthf_.set : depth.set,
++                                    dlaa_motion_set_};
+   cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, dlaa_motion_layout_, 0, 3, sets, 0, nullptr);
+   cb.CmdVkPushConstants(dlaa_motion_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+   SubmitBarriers(true);
+@@ -4228,6 +4490,10 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+     cb.CmdVkCopyImage(dlaa_out_image_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, color.image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+   }
++  if (dlss) {
++    DlaaRunDlss(color, depth.width, depth.height, rep, now.view, now.fov_degrees, now.near_z, now.far_z,
++                !have_prev);
++  }
+   ++dlaa_motion_passes_;
+   if (dlaa_motion_log_left_ || dlaa_motion_passes_ % 600 == 0) {
+     if (dlaa_motion_log_left_) --dlaa_motion_log_left_;
+@@ -7934,13 +8200,19 @@ bool VulkanCommandProcessor::IssueCopy() {
+     const bool big = uint32_t(dest_pitch.copy_dest_pitch) >= 1000u && uint32_t(dest_pitch.copy_dest_height) >= 500u;
+     // wwe2k14 patch (Session 18, DLAA): the scene's depth resolve ends the frame's jittered (scene) draws; the
+     // frame's last scene-size colour resolve before it is the scene colour (run 1287: resolve 51 colour, 52 depth).
++    const bool dlaa_dlss_on = REXCVAR_GET(gpu_dlaa) && ui::vulkan::streamline::Active();
+     if (copying_depth && big && copy_control.copy_command != xenos::CopyCommand::kNull) {
+-      dlaa_scene_done_ = true;
++      // With DLAA the jitter goes on until the colour DLAA reads (the first one after the depth, see below).
++      if (!dlaa_dlss_on) dlaa_scene_done_ = true;
++      dlaa_post_color_seen_ = false;
+       dlaa_depth_regs_[0] = matte_regs_[1], dlaa_depth_regs_[1] = uint32_t(dest_pitch.copy_dest_pitch);
+       dlaa_depth_regs_[2] = uint32_t(dest_pitch.copy_dest_height), dlaa_depth_regs_[3] = matte_regs_[2];
+     } else if (!copying_depth && big && copy_control.copy_command != xenos::CopyCommand::kNull &&
+-               (REXCVAR_GET(gpu_dlaa_color_base).empty() ? !dlaa_scene_done_
+-                : std::strtoul(REXCVAR_GET(gpu_dlaa_color_base).c_str(), nullptr, 16) == matte_regs_[1])) {
++               (!REXCVAR_GET(gpu_dlaa_color_base).empty()
++                    ? std::strtoul(REXCVAR_GET(gpu_dlaa_color_base).c_str(), nullptr, 16) == matte_regs_[1]
++                : dlaa_dlss_on ? (dlaa_depth_regs_[0] != 0 && !dlaa_post_color_seen_)
++                               : !dlaa_scene_done_)) {
++      if (dlaa_dlss_on) dlaa_scene_done_ = true, dlaa_post_color_seen_ = true;
+       dlaa_color_regs_[0] = matte_regs_[1], dlaa_color_regs_[1] = uint32_t(dest_pitch.copy_dest_pitch);
+       dlaa_color_regs_[2] = uint32_t(dest_pitch.copy_dest_height), dlaa_color_regs_[3] = matte_regs_[2];
+       dlaa_color_valid_ = true;
+@@ -7962,9 +8234,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+   // the frame (the colour the post passes sample can be resolved after the depth: run 1391, resolve 47).
+   const std::string dlaa_color_base = REXCVAR_GET(gpu_dlaa_color_base);
+   const bool dlaa_motion_now =
+-      dlaa_scene_done_ && (REXCVAR_GET(gpu_dlaa_motion) || REXCVAR_GET(gpu_dlaa_debug) != 0) &&
+-      (dlaa_color_base.empty() ? dlaa_depth_regs_[0] == matte_regs_[1]
+-                               : (dlaa_color_valid_ && dlaa_color_regs_[0] == matte_regs_[1]));
++      dlaa_scene_done_ &&
++      (REXCVAR_GET(gpu_dlaa_motion) || REXCVAR_GET(gpu_dlaa_debug) != 0 || REXCVAR_GET(gpu_dlaa)) &&
++      ((dlaa_color_base.empty() && !(REXCVAR_GET(gpu_dlaa) && ui::vulkan::streamline::Active()))
++           ? dlaa_depth_regs_[0] == matte_regs_[1]
++           : (dlaa_color_valid_ && dlaa_color_regs_[0] == matte_regs_[1]));
+   if (readback_mode == ReadbackResolveMode::kDisabled && !matte_force_readback_) {
+     uint32_t written_address, written_length;
+     copied = render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
+diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
+index 8fccf54..cd0dc94 100644
+--- a/src/graphics/vulkan/deferred_command_buffer.cpp
++++ b/src/graphics/vulkan/deferred_command_buffer.cpp
+@@ -238,6 +238,13 @@ void DeferredCommandBuffer::ExecuteStream(const std::vector<uintmax_t>& command_
+                 rex::align(sizeof(ArgsVkCopyBufferToImage), alignof(VkBufferImageCopy))));
+       } break;
+ 
++      // wwe2k14 patch (Session 18, DLAA).
++      case Command::kHostCallback: {
++        auto& args = *reinterpret_cast<const ArgsHostCallback*>(stream);
++        args.fn(command_buffer, reinterpret_cast<const uint8_t*>(stream) +
++                                    rex::align(sizeof(ArgsHostCallback), alignof(uintmax_t)));
++      } break;
++
+       // wwe2k14 patch (Session 18, DLAA).
+       case Command::kVkCopyImage: {
+         auto& args = *reinterpret_cast<const ArgsVkCopyImage*>(stream);
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 2c5d57b..344114d 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2750,7 +2750,7 @@ bool VulkanTextureCache::DlaaResolveStorage(uint32_t base_address, uint32_t pitc
+ 
+ bool VulkanTextureCache::DlaaResolveCopyTarget(uint32_t base_address, uint32_t pitch_texels, uint32_t width,
+                                                uint32_t height, xenos::TextureFormat format, xenos::Endian endian,
+-                                               DlaaStorage& out) {
++                                               DlaaStorage& out, bool general) {
+   out = DlaaStorage();
+   Texture* t = DlaaFindResolveTexture(base_address, pitch_texels, width, height, format, endian);
+   if (!t) {
+@@ -2759,15 +2759,16 @@ bool VulkanTextureCache::DlaaResolveCopyTarget(uint32_t base_address, uint32_t p
+   }
+   VulkanTexture& vt = static_cast<VulkanTexture&>(*t);
+   vt.MarkAsUsed();
+-  const VulkanTexture::Usage old_usage = vt.SetUsage(VulkanTexture::Usage::kTransferDestination);
++  const VulkanTexture::Usage old_usage = vt.SetUsage(general ? VulkanTexture::Usage::kComputeStorageWrite
++                                                              : VulkanTexture::Usage::kTransferDestination);
+   VkPipelineStageFlags src_stage;
+   VkAccessFlags src_access;
+   VkImageLayout old_layout;
+   GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
+-  command_processor_.PushImageMemoryBarrier(vt.image(), ui::vulkan::util::InitializeSubresourceRange(), src_stage,
+-                                            VK_PIPELINE_STAGE_TRANSFER_BIT, src_access,
+-                                            VK_ACCESS_TRANSFER_WRITE_BIT, old_layout,
+-                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
++  command_processor_.PushImageMemoryBarrier(
++      vt.image(), ui::vulkan::util::InitializeSubresourceRange(), src_stage, VK_PIPELINE_STAGE_TRANSFER_BIT,
++      src_access, general ? (VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT) : VK_ACCESS_TRANSFER_WRITE_BIT,
++      old_layout, general ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+   const TextureKey& key = t->key();
+   out.image = vt.image();
+   out.host_format = GetHostFormatPair(key).format_unsigned.format;
+diff --git a/src/ui/CMakeLists.txt b/src/ui/CMakeLists.txt
+index 5bd3dc5..e834c39 100644
+--- a/src/ui/CMakeLists.txt
++++ b/src/ui/CMakeLists.txt
+@@ -41,6 +41,7 @@ set(REXUI_VULKAN_SOURCES
+     vulkan/vulkan_device.cpp
+     vulkan/vulkan_immediate_drawer.cpp
+     vulkan/vulkan_instance.cpp
++    vulkan/streamline.cpp
+     vulkan/vulkan_mem_alloc.cpp
+     vulkan/vulkan_presenter.cpp
+     vulkan/vulkan_provider.cpp
+@@ -124,6 +125,16 @@ if(REXGLUE_FIDELITYFX_SOURCE_DIR AND EXISTS "${REXGLUE_FIDELITYFX_SOURCE_DIR}/sd
+     target_compile_definitions(rexui PRIVATE REX_HAS_FIDELITYFX_SDK=1)
+ endif()
+ 
++# wwe2k14 patch (Session 18, DLAA): NVIDIA Streamline headers from the user's own download next to the SDK source
++# (thirdparty/streamline/sdk, not part of the project); the runtime DLLs are loaded at run time from a folder the
++# user names (vulkan_streamline_dir). Without the headers, streamline.cpp builds as stubs.
++set(REXUI_STREAMLINE_DIR "${REXGLUE_ROOT}/../streamline/sdk" CACHE PATH "NVIDIA Streamline SDK (headers only)")
++if(EXISTS "${REXUI_STREAMLINE_DIR}/include/sl.h")
++    target_include_directories(rexui PRIVATE "${REXUI_STREAMLINE_DIR}/include")
++    target_compile_definitions(rexui PRIVATE REX_HAS_STREAMLINE=1)
++    message(STATUS "rexui: Streamline headers found at ${REXUI_STREAMLINE_DIR}/include (DLAA support)")
++endif()
++
+ set(REXUI_HAS_FIDELITYFX_RUNTIME OFF)
+ if(TARGET amd_fidelityfx_vk)
+     target_link_libraries(rexui PRIVATE amd_fidelityfx_vk)
+diff --git a/src/ui/vulkan/streamline.cpp b/src/ui/vulkan/streamline.cpp
+new file mode 100644
+index 0000000..98e71f2
+--- /dev/null
++++ b/src/ui/vulkan/streamline.cpp
+@@ -0,0 +1,268 @@
++/**
++ * @file        ui/vulkan/streamline.cpp
++ * @brief       NVIDIA Streamline (DLSS / DLAA) loader and DLAA evaluation (wwe2k14 patch, Session 18). See
++ *              rex/ui/vulkan/streamline.h.
++ */
++#include <rex/ui/vulkan/streamline.h>
++
++#include <rex/cvar.h>
++#include <rex/logging.h>
++
++#include <atomic>
++#include <cstring>
++#include <filesystem>
++#include <mutex>
++
++REXCVAR_DEFINE_STRING(vulkan_streamline_dir, "", "GPU/Vulkan",
++                      "DLAA (Session 18): folder with the user's own NVIDIA Streamline runtime (sl.interposer.dll, "
++                      "sl.common.dll, sl.dlss.dll, nvngx_dlss.dll). Empty = off (plain Vulkan)");
++REXCVAR_DEFINE_BOOL(vulkan_streamline_log_verbose, false, "GPU/Vulkan", "DLAA: Streamline's verbose log");
++
++#if defined(REX_HAS_STREAMLINE) && defined(_WIN32)
++
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#pragma comment(lib, "wintrust.lib")
++#pragma comment(lib, "crypt32.lib")
++
++#include <sl.h>
++#include <sl_dlss.h>
++#include <sl_security.h>
++
++namespace rex::ui::vulkan::streamline {
++
++namespace {
++HMODULE g_module = nullptr;
++bool g_active = false;
++int g_dlss_state = -1;  // -1 unknown, 0 no, 1 yes
++std::mutex g_mutex;
++PFun_slInit* p_slInit = nullptr;
++PFun_slShutdown* p_slShutdown = nullptr;
++PFun_slIsFeatureSupported* p_slIsFeatureSupported = nullptr;
++PFun_slGetFeatureFunction* p_slGetFeatureFunction = nullptr;
++PFun_slGetNewFrameToken* p_slGetNewFrameToken = nullptr;
++PFun_slSetConstants* p_slSetConstants = nullptr;
++PFun_slSetTagForFrame* p_slSetTagForFrame = nullptr;
++PFun_slEvaluateFeature* p_slEvaluateFeature = nullptr;
++PFun_slDLSSSetOptions* p_slDLSSSetOptions = nullptr;
++std::wstring g_dir;
++VkPhysicalDevice g_physical_device = VK_NULL_HANDLE;
++uint64_t g_evaluations = 0;
++
++void LogCallback(sl::LogType type, const char* msg) {
++  std::string m(msg ? msg : "");
++  while (!m.empty() && (m.back() == '\n' || m.back() == '\r')) m.pop_back();
++  switch (type) {
++    case sl::LogType::eError: REXLOG_ERROR("[streamline] {}", m); break;
++    case sl::LogType::eWarn: REXLOG_WARN("[streamline] {}", m); break;
++    default: REXLOG_INFO("[streamline] {}", m); break;
++  }
++}
++
++template <typename T>
++bool Get(T*& out, const char* name) {
++  out = reinterpret_cast<T*>(GetProcAddress(g_module, name));
++  if (!out) REXLOG_ERROR("[dlaa] Streamline: {} not found in sl.interposer.dll", name);
++  return out != nullptr;
++}
++
++void ToFloat4x4(sl::float4x4& out, const float m[16]) { std::memcpy(&out, m, 64); }
++
++sl::Resource ToResource(const Image& i, uint32_t w, uint32_t h) {
++  sl::Resource r(sl::ResourceType::eTex2d, reinterpret_cast<void*>(i.image), reinterpret_cast<void*>(i.memory),
++                 reinterpret_cast<void*>(i.view), uint32_t(i.layout));
++  r.width = w, r.height = h, r.nativeFormat = uint32_t(i.format), r.mipLevels = 1, r.arrayLayers = 1;
++  r.flags = i.flags, r.usage = i.usage;
++  return r;
++}
++}  // namespace
++
++PFN_vkGetInstanceProcAddr InitializeBeforeInstance() {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  const std::string dir_setting = REXCVAR_GET(vulkan_streamline_dir);
++  if (dir_setting.empty() || g_module) return nullptr;
++  std::error_code ec;
++  const std::filesystem::path dir = std::filesystem::absolute(std::filesystem::u8path(dir_setting), ec);
++  const std::filesystem::path interposer = dir / "sl.interposer.dll";
++  if (!std::filesystem::is_regular_file(interposer, ec)) {
++    REXLOG_WARN("[dlaa] Streamline: {} not found: DLAA not available", interposer.string());
++    return nullptr;
++  }
++  // Always the secure load (ProgrammingGuide 2.1.1): a module without NVIDIA's signature is not loaded.
++  if (!sl::security::verifyEmbeddedSignature(interposer.wstring().c_str())) {
++    REXLOG_ERROR("[dlaa] Streamline: {} is not signed by NVIDIA: not loaded", interposer.string());
++    return nullptr;
++  }
++  g_module = LoadLibraryW(interposer.wstring().c_str());
++  if (!g_module) {
++    REXLOG_ERROR("[dlaa] Streamline: LoadLibrary({}) failed ({})", interposer.string(), GetLastError());
++    return nullptr;
++  }
++  bool ok = Get(p_slInit, "slInit") && Get(p_slShutdown, "slShutdown") &&
++            Get(p_slIsFeatureSupported, "slIsFeatureSupported") && Get(p_slGetFeatureFunction, "slGetFeatureFunction") &&
++            Get(p_slGetNewFrameToken, "slGetNewFrameToken") && Get(p_slSetConstants, "slSetConstants") &&
++            Get(p_slSetTagForFrame, "slSetTagForFrame") && Get(p_slEvaluateFeature, "slEvaluateFeature");
++  auto proxy = reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(g_module, "vkGetInstanceProcAddr"));
++  if (!ok || !proxy) {
++    REXLOG_ERROR("[dlaa] Streamline: the interposer lacks functions: not used");
++    FreeLibrary(g_module);
++    g_module = nullptr;
++    return nullptr;
++  }
++  g_dir = dir.wstring();
++  static const wchar_t* paths[1];
++  paths[0] = g_dir.c_str();
++  static const sl::Feature features[] = {sl::kFeatureDLSS};
++  sl::Preferences pref{};
++  pref.showConsole = false;
++  pref.logLevel = REXCVAR_GET(vulkan_streamline_log_verbose) ? sl::LogLevel::eVerbose : sl::LogLevel::eDefault;
++  pref.pathsToPlugins = paths;
++  pref.numPathsToPlugins = 1;
++  pref.logMessageCallback = &LogCallback;
++  // Manual hooking (we create the device ourselves). No over-the-air updates: nothing is ever downloaded.
++  pref.flags = sl::PreferenceFlags::eDisableCLStateTracking | sl::PreferenceFlags::eUseManualHooking |
++               sl::PreferenceFlags::eUseFrameBasedResourceTagging;
++  pref.featuresToLoad = features;
++  pref.numFeaturesToLoad = 1;
++  pref.engine = sl::EngineType::eCustom;
++  pref.engineVersion = "rexglue-wwe2k14";
++  pref.projectId = "4e1c3b7a-2f5d-4c86-9a1e-7b3d0f6c2a91";  // our own id for this local integration
++  pref.renderAPI = sl::RenderAPI::eVulkan;
++  const sl::Result r = p_slInit(pref, sl::kSDKVersion);
++  if (r != sl::Result::eOk) {
++    REXLOG_ERROR("[dlaa] Streamline: slInit failed ({}): not used", int(r));
++    FreeLibrary(g_module);
++    g_module = nullptr;
++    return nullptr;
++  }
++  g_active = true;
++  REXLOG_INFO("[dlaa] Streamline loaded from {} (manual hooking, DLSS); Vulkan goes through its proxies",
++              dir.string());
++  return proxy;
++}
++
++bool Active() { return g_active; }
++
++bool DlssAvailable() {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (!g_active) return false;
++  if (g_dlss_state >= 0) return g_dlss_state == 1;
++  sl::AdapterInfo adapter{};
++  adapter.vkPhysicalDevice = reinterpret_cast<void*>(g_physical_device);
++  const sl::Result r = p_slIsFeatureSupported(sl::kFeatureDLSS, adapter);
++  void* fn = nullptr;
++  const sl::Result rf =
++      r == sl::Result::eOk ? p_slGetFeatureFunction(sl::kFeatureDLSS, "slDLSSSetOptions", fn) : r;
++  p_slDLSSSetOptions = reinterpret_cast<PFun_slDLSSSetOptions*>(fn);
++  g_dlss_state = (r == sl::Result::eOk && rf == sl::Result::eOk && p_slDLSSSetOptions) ? 1 : 0;
++  REXLOG_INFO("[dlaa] Streamline: DLSS {} (slIsFeatureSupported {}, slDLSSSetOptions {})",
++              g_dlss_state ? "available" : "NOT available", int(r), int(rf));
++  return g_dlss_state == 1;
++}
++
++void Shutdown() {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (g_active && p_slShutdown) p_slShutdown();
++  g_active = false;
++}
++
++bool EvaluateDlaa(VkCommandBuffer command_buffer, const DlaaFrame& f, std::string* reason) {
++  if (!g_active || g_dlss_state != 1) {
++    if (reason) *reason = "DLSS not available";
++    return false;
++  }
++  sl::FrameToken* token = nullptr;
++  const uint32_t index = f.frame_index;
++  if (p_slGetNewFrameToken(token, &index) != sl::Result::eOk || !token) {
++    if (reason) *reason = "slGetNewFrameToken failed";
++    return false;
++  }
++  const sl::ViewportHandle viewport(0);
++  sl::DLSSOptions options{};
++  options.mode = sl::DLSSMode::eDLAA;
++  options.outputWidth = f.width, options.outputHeight = f.height;
++  options.colorBuffersHDR = sl::Boolean::eFalse;  // the game's scene colour is 8-bit, before its own post
++  sl::Result r = p_slDLSSSetOptions(viewport, options);
++  if (r != sl::Result::eOk) {
++    if (reason) *reason = "slDLSSSetOptions failed (" + std::to_string(int(r)) + ")";
++    return false;
++  }
++  sl::Constants c{};
++  ToFloat4x4(c.cameraViewToClip, f.view_to_clip);
++  ToFloat4x4(c.clipToCameraView, f.clip_to_view);
++  float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
++  ToFloat4x4(c.clipToLensClip, identity);
++  ToFloat4x4(c.clipToPrevClip, f.clip_to_prev_clip);
++  ToFloat4x4(c.prevClipToClip, f.prev_clip_to_clip);
++  c.jitterOffset = {f.jitter[0], f.jitter[1]};
++  c.mvecScale = {f.mvec_scale[0], f.mvec_scale[1]};
++  c.cameraPinholeOffset = {0, 0};
++  c.cameraPos = {f.camera_pos[0], f.camera_pos[1], f.camera_pos[2]};
++  c.cameraUp = {f.camera_up[0], f.camera_up[1], f.camera_up[2]};
++  c.cameraRight = {f.camera_right[0], f.camera_right[1], f.camera_right[2]};
++  c.cameraFwd = {f.camera_fwd[0], f.camera_fwd[1], f.camera_fwd[2]};
++  c.cameraNear = f.near_z, c.cameraFar = f.far_z;
++  c.cameraFOV = f.vertical_fov_radians, c.cameraAspectRatio = f.aspect;
++  c.depthInverted = f.depth_inverted ? sl::Boolean::eTrue : sl::Boolean::eFalse;
++  c.cameraMotionIncluded = sl::Boolean::eTrue;
++  c.motionVectors3D = sl::Boolean::eFalse;
++  c.reset = f.reset ? sl::Boolean::eTrue : sl::Boolean::eFalse;
++  r = p_slSetConstants(c, *token, viewport);
++  if (r != sl::Result::eOk) {
++    if (reason) *reason = "slSetConstants failed (" + std::to_string(int(r)) + ")";
++    return false;
++  }
++  sl::Resource color_in = ToResource(f.color_in, f.width, f.height);
++  sl::Resource depth = ToResource(f.depth, f.width, f.height);
++  sl::Resource motion = ToResource(f.motion, f.width, f.height);
++  sl::Resource color_out = ToResource(f.color_out, f.width, f.height);
++  const sl::Extent extent{0, 0, f.width, f.height};
++  sl::ResourceTag tags[4] = {
++      sl::ResourceTag(&color_in, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eOnlyValidNow, &extent),
++      sl::ResourceTag(&depth, sl::kBufferTypeDepth, sl::ResourceLifecycle::eOnlyValidNow, &extent),
++      sl::ResourceTag(&motion, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eOnlyValidNow, &extent),
++      sl::ResourceTag(&color_out, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eOnlyValidNow,
++                      &extent)};
++  auto* cb = reinterpret_cast<sl::CommandBuffer*>(command_buffer);
++  r = p_slSetTagForFrame(*token, viewport, tags, 4, cb);
++  if (r != sl::Result::eOk) {
++    if (reason) *reason = "slSetTagForFrame failed (" + std::to_string(int(r)) + ")";
++    return false;
++  }
++  const sl::BaseStructure* inputs[] = {&viewport};
++  r = p_slEvaluateFeature(sl::kFeatureDLSS, *token, inputs, 1, cb);
++  if (r != sl::Result::eOk) {
++    if (reason) *reason = "slEvaluateFeature failed (" + std::to_string(int(r)) + ")";
++    return false;
++  }
++  ++g_evaluations;
++  return true;
++}
++
++// The device's physical device (vulkan_device.cpp, after creation).
++void SetPhysicalDevice(VkPhysicalDevice physical_device) { g_physical_device = physical_device; }
++
++}  // namespace rex::ui::vulkan::streamline
++
++#else  // no Streamline headers at build time
++
++namespace rex::ui::vulkan::streamline {
++PFN_vkGetInstanceProcAddr InitializeBeforeInstance() {
++  if (!REXCVAR_GET(vulkan_streamline_dir).empty())
++    REXLOG_WARN("[dlaa] vulkan_streamline_dir is set, but this build has no Streamline support (headers not found "
++                "at build time)");
++  return nullptr;
++}
++bool Active() { return false; }
++bool DlssAvailable() { return false; }
++void Shutdown() {}
++bool EvaluateDlaa(VkCommandBuffer, const DlaaFrame&, std::string* reason) {
++  if (reason) *reason = "built without Streamline";
++  return false;
++}
++void SetPhysicalDevice(VkPhysicalDevice) {}
++}  // namespace rex::ui::vulkan::streamline
++
++#endif
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index a6df90d..89a4c4a 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -20,6 +20,7 @@
+ #include <rex/logging.h>
+ #include <rex/platform.h>
+ #include <rex/string.h>
++#include <rex/ui/vulkan/streamline.h>  // wwe2k14 patch (Session 18, DLAA)
+ #include <rex/ui/vulkan/device.h>
+ 
+ REXCVAR_DEFINE_BOOL(vulkan_require_fragment_stores_and_atomics, true, "UI/Vulkan",
+@@ -776,6 +777,8 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     return nullptr;
+   }
+ 
++  streamline::SetPhysicalDevice(physical_device);  // wwe2k14 patch (Session 18, DLAA)
++
+   // Load device functions.
+ 
+   bool functions_loaded = true;
+@@ -884,6 +887,7 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+ }
+ 
+ VulkanDevice::~VulkanDevice() {
++  streamline::Shutdown();  // wwe2k14 patch (Session 18, DLAA): before the device goes (no-op when unused)
+   if (device_) {
+     vulkan_instance_->functions().vkDestroyDevice(device_, nullptr);
+   }
+diff --git a/src/ui/vulkan/vulkan_instance.cpp b/src/ui/vulkan/vulkan_instance.cpp
+index 914b311..1239533 100644
+--- a/src/ui/vulkan/vulkan_instance.cpp
++++ b/src/ui/vulkan/vulkan_instance.cpp
+@@ -18,6 +18,7 @@
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
+ #include <rex/platform.h>
++#include <rex/ui/vulkan/streamline.h>  // wwe2k14 patch (Session 18, DLAA)
+ #include <rex/ui/vulkan/instance.h>
+ #include <rex/ui/vulkan/presenter.h>
+ 
+@@ -87,6 +88,11 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
+   XE_VULKAN_LOAD_LOADER_FUNCTION(vkGetInstanceProcAddr);
+   XE_VULKAN_LOAD_LOADER_FUNCTION(vkDestroyInstance);
+ #undef XE_VULKAN_LOAD_LOADER_FUNCTION
++  // wwe2k14 patch (Session 18, DLAA): with vulkan_streamline_dir, everything goes through Streamline's proxies
++  // (manual hooking: it adds its extensions / queues at instance and device creation and hooks the swapchain).
++  if (PFN_vkGetInstanceProcAddr streamline_gipa = streamline::InitializeBeforeInstance()) {
++    ifn.vkGetInstanceProcAddr = streamline_gipa;
++  }
+   if (!functions_loaded) {
+     REXLOG_ERROR("Failed to get Vulkan loader function pointers");
+     return nullptr;
+-- 
+2.52.0.windows.1
+
+
+From 4057aa9912c8303530458578f79c6562c607dc63 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:32:48 +1100
+Subject: [PATCH 8/8] Session 18: perf/audio_tap.h (a copy of each audio frame
+ the guest submits; SDL driver), for sound for re-shoots
+
+---
+ include/rex/perf/audio_tap.h       | 22 +++++++++++++++++
+ src/audio/sdl/sdl_audio_driver.cpp |  2 ++
+ src/core/CMakeLists.txt            |  1 +
+ src/core/perf/audio_tap.cpp        | 38 ++++++++++++++++++++++++++++++
+ 4 files changed, 63 insertions(+)
+ create mode 100644 include/rex/perf/audio_tap.h
+ create mode 100644 src/core/perf/audio_tap.cpp
+
+diff --git a/include/rex/perf/audio_tap.h b/include/rex/perf/audio_tap.h
+new file mode 100644
+index 0000000..cd19271
+--- /dev/null
++++ b/include/rex/perf/audio_tap.h
+@@ -0,0 +1,22 @@
++/**
++ * @file        perf/audio_tap.h
++ * @brief       A copy of each audio frame the guest submits (wwe2k14 patch, Session 18: sound for re-shoots)
++ *
++ * The SDL audio driver calls Tap from SubmitFrame (the guest's audio thread) with the frame exactly as the guest
++ * wrote it: `channels` blocks of `samples` big-endian floats, one block per channel (FL, FR, C, LFE, SL, SR), at
++ * `frequency` Hz. The app registers a sink only while it records (default: none, so Tap costs one atomic load).
++ * Exported from rexruntime, like perf/flight.h.
++ */
++#pragma once
++
++#include <cstdint>
++
++namespace rex::perf::audio {
++
++using TapFn = void (*)(void* user, const void* frame_be, uint32_t samples, uint32_t channels, uint32_t frequency);
++
++// nullptr unregisters (only if `user` matches the registered one).
++void SetTap(TapFn fn, void* user);
++void Tap(const void* frame_be, uint32_t samples, uint32_t channels, uint32_t frequency);
++
++}  // namespace rex::perf::audio
+diff --git a/src/audio/sdl/sdl_audio_driver.cpp b/src/audio/sdl/sdl_audio_driver.cpp
+index 20a2cd8..26a81f2 100644
+--- a/src/audio/sdl/sdl_audio_driver.cpp
++++ b/src/audio/sdl/sdl_audio_driver.cpp
+@@ -16,6 +16,7 @@
+ #include <rex/assert.h>
+ #include <rex/audio/conversion.h>
+ #include <rex/audio/downmix.h>
++#include <rex/perf/audio_tap.h>  // wwe2k14 patch (Session 18): sound for re-shoots
+ #include <rex/audio/flags.h>
+ #include <rex/audio/sdl/sdl_audio_driver.h>
+ #include <rex/cvar.h>
+@@ -123,6 +124,7 @@ void SDLAudioDriver::SubmitFrame(uint32_t frame_ptr) {
+   }
+ 
+   std::memcpy(output_frame, input_frame, frame_samples_ * sizeof(float));
++  perf::audio::Tap(input_frame, channel_samples_, frame_channels_, frame_frequency_);  // wwe2k14 patch (Session 18)
+ 
+   static uint32_t sdl_submit_count = 0;
+   if (sdl_submit_count < 10) {
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 06f9d3b..e72b5f7 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -20,6 +20,7 @@ add_library(rexcore OBJECT
+     perf/timeline.cpp
+     perf/flight.cpp
+     perf/dlaa.cpp
++    perf/audio_tap.cpp
+     ring_buffer.cpp
+     string_buffer.cpp
+     threading.cpp
+diff --git a/src/core/perf/audio_tap.cpp b/src/core/perf/audio_tap.cpp
+new file mode 100644
+index 0000000..23a7880
+--- /dev/null
++++ b/src/core/perf/audio_tap.cpp
+@@ -0,0 +1,38 @@
++/**
++ * @file        perf/audio_tap.cpp
++ * @brief       Audio frame tap registry (wwe2k14 patch, Session 18). See perf/audio_tap.h.
++ */
++#include <rex/perf/audio_tap.h>
++
++#include <atomic>
++#include <mutex>
++
++namespace rex::perf::audio {
++
++namespace {
++std::mutex& Mutex() {
++  static std::mutex mutex;
++  return mutex;
++}
++std::atomic<TapFn> g_fn{nullptr};
++void* g_user = nullptr;
++}  // namespace
++
++void SetTap(TapFn fn, void* user) {
++  std::lock_guard<std::mutex> lock(Mutex());
++  if (fn) {
++    g_user = user;
++    g_fn.store(fn);
++  } else if (g_user == user) {
++    g_fn.store(nullptr);
++    g_user = nullptr;
++  }
++}
++
++void Tap(const void* frame_be, uint32_t samples, uint32_t channels, uint32_t frequency) {
++  if (!g_fn.load(std::memory_order_acquire)) return;
++  std::lock_guard<std::mutex> lock(Mutex());
++  if (TapFn fn = g_fn.load()) fn(g_user, frame_be, samples, channels, frequency);
++}
++
++}  // namespace rex::perf::audio
+-- 
+2.52.0.windows.1
+

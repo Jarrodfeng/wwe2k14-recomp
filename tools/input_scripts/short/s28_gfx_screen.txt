@@ -1,0 +1,61 @@
+# harness: fast-forward ok (Session 28: the GRAPHICS screen; every row selected, values changed, ACCEPT, back; run with --wwe2k14_gfx_menu=true --wwe2k14_settings_file=<test file> --wwe2k14_dlaa_dir=<streamline>; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+log mark: A on GRAPHICS
+press A
+wait_frames 200
+screenshot gs_0_open
+press RIGHT
+wait_frames 40
+screenshot gs_1_up_right
+press RIGHT
+wait_frames 40
+screenshot gs_2_up_right2
+press DOWN
+wait_frames 40
+screenshot gs_3_row1
+press RIGHT
+wait_frames 40
+screenshot gs_4_fps_right
+press DOWN
+wait_frames 40
+press RIGHT
+wait_frames 40
+screenshot gs_5_row2_right
+log mark: ACCEPT
+press A
+wait_frames 40
+screenshot gs_6a_accept_40
+wait_frames 80
+screenshot gs_6_after_accept
+log mark: B
+press B
+wait_frames 120
+screenshot gs_7_after_b
+quit

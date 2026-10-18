@@ -1,0 +1,30 @@
+# Session 13 (CineCam, arena culling): log the two stage-visibility objects ([0x836F89DC] / [0x836F89D8], loaded by
+# sub_82699220, tested per frame by sub_82699C60 / sub_82699CE8 against planes at object +16) in the match, with the
+# game camera shown. --wwe2k14_launch=lesnar_bryan. Untimed (lanes OK). Frozen user data (run_list.ps1). on_fail quit.
+on_fail quit
+log cc: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log cc: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log cc: in-game sequence loading
+press_until_file START m3.pac 30 300
+log cc: match scene
+wait_frames 300
+wait_state 0x836F3AA8>1392>0 0x8201D820 1800 30
+log_state 0x836F89DC
+log_state 0x836F89D8
+log_state 0x836F3940
+log_state 0x836F89DC>16
+log_state 0x836F89DC>20
+wait_frames 30
+log cc: end
+quit

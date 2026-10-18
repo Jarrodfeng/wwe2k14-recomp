@@ -1,0 +1,46 @@
+# harness: realtime (load-time measurement (wall clock); Session 16: run_list fast-forwards other routes)
+# Session 12: match-load marker study (load_times.txt + a screenshot every 6 frames from the last entrance's START to
+# 120 frames after the match clock runs). Untimed. Screenshots ml_* are local only.
+# Original header:
+# Session 12: load-time route. Use with --wwe2k14_launch=lesnar_bryan (or any two-person scenario). Logs a marker
+# ("lt: ...") at each load boundary so tools\lzx\load_report.py can time the loads from the log's wall-clock stamps:
+#   boot: process start -> title data (SaveData.Dat); menu: last title press -> MNUIHD.PAC (main menu);
+#   launch: "[scenario] ... in-game sequence started" -> first titantron (the loading screen before the entrances);
+#   match: M3.PAC (match scene file) -> match_clock != 0 (the match runs). scene_word is already 1 at M3.PAC on a
+#   launched match (run 836), so it is no marker here.
+# Both entrances are skipped with START once each wrestler's segment starts (entrance_step_N >= 5, Session 11), so
+# entrance length does not dilute the timings. Timed use: run_list -Exclusive, one run per hold. on_fail quit.
+on_fail quit
+log lt: start
+wait_file SaveData.Dat 3600
+log lt: title data
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+log lt: title pressed
+wait_file MNUIHD.PAC 3600
+log lt: main menu
+wait_file titantron 3600
+log lt: first titantron
+wait_state entrance_step_0 >=5 2400 2 optional
+log lt: wrestler 1 segment, START until the next titantron opens
+press_until_file START titantron 20 300
+log lt: second titantron
+wait_state entrance_step_1 >=5 2400 2 optional
+log lt: wrestler 2 segment, START until the match scene loads
+screenshot_every 6 ml
+press_until_file START m3.pac 20 300
+log lt: match scene file
+wait_state match_clock !=0 3600 2
+log lt: match running
+wait_frames 120
+screenshot_every 0
+screenshot lt_match
+wait_frames 60
+log lt: end
+quit

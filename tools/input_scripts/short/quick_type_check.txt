@@ -1,0 +1,13 @@
+# Session 30 (#7): does a Quick Match of match type T load and run? Boot, the launcher fires at the main menu, wait for
+# the match clock to run 10 s (seq 9 alone flips at the start of loading: a first try screenshotted loading tips),
+# one screenshot, quit. Untimed, fast-forwarded.
+# Use with --wwe2k14_launch=@quick --wwe2k14_quick_type=T --wwe2k14_launch_participants=A,B[,...]
+# --wwe2k14_launch_skip_entrances=true
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 3600
+wait_state seq 9 3600 30
+wait_state match_clock >600 12000 2   # the match itself runs (frames on its clock)
+screenshot quick_in_match
+log quick_type_check: PASS (in game)
+quit

@@ -1,0 +1,22 @@
+# Session 14 (M5 Track A): launched Royal Rumble; snapshots of the per-participant array [0x836F2D98] (0xAF4A0450,
+# 3376-byte entries, entrance record at +1028) every frame while it changes. Use with --wwe2k14_launch=rumble_40.
+# Use with --wwe2k14_launch=rumble_40. Untimed. Needs the frozen user data. on_fail quit.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+snap 0xAF4A0450:16384 arrA
+snap 0xAF4A4450:16384 arrB
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+wait_file M3.PAC 36000
+wait_frames 30
+quit

@@ -1,0 +1,76 @@
+# Session 8 task A: determinism probe (--wwe2k14_fp_probe=true, default off). Hook function: src/fp_probe.h.
+# The hook returns at once when the setting is off and never changes a register or guest memory.
+#
+# sub_82666310 fills the 9x9 pairwise distance table at 0x837683D8 (generated/default/wwe2k14_recomp.171.cpp).
+# 0x82666378 is `bl 0x82c327c8` (distance of slot_i[+176] and slot_j[+176]); 0x8266637C (`add r11,r30,r31`) is the
+# first instruction after it returns, before `stfsx f1,r10,r28` at 0x82666384 stores the result. The callee
+# (wwe2k14_recomp.45.cpp sub_82C327C8) only reads r3/r4 and writes f0-f1/f7-f13, so r3/r4 still hold the inputs.
+[[midasm_hook]]
+address = 0x8266637C
+name = "wwe2k14_fp_probe_dist"
+registers = ["r3", "r4", "r30", "r31", "f1", "fpscr"]
+
+# Boot allocation trace (--wwe2k14_alloc_trace_frames=N, default 0 = off; src/fp_probe.h). The game's two allocator
+# entry points (sub_82C2DCD8: 3194 call sites, sub_82C2F5A8: 3194; `py tools/q/q.py fn`), each hooked at its second
+# instruction, right after `mflr r12`, so r12 holds the caller's return address. r3 = size (rounded up to 16 bytes at
+# 0x82C2DD20-0x82C2DD28 / the same in the other path), r4 = second argument (meaning unconfirmed).
+[[midasm_hook]]
+address = 0x82C2DCDC
+name = "wwe2k14_alloc_trace_a"
+registers = ["r3", "r4", "r12"]
+
+[[midasm_hook]]
+address = 0x82C2F5AC
+name = "wwe2k14_alloc_trace_b"
+registers = ["r3", "r4", "r12"]
+
+# Session 8 task 2: fixed insertion point for the racing boot allocation (--wwe2k14_det_boot_alloc_place=N, default
+# -1 = off; src/fp_probe.h). sub_82250050 (general allocation wrapper; py tools/analysis/list_function.py 0x82250050):
+# 0x8225007C is `bl 0x82c2dcd8`, 0x82250080 (`addi r1,r1,96`) the first instruction after it returns, r3 = the block.
+[[midasm_hook]]
+address = 0x82250080
+name = "wwe2k14_alloc_place_ret"
+registers = ["r3"]
+
+# Session 8 task 2: skeleton update probe (--wwe2k14_skel_probe=true, default off; src/fp_probe.h). All addresses from
+# py tools/analysis/list_function.py 0x82BD30E8 / 0x82BD3620 (generated/default/wwe2k14_recomp.198.cpp). Log only.
+# 0x82BD31C8: bone loop start (`li r29,0`; r3 = parent table, r27 = second argument, r28 = bone count, r31 = this).
+[[midasm_hook]]
+address = 0x82BD31C8
+name = "wwe2k14_skel_in"
+registers = ["r3", "r27", "r28", "r31", "fpscr"]
+
+# 0x82BD339C: after the bone loop (`cmpwi cr6,r27,0`).
+[[midasm_hook]]
+address = 0x82BD339C
+name = "wwe2k14_skel_mid"
+registers = ["r31"]
+
+# 0x82BD344C: after the second `bl 0x82c32bc0` (`li r9,0`); the offset subtracted from every bone is at r1+80.
+[[midasm_hook]]
+address = 0x82BD344C
+name = "wwe2k14_skel_off"
+registers = ["r1"]
+
+# 0x82BD35A4: the common exit (`addi r1,r1,272`).
+[[midasm_hook]]
+address = 0x82BD35A4
+name = "wwe2k14_skel_exit"
+registers = ["r31", "fpscr"]
+
+# 0x82BD362C: sub_82BD3620 after `stwu r1,-112(r1)`, before `lfs f0,0(r4)` (r3 = this, r4 = delta vector).
+[[midasm_hook]]
+address = 0x82BD362C
+name = "wwe2k14_skel_shift"
+registers = ["r3", "r4"]
+
+# Session 8 task 2 experiment: wait for the motion decompression worker right after posting a character to it
+# (--wwe2k14_det_inline_motion=true, default off; src/fp_probe.h). sub_823FABB8 (per-character motion component
+# update; py tools/analysis/list_function.py 0x823FABB8): 0x823FACB4 is `bl 0x823b7b90` (post the slot, r4 = owner
+# +1220, to the worker from 0x836F3A98); 0x823FACB8 (`b 0x823facc8`) is the first instruction after it returns.
+# r30 = the owner (character) object, set at 0x823FAC7C and callee-saved across the call. Returns at once when off; when on
+# the hook only waits (it never changes a register or guest memory).
+[[midasm_hook]]
+address = 0x823FACB8
+name = "wwe2k14_det_sync_motion"
+registers = ["r30"]

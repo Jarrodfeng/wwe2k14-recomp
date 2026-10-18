@@ -1,0 +1,65 @@
+# Session 8 task B: frame-barrier probe (--wwe2k14_barrier_probe / --wwe2k14_barrier_names, both default off).
+# LOG ONLY: hook functions in src/barrier_probe.h return nothing and change no register or guest memory; each
+# returns at once when its setting is off. A hook runs before the instruction at its address.
+# Addresses: tools/analysis/list_function.py listings of sub_82C3BC60 (frame_sync_arrive_and_wait), sub_82BB5CC0
+# (render_cmd_thread_main) and sub_82C3BAE0 (frame_sync_wait_clients_done), Session 8 task B; same call sites as
+# db/frame_pacing.json.
+
+# sub_82C3BC60, second instruction (after `mflr r12`): r12 = the guest return address (which thread loop called).
+[[midasm_hook]]
+address = 0x82C3BC64
+name = "wwe2k14_barrier_client_enter"
+registers = ["r12"]
+
+# sub_82C3BC60, `bl 0x82262260` (signal this slot's arrival event, handle at slot+8): r31 = slot.
+[[midasm_hook]]
+address = 0x82C3BCA0
+name = "wwe2k14_barrier_client_arrive"
+registers = ["r31"]
+
+# sub_82C3BC60, `lwz r11,156(r31)`: first instruction after the release wait (`bl 0x82261f38` at 0x82C3BCAC).
+[[midasm_hook]]
+address = 0x82C3BCB0
+name = "wwe2k14_barrier_client_released"
+registers = ["r31"]
+
+# sub_82BB5CC0 loop head, `bl 0x82c3bb38` (release every client).
+[[midasm_hook]]
+address = 0x82BB5DE4
+name = "wwe2k14_barrier_render_release"
+registers = []
+
+# sub_82BB5CC0, `bl 0x82c3bae0` (wait for every client's arrival; after the command list ran at 0x82BB5F34).
+[[midasm_hook]]
+address = 0x82BB5F5C
+name = "wwe2k14_barrier_render_wait_begin"
+registers = []
+
+# sub_82BB5CC0, `mr r3,r28`: first instruction after that wait returned.
+[[midasm_hook]]
+address = 0x82BB5F60
+name = "wwe2k14_barrier_render_wait_end"
+registers = []
+
+# After the wait: sub_82BB5CC0 `bl 0x82ba78f8` and the instruction after it (`mr r3,r27`).
+[[midasm_hook]]
+address = 0x82BB5F64
+name = "wwe2k14_barrier_post_call_begin"
+registers = []
+
+[[midasm_hook]]
+address = 0x82BB5F68
+name = "wwe2k14_barrier_post_call_end"
+registers = []
+
+# sub_82C3BA08 (post-barrier callbacks from barrier+3880): `bctrl` with r11 = callback, r3 = its context, and the
+# loop continuation 0x82C3BA3C (also reached from the null-slot branch at 0x82C3BA2C).
+[[midasm_hook]]
+address = 0x82C3BA38
+name = "wwe2k14_barrier_cb_begin"
+registers = ["r11", "r3"]
+
+[[midasm_hook]]
+address = 0x82C3BA3C
+name = "wwe2k14_barrier_cb_end"
+registers = []

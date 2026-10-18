@@ -1,0 +1,8 @@
+# In-game clip self-test, fixer pass: a bad clip_start SCALE must fail when the script LOADS, whatever
+# --wwe2k14_clip_dir is (the log shows "can't parse ... SCALE must be 1, 0.5, 0.333 or 0.25" and no script runs;
+# run_list kills the idle game after -WaitSeconds). Before the fix it loaded and failed mid-run, in-game mode only.
+log cliptest_badscale: NOT REACHED (the script must not load)
+clip_start e2 60 0.3
+wait_frames 60
+clip_stop e2
+quit

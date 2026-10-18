@@ -1,0 +1,33 @@
+# harness: realtime (timed route; Session 16: run_list fast-forwards other routes)
+# Session 10 (Track C): the short Bryan "pan" benchmark route started by the scenario launcher instead of the menus.
+# Use with --wwe2k14_launch=lesnar_bryan (captured from the benchmark route itself, run 481: Brock Lesnar vs Daniel
+# Bryan, Over the Limit BG04, Quick pace). Same measured part as short\bench_lesnar_bryan_pan.txt (from BG04.PAC on:
+# Brock's entrance 343.bik2, Bryan's ramp pan 324.bik2 + 600 frames), but the ~20 s of character select and arena
+# grid are skipped. Analyse with py tools\bench\fps60.py RUN (anchors on the file opens). Timed runs: run_list
+# -Exclusive. Needs the frozen user data (run_list.ps1). on_fail quit. Screenshots b_* / s_* are local only.
+on_fail quit
+log bench: start lesnar_bryan (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 100
+screenshot b_brock100
+wait_file 324.bik2 7200
+wait_frames 600
+screenshot s_end
+wait_frames 60
+log short route: end (launch; after "wait_file 324.bik2" + 600 frames)
+quit

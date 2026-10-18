@@ -1,0 +1,196 @@
+# Named guest-memory states for the input-script commands wait_state / assert_state / log_state
+# (src/input_script.h; file format in src/game_state.h). Loaded from the script's own folder, or (for scripts
+# kept elsewhere, e.g. tools/review/routes or out/harness/...) from this file, found by walking up from the script.
+#
+# Every address here comes from the Session 8 task 7 system maps (db/*.json, docs/systems/*.md), which cite the
+# generated code / q index for the writers and live --wwe2k14_peek logs for the values. Nothing here was guessed.
+# Only entries marked "live" have had their values seen in a run; use log_state (never fails) for the others
+# until a run confirms them. Reads are not synchronised with the guest: wait_state holds 2 frames by default.
+
+# ---- Sequence layer (docs/systems/menu_ui.md, db/menu_ui.json) ----
+
+[seq]
+chain = "0x839400F8>0>48"
+size = 4
+meaning = "current sequence id: 3 startup/title, 75 main menu and match setup screens, 9 in-game"
+evidence = "db/menu_ui.json g_sequence_manager (high): written by sub_82C3A150; live runs 232/233/239: 3 from frame 1, 75 at frame 1863, 9 at frame 3294 (run 239, Lesnar vs Bryan route)"
+confidence = "high (live)"
+
+[seq_prev]
+chain = "0x839400F8>4"
+meaning = "id of the sequence the current one replaced (0 at boot, 4 after the main menu starts)"
+evidence = "db/menu_ui.json g_sequence_manager +4; live run 239: 0 at frame 1, 4 at frame 1863"
+confidence = "high (live)"
+
+[switch_kind]
+chain = "0x836EE3B8"
+meaning = "kind of the last sequence switch: 1 main menu started, 3 match sequence started"
+evidence = "db/menu_ui.json g_last_sequence_switch_kind (high): only store 0x8225E808; live runs 232/233/239: 0 -> 1 at the main-menu switch, 1 -> 3 at the match launch"
+confidence = "high (live)"
+
+# ---- SmartMenu (main-menu list navigation; docs/systems/menu_ui.md) ----
+
+[smart_menu]
+chain = "0x8392945C"
+meaning = "SmartMenu controller pointer: 0 outside the main-menu system"
+evidence = "db/menu_ui.json g_smart_menu (high): live runs 232/233/239: 0 until frame 1889-1911, non-zero through the setup screens, 0 again from 3291-3294"
+confidence = "high (live)"
+
+[menu]
+chain = "0x8392945C>364"
+meaning = "current menu id: 0 root, 1 main, 2 PLAY, 7 next PLAY level, 3 CREATIONS, 2000 setup screens (character select and arena grid both 2000); unreadable outside the main menu"
+evidence = "db/menu_ui.json SM+364 (high); live run 239: 0 at 1889, 1 at 1925, 2 at 1996, 7 at 2016, 2000 at 2032"
+confidence = "high (live)"
+
+[cursor]
+chain = "0x8392945C>352"
+meaning = "cursor index in the current SmartMenu list"
+evidence = "db/menu_ui.json SM+352 (high, live + screenshots, labeller B runs 232/233)"
+confidence = "high (live)"
+
+[target]
+chain = "0x8392945C>368"
+signed = true
+meaning = "target of the highlighted item: a menu id below 1000, else a code; -1 on the setup screens"
+evidence = "db/menu_ui.json SM+368 (high); live run 239: 2 at 1925 (main menu, PLAY highlighted), 7 at 1996, 2000 at 2016, -1 at 2032"
+confidence = "high (live)"
+
+[exit_action]
+chain = "0x83929434"
+meaning = "main-menu exit action code: 1 = launch exhibition match"
+evidence = "db/menu_ui.json g_main_menu_exit_action (high): writers sub_8283CFF0, sub_828333D0; live run 239: 0 -> 1 at frame 3262, sequence 9 at 3294"
+confidence = "high (live)"
+
+# ---- Frame pacing (docs/systems/frame_pacing.md) ----
+
+[frame_rate]
+chain = "0x8392DC40"
+meaning = "frame-rate word: 60 at boot; some scenes switch it to 30 and back"
+evidence = "db/frame_pacing.json frame_rate_word (high): stores only in sub_82BB6BB0 (boot), sub_82BB6D50 (60 to 30), sub_82BB6DF0 (30 to 60); live (this tool, default settings): 60 at frames 2 and 2006 (run 246: boot, main menu), 3297, 3538 and 8042 (run 248: match launch, Brock's entrance start, in the ring)"
+confidence = "high (static + live); a 30 value has not been seen by this tool yet"
+
+# ---- Match state (docs/systems/match_state.md, db/match_state.json, db/ai_decision.json) ----
+
+[match_clock]
+chain = "0x836F3928"
+meaning = "match clock in frames: 0 until the match starts running, then +1 per frame"
+evidence = "db/match_state.json g_match_clock (high, labeller B only): incremented by sub_827C1B28; live run 236: 0 until frame 7773 (about 340 frames after the match scene), then +1 per frame"
+confidence = "high (live in one run)"
+
+[judge]
+chain = "0x83767B6C"
+meaning = "referee judge object pointer: non-zero once the match objects exist"
+evidence = "db/match_state.json g_judge (high): stored by sub_825C0288, cleared by sub_827AC038; live: set at frame 3412 (run 237) / 3418 (run 236)"
+confidence = "high (live)"
+
+[scene_word]
+chain = "0x836F3940"
+meaning = "scene/phase word: 1 at boot, 4 from match load through the entrances, 1 again in the ring. 1 alone does NOT mean in-match"
+evidence = "db/ai_decision.json scene_phase_word (medium), db/match_state.json g_scene_mode_3940 (low): live runs 236/237/241: 1 at frame 1, 4 at ~3430, 1 at ~7389"
+confidence = "values live; meaning medium/low"
+
+# ---- Start-up (Session 29, found with the live memory scanner, src/mem_scan.h) ----
+
+[boot_step]
+chain = "0x8395C8D0"
+meaning = "a counter of accepted menu presses / screen steps: 3 the Press Start title, 4 the ATTENTION storage notice (after START), 5 right after A (main menu loading), 6 the main menu; then +1 for every accepted menu press (Session 30, run 2243: DOWN x6 -> 12, A 13, B 14, UP x6 -> 20, A 21; dropped presses do not count). Absolute values after the boot depend on everything pressed before: use it for the boot, and as 'the press was accepted' only relative to now"
+evidence = "Session 29 scan (run 2206: scan_range 0x82000000 0x90000000, unchanged at the title, changed on START, unchanged on the notice, changed on A: 9 static words left); run 2207 logged all 9 per phase: this one alone counts 3 / 4 / 5 / 6 (same 3 / 4 / 5 in run 2206); screenshot 2205_notice = the ATTENTION screen"
+confidence = "boot values live (2 runs); +1 per accepted menu press seen in one recording (run 2243); what exactly it counts is unconfirmed"
+
+# ---- Entrance steps (Session 11, 2026-10-10 21:55; run 829, sixpack launch, Jarrod watching) ----
+
+
+[entrance_step_0]
+chain = "0x836F38D0>28>2"
+size = 1
+signed = true
+meaning = "step of slot 0's current motion in an entrance (the byte after the act id at [char+28]; act 25000 = the entrance act): 0 arena intro (wrestler not shown), 5 his own segment starts (camera cuts to him, on screen within 0-3 s; Jericho: his dark jacket intro, by design later), 10 a later stage; -1 or unreadable while the scene resets after a skip"
+evidence = "run 829 peek log (c0_act 0x61A80000 at tron+18, then 0x61A80500, 0x61A80A00) plus one screenshot per second around each step-5 frame for the six sixpack wrestlers (Del Rio, Cesaro, Big Show, Lesnar, Brodus, Jericho): intro shots before, the wrestler segment from step 5; chain from docs/systems/cutscene_motion.md (char+28 = pointer to the current act)"
+confidence = "high (live: runs 829 + 830; Jarrod watched run 830: each of the six skipped 10 s after he appeared, Jericho in his dark jacket intro; one match type, six wrestlers)"
+
+[entrance_step_1]
+chain = "0x836F38D4>28>2"
+size = 1
+signed = true
+meaning = "step of slot 1's current motion in an entrance (the byte after the act id at [char+28]; act 25000 = the entrance act): 0 arena intro (wrestler not shown), 5 his own segment starts (camera cuts to him, on screen within 0-3 s; Jericho: his dark jacket intro, by design later), 10 a later stage; -1 or unreadable while the scene resets after a skip"
+evidence = "run 829 peek log (c1_act 0x61A80000 at tron+18, then 0x61A80500, 0x61A80A00) plus one screenshot per second around each step-5 frame for the six sixpack wrestlers (Del Rio, Cesaro, Big Show, Lesnar, Brodus, Jericho): intro shots before, the wrestler segment from step 5; chain from docs/systems/cutscene_motion.md (char+28 = pointer to the current act)"
+confidence = "high (live: runs 829 + 830; Jarrod watched run 830: each of the six skipped 10 s after he appeared, Jericho in his dark jacket intro; one match type, six wrestlers)"
+
+[entrance_step_2]
+chain = "0x836F38D8>28>2"
+size = 1
+signed = true
+meaning = "step of slot 2's current motion in an entrance (the byte after the act id at [char+28]; act 25000 = the entrance act): 0 arena intro (wrestler not shown), 5 his own segment starts (camera cuts to him, on screen within 0-3 s; Jericho: his dark jacket intro, by design later), 10 a later stage; -1 or unreadable while the scene resets after a skip"
+evidence = "run 829 peek log (c2_act 0x61A80000 at tron+18, then 0x61A80500, 0x61A80A00) plus one screenshot per second around each step-5 frame for the six sixpack wrestlers (Del Rio, Cesaro, Big Show, Lesnar, Brodus, Jericho): intro shots before, the wrestler segment from step 5; chain from docs/systems/cutscene_motion.md (char+28 = pointer to the current act)"
+confidence = "high (live: runs 829 + 830; Jarrod watched run 830: each of the six skipped 10 s after he appeared, Jericho in his dark jacket intro; one match type, six wrestlers)"
+
+[entrance_step_3]
+chain = "0x836F38DC>28>2"
+size = 1
+signed = true
+meaning = "step of slot 3's current motion in an entrance (the byte after the act id at [char+28]; act 25000 = the entrance act): 0 arena intro (wrestler not shown), 5 his own segment starts (camera cuts to him, on screen within 0-3 s; Jericho: his dark jacket intro, by design later), 10 a later stage; -1 or unreadable while the scene resets after a skip"
+evidence = "run 829 peek log (c3_act 0x61A80000 at tron+18, then 0x61A80500, 0x61A80A00) plus one screenshot per second around each step-5 frame for the six sixpack wrestlers (Del Rio, Cesaro, Big Show, Lesnar, Brodus, Jericho): intro shots before, the wrestler segment from step 5; chain from docs/systems/cutscene_motion.md (char+28 = pointer to the current act)"
+confidence = "high (live: runs 829 + 830; Jarrod watched run 830: each of the six skipped 10 s after he appeared, Jericho in his dark jacket intro; one match type, six wrestlers)"
+
+[entrance_step_4]
+chain = "0x836F38E0>28>2"
+size = 1
+signed = true
+meaning = "step of slot 4's current motion in an entrance (the byte after the act id at [char+28]; act 25000 = the entrance act): 0 arena intro (wrestler not shown), 5 his own segment starts (camera cuts to him, on screen within 0-3 s; Jericho: his dark jacket intro, by design later), 10 a later stage; -1 or unreadable while the scene resets after a skip"
+evidence = "run 829 peek log (c4_act 0x61A80000 at tron+18, then 0x61A80500, 0x61A80A00) plus one screenshot per second around each step-5 frame for the six sixpack wrestlers (Del Rio, Cesaro, Big Show, Lesnar, Brodus, Jericho): intro shots before, the wrestler segment from step 5; chain from docs/systems/cutscene_motion.md (char+28 = pointer to the current act)"
+confidence = "high (live: runs 829 + 830; Jarrod watched run 830: each of the six skipped 10 s after he appeared, Jericho in his dark jacket intro; one match type, six wrestlers)"
+
+[entrance_step_5]
+chain = "0x836F38E4>28>2"
+size = 1
+signed = true
+meaning = "step of slot 5's current motion in an entrance (the byte after the act id at [char+28]; act 25000 = the entrance act): 0 arena intro (wrestler not shown), 5 his own segment starts (camera cuts to him, on screen within 0-3 s; Jericho: his dark jacket intro, by design later), 10 a later stage; -1 or unreadable while the scene resets after a skip"
+evidence = "run 829 peek log (c5_act 0x61A80000 at tron+18, then 0x61A80500, 0x61A80A00) plus one screenshot per second around each step-5 frame for the six sixpack wrestlers (Del Rio, Cesaro, Big Show, Lesnar, Brodus, Jericho): intro shots before, the wrestler segment from step 5; chain from docs/systems/cutscene_motion.md (char+28 = pointer to the current act)"
+confidence = "high (live: runs 829 + 830; Jarrod watched run 830: each of the six skipped 10 s after he appeared, Jericho in his dark jacket intro; one match type, six wrestlers)"
+
+# ---- Create-a-Logo (PaintTool sequence 78; Session 27 item 2, docs/systems/menus.md) ----
+# The logo tool's state object L = [[0x839400F8]+256]+76 (the sequence manager's +256 object, its +76): found by a
+# value scan over 14 snapshots along the logo route (run 1904, tools/menus/snap_find.py) and a reverse pointer scan
+# (tools/menus/pointer_scan.py: the only short static chain; same value in every snapshot of the run).
+
+[logo_screen]
+chain = "0x839400F8>256>76>1200"
+meaning = "Create-a-Logo screen: 1 the logo grid, 0 SELECT CANVAS SIZE, 3 the paint editor, 4 the editor's Tools panel (LT), 2 LOGO CATEGORIES (the W stamp tool's list, and also inside a category)"
+evidence = "snapshots run 1904: grid 1 (5 stops), size menu 0 (2), editor 3, Tools panel 4 (4); screenshots of each stop. Session 29 live run 2172: 2 after A on tool 7 (screenshot: LOGO CATEGORIES), still 2 inside category ED49 / ED50"
+confidence = "high (live, one run)"
+
+[logo_grid_cursor]
+chain = "0x839400F8>256>76>1448"
+meaning = "logo grid cursor: slot index 0-19 (row 1 = 0-4, row 2 = 5-9 on page 1); stays on the chosen slot in the size menu / editor"
+evidence = "snapshots run 1904: 0 (start), 1 (RIGHT), 2 (RIGHT), 7 (DOWN), 2 (UP), then 2 in the size menu and editor"
+confidence = "high (live, one run)"
+
+[logo_size_cursor]
+chain = "0x839400F8>256>76>1428"
+meaning = "SELECT CANVAS SIZE cursor: 0 = 128x128, 1 = 256x256 (keeps the last choice afterwards)"
+evidence = "snapshots run 1904: 0 on entry, 1 after DOWN (screenshot: 256x256 highlighted)"
+confidence = "high (live, one run)"
+
+[logo_category_cursor]
+chain = "0x839400F8>256>76>1432"
+meaning = "LOGO CATEGORIES list cursor (the W stamp tool's list): 0 the first category ... 3 LETTERING; keeps its value inside a category"
+evidence = "Session 29 memory scan (live run 2213): after DOWN, DOWN, UP in the list 3 candidates were left, the first = the logo object 0xA530AF44 (chain 0x839400F8>256>76) + 1432 (between logo_size_cursor +1428 and logo_grid_cursor +1448); the chain read 1, then 2 after press_until_state DOWN"
+confidence = "values live (1 run); 'inside a category' not confirmed (that check matched any file with 'ed' in its path)"
+
+[logo_tool_cursor]
+chain = "0x839400F8>256>76>1292"
+meaning = "editor Tools panel cursor (left stick): 0 pen, 3 eraser, 6 fill, 9 ACCEPT"
+evidence = "snapshots run 1904: 0 / 3 / 6 / 9 after LT and three L_DOWN (the panel title PEN / ERASER / FILL / ACCEPT)"
+confidence = "high (live, one run)"
+
+[logo_canvas]
+chain = "0x839400F8>256>76>1252"
+meaning = "the editor's canvas size in pixels (256 or 128); 0 on the grid"
+evidence = "snapshots run 1904: 256 in the editor after 256x256 was picked, 0 on the grid (128 in the size menu: unconfirmed meaning there)"
+confidence = "medium (live, one run, one size)"
+
+[logo_phase]
+chain = "0x839400F8>256>76>3204"
+meaning = "Create-a-Logo phase: 124 grid ready, 13 the 'create Custom Logo save data?' prompt (a save without a logo file), 8 editor"
+evidence = "snapshots run 1904 (grid 124, size menu 124, editor 8) and run 1921 (the prompt 13 before and after LEFT, 124 after YES); live in the launcher's imports runs 1922 / 1923"
+confidence = "high (live, two runs)"

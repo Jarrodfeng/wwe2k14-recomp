@@ -1,0 +1,70 @@
+# Function-entry hints from the runtime pointer-table scan (src/missing_function_scan.h).
+# Run: out/build/win-amd64-release/logs/wwe2k14_003.log (2026-10-06), 138 candidates -> 62 accepted.
+# Each target: unregistered code address stored in a game data table next to a registered function,
+# not covered by any recompiled function, and either starting exactly where the previous function ends
+# after an unconditional branch (bctr / b), or chained right after another accepted target.
+# Rejected and why: see PLAYBOOK.md (M2). Comment = data address where the pointer was found.
+
+[functions]
+0x822991F8 = {} # ptr@0x8200523C after bctr
+0x82299210 = {} # ptr@0x820049C8 after bctr
+0x82299C38 = {} # ptr@0x82005760 after bctr
+0x8230A6A8 = {} # ptr@0x82009A88 after b
+0x82340D60 = {} # ptr@0x8200AAD8 after b
+0x8240B0C8 = {} # ptr@0x82011340 after bctr
+0x8240B0D8 = {} # ptr@0x820113F8 chain
+0x824C8930 = {} # ptr@0x82015D10 after b
+0x82625700 = {} # ptr@0x82021000 after bctr
+0x8286B7A0 = {} # ptr@0x820395D8 after bctr
+0x82890B50 = {} # ptr@0x8203BE48 after bctr
+0x82890B68 = {} # ptr@0x8203BE50 chain
+0x828AFA70 = {} # ptr@0x820401C4 after bctr
+0x828D4A70 = {} # ptr@0x82043720 after bctr
+0x828E4CF8 = {} # ptr@0x82044224 after bctr
+0x828FCCB0 = {} # ptr@0x82046380 after bctr
+0x829496D0 = {} # ptr@0x820491D4 after bctr
+0x82986EF0 = {} # ptr@0x8204C9D8 after bctr
+0x82986F00 = {} # ptr@0x8204CA0C chain
+0x8299DE40 = {} # ptr@0x82050CFC after b
+0x829A3F80 = {} # ptr@0x82051438 after bctr
+0x829A54F8 = {} # ptr@0x8204B668 after b
+0x82A96ED0 = {} # ptr@0x8205E688 after bctr
+0x82AA2E48 = {} # ptr@0x8205F1D4 after b
+0x82B1B450 = {} # ptr@0x82062F18 after b
+0x82B1C268 = {} # ptr@0x82062FA0 after b
+0x82B1CC18 = {} # ptr@0x82063028 after b
+0x82B1D650 = {} # ptr@0x820630B0 after b
+0x82B1E400 = {} # ptr@0x82063148 after b
+0x82BBF048 = {} # ptr@0x8206A1D8 after b
+0x82BCDA68 = {} # ptr@0x8200B4A0 after bctr
+0x82D208B8 = {} # ptr@0x82093554 after b
+0x82D28078 = {} # ptr@0x82093630 after b
+0x82D28088 = {} # ptr@0x820939C4 chain
+0x82D28098 = {} # ptr@0x82093650 after b
+0x82D280A0 = {} # ptr@0x820939A8 chain
+0x82D280B0 = {} # ptr@0x820939E4 chain
+0x82D29440 = {} # ptr@0x82093A8C after b
+0x82D29450 = {} # ptr@0x82093610 after b
+0x82D29468 = {} # ptr@0x82093648 chain
+0x82D29470 = {} # ptr@0x82093AAC chain
+0x82D29BC8 = {} # ptr@0x82093B6C after bctr
+0x82D2A788 = {} # ptr@0x82093B00 after b
+0x82D2B4B8 = {} # ptr@0x82093BB4 after b
+0x82D2B4C0 = {} # ptr@0x82093BC4 chain
+0x82D2B9B8 = {} # ptr@0x82093BB8 after b
+0x82D2E3D0 = {} # ptr@0x82093D8C after b
+0x82D3C388 = {} # ptr@0x82097C04 after b
+0x82D3C390 = {} # ptr@0x82097C14 chain
+0x82D3DC28 = {} # ptr@0x82097CB4 after bctr
+0x82D3DC38 = {} # ptr@0x82097CBC after b
+0x82D3DC48 = {} # ptr@0x82097BB8 after b
+0x82F315A0 = {} # ptr@0x821185E0 after bctr
+0x82F50B98 = {} # ptr@0x8211B5D0 after bctr
+0x82F517D0 = {} # ptr@0x8211B640 after bctr
+0x83362C88 = {} # ptr@0x821B68BC after b
+0x833B4798 = {} # ptr@0x821BA8F8 after bctr
+0x833B5DF0 = {} # ptr@0x821BAC90 after bctr
+0x833C54D0 = {} # ptr@0x8201130C after bctr
+0x833C54E0 = {} # ptr@0x821BBDA0 chain
+0x8341DBA0 = {} # ptr@0x821C25D4 after bctr
+0x834C5610 = {} # ptr@0x835D6014 after b

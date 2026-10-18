@@ -1,0 +1,446 @@
+# ReXGlue SDK changes for WWE 2K14 (session27_5): 8794393499be..e5ebb5bbbb41 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  e5ebb5b Session 27.5: det_frames_time_hz (virtual time per det vblank; timebase, system time, uptime, timed waits and audio pumps follow it; 60 = unchanged)
+#  9ed7453 Session 27.5: draw probe (gpu_debug_draw_probe / _frames / _path / _consts) and gpu_debug_skip_index_base (debug, default off)
+
+diff --git a/include/rex/det.h b/include/rex/det.h
+index 0f95fe0e499bc303eea4c15c321b9e6e9ec57584..680f0cf21b012dc24de0df58a1a26c3288bcee22 100644
+--- a/include/rex/det.h
++++ b/include/rex/det.h
+@@ -47,6 +47,11 @@ void NoteVblank();
+ void WaitVblanks(uint64_t target);
+ // Det vblanks for a guest timeout in milliseconds (at least 1).
+ uint64_t VblanksForMs(uint64_t ms);
++// wwe2k14 patch (Session 27.5): the virtual time rate (det_frames_time_hz as applied: 60 until it first changes) and
++// the virtual time since the first det vblank in microseconds (for host code that must follow guest time, e.g. a
++// video decoder standing in for the guest's own).
++int32_t TimeHz();
++uint64_t VirtualMicros();
+ 
+ // Vblank thread: blocks until the guest is quiescent (as above) for settle_us, or timeout_ms passed (returns false).
+ // 0 = the det_frames_settle_us / det_frames_timeout_ms settings.
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 18f4b4c5e971844010a27966653b89282af6cc3c..5abdfc3636b12b8b3c74be106692e629b8741d40 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -12,6 +12,7 @@
+ #pragma once
+ 
+ #include <atomic>
++#include <cstdio>
+ #include <cstring>
+ #include <functional>
+ #include <memory>
+@@ -490,6 +491,27 @@ class CommandProcessor {
+   // wwe2k14 patch (Session 16, MATTE): the whole comma-separated list (up to 64 hashes; [0] = the first).
+   uint64_t debug_skip_vertex_shader_hashes_[64] = {};
+   uint32_t debug_skip_vertex_shader_count_ = 0;
++  // wwe2k14 patch (Session 27.5, DRAWPROBE, debug): gpu_debug_draw_probe* / gpu_debug_skip_index_base, latched at
++  // each swap (DrawProbeLatch). The backend calls DrawProbe for a draw while draw_probe_frames_left_ > 0 or the
++  // skip list is set; it writes one CSV row per listed draw (swap number, draw number in the frame, shader, index
++  // buffer, first vertex fetch, the vertex float constants the shader reads, any LOAD_ALU_CONSTANT since the last
++  // draw, the gpu_debug_draw_probe_consts range) and returns true if the draw's index buffer is on the skip list.
++  uint64_t draw_probe_hashes_[64] = {};
++  uint32_t draw_probe_hash_count_ = 0;
++  bool draw_probe_all_ = false;
++  int32_t draw_probe_frames_left_ = 0;
++  std::FILE* draw_probe_file_ = nullptr;
++  uint64_t draw_probe_swaps_ = 0;
++  uint32_t draw_probe_draw_ = 0;
++  int32_t draw_probe_const_first_ = -1, draw_probe_const_last_ = -1;
++  uint32_t draw_probe_loads_ = 0, draw_probe_load_address_ = 0, draw_probe_load_index_ = 0,
++           draw_probe_load_dwords_ = 0;
++  uint32_t skip_index_bases_[64] = {};
++  uint32_t skip_index_base_count_ = 0;
++  void DrawProbeLatch();
++  bool DrawProbe(const Shader& vertex_shader, uint32_t prim_type, uint32_t index_count,
++                 const IndexBufferInfo* index_buffer_info);
++  bool DrawProbeActive() const { return draw_probe_frames_left_ > 0 || skip_index_base_count_ != 0; }
+   // wwe2k14 patch (Session 15, sub-second loads): gpu_skip_frame_draws, latched at each swap. While it is N > 1,
+   // the draws (except memexport draws) and resolves of N-1 of every N frames are skipped (the previous frame stays
+   // on screen). Resolve destinations of drawn frames are remembered; a skipped resolve to a destination no drawn
+diff --git a/src/core/det.cpp b/src/core/det.cpp
+index 901fea65e45f936d163419d92faa1c89bf4557cb..84205322c2f3148a5faec6d6e716e35e9259a23c 100644
+--- a/src/core/det.cpp
++++ b/src/core/det.cpp
+@@ -29,6 +29,12 @@ REXCVAR_DEFINE_INT32(det_frames_settle_us, 200, "GPU",
+                      "det_frames: how long the guest must stay quiescent before the next vblank (microseconds)");
+ REXCVAR_DEFINE_INT32(det_frames_timeout_ms, 250, "GPU",
+                      "det_frames: longest wait for quiescence before a vblank is fired anyway (logged)");
++// wwe2k14 patch (Session 27.5): the virtual time one det vblank stands for. 60 = 1/60 s (Session 15, unchanged). The
++// app keeps it at the guest's own update rate (one det vblank per frame at a step rate above 60), so video, audio and
++// timed waits follow game time in replays and slow-motion re-shoots. Read at each det vblank; a change rebases.
++REXCVAR_DEFINE_INT32(det_frames_time_hz, 60, "GPU",
++                     "det_frames: virtual time per det vblank = 1/N s (default 60); the guest timebase, system time, "
++                     "uptime, timed waits and the audio pumps follow it. Read at each det vblank");
+ 
+ namespace rex::det {
+ namespace {
+@@ -51,6 +57,68 @@ thread_local int32_t t_slot = -1;
+ inline uint32_t HostTid();
+ std::atomic<uint64_t> g_base_ticks{0}, g_base_sys{0};
+ 
++// wwe2k14 patch (Session 27.5, det_frames_time_hz): virtual time as segments of constant rate. Until the first change
++// (g_time_rebased false) every reader uses the Session 15 formulas unchanged, so a run that stays at 60 is
++// bit-identical. A segment starts at det vblank vb0 with the accumulated values at vb0 and lasts while hz holds. The
++// vblank thread rebases (NoteVblank) while readers on guest threads read: a sequence lock keeps them consistent.
++std::atomic<bool> g_time_rebased{false};
++std::atomic<uint32_t> g_time_seq{0};
++std::atomic<uint64_t> g_seg_vb0{0}, g_seg_ticks{0}, g_seg_ms{0}, g_seg_sys{0}, g_seg_us{0};
++std::atomic<int32_t> g_seg_hz{60};
++std::atomic<uint64_t> g_tick_freq{0};  // guest timebase frequency (from the first VirtualGuestTicks call)
++
++struct Segment {
++  uint64_t vb0, ticks, ms, sys, us;
++  int32_t hz;
++};
++Segment ReadSegment() {
++  Segment s;
++  for (;;) {
++    const uint32_t a = g_time_seq.load(std::memory_order_acquire);
++    if (a & 1) {
++      std::this_thread::yield();
++      continue;
++    }
++    s = {g_seg_vb0.load(std::memory_order_relaxed), g_seg_ticks.load(std::memory_order_relaxed),
++         g_seg_ms.load(std::memory_order_relaxed),  g_seg_sys.load(std::memory_order_relaxed),
++         g_seg_us.load(std::memory_order_relaxed),  g_seg_hz.load(std::memory_order_relaxed)};
++    std::atomic_thread_fence(std::memory_order_acquire);
++    if (g_time_seq.load(std::memory_order_relaxed) == a) return s;
++  }
++}
++uint64_t SysPerVblank(int32_t hz) { return hz == 60 ? 166667ull : 10000000ull / uint64_t(hz); }
++// Values at det vblank vb in segment s (vb >= s.vb0).
++uint64_t SegTicks(const Segment& s, uint64_t vb, uint64_t freq) { return s.ticks + (vb - s.vb0) * (freq / s.hz); }
++uint64_t SegMs(const Segment& s, uint64_t vb) { return s.ms + (vb - s.vb0) * 1000 / uint64_t(s.hz); }
++uint64_t SegSys(const Segment& s, uint64_t vb) { return s.sys + (vb - s.vb0) * SysPerVblank(s.hz); }
++uint64_t SegUs(const Segment& s, uint64_t vb) { return s.us + (vb - s.vb0) * 1000000 / uint64_t(s.hz); }
++
++// Vblank thread, before a det vblank is counted: start a new segment if det_frames_time_hz changed.
++void MaybeRebase() {
++  int32_t hz = REXCVAR_GET(det_frames_time_hz);
++  if (hz < 1) hz = 60;
++  if (hz > 100000) hz = 100000;
++  const int32_t old_hz = g_seg_hz.load(std::memory_order_relaxed);
++  if (hz == old_hz) return;
++  const uint64_t vb = g_vblanks.load(std::memory_order_acquire);
++  Segment s = g_time_rebased.load(std::memory_order_acquire)
++                  ? ReadSegment()
++                  : Segment{0, 0, 0, 0, 0, 60};  // the Session 15 formulas are segment 0 at 60
++  const uint64_t freq = g_tick_freq.load(std::memory_order_acquire);
++  const Segment n{vb, SegTicks(s, vb, freq), SegMs(s, vb), SegSys(s, vb), SegUs(s, vb), hz};
++  g_time_seq.fetch_add(1, std::memory_order_acq_rel);  // odd: writing
++  g_seg_vb0.store(n.vb0, std::memory_order_relaxed);
++  g_seg_ticks.store(n.ticks, std::memory_order_relaxed);
++  g_seg_ms.store(n.ms, std::memory_order_relaxed);
++  g_seg_sys.store(n.sys, std::memory_order_relaxed);
++  g_seg_us.store(n.us, std::memory_order_relaxed);
++  g_seg_hz.store(n.hz, std::memory_order_relaxed);
++  g_time_seq.fetch_add(1, std::memory_order_release);  // even: done
++  g_time_rebased.store(true, std::memory_order_release);
++  REXLOG_INFO("[det] virtual time: {} Hz per det vblank from vblank {} (was {} Hz; virtual {:.3f} s)", hz, vb, old_hz,
++              double(n.us) / 1e6);
++}
++
+ inline uint32_t HostTid() {
+ #if defined(_WIN32)
+   return uint32_t(GetCurrentThreadId());  // the [tNNNN] id of the log lines
+@@ -115,6 +183,7 @@ bool CpWaiting() { return g_cp_waiting.load(std::memory_order_acquire); }
+ uint64_t Vblanks() { return g_vblanks.load(std::memory_order_acquire); }
+ 
+ void NoteVblank() {
++  MaybeRebase();  // wwe2k14 patch (Session 27.5): det_frames_time_hz
+   {
+     std::lock_guard<std::mutex> lock(g_mutex);
+     g_vblanks.fetch_add(1, std::memory_order_acq_rel);
+@@ -128,7 +197,19 @@ void WaitVblanks(uint64_t target) {
+   g_cv.wait(lock, [&] { return g_vblanks.load(std::memory_order_acquire) >= target || !Enabled(); });
+ }
+ 
+-uint64_t VblanksForMs(uint64_t ms) { return std::max<uint64_t>(1, (ms * 60 + 999) / 1000); }
++uint64_t VblanksForMs(uint64_t ms) {
++  const uint64_t hz = uint64_t(TimeHz());  // wwe2k14 patch (Session 27.5): 60 unless det_frames_time_hz changed
++  return std::max<uint64_t>(1, (ms * hz + 999) / 1000);
++}
++
++int32_t TimeHz() { return g_time_rebased.load(std::memory_order_acquire) ? g_seg_hz.load(std::memory_order_acquire) : 60; }
++
++uint64_t VirtualMicros() {
++  const uint64_t vb = g_vblanks.load(std::memory_order_acquire);
++  if (!g_time_rebased.load(std::memory_order_acquire)) return vb * 1000000 / 60;
++  const Segment s = ReadSegment();
++  return SegUs(s, std::max(vb, s.vb0));
++}
+ 
+ bool WaitQuiescent(uint32_t settle_us, uint32_t timeout_ms) {
+   if (settle_us == 0) settle_us = uint32_t(std::max(1, REXCVAR_GET(det_frames_settle_us)));
+@@ -222,6 +303,12 @@ uint64_t VirtualGuestTicks(uint64_t real_ticks, uint64_t guest_tick_frequency) {
+   ++t_reads;
+   const uint64_t per_frame = guest_tick_frequency / 60;
+   const uint64_t step = std::max<uint64_t>(1, per_frame / 100000);
++  if (!g_tick_freq.load(std::memory_order_relaxed)) g_tick_freq.store(guest_tick_frequency, std::memory_order_release);
++  if (g_time_rebased.load(std::memory_order_acquire)) {  // wwe2k14 patch (Session 27.5): det_frames_time_hz
++    const Segment s = ReadSegment();
++    return g_base_ticks.load(std::memory_order_relaxed) + SegTicks(s, std::max(vb, s.vb0), guest_tick_frequency) +
++           t_reads * step;
++  }
+   return g_base_ticks.load(std::memory_order_relaxed) + vb * per_frame + t_reads * step;
+ }
+ 
+@@ -232,7 +319,12 @@ uint32_t VirtualUptimeMillis(uint32_t real_ms) {
+     bool expected = false;
+     if (set.compare_exchange_strong(expected, true)) base.store(real_ms);
+   }
+-  return base.load(std::memory_order_relaxed) + uint32_t(g_vblanks.load(std::memory_order_acquire) * 50 / 3);
++  const uint64_t vb = g_vblanks.load(std::memory_order_acquire);
++  if (g_time_rebased.load(std::memory_order_acquire)) {  // wwe2k14 patch (Session 27.5): det_frames_time_hz
++    const Segment s = ReadSegment();
++    return base.load(std::memory_order_relaxed) + uint32_t(SegMs(s, std::max(vb, s.vb0)));
++  }
++  return base.load(std::memory_order_relaxed) + uint32_t(vb * 50 / 3);
+ }
+ 
+ namespace {
+@@ -255,7 +347,12 @@ uint64_t VirtualSystemTimeOffset(uint64_t real_offset) {
+     bool expected = false;
+     if (g_base_sys_set.compare_exchange_strong(expected, true)) g_base_sys.store(real_offset);
+   }
+-  return g_base_sys.load(std::memory_order_relaxed) + g_vblanks.load(std::memory_order_acquire) * 166667ull;
++  const uint64_t vb = g_vblanks.load(std::memory_order_acquire);
++  if (g_time_rebased.load(std::memory_order_acquire)) {  // wwe2k14 patch (Session 27.5): det_frames_time_hz
++    const Segment s = ReadSegment();
++    return g_base_sys.load(std::memory_order_relaxed) + SegSys(s, std::max(vb, s.vb0));
++  }
++  return g_base_sys.load(std::memory_order_relaxed) + vb * 166667ull;
+ }
+ 
+ }  // namespace rex::det
+diff --git a/src/core/det_serial.cpp b/src/core/det_serial.cpp
+index a2ec7d5ce37de0676457cc1c0eda789ccc96a098..8617624e735e6fe95920ef37b16dadbe3e51a92f 100644
+--- a/src/core/det_serial.cpp
++++ b/src/core/det_serial.cpp
+@@ -335,6 +335,7 @@ namespace {
+ std::mutex a_mu;
+ std::condition_variable a_cv;
+ uint64_t a_requested = 0, a_done = 0, a_extra = 0, a_acc = 0;
++uint64_t a_hz = 60;  // wwe2k14 patch (Session 27.5): the rate a_acc is counted in
+ bool a_worker = false;
+ }  // namespace
+ 
+@@ -365,9 +366,16 @@ void RunAudioForVblank() {
+   if (!a_worker) return;
+   // 256-sample frames at 48 kHz: 3.125 per 60 Hz vblank; plus the queue fill a client gets when it registers.
+   // The audio worker is a scheduler participant: its slot is ready while pumps are pending.
+-  a_acc += 3125;
+-  const uint64_t n = a_acc / 1000 + a_extra;
+-  a_acc %= 1000;
++  // wwe2k14 patch (Session 27.5): 187.5 / hz per det vblank at det_frames_time_hz = hz, counted in 1 / (1000 hz) of
++  // a pump (at 60 exactly the Session 15 sequence: 187500 / 60000 = 3125 / 1000); rescaled when the rate changes.
++  const uint64_t hz = uint64_t(TimeHz());
++  if (hz != a_hz) {
++    a_acc = a_acc * hz / a_hz;
++    a_hz = hz;
++  }
++  a_acc += 187500;
++  const uint64_t n = a_acc / (1000 * hz) + a_extra;
++  a_acc %= 1000 * hz;
+   a_extra = 0;
+   a_requested += n;
+ }
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index a4471951c271718987b2fa3f61c8954a454c684a..17745063bc0814bcaed80180f6ddf7d4627b9e88 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -69,6 +69,21 @@ REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes, false, "GPU",
+ REXCVAR_DEFINE_STRING(gpu_debug_skip_vertex_shader, "", "GPU",
+                       "Debug: skip draws whose vertex shader ucode hash equals this hex value, or any of a "
+                       "comma-separated list of up to 64 (Session 16) (empty = off)");
++// wwe2k14 patch (Session 27.5, DRAWPROBE, debug): which mesh is which (Cena's title). See DrawProbe in
++// command_processor.h. All off by default; read at each swap.
++REXCVAR_DEFINE_STRING(gpu_debug_draw_probe, "", "GPU",
++                      "Debug (Session 27.5): log the draws whose vertex shader ucode hash is in this comma-separated "
++                      "hex list (* = every draw) to gpu_debug_draw_probe_path, for gpu_debug_draw_probe_frames frames");
++REXCVAR_DEFINE_INT32(gpu_debug_draw_probe_frames, 0, "GPU",
++                     "Debug (Session 27.5): N > 0 = probe the next N frames (set back to 0 when they start)");
++REXCVAR_DEFINE_STRING(gpu_debug_draw_probe_path, "", "GPU",
++                      "Debug (Session 27.5): the draw probe CSV (empty = logs/drawprobe.csv in the working folder)");
++REXCVAR_DEFINE_STRING(gpu_debug_draw_probe_consts, "", "GPU",
++                      "Debug (Session 27.5): vertex float constants A-B (float4 registers, inclusive) written per "
++                      "probed draw (empty = none)");
++REXCVAR_DEFINE_STRING(gpu_debug_skip_index_base, "", "GPU",
++                      "Debug (Session 27.5): skip draws whose index buffer guest address is in this comma-separated "
++                      "hex list (up to 64; empty = off)");
+ // wwe2k14 patch (Session 15, sub-second loads): see skip_frame_draws_ in command_processor.h.
+ REXCVAR_DEFINE_INT32(gpu_skip_frame_draws, 0, "GPU",
+                      "wwe2k14 (Session 15): N > 1 = skip the draws (not memexport ones) and resolves of N-1 of every "
+@@ -1819,6 +1834,7 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+       pos = end + 1;
+     }
+   }
++  DrawProbeLatch();  // wwe2k14 patch (Session 27.5, DRAWPROBE)
+   // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split summary.
+   Type0BlockSplitFrameEnd();
+   // wwe2k14 patch (Session 7, EXTENTS-SHADOW): close the frame's tiling brackets, summary, latch the settings.
+@@ -1838,6 +1854,128 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 27.5, DRAWPROBE, debug): see draw_probe_* in command_processor.h.
++void CommandProcessor::DrawProbeLatch() {
++  ++draw_probe_swaps_;
++  draw_probe_draw_ = 0;
++  draw_probe_loads_ = 0;
++  auto parse_hex_list = [](const std::string& text, auto* out, uint32_t capacity, bool* star) {
++    uint32_t count = 0;
++    if (star) *star = false;
++    for (size_t pos = 0; pos < text.size() && count < capacity;) {
++      const size_t end = std::min(text.find(',', pos), text.size());
++      const std::string item = text.substr(pos, end - pos);
++      if (star && item == "*") {
++        *star = true;
++      } else if (const uint64_t value = std::strtoull(item.c_str(), nullptr, 16)) {
++        out[count++] = static_cast<std::remove_reference_t<decltype(*out)>>(value);
++      }
++      pos = end + 1;
++    }
++    return count;
++  };
++  skip_index_base_count_ = parse_hex_list(rex::cvar::Query<std::string>("gpu_debug_skip_index_base"),
++                                          skip_index_bases_, 64, nullptr);
++  if (draw_probe_frames_left_ > 0) {
++    if (--draw_probe_frames_left_ == 0 && draw_probe_file_) {
++      std::fflush(draw_probe_file_);
++    }
++  }
++  const int32_t requested = REXCVAR_GET(gpu_debug_draw_probe_frames);
++  if (requested <= 0) {
++    return;
++  }
++  REXCVAR_SET(gpu_debug_draw_probe_frames, 0);
++  draw_probe_hash_count_ = parse_hex_list(rex::cvar::Query<std::string>("gpu_debug_draw_probe"),
++                                          draw_probe_hashes_, 64, &draw_probe_all_);
++  draw_probe_const_first_ = draw_probe_const_last_ = -1;
++  const std::string consts = rex::cvar::Query<std::string>("gpu_debug_draw_probe_consts");
++  if (!consts.empty()) {
++    int first = -1, last = -1;
++    if (std::sscanf(consts.c_str(), "%d-%d", &first, &last) == 2 && first >= 0 && last >= first && last < 256) {
++      draw_probe_const_first_ = first;
++      draw_probe_const_last_ = last;
++    }
++  }
++  if (!draw_probe_file_) {
++    std::string path = REXCVAR_GET(gpu_debug_draw_probe_path);
++    if (path.empty()) {
++      std::error_code error;
++      path = (std::filesystem::current_path(error) / "logs" / "drawprobe.csv").string();
++    }
++    draw_probe_file_ = std::fopen(path.c_str(), "w");
++    if (!draw_probe_file_) {
++      REXGPU_WARN("[s27.5][DRAWPROBE] can't open {}", path);
++      return;
++    }
++    std::fputs("swap,draw,vs_hash,prim,index_count,index_base,index_total,vfetch,vfetch_base,vfetch_bytes,"
++               "float_count,float_first,float_last,float_dynamic,alu_loads,alu_load_address,alu_load_index,"
++               "alu_load_dwords,consts\n",
++               draw_probe_file_);
++    REXGPU_INFO("[s27.5][DRAWPROBE] writing {}", path);
++  }
++  draw_probe_frames_left_ = requested;
++  REXGPU_INFO("[s27.5][DRAWPROBE] probing {} frame(s) from swap {} ({} shader(s){}, consts {}-{})", requested,
++              draw_probe_swaps_, draw_probe_hash_count_, draw_probe_all_ ? ", all draws" : "",
++              draw_probe_const_first_, draw_probe_const_last_);
++}
++
++bool CommandProcessor::DrawProbe(const Shader& vertex_shader, uint32_t prim_type, uint32_t index_count,
++                                 const IndexBufferInfo* index_buffer_info) {
++  const uint32_t index_base = index_buffer_info ? index_buffer_info->guest_base : 0;
++  bool skip = false;
++  for (uint32_t i = 0; i < skip_index_base_count_; ++i) {
++    if (index_base && skip_index_bases_[i] == index_base) skip = true;
++  }
++  if (draw_probe_frames_left_ <= 0 || !draw_probe_file_) {
++    return skip;
++  }
++  const uint32_t draw = draw_probe_draw_++;
++  const uint64_t hash = vertex_shader.ucode_data_hash();
++  bool listed = draw_probe_all_;
++  for (uint32_t i = 0; !listed && i < draw_probe_hash_count_; ++i) {
++    listed = draw_probe_hashes_[i] == hash;
++  }
++  if (listed) {
++    const RegisterFile& regs = *register_file_;
++    const Shader::ConstantRegisterMap& map = vertex_shader.constant_register_map();
++    uint32_t vfetch = UINT32_MAX, vfetch_base = 0, vfetch_bytes = 0;
++    for (uint32_t i = 0; i < 96 && vfetch == UINT32_MAX; ++i) {
++      if (map.vertex_fetch_bitmap[i >> 5] & (uint32_t(1) << (i & 31))) {
++        const xenos::xe_gpu_vertex_fetch_t fetch = regs.GetVertexFetch(i);
++        vfetch = i;
++        vfetch_base = uint32_t(fetch.address) << 2;
++        vfetch_bytes = uint32_t(fetch.size) << 2;
++      }
++    }
++    int32_t float_first = -1, float_last = -1;
++    for (uint32_t i = 0; i < 256; ++i) {
++      if (map.float_bitmap[i >> 6] & (uint64_t(1) << (i & 63))) {
++        if (float_first < 0) float_first = int32_t(i);
++        float_last = int32_t(i);
++      }
++    }
++    std::fprintf(draw_probe_file_, "%llu,%u,%016llX,%u,%u,%08X,%u,%d,%08X,%u,%u,%d,%d,%d,%u,%08X,%u,%u,",
++                 static_cast<unsigned long long>(draw_probe_swaps_), draw,
++                 static_cast<unsigned long long>(hash), prim_type, index_count, index_base,
++                 index_buffer_info ? index_buffer_info->count : 0, vfetch == UINT32_MAX ? -1 : int32_t(vfetch),
++                 vfetch_base, vfetch_bytes, map.float_count, float_first, float_last,
++                 map.float_dynamic_addressing ? 1 : 0, draw_probe_loads_, draw_probe_load_address_,
++                 draw_probe_load_index_, draw_probe_load_dwords_);
++    for (int32_t c = draw_probe_const_first_; c >= 0 && c <= draw_probe_const_last_; ++c) {
++      for (uint32_t k = 0; k < 4; ++k) {
++        float value;
++        const uint32_t bits = regs.values[XE_GPU_REG_SHADER_CONSTANT_000_X + uint32_t(c) * 4 + k];
++        std::memcpy(&value, &bits, sizeof(value));
++        std::fprintf(draw_probe_file_, "%s%.7g", (c == draw_probe_const_first_ && k == 0) ? "" : " ", value);
++      }
++    }
++    std::fputc('\n', draw_probe_file_);
++  }
++  draw_probe_loads_ = 0;
++  return skip;
++}
++
+ // wwe2k14 patch (Session 15, sub-second loads): gpu_skip_frame_draws.
+ void CommandProcessor::SkipFrameDrawsLatch() {
+   const int32_t n = REXCVAR_GET(gpu_skip_frame_draws);
+@@ -2524,6 +2662,15 @@ bool CommandProcessor::ExecutePacketType3_LOAD_ALU_CONSTANT(memory::RingBuffer*
+   size_dwords &= 0xFFF;
+   uint32_t type = (offset_type >> 16) & 0xFF;
+   uint32_t* xlat_address = memory_->TranslatePhysical<uint32_t*>(address);
++  // wwe2k14 patch (Session 27.5, DRAWPROBE): constants loaded from guest memory since the last draw.
++  if (draw_probe_frames_left_ > 0 && type == 0) {
++    if (!draw_probe_loads_) {
++      draw_probe_load_address_ = address;
++      draw_probe_load_index_ = index;
++      draw_probe_load_dwords_ = size_dwords;
++    }
++    ++draw_probe_loads_;
++  }
+   switch (type) {
+     case 0:  // ALU
+       WriteALURangeFromMem(index, xlat_address, size_dwords);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0b1a26a31a4ab58be839a3bd5f608380ea7e4b30..d3b15960a18325c710a301ecd81bbb81612fd58a 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7396,6 +7396,13 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     repeat_prev_.valid = false;  // wwe2k14 patch (Session 23, REPEAT)
+     return true;
+   }
++  // wwe2k14 patch (Session 27.5, DRAWPROBE, debug): gpu_debug_draw_probe / gpu_debug_skip_index_base.
++  if (DrawProbeActive() && !memexport_used_vertex &&
++      DrawProbe(*vertex_shader, uint32_t(prim_type), index_count, index_buffer_info)) {
++    anatomy_skip_reason_ = kAnatomySkipOther;
++    repeat_prev_.valid = false;
++    return true;
++  }
+   // wwe2k14 patch (Session 23, REPEAT): vulkan_repeat_draw_fast (repeat_prev_ stays valid only if it's taken).
+   if (repeat_fast_candidate) {
+     ++repeat_fast_stats_.candidates;

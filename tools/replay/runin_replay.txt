@@ -1,0 +1,30 @@
+# Session 17 Track 2: recordable run-ins. Run with tools\replay\run_replay_check.ps1 -Script <this> -More
+# '--wwe2k14_runin=true --wwe2k14_runin_force=true' (records with --wwe2k14_replay_record, then plays it back twice and
+# compares the per-frame hashes). Boots like replay_check.txt; 600 frames into the match `cvar wwe2k14_runin_now 1`
+# triggers a run-in (recorded as an "E F runin ..." line); on playback the script's trigger is ignored and the
+# recording's event fires on the same frame. Screenshots every 300 frames to +2100. Fast-forward OK. on_fail quit.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+log rr: match launched
+wait_file M3.PAC 72000
+log scene=match
+wait_frames 600
+screenshot rr_0600
+cvar wwe2k14_runin_now 1
+log rr: run-in trigger
+screenshot_every 300 rr
+wait_frames 2100
+screenshot_every 0 rr
+wait_frames 30
+log rr: done
+quit

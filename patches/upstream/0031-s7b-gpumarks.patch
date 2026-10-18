@@ -1,0 +1,1265 @@
+Subject: [ReXGlue] merge s7b/gpumarks
+
+Class: DIAG
+What: Per-row GPU timestamps in the anatomy capture.
+Evidence: Tool.
+On / off: gpu_anatomy_gpu_marks, off.
+Commit: 7f8cedc (diff against 7f8cedc^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 8ded4bf..55891c2 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -342,6 +342,10 @@ class CommandProcessor {
+     uint32_t processor_number;            // logical processor of this thread at the swap
+     uint32_t checkpoint_next_id;          // next crash-checkpoint record id (0 without crash diagnostics)
+     uint32_t submissions_ended;           // host submissions ended
++    // wwe2k14 patch (Session 7b, GPUMARKS): GPU timestamp marks of the frame-anatomy capture (cpf_gm).
++    uint32_t gpu_marks;                   // marks recorded
++    uint32_t gpu_marks_dropped;           // marks not recorded (a frame's query slot full)
++    uint32_t gpu_marks_frames_written;    // marked frames whose results were written
+   };
+   FrameCounters frame_counters_ = {};
+   // perf::timeline::Enabled() latched at each frame boundary: gates the counters that cost more than an
+@@ -385,6 +389,14 @@ class CommandProcessor {
+   uint32_t anatomy_skip_reason_ = kAnatomySkipOther;
+   // A capture is running (changes only at frame boundaries).
+   bool anatomy_active_ = false;
++  // wwe2k14 patch (Session 7b, GPUMARKS): GPU timestamps per anatomy row, recorded by the backend
++  // (gpu_anatomy_gpu_marks). anatomy_gpu_row_ is the anatomy row index of the IssueDraw call in progress, and
++  // between calls the index the next row will get (rows recorded so far in the frame); only maintained while
++  // anatomy_active_. AnatomyGpuFrameBoundary is called on this thread at every anatomy frame boundary: frame >= 0
++  // starts that capture frame (rows_path = the capture's rows CSV), frame < 0 ends the capture; during the call,
++  // anatomy_gpu_row_ is still the ended frame's row count (reset to 0 after it).
++  uint32_t anatomy_gpu_row_ = 0;
++  virtual void AnatomyGpuFrameBoundary(const std::string& /* rows_path */, int64_t /* frame */) {}
+ 
+   // wwe2k14 patch (Session 7, TILING-STAGE0): predicated tiling counters, recorded with the other cpf* events
+   // (cpf_tile, cpf_bin; see RecordFrameCounters) and reset at each frame boundary, and the gpu_tiling_log_frames
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 8632928..b49680b 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -293,6 +293,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+ 
+   // wwe2k14 patch (Session 6, COUNTERS): per-frame counters kept outside the base class.
+   void CollectFrameCounters(FrameCounters& counters) override;
++  // wwe2k14 patch (Session 7b, GPUMARKS): gpu_anatomy_gpu_marks, see GpuMarks.
++  void AnatomyGpuFrameBoundary(const std::string& rows_path, int64_t frame) override;
+   // wwe2k14 patch (Session 7, EXTENTS-SHADOW).
+   SharedMemory* GetSharedMemoryForExtents() const override { return shared_memory_.get(); }
+ 
+@@ -747,6 +749,21 @@ class VulkanCommandProcessor : public CommandProcessor {
+   std::deque<std::pair<uint64_t, CommandBuffer>> command_buffers_submitted_;
+   DeferredCommandBuffer deferred_command_buffer_;
+ 
++  // wwe2k14 patch (Session 7b, GPUMARKS): what a submission's command buffer writes around its recorded commands
++  // for gpu_anatomy_gpu_marks (see GpuMarks): resets of the query ranges its marks use (at its start, before any
++  // of them is written), a top-of-pipe timestamp at its start and a bottom-of-pipe one at its end. pool null:
++  // nothing.
++  struct GpuMarksSubmission {
++    static constexpr uint32_t kMaxResets = 4;
++    VkQueryPool pool = VK_NULL_HANDLE;
++    uint32_t reset_count = 0;
++    uint32_t reset_first[kMaxResets] = {};
++    uint32_t reset_size[kMaxResets] = {};
++    uint32_t cb_begin = UINT32_MAX;
++    uint32_t cb_end = UINT32_MAX;
++    bool cb_begin_tried = false;  // command processor thread bookkeeping (cb_begin allocated or dropped)
++  };
++
+   // wwe2k14 patch (vulkan_async_submit): a thread that replays recorded non-swap submissions into their Vulkan
+   // command buffers and submits them, in order, so the command processor thread can carry on translating.
+   struct AsyncSubmitJob {
+@@ -758,6 +775,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+     uint64_t submission;
+     // wwe2k14 patch (Session 6, COUNTERS): GPU timestamp query pair to write, UINT32_MAX for none.
+     uint32_t timestamp_slot = UINT32_MAX;
++    // wwe2k14 patch (Session 7b, GPUMARKS).
++    GpuMarksSubmission gpu_marks;
+     // wwe2k14 patch (Session 6, DRAIN): non-zero for a swap submission sent to the submit thread
+     // (vulkan_async_swap) - the ticket retired in async_swap_order_ once it is on the queue.
+     uint64_t order_ticket = 0;
+@@ -831,6 +850,35 @@ class VulkanCommandProcessor : public CommandProcessor {
+   std::array<bool, kGpuTimestampSlots> gpu_timestamps_slot_is_swap_ = {};
+   uint64_t gpu_timestamps_read_up_to_ = 0;
+ 
++  // wwe2k14 patch (Session 7b, GPUMARKS): GPU timestamps per frame-anatomy row (gpu_anatomy_gpu_marks, measurement
++  // only). State in command_processor.cpp (created at the first marked frame); gpu_marks_active_: the current
++  // anatomy frame records marks (changes only at anatomy frame boundaries), the only thing the draw path tests.
++  enum class GpuMarkKind : uint8_t { kCbBegin, kCbEnd, kDrawPre, kDrawPost, kCopyBefore, kCopyAfter };
++  struct GpuMarks;
++  std::unique_ptr<GpuMarks> gpu_marks_;
++  bool gpu_marks_active_ = false;
++  // A bottom-of-pipe timestamp into the deferred command buffer (call only while gpu_marks_active_).
++  void GpuMark(GpuMarkKind kind);
++  bool GpuMarksAllocate(GpuMarkKind kind, uint32_t& query_out);
++  bool GpuMarksInitialize();
++  // At EndSubmission: the marks to write around the submission's command buffer (cb_end allocated here).
++  GpuMarksSubmission GpuMarksEndSubmission();
++  void GpuMarksWriteBegin(VkCommandBuffer command_buffer, const GpuMarksSubmission& marks) const;
++  void GpuMarksWriteEnd(VkCommandBuffer command_buffer, const GpuMarksSubmission& marks) const;
++  // Writes the marked frames whose submissions have all completed, oldest first, without waiting. Called at
++  // anatomy frame boundaries and, after a capture, at swaps (never inside the timed draws).
++  void GpuMarksRead();
++  void GpuMarksWriteFrame(uint32_t slot);
++  void GpuMarksLogSummary();
++  void GpuMarksShutdown();
++  // Review fix: submissions with marks whose command buffer the submit thread didn't submit (not recorded, or
++  // its commands dropped by SUBMITFIX), so their queries were neither reset nor written for this use and must
++  // not be read. Added on the submit thread before the vkQueueSubmit that signals the job's fence; read and
++  // pruned by GpuMarksWriteFrame. Rarely non-empty (only on failing submissions).
++  void GpuMarksNotRun(uint64_t submission);
++  std::mutex gpu_marks_not_run_mutex_;
++  std::vector<uint64_t> gpu_marks_not_run_;
++
+   std::vector<VkSparseMemoryBind> sparse_memory_binds_;
+   std::vector<SparseBufferBind> sparse_buffer_binds_;
+   // SparseBufferBind converted to VkSparseBufferMemoryBindInfo to this buffer
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index ef89c6a..232cc12 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -370,6 +370,15 @@ class DeferredCommandBuffer {
+     std::memcpy(args_ptr + header_size, viewports, sizeof(VkViewport) * viewport_count);
+   }
+ 
++  // wwe2k14 patch (Session 7b, GPUMARKS): timestamp marks between the recorded commands (gpu_anatomy_gpu_marks).
++  void CmdVkWriteTimestamp(VkPipelineStageFlagBits pipeline_stage, VkQueryPool query_pool, uint32_t query) {
++    auto& args = *reinterpret_cast<ArgsVkWriteTimestamp*>(
++        WriteCommand(Command::kVkWriteTimestamp, sizeof(ArgsVkWriteTimestamp)));
++    args.pipeline_stage = pipeline_stage;
++    args.query_pool = query_pool;
++    args.query = query;
++  }
++
+  private:
+   enum class Command {
+     kVkBeginRenderPass,
+@@ -402,6 +411,7 @@ class DeferredCommandBuffer {
+     kVkSetStencilWriteMask,
+     kVkSetViewport,
+     kVkUpdateDescriptorSets,
++    kVkWriteTimestamp,  // wwe2k14 patch (Session 7b, GPUMARKS)
+   };
+ 
+   struct CommandHeader {
+@@ -618,6 +628,13 @@ class DeferredCommandBuffer {
+     static_assert(alignof(VkViewport) <= alignof(uintmax_t));
+   };
+ 
++  // wwe2k14 patch (Session 7b, GPUMARKS).
++  struct ArgsVkWriteTimestamp {
++    VkPipelineStageFlagBits pipeline_stage;
++    VkQueryPool query_pool;
++    uint32_t query;
++  };
++
+   void* WriteCommand(Command command, size_t arguments_size_bytes);
+ 
+   const VulkanCommandProcessor& command_processor_;
+diff --git a/include/rex/ui/vulkan/functions/device_1_0.inc b/include/rex/ui/vulkan/functions/device_1_0.inc
+index aa55a4a..0a33603 100644
+--- a/include/rex/ui/vulkan/functions/device_1_0.inc
++++ b/include/rex/ui/vulkan/functions/device_1_0.inc
+@@ -32,6 +32,7 @@ XE_UI_VULKAN_FUNCTION(vkCmdSetStencilCompareMask)
+ XE_UI_VULKAN_FUNCTION(vkCmdSetStencilReference)
+ XE_UI_VULKAN_FUNCTION(vkCmdSetStencilWriteMask)
+ XE_UI_VULKAN_FUNCTION(vkCmdSetViewport)
++XE_UI_VULKAN_FUNCTION(vkCmdWriteTimestamp)  // wwe2k14 patch (Session 7b, GPUMARKS)
+ XE_UI_VULKAN_FUNCTION(vkCreateBuffer)
+ XE_UI_VULKAN_FUNCTION(vkCreateBufferView)
+ XE_UI_VULKAN_FUNCTION(vkCreateCommandPool)
+@@ -72,6 +73,7 @@ XE_UI_VULKAN_FUNCTION(vkGetBufferMemoryRequirements)
+ XE_UI_VULKAN_FUNCTION(vkGetDeviceQueue)
+ XE_UI_VULKAN_FUNCTION(vkGetFenceStatus)
+ XE_UI_VULKAN_FUNCTION(vkGetImageMemoryRequirements)
++XE_UI_VULKAN_FUNCTION(vkGetQueryPoolResults)  // wwe2k14 patch (Session 7b, GPUMARKS)
+ XE_UI_VULKAN_FUNCTION(vkInvalidateMappedMemoryRanges)
+ XE_UI_VULKAN_FUNCTION(vkMapMemory)
+ XE_UI_VULKAN_FUNCTION(vkResetCommandPool)
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 64c50fb..d60a4de 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -2505,6 +2505,9 @@ void CommandProcessor::RecordFrameCounters() {
+     //   cpf_bin  a = SET_BIN_SELECT_LO/_HI/SET_BIN_SELECT packets executed, b = SET_BIN_MASK_LO/_HI/SET_BIN_MASK
+     //            packets executed, c = distinct 64-bit BIN_SELECT values that executed predicated packets ran
+     //            under (17 = more than 16; a count, not a sum: per frame only) (Session 7, TILING-STAGE0)
++    //   cpf_gm   a = GPU timestamp marks recorded, b = marks not recorded (a frame's query slot full), c = marked
++    //            frames whose results were written to the _gpu CSVs (Session 7b, GPUMARKS; only recorded when
++    //            one of them is not 0, that is around a frame-anatomy capture with gpu_anatomy_gpu_marks)
+     // Counts cover the command processor's work between two cp_swap events (the swap's own submission is
+     // counted in the next frame). The type-0 split and the fetch constant comparison only count while the
+     // timeline is on (latched at the previous swap).
+@@ -2527,6 +2530,11 @@ void CommandProcessor::RecordFrameCounters() {
+                            tiling.predicated_draws);
+     perf::timeline::Record("cpf_bin", tiling.bin_select_packets, tiling.bin_mask_packets,
+                            tiling.bin_select_distinct);
++    // wwe2k14 patch (Session 7b, GPUMARKS).
++    if (counters.gpu_marks || counters.gpu_marks_dropped || counters.gpu_marks_frames_written) {
++      perf::timeline::Record("cpf_gm", counters.gpu_marks, counters.gpu_marks_dropped,
++                             counters.gpu_marks_frames_written);
++    }
+   }
+   counters = FrameCounters();
+   frame_counters_enabled_ = perf::timeline::Enabled();
+@@ -2614,6 +2622,8 @@ void CommandProcessor::AnatomyBeginDraw() {
+   capture.copies_before = frame_counters_.issue_copy;
+   capture.pipeline_binds_before = frame_counters_.pipeline_binds_changed;
+   anatomy_skip_reason_ = kAnatomySkipOther;
++  // wwe2k14 patch (Session 7b, GPUMARKS): the row index of this call's GPU marks.
++  anatomy_gpu_row_ = uint32_t(capture.rows.size());
+   capture.draw_start_ns = AnatomyNowNs();
+ }
+ 
+@@ -2626,6 +2636,7 @@ void CommandProcessor::AnatomyEndDraw(uint32_t vgt_draw_initiator_value, bool is
+     return;
+   }
+   AnatomyCapture::Row& row = capture.rows.emplace_back();
++  anatomy_gpu_row_ = uint32_t(capture.rows.size());  // wwe2k14 patch (Session 7b, GPUMARKS): the next row
+   row.start_ns = capture.frame_started ? capture.draw_start_ns - capture.frame_start_ns : 0;
+   row.cp_ns = end_ns - capture.draw_start_ns;
+   // What happened is read from the counters the backend increments (draws_issued at its host draw call,
+@@ -2758,6 +2769,10 @@ void CommandProcessor::AnatomyFrameBoundary() {
+       return;
+     }
+     anatomy_frame_start_pending_ = true;
++    // wwe2k14 patch (Session 7b, GPUMARKS): the next capture frame's GPU marks (anatomy_gpu_row_ is still the
++    // ended frame's row count during the call).
++    AnatomyGpuFrameBoundary(capture.rows_path, int64_t(capture.frame));
++    anatomy_gpu_row_ = 0;
+     return;
+   }
+ 
+@@ -2831,6 +2846,9 @@ void CommandProcessor::AnatomyFrameBoundary() {
+   anatomy_frame_start_pending_ = true;
+   REXGPU_INFO("[s6][COUNTERS] Frame anatomy capture {} started: {} frames to {}", index_string, requested,
+               capture.rows_path);
++  // wwe2k14 patch (Session 7b, GPUMARKS): the first capture frame's GPU marks.
++  AnatomyGpuFrameBoundary(capture.rows_path, 0);
++  anatomy_gpu_row_ = 0;
+ }
+ 
+ void CommandProcessor::AnatomyFinish(const char* why) {
+@@ -2846,6 +2864,9 @@ void CommandProcessor::AnatomyFinish(const char* why) {
+   REXGPU_INFO("[s6][COUNTERS] Frame anatomy capture {}: {} frame(s), {} row(s), {} dropped -> {}", why,
+               capture.frame, capture.rows_written, capture.rows_dropped, capture.rows_path);
+   capture.rows = std::vector<AnatomyCapture::Row>();
++  // wwe2k14 patch (Session 7b, GPUMARKS): no more GPU marks for this capture (the backend still writes the
++  // marked frames whose GPU work hasn't completed yet when it has).
++  AnatomyGpuFrameBoundary(capture.rows_path, -1);
+ }
+ 
+ // wwe2k14 patch (Session 7, EXTENTS-SHADOW): gpu_extents_mode (util/draw_extent_estimator.h). Off (mode 0 and no
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index eb567a9..1f09b9a 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -15,8 +15,11 @@
+ #include <chrono>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstdio>
+ #include <cstring>
++#include <filesystem>
+ #include <iterator>
++#include <memory>
+ #include <mutex>
+ #include <string>
+ #include <string_view>
+@@ -24,6 +27,9 @@
+ #include <unordered_map>
+ #include <utility>
+ #include <vector>
++#ifdef _WIN32
++#include <share.h>  // wwe2k14 patch (Session 7b, GPUMARKS): _wfsopen sharing mode
++#endif
+ 
+ #include <SPIRV/GlslangToSpv.h>
+ #include <glslang/Public/ShaderLang.h>
+@@ -126,6 +132,14 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+ REXCVAR_DEFINE_BOOL(vulkan_gpu_timestamps, false, "GPU/Vulkan",
+                     "With the timeline on: GPU time of each submission from timestamp queries (gpu_ts events), "
+                     "read back without waiting once the submission has completed");
++// wwe2k14 patch (Session 7b, GPUMARKS): measurement only. Decided at each frame-anatomy frame boundary.
++REXCVAR_DEFINE_BOOL(gpu_anatomy_gpu_marks, false, "GPU/Vulkan",
++                    "During a frame-anatomy capture (gpu_anatomy_capture): GPU timestamps after each draw's "
++                    "preparation (uploads, texture loads, barriers, render pass changes) and after its draw "
++                    "call, before and after each resolve, and at both ends of each submission's command buffer; "
++                    "read back without waiting once the frame's submissions have completed and written to "
++                    "<anatomy file>_gpu.csv (per row: GPU preparation and draw time) and <anatomy "
++                    "file>_gpu_frames.csv. Takes effect at the next anatomy frame");
+ // wwe2k14 patch (Session 6, CP3): UpdateBindings gathered the used float constants one at a time
+ // (a bit scan plus a 16-byte memcpy per constant). Both are read per constant buffer write, so they
+ // can be flipped at any time.
+@@ -1791,6 +1805,87 @@ struct VulkanCommandProcessor::SystemConstantsSkip {
+               uint32_t used_texture_mask, uint64_t frame);
+ };
+ 
++// wwe2k14 patch (Session 7b, GPUMARKS): gpu_anatomy_gpu_marks state (defined before the destructor, which
++// destroys it). Measurement only. Command processor thread only; the submit thread only gets a copy of a
++// submission's GpuMarksSubmission in its job.
++// The query pool has kFrameSlots regions of kMarksPerFrame timestamp queries. A marked anatomy frame takes the
++// next region (round robin) and its marks use its queries in recording order (marks[i] = query
++// slot * kMarksPerFrame + i). A region is taken again only after its previous frame's results have been
++// written, which is only done once all the submissions holding its marks have completed, so a later reset of
++// those queries can't race with the read.
++struct VulkanCommandProcessor::GpuMarks {
++  static constexpr uint32_t kFrameSlots = 4;  // more than kMaxFramesInFlight
++  static constexpr uint32_t kMarksPerFrame = 65536;
++  static constexpr uint32_t kLogFrames = 300;
++
++  struct Mark {
++    uint64_t submission;  // GetCurrentSubmission() when recorded
++    uint32_t row;         // anatomy_gpu_row_ when recorded
++    GpuMarkKind kind;
++  };
++  // A capture's two CSVs, shared by its frames whose results haven't been written yet.
++  struct Files {
++    ~Files() {
++      for (std::FILE* file : {rows, frames}) {
++        if (file) {
++          std::fclose(file);
++        }
++      }
++    }
++    std::FILE* rows = nullptr;
++    std::FILE* frames = nullptr;
++    std::string rows_path;  // the anatomy rows CSV these belong to
++    std::string gpu_path;
++    bool write_failed = false;
++  };
++  struct Frame {
++    bool in_use = false;  // marks being recorded, or results not written yet
++    bool ended = false;   // past its anatomy frame boundary: no more marks
++    uint32_t frame = 0;   // capture frame index (the anatomy CSV's frame column)
++    uint32_t dropped = 0;
++    uint64_t last_submission = 0;  // the last submission holding marks of this frame (0: none)
++    std::vector<Mark> marks;
++    std::shared_ptr<Files> files;
++  };
++
++  VkQueryPool pool = VK_NULL_HANDLE;
++  bool unsupported = false;
++  double period_ns = 0.0;
++  uint64_t mask = 0;
++  std::array<Frame, kFrameSlots> frames;
++  uint32_t next_slot = 0;  // the slot the next marked frame takes (the oldest one in use, if any)
++  uint32_t current = 0;    // the slot of the frame being marked (while gpu_marks_active_)
++  std::shared_ptr<Files> files;  // the running capture's (opened at its first marked frame)
++  GpuMarksSubmission open;       // the open submission's query resets and cb_begin
++  // cpf_gm (CollectFrameCounters).
++  uint32_t counter_marks = 0;
++  uint32_t counter_dropped = 0;
++  uint32_t counter_frames_written = 0;
++  // The [s7][GPUMARKS] summary since the last one.
++  uint32_t log_frames = 0;
++  uint32_t log_frames_not_marked = 0;
++  uint64_t log_marks = 0;
++  uint64_t log_dropped = 0;
++  uint64_t log_unavailable = 0;
++  uint64_t log_submissions = 0;
++  double log_cb_sum_us = 0.0;
++  double log_busy_us = 0.0;
++  double log_idle_us = 0.0;
++  double log_prep_us = 0.0;
++  double log_exec_us = 0.0;
++  std::string log_path;  // the _gpu.csv last written to
++  // Review fix: the last cb_end with a result in the frames written so far (frames are written in order), for
++  // the prep of the next submission's first row when that submission is in the next frame.
++  bool last_cb_end_valid = false;
++  uint64_t last_cb_end_t = 0;
++  uint64_t last_cb_end_submission = 0;
++  // Reused buffers.
++  std::vector<uint64_t> results;  // (timestamp, availability) per query
++  std::vector<std::pair<int64_t, int64_t>> intervals;
++  std::vector<uint64_t> not_run;  // gpu_marks_not_run_ entries of the frame being written
++  fmt::memory_buffer text;
++};
++
+ VulkanCommandProcessor::VulkanCommandProcessor(VulkanGraphicsSystem* graphics_system,
+                                                system::KernelState* kernel_state)
+     : CommandProcessor(graphics_system, kernel_state),
+@@ -3303,6 +3398,7 @@ void VulkanCommandProcessor::ShutdownContext() {
+   AwaitAllQueueOperationsCompletion();
+   AsyncSubmitStop();
+   GpuTimestampsShutdown();  // wwe2k14 patch (Session 6, COUNTERS)
++  GpuMarksShutdown();       // wwe2k14 patch (Session 7b, GPUMARKS)
+   InvalidateAllVertexBufferResidency();
+   ShutdownOcclusionQueryResources();
+ 
+@@ -3705,6 +3801,11 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+                                        uint32_t frontbuffer_height) {
+   SCOPE_profile_cpu_f("gpu");
+   perf::timeline::Scope timeline_scope("vswap_b", "vswap_e", frontbuffer_ptr);
++  // wwe2k14 patch (Session 7b, GPUMARKS): after a capture, write its last marked frames once their submissions
++  // have completed (during a capture, that's done at the anatomy frame boundaries, outside the timed draws).
++  if (gpu_marks_ && !gpu_marks_active_) {
++    GpuMarksRead();
++  }
+   vertex_buffers_in_sync_[0] = 0;
+   vertex_buffers_in_sync_[1] = 0;
+ 
+@@ -5123,7 +5224,9 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+       if (job.timestamp_slot != UINT32_MAX) {
+         GpuTimestampsWriteBegin(job.command_buffer.buffer, job.timestamp_slot);
+       }
++      GpuMarksWriteBegin(job.command_buffer.buffer, job.gpu_marks);  // wwe2k14 patch (Session 7b, GPUMARKS)
+       deferred_command_buffer_.ExecuteStream(job.stream, job.command_buffer.buffer);
++      GpuMarksWriteEnd(job.command_buffer.buffer, job.gpu_marks);  // wwe2k14 patch (Session 7b, GPUMARKS)
+       if (job.timestamp_slot != UINT32_MAX) {
+         GpuTimestampsWriteEnd(job.command_buffer.buffer, job.timestamp_slot);
+       }
+@@ -5134,6 +5237,10 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+     REXGPU_ERROR("Async submit: failed to record a Vulkan command buffer (submission {})", job.submission);
+     // wwe2k14 patch (Session 7b, UPSKIP review): its uploads never run (before the fence can be signaled).
+     async_submit_commands_dropped_.fetch_add(1, std::memory_order_release);
++    // wwe2k14 patch (Session 7b, GPUMARKS review): its GPU marks' queries won't be reset or written.
++    if (job.gpu_marks.pool != VK_NULL_HANDLE) {
++      GpuMarksNotRun(job.submission);
++    }
+   }
+ 
+   // Even without a command buffer, submit so the wait semaphores are consumed and the fence gets signaled:
+@@ -5194,6 +5301,10 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+         // wwe2k14 patch (Session 7b, UPSKIP review): its uploads never run - counted before the submission that
+         // signals its fence, so whoever sees the fence signaled sees the count too.
+         async_submit_commands_dropped_.fetch_add(1, std::memory_order_release);
++        // wwe2k14 patch (Session 7b, GPUMARKS review): nor are its GPU marks' queries reset or written.
++        if (job.gpu_marks.pool != VK_NULL_HANDLE) {
++          GpuMarksNotRun(job.submission);
++        }
+       }
+       submit_result = dfn.vkQueueSubmit(queue_acquisition.queue(), 1, &submit_info, job.fence);
+       if (submit_result == VK_SUCCESS) {
+@@ -5983,6 +6094,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+       render_target_cache_->last_update_render_pass(),
+       render_target_cache_->last_update_framebuffer());
++  // wwe2k14 patch (Session 7b, GPUMARKS): everything this draw needed before its draw call is recorded.
++  if (gpu_marks_active_) {
++    GpuMark(GpuMarkKind::kDrawPre);
++  }
+ 
+   if (crash_record) {
+     crash_record->vertex_shader_hash = vertex_shader->ucode_data_hash();
+@@ -6045,6 +6160,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     deferred_command_buffer_.CmdVkDrawIndexed(primitive_processing_result.host_draw_vertex_count, 1,
+                                               0, 0, 0);
+   }
++  // wwe2k14 patch (Session 7b, GPUMARKS).
++  if (gpu_marks_active_) {
++    GpuMark(GpuMarkKind::kDrawPost);
++  }
+ 
+   // Invalidate textures in memexported memory and watch for changes.
+   if (!memexport_ranges_.empty()) {
+@@ -6789,6 +6908,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+   if (!BeginSubmission(true)) {
+     return false;
+   }
++  // wwe2k14 patch (Session 7b, GPUMARKS): before and after the whole resolve.
++  if (gpu_marks_active_) {
++    GpuMark(GpuMarkKind::kCopyBefore);
++  }
+ 
+   if (crash_checkpoints_enabled()) {
+     const RegisterFile& regs = *register_file_;
+@@ -6801,13 +6924,20 @@ bool VulkanCommandProcessor::IssueCopy() {
+   }
+ 
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
++  bool copied;
+   if (readback_mode == ReadbackResolveMode::kDisabled) {
+     uint32_t written_address, written_length;
+-    return render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_,
+-                                         written_address, written_length);
++    copied = render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
++                                           written_length);
++  } else {
++    copied = IssueCopy_ReadbackResolvePath();
+   }
+-
+-  return IssueCopy_ReadbackResolvePath();
++  // No mark if the readback path has ended the submission (GpuMark needs an open one); the submission's cb_end
++  // ends the copy then (GpuMarksWriteFrame).
++  if (gpu_marks_active_) {
++    GpuMark(GpuMarkKind::kCopyAfter);
++  }
++  return copied;
+ }
+ 
+ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+@@ -7919,6 +8049,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     VkFence fence = fences_free_.back();
+     // wwe2k14 patch (Session 6, COUNTERS): GPU timestamps around this submission's command buffer, if on.
+     const uint32_t timestamp_slot = GpuTimestampsBeginSubmission(is_swap);
++    // wwe2k14 patch (Session 7b, GPUMARKS): resets and timestamps around this submission's command buffer for the
++    // frame-anatomy GPU marks (none unless a capture has marked frames).
++    const GpuMarksSubmission gpu_marks = gpu_marks_ ? GpuMarksEndSubmission() : GpuMarksSubmission();
+     // wwe2k14 patch (vulkan_async_submit): non-swap submissions go to the submit thread (replay + vkQueueSubmit,
+     // in order). Swap submissions stay synchronous after draining it: the presenter submits right after the
+     // swap and relies on the frame's commands being on the queue already.
+@@ -7941,6 +8074,7 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       job.wait_stage_masks = current_submission_wait_stage_masks_;
+       job.submission = GetCurrentSubmission();
+       job.timestamp_slot = timestamp_slot;
++      job.gpu_marks = gpu_marks;  // wwe2k14 patch (Session 7b, GPUMARKS)
+       if (async_swap) {
+         // Submission indices only grow, and jobs are submitted in order.
+         job.order_ticket = job.submission;
+@@ -8004,7 +8138,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     if (timestamp_slot != UINT32_MAX) {
+       GpuTimestampsWriteBegin(command_buffer.buffer, timestamp_slot);
+     }
++    GpuMarksWriteBegin(command_buffer.buffer, gpu_marks);  // wwe2k14 patch (Session 7b, GPUMARKS)
+     deferred_command_buffer_.Execute(command_buffer.buffer);
++    GpuMarksWriteEnd(command_buffer.buffer, gpu_marks);  // wwe2k14 patch (Session 7b, GPUMARKS)
+     if (timestamp_slot != UINT32_MAX) {
+       GpuTimestampsWriteEnd(command_buffer.buffer, timestamp_slot);
+     }
+@@ -8066,6 +8202,10 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ 
+     submission_open_ = false;
+     ++frame_counters_.submissions_ended;  // wwe2k14 patch (Session 6, COUNTERS)
++    // wwe2k14 patch (Session 7b, GPUMARKS): the next submission starts without resets or cb_begin.
++    if (gpu_marks_) {
++      gpu_marks_->open = GpuMarksSubmission();
++    }
+   }
+ 
+   if (is_closing_frame) {
+@@ -10383,6 +10523,16 @@ void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
+   }
+   counters.checkpoint_next_id = crash_checkpoints_enabled() ? uint32_t(crash_checkpoint_next_id_) : 0;
+   RebarFrameBoundary();  // wwe2k14 patch (Session 7b, REBAR)
++  // wwe2k14 patch (Session 7b, GPUMARKS): cpf_gm.
++  if (gpu_marks_) {
++    GpuMarks& marks = *gpu_marks_;
++    counters.gpu_marks = marks.counter_marks;
++    counters.gpu_marks_dropped = marks.counter_dropped;
++    counters.gpu_marks_frames_written = marks.counter_frames_written;
++    marks.counter_marks = 0;
++    marks.counter_dropped = 0;
++    marks.counter_frames_written = 0;
++  }
+ }
+ 
+ // wwe2k14 patch (Session 7b, REBAR): measurement only. Called at every frame boundary (from
+@@ -10539,11 +10689,9 @@ bool VulkanCommandProcessor::GpuTimestampsInitialize() {
+   VkPhysicalDeviceProperties physical_device_properties;
+   ifn.vkGetPhysicalDeviceProperties(physical_device, &physical_device_properties);
+   const float period_ns = physical_device_properties.limits.timestampPeriod;
+-  // Core Vulkan 1.0 functions that the device function table doesn't load.
+-  gpu_timestamps_cmd_write_ =
+-      PFN_vkCmdWriteTimestamp(ifn.vkGetDeviceProcAddr(device, "vkCmdWriteTimestamp"));
+-  gpu_timestamps_get_results_ =
+-      PFN_vkGetQueryPoolResults(ifn.vkGetDeviceProcAddr(device, "vkGetQueryPoolResults"));
++  // wwe2k14 patch (Session 7b, GPUMARKS): both are in the device function table now (device_1_0.inc).
++  gpu_timestamps_cmd_write_ = dfn.vkCmdWriteTimestamp;
++  gpu_timestamps_get_results_ = dfn.vkGetQueryPoolResults;
+   if (!valid_bits || !(period_ns > 0.0f) || !gpu_timestamps_cmd_write_ || !gpu_timestamps_get_results_) {
+     REXGPU_WARN(
+         "[s6][COUNTERS] GPU timestamps unavailable (queue family {} timestampValidBits {}, timestampPeriod "
+@@ -10624,4 +10772,682 @@ void VulkanCommandProcessor::GpuTimestampsShutdown() {
+   gpu_timestamps_slot_submission_.fill(0);
+ }
+ 
++// wwe2k14 patch (Session 7b, GPUMARKS): GPU timestamps per frame-anatomy row (gpu_anatomy_gpu_marks). Measurement
++// only: timestamp writes into a query pool of their own and resets of those queries at the start of command
++// buffers; nothing that is emulated, drawn or presented changes. Pool layout: see GpuMarks.
++// The marks (bottom-of-pipe, so written once all of the queue's earlier work has completed, except cb_begin):
++//   cb_begin   top-of-pipe, the command buffer's first command (after the query resets)
++//   pre        IssueDraw, right after SubmitBarriersAndEnterRenderTargetCacheRenderPass: the draw's uploads,
++//              texture loads, barriers and render pass changes are all recorded before it
++//   post       right after the draw call
++//   before / after   IssueCopy, around the whole resolve (no `after` if the readback path ended the submission:
++//              then the submission's cb_end, right after the copy's commands, is the copy's end)
++//   cb_end     the command buffer's last command
++// A submission still open at an anatomy frame boundary (IssueSwap returned early, or its EndSubmission failed)
++// gets a bottom-of-pipe cb_end for the ending frame and a bottom-of-pipe cb_begin for the next marked frame
++// there, between its commands, so each frame has its own part of it.
++// <anatomy>_gpu.csv: one row per anatomy row (pre/post or before/after pair) and per cb_begin / cb_end, in
++// recording order (a row is written at its post / after mark):
++//   frame        capture frame (the anatomy CSV's frame column)
++//   idx          anatomy row index (cb_begin / cb_end: the next row's index, = rows recorded before the mark)
++//   kind         draw | copy | cb_begin | cb_end
++//   submission   host submission number (as in the gpu_ts timeline events)
++//   gpu_t_us     the pre / before mark (cb rows: the mark), us since the frame's first cb_begin
++//   gpu_prep_us  pre / before minus the previous mark of the same submission (cb_end: the submission's tail,
++//                cb_end minus its last mark; 0 when a copy ended at it). For a submission's first row, the
++//                previous mark is its cb_begin or, when later, the previous submission's cb_end (a top-of-pipe
++//                cb_begin can be written while the previous submission still runs; known when that submission's
++//                cb_end is in the same frame or the frame written before), so prep never includes the previous
++//                submission's work
++//   gpu_exec_us  post minus pre (the draw), after minus before (the whole resolve)
++//   gpu_row_us   prep + exec (cb_end: the tail)
++// <anatomy>_gpu_frames.csv: one row per marked frame: frame, submissions (with both cb marks in this frame),
++// cb_sum_us (cb_end - cb_begin summed over them; may count the overlap of consecutive submissions twice),
++// busy_union_us (the union of those intervals), idle_gap_us (first cb_begin to last cb_end minus busy_union_us),
++// marks, marks_dropped (frame slot full), marks_unavailable (no result: the command never ran, or its
++// submission's command buffer wasn't submitted - those queries aren't read).
++// Empty columns: a mark is missing. Bottom-of-pipe timestamps between draws may keep the GPU from overlapping
++// consecutive draws, so a marked frame can take longer than an unmarked one; compare cb_sum_us with the gpu_ts
++// events of unmarked frames.
++
++namespace {
++
++std::FILE* GpuMarksOpenFile(const std::filesystem::path& path) {
++#ifdef _WIN32
++  // Shared, so the file can be read while the capture runs.
++  return _wfsopen(path.c_str(), L"wb", _SH_DENYNO);
++#else
++  return std::fopen(path.c_str(), "wb");
++#endif
++}
++
++}  // namespace
++
++void VulkanCommandProcessor::AnatomyGpuFrameBoundary(const std::string& rows_path, int64_t frame) {
++  // End the frame being marked. The swap has ended the submission holding its last commands, unless IssueSwap
++  // returned early or its EndSubmission failed: then the submission still open holds some of its marks, and the
++  // frame is written after it.
++  if (gpu_marks_active_) {
++    GpuMarks& marks = *gpu_marks_;
++    GpuMarksSubmission& open = marks.open;
++    // Review fix: such a submission's part in this frame ends here, with a cb_end written between its commands
++    // (bottom-of-pipe, like at a command buffer's end), so the frame counts it as one of its submissions; the
++    // next marked frame's part of it starts with a cb_begin at the same point (below). anatomy_gpu_row_ is still
++    // this frame's row count here.
++    if (submission_open_) {
++      if (open.cb_end != UINT32_MAX) {
++        // Allocated in this frame by an EndSubmission that failed: written here instead of at the end.
++        deferred_command_buffer_.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, marks.pool,
++                                                     open.cb_end);
++        open.cb_end = UINT32_MAX;
++      } else if (open.cb_begin_tried) {
++        uint32_t query;
++        if (GpuMarksAllocate(GpuMarkKind::kCbEnd, query)) {
++          deferred_command_buffer_.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, marks.pool, query);
++        }
++      }
++    }
++    marks.frames[marks.current].ended = true;
++    gpu_marks_active_ = false;
++  }
++  if (frame < 0 || !REXCVAR_GET(gpu_anatomy_gpu_marks)) {
++    if (gpu_marks_) {
++      if (frame < 0) {
++        // The capture is over; its frames still waiting for their results keep the files open.
++        gpu_marks_->files.reset();
++      }
++      GpuMarksRead();
++    }
++    return;
++  }
++  if (!gpu_marks_) {
++    gpu_marks_ = std::make_unique<GpuMarks>();
++  }
++  GpuMarks& marks = *gpu_marks_;
++  if (marks.pool == VK_NULL_HANDLE && (marks.unsupported || !GpuMarksInitialize())) {
++    return;
++  }
++  if (!marks.files || marks.files->rows_path != rows_path) {
++    // A new capture: anatomy_NNN_K.csv -> anatomy_NNN_K_gpu.csv and anatomy_NNN_K_gpu_frames.csv.
++    auto files = std::make_shared<GpuMarks::Files>();
++    files->rows_path = rows_path;
++    const std::filesystem::path path(rows_path);
++    std::filesystem::path gpu_path = path;
++    std::filesystem::path frames_path = path;
++    gpu_path.replace_filename(path.stem().string() + "_gpu" + path.extension().string());
++    frames_path.replace_filename(path.stem().string() + "_gpu_frames" + path.extension().string());
++    files->gpu_path = gpu_path.string();
++    files->rows = GpuMarksOpenFile(gpu_path);
++    files->frames = GpuMarksOpenFile(frames_path);
++    if (files->rows && files->frames) {
++      std::fputs("frame,idx,kind,submission,gpu_t_us,gpu_prep_us,gpu_exec_us,gpu_row_us\n", files->rows);
++      std::fputs(
++          "frame,submissions,cb_sum_us,busy_union_us,idle_gap_us,marks,marks_dropped,marks_unavailable\n",
++          files->frames);
++      REXGPU_INFO("[s7][GPUMARKS] GPU marks for this capture -> {}", files->gpu_path);
++    } else {
++      REXGPU_WARN("[s7][GPUMARKS] Can't open {} / {}; this capture gets no GPU marks", files->gpu_path,
++                  frames_path.string());
++      files->write_failed = true;
++    }
++    marks.files = std::move(files);
++  }
++  if (marks.files->write_failed) {
++    return;
++  }
++  // The frame kFrameSlots back must have been written (normally long done, fewer frames are in flight).
++  GpuMarksRead();
++  GpuMarks::Frame& slot_frame = marks.frames[marks.next_slot];
++  if (slot_frame.in_use) {
++    ++marks.log_frames_not_marked;
++    return;
++  }
++  marks.current = marks.next_slot;
++  marks.next_slot = (marks.next_slot + 1) % GpuMarks::kFrameSlots;
++  slot_frame.in_use = true;
++  slot_frame.ended = false;
++  slot_frame.frame = uint32_t(frame);
++  slot_frame.dropped = 0;
++  slot_frame.last_submission = 0;
++  slot_frame.marks.clear();
++  slot_frame.marks.reserve(8192);
++  slot_frame.files = marks.files;
++  gpu_marks_active_ = true;
++  anatomy_gpu_row_ = 0;
++  // Review fix: a submission still open (see above) starts this frame's part of it here, bottom-of-pipe, so after
++  // the earlier frame's part (its top-of-pipe cb_begin at the command buffer's start, if any, stays the earlier
++  // frame's).
++  if (submission_open_) {
++    marks.open.cb_begin_tried = true;
++    uint32_t query;
++    if (GpuMarksAllocate(GpuMarkKind::kCbBegin, query)) {
++      deferred_command_buffer_.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, marks.pool, query);
++    }
++  }
++}
++
++bool VulkanCommandProcessor::GpuMarksInitialize() {
++  GpuMarks& marks = *gpu_marks_;
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanInstance::Functions& ifn = vulkan_device->vulkan_instance()->functions();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkPhysicalDevice physical_device = vulkan_device->physical_device();
++  uint32_t queue_family_count = 0;
++  ifn.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, nullptr);
++  std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
++  ifn.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count,
++                                               queue_families.data());
++  const uint32_t queue_family = vulkan_device->queue_family_graphics_compute();
++  const uint32_t valid_bits =
++      queue_family < queue_family_count ? queue_families[queue_family].timestampValidBits : 0;
++  VkPhysicalDeviceProperties physical_device_properties;
++  ifn.vkGetPhysicalDeviceProperties(physical_device, &physical_device_properties);
++  const float period_ns = physical_device_properties.limits.timestampPeriod;
++  if (!valid_bits || !(period_ns > 0.0f)) {
++    REXGPU_WARN(
++        "[s7][GPUMARKS] GPU timestamps unavailable (queue family {} timestampValidBits {}, timestampPeriod {}); "
++        "gpu_anatomy_gpu_marks has no effect",
++        queue_family, valid_bits, period_ns);
++    marks.unsupported = true;
++    return false;
++  }
++  VkQueryPoolCreateInfo query_pool_create_info = {};
++  query_pool_create_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
++  query_pool_create_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
++  query_pool_create_info.queryCount = GpuMarks::kFrameSlots * GpuMarks::kMarksPerFrame;
++  if (dfn.vkCreateQueryPool(vulkan_device->device(), &query_pool_create_info, nullptr, &marks.pool) !=
++      VK_SUCCESS) {
++    REXGPU_WARN("[s7][GPUMARKS] Failed to create a timestamp query pool; gpu_anatomy_gpu_marks has no effect");
++    marks.pool = VK_NULL_HANDLE;
++    marks.unsupported = true;
++    return false;
++  }
++  marks.period_ns = double(period_ns);
++  marks.mask = valid_bits >= 64 ? UINT64_MAX : (uint64_t(1) << valid_bits) - 1;
++  REXGPU_INFO("[s7][GPUMARKS] GPU marks on: {} frame slots of {} timestamps, {} valid bits, {} ns per tick",
++              GpuMarks::kFrameSlots, GpuMarks::kMarksPerFrame, valid_bits, period_ns);
++  return true;
++}
++
++bool VulkanCommandProcessor::GpuMarksAllocate(GpuMarkKind kind, uint32_t& query_out) {
++  GpuMarks& marks = *gpu_marks_;
++  GpuMarks::Frame& frame = marks.frames[marks.current];
++  GpuMarksSubmission& open = marks.open;
++  const uint32_t index = uint32_t(frame.marks.size());
++  const uint32_t query = marks.current * GpuMarks::kMarksPerFrame + index;
++  // The submission's queries to reset: consecutive ones extend the last range.
++  const bool extend = open.reset_count &&
++                      open.reset_first[open.reset_count - 1] + open.reset_size[open.reset_count - 1] == query;
++  if (index >= GpuMarks::kMarksPerFrame || (!extend && open.reset_count >= GpuMarksSubmission::kMaxResets)) {
++    ++frame.dropped;
++    ++marks.counter_dropped;
++    return false;
++  }
++  if (extend) {
++    ++open.reset_size[open.reset_count - 1];
++  } else {
++    open.reset_first[open.reset_count] = query;
++    open.reset_size[open.reset_count] = 1;
++    ++open.reset_count;
++  }
++  const uint64_t submission = GetCurrentSubmission();
++  frame.marks.push_back({submission, anatomy_gpu_row_, kind});
++  frame.last_submission = submission;
++  ++marks.counter_marks;
++  query_out = query;
++  return true;
++}
++
++void VulkanCommandProcessor::GpuMark(GpuMarkKind kind) {
++  // Only inside a submission: the mark is one of its deferred commands, and its query is in the ranges its
++  // command buffer resets first.
++  if (!submission_open_) {
++    return;
++  }
++  GpuMarks& marks = *gpu_marks_;
++  uint32_t query;
++  if (!marks.open.cb_begin_tried) {
++    // The submission's first mark in a marked frame: its cb_begin comes first in the frame's order.
++    marks.open.cb_begin_tried = true;
++    if (GpuMarksAllocate(GpuMarkKind::kCbBegin, query)) {
++      marks.open.cb_begin = query;
++    }
++  }
++  if (GpuMarksAllocate(kind, query)) {
++    deferred_command_buffer_.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, marks.pool, query);
++  }
++}
++
++VulkanCommandProcessor::GpuMarksSubmission VulkanCommandProcessor::GpuMarksEndSubmission() {
++  GpuMarks& marks = *gpu_marks_;
++  GpuMarksSubmission& open = marks.open;
++  // Once per submission (if EndSubmission fails after this, it's called again for the same submission; `open`
++  // is cleared only once the submission is closed).
++  if (gpu_marks_active_ && open.cb_end == UINT32_MAX) {
++    uint32_t query;
++    if (!open.cb_begin_tried) {
++      open.cb_begin_tried = true;
++      if (GpuMarksAllocate(GpuMarkKind::kCbBegin, query)) {
++        open.cb_begin = query;
++      }
++    }
++    if (GpuMarksAllocate(GpuMarkKind::kCbEnd, query)) {
++      open.cb_end = query;
++    }
++  }
++  GpuMarksSubmission submission = open;
++  submission.pool = open.reset_count ? marks.pool : VK_NULL_HANDLE;
++  return submission;
++}
++
++void VulkanCommandProcessor::GpuMarksWriteBegin(VkCommandBuffer command_buffer,
++                                                const GpuMarksSubmission& marks) const {
++  if (marks.pool == VK_NULL_HANDLE) {
++    return;
++  }
++  // First in the command buffer: outside any render pass, and query commands on the same queries execute in
++  // submission order, so the resets precede every write of these queries.
++  const ui::vulkan::VulkanDevice::Functions& dfn = GetVulkanDevice()->functions();
++  for (uint32_t i = 0; i < marks.reset_count; ++i) {
++    dfn.vkCmdResetQueryPool(command_buffer, marks.pool, marks.reset_first[i], marks.reset_size[i]);
++  }
++  if (marks.cb_begin != UINT32_MAX) {
++    dfn.vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, marks.pool, marks.cb_begin);
++  }
++}
++
++void VulkanCommandProcessor::GpuMarksWriteEnd(VkCommandBuffer command_buffer,
++                                              const GpuMarksSubmission& marks) const {
++  if (marks.pool != VK_NULL_HANDLE && marks.cb_end != UINT32_MAX) {
++    GetVulkanDevice()->functions().vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
++                                                       marks.pool, marks.cb_end);
++  }
++}
++
++void VulkanCommandProcessor::GpuMarksNotRun(uint64_t submission) {
++  // Submit thread, before the vkQueueSubmit that signals the job's fence: in the list by the time the command
++  // processor sees the submission completed (and reads the frames holding its marks).
++  std::lock_guard<std::mutex> lock(gpu_marks_not_run_mutex_);
++  gpu_marks_not_run_.push_back(submission);
++}
++
++void VulkanCommandProcessor::GpuMarksRead() {
++  GpuMarks& marks = *gpu_marks_;
++  if (marks.pool == VK_NULL_HANDLE) {
++    return;
++  }
++  // Oldest first (from the slot the next frame would take), and in order: stop at the first frame that isn't
++  // over or whose last submission hasn't completed (submission_completed_: fences seen signaled, so the results
++  // are there and nothing waits).
++  bool wrote = false;
++  bool pending = false;
++  for (uint32_t i = 0; i < GpuMarks::kFrameSlots; ++i) {
++    const uint32_t slot = (marks.next_slot + i) % GpuMarks::kFrameSlots;
++    GpuMarks::Frame& frame = marks.frames[slot];
++    if (!frame.in_use) {
++      continue;
++    }
++    if (pending || !frame.ended || frame.last_submission > submission_completed_) {
++      pending = true;
++      continue;
++    }
++    GpuMarksWriteFrame(slot);
++    wrote = true;
++  }
++  if (wrote && (marks.log_frames >= GpuMarks::kLogFrames || (!pending && !gpu_marks_active_))) {
++    GpuMarksLogSummary();
++  }
++}
++
++void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
++  GpuMarks& marks = *gpu_marks_;
++  GpuMarks::Frame& frame = marks.frames[slot];
++  const uint32_t count = uint32_t(frame.marks.size());
++  // (timestamp, availability) per query; the availability stays 0 for a query without a result.
++  marks.results.assign(size_t(count) * 2, 0);
++  // Review fix: the submissions whose command buffers didn't run (GpuMarksNotRun) never reset or wrote their
++  // marks' queries for this use: they would read as the slot's previous results, or as uninitialized queries.
++  // Not read (no result). A submission's marks are consecutive in a frame, so the others are read in runs. Entries
++  // older than this frame's last submission are no longer needed (frames are written in order; the last one may
++  // also hold marks of the next frame).
++  std::vector<uint64_t>& not_run = marks.not_run;
++  not_run.clear();
++  {
++    std::lock_guard<std::mutex> lock(gpu_marks_not_run_mutex_);
++    if (!gpu_marks_not_run_.empty()) {
++      const uint64_t first_submission = count ? frame.marks.front().submission : frame.last_submission;
++      for (uint64_t submission : gpu_marks_not_run_) {
++        if (submission >= first_submission && submission <= frame.last_submission) {
++          not_run.push_back(submission);
++        }
++      }
++      gpu_marks_not_run_.erase(std::remove_if(gpu_marks_not_run_.begin(), gpu_marks_not_run_.end(),
++                                              [&frame](uint64_t submission) {
++                                                return submission < frame.last_submission;
++                                              }),
++                               gpu_marks_not_run_.end());
++    }
++  }
++  auto ran = [&not_run](uint64_t submission) {
++    return std::find(not_run.begin(), not_run.end(), submission) == not_run.end();
++  };
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  for (uint32_t run_begin = 0; run_begin < count;) {
++    if (!ran(frame.marks[run_begin].submission)) {
++      ++run_begin;
++      continue;
++    }
++    uint32_t run_end = run_begin + 1;
++    while (run_end < count && ran(frame.marks[run_end].submission)) {
++      ++run_end;
++    }
++    const uint32_t run_count = run_end - run_begin;
++    uint64_t* const run_results = marks.results.data() + size_t(run_begin) * 2;
++    const VkResult result = vulkan_device->functions().vkGetQueryPoolResults(
++        vulkan_device->device(), marks.pool, slot * GpuMarks::kMarksPerFrame + run_begin, run_count,
++        sizeof(uint64_t) * 2 * run_count, run_results, sizeof(uint64_t) * 2,
++        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
++    // VK_NOT_READY: some queries have no result (their commands never ran); the others are valid.
++    if (result != VK_SUCCESS && result != VK_NOT_READY) {
++      std::fill(run_results, run_results + size_t(run_count) * 2, uint64_t(0));
++    }
++    run_begin = run_end;
++  }
++  auto available = [&](uint32_t i) { return marks.results[size_t(i) * 2 + 1] != 0; };
++  auto ticks = [&](uint32_t i) { return marks.results[size_t(i) * 2]; };
++  const uint64_t mask = marks.mask;
++  auto delta = [mask](uint64_t later, uint64_t earlier) -> int64_t {
++    const uint64_t d = (later - earlier) & mask;
++    if (mask != UINT64_MAX && d > (mask >> 1)) {
++      return int64_t(d) - int64_t(mask) - 1;
++    }
++    return int64_t(d);
++  };
++  const double us_per_tick = marks.period_ns / 1000.0;
++  auto us = [&](uint64_t later, uint64_t earlier) { return double(delta(later, earlier)) * us_per_tick; };
++
++  // Times are relative to the frame's first cb_begin with a result (else its first mark with one).
++  bool base_found = false;
++  uint64_t base = 0;
++  for (int pass = 0; pass < 2 && !base_found; ++pass) {
++    for (uint32_t i = 0; i < count; ++i) {
++      if (available(i) && (pass || frame.marks[i].kind == GpuMarkKind::kCbBegin)) {
++        base = ticks(i);
++        base_found = true;
++        break;
++      }
++    }
++  }
++
++  fmt::memory_buffer& text = marks.text;
++  text.clear();
++  auto append_us = [&](bool valid, double value) {
++    if (valid) {
++      fmt::format_to(std::back_inserter(text), ",{:.2f}", value);
++    } else {
++      text.push_back(',');
++    }
++  };
++  auto append_row = [&](uint32_t row, const char* kind, uint64_t submission, bool t_valid, double t_us,
++                        bool prep_valid, double prep_us, bool exec_valid, double exec_us, bool row_valid,
++                        double row_us) {
++    fmt::format_to(std::back_inserter(text), "{},{},{},{}", frame.frame, row, kind, submission);
++    append_us(t_valid, t_us);
++    append_us(prep_valid, prep_us);
++    append_us(exec_valid, exec_us);
++    append_us(row_valid, row_us);
++    text.push_back('\n');
++  };
++
++  // A pre / before mark waiting for its post / after.
++  struct OpenRow {
++    bool valid = false;
++    bool copy = false;
++    uint32_t row = 0;
++    uint64_t submission = 0;
++    bool t_valid = false;
++    uint64_t t = 0;
++    bool prep_valid = false;
++    double prep_us = 0.0;
++  } open_row;
++  double prep_sum_us = 0.0;
++  double exec_sum_us = 0.0;
++  auto flush_open_row = [&](bool post_valid, uint64_t post_t) {
++    const bool exec_valid = open_row.t_valid && post_valid;
++    const double exec_us = exec_valid ? us(post_t, open_row.t) : 0.0;
++    append_row(open_row.row, open_row.copy ? "copy" : "draw", open_row.submission, open_row.t_valid && base_found,
++               open_row.t_valid ? us(open_row.t, base) : 0.0, open_row.prep_valid, open_row.prep_us, exec_valid,
++               exec_us, open_row.prep_valid && exec_valid, open_row.prep_us + exec_us);
++    if (open_row.prep_valid) {
++      prep_sum_us += open_row.prep_us;
++    }
++    if (exec_valid) {
++      exec_sum_us += exec_us;
++    }
++    open_row.valid = false;
++  };
++
++  std::vector<std::pair<int64_t, int64_t>>& intervals = marks.intervals;
++  intervals.clear();
++  uint32_t unavailable = 0;
++  bool prev_valid = false;
++  uint64_t prev_t = 0;
++  uint64_t prev_submission = 0;
++  bool cb_begin_valid = false;
++  uint64_t cb_begin_t = 0;
++  uint64_t cb_begin_submission = 0;
++  // The last cb_end with a result (carried over from the frames written before).
++  bool last_cb_end_valid = marks.last_cb_end_valid;
++  uint64_t last_cb_end_t = marks.last_cb_end_t;
++  uint64_t last_cb_end_submission = marks.last_cb_end_submission;
++  for (uint32_t i = 0; i < count; ++i) {
++    const GpuMarks::Mark& mark = frame.marks[i];
++    const bool valid = available(i);
++    const uint64_t t = valid ? ticks(i) : 0;
++    if (!valid) {
++      ++unavailable;
++    }
++    // The time since the previous mark of the same submission (after a cb_begin: see kCbBegin).
++    const bool since_prev_valid = valid && prev_valid && prev_submission == mark.submission;
++    const double since_prev_us = since_prev_valid ? us(t, prev_t) : 0.0;
++    // Where the next mark of this submission measures from.
++    uint64_t next_prev_t = t;
++    switch (mark.kind) {
++      case GpuMarkKind::kCbBegin:
++        append_row(mark.row, "cb_begin", mark.submission, valid && base_found, valid ? us(t, base) : 0.0, false,
++                   0.0, false, 0.0, false, 0.0);
++        cb_begin_valid = valid;
++        cb_begin_t = t;
++        cb_begin_submission = mark.submission;
++        // Review fix: a top-of-pipe cb_begin may be written while the previous submission's work is still
++        // running, and the bottom-of-pipe mark after it waits for that work. So the submission's first row
++        // measures its prep from the previous submission's cb_end when that is later (known when the previous
++        // submission is the one right before and its cb_end is in this frame or the frame written before).
++        if (valid && last_cb_end_valid && last_cb_end_submission + 1 == mark.submission &&
++            delta(last_cb_end_t, t) > 0) {
++          next_prev_t = last_cb_end_t;
++        }
++        break;
++      case GpuMarkKind::kCbEnd: {
++        // Review fix: a copy still waiting for its after mark here is one whose readback path ended the
++        // submission inside the copy (so it has no after mark): the submission's cb_end, bottom-of-pipe right
++        // after the copy's commands, ends it, and leaves no tail.
++        const bool copy_ended = open_row.valid && open_row.copy && open_row.submission == mark.submission;
++        if (copy_ended) {
++          flush_open_row(valid, t);
++        }
++        const double tail_us = copy_ended ? 0.0 : since_prev_us;
++        append_row(mark.row, "cb_end", mark.submission, valid && base_found, valid ? us(t, base) : 0.0,
++                   since_prev_valid, tail_us, false, 0.0, since_prev_valid, tail_us);
++        if (valid && cb_begin_valid && cb_begin_submission == mark.submission) {
++          intervals.emplace_back(delta(cb_begin_t, base), delta(t, base));
++        }
++        if (valid) {
++          last_cb_end_valid = true;
++          last_cb_end_t = t;
++          last_cb_end_submission = mark.submission;
++        }
++      } break;
++      case GpuMarkKind::kDrawPre:
++      case GpuMarkKind::kCopyBefore:
++        if (open_row.valid) {
++          flush_open_row(false, 0);
++        }
++        open_row.valid = true;
++        open_row.copy = mark.kind == GpuMarkKind::kCopyBefore;
++        open_row.row = mark.row;
++        open_row.submission = mark.submission;
++        open_row.t_valid = valid;
++        open_row.t = t;
++        open_row.prep_valid = since_prev_valid;
++        open_row.prep_us = since_prev_us;
++        break;
++      case GpuMarkKind::kDrawPost:
++      case GpuMarkKind::kCopyAfter: {
++        const bool copy = mark.kind == GpuMarkKind::kCopyAfter;
++        if (open_row.valid && open_row.row == mark.row && open_row.copy == copy) {
++          flush_open_row(valid, t);
++        } else {
++          // Its pre / before mark was dropped.
++          if (open_row.valid) {
++            flush_open_row(false, 0);
++          }
++          append_row(mark.row, copy ? "copy" : "draw", mark.submission, false, 0.0, false, 0.0, false, 0.0, false,
++                     0.0);
++        }
++      } break;
++    }
++    if (valid) {
++      prev_valid = true;
++      prev_t = next_prev_t;
++      prev_submission = mark.submission;
++    }
++  }
++  if (open_row.valid) {
++    flush_open_row(false, 0);
++  }
++  marks.last_cb_end_valid = last_cb_end_valid;
++  marks.last_cb_end_t = last_cb_end_t;
++  marks.last_cb_end_submission = last_cb_end_submission;
++
++  // Submissions: their cb intervals summed, and their union (submissions may overlap on the GPU).
++  std::sort(intervals.begin(), intervals.end());
++  int64_t cb_sum = 0;
++  int64_t busy = 0;
++  int64_t run_begin = 0;
++  int64_t run_end = 0;
++  int64_t span_end = 0;
++  for (size_t i = 0; i < intervals.size(); ++i) {
++    const auto [begin, end] = intervals[i];
++    cb_sum += end - begin;
++    if (!i) {
++      run_begin = begin;
++      run_end = end;
++    } else if (begin <= run_end) {
++      run_end = std::max(run_end, end);
++    } else {
++      busy += run_end - run_begin;
++      run_begin = begin;
++      run_end = end;
++    }
++    span_end = i ? std::max(span_end, end) : end;
++  }
++  if (!intervals.empty()) {
++    busy += run_end - run_begin;
++  }
++  const int64_t idle = intervals.empty() ? 0 : (span_end - intervals.front().first) - busy;
++  const double cb_sum_us = double(cb_sum) * us_per_tick;
++  const double busy_us = double(busy) * us_per_tick;
++  const double idle_us = double(idle) * us_per_tick;
++
++  GpuMarks::Files* files = frame.files.get();
++  if (files && !files->write_failed && files->rows && files->frames) {
++    bool write_ok = !text.size() || std::fwrite(text.data(), 1, text.size(), files->rows) == text.size();
++    write_ok = std::fprintf(files->frames, "%u,%u,%.2f,%.2f,%.2f,%u,%u,%u\n", frame.frame,
++                            uint32_t(intervals.size()), cb_sum_us, busy_us, idle_us, count, frame.dropped,
++                            unavailable) > 0 &&
++               write_ok;
++    if (!write_ok) {
++      files->write_failed = true;
++      REXGPU_WARN("[s7][GPUMARKS] Write error on {}; no more GPU marks for this capture", files->gpu_path);
++    }
++    marks.log_path = files->gpu_path;
++  }
++
++  ++marks.log_frames;
++  marks.log_marks += count;
++  marks.log_dropped += frame.dropped;
++  marks.log_unavailable += unavailable;
++  marks.log_submissions += intervals.size();
++  marks.log_cb_sum_us += cb_sum_us;
++  marks.log_busy_us += busy_us;
++  marks.log_idle_us += idle_us;
++  marks.log_prep_us += prep_sum_us;
++  marks.log_exec_us += exec_sum_us;
++  ++marks.counter_frames_written;
++
++  frame.in_use = false;
++  frame.files.reset();
++}
++
++void VulkanCommandProcessor::GpuMarksLogSummary() {
++  GpuMarks& marks = *gpu_marks_;
++  if (!marks.log_frames && !marks.log_frames_not_marked) {
++    return;
++  }
++  const double frames = double(std::max(marks.log_frames, uint32_t(1)));
++  REXGPU_INFO(
++      "[s7][GPUMARKS] {} frame(s) written (last to {}), per frame: {:.0f} marks ({:.1f} dropped, {:.1f} without a "
++      "result), {:.1f} submissions, cb sum {:.2f} ms, busy {:.2f} ms, idle gaps {:.2f} ms, rows: prep {:.2f} ms, "
++      "draw/resolve {:.2f} ms; {} frame(s) not marked (query slot still in use)",
++      marks.log_frames, marks.log_path, double(marks.log_marks) / frames, double(marks.log_dropped) / frames,
++      double(marks.log_unavailable) / frames, double(marks.log_submissions) / frames,
++      marks.log_cb_sum_us / frames / 1000.0, marks.log_busy_us / frames / 1000.0,
++      marks.log_idle_us / frames / 1000.0, marks.log_prep_us / frames / 1000.0,
++      marks.log_exec_us / frames / 1000.0, marks.log_frames_not_marked);
++  marks.log_frames = 0;
++  marks.log_frames_not_marked = 0;
++  marks.log_marks = 0;
++  marks.log_dropped = 0;
++  marks.log_unavailable = 0;
++  marks.log_submissions = 0;
++  marks.log_cb_sum_us = 0.0;
++  marks.log_busy_us = 0.0;
++  marks.log_idle_us = 0.0;
++  marks.log_prep_us = 0.0;
++  marks.log_exec_us = 0.0;
++}
++
++void VulkanCommandProcessor::GpuMarksShutdown() {
++  if (!gpu_marks_) {
++    return;
++  }
++  GpuMarks& marks = *gpu_marks_;
++  // ShutdownContext has awaited all queue operations: write every marked frame that can be.
++  if (gpu_marks_active_) {
++    marks.frames[marks.current].ended = true;
++    gpu_marks_active_ = false;
++  }
++  marks.files.reset();
++  GpuMarksRead();
++  uint32_t abandoned = 0;
++  for (const GpuMarks::Frame& frame : marks.frames) {
++    abandoned += frame.in_use ? 1 : 0;
++  }
++  if (abandoned) {
++    REXGPU_WARN("[s7][GPUMARKS] {} marked frame(s) not written (their GPU work didn't complete)", abandoned);
++  }
++  GpuMarksLogSummary();
++  if (marks.pool != VK_NULL_HANDLE) {
++    const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++    vulkan_device->functions().vkDestroyQueryPool(vulkan_device->device(), marks.pool, nullptr);
++    marks.pool = VK_NULL_HANDLE;
++  }
++  {
++    std::lock_guard<std::mutex> lock(gpu_marks_not_run_mutex_);
++    gpu_marks_not_run_.clear();
++  }
++  gpu_marks_.reset();
++}
++
+ }  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
+index 81c2704..7a9bd94 100644
+--- a/src/graphics/vulkan/deferred_command_buffer.cpp
++++ b/src/graphics/vulkan/deferred_command_buffer.cpp
+@@ -432,6 +432,12 @@ void DeferredCommandBuffer::ExecuteStream(const std::vector<uintmax_t>& command_
+                                  rex::align(sizeof(ArgsVkSetViewport), alignof(VkViewport))));
+       } break;
+ 
++      // wwe2k14 patch (Session 7b, GPUMARKS).
++      case Command::kVkWriteTimestamp: {
++        auto& args = *reinterpret_cast<const ArgsVkWriteTimestamp*>(stream);
++        dfn.vkCmdWriteTimestamp(command_buffer, args.pipeline_stage, args.query_pool, args.query);
++      } break;
++
+       default:
+         assert_unhandled_case(header.command);
+         break;

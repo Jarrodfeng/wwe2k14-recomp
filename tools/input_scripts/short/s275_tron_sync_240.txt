@@ -1,0 +1,27 @@
+# harness: fast-forward ok (Session 27.5 item B: stage screens at the same game times, step 240; use with --wwe2k14_step_hz=240 except at 60)
+# Session 27 item C (Cena's title flying mid-entrance): launch_boot_check.txt, then screenshots every 60 game frames
+# from INGAMELUA.PAC for 2400 frames (both entrances at a 120 entrance step). Use with --wwe2k14_launch=hiac_cena_brodus
+# --wwe2k14_replay_mode=true (same entrance every run).
+on_fail quit
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log launch: in-game sequence loading
+wait_frames 349
+log tron sync: screenshots every 240 frames (1 game second at step 240) from frame ~2397
+screenshot_every 240 sync
+wait_frames 4800
+screenshot_every 0
+wait_frames 30
+log short route: end
+quit

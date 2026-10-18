@@ -1,0 +1,511 @@
+Subject: [ReXGlue] merge s6/cp1b
+
+Class: RGO
+What: Split mixed type-0 register ranges; skip side-effect-free registers.
+Evidence: A/B: -0.7 +-0.7 ms/frame (gain shown in combination only).
+On / off: gpu_type0_block_split (+_verify), off.
+Commit: 5278d11 (diff against 5278d11^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index c401773..40d2184 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -191,6 +191,20 @@ class CommandProcessor {
+   virtual bool GetRegisterWriteInvalidationState(RegisterWriteInvalidationState& state_out) const {
+     return false;
+   }
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split (see command_processor.cpp). Whether it's in effect
++  // for the next packet or range (read per packet / range).
++  bool Type0BlockSplitActive() const;
++  // Writes a register range block by block, in register order: plain registers (no side effects in any
++  // WriteRegister) copied in one go, each shader constant sub-range through the backend's WriteRegistersFromMem
++  // (its bulk code), every other register through the virtual WriteRegister.
++  void WriteRegistersFromMemSplit(uint32_t start_index, uint32_t* base, uint32_t num_registers);
++  // gpu_type0_block_split_verify for one range written by WriteRegistersFromMemSplit, with the number of
++  // registers that took each of its paths.
++  void VerifyRegistersFromMemSplit(uint32_t start_index, const uint32_t* base, uint32_t num_registers,
++                                   uint32_t plain_count, uint32_t constant_count,
++                                   uint32_t per_register_count);
++  // Once per frame (at the swap): the "[s6][CP1B]" summary every ~300 frames.
++  void Type0BlockSplitFrameEnd();
+   bool ExecutePacketType1(memory::RingBuffer* reader, uint32_t packet);
+   bool ExecutePacketType2(memory::RingBuffer* reader, uint32_t packet);
+   bool ExecutePacketType3(memory::RingBuffer* reader, uint32_t packet);
+@@ -392,6 +406,46 @@ class CommandProcessor {
+   };
+   Type0BulkVerifyStats type0_bulk_verify_stats_;
+ 
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split path counts and gpu_type0_block_split_verify results
++  // (command processor thread), logged and reset by Type0BlockSplitFrameEnd. Registers are counted by the path
++  // they took while the setting was in effect.
++  struct Type0BlockSplitStats {
++    uint64_t ranges = 0;                    // ranges written by WriteRegistersFromMemSplit (any packet type)
++    uint64_t plain_runs = 0;                // runs of plain registers copied in one go
++    uint64_t plain_registers = 0;           // registers in them
++    uint64_t constant_runs = 0;             // shader constant sub-ranges passed to the backend's bulk code
++    uint64_t constant_registers = 0;        // registers in them
++    uint64_t per_register_registers = 0;    // registers the split wrote through the virtual WriteRegister
++    uint64_t type0_range_packets = 0;       // type-0 packets through the register-range path
++    uint64_t type0_range_registers = 0;     // registers in them
++    uint64_t type0_split_registers = 0;     // of those, registers that went through the split (the rest were
++                                            // whole single-block bulk writes)
++    uint64_t one_reg_inline_registers = 0;  // write_one_reg type-0 writes to a plain register, stored inline
++    uint64_t one_reg_virtual_registers = 0;  // write_one_reg type-0 writes through the virtual WriteRegister
++    // gpu_type0_block_split_verify.
++    uint64_t verify_ranges = 0;
++    uint64_t verify_registers = 0;
++    uint64_t verify_not_replayed = 0;  // registers with side effects (only their path is checked)
++    uint64_t verify_value_mismatches = 0;
++    uint64_t verify_path_mismatches = 0;
++    uint64_t verify_invalidation_mismatches = 0;
++    uint64_t verify_mismatches_logged = 0;  // not reset
++    uint32_t last_summary_frame = 0;
++    bool summary_frame_valid = false;
++    bool debug_log_note_logged = false;  // not reset
++    uint64_t split_registers() const {
++      return plain_registers + constant_registers + per_register_registers;
++    }
++    bool any_counted() const {
++      return ranges || type0_range_packets || one_reg_inline_registers || one_reg_virtual_registers;
++    }
++  };
++  Type0BlockSplitStats type0_block_split_stats_;
++  // Set while WriteRegistersFromMemSplit hands a shader constant sub-range to the virtual WriteRegistersFromMem,
++  // so that a backend without bulk constant code (one that falls back to CommandProcessor::WriteRegistersFromMem
++  // for it) gets per-register writes instead of splitting again.
++  bool type0_block_split_in_constant_block_ = false;
++
+  private:
+   reg::DC_LUT_30_COLOR gamma_ramp_256_entry_table_[256] = {};
+   reg::DC_LUT_PWL_DATA gamma_ramp_pwl_rgb_[128][3] = {};
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index aa23033..880603a 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -65,6 +65,23 @@ REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes_verify, false, "GPU",
+                     "With gpu_type0_bulk_writes: replay every bulk-written shader constant range through "
+                     "per-register writes and compare register values, invalidation bits and ring offset; "
+                     "logs [s6][CP1] mismatches and a summary every 300 frames (slow, for checking only)");
++// wwe2k14 patch (Session 6, CP1B): with gpu_type0_bulk_writes, type-0 ranges not within one shader constant
++// block (about 2.4-2.5M packets per 300 frames of the CH103 entrance, by gpu_type0_bulk_writes_verify) still
++// went through one virtual WriteRegister per register. After Canary's D3D12
++// WriteRegisterRangeFromMem_WithKnownBound.
++REXCVAR_DEFINE_BOOL(gpu_type0_block_split, false, "GPU",
++                    "With gpu_type0_bulk_writes: register ranges not within one shader constant block are "
++                    "written block by block in register order: plain registers (no side effects) copied in one "
++                    "go, shader constant sub-ranges through the backend's bulk constant write, only registers "
++                    "with side effects (scratch, COHER_STATUS_HOST, gamma ramp, past the register file) one by "
++                    "one; write_one_reg type-0 writes to plain registers skip the virtual call. Same results; "
++                    "read per packet/range, so it can be toggled mid-run. No effect while GPU debug logging is "
++                    "on. Logs a [s6][CP1B] path summary every 300 frames");
++REXCVAR_DEFINE_BOOL(gpu_type0_block_split_verify, false, "GPU",
++                    "With gpu_type0_block_split: after each split range, replay its plain registers and shader "
++                    "constants through per-register writes and compare register values, invalidation bits and "
++                    "which registers took the per-register path; logs [s6][CP1B] mismatches (slow, for checking "
++                    "only)");
+ 
+ REXCVAR_DEFINE_BOOL(clear_memory_page_state, true, "GPU",
+                     "Refresh page-valid state from GPU-written memory at frame end. "
+@@ -145,6 +162,83 @@ ReadbackResolveMode GetSharedReadbackResolveMode(bool& shared_mode_overrides_leg
+   return shared_mode;
+ }
+ 
++// wwe2k14 patch (Session 6, CP1B): register classes for gpu_type0_block_split. A register write is "plain" when
++// CommandProcessor::WriteRegister and the backends' overrides do nothing for it but store the value (the Vulkan
++// and D3D12 overrides only add handling for the shader constant blocks below), apart from the unknown-register
++// debug message, which is why the split is only used while gpu_debug_log_may_be_enabled_ is false. Every register
++// that isn't plain is in one of these half-open intervals, listed in register order:
++struct RegisterSplitInterval {
++  uint32_t first;
++  uint32_t end;
++  // A shader constant block: written through the backend's WriteRegistersFromMem, whose single-block bulk code
++  // does for the whole sub-range what its per-register WriteRegister does for each register (copy, plus the
++  // constant buffer, texture binding and vertex buffer invalidation; CP1). Otherwise each register goes through
++  // the virtual WriteRegister.
++  bool constant_block;
++};
++constexpr RegisterSplitInterval kRegisterSplitIntervals[] = {
++    // SCRATCH_REG0-7: written back to memory when enabled in SCRATCH_UMSK.
++    {XE_GPU_REG_SCRATCH_REG0, XE_GPU_REG_SCRATCH_REG7 + 1, false},
++    // COHER_STATUS_HOST: bit 31 is set after the store.
++    {XE_GPU_REG_COHER_STATUS_HOST, XE_GPU_REG_COHER_STATUS_HOST + 1, false},
++    // DC_LUT_RW_INDEX, DC_LUT_SEQ_COLOR, DC_LUT_PWL_DATA, DC_LUT_30_COLOR: gamma ramp access with sequential
++    // component and index increments (not idempotent).
++    {XE_GPU_REG_DC_LUT_RW_INDEX, XE_GPU_REG_DC_LUT_30_COLOR + 1, false},
++    // Shader constants: backend invalidation (and the COUNTERS fetch constant notifications on Vulkan). The
++    // unused 0x48C0-0x48FF gap between the fetch and bool constants is plain.
++    {XE_GPU_REG_SHADER_CONSTANT_000_X, XE_GPU_REG_SHADER_CONSTANT_511_W + 1, true},
++    {XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0, XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5 + 1, true},
++    {XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031, XE_GPU_REG_SHADER_CONSTANT_LOOP_31 + 1, true},
++    // Past the register file: stored in extended_register_values_.
++    {uint32_t(RegisterFile::kRegisterCount), UINT32_MAX, false},
++};
++
++constexpr bool IsShaderConstantBlockRegister(uint32_t index) {
++  return (index >= XE_GPU_REG_SHADER_CONSTANT_000_X && index <= XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5) ||
++         (index >= XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031 && index <= XE_GPU_REG_SHADER_CONSTANT_LOOP_31);
++}
++
++// The same classification as a short test, for single register writes.
++constexpr bool IsPlainRegisterWrite(uint32_t index) {
++  return index < RegisterFile::kRegisterCount &&
++         uint32_t(index - XE_GPU_REG_SCRATCH_REG0) >
++             uint32_t(XE_GPU_REG_SCRATCH_REG7 - XE_GPU_REG_SCRATCH_REG0) &&
++         index != XE_GPU_REG_COHER_STATUS_HOST &&
++         uint32_t(index - XE_GPU_REG_DC_LUT_RW_INDEX) >
++             uint32_t(XE_GPU_REG_DC_LUT_30_COLOR - XE_GPU_REG_DC_LUT_RW_INDEX) &&
++         !IsShaderConstantBlockRegister(index);
++}
++
++// The interval list is sorted and describes exactly the registers IsPlainRegisterWrite rejects (checked for every
++// register index and some past the register file), and its constant blocks are exactly
++// IsShaderConstantBlockRegister.
++constexpr bool RegisterSplitClassesAgree() {
++  for (size_t i = 0; i + 1 < std::size(kRegisterSplitIntervals); ++i) {
++    if (kRegisterSplitIntervals[i].first >= kRegisterSplitIntervals[i].end ||
++        kRegisterSplitIntervals[i].end > kRegisterSplitIntervals[i + 1].first) {
++      return false;
++    }
++  }
++  size_t interval = 0;
++  for (uint32_t index = 0; index < uint32_t(RegisterFile::kRegisterCount) + 64; ++index) {
++    while (index >= kRegisterSplitIntervals[interval].end) {
++      ++interval;
++    }
++    bool listed = index >= kRegisterSplitIntervals[interval].first;
++    if (listed == IsPlainRegisterWrite(index) ||
++        (listed && kRegisterSplitIntervals[interval].constant_block) !=
++            IsShaderConstantBlockRegister(index)) {
++      return false;
++    }
++  }
++  return true;
++}
++static_assert(RegisterSplitClassesAgree(),
++              "kRegisterSplitIntervals, IsPlainRegisterWrite and IsShaderConstantBlockRegister disagree");
++
++// Plain runs shorter than this are copied inline rather than through the out-of-line copy_and_swap.
++constexpr uint32_t kPlainRunCopyAndSwapThreshold = 8;
++
+ }  // namespace
+ 
+ // wwe2k14 patch (Session 6, COUNTERS): frame-anatomy capture state (defined before the destructor, which
+@@ -478,6 +572,8 @@ uint32_t CommandProcessor::ReadRegisterValue(uint32_t index) const {
+ }
+ 
+ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split skips this for "plain" registers; any register given
++  // side effects here must be added to kRegisterSplitIntervals and IsPlainRegisterWrite.
+   RegisterFile& regs = *register_file_;
+   if (index >= RegisterFile::kRegisterCount) {
+     auto [it, inserted] = extended_register_values_.insert_or_assign(index, value);
+@@ -639,12 +735,217 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+ 
+ void CommandProcessor::WriteRegistersFromMem(uint32_t start_index, uint32_t* base,
+                                              uint32_t num_registers) {
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split. The backends call this for ranges that aren't within
++  // one shader constant block; split them by block instead of writing every register through WriteRegister.
++  if (!type0_block_split_in_constant_block_ && Type0BlockSplitActive()) {
++    WriteRegistersFromMemSplit(start_index, base, num_registers);
++    return;
++  }
+   for (uint32_t i = 0; i < num_registers; ++i) {
+     uint32_t data = memory::load_and_swap<uint32_t>(base + i);
+     WriteRegister(start_index + i, data);
+   }
+ }
+ 
++bool CommandProcessor::Type0BlockSplitActive() const {
++  // wwe2k14 patch (Session 6, CP1B): only together with gpu_type0_bulk_writes, and not while the GPU logger may
++  // log at debug level (WriteRegister's unknown-register message; gpu_debug_log_may_be_enabled_ is refreshed at
++  // the start of every primary buffer, as for CP10).
++  return REXCVAR_GET(gpu_type0_block_split) && !gpu_debug_log_may_be_enabled_ &&
++         REXCVAR_GET(gpu_type0_bulk_writes);
++}
++
++void CommandProcessor::WriteRegistersFromMemSplit(uint32_t start_index, uint32_t* base,
++                                                  uint32_t num_registers) {
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split, after Canary's D3D12
++  // WriteRegisterRangeFromMem_WithKnownBound. Walks the range in register order, one run of registers of the same
++  // class at a time (kRegisterSplitIntervals):
++  // - plain registers: stored with no further work, exactly what every WriteRegister does for them;
++  // - a shader constant block: the virtual WriteRegistersFromMem for the sub-range within the block, which the
++  //   backends write in bulk (copy plus the same invalidation as their per-register writes, for the whole
++  //   sub-range at once; CP1);
++  // - any other register: the virtual WriteRegister, as the per-register loop does.
++  // Each run is written only after all earlier runs, and the source dwords of a run are read only when it's
++  // written, so a register with side effects sees every earlier register of the range already written, and any
++  // memory it changes is seen by later runs, as with the per-register loop.
++  if (!num_registers) {
++    return;
++  }
++  // Exclusive end. Indices come from 15- or 16-bit packet fields plus a block offset, far from overflowing.
++  const uint32_t end_index = start_index + num_registers;
++  uint32_t plain_count = 0, constant_count = 0, per_register_count = 0;
++  Type0BlockSplitStats& stats = type0_block_split_stats_;
++  const RegisterSplitInterval* interval = kRegisterSplitIntervals;
++  uint32_t index = start_index;
++  while (index < end_index) {
++    // The last interval ends at UINT32_MAX, so this stays within the list.
++    while (index >= interval->end) {
++      ++interval;
++    }
++    uint32_t* source = base + (index - start_index);
++    if (index < interval->first) {
++      uint32_t run = std::min(end_index, interval->first) - index;
++      uint32_t* dest = register_file_->values + index;
++      if (run >= kPlainRunCopyAndSwapThreshold) {
++        memory::copy_and_swap(dest, source, run);
++      } else {
++        for (uint32_t i = 0; i < run; ++i) {
++          dest[i] = memory::load_and_swap<uint32_t>(source + i);
++        }
++      }
++      ++stats.plain_runs;
++      plain_count += run;
++      index += run;
++      continue;
++    }
++    uint32_t run = std::min(end_index, interval->end) - index;
++    if (interval->constant_block) {
++      type0_block_split_in_constant_block_ = true;
++      WriteRegistersFromMem(index, source, run);
++      type0_block_split_in_constant_block_ = false;
++      ++stats.constant_runs;
++      constant_count += run;
++    } else {
++      for (uint32_t i = 0; i < run; ++i) {
++        WriteRegister(index + i, memory::load_and_swap<uint32_t>(source + i));
++      }
++      per_register_count += run;
++    }
++    index += run;
++  }
++  ++stats.ranges;
++  stats.plain_registers += plain_count;
++  stats.constant_registers += constant_count;
++  stats.per_register_registers += per_register_count;
++  if (REXCVAR_GET(gpu_type0_block_split_verify)) {
++    VerifyRegistersFromMemSplit(start_index, base, num_registers, plain_count, constant_count,
++                                per_register_count);
++  }
++}
++
++void CommandProcessor::VerifyRegistersFromMemSplit(uint32_t start_index, const uint32_t* base,
++                                                   uint32_t num_registers, uint32_t plain_count,
++                                                   uint32_t constant_count,
++                                                   uint32_t per_register_count) {
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split_verify, the same approach as
++  // gpu_type0_bulk_writes_verify (ExecutePacketType0BulkVerify). Right after the split wrote the range:
++  // - recount which registers had to take which path with the short tests (IsShaderConstantBlockRegister,
++  //   IsPlainRegisterWrite) and compare with what the split did, so every register with side effects is known
++  //   to have gone through the per-register WriteRegister;
++  // - replay the plain registers and shader constants, in register order, through the per-register
++  //   WriteRegister, checking that each already holds its source value and that the replay changes none of the
++  //   backend's invalidation bits (so the split invalidated at least what per-register writes would). Their
++  //   per-register writes are idempotent (a store, and invalidation bits that are only cleared), so the replay
++  //   leaves the state as the per-register path would even after a mismatch.
++  // The registers with side effects aren't replayed (their handling isn't idempotent: gamma ramp index
++  // increments, the scratch memory write-back; COHER_STATUS_HOST and DC_LUT_RW_INDEX don't keep the written
++  // value), and the split wrote them through that very per-register path. Not detected: the split invalidating
++  // more than needed (only a cost; the constant sub-ranges use the CP1 range checks, the exact union of the
++  // per-register ones). The source is read again; a LOAD_ALU_CONSTANT range in guest memory that the guest
++  // rewrites in between would show up as a false value mismatch.
++  Type0BlockSplitStats& stats = type0_block_split_stats_;
++  RegisterWriteInvalidationState state_split;
++  bool have_state = GetRegisterWriteInvalidationState(state_split);
++  uint32_t expected_plain = 0, expected_constant = 0, expected_per_register = 0;
++  uint32_t value_mismatch_count = 0;
++  uint32_t first_mismatch_index = 0, first_mismatch_split = 0, first_mismatch_expected = 0;
++  for (uint32_t i = 0; i < num_registers; ++i) {
++    uint32_t index = start_index + i;
++    if (IsShaderConstantBlockRegister(index)) {
++      ++expected_constant;
++    } else if (IsPlainRegisterWrite(index)) {
++      ++expected_plain;
++    } else {
++      ++expected_per_register;
++      continue;
++    }
++    uint32_t expected = memory::load_and_swap<uint32_t>(base + i);
++    uint32_t split_value = register_file_->values[index];
++    if (split_value != expected) {
++      if (!value_mismatch_count) {
++        first_mismatch_index = index;
++        first_mismatch_split = split_value;
++        first_mismatch_expected = expected;
++      }
++      ++value_mismatch_count;
++    }
++    WriteRegister(index, expected);
++  }
++  RegisterWriteInvalidationState state_replayed;
++  bool invalidation_mismatch =
++      have_state && GetRegisterWriteInvalidationState(state_replayed) && state_replayed != state_split;
++  bool path_mismatch = expected_plain != plain_count || expected_constant != constant_count ||
++                       expected_per_register != per_register_count;
++
++  ++stats.verify_ranges;
++  stats.verify_registers += num_registers;
++  stats.verify_not_replayed += expected_per_register;
++  stats.verify_value_mismatches += value_mismatch_count;
++  stats.verify_path_mismatches += path_mismatch ? 1 : 0;
++  stats.verify_invalidation_mismatches += invalidation_mismatch ? 1 : 0;
++  if ((value_mismatch_count || path_mismatch || invalidation_mismatch) &&
++      stats.verify_mismatches_logged < 8) {
++    ++stats.verify_mismatches_logged;
++    REXGPU_WARN(
++        "[s6][CP1B] verify mismatch, split write of {} registers at {:04X} (frame {}): {} value mismatches "
++        "(first {:04X}: split {:08X}, source {:08X}); registers plain/constant/per-register: split {}/{}/{}, "
++        "expected {}/{}/{}; invalidation bits after split {:08X} {:016X} {:016X} {:08X}, after per-register "
++        "replay {:08X} {:016X} {:016X} {:08X}",
++        num_registers, start_index, counter_, value_mismatch_count, first_mismatch_index,
++        first_mismatch_split, first_mismatch_expected, plain_count, constant_count, per_register_count,
++        expected_plain, expected_constant, expected_per_register, state_split.bits[0], state_split.bits[1],
++        state_split.bits[2], state_split.bits[3], state_replayed.bits[0], state_replayed.bits[1],
++        state_replayed.bits[2], state_replayed.bits[3]);
++  }
++}
++
++void CommandProcessor::Type0BlockSplitFrameEnd() {
++  // wwe2k14 patch (Session 6, CP1B): "[s6][CP1B]" summary every ~300 frames while gpu_type0_block_split did
++  // anything. Per-frame figures are averages over the window.
++  Type0BlockSplitStats& stats = type0_block_split_stats_;
++  if (!stats.debug_log_note_logged && gpu_debug_log_may_be_enabled_ &&
++      REXCVAR_GET(gpu_type0_block_split)) {
++    stats.debug_log_note_logged = true;
++    REXGPU_INFO("[s6][CP1B] gpu_type0_block_split has no effect while GPU debug logging is enabled");
++  }
++  if (!stats.summary_frame_valid) {
++    if (stats.any_counted()) {
++      stats.summary_frame_valid = true;
++      stats.last_summary_frame = counter_;
++    }
++    return;
++  }
++  uint32_t frames = counter_ - stats.last_summary_frame;
++  if (frames < 300) {
++    return;
++  }
++  if (stats.any_counted()) {
++    double per_frame = 1.0 / double(frames);
++    REXGPU_INFO(
++        "[s6][CP1B] frames {}-{}: type-0 range packets {:.0f}/frame ({:.0f} registers/frame, of which {:.0f} "
++        "split and {:.0f} whole single-block bulk); split ranges (any packet) {:.0f}/frame: registers/frame "
++        "{:.0f} plain copied ({:.0f} runs), {:.0f} shader constants in bulk ({:.0f} runs), {:.1f} per-register; "
++        "write_one_reg registers/frame {:.1f} stored inline, {:.1f} through WriteRegister; verify: {} ranges "
++        "({} registers, {} not replayed), mismatches: {} values, {} paths, {} invalidation",
++        stats.last_summary_frame, counter_, stats.type0_range_packets * per_frame,
++        stats.type0_range_registers * per_frame, stats.type0_split_registers * per_frame,
++        (stats.type0_range_registers - stats.type0_split_registers) * per_frame, stats.ranges * per_frame,
++        stats.plain_registers * per_frame, stats.plain_runs * per_frame,
++        stats.constant_registers * per_frame, stats.constant_runs * per_frame,
++        stats.per_register_registers * per_frame, stats.one_reg_inline_registers * per_frame,
++        stats.one_reg_virtual_registers * per_frame, stats.verify_ranges, stats.verify_registers,
++        stats.verify_not_replayed, stats.verify_value_mismatches, stats.verify_path_mismatches,
++        stats.verify_invalidation_mismatches);
++  }
++  uint64_t mismatches_logged = stats.verify_mismatches_logged;
++  bool debug_log_note_logged = stats.debug_log_note_logged;
++  stats = Type0BlockSplitStats();
++  stats.verify_mismatches_logged = mismatches_logged;
++  stats.debug_log_note_logged = debug_log_note_logged;
++  stats.summary_frame_valid = true;
++  stats.last_summary_frame = counter_;
++}
++
+ void CommandProcessor::WriteRegisterRangeFromRing(memory::RingBuffer* ring, uint32_t base,
+                                                   uint32_t num_registers) {
+   if (!num_registers) {
+@@ -867,13 +1168,42 @@ bool CommandProcessor::ExecutePacketType0(memory::RingBuffer* reader, uint32_t p
+   // per-register virtual WriteRegister. BeginRead/EndRead handle the ring wrap. Both paths leave the same
+   // state after a packet, so the setting is read per packet and can be toggled between packets.
+   if (!write_one_reg && REXCVAR_GET(gpu_type0_bulk_writes)) {
++    // wwe2k14 patch (Session 6, CP1B): with gpu_type0_block_split, the ranges that aren't within one shader
++    // constant block are split by block in CommandProcessor::WriteRegistersFromMem. Path counts for the
++    // "[s6][CP1B]" summary.
++    const bool block_split = Type0BlockSplitActive();
++    const uint64_t split_registers_before =
++        block_split ? type0_block_split_stats_.split_registers() : 0;
+     if (REXCVAR_GET(gpu_type0_bulk_writes_verify)) {
+       ExecutePacketType0BulkVerify(reader, base_index, count);
+     } else {
+       WriteRegisterRangeFromRing(reader, base_index, count);
+     }
++    if (block_split) {
++      Type0BlockSplitStats& stats = type0_block_split_stats_;
++      ++stats.type0_range_packets;
++      stats.type0_range_registers += count;
++      stats.type0_split_registers += stats.split_registers() - split_registers_before;
++    }
+     return true;
+   }
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split (with gpu_type0_bulk_writes, only write_one_reg
++  // packets get here). Every write of the packet goes to base_index; when that's a plain register (one whose
++  // writes in CommandProcessor::WriteRegister and the backends' overrides only store the value, see
++  // kRegisterSplitIntervals), store each value in order as WriteRegister would, without the two virtual calls
++  // per write. Anything else keeps the per-register loop below.
++  if (write_one_reg && Type0BlockSplitActive()) {
++    if (IsPlainRegisterWrite(base_index)) {
++      // Volatile as in WriteRegister.
++      volatile uint32_t* reg = &register_file_->values[base_index];
++      for (uint32_t m = 0; m < count; ++m) {
++        *reg = reader->ReadAndSwap<uint32_t>();
++      }
++      type0_block_split_stats_.one_reg_inline_registers += count;
++      return true;
++    }
++    type0_block_split_stats_.one_reg_virtual_registers += count;
++  }
+   for (uint32_t m = 0; m < count; m++) {
+     uint32_t reg_data = reader->ReadAndSwap<uint32_t>();
+     uint32_t target_index = write_one_reg ? base_index : base_index + m;
+@@ -1239,6 +1569,8 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+ 
+   // wwe2k14 patch (Session 6, CP10): once per frame, see GetReadbackResolveMode.
+   RefreshReadbackResolveModeCache();
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split summary.
++  Type0BlockSplitFrameEnd();
+ 
+   ++counter_;
+   // wwe2k14 patch (Session 6, COUNTERS): write a captured frame's rows (after the swap, outside the timed draws)
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 4daa158..5ae3831 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -1769,6 +1769,9 @@ void D3D12CommandProcessor::ShutdownContext() {
+ }
+ 
+ void D3D12CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split skips this for registers outside the shader constant
++  // blocks with no side effects in CommandProcessor::WriteRegister; handling added here for any other register
++  // must be added to kRegisterSplitIntervals (command_processor.cpp) too.
+   CommandProcessor::WriteRegister(index, value);
+ 
+   if (index >= XE_GPU_REG_SHADER_CONSTANT_000_X && index <= XE_GPU_REG_SHADER_CONSTANT_511_W) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 439a57a..d928fbc 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2446,6 +2446,9 @@ void VulkanCommandProcessor::ShutdownContext() {
+ }
+ 
+ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
++  // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split skips this for registers outside the shader constant
++  // blocks with no side effects in CommandProcessor::WriteRegister; handling added here for any other register
++  // must be added to kRegisterSplitIntervals (command_processor.cpp) too.
+   CommandProcessor::WriteRegister(index, value);
+ 
+   if (index >= XE_GPU_REG_SHADER_CONSTANT_000_X && index <= XE_GPU_REG_SHADER_CONSTANT_511_W) {
+@@ -2569,6 +2572,10 @@ void VulkanCommandProcessor::WriteRegistersFromMem(uint32_t start_index, uint32_
+     return;
+   }
+ 
++  // wwe2k14 patch (Session 6, CP1B): with gpu_type0_block_split, the base class splits this range by register
++  // block (CommandProcessor::WriteRegistersFromMemSplit) and hands each shader constant sub-range back to this
++  // function, which writes it in bulk above. This class's WriteRegister only adds handling for the shader
++  // constant blocks, which the split relies on (see kRegisterSplitIntervals in command_processor.cpp).
+   CommandProcessor::WriteRegistersFromMem(start_index, base, num_registers);
+ }
+ 

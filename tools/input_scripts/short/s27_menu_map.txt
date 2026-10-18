@@ -1,0 +1,103 @@
+# harness: fast-forward ok (Session 27 item 2: memory snapshots along the logo route, for the menu map; untimed)
+# Session 27 item 2: main menu -> CREATIONS -> LOGO grid (slot 1, RIGHT, RIGHT, DOWN, UP) -> A on the free slot 3 =
+# SELECT CANVAS SIZE (128, DOWN = 256) -> A = editor -> LT = Tools panel (L_DOWN x3 = ACCEPT). A 517 MB snapshot at each
+# stop (--wwe2k14_snapshot_trigger pointed at out\s27\snaptrig\NAME.txt, files made before the run). Never presses
+# ACCEPT: quits from the Tools panel without saving. Frozen save mirror copy only.
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\mm.txt
+wait_frames 45
+log_state seq
+screenshot map_mm
+press DOWN
+press DOWN
+press DOWN
+press A
+wait_frames 80
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\cr.txt
+wait_frames 45
+log_state seq
+screenshot map_cr
+press DOWN 60
+wait_frames 30
+press A
+wait_file CASTHUMB.PAC 900
+wait_file SaveData.Dat 1800
+wait_frames 280
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\g0.txt
+wait_frames 45
+log_state seq
+screenshot map_g0
+press RIGHT
+wait_frames 20
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\g1.txt
+wait_frames 45
+log_state seq
+screenshot map_g1
+press RIGHT
+wait_frames 20
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\g2.txt
+wait_frames 45
+log_state seq
+screenshot map_g2
+press DOWN
+wait_frames 20
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\g7.txt
+wait_frames 45
+log_state seq
+screenshot map_g7
+press UP
+wait_frames 20
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\g2b.txt
+wait_frames 45
+log_state seq
+screenshot map_g2b
+press A
+wait_frames 60
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\s0.txt
+wait_frames 45
+log_state seq
+screenshot map_s0
+press DOWN
+wait_frames 20
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\s1.txt
+wait_frames 45
+log_state seq
+screenshot map_s1
+press A
+wait_frames 90
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\ed.txt
+wait_frames 45
+log_state seq
+screenshot map_ed
+press LT 10
+wait_frames 30
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\t0.txt
+wait_frames 45
+log_state seq
+screenshot map_t0
+press L_DOWN 8 20
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\t1.txt
+wait_frames 45
+log_state seq
+screenshot map_t1
+press L_DOWN 8 20
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\t2.txt
+wait_frames 45
+log_state seq
+screenshot map_t2
+press L_DOWN 8 20
+wait_frames 10
+cvar wwe2k14_snapshot_trigger C:\Users\Jarrod\wwe2k14-recomp\out\s27\snaptrig\t3.txt
+wait_frames 45
+log_state seq
+screenshot map_t3
+log map: end (no ACCEPT pressed)
+wait_frames 30
+quit

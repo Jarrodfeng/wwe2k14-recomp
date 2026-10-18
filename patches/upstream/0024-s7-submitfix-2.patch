@@ -1,0 +1,107 @@
+Subject: [ReXGlue] merge s7/submitfix
+
+Class: RGF
+What: Failed async submissions / presenter fence signals can no longer hang a later wait (retry with backoff, then signal).
+Evidence: Review finding on our own async submit path (PLAYBOOK Session 7).
+On / off: Always on (error paths).
+Commit: fdde345 (diff against fdde345^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/ui/vulkan/queue_submit_order.h b/include/rex/ui/vulkan/queue_submit_order.h
+index a8f6e2e..346740a 100644
+--- a/include/rex/ui/vulkan/queue_submit_order.h
++++ b/include/rex/ui/vulkan/queue_submit_order.h
+@@ -172,6 +172,10 @@ class VulkanQueueSubmitOrder {
+     return failed_count;
+   }
+ 
++  // wwe2k14 patch (Session 7, SUBMITFIX review): submitting thread, when it stops retrying: forgets the kept fence
++  // signals (those fences stay unsignaled, as before SUBMITFIX), so later signals are no longer held behind them.
++  void DropFailedFenceSignals() { fence_signals_failed_.clear(); }
++
+   WaitStats TakeWaitStats() {
+     std::lock_guard<std::mutex> lock(mutex_);
+     WaitStats wait_stats = wait_stats_;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 8724ddd..c56e9d2 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -5088,10 +5088,13 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+     // fence would never be signaled and a later wait on it (vkWaitForFences without a timeout on the command
+     // processor thread) would never end. Unlike the synchronous path, the submission can't stay open for the
+     // next EndSubmission to retry - the command processor has moved on. Retry here, with the queue still
+-    // acquired so nothing else gets onto it in between, and after kRetriesWithCommands retries without the
+-    // command buffer (dropping its commands), so at least the semaphore waits are consumed and the fence gets
+-    // signaled. Ends on success, on device loss (handled below as before) or when the thread is being stopped.
+-    constexpr uint32_t kRetriesWithCommands = 3;
++    // acquired so nothing else gets onto it in between, and after kRetriesWithCommands retries (about 1 s - see
++    // AsyncSubmitRetryWait) without the command buffer, so at least the semaphore waits are consumed and the
++    // fence gets signaled. Dropping the commands is a last resort with damage beyond this frame: the command
++    // processor already counts their uploads, texture loads, EDRAM transfers and image layout changes as done,
++    // so rendering may be wrong (and validation may complain about layouts) until that data is rewritten. Ends
++    // on success, on device loss (handled below as before) or when the thread is being stopped.
++    constexpr uint32_t kRetriesWithCommands = 16;
+     for (uint32_t retry = 1; submit_result != VK_SUCCESS && submit_result != VK_ERROR_DEVICE_LOST;
+          ++retry) {
+       if (retry == 1 || !(retry % 100)) {
+@@ -5105,7 +5108,8 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+       if (retry > kRetriesWithCommands && submit_info.commandBufferCount) {
+         REXGPU_ERROR(
+             "[s7][SUBMITFIX] Async submit: dropping the commands of submission {}, submitting only its "
+-            "semaphore waits and fence signal",
++            "semaphore waits and fence signal - GPU data it was to write (uploads, textures, EDRAM, image "
++            "layouts) is stale until rewritten",
+             job.submission);
+         submit_info.commandBufferCount = 0;
+         submit_info.pCommandBuffers = nullptr;
+@@ -5124,7 +5128,11 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+       order_fence_signals_failed = async_swap_order_->MarkSubmitted(
+           job.order_ticket, dfn, queue_acquisition.queue(), &order_fence_signal_result);
+       // wwe2k14 patch (Session 7, SUBMITFIX): the presenter's submission tracker already counts those fences as
+-      // pending and would wait on them forever - retry like above, with the queue still acquired.
++      // pending (a resize or shutdown wait on the newest of them would never end) - retry like above, with the
++      // queue still acquired. Unlike the job's own fence, giving up here doesn't hang the command processor,
++      // and holding the queue blocks the presenter, so only for about 1 s (kFenceSignalRetries); then the
++      // signals are dropped, leaving those fences unsignaled and pending in the tracker as before SUBMITFIX.
++      constexpr uint32_t kFenceSignalRetries = kRetriesWithCommands;
+       for (uint32_t retry = 1;
+            order_fence_signals_failed && order_fence_signal_result != VK_ERROR_DEVICE_LOST; ++retry) {
+         if (retry == 1 || !(retry % 100)) {
+@@ -5133,7 +5141,7 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+               "{}), retry {}",
+               order_fence_signals_failed, job.submission, int(order_fence_signal_result), retry);
+         }
+-        if (!AsyncSubmitRetryWait(retry)) {
++        if (retry > kFenceSignalRetries || !AsyncSubmitRetryWait(retry)) {
+           break;
+         }
+         order_fence_signals_failed = async_swap_order_->RetryFailedFenceSignals(
+@@ -5144,12 +5152,17 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+               job.submission, retry);
+         }
+       }
++      if (order_fence_signals_failed) {
++        // Given up (device lost, stopping, or still failing): forget them, still with the queue acquired, so
++        // the next MarkSubmitted doesn't queue new signals behind them or submit their stale handles.
++        async_swap_order_->DropFailedFenceSignals();
++      }
+     }
+   }
+   if (order_fence_signals_failed) {
+     REXGPU_ERROR(
+         "[s6][DRAIN] Async swap: {} presenter fence signal(s) after submission {} failed (given up: device "
+-        "lost or stopping)",
++        "lost, stopping, or still failing after about 1 s - left unsignaled)",
+         order_fence_signals_failed, job.submission);
+   }
+   if (submit_result != VK_SUCCESS) {
+@@ -5173,7 +5186,8 @@ void VulkanCommandProcessor::AsyncSubmitDrain() {
+ }
+ 
+ bool VulkanCommandProcessor::AsyncSubmitRetryWait(uint32_t retry) {
+-  // wwe2k14 patch (Session 7, SUBMITFIX): 1, 2, 4 ... 64, then 100 ms; woken early by AsyncSubmitStop.
++  // wwe2k14 patch (Session 7, SUBMITFIX): 1, 2, 4 ... 64, then 100 ms (16 retries = about 1 s); woken early by
++  // AsyncSubmitStop.
+   const std::chrono::milliseconds delay(
+       std::min(uint32_t(1) << std::min(retry - 1, uint32_t(7)), uint32_t(100)));
+   std::unique_lock<std::mutex> lock(async_submit_mutex_);

@@ -1,0 +1,99 @@
+# harness: fast-forward ok (Session 27.5 item A: skip each prop mesh (index bases 1E6..1EA) at INGAMELUA + 1100)
+# Use with --wwe2k14_launch=hiac_cena_brodus --wwe2k14_replay_mode=true and --gpu_debug_draw_probe=<character VS
+# hashes> --gpu_debug_draw_probe_path=<csv>. Boot part as s27_cena_motion.txt (launch_boot_check.txt).
+on_fail quit
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log launch: in-game sequence loading
+wait_frames 1100
+screenshot pe_base
+cvar gpu_debug_skip_index_base 1E67D000
+wait_frames 2
+screenshot pe_1E67D000
+cvar gpu_debug_skip_index_base 1E681000
+wait_frames 2
+screenshot pe_1E681000
+cvar gpu_debug_skip_index_base 1E693000
+wait_frames 2
+screenshot pe_1E693000
+cvar gpu_debug_skip_index_base 1E7D4000
+wait_frames 2
+screenshot pe_1E7D4000
+cvar gpu_debug_skip_index_base 1E7DE000
+wait_frames 2
+screenshot pe_1E7DE000
+cvar gpu_debug_skip_index_base 1E7E6000
+wait_frames 2
+screenshot pe_1E7E6000
+cvar gpu_debug_skip_index_base 1E866000
+wait_frames 2
+screenshot pe_1E866000
+cvar gpu_debug_skip_index_base 1E86A000
+wait_frames 2
+screenshot pe_1E86A000
+cvar gpu_debug_skip_index_base 1E86D000
+wait_frames 2
+screenshot pe_1E86D000
+cvar gpu_debug_skip_index_base 1E86F000
+wait_frames 2
+screenshot pe_1E86F000
+cvar gpu_debug_skip_index_base 1E8AB000
+wait_frames 2
+screenshot pe_1E8AB000
+cvar gpu_debug_skip_index_base 1E8B0000
+wait_frames 2
+screenshot pe_1E8B0000
+cvar gpu_debug_skip_index_base 1E8B2000
+wait_frames 2
+screenshot pe_1E8B2000
+cvar gpu_debug_skip_index_base 1E8BB000
+wait_frames 2
+screenshot pe_1E8BB000
+cvar gpu_debug_skip_index_base 1E8C6000
+wait_frames 2
+screenshot pe_1E8C6000
+cvar gpu_debug_skip_index_base 1E8D6000
+wait_frames 2
+screenshot pe_1E8D6000
+cvar gpu_debug_skip_index_base 1E900000
+wait_frames 2
+screenshot pe_1E900000
+cvar gpu_debug_skip_index_base 1E919000
+wait_frames 2
+screenshot pe_1E919000
+cvar gpu_debug_skip_index_base 1E99A000
+wait_frames 2
+screenshot pe_1E99A000
+cvar gpu_debug_skip_index_base 1E99C000
+wait_frames 2
+screenshot pe_1E99C000
+cvar gpu_debug_skip_index_base 1E99E000
+wait_frames 2
+screenshot pe_1E99E000
+cvar gpu_debug_skip_index_base 1E9A3000
+wait_frames 2
+screenshot pe_1E9A3000
+cvar gpu_debug_skip_index_base 1E9A5000
+wait_frames 2
+screenshot pe_1E9A5000
+cvar gpu_debug_skip_index_base 1E9AC000
+wait_frames 2
+screenshot pe_1E9AC000
+cvar gpu_debug_skip_index_base 1E9AE000
+wait_frames 2
+screenshot pe_1E9AE000
+cvar gpu_debug_skip_index_base 0
+wait_frames 30
+log short route: end
+quit

@@ -1,0 +1,418 @@
+Subject: [ReXGlue] merge s6/cp6
+
+Class: RGO
+What: Value-keyed sampler parameter cache.
+Evidence: A/B: -2.5 +-2.0 ms/frame (PLAYBOOK Session 6).
+On / off: vulkan_sampler_param_cache (+_verify), off.
+Commit: ef486c6 (diff against ef486c6^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 04856ee..01fafb4 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -89,6 +89,8 @@ class VulkanTextureCache final : public TextureCache {
+   VkImageView GetActiveBindingOrNullImageView(uint32_t fetch_constant_index,
+                                               xenos::FetchOpDimension dimension, bool is_signed);
+ 
++  // wwe2k14 patch (Session 6, CP6): with vulkan_sampler_param_cache, the result comes from a cache keyed on
++  // the value of every input (see GetSamplerParametersCached).
+   SamplerParameters GetSamplerParameters(const VulkanShader::SamplerBinding& binding) const;
+ 
+   // Must be called for every used sampler at least once in a single submission,
+@@ -100,6 +102,8 @@ class VulkanTextureCache final : public TextureCache {
+   //   count overflow in a submission that potentially hasn't completed yet.
+   // - VK_NULL_HANDLE and has_overflown_out = false in case of a general failure
+   //   to create a sampler.
++  // wwe2k14 patch (Session 6, CP6): with vulkan_sampler_param_cache, repeated calls within one submission
++  // return the sampler without the samplers_ lookup.
+   VkSampler UseSampler(SamplerParameters parameters, bool& has_overflown_out);
+   // Returns the submission index to await (may be the current submission in
+   // case of an overflow within a single submission - in this case, it must be
+@@ -327,6 +331,59 @@ class VulkanTextureCache final : public TextureCache {
+ 
+   xenos::ClampMode NormalizeClampMode(xenos::ClampMode clamp_mode) const;
+ 
++  // wwe2k14 patch (Session 6, CP6): sampler parameter and sampler lookup caches (vulkan_sampler_param_cache,
++  // vulkan_sampler_param_cache_verify). GetSamplerParametersForFetch and UseSamplerUncached are the original
++  // GetSamplerParameters and UseSampler bodies.
++  SamplerParameters GetSamplerParametersForFetch(const xenos::xe_gpu_texture_fetch_t& fetch,
++                                                 const VulkanShader::SamplerBinding& binding) const;
++  SamplerParameters GetSamplerParametersCached(const xenos::xe_gpu_texture_fetch_t& fetch,
++                                               const VulkanShader::SamplerBinding& binding,
++                                               bool verify) const;
++  static uint32_t GetSamplerParameterCacheExtraKey(const VulkanShader::SamplerBinding& binding);
++  VkSampler UseSamplerUncached(SamplerParameters parameters, bool& has_overflown_out);
++  void ReportSamplerCacheStats();
++
++  struct SamplerParameterCacheEntry {
++    // The 6 fetch constant dwords.
++    uint64_t key_fetch[3];
++    // GetSamplerParameterCacheExtraKey (always has the top bit set, so a zeroed entry never matches).
++    uint32_t key_extra;
++    SamplerParameters parameters;
++  };
++  static_assert(sizeof(SamplerParameterCacheEntry) == 32);
++  // 2-way set-associative, one cache line per set.
++  struct alignas(64) SamplerParameterCacheSet {
++    SamplerParameterCacheEntry entries[2];
++  };
++  static constexpr uint32_t kSamplerParameterCacheSetCountLog2 = 12;
++
++  struct SamplerUseCacheEntry {
++    // Submission in which UseSampler returned `sampler` for `parameters` (0 - never, submission indices start
++    // at 1).
++    uint64_t submission;
++    VkSampler sampler;
++    SamplerParameters parameters;
++  };
++  static constexpr uint32_t kSamplerUseCacheSizeLog2 = 8;
++
++  struct SamplerCacheStats {
++    // Since the last summary.
++    uint64_t parameter_lookups;
++    uint64_t parameter_hits;
++    uint64_t parameter_verified;
++    uint64_t parameter_mismatches;
++    uint64_t use_calls;
++    uint64_t use_hits;
++    uint64_t use_verified;
++    uint64_t use_mismatches;
++    uint32_t frames;
++    // Since startup.
++    uint64_t parameter_mismatches_total;
++    uint64_t use_mismatches_total;
++    uint32_t parameter_mismatches_logged;
++    uint32_t use_mismatches_logged;
++  };
++
+   VulkanCommandProcessor& command_processor_;
+   VkPipelineStageFlags guest_shader_pipeline_stages_;
+ 
+@@ -389,6 +446,12 @@ class VulkanTextureCache final : public TextureCache {
+   std::vector<uint64_t> scaled_resolve_sparse_allocated_;
+   bool scaled_resolve_last_usage_write_ = false;
+   std::pair<uint64_t, uint64_t> scaled_resolve_last_written_range_{0, 0};
++
++  // wwe2k14 patch (Session 6, CP6): see the types above. Allocated on first use, zero-initialized; only
++  // accessed on the command processor thread.
++  mutable std::unique_ptr<SamplerParameterCacheSet[]> sampler_parameter_cache_;
++  std::unique_ptr<SamplerUseCacheEntry[]> sampler_use_cache_;
++  mutable SamplerCacheStats sampler_cache_stats_ = {};
+ };
+ 
+ }  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 60147e9..159a82d 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -13,6 +13,7 @@
+ #include <array>
+ #include <cstddef>
+ #include <cstring>
++#include <string>
+ #include <utility>
+ 
+ #include <rex/assert.h>
+@@ -36,6 +37,17 @@
+ 
+ REXCVAR_DEFINE_BOOL(non_seamless_cube_map, false, "GPU", "Use non-seamless cube map sampling");
+ 
++// wwe2k14 patch (Session 6, CP6): GetSamplerParameters runs for every sampler binding of every draw
++// (VulkanCommandProcessor::IssueDraw) and recomputes everything from the fetch constant (2.5% of the command
++// processor thread in heavy entrance shots, stacks_067), then UseSampler does a hash map lookup (0.4%). The
++// inputs repeat from draw to draw and from frame to frame, so both results are cached by value.
++REXCVAR_DEFINE_BOOL(vulkan_sampler_param_cache, false, "GPU/Vulkan",
++                    "Cache sampler parameters keyed on the texture fetch constant value and the shader's filter "
++                    "overrides, and skip sampler lookups already done in the current submission");
++REXCVAR_DEFINE_BOOL(vulkan_sampler_param_cache_verify, false, "GPU/Vulkan",
++                    "Shadow-check vulkan_sampler_param_cache (works with it on or off): run the cache lookups, "
++                    "but also compute the original results, use those, and count and log mismatches");
++
+ namespace rex::graphics::vulkan {
+ 
+ // Generated with `xb buildshaders`.
+@@ -533,6 +545,11 @@ void VulkanTextureCache::BeginFrame() {
+ }
+ 
+ void VulkanTextureCache::EndFrame() {
++  // wwe2k14 patch (Session 6, CP6): periodic sampler cache statistics.
++  if (REXCVAR_GET(vulkan_sampler_param_cache) || REXCVAR_GET(vulkan_sampler_param_cache_verify)) {
++    ReportSamplerCacheStats();
++  }
++
+   bool unsupported_header_written = false;
+   for (uint32_t i = 0; i < 64; ++i) {
+     uint32_t unsupported_features = unsupported_format_features_used_[i];
+@@ -677,6 +694,17 @@ VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
+   const auto& regs = register_file();
+   xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
+ 
++  // wwe2k14 patch (Session 6, CP6): value-keyed cache. Each call is independent, so the settings can be
++  // flipped at any time.
++  bool cache_verify = REXCVAR_GET(vulkan_sampler_param_cache_verify);
++  if (cache_verify || REXCVAR_GET(vulkan_sampler_param_cache)) {
++    return GetSamplerParametersCached(fetch, binding, cache_verify);
++  }
++  return GetSamplerParametersForFetch(fetch, binding);
++}
++
++VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParametersForFetch(
++    const xenos::xe_gpu_texture_fetch_t& fetch, const VulkanShader::SamplerBinding& binding) const {
+   SamplerParameters parameters;
+ 
+   xenos::ClampMode fetch_clamp_x, fetch_clamp_y, fetch_clamp_z;
+@@ -759,7 +787,253 @@ VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
+   return parameters;
+ }
+ 
++// wwe2k14 patch (Session 6, CP6): sampler parameter and sampler lookup caches.
++namespace {
++
++constexpr uint32_t kSamplerCacheMismatchLogLimit = 8;
++constexpr uint32_t kSamplerCacheSummaryFrames = 300;
++
++std::string DescribeSamplerParameters(VulkanTextureCache::SamplerParameters parameters) {
++  return "clamp " + std::to_string(uint32_t(parameters.clamp_x)) + "/" +
++         std::to_string(uint32_t(parameters.clamp_y)) + "/" +
++         std::to_string(uint32_t(parameters.clamp_z)) + " border " +
++         std::to_string(uint32_t(parameters.border_color)) + " linear mag/min/mip " +
++         std::to_string(uint32_t(parameters.mag_linear)) + "/" +
++         std::to_string(uint32_t(parameters.min_linear)) + "/" +
++         std::to_string(uint32_t(parameters.mip_linear)) + " aniso " +
++         std::to_string(uint32_t(parameters.aniso_filter)) + " mip_min_level " +
++         std::to_string(uint32_t(parameters.mip_min_level)) + " mip_base_map " +
++         std::to_string(uint32_t(parameters.mip_base_map));
++}
++
++// Field-by-field comparison, returns the names of the fields that differ.
++std::string GetSamplerParametersDifference(VulkanTextureCache::SamplerParameters a,
++                                           VulkanTextureCache::SamplerParameters b) {
++  std::string difference;
++  auto check = [&difference](bool differs, const char* name) {
++    if (differs) {
++      if (!difference.empty()) {
++        difference += ',';
++      }
++      difference += name;
++    }
++  };
++  check(a.clamp_x != b.clamp_x, "clamp_x");
++  check(a.clamp_y != b.clamp_y, "clamp_y");
++  check(a.clamp_z != b.clamp_z, "clamp_z");
++  check(a.border_color != b.border_color, "border_color");
++  check(a.mag_linear != b.mag_linear, "mag_linear");
++  check(a.min_linear != b.min_linear, "min_linear");
++  check(a.mip_linear != b.mip_linear, "mip_linear");
++  check(a.aniso_filter != b.aniso_filter, "aniso_filter");
++  check(a.mip_min_level != b.mip_min_level, "mip_min_level");
++  check(a.mip_base_map != b.mip_base_map, "mip_base_map");
++  // The unused bits are always zero (the constructor zeroes `value`), but compare them too.
++  check(difference.empty() && a.value != b.value, "unused_bits");
++  return difference;
++}
++
++uint64_t GetSamplerHandleValue(VkSampler sampler) {
++  uint64_t value = 0;
++  std::memcpy(&value, &sampler, std::min(sizeof(value), sizeof(sampler)));
++  return value;
++}
++
++double GetSamplerCachePercentage(uint64_t part, uint64_t total) {
++  return total ? 100.0 * double(part) / double(total) : 0.0;
++}
++
++}  // namespace
++
++uint32_t VulkanTextureCache::GetSamplerParameterCacheExtraKey(
++    const VulkanShader::SamplerBinding& binding) {
++  // Everything GetSamplerParametersForFetch reads, besides the 6 fetch constant dwords (the key's other part):
++  // - The shader's filter overrides: binding.mag_filter, min_filter, mip_filter, aniso_filter (not
++  //   binding.fetch_constant: only the value of the fetch constant matters, so entries are shared between
++  //   fetch constant slots).
++  // - anisotropic_override: only whether it's within [0, 6), and its value then.
++  // - gpu_allow_invalid_fetch_constants (in BindingInfoFromFetchConstant, for "invalid"-type fetch constants).
++  // Not in the key because they're fixed for the lifetime of the texture cache: max_anisotropy_ and
++  // host_formats_ (set only in Initialize), the device's samplerMirrorClampToEdge (NormalizeClampMode) and the
++  // static format tables (GetHostFormatPair's unaligned fallbacks, FormatInfo, GetBaseFormat).
++  int32_t anisotropic_override = REXCVAR_GET(anisotropic_override);
++  uint32_t anisotropic_override_key =
++      (anisotropic_override > -1 && anisotropic_override < 6) ? uint32_t(anisotropic_override) + 1 : 0;
++  return uint32_t(binding.mag_filter) | (uint32_t(binding.min_filter) << 2) |
++         (uint32_t(binding.mip_filter) << 4) | (uint32_t(binding.aniso_filter) << 6) |
++         (anisotropic_override_key << 9) |
++         (uint32_t(REXCVAR_GET(gpu_allow_invalid_fetch_constants) ? 1 : 0) << 12) |
++         // Valid entry marker - zero-initialized entries never match.
++         (UINT32_C(1) << 31);
++}
++
++VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParametersCached(
++    const xenos::xe_gpu_texture_fetch_t& fetch, const VulkanShader::SamplerBinding& binding,
++    bool verify) const {
++  if (!sampler_parameter_cache_) {
++    sampler_parameter_cache_.reset(
++        new SamplerParameterCacheSet[size_t(1) << kSamplerParameterCacheSetCountLog2]());
++    REXGPU_INFO("[s6][CP6] Sampler parameter cache allocated ({} sets of 2 entries)",
++                uint32_t(1) << kSamplerParameterCacheSetCountLog2);
++  }
++
++  // Keyed on the value: a fetch constant re-sent with the same value (or the same texture bound again later)
++  // still hits, unlike invalidation through TextureFetchConstantWritten.
++  uint64_t key_fetch[3];
++  static_assert(sizeof(key_fetch) == sizeof(fetch));
++  std::memcpy(key_fetch, &fetch, sizeof(key_fetch));
++  uint32_t key_extra = GetSamplerParameterCacheExtraKey(binding);
++  uint64_t hash = key_fetch[0] * UINT64_C(0x9E3779B97F4A7C15);
++  hash = (hash ^ (hash >> 32) ^ key_fetch[1]) * UINT64_C(0xBF58476D1CE4E5B9);
++  hash = (hash ^ (hash >> 32) ^ key_fetch[2]) * UINT64_C(0x94D049BB133111EB);
++  hash = (hash ^ (hash >> 32) ^ key_extra) * UINT64_C(0x9E3779B97F4A7C15);
++  SamplerParameterCacheSet& set =
++      sampler_parameter_cache_[size_t(hash >> (64 - kSamplerParameterCacheSetCountLog2))];
++  const SamplerParameterCacheEntry* hit_entry = nullptr;
++  for (const SamplerParameterCacheEntry& entry : set.entries) {
++    if (!((entry.key_fetch[0] ^ key_fetch[0]) | (entry.key_fetch[1] ^ key_fetch[1]) |
++          (entry.key_fetch[2] ^ key_fetch[2]) | uint64_t(entry.key_extra ^ key_extra))) {
++      hit_entry = &entry;
++      break;
++    }
++  }
++
++  SamplerCacheStats& stats = sampler_cache_stats_;
++  ++stats.parameter_lookups;
++  if (hit_entry) {
++    ++stats.parameter_hits;
++    if (!verify) {
++      return hit_entry->parameters;
++    }
++  }
++
++  SamplerParameters parameters = GetSamplerParametersForFetch(fetch, binding);
++
++  if (hit_entry) {
++    // Verification of a hit. The original result is returned, and the entry is left as is, so a wrong entry
++    // keeps being counted.
++    ++stats.parameter_verified;
++    if (hit_entry->parameters != parameters) {
++      ++stats.parameter_mismatches;
++      ++stats.parameter_mismatches_total;
++      if (stats.parameter_mismatches_logged < kSamplerCacheMismatchLogLimit) {
++        ++stats.parameter_mismatches_logged;
++        REXGPU_WARN(
++            "[s6][CP6] Sampler parameter cache mismatch {}: fetch constant {} ({:08X} {:08X} {:08X} {:08X} "
++            "{:08X} {:08X}), shader filters mag {} min {} mip {} aniso {}, key extra 0x{:08X}; cached "
++            "0x{:06X} ({}), computed 0x{:06X} ({}); differing fields: {}",
++            stats.parameter_mismatches_total, uint32_t(binding.fetch_constant), fetch.dword_0,
++            fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5,
++            uint32_t(binding.mag_filter), uint32_t(binding.min_filter), uint32_t(binding.mip_filter),
++            uint32_t(binding.aniso_filter), key_extra, hit_entry->parameters.value,
++            DescribeSamplerParameters(hit_entry->parameters), parameters.value,
++            DescribeSamplerParameters(parameters),
++            GetSamplerParametersDifference(hit_entry->parameters, parameters));
++      }
++    }
++    return parameters;
++  }
++
++  // Miss - store, unless a setting in the key was changed (from another thread) during the computation. A
++  // 2-entry FIFO per set: the new entry goes first, the older first entry replaces the second.
++  if (GetSamplerParameterCacheExtraKey(binding) == key_extra) {
++    set.entries[1] = set.entries[0];
++    SamplerParameterCacheEntry& new_entry = set.entries[0];
++    std::memcpy(new_entry.key_fetch, key_fetch, sizeof(key_fetch));
++    new_entry.key_extra = key_extra;
++    new_entry.parameters = parameters;
++  }
++  return parameters;
++}
++
++void VulkanTextureCache::ReportSamplerCacheStats() {
++  SamplerCacheStats& stats = sampler_cache_stats_;
++  if (++stats.frames < kSamplerCacheSummaryFrames) {
++    return;
++  }
++  REXGPU_INFO(
++      "[s6][CP6] Sampler caches (cache {}, verify {}), last {} frames: parameters {} lookups, {} hits "
++      "({:.1f}%), {} hits verified, {} mismatches; samplers {} lookups, {} skipped ({:.1f}%), {} skips "
++      "verified, {} mismatches; mismatches since start: {} parameters, {} samplers",
++      REXCVAR_GET(vulkan_sampler_param_cache), REXCVAR_GET(vulkan_sampler_param_cache_verify),
++      stats.frames, stats.parameter_lookups, stats.parameter_hits,
++      GetSamplerCachePercentage(stats.parameter_hits, stats.parameter_lookups),
++      stats.parameter_verified, stats.parameter_mismatches, stats.use_calls, stats.use_hits,
++      GetSamplerCachePercentage(stats.use_hits, stats.use_calls), stats.use_verified,
++      stats.use_mismatches, stats.parameter_mismatches_total, stats.use_mismatches_total);
++  stats.parameter_lookups = 0;
++  stats.parameter_hits = 0;
++  stats.parameter_verified = 0;
++  stats.parameter_mismatches = 0;
++  stats.use_calls = 0;
++  stats.use_hits = 0;
++  stats.use_verified = 0;
++  stats.use_mismatches = 0;
++  stats.frames = 0;
++}
++
+ VkSampler VulkanTextureCache::UseSampler(SamplerParameters parameters, bool& has_overflown_out) {
++  // wwe2k14 patch (Session 6, CP6): skip the samplers_ lookup for parameters already looked up in the current
++  // submission. Within one submission, UseSamplerUncached's result for given parameters can't change: it only
++  // destroys samplers whose last usage submission has completed (the current one is still open, so a sampler
++  // returned in it stays alive until the submission index changes), and for a sampler already used in the
++  // current submission it only returns it (the LRU position is updated once per submission, on the first
++  // call). The submission index changes only when a submission is ended, so entries from earlier submissions
++  // never match. Settings read per call, safe to flip at any time.
++  bool cache_verify = REXCVAR_GET(vulkan_sampler_param_cache_verify);
++  if (!cache_verify && !REXCVAR_GET(vulkan_sampler_param_cache)) {
++    return UseSamplerUncached(parameters, has_overflown_out);
++  }
++
++  assert_true(command_processor_.submission_open());
++  uint64_t submission_current = command_processor_.GetCurrentSubmission();
++  if (!sampler_use_cache_) {
++    sampler_use_cache_.reset(new SamplerUseCacheEntry[size_t(1) << kSamplerUseCacheSizeLog2]());
++  }
++  SamplerUseCacheEntry& entry =
++      sampler_use_cache_[(parameters.value * UINT32_C(0x9E3779B1)) >> (32 - kSamplerUseCacheSizeLog2)];
++  SamplerCacheStats& stats = sampler_cache_stats_;
++  ++stats.use_calls;
++  bool hit = entry.submission == submission_current && entry.parameters == parameters;
++  if (hit) {
++    ++stats.use_hits;
++    if (!cache_verify) {
++      has_overflown_out = false;
++      return entry.sampler;
++    }
++  }
++
++  VkSampler sampler = UseSamplerUncached(parameters, has_overflown_out);
++
++  if (hit) {
++    // Verification of a skip - the looked up result is returned.
++    ++stats.use_verified;
++    if (sampler != entry.sampler || has_overflown_out) {
++      ++stats.use_mismatches;
++      ++stats.use_mismatches_total;
++      if (stats.use_mismatches_logged < kSamplerCacheMismatchLogLimit) {
++        ++stats.use_mismatches_logged;
++        REXGPU_WARN(
++            "[s6][CP6] Sampler lookup cache mismatch {}: parameters 0x{:06X} ({}), submission {}: cached "
++            "sampler 0x{:X}, looked up 0x{:X} (overflow {})",
++            stats.use_mismatches_total, parameters.value, DescribeSamplerParameters(parameters),
++            submission_current, GetSamplerHandleValue(entry.sampler), GetSamplerHandleValue(sampler),
++            has_overflown_out);
++      }
++    }
++    return sampler;
++  }
++
++  if (sampler != VK_NULL_HANDLE) {
++    entry.submission = submission_current;
++    entry.sampler = sampler;
++    entry.parameters = parameters;
++  }
++  return sampler;
++}
++
++VkSampler VulkanTextureCache::UseSamplerUncached(SamplerParameters parameters,
++                                                 bool& has_overflown_out) {
+   assert_true(command_processor_.submission_open());
+   uint64_t submission_current = command_processor_.GetCurrentSubmission();
+ 

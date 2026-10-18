@@ -1,0 +1,28 @@
+# Session 11 (GENERATED copy of launch_to_match.txt with a longer tail): boot, let --wwe2k14_launch=NAME fire from the main menu, run through the entrances to the match scene
+# (M3.PAC), 12000 frames past it (multi-man matches open M3.PAC before their entrances), screenshots every 3000 frames, quit. Untimed (lanes OK). Used to fill the BPE corpus
+# (--wwe2k14_bpe_corpus=true) and for native-decoder checks. Needs the frozen user data (run_list.ps1). on_fail quit.
+# Screenshots m_* are local only.
+on_fail quit
+log l2m: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log l2m: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log l2m: in-game sequence loading
+wait_file M3.PAC 36000
+log l2m: match scene
+screenshot_every 3000 m
+wait_frames 12000
+screenshot_every 0 m
+screenshot m_m12000
+wait_frames 60
+log l2m: end
+quit

@@ -1,0 +1,35 @@
+# Jump-table overrides for switches ReXGlue sized wrongly. Keyed by the bctr address.
+# Symptom of a too-small table: native crash 0xC000001D (illegal instruction) at a ud2 = the generated
+# `default: __builtin_trap(); // Switch case out of range`. Trace the Windows event-log fault offset through
+# out/build/win-amd64-release/wwe2k14.map to the sub_XXXXXXXX, then read the table with
+# --wwe2k14_dump_words=<bctr>:<entries+1>.
+
+# sub_835A9728 (bit-stream decoder; crashed when Create a Story loaded an arena, wwe2k14_009.log,
+# event log: fault offset 0x535AA7 = ud2 in sub_835A9728's host code).
+# Index r19 is (bits & 7) for 0..6, or 7 + (2 more bits) = 7..10 on the escape code 7, so the table has
+# 11 entries; ReXGlue only found 8. Entries read from guest memory with --wwe2k14_dump_words=0x835A97E0:12:
+# 0x835A97E0 = 0x4E800420 (bctr); table 0x835A97E4..0x835A980F; case 0 code starts at 0x835A9810 = table end.
+[[switch_tables]]
+address = 0x835A97E0
+register = 19
+labels = [0x835A9810, 0x835A9838, 0x835A9A1C, 0x835A9C00, 0x835A9DE4, 0x835A9FC8,
+          0x835AA1AC, 0x835AA390, 0x835AA574, 0x835AA7A4, 0x835AA9D4]
+
+# --- Audit 2026-10-07 (after a 2nd ud2 crash in sub_835AD638 when Create a Story loaded an arena, wwe2k14_011.log,
+# event log fault offset 0x4E1F338). All 1,159 switches checked: 66 flagged by "table end == first case label",
+# all 66 tables dumped with --wwe2k14_dump_words (wwe2k14_012.log). True length = consecutive entries pointing
+# inside the owning function. 63 were already correct, 1 is not an absolute-address table (sub_82CF65E0, left
+# alone), and these 2 are too short. Same decoder family as sub_835A9728 (3-bit code, escape 7 -> +2 bits). ---
+
+# sub_835ABFE8: ReXGlue found 8 entries, table data has 11 in-function targets (next word 0x1BE00774 is outside the function)
+[[switch_tables]]
+address = 0x835AC0A0
+register = 20
+labels = [0x835AC0D0, 0x835AC0E0, 0x835AC268, 0x835AC3F0, 0x835AC578, 0x835AC700, 0x835AC888, 0x835ACA10, 0x835ACB98, 0x835ACD44, 0x835ACEF0]
+
+# sub_835AD638: ReXGlue found 4 entries, table data has 11 in-function targets (next word 0x3B000000 is outside the function)
+[[switch_tables]]
+address = 0x835AD6E4
+register = 10
+labels = [0x835AD714, 0x835AD728, 0x835AD778, 0x835AD7C8, 0x835AD818, 0x835AD868, 0x835AD8B0, 0x835AD900, 0x835AD950, 0x835AD9CC, 0x835ADA48]
+

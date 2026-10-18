@@ -1,0 +1,35 @@
+# Session 18 (item 9): who writes the logo editor's 256x256 canvas textures? Like logo_probe.txt, then in the editor a
+# write watch on the first canvas texture's first words (address from run 1402's texture loads: 0x1E81D000, linear
+# k_8_8_8_8) and on its mid row; the [wwe2k14][watch] lines name the writing guest function. Untimed. on_fail quit.
+on_fail quit
+log lw: start
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+press DOWN
+press DOWN
+press A
+wait_frames 80
+press DOWN 60
+wait_frames 30
+press A
+wait_file CASTHUMB.PAC 900
+wait_file SaveData.Dat 1800
+wait_frames 280
+log lw: logo grid
+press A
+wait_frames 60
+press A
+wait_frames 90
+log lw: editor
+watch 0xA570C604 4 any
+watch 0xA574C614 4 any
+wait_frames 20
+unwatch
+log lw: end
+quit

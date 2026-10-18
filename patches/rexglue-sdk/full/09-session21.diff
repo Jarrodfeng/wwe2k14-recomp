@@ -1,0 +1,814 @@
+# ReXGlue SDK changes for WWE 2K14 (session21): a63272c9e3a9..fef3684baf86 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  fef3684 Session 21 ONCE: present_guest_frames_once (default off): the UI thread presents only when a new guest frame is ready (no tick repeats) and without waiting for the UI tick (a refresh wakes the wait); [s21][ONCE] log
+#  895f299 Session 21 HOIST: a pixel shader's vertex fetches (not requested) count as an access to every page; whole-buffer marks set the all flag
+#  2769aa0 Session 21 HOIST: vulkan_upload_hoist (default 0): 1 = count, 2 = copy shared memory uploads whose pages nothing earlier in the submission accessed in a stream that runs first in the command buffer (one barrier pair per submission instead of a pair + render pass break per upload); access tracking per page (RequestRanges hook, in-sync vertex fetch, GPU writes); a submission with untracked accesses hoists nothing
+#  8a1dfd6 Session 21 BARMAP: gpu_barrier_map (default 0): SubmitBarriers batches per call site (3 return addresses), with commands, buffer (shared / EDRAM / other) and image barriers, render passes ended and stage masks; measurement only
+
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index 787a705749d00ad21dd668d84bb7f23973188501..600b720a72470a44941e6dafd1ed32694c472787 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -78,6 +78,9 @@ class SharedMemory {
+   // ensures the host GPU memory backing the range are resident. Returns true if
+   // the range has been fully updated and is usable.
+   bool RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, size_t count);
++  // wwe2k14 patch (Session 21, HOIST): called after every RequestRanges (whatever it found or uploaded, also on
++  // failure) with the ranges it was given: the GPU work recorded next may read them. Command processor thread.
++  virtual void OnRangesRequested(const std::pair<uint32_t, uint32_t>* ranges, size_t count) {}
+   bool RequestRange(uint32_t start, uint32_t length);
+ 
+   // wwe2k14 patch (Session 6, COUNTERS): RequestRanges statistics for the per-frame timeline counters, taken
+@@ -192,6 +195,9 @@ class SharedMemory {
+   // MakeRangeValid has page granularity). upload_page_ranges are sorted in
+   // ascending address order, so front and back can be used to determine the
+   // overall bounds of pages to be uploaded.
++  // wwe2k14 patch (Session 21, HOIST): RequestRanges before the OnRangesRequested call.
++  bool RequestRangesInner(const std::pair<uint32_t, uint32_t>* ranges, size_t count);
++
+   virtual bool UploadRanges(
+       const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) = 0;
+ 
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 375e7b23ea525d6ebd399f2dd734733fb824341e..900f00d2e267ef58aa51c56ed9a464626940e2f0 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -172,6 +172,10 @@ class VulkanCommandProcessor : public CommandProcessor {
+ 
+   // Returns the deferred drawing command list for the currently open
+   // submission.
++  // wwe2k14 patch (Session 21, HOIST): the current submission's hoist stream (vulkan_upload_hoist 2), which runs
++  // before the deferred command buffer's commands in the same command buffer. The first call in a submission
++  // records its opening barrier (all earlier queue work -> transfer); EndSubmission closes it (transfer -> all).
++  DeferredCommandBuffer& BeginHoistedUpload();
+   DeferredCommandBuffer& deferred_command_buffer() {
+     assert_true(submission_open_);
+     return deferred_command_buffer_;
+@@ -890,6 +894,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+   std::vector<CommandBuffer> command_buffers_writable_;
+   std::deque<std::pair<uint64_t, CommandBuffer>> command_buffers_submitted_;
+   DeferredCommandBuffer deferred_command_buffer_;
++  // wwe2k14 patch (Session 21, HOIST): see BeginHoistedUpload.
++  DeferredCommandBuffer hoist_command_buffer_;
++  bool hoist_pending_ = false;
+ 
+   // wwe2k14 patch (Session 7b, GPUMARKS): what a submission's command buffer writes around its recorded commands
+   // for gpu_anatomy_gpu_marks (see GpuMarks): resets of the query ranges its marks use (at its start, before any
+@@ -914,6 +921,7 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // command buffers and submits them, in order, so the command processor thread can carry on translating.
+   struct AsyncSubmitJob {
+     std::vector<uintmax_t> stream;
++    std::vector<uintmax_t> hoist_stream;  // wwe2k14 patch (Session 21, HOIST): replayed before stream
+     CommandBuffer command_buffer;
+     std::vector<VkSemaphore> wait_semaphores;
+     std::vector<VkPipelineStageFlags> wait_stage_masks;
+@@ -1196,6 +1204,27 @@ class VulkanCommandProcessor : public CommandProcessor {
+   uint64_t recstats_group_draws_ = 0;
+   uint64_t recstats_rest_draws_ = 0;
+ 
++  // wwe2k14 patch (Session 21, BARMAP): gpu_barrier_map. Measurement only: SubmitBarriers batches per call site.
++  struct BarMapSite {
++    uintptr_t stack[3] = {};
++    uint64_t batches = 0;
++    uint64_t commands = 0;
++    uint64_t buffer_shared = 0;
++    uint64_t buffer_edram = 0;
++    uint64_t buffer_other = 0;
++    uint64_t images = 0;
++    uint64_t render_pass_ends = 0;
++    VkPipelineStageFlags src_stages = 0;
++    VkPipelineStageFlags dst_stages = 0;
++  };
++  void BarMapRecord();
++  void BarMapFrameBoundary();
++  static void BarMapRecordModuleAnchor();
++  int32_t barmap_frames_ = 0;  // the summary window (frames); 0 = off
++  uint32_t barmap_window_frames_ = 0;
++  uint64_t barmap_first_frame_ = 0;
++  std::unordered_map<uint64_t, BarMapSite> barmap_sites_;
++
+   std::vector<VkSparseMemoryBind> sparse_memory_binds_;
+   std::vector<SparseBufferBind> sparse_buffer_binds_;
+   // SparseBufferBind converted to VkSparseBufferMemoryBindInfo to this buffer
+diff --git a/include/rex/graphics/vulkan/shared_memory.h b/include/rex/graphics/vulkan/shared_memory.h
+index a036e52ba31d5f1517c77e40c718f1e0ab6a79e1..b2094c7d04a680810431aabc0e5ea22a1f30bad6 100644
+--- a/include/rex/graphics/vulkan/shared_memory.h
++++ b/include/rex/graphics/vulkan/shared_memory.h
+@@ -68,6 +68,15 @@ class VulkanSharedMemory : public SharedMemory {
+ 
+   VkBuffer buffer() const { return buffer_; }
+ 
++  // wwe2k14 patch (Session 21, HOIST): vulkan_upload_hoist. An upload whose pages no GPU command recorded earlier in
++  // the current submission accessed (requested, read in sync, or written) is copied in the submission's hoist
++  // stream, which runs before everything else in its command buffer, instead of in place (no barriers or render
++  // pass break at the draw). Accesses are tracked per page for the current submission. Command processor thread.
++  void OnRangesRequested(const std::pair<uint32_t, uint32_t>* ranges, size_t count) override;
++  void MarkHoistAccess(uint32_t start, uint32_t length);
++  // At each frame boundary: the cpf_hoist timeline event and the [s21][HOIST] log about every 300 frames.
++  void RecordHoistFrameCounters(uint64_t frame);
++
+   // wwe2k14 patch (Session 7b, REBAR): for the command processor's cpf_rebar events and [s7][REBAR] summary
+   // (command processor thread only). The upload buffer pool (null outside Initialize..Shutdown); the host
+   // time of the UploadRanges copies into it (rex::chrono::Clock::QueryHostTickCount ticks, counted while the
+@@ -172,6 +181,28 @@ class VulkanSharedMemory : public SharedMemory {
+   NarrowBarrierStats narrow_barrier_window_stats_;
+   uint64_t narrow_barrier_window_first_frame_ = UINT64_MAX;
+   // wwe2k14 patch (Session 7b, REBAR): see upload_copy_ticks().
++  // wwe2k14 patch (Session 21, HOIST): see OnRangesRequested. hoist_accessed_ has one bit per page of buffer_,
++  // valid for hoist_accessed_submission_ (cleared lazily when the submission changes); hoist_accessed_all_ = some
++  // access had no known range (every page counts as accessed until the submission ends).
++  bool HoistPagesUntouched(const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges);
++  void HoistMarkPages(uint32_t page_first, uint32_t page_count);
++  void HoistSyncSubmission();
++  std::vector<uint64_t> hoist_accessed_;
++  uint64_t hoist_accessed_submission_ = UINT64_MAX;
++  bool hoist_accessed_all_ = false;
++  struct HoistStats {
++    uint64_t calls = 0;           // UploadRanges calls
++    uint64_t pages = 0;
++    uint64_t hoistable_calls = 0;  // no page accessed earlier in the submission
++    uint64_t hoistable_pages = 0;
++    uint64_t hoisted_calls = 0;    // copied in the hoist stream (vulkan_upload_hoist 2)
++    uint64_t hoisted_pages = 0;
++    uint64_t blocked_all = 0;      // not hoistable because of an access without a known range
++  };
++  HoistStats hoist_frame_stats_;
++  HoistStats hoist_window_stats_;
++  uint64_t hoist_window_first_frame_ = UINT64_MAX;
++  uint64_t hoist_window_frames_ = 0;
+   uint64_t upload_copy_ticks_ = 0;
+   uint64_t upload_verify_skipped_ = 0;
+   bool upload_verify_skip_logged_ = false;
+diff --git a/include/rex/ui/presenter.h b/include/rex/ui/presenter.h
+index 9dc72482bd7b7a843c02b5f4b07ad499349cfd31..b480291807ab7d136fdc5e72c80b433be98389fc 100644
+--- a/include/rex/ui/presenter.h
++++ b/include/rex/ui/presenter.h
+@@ -375,6 +375,11 @@ class Presenter {
+   void RequestUIPaintFromUIThread();
+ 
+  protected:
++  // wwe2k14 patch (Session 21, ONCE): called by the implementation after presenting a guest frame.
++  void NotePresentedGuestFrame(uint64_t refresh_seq) {
++    guest_output_presented_seq_.store(refresh_seq, std::memory_order_relaxed);
++  }
++
+   enum class PaintResult {
+     kPresented,
+     kPresentedSuboptimal,
+@@ -959,6 +964,18 @@ class Presenter {
+   // refresher may write to.
+   // wwe2k14 patch (Session 19, LATENCY): refreshes so far (the producer thread only).
+   uint64_t guest_output_refresh_seq_ = 0;
++  // wwe2k14 patch (Session 21, ONCE): present_guest_frames_once. The refresh sequence number of the newest image
++  // in the mailbox (stored after it becomes ready) and of the last one presented (PaintAndPresentImpl).
++  std::atomic<uint64_t> guest_output_ready_seq_{0};
++  uint64_t writable_properties_seq_for_once_ = 0;  // guest output thread
++  std::atomic<uint64_t> guest_output_presented_seq_{0};
++  struct OnceStats {
++    uint64_t ui_paints = 0;       // PaintFromUIThread calls that wanted to paint
++    uint64_t skipped = 0;         // of those, not presented: no new guest frame
++    uint64_t tick_waits_skipped = 0;  // presented without waiting for the UI tick (a new guest frame)
++  };
++  OnceStats once_stats_;
++  uint64_t once_log_last_ms_ = 0;
+   uint32_t guest_output_mailbox_writable_ = 1;
+   // The guest output images may be consumed by two operations - painting, and
+   // capturing to a CPU-side buffer. These two usually never happen in parallel
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index 99d4e93c9f79a02364429a91df320bc8cd188f65..6650b29dd500c91bb1803c820ae73f862900cd8b 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -455,6 +455,15 @@ void SharedMemory::UnlinkWatchRange(WatchRange* range) {
+ }
+ 
+ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, size_t count) {
++  // wwe2k14 patch (Session 21, HOIST): every request, after its own uploads were decided.
++  const bool result = RequestRangesInner(ranges, count);
++  if (ranges && count) {
++    OnRangesRequested(ranges, count);
++  }
++  return result;
++}
++
++bool SharedMemory::RequestRangesInner(const std::pair<uint32_t, uint32_t>* ranges, size_t count) {
+   ++request_stats_.calls;  // wwe2k14 patch (Session 6, COUNTERS)
+   if (ranges == nullptr || !count) {
+     return true;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index dfb368e8d4c21992a23ba3d403f7c98b110946a6..a0de86ce714e47a8c57cd66b3bc27ab3a7a2435b 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -80,6 +80,12 @@ REXCVAR_DEFINE_INT32(gpu_record_stats, 0, "GPU",
+ REXCVAR_DEFINE_STRING(gpu_record_stats_vs, "", "GPU",
+                       "wwe2k14 (Session 20): comma-separated vertex shader hashes (hex) counted as the group by "
+                       "gpu_record_stats");
++// wwe2k14 patch (Session 21, BARMAP)
++REXCVAR_DEFINE_INT32(gpu_barrier_map, 0, "GPU",
++                     "wwe2k14 (Session 21): N > 0 = log [s21][BARMAP] every N frames: the barrier batches recorded "
++                     "by SubmitBarriers per frame, by call site (3 return addresses), with their pipeline barrier "
++                     "commands, buffer barriers (shared memory / EDRAM / other), image barriers, the render passes "
++                     "they ended and the ORed stage masks. Measurement only (a stack capture per batch)");
+ REXCVAR_DEFINE_INT32(gpu_resolve_log, 0, "GPU",
+                      "Log the next N resolves (source colour RT / depth, copy and EDRAM registers, written range), "
+                      "then reset to 0");
+@@ -2003,6 +2009,7 @@ VulkanCommandProcessor::VulkanCommandProcessor(VulkanGraphicsSystem* graphics_sy
+                                                system::KernelState* kernel_state)
+     : CommandProcessor(graphics_system, kernel_state),
+       deferred_command_buffer_(*this),
++      hoist_command_buffer_(*this, 64 * 1024),
+       transient_descriptor_allocator_uniform_buffer_(
+           static_cast<const ui::vulkan::VulkanProvider*>(graphics_system->provider())
+               ->vulkan_device(),
+@@ -5389,6 +5396,9 @@ bool VulkanCommandProcessor::SubmitBarriers(bool force_end_render_pass) {
+     }
+     return false;
+   }
++  if (barmap_frames_ > 0) {
++    BarMapRecord();  // wwe2k14 patch (Session 21, BARMAP): before EndRenderPass (counts the pass it ends)
++  }
+   EndRenderPass();
+   // wwe2k14 patch (Session 7c, CAUSES): one batch (the barriers below are recorded back to back).
+   ++cause_counts_.barrier_batches;
+@@ -6132,6 +6142,9 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+         GpuTimestampsWriteBegin(job.command_buffer.buffer, job.timestamp_slot);
+       }
+       GpuMarksWriteBegin(job.command_buffer.buffer, job.gpu_marks);  // wwe2k14 patch (Session 7b, GPUMARKS)
++      if (!job.hoist_stream.empty()) {  // wwe2k14 patch (Session 21, HOIST)
++        deferred_command_buffer_.ExecuteStream(job.hoist_stream, job.command_buffer.buffer);
++      }
+       deferred_command_buffer_.ExecuteStream(job.stream, job.command_buffer.buffer);
+       GpuMarksWriteEnd(job.command_buffer.buffer, job.gpu_marks);  // wwe2k14 patch (Session 7b, GPUMARKS)
+       if (job.timestamp_slot != UINT32_MAX) {
+@@ -6893,6 +6906,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+           VertexResidencyCheckInSync(*vertex_residency_check, vfetch_index);
+         }
+         if (!vertex_residency_cache_off) {
++          // wwe2k14 patch (Session 21, HOIST): the draw reads the range last requested for this constant.
++          const VertexBufferState& in_sync_state = vertex_buffer_states_[vfetch_index];
++          shared_memory_->MarkHoistAccess(in_sync_state.address << 2, in_sync_state.size << 2);
+           continue;
+         }
+       }
+@@ -6925,6 +6941,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         }
+         if (!vertex_residency_cache_off) {
+           vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
++          // wwe2k14 patch (Session 21, HOIST): the draw reads this (unchanged) range.
++          shared_memory_->MarkHoistAccess(vfetch_constant.address << 2, vfetch_constant.size << 2);
+           continue;
+         }
+       }
+@@ -7028,6 +7046,20 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       }
+     }
+   }
++  // wwe2k14 patch (Session 21, HOIST): a pixel shader's vertex fetches are not requested above (only the vertex
++  // shader's are), so the pages they read are unknown: every page counts as accessed in this submission.
++  if (pixel_shader) {
++    bool pixel_shader_vertex_fetches = !pixel_shader->vertex_bindings().empty();
++    const Shader::ConstantRegisterMap& constant_map_pixel_hoist = pixel_shader->constant_register_map();
++    for (uint32_t i = 0; i < rex::countof(constant_map_pixel_hoist.vertex_fetch_bitmap); ++i) {
++      if (constant_map_pixel_hoist.vertex_fetch_bitmap[i]) {
++        pixel_shader_vertex_fetches = true;
++      }
++    }
++    if (pixel_shader_vertex_fetches) {
++      shared_memory_->MarkHoistAccess(0, SharedMemory::kBufferSize);
++    }
++  }
+   VkPipelineStageFlags shared_memory_access_stages =
+       shared_memory_->GetGuestDrawAccessStages(pixel_shader_accesses_shared_memory);
+   if (memexport_extent_start < memexport_extent_end) {
+@@ -9161,6 +9193,8 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+     // the end of the submission (when async pipeline object creation requests
+     // are fulfilled).
+     deferred_command_buffer_.Reset();
++    hoist_command_buffer_.Reset();  // wwe2k14 patch (Session 21, HOIST)
++    hoist_pending_ = false;
+     // wwe2k14 patch (Session 7c, CAUSES): where the submission starts among the anatomy rows (GPU marks).
+     if (gpu_marks_) {
+       GpuMarksBeginSubmission();
+@@ -9432,6 +9466,19 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ 
+     SubmitBarriers(true);
+ 
++    // wwe2k14 patch (Session 21, HOIST): close the hoist stream - its copies happen before every command
++    // of this submission (and their writes are visible to them).
++    if (hoist_pending_) {
++      VkMemoryBarrier hoist_barrier;
++      hoist_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
++      hoist_barrier.pNext = nullptr;
++      hoist_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++      hoist_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
++      hoist_command_buffer_.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
++                                                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &hoist_barrier, 0,
++                                                 nullptr, 0, nullptr);
++    }
++
+     assert_false(command_buffers_writable_.empty());
+     CommandBuffer command_buffer = command_buffers_writable_.back();
+     assert_false(fences_free_.empty());
+@@ -9479,6 +9526,11 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       }
+       // The job takes the recorded commands; the deferred buffer continues with a recycled (empty) stream.
+       deferred_command_buffer_.SwapStream(job.stream);
++      if (hoist_pending_) {  // wwe2k14 patch (Session 21, HOIST)
++        hoist_command_buffer_.SwapStream(job.hoist_stream);
++        hoist_command_buffer_.Reset();
++        hoist_pending_ = false;
++      }
+       // wwe2k14 patch (Session 6, DRAIN): whether the swap job has to wait behind earlier ones (a drain avoided).
+       bool async_swap_backlogged = false;
+       {
+@@ -9528,6 +9580,11 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       GpuTimestampsWriteBegin(command_buffer.buffer, timestamp_slot);
+     }
+     GpuMarksWriteBegin(command_buffer.buffer, gpu_marks);  // wwe2k14 patch (Session 7b, GPUMARKS)
++    if (hoist_pending_) {  // wwe2k14 patch (Session 21, HOIST)
++      hoist_command_buffer_.Execute(command_buffer.buffer);
++      hoist_command_buffer_.Reset();
++      hoist_pending_ = false;
++    }
+     deferred_command_buffer_.Execute(command_buffer.buffer);
+     GpuMarksWriteEnd(command_buffer.buffer, gpu_marks);  // wwe2k14 patch (Session 7b, GPUMARKS)
+     if (timestamp_slot != UINT32_MAX) {
+@@ -11931,6 +11988,7 @@ void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
+                            uint32_t(upload_skip_stats.hash_ns / 1000));
+     // wwe2k14 patch (Session 7b, BARNARROW): cpf_bar (recorded here, before the cpf* events) and its log.
+     shared_memory_->RecordNarrowBarrierFrameCounters(GetCurrentFrame());
++    shared_memory_->RecordHoistFrameCounters(GetCurrentFrame());  // wwe2k14 patch (Session 21, HOIST)
+   }
+   counters.checkpoint_next_id = crash_checkpoints_enabled() ? uint32_t(crash_checkpoint_next_id_) : 0;
+   RebarFrameBoundary();  // wwe2k14 patch (Session 7b, REBAR)
+@@ -11940,6 +11998,7 @@ void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
+   }
+   CausesFrameBoundary();  // wwe2k14 patch (Session 7c, CAUSES): cpf_sync, cpf_sync2, [s7][CAUSES]
+   RecStatsFrameBoundary();  // wwe2k14 patch (Session 20, RECSTATS): [s20][RECSTATS]
++  BarMapFrameBoundary();    // wwe2k14 patch (Session 21, BARMAP): [s21][BARMAP]
+   // wwe2k14 patch (Session 7c, TEXLOAD): cpf_texload and the [s7][TEXLOAD] summary.
+   if (texture_cache_) {
+     texture_cache_->TexLoadFrameBoundary(frame_current_);
+@@ -12858,6 +12917,114 @@ void VulkanCommandProcessor::RecStatsFrameBoundary() {
+   recstats_window_frames_ = 1;
+ }
+ 
++// wwe2k14 patch (Session 21, HOIST): vulkan_upload_hoist 2. The opening barrier: every earlier command on the queue
++// (earlier submissions, in submission order) before the hoisted copies, its writes made available (a copy over a
++// page an earlier resolve or memexport wrote: write after write; over a page earlier draws read: write after read).
++DeferredCommandBuffer& VulkanCommandProcessor::BeginHoistedUpload() {
++  if (!hoist_pending_) {
++    hoist_pending_ = true;
++    VkMemoryBarrier hoist_barrier;
++    hoist_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
++    hoist_barrier.pNext = nullptr;
++    hoist_barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
++    hoist_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++    hoist_command_buffer_.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
++                                               1, &hoist_barrier, 0, nullptr, 0, nullptr);
++  }
++  return hoist_command_buffer_;
++}
++
++// wwe2k14 patch (Session 21, BARMAP): gpu_barrier_map. Measurement only. Called by SubmitBarriers for a non-empty
++// batch while the setting is on: the call site is 3 return addresses (RtlCaptureStackBackTrace from SubmitBarriers'
++// caller up); tools\perf\barmap.py symbolizes them against the staged PDBs. (windows.h comes in through the
++// platform headers.)
++
++void VulkanCommandProcessor::BarMapRecord() {
++  BarMapSite site;
++  void* frames[3] = {};
++  RtlCaptureStackBackTrace(1, 3, frames, nullptr);  // 1: skip SubmitBarriers itself
++  for (uint32_t i = 0; i < 3; ++i) {
++    site.stack[i] = reinterpret_cast<uintptr_t>(frames[i]);
++  }
++  const uint64_t key = site.stack[0] * 0x9E3779B97F4A7C15ull ^ (site.stack[1] * 0xC2B2AE3D27D4EB4Full) ^
++                       (site.stack[2] * 0x165667B19E3779F9ull);
++  auto [it, inserted] = barmap_sites_.try_emplace(key, site);
++  BarMapSite& s = it->second;
++  ++s.batches;
++  s.commands += uint32_t(pending_barriers_.size());
++  const VkBuffer shared_buffer = shared_memory_ ? shared_memory_->buffer() : VK_NULL_HANDLE;
++  const VkBuffer edram_buffer = render_target_cache_ ? render_target_cache_->edram_buffer() : VK_NULL_HANDLE;
++  for (const VkBufferMemoryBarrier& b : pending_barriers_buffer_memory_barriers_) {
++    if (b.buffer == shared_buffer) {
++      ++s.buffer_shared;
++    } else if (b.buffer == edram_buffer) {
++      ++s.buffer_edram;
++    } else {
++      ++s.buffer_other;
++    }
++  }
++  s.images += uint32_t(pending_barriers_image_memory_barriers_.size());
++  if (in_render_pass_) {
++    ++s.render_pass_ends;
++  }
++  for (const PendingBarrier& p : pending_barriers_) {
++    s.src_stages |= p.src_stage_mask;
++    s.dst_stages |= p.dst_stage_mask;
++  }
++}
++
++void VulkanCommandProcessor::BarMapFrameBoundary() {
++  const int32_t frames = REXCVAR_GET(gpu_barrier_map);
++  if (frames != barmap_frames_) {
++    barmap_frames_ = frames;
++    barmap_sites_.clear();
++    barmap_window_frames_ = 0;
++  }
++  if (frames <= 0) {
++    return;
++  }
++  if (barmap_window_frames_++ == 0) {
++    // The first boundary starts the window (a partial frame before it is dropped).
++    barmap_sites_.clear();
++    barmap_first_frame_ = frame_current_;
++    return;
++  }
++  if (barmap_window_frames_ <= uint32_t(frames)) {
++    return;
++  }
++  const double n = double(barmap_window_frames_ - 1);
++  std::vector<const BarMapSite*> sites;
++  uint64_t batches = 0, ends = 0;
++  for (const auto& [key, s] : barmap_sites_) {
++    sites.push_back(&s);
++    batches += s.batches;
++    ends += s.render_pass_ends;
++  }
++  std::sort(sites.begin(), sites.end(),
++            [](const BarMapSite* a, const BarMapSite* b) { return a->batches > b->batches; });
++  HMODULE module = nullptr;
++  GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                     reinterpret_cast<LPCWSTR>(&BarMapRecordModuleAnchor), &module);
++  REXGPU_INFO("[s21][BARMAP] frames {}-{}: {:.1f} SubmitBarriers batches per frame ({:.1f} ending a render pass), "
++              "{} call sites; module base {:X}",
++              barmap_first_frame_, frame_current_, double(batches) / n, double(ends) / n, sites.size(),
++              reinterpret_cast<uintptr_t>(module));
++  for (size_t i = 0; i < sites.size() && i < 40; ++i) {
++    const BarMapSite& s = *sites[i];
++    REXGPU_INFO(
++        "[s21][BARMAP] site {}: {:.2f}/frame, cmds {:.2f}, buffers shared {:.2f} edram {:.2f} other {:.2f}, images "
++        "{:.2f}, render pass ends {:.2f}, src {:08X} dst {:08X}, stack {:X} {:X} {:X}",
++        i, double(s.batches) / n, double(s.commands) / n, double(s.buffer_shared) / n, double(s.buffer_edram) / n,
++        double(s.buffer_other) / n, double(s.images) / n, double(s.render_pass_ends) / n, s.src_stages,
++        s.dst_stages, s.stack[0], s.stack[1], s.stack[2]);
++  }
++  barmap_sites_.clear();
++  barmap_first_frame_ = frame_current_;
++  barmap_window_frames_ = 1;
++}
++
++void VulkanCommandProcessor::BarMapRecordModuleAnchor() {}
++
+ // wwe2k14 patch (Session 7c, TEXLOAD): marks inside a texture load, attributed to the anatomy row being prepared
+ // (anatomy_gpu_row_). They chain with the row's other marks like any mark: each one's interval is the time since
+ // the previous mark of the submission, so the draw's pre mark then measures only what is recorded after the load.
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index c259aa4614b90dda25cba3c89809fc89f484a942..9bc63472f51db6e4ebb37ee27dd5e28df4746079 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -59,6 +59,15 @@ REXCVAR_DEFINE_BOOL(vulkan_upload_pool_device_local, false, "GPU/Vulkan",
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ // Defined in command_processor.cpp.
+ REXCVAR_DECLARE(int32_t, vulkan_device_local_upload_min_heap_mb);
++// wwe2k14 patch (Session 21, HOIST): see VulkanSharedMemory::OnRangesRequested and UploadRanges.
++REXCVAR_DEFINE_INT32(vulkan_upload_hoist, 0, "GPU/Vulkan",
++                     "wwe2k14 (Session 21): 0 = off; 1 = count the shared memory uploads whose pages no GPU "
++                     "command recorded earlier in the same submission accessed (cpf_hoist, [s21][HOIST]); 2 = "
++                     "also copy those in a stream that runs first in the submission's command buffer (one "
++                     "barrier pair per submission) instead of in place (a barrier pair and a render pass break "
++                     "each). Read per upload; a submission with any access recorded while it was 0 hoists "
++                     "nothing");
++REXCVAR_DECLARE(bool, gpu_upload_skip_unchanged_verify);
+ // wwe2k14 patch (Session 7b, REBAR): timing every UploadRanges chunk copy costs two host clock reads per chunk
+ // (about 2,000 per heavy frame), so it is opt-in rather than tied to the timeline - timeline runs without it
+ // measure what they did before. Turn it on for both runs of a vulkan_upload_pool_device_local on / off
+@@ -447,6 +456,9 @@ void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_
+   if (usage == Usage::kComputeWrite || usage == Usage::kGuestDrawReadWrite) {
+     InvalidateUploadHashes(written_range.second ? written_range.first : 0,
+                            written_range.second ? written_range.second : kBufferSize);
++    // wwe2k14 patch (Session 21, HOIST): the pages it may write are accessed in this submission.
++    MarkHoistAccess(written_range.second ? written_range.first : 0,
++                    written_range.second ? written_range.second : kBufferSize);
+   }
+   if (last_usage_ != usage || last_written_range_.second) {
+     VkPipelineStageFlags src_stage_mask, dst_stage_mask;
+@@ -680,16 +692,52 @@ bool VulkanSharedMemory::UploadRanges(
+       causes.up_pages += upload_range.second;
+     }
+   }
+-  // upload_page_ranges are sorted, use them to determine the range for the
+-  // ordering barrier.
+-  Use(Usage::kTransferDestination,
+-      std::make_pair(upload_page_ranges.front().first << page_size_log2(),
+-                     (upload_page_ranges.back().first + upload_page_ranges.back().second -
+-                      upload_page_ranges.front().first)
+-                         << page_size_log2()));
+-  CountNarrowBarrierBatch();  // wwe2k14 patch (Session 7b, BARNARROW): measurement only
+-  command_processor_.SubmitBarriers(true);
+-  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  // wwe2k14 patch (Session 21, HOIST): vulkan_upload_hoist - copy in the hoist stream when no GPU command
++  // recorded earlier in this submission accessed any of these pages (see OnRangesRequested).
++  bool hoist = false;
++  const int32_t hoist_mode = REXCVAR_GET(vulkan_upload_hoist);
++  if (hoist_mode > 0) {
++    HoistStats& hs = hoist_frame_stats_;
++    uint32_t pages = 0;
++    for (const std::pair<uint32_t, uint32_t>& r : upload_page_ranges) {
++      pages += r.second;
++    }
++    ++hs.calls;
++    hs.pages += pages;
++    if (HoistPagesUntouched(upload_page_ranges)) {
++      ++hs.hoistable_calls;
++      hs.hoistable_pages += pages;
++      // Not with the upload skip verify: its readbacks copy pages at their place in the main stream.
++      if (hoist_mode >= 2 && !REXCVAR_GET(gpu_upload_skip_unchanged_verify)) {
++        hoist = true;
++        ++hs.hoisted_calls;
++        hs.hoisted_pages += pages;
++      }
++    } else if (hoist_accessed_all_) {
++      ++hs.blocked_all;
++    }
++  }
++  if (!hoist) {
++    // upload_page_ranges are sorted, use them to determine the range for the
++    // ordering barrier.
++    Use(Usage::kTransferDestination,
++        std::make_pair(upload_page_ranges.front().first << page_size_log2(),
++                       (upload_page_ranges.back().first + upload_page_ranges.back().second -
++                        upload_page_ranges.front().first)
++                           << page_size_log2()));
++    CountNarrowBarrierBatch();  // wwe2k14 patch (Session 7b, BARNARROW): measurement only
++    command_processor_.SubmitBarriers(true);
++  }
++  // In place, or the hoist stream (its opening barrier recorded at its first copy in the submission).
++  DeferredCommandBuffer& command_buffer =
++      hoist ? command_processor_.BeginHoistedUpload() : command_processor_.deferred_command_buffer();
++  // wwe2k14 patch (Session 21, HOIST): these pages are written in this submission now (a later upload of one
++  // of them must stay after this copy).
++  if (hoist_mode > 0) {
++    for (const std::pair<uint32_t, uint32_t>& r : upload_page_ranges) {
++      HoistMarkPages(r.first, r.second);
++    }
++  }
+   uint64_t submission_current = command_processor_.GetCurrentSubmission();
+   bool successful = true;
+   upload_regions_.clear();
+@@ -767,6 +815,137 @@ bool VulkanSharedMemory::UploadRanges(
+   return successful;
+ }
+ 
++// wwe2k14 patch (Session 21, HOIST): vulkan_upload_hoist. Why a hoisted copy is safe: it runs at the start of
++// its submission's command buffer, after a barrier from every stage of all earlier queue work (earlier
++// submissions) to the transfer stage, and before a barrier from the transfer stage to every stage of what
++// follows. Moving it earlier than its place in the stream only changes what GPU work between the two places
++// sees, and only for its pages: work in the same submission recorded before the upload. Every GPU access of
++// buffer_ is recorded after a request of its range (RequestRanges -> OnRangesRequested: draws' vertex fetch,
++// index buffers, memexport streams, texture loads, resolve destinations) or, for vertex fetch constants the
++// residency cache keeps in sync, after IssueDraw marks their last requested range (MarkHoistAccess); GPU
++// writes also mark their range in Use (an unknown range = every page). An upload is hoisted only when none
++// of its pages was marked earlier in the submission, so no work between the two places touches them. Its
++// pages are marked afterwards, so a second upload of a page in the same submission stays in place (after the
++// hoist stream's closing barrier). A submission in which any access was recorded while the setting was 0 is
++// marked as all accessed (no hoisting), so toggling is safe.
++void VulkanSharedMemory::HoistSyncSubmission() {
++  const uint64_t submission = command_processor_.GetCurrentSubmission();
++  if (submission == hoist_accessed_submission_) {
++    return;
++  }
++  hoist_accessed_submission_ = submission;
++  const size_t words = size_t((kBufferSize >> page_size_log2()) + 63) >> 6;
++  if (hoist_accessed_.size() != words) {
++    hoist_accessed_.assign(words, 0);
++  } else {
++    std::fill(hoist_accessed_.begin(), hoist_accessed_.end(), uint64_t(0));
++  }
++  hoist_accessed_all_ = false;
++}
++
++void VulkanSharedMemory::HoistMarkPages(uint32_t page_first, uint32_t page_count) {
++  HoistSyncSubmission();
++  if (REXCVAR_GET(vulkan_upload_hoist) <= 0) {
++    hoist_accessed_all_ = true;  // not tracked: nothing in this submission may be hoisted
++    return;
++  }
++  const uint32_t page_total = kBufferSize >> page_size_log2();
++  if (page_first >= page_total || !page_count) {
++    return;
++  }
++  const uint32_t page_end = std::min(page_total, page_first + page_count);
++  if (page_first == 0 && page_end == page_total) {
++    hoist_accessed_all_ = true;  // the whole buffer (a memexport without known ranges, a pixel shader's vfetch)
++    return;
++  }
++  for (uint32_t p = page_first; p < page_end;) {
++    const uint32_t word = p >> 6, bit = p & 63;
++    const uint32_t n = std::min(64 - bit, page_end - p);
++    hoist_accessed_[word] |= (n == 64 ? ~uint64_t(0) : ((uint64_t(1) << n) - 1)) << bit;
++    p += n;
++  }
++}
++
++void VulkanSharedMemory::MarkHoistAccess(uint32_t start, uint32_t length) {
++  if (!length) {
++    return;
++  }
++  start = std::min(start, kBufferSize);
++  length = std::min(length, kBufferSize - start);
++  if (!length) {
++    return;
++  }
++  const uint32_t page_first = start >> page_size_log2();
++  const uint32_t page_last = (start + length - 1) >> page_size_log2();
++  HoistMarkPages(page_first, page_last - page_first + 1);
++}
++
++void VulkanSharedMemory::OnRangesRequested(const std::pair<uint32_t, uint32_t>* ranges, size_t count) {
++  for (size_t i = 0; i < count; ++i) {
++    MarkHoistAccess(ranges[i].first, ranges[i].second);
++  }
++}
++
++bool VulkanSharedMemory::HoistPagesUntouched(
++    const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) {
++  HoistSyncSubmission();
++  if (hoist_accessed_all_) {
++    return false;
++  }
++  const uint32_t page_total = kBufferSize >> page_size_log2();
++  for (const std::pair<uint32_t, uint32_t>& r : upload_page_ranges) {
++    const uint32_t page_end = std::min(page_total, r.first + r.second);
++    for (uint32_t p = r.first; p < page_end;) {
++      const uint32_t word = p >> 6, bit = p & 63;
++      const uint32_t n = std::min(64 - bit, page_end - p);
++      if (hoist_accessed_[word] & ((n == 64 ? ~uint64_t(0) : ((uint64_t(1) << n) - 1)) << bit)) {
++        return false;
++      }
++      p += n;
++    }
++  }
++  return true;
++}
++
++void VulkanSharedMemory::RecordHoistFrameCounters(uint64_t frame) {
++  // cpf_hoist a = upload calls, b = of those, hoistable, c = of those, hoisted (counted while the setting is on).
++  HoistStats& f = hoist_frame_stats_;
++  if (perf::timeline::Enabled() && f.calls) {
++    perf::timeline::Record("cpf_hoist", uint32_t(f.calls), uint32_t(f.hoistable_calls),
++                           uint32_t(f.hoisted_calls));
++  }
++  HoistStats& w = hoist_window_stats_;
++  w.calls += f.calls;
++  w.pages += f.pages;
++  w.hoistable_calls += f.hoistable_calls;
++  w.hoistable_pages += f.hoistable_pages;
++  w.hoisted_calls += f.hoisted_calls;
++  w.hoisted_pages += f.hoisted_pages;
++  w.blocked_all += f.blocked_all;
++  f = HoistStats();
++  if (hoist_window_first_frame_ == UINT64_MAX) {
++    hoist_window_first_frame_ = frame;
++    hoist_window_frames_ = 0;
++  }
++  ++hoist_window_frames_;
++  if (frame - hoist_window_first_frame_ < 300) {
++    return;
++  }
++  if (w.calls) {
++    const double n = double(hoist_window_frames_);
++    REXGPU_INFO(
++        "[s21][HOIST] frames {}-{} (vulkan_upload_hoist {}), per frame: {:.1f} upload calls ({:.1f} pages), "
++        "hoistable {:.1f} ({:.1f} pages), hoisted {:.1f} ({:.1f} pages); {:.1f} blocked by an access without a "
++        "known range or recorded while off",
++        hoist_window_first_frame_, frame, REXCVAR_GET(vulkan_upload_hoist), w.calls / n, w.pages / n,
++        w.hoistable_calls / n, w.hoistable_pages / n, w.hoisted_calls / n, w.hoisted_pages / n,
++        w.blocked_all / n);
++  }
++  w = HoistStats();
++  hoist_window_first_frame_ = frame;
++  hoist_window_frames_ = 0;
++}
++
+ bool VulkanSharedMemory::RecordUploadSkipVerify(uint32_t page, const uint8_t* bytes) {
+   // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged_verify. Called from SharedMemory::
+   // SkipUnchangedUploadPages for a page it would skip, before that request's UploadRanges (which then uploads the
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+index 7ce29cb13f5475b008b2f576f27968c57a2d128c..37b5ed0ced8b795c18d5c093e5cad87bc5ca82e7 100644
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -30,6 +30,12 @@
+ REXCVAR_DEFINE_BOOL(host_present_from_non_ui_thread, true, "UI/Presenter",
+                     "Allow presentation from non-UI thread");
+ 
++// wwe2k14 patch (Session 21, ONCE)
++REXCVAR_DEFINE_BOOL(present_guest_frames_once, false, "UI/Presenter",
++                    "wwe2k14 (Session 21): when the UI thread presents (an overlay is registered), present only "
++                    "when a new guest frame is ready (no repeats at UI ticks) and right away (a new frame wakes the "
++                    "UI tick wait) - one present per guest frame. [s21][ONCE] log about every 5 s");
++
+ REXCVAR_DEFINE_BOOL(present_letterbox, true, "UI/Presenter",
+                     "Enable letterboxing for non-native aspect ratios");
+ 
+@@ -478,13 +484,51 @@ void Presenter::PaintFromUIThread(bool force_paint) {
+       // is consistent with painting from the UI thread.
+       SetPaintModeFromUIThread(PaintMode::kUIThreadOnRequest);
+ 
+-      // Limit the frame rate of the UI, usually to the monitor refresh rate,
+-      // in a way so that the UI won't be stealing all the remaining GPU
+-      // resources if it's repainted continuously, and the window system itself
+-      // doesn't limit the frame rate.
+-      WaitForUITickFromUIThread();
++      // wwe2k14 patch (Session 21, ONCE): present_guest_frames_once - present a guest frame once, as soon as
++      // it is ready; a paint with no new guest frame (a UI tick, or the request of a frame a tick paint
++      // already showed) presents nothing. force_paint (surface changes) always paints.
++      const bool once = REXCVAR_GET(present_guest_frames_once);
++      const bool new_guest_frame = guest_output_ready_seq_.load(std::memory_order_acquire) !=
++                                   guest_output_presented_seq_.load(std::memory_order_relaxed);
++      bool skip_present = false;
++      if (once) {
++        ++once_stats_.ui_paints;
++        skip_present = !force_paint && !new_guest_frame;
++        if (skip_present) {
++          ++once_stats_.skipped;
++        }
++      }
++      if (!skip_present) {
++        // Limit the frame rate of the UI, usually to the monitor refresh rate,
++        // in a way so that the UI won't be stealing all the remaining GPU
++        // resources if it's repainted continuously, and the window system itself
++        // doesn't limit the frame rate.
++        if (once && new_guest_frame) {
++          ++once_stats_.tick_waits_skipped;  // a new guest frame: present now
++        } else {
++          WaitForUITickFromUIThread();
++        }
+ 
+-      paint_result = PaintAndPresent(draw_ui);
++        paint_result = PaintAndPresent(draw_ui);
++      } else if (draw_ui) {
++        // Keep the UI ticking (the next tick checks for a new guest frame again).
++        request_ui_paint_after_current_ui_thread_paint_ = true;
++      }
++      if (once) {
++        const uint64_t now_ms = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                                             std::chrono::steady_clock::now().time_since_epoch())
++                                             .count());
++        if (!once_log_last_ms_) {
++          once_log_last_ms_ = now_ms;
++        } else if (now_ms - once_log_last_ms_ >= 5000) {
++          REXLOG_INFO("[s21][ONCE] {:.1f} s: {} UI paints, {} skipped (no new guest frame), {} presented "
++                      "without the UI tick wait",
++                      (now_ms - once_log_last_ms_) / 1000.0, once_stats_.ui_paints, once_stats_.skipped,
++                      once_stats_.tick_waits_skipped);
++          once_stats_ = OnceStats();
++          once_log_last_ms_ = now_ms;
++        }
++      }
+       if (surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedOutdated) {
+         // Request another PaintFromUIThread which will try to recover from the
+         // outdated connection in the next frame (not immediately, so the
+@@ -570,6 +614,7 @@ bool Presenter::RefreshGuestOutput(
+     guest_output_active_last_refresh_ = true;
+     // wwe2k14 patch (Session 19, LATENCY): a = refresh sequence number of the image now becoming ready.
+     writable_properties.refresh_seq = ++guest_output_refresh_seq_;
++    writable_properties_seq_for_once_ = writable_properties.refresh_seq;  // wwe2k14 patch (Session 21, ONCE)
+     perf::timeline::Record("gorefresh", uint32_t(writable_properties.refresh_seq));
+   } else {
+     // Request presenting a blank image if there was a true image previously,
+@@ -617,6 +662,10 @@ bool Presenter::RefreshGuestOutput(
+     guest_output_mailbox_writable_ = (3 - last_acquired - guest_output_mailbox_writable_) % 3;
+   }
+ 
++  // wwe2k14 patch (Session 21, ONCE): the newest ready image (for present_guest_frames_once).
++  if (is_active) {
++    guest_output_ready_seq_.store(writable_properties_seq_for_once_, std::memory_order_release);
++  }
+   // Trigger the presentation on the host.
+   PaintResult paint_result = PaintResult::kNotPresented;
+   {
+@@ -1613,6 +1662,10 @@ void Presenter::ForceUIThreadPaintTick() {
+ #if REX_PLATFORM_WIN32
+   std::scoped_lock<std::mutex> dxgi_ui_tick_lock(dxgi_ui_tick_mutex_);
+   dxgi_ui_tick_force_requested_ = true;
++  // wwe2k14 patch (Session 21, ONCE): wake a UI thread already waiting for the tick.
++  if (REXCVAR_GET(present_guest_frames_once)) {
++    dxgi_ui_tick_signal_condition_.notify_all();
++  }
+ #endif  // XE_PLATFORM
+ }
+ 
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 80993446ae1aac792b1a536af88bdcf8683c776e..7d9c2ba420f2faba119d165771748e9d505e7f8e 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -2285,6 +2285,8 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(bool execute_ui_draw
+   }
+   // wwe2k14 patch (Session 19, LATENCY): a = refresh sequence number of the guest image presented, b = result.
+   perf::timeline::Record("hpresent", uint32_t(guest_output_properties.refresh_seq), uint32_t(present_result));
++  // wwe2k14 patch (Session 21, ONCE): the guest frame now on screen (present_guest_frames_once).
++  NotePresentedGuestFrame(guest_output_properties.refresh_seq);
+   switch (present_result) {
+     case VK_SUCCESS:
+       return PaintResult::kPresented;

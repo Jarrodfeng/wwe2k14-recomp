@@ -1,0 +1,9 @@
+# nav: logo editor -> LOGO CATEGORIES (the W stamp tool). Session 30 navigation library; `include editor_to_categories`.
+# Start: the editor (logo_screen 3), Tools window closed.
+# End:   the LOGO CATEGORIES list (logo_screen 2), category cursor 0. (logo_screen stays 2 inside a category too.)
+# Tools window = LT; tool cursor 7 = the W stamp tool (three columns: 0 pen, 3 eraser, 6 fill).
+press_until_state LT logo_screen 4
+press_until_state L_DOWN logo_tool_cursor 3
+press_until_state L_DOWN logo_tool_cursor 6
+press_until_state L_RIGHT logo_tool_cursor 7
+press_until_state A logo_screen 2

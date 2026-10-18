@@ -1,0 +1,42 @@
+# harness: fast-forward ok (Session 28 review: QUIT TO DESKTOP, the question opens, LEFT puts the highlight on YES, then B (cancel). The game must NOT close; the log line "answered" shows what the code read. Run with --wwe2k14_quit_item=true and a test settings file; the script's own quit ends the run; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 450
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+wait_state cursor 8 300 10
+log mark: A on QUIT TO DESKTOP
+press A
+wait_frames 100
+screenshot qb_1_question
+log mark: LEFT (highlight YES)
+press LEFT
+wait_frames 40
+screenshot qb_2_yes_highlighted
+log mark: B (cancel)
+press B
+wait_frames 200
+screenshot qb_3_after_b
+log_state menu
+log_state cursor
+log mark: still running after B (a quit now would be wrong)
+quit

@@ -1,0 +1,34 @@
+# Session 8 task 10: short check of the watch / snap command variants on the title route (selftest_title.txt
+# plus watch lines). Expected (from run 276): sub_823AE1B8 stores 0 to the match clock 0x836F3928 in the menus
+# (frames ~38 and ~838), so the VALUE 0 and LEN 1 watches log those writes and the `change` watch logs none.
+# The LAST step is meant to fail: it reuses the name snap1 (case differs) after unsnap, which is refused, and a
+# refused watch/snap fails the script (on_fail quit). Expected end of the log: "script FAILED at line N: snap
+# refused" and run_list reporting that failure; everything before it is the real check.
+# Run: pwsh -NoProfile -Command "& C:\Users\Jarrod\wwe2k14-recomp\tools\bench\run_list.ps1 -Scripts @('..\..\..\tools\watch\selftest_watch.txt')"
+on_fail quit
+log selftest: start
+mark 0 before_any_watch       # only in the log (marks.tsv starts with the first watch/snap); snap_report merges both
+watch 0x836F3928 4 0          # VALUE mode: writes storing 0
+watch 0x836F392B 1 any        # LEN 1: the clock's low byte (big-endian word 0x836F3928)
+watch 0x836F3920 8 change     # LEN 8, change mode: 0x836F3920..0x836F3927
+snap 0x8392DC38:0x40          # unnamed (snap1), hex LEN
+snap 0x836F392A:6 six         # LEN not a multiple of 4: snap_report pads the last word
+snap 0x00010000:16 low        # unmapped guest page: unreadable records, retried every 60 frames
+mark 1 armed
+wait_file SaveData.Dat 3600
+wait_frames 180
+screenshot title
+press START
+wait_frames 120
+press A
+wait_file MNUIHD.PAC 1800
+unwatch 0x836F392B
+mark 2 main_menu
+wait_frames 300
+unwatch
+unsnap low
+unsnap
+wait_frames 60
+snap 0x8392DC38:16 SNAP1      # refused: snap1 was used earlier in the run (names are case-insensitive) -> FAILED
+wait_frames 60
+quit

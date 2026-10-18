@@ -1,0 +1,30 @@
+# Session 8 task 8a: fixed random seed (--wwe2k14_fixed_seed=N, default -1 = off). Hook functions: src/determinism.h.
+# Every hook returns at once when the setting is off, so normal runs execute the guest code exactly as before.
+# Addresses: db/rng.json (Session 6 static reading), each re-checked in Session 8 against the generated code with
+# tools/analysis/list_function.py. A hook runs before the instruction at its address.
+
+# sub_827E1C30 (boot seeding): first instruction after `bl 0x82c8ef80` (local time into the SYSTEMTIME at r1+96).
+# The hook rewrites hour/minute/second/milliseconds at r1+104..r1+110 before they are loaded here.
+[[midasm_hook]]
+address = 0x827E1C44
+name = "wwe2k14_seed_boot_time"
+registers = ["r1"]
+
+# sub_82EF8350 (audio worker thread entry): after `bl 0x82c7bf50` (time(0)) at 0x82EF8364, before the result in r3
+# is stored to the audio LCG word 0x8395C860 at 0x82EF836C.
+[[midasm_hook]]
+address = 0x82EF8368
+name = "wwe2k14_seed_audio_time"
+registers = ["r3"]
+
+# sub_82C644F8 (script math.randomseed-shaped native): its `bl 0x82c7b078` (srand) with the script's value in r3.
+[[midasm_hook]]
+address = 0x82C6450C
+name = "wwe2k14_seed_script_srand"
+registers = ["r3"]
+
+# sub_826D0AB0 ("event 1" reset): its `bl 0x82c3ecd0` (MT #1 seed) with the seed in r3. Log only.
+[[midasm_hook]]
+address = 0x826D0AEC
+name = "wwe2k14_seed_event1"
+registers = ["r3"]

@@ -1,0 +1,72 @@
+# Session 11 (end, with Jarrod): six entrances per launch, skipped with START. Use with --wwe2k14_launch=sixpack (or
+# another six-person capture whose entrances play when launched) plus --wwe2k14_launch_participants=A,B,C,D,E,F for
+# a fast roster pass (slot order = entrance order: Jarrod's capture, run 826).
+# Per wrestler k (slot k-1): wait until his entrance step reaches 5 (states.toml entrance_step_N: the camera cuts to
+# his own segment, he is on screen within 0-3 s; run 829), then 600 frames (~10 s, Jarrod's ask), screenshot s6_k,
+# then START every 300 frames until the next titantron opens (the sixth: until M3.PAC). Why: the game ignores START
+# before step 5 (run 828: every ignored press came before it), and a fixed delay after the titantron skipped Jericho
+# before he appeared (run 828; his intro is ~15 s, step 5 at tron+899 in run 829). The step wait is optional (a
+# 40 s timeout, then the script goes on), so an entrance without step 5 still gets its screenshot and skip.
+# From Jarrod's recording out\recordings\sixpack.txt (run 826): after START the next titantron opens 74-89 frames
+# later (258 for Jericho, whose entrance starts on the live camera); START in the last entrance goes straight to the
+# match load (M3.PAC ~75 frames later). A wrestler without a titantron (Mr. Perfect) would fail the
+# press_until_file wait for the next titantron: give him a pair run. Untimed (lanes OK). Needs the frozen user data.
+# on_fail quit. Screenshots s6_* are local only.
+on_fail quit
+log six: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log six: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log six: in-game sequence loading
+wait_file titantron 2400
+wait_state entrance_step_0 >=5 2400 2 optional
+log six: wrestler 1 segment (step 5)
+wait_frames 600
+screenshot s6_1
+log six: wrestler 1, START until the next titantron opens
+press_until_file START titantron 20 300
+wait_state entrance_step_1 >=5 2400 2 optional
+log six: wrestler 2 segment (step 5)
+wait_frames 600
+screenshot s6_2
+log six: wrestler 2, START until the next titantron opens
+press_until_file START titantron 20 300
+wait_state entrance_step_2 >=5 2400 2 optional
+log six: wrestler 3 segment (step 5)
+wait_frames 600
+screenshot s6_3
+log six: wrestler 3, START until the next titantron opens
+press_until_file START titantron 20 300
+wait_state entrance_step_3 >=5 2400 2 optional
+log six: wrestler 4 segment (step 5)
+wait_frames 600
+screenshot s6_4
+log six: wrestler 4, START until the next titantron opens
+press_until_file START titantron 20 300
+wait_state entrance_step_4 >=5 2400 2 optional
+log six: wrestler 5 segment (step 5)
+wait_frames 600
+screenshot s6_5
+log six: wrestler 5, START until the next titantron opens
+press_until_file START titantron 20 300
+wait_state entrance_step_5 >=5 2400 2 optional
+log six: wrestler 6 segment (step 5)
+wait_frames 600
+screenshot s6_6
+log six: wrestler 6, START until the match scene loads
+press_until_file START m3.pac 20 300
+log six: match scene
+wait_frames 300
+screenshot s6_match
+wait_frames 60
+log six: end
+quit

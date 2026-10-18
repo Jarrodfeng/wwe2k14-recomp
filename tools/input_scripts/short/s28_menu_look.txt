@@ -1,0 +1,55 @@
+# harness: fast-forward ok (Session 28: look at the main menu list, one screenshot per item; untimed)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+log_state menu
+log_state cursor
+log_state target
+screenshot mm_0
+press DOWN
+wait_frames 25
+log_state cursor
+log_state target
+screenshot mm_1
+press DOWN
+wait_frames 25
+log_state cursor
+log_state target
+screenshot mm_2
+press DOWN
+wait_frames 25
+log_state cursor
+log_state target
+screenshot mm_3
+press DOWN
+wait_frames 25
+log_state cursor
+log_state target
+screenshot mm_4
+press DOWN
+wait_frames 25
+log_state cursor
+log_state target
+screenshot mm_5
+press DOWN
+wait_frames 25
+log_state cursor
+log_state target
+screenshot mm_6
+press DOWN
+wait_frames 25
+log_state cursor
+log_state target
+screenshot mm_7
+press DOWN
+wait_frames 25
+log_state cursor
+log_state target
+screenshot mm_8
+wait_frames 30
+quit

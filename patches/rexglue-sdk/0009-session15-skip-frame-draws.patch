@@ -1,0 +1,156 @@
+From 8f1edaefe7bba44d7fcd9a29df0d9696475a6b0e Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 01:12:21 +1100
+Subject: [PATCH] wwe2k14 Session 15 (sub-second loads): gpu_skip_frame_draws
+ (default 0 = off): N > 1 skips the draws (not memexport) and resolves of N-1
+ of every N frames; logs resolve destinations written only in skipped frames
+
+---
+ include/rex/graphics/command_processor.h  | 14 ++++++
+ src/graphics/command_processor.cpp        | 60 +++++++++++++++++++++++
+ src/graphics/vulkan/command_processor.cpp | 12 +++++
+ 3 files changed, 86 insertions(+)
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 274b17d..6007e40 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -481,6 +481,20 @@ class CommandProcessor {
+   bool gpu_debug_log_may_be_enabled_ = true;
+   // wwe2k14 patch (Session 6, debug): gpu_debug_skip_vertex_shader, parsed at each swap (0 = off).
+   uint64_t debug_skip_vertex_shader_hash_ = 0;
++  // wwe2k14 patch (Session 15, sub-second loads): gpu_skip_frame_draws, latched at each swap. While it is N > 1,
++  // the draws (except memexport draws) and resolves of N-1 of every N frames are skipped (the previous frame stays
++  // on screen). Resolve destinations of drawn frames are remembered; a skipped resolve to a destination no drawn
++  // frame wrote (a possible one-off render) is logged when the setting goes back to 0.
++  bool skip_frame_draws_ = false;
++  int32_t skip_frame_draws_n_ = 0;
++  uint64_t skip_frame_draws_index_ = 0;
++  uint64_t skip_frame_frames_ = 0, skip_frame_skipped_frames_ = 0, skip_frame_draws_skipped_ = 0,
++           skip_frame_resolves_skipped_ = 0;
++  std::unordered_map<uint32_t, uint32_t> skip_frame_drawn_resolves_;    // dest -> count in drawn frames
++  std::unordered_map<uint32_t, uint32_t> skip_frame_skipped_resolves_;  // dest -> count in skipped frames
++  void SkipFrameDrawsLatch();
++  // True if this resolve (destination RB_COPY_DEST_BASE) is skipped.
++  bool SkipFrameResolve(uint32_t dest);
+   // wwe2k14 patch (Session 7, EXTENTS-SHADOW): the backend's shared memory, so the screen extents estimates
+   // (gpu_extents_mode, util/draw_extent_estimator.h) can tell GPU-written index / vertex data apart. nullptr: no
+   // extents are computed (every listed draw falls back).
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 81605c3..27d05bb 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -66,6 +66,10 @@ REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes, false, "GPU",
+ // anatomy CSV), to see on screen what a shader draws. Read once per frame. Empty = off. Debug only.
+ REXCVAR_DEFINE_STRING(gpu_debug_skip_vertex_shader, "", "GPU",
+                       "Debug: skip draws whose vertex shader ucode hash equals this hex value (empty = off)");
++// wwe2k14 patch (Session 15, sub-second loads): see skip_frame_draws_ in command_processor.h.
++REXCVAR_DEFINE_INT32(gpu_skip_frame_draws, 0, "GPU",
++                     "wwe2k14 (Session 15): N > 1 = skip the draws (not memexport ones) and resolves of N-1 of every "
++                     "N frames (for loading screens running far above the display rate); 0 = off. Latched per frame");
+ REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes_verify, false, "GPU",
+                     "With gpu_type0_bulk_writes: replay every bulk-written shader constant range through "
+                     "per-register writes and compare register values, invalidation bits and ring offset; "
+@@ -1716,6 +1720,7 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   ExtentsFrameBoundary();
+ 
+   ++counter_;
++  SkipFrameDrawsLatch();  // wwe2k14 patch (Session 15): gpu_skip_frame_draws for the next frame
+   // wwe2k14 patch (Session 6, COUNTERS): write a captured frame's rows (after the swap, outside the timed draws)
+   // and start or end a frame-anatomy capture.
+   if (anatomy_active_ || REXCVAR_GET(gpu_anatomy_capture) > 0) {
+@@ -1728,6 +1733,61 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 15, sub-second loads): gpu_skip_frame_draws.
++void CommandProcessor::SkipFrameDrawsLatch() {
++  const int32_t n = REXCVAR_GET(gpu_skip_frame_draws);
++  if (n > 1) {
++    if (skip_frame_draws_n_ <= 1) {
++      skip_frame_draws_index_ = 0;
++      skip_frame_frames_ = skip_frame_skipped_frames_ = skip_frame_draws_skipped_ = 0;
++      skip_frame_resolves_skipped_ = 0;
++      skip_frame_drawn_resolves_.clear();
++      skip_frame_skipped_resolves_.clear();
++      REXGPU_INFO("[s15][SKIPDRAW] on: draw 1 of every {} frames", n);
++    }
++    skip_frame_draws_n_ = n;
++    ++skip_frame_draws_index_;
++    ++skip_frame_frames_;
++    skip_frame_draws_ = (skip_frame_draws_index_ % uint64_t(n)) != 0;
++    if (skip_frame_draws_) {
++      ++skip_frame_skipped_frames_;
++    }
++    return;
++  }
++  if (skip_frame_draws_n_ > 1) {
++    // Back to drawing every frame: the summary, and every skipped resolve destination no drawn frame wrote.
++    uint32_t unique = 0;
++    for (const auto& [dest, count] : skip_frame_skipped_resolves_) {
++      if (!skip_frame_drawn_resolves_.count(dest)) {
++        if (++unique <= 20) {
++          REXGPU_WARN("[s15][SKIPDRAW] resolve to 0x{:08X} only in skipped frames ({} times): a one-off render "
++                      "may be missing",
++                      dest, count);
++        }
++      }
++    }
++    REXGPU_INFO("[s15][SKIPDRAW] off: {} frames, {} skipped, {} draws and {} resolves skipped; {} resolve "
++                "destinations in drawn frames, {} only in skipped frames",
++                skip_frame_frames_, skip_frame_skipped_frames_, skip_frame_draws_skipped_,
++                skip_frame_resolves_skipped_, skip_frame_drawn_resolves_.size(), unique);
++  }
++  skip_frame_draws_n_ = 0;
++  skip_frame_draws_ = false;
++}
++
++bool CommandProcessor::SkipFrameResolve(uint32_t dest) {
++  if (skip_frame_draws_n_ <= 1) {
++    return false;
++  }
++  if (!skip_frame_draws_) {
++    ++skip_frame_drawn_resolves_[dest];
++    return false;
++  }
++  ++skip_frame_resolves_skipped_;
++  ++skip_frame_skipped_resolves_[dest];
++  return true;
++}
++
+ bool CommandProcessor::ExecutePacketType3_INDIRECT_BUFFER(memory::RingBuffer* reader,
+                                                           uint32_t packet, uint32_t count) {
+   // indirect buffer dispatch
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 1e3feb2..1c311cc 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -5746,6 +5746,13 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+     draw_util::AddMemExportRanges(regs, *pixel_shader, memexport_ranges_);
+   }
++  // wwe2k14 patch (Session 15, sub-second loads): gpu_skip_frame_draws (never a memexport draw: its results are
++  // written to guest memory).
++  if (skip_frame_draws_ && !memexport_used_vertex && !memexport_used_pixel) {
++    ++skip_frame_draws_skipped_;
++    anatomy_skip_reason_ = kAnatomySkipOther;
++    return true;
++  }
+   reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+ 
+   uint32_t ps_param_gen_pos = UINT32_MAX;
+@@ -7437,6 +7444,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+ 
+   ++frame_counters_.issue_copy;  // wwe2k14 patch (Session 6, COUNTERS)
+ 
++  // wwe2k14 patch (Session 15, sub-second loads): gpu_skip_frame_draws.
++  if (SkipFrameResolve((*register_file_)[XE_GPU_REG_RB_COPY_DEST_BASE])) {
++    return true;
++  }
++
+   if (!BeginSubmission(true)) {
+     return false;
+   }
+-- 
+2.52.0.windows.1
+

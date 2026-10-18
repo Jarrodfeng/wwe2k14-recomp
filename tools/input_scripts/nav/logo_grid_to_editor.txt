@@ -1,0 +1,7 @@
+# nav: logo grid -> a new logo in the editor. Session 30 navigation library; `include logo_grid_to_editor`.
+# Start: the logo grid ready (logo_phase 124), grid cursor on slot 0, slot 1 empty (the frozen user data).
+# End:   the editor (logo_screen 3) with a new 256x256 logo (size cursor 1).
+press_until_state RIGHT logo_grid_cursor 1
+press_until_state A logo_screen 0
+press_until_state DOWN logo_size_cursor 1
+press_until_state A logo_screen 3

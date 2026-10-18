@@ -1,0 +1,42 @@
+# Session 18 (item 9, logo importer): where does a logo become a texture? Main menu -> CREATIONS -> LOGO (the grid of
+# saved logos), a GPU resolve log + screenshot there, then the first slot's editor (A, A) with another resolve log and
+# screenshot (Session 18 logo importer check: `cvar wwe2k14_logo_import true` in the editor, then lp_import /
+# lp_editor; harmless without --wwe2k14_logo_import_file). From repro_logo_lettering.txt (Jarrod's recording). Untimed. on_fail quit.
+on_fail quit
+log lp: start
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+press DOWN
+press DOWN
+press A
+wait_frames 80
+press DOWN 60
+wait_frames 30
+press A
+wait_file CASTHUMB.PAC 900
+wait_file SaveData.Dat 1800
+wait_frames 280
+log lp: logo grid
+wait_frames 3
+screenshot lp_grid
+press A
+wait_frames 60
+screenshot lp_slot_menu
+press A
+wait_frames 90
+log lp: editor
+cvar wwe2k14_logo_import true
+wait_frames 10
+screenshot lp_import
+cvar gpu_anatomy_capture 2
+wait_frames 10
+screenshot lp_editor
+wait_frames 30
+log lp: end
+quit

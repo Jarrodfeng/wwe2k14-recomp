@@ -1,0 +1,30 @@
+# In-game clip cost, in-run A/B (src/clip_capture.h): boot to the main menu (it idles forever), then three passes
+# of 5 s without a clip and 5 s with one (separate clip names: a finishing clip is never overwritten).
+# Analyse with: py tools\review\clip_cost.py RUN   (frame times inside each clip vs the 5 s before it)
+# Needs --wwe2k14_clip_dir=<folder>; run it exclusive (run_list -Exclusive): it is a timing measurement.
+log cliptest_ab: start
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 300
+log cliptest_ab: menu
+wait_frames 300
+clip_start ab1 60 1
+wait_frames 300
+clip_stop ab1
+wait_frames 300
+clip_start ab2 60 1
+wait_frames 300
+clip_stop ab2
+wait_frames 300
+clip_start ab3 60 1
+wait_frames 300
+clip_stop ab3
+wait_frames 120
+screenshot cliptest_ab_menu
+wait_frames 90
+log cliptest_ab: done
+quit

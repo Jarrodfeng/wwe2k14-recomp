@@ -1,0 +1,89 @@
+# Function-entry hints, round 3 of the runtime pointer-table scan (src/missing_function_scan.h).
+# Run: out/build/win-amd64-release/logs/wwe2k14_006.log (2026-10-07). The scan now also logs 'lone' pointers
+# (no registered neighbour); the gap/inside-function classification is the filter. Comment = where the pointer is.
+# 0x82501EA0 is additionally confirmed by a live crash (wwe2k14_005.log).
+
+[functions]
+# --- Boundary-checked: previous function ends exactly here with an unconditional blr/b/bctr (or chained) ---
+0x82501EA0 = {} # ptr@0x820019E8 (lone) GAP_START
+# REMOVED 0x82B87824 = {} # ptr@0x83A43A7C (lone) GAP_START  -> codegen_004: 'not in any code region' (pointer to data embedded in code)
+0x82D22E00 = {} # ptr@0x8209361C (candidate) GAP_START
+0x82D22E28 = {} # ptr@0x82093624 (lone) GAP_START
+0x82D280A8 = {} # ptr@0x82093620 (lone) GAP_START
+0x82D29458 = {} # ptr@0x82093628 (candidate) GAP_START
+0x82D29460 = {} # ptr@0x82093978 (candidate) IN_GAP
+# REMOVED 0x832E7AB4 = {} # ptr@0x839FD2A4 (lone) GAP_START  -> codegen_004: 'not in any code region' (pointer to data embedded in code)
+
+# --- Handler table: 70 pointers stored as 8-byte {value, fn} pairs at 0x835E1B2C-0x835E1D54, all pointing into
+# the 0xCD0-byte uncovered region 0x823F1010-0x823F1CE0 that follows the 4-instruction virtual thunk sub_823F1000
+# (ends in bctr). Pair-table stride rules out a switch jump table. Verified after codegen (see PLAYBOOK.md). ---
+0x823F1050 = {} # ptr@0x835E1C54
+0x823F1060 = {} # ptr@0x835E1B94
+0x823F10C0 = {} # ptr@0x835E1C74
+0x823F10D0 = {} # ptr@0x835E1B6C
+0x823F1130 = {} # ptr@0x835E1C9C
+0x823F1140 = {} # ptr@0x835E1BA4
+0x823F11A0 = {} # ptr@0x835E1CBC
+0x823F11B0 = {} # ptr@0x835E1BC4
+0x823F1200 = {} # ptr@0x835E1CDC
+0x823F1210 = {} # ptr@0x835E1BE4
+0x823F1260 = {} # ptr@0x835E1CFC
+0x823F1270 = {} # ptr@0x835E1C04
+0x823F12C0 = {} # ptr@0x835E1D1C
+0x823F12D0 = {} # ptr@0x835E1C24
+0x823F12E0 = {} # ptr@0x835E1B2C
+0x823F1330 = {} # ptr@0x835E1D3C
+0x823F1340 = {} # ptr@0x835E1C3C
+0x823F1350 = {} # ptr@0x835E1B4C
+0x823F13A0 = {} # ptr@0x835E1D44
+0x823F13B0 = {} # ptr@0x835E1C5C
+0x823F13C0 = {} # ptr@0x835E1B9C
+0x823F1420 = {} # ptr@0x835E1C84
+0x823F1430 = {} # ptr@0x835E1B74
+0x823F1490 = {} # ptr@0x835E1CA4
+0x823F14A0 = {} # ptr@0x835E1BAC
+0x823F14F0 = {} # ptr@0x835E1CC4
+0x823F1500 = {} # ptr@0x835E1BCC
+0x823F1550 = {} # ptr@0x835E1CE4
+0x823F1560 = {} # ptr@0x835E1BEC
+0x823F15B0 = {} # ptr@0x835E1D04
+0x823F15C0 = {} # ptr@0x835E1C0C
+0x823F1610 = {} # ptr@0x835E1D24
+0x823F1620 = {} # ptr@0x835E1C2C
+0x823F1630 = {} # ptr@0x835E1B34
+0x823F1690 = {} # ptr@0x835E1C44
+0x823F16A0 = {} # ptr@0x835E1B54
+0x823F16F0 = {} # ptr@0x835E1D4C
+0x823F1700 = {} # ptr@0x835E1C64
+0x823F1710 = {} # ptr@0x835E1B5C
+0x823F1770 = {} # ptr@0x835E1C8C
+0x823F1780 = {} # ptr@0x835E1B7C
+0x823F17E0 = {} # ptr@0x835E1CAC
+0x823F17F0 = {} # ptr@0x835E1BB4
+0x823F1840 = {} # ptr@0x835E1CCC
+0x823F1850 = {} # ptr@0x835E1BD4
+0x823F18A0 = {} # ptr@0x835E1CEC
+0x823F18B0 = {} # ptr@0x835E1BF4
+0x823F1900 = {} # ptr@0x835E1D0C
+0x823F1910 = {} # ptr@0x835E1C14
+0x823F1960 = {} # ptr@0x835E1D2C
+0x823F1970 = {} # ptr@0x835E1C7C
+0x823F1980 = {} # ptr@0x835E1B3C
+0x823F19E0 = {} # ptr@0x835E1C4C
+0x823F19F0 = {} # ptr@0x835E1B8C
+0x823F1A40 = {} # ptr@0x835E1D54
+0x823F1A50 = {} # ptr@0x835E1C6C
+0x823F1A60 = {} # ptr@0x835E1B64
+0x823F1AC0 = {} # ptr@0x835E1C94
+0x823F1AD0 = {} # ptr@0x835E1B84
+0x823F1B30 = {} # ptr@0x835E1CB4
+0x823F1B40 = {} # ptr@0x835E1BBC
+0x823F1B90 = {} # ptr@0x835E1CD4
+0x823F1BA0 = {} # ptr@0x835E1BDC
+0x823F1BF0 = {} # ptr@0x835E1CF4
+0x823F1C00 = {} # ptr@0x835E1BFC
+0x823F1C50 = {} # ptr@0x835E1D14
+0x823F1C60 = {} # ptr@0x835E1C1C
+0x823F1CB0 = {} # ptr@0x835E1D34
+0x823F1CC0 = {} # ptr@0x835E1C34
+0x823F1CD0 = {} # ptr@0x835E1B44

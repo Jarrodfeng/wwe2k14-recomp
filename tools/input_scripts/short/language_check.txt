@@ -1,0 +1,15 @@
+# Session 31: which language the game shows with --user_language=N (the runtime's XCONFIG user language; 1 English,
+# 3 German, 4 French, 5 Spanish, 6 Italian, ...). Boots to the main menu, logs the menu's text, one screenshot,
+# opens OPTIONS and logs that list too, quits. Fast-forwarded; ~15 s. Read the result from the run log
+# ("[screen_text]" lines) or the screenshot.
+on_fail quit
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 60
+log_text
+screenshot language_menu
+include menu_to_options
+wait_frames 60
+log_text
+log language_check: done
+quit

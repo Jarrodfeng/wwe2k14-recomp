@@ -1,0 +1,16 @@
+# harness: realtime (Session 27 item 4: the presenter's scaling is checked from the screen; Jarrod may see the window)
+# Boots to the main menu (title presses of recording 056), holds it 1500 frames for tools\fsr\window_shot.ps1, quits.
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log menu_hold: main menu
+wait_frames 1500
+quit

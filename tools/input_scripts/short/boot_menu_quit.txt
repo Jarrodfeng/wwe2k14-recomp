@@ -1,0 +1,12 @@
+# Session 25 item 2 check (a launch from the launcher's Play button): title -> main menu, a screenshot, quit.
+# From logo_probe.txt (Jarrod's recording timings). Untimed.
+# Session 29: no fixed waits: the title presses wait for boot_step (3 title / 4 storage notice / 5 after A) and press
+# again if dropped, the screenshot waits for the main menu (menu 1 held 30 frames); works fast-forwarded.
+# Session 30: the boot comes from the nav library (include boot_to_menu).
+on_fail quit
+log bmq: start
+include boot_to_menu
+wait_state menu 1 1200 30
+screenshot bmq_main_menu
+log bmq: main menu
+quit

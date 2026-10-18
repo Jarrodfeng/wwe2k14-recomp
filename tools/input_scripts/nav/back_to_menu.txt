@@ -1,0 +1,4 @@
+# nav: a list one level below the main menu -> back to the main menu. Session 30; `include back_to_menu`.
+# Start: a SmartMenu list opened from the main menu (PLAY menu 2, CREATIONS menu 3, OPTIONS menu 4, ...).
+# End:   the main menu (menu 1); its cursor is where it was (the item you opened).
+press_until_state B menu 1

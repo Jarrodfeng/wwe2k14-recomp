@@ -1,0 +1,7 @@
+# nav: main menu -> PLAY. Session 30 navigation library; `include menu_to_play`.
+# Start: main menu (menu 1), any cursor (the game remembers it after B; boot_to_menu leaves 0 = PLAY).
+# End:   the PLAY list (menu 2), cursor 0 = ONE ON ONE (target 7). Checked live, run 2236 (2026-10-18): items ONE ON
+#        ONE, TWO ON TWO, TRIPLE THREAT, FATAL 4-WAY, 6-MAN, HANDICAP, SPECIALTY, TOURNAMENTS; the second column lists
+#        the match types of the item under the cursor.
+press_until_state UP cursor 0 24 30 5 if_needed
+press_until_state A menu 2

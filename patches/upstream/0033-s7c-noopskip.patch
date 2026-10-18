@@ -1,0 +1,391 @@
+Subject: [ReXGlue] merge s7c/noopskip
+
+Class: RGO
+What: Skip FSI draws that cannot change anything.
+Evidence: Tiny effect (run 165).
+On / off: gpu_skip_noop_draws (+_stats), off.
+Commit: d9845ed (diff against d9845ed^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 08c5978..274b17d 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -385,6 +385,8 @@ class CommandProcessor {
+     kAnatomySkipPlaceholder = 4,  // async placeholder pipeline (still compiling), draw dropped
+     kAnatomySkipOther = 5,        // returned success without drawing, reason not classified
+     kAnatomyFailed = 6,           // IssueDraw / IssueCopy returned false
++    // wwe2k14 patch (Session 7c, NOOPSKIP): gpu_skip_noop_draws - nothing the draw could write or count.
++    kAnatomySkipNoop = 7,
+   };
+   uint32_t anatomy_skip_reason_ = kAnatomySkipOther;
+   // A capture is running (changes only at frame boundaries).
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 6c1583e..9b704b7 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -639,6 +639,57 @@ class VulkanCommandProcessor : public CommandProcessor {
+   };
+   TilingViewportFixStats tiling_viewport_fix_stats_;
+ 
++  // wwe2k14 patch (Session 7c, NOOPSKIP): gpu_skip_noop_draws / gpu_skip_noop_draws_stats. IssueDraw calls
++  // NoopSkipDraw (fragment shader interlock path, either setting on) right after the render target cache update,
++  // with the state the draw would be drawn with: it classifies and counts the draw and returns whether IssueDraw
++  // stops there (only with gpu_skip_noop_draws). NoopSkipFrameBoundary (from CollectFrameCounters) records
++  // cpf_noop and logs the [s7][NOOPSKIP] summary. Measurement state only; command processor thread only.
++  enum NoopSkipOutcome : uint32_t {
++    // Can't change anything: skipped (or would be, with gpu_skip_noop_draws_stats only).
++    kNoopSkipOk,
++    // No color render target written, but (cpf_noop b):
++    kNoopSkipRejectDepthWrite,    // depth test and depth write enabled
++    kNoopSkipRejectStencilWrite,  // stencil enabled with a non-zero write mask and an operation other than keep
++    // Nothing written to the EDRAM, but (cpf_noop c):
++    kNoopSkipRejectMemexportVertex,  // the vertex shader exports to memory
++    kNoopSkipRejectMemexportPixel,   // the pixel shader exports to memory
++    kNoopSkipRejectOcclusionQuery,   // a host occlusion query (guest EVENT_WRITE_ZPD) is counting samples
++    kNoopSkipOutcomeCount,
++  };
++  bool NoopSkipDraw(bool skip, bool is_rasterization_done, bool primitive_polygonal,
++                    reg::RB_DEPTHCONTROL normalized_depth_control, uint32_t normalized_color_mask,
++                    bool memexport_used_vertex, bool memexport_used_pixel);
++  void NoopSkipFrameBoundary();
++  void NoopSkipLogWindow(const char* note);
++  struct NoopSkipStats {
++    struct Counts {
++      uint64_t checked = 0;  // draws classified by NoopSkipDraw
++      uint64_t color = 0;    // of those, writing a color render target (not candidates, no outcome)
++      uint64_t outcomes[kNoopSkipOutcomeCount] = {};
++      uint64_t skipped = 0;  // of the kNoopSkipOk ones, skipped (gpu_skip_noop_draws on at that draw)
++    };
++    Counts frame;   // the frame in progress
++    Counts window;  // the summary window, up to the previous frame boundary
++    // The window opens at the first classified frame (either setting on at the frame boundary, or a draw
++    // classified in the frame) and covers the next 300 frame numbers; frames in it with both settings off count
++    // nothing and aren't in the per-frame rates.
++    uint64_t window_first_frame = UINT64_MAX;  // UINT64_MAX: window not open
++    uint64_t window_last_frame = 0;
++    uint64_t window_frames_classified = 0;  // frames in the window that were classified
++    uint64_t window_frames_skip_on = 0;     // of those, frames with gpu_skip_noop_draws on (or a draw skipped)
++    // kNoopSkipOk draws in the window by guest shader pair (the frame anatomy's vs_hash / ps_hash), first 8.
++    struct ShaderPair {
++      uint64_t vs_hash;
++      uint64_t ps_hash;
++      uint64_t draws;
++    };
++    static constexpr uint32_t kMaxShaderPairs = 8;
++    ShaderPair shader_pairs[kMaxShaderPairs] = {};
++    uint32_t shader_pair_count = 0;
++    uint64_t shader_pairs_dropped = 0;  // kNoopSkipOk draws with a pair beyond the first 8
++  };
++  NoopSkipStats noop_skip_stats_;
++
+   void SplitPendingBarrier();
+ 
+   void DestroyScratchBuffer();
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 55da5fb..8734244 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -247,6 +247,20 @@ REXCVAR_DEFINE_INT32(vulkan_device_local_upload_min_heap_mb, 1024, "GPU/Vulkan",
+                      "MB); pages beyond that, or that fail to allocate, go to the usual memory (logged, "
+                      "counted). Takes effect after a restart")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++// wwe2k14 patch (Session 7c, NOOPSKIP): in the fragment shader interlock path, a draw that can't write the EDRAM
++// still costs its host draw (and its preparation). Both are read on every draw (fragment shader interlock path
++// only), nothing is kept between draws, so they can be flipped at any time. See NoopSkipDraw for the checks and
++// IssueDraw for where the draw stops and why that changes nothing.
++REXCVAR_DEFINE_BOOL(gpu_skip_noop_draws, false, "GPU/Vulkan",
++                    "Fragment shader interlock path: don't record the host draw of a guest draw that can't change "
++                    "anything - no color render target written (pixel shader outputs, RB_COLOR_MASK, mode "
++                    "control), no depth write, no stencil write (disabled, write mask 0 or all operations keep), "
++                    "no memexport, no host occlusion query active. The render target cache update (EDRAM "
++                    "ownership, interlock barriers) still runs. [s7][NOOPSKIP] summary every 300 frames");
++REXCVAR_DEFINE_BOOL(gpu_skip_noop_draws_stats, false, "GPU/Vulkan",
++                    "Count the draws gpu_skip_noop_draws would skip and why the others can't be skipped "
++                    "(cpf_noop timeline events, [s7][NOOPSKIP] summary every 300 frames) without changing what "
++                    "is drawn");
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -5749,6 +5763,34 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     return draw_fail("render_target_update");
+   }
+ 
++  // wwe2k14 patch (Session 7c, NOOPSKIP): gpu_skip_noop_draws - stop here for a draw that can't change anything
++  // (NoopSkipDraw has the checks), returning success like a drawn draw (the base command processor's extents
++  // shadow, viz query and anatomy handling see the same result as without the setting).
++  // Kept (done above, as for a drawn draw): the submission / frame opening, primitive processing (index buffer
++  // requests and conversion), shader translation, samplers, texture requests and loads, and the render target
++  // cache update - EDRAM ownership tracking, interlock barrier requests and the EDRAM buffer usage and
++  // modification bookkeeping (barriers pushed there stay pending until the next command that submits barriers,
++  // as at the async placeholder return below). So the resolves and draws that follow see the same render target
++  // cache state and get the same barriers.
++  // Not done (only matters for this host draw): pipeline creation and bind, dynamic state, system constants,
++  // descriptor and constant buffer updates, vertex buffer requests, the shared memory barrier, entering the
++  // render pass and the draw. Each of these is cached state compared or marked dirty against what is actually
++  // bound or valid, and it's left untouched, so the next draw sets up what it needs as if this draw hadn't been
++  // issued. What can differ: no pipeline is created for the skipped draw (with async shader compilation, a frame
++  // that would only have waited for such a pipeline is not held back by vulkan_async_skip_incomplete_frames),
++  // shared memory pages only this draw would have read are uploaded later (when another draw reads them) or not
++  // at all, and the cpf draws_issued count and GPU marks don't include it.
++  {
++    const bool noop_skip = REXCVAR_GET(gpu_skip_noop_draws);
++    if ((noop_skip || REXCVAR_GET(gpu_skip_noop_draws_stats)) &&
++        render_target_cache_->GetPath() == RenderTargetCache::Path::kPixelShaderInterlock &&
++        NoopSkipDraw(noop_skip, is_rasterization_done, primitive_polygonal, normalized_depth_control,
++                     normalized_color_mask, memexport_used_vertex, memexport_used_pixel)) {
++      anatomy_skip_reason_ = kAnatomySkipNoop;
++      return true;
++    }
++  }
++
+   // Create the pipeline (for this, need the render pass from the render target
+   // cache), translating the shaders - doing this now to obtain the used
+   // textures.
+@@ -6582,6 +6624,238 @@ void VulkanCommandProcessor::TilingViewportFixStatsReport(const char* note) {
+           : std::string());
+ }
+ 
++// wwe2k14 patch (Session 7c, NOOPSKIP): gpu_skip_noop_draws / gpu_skip_noop_draws_stats. Called by IssueDraw in
++// the fragment shader interlock path (either setting on) after the render target cache update, with the values the
++// draw would be drawn with. A draw can be skipped only if all of these hold:
++// (1) No color render target written. The FSI pixel shader writes render target i only if its keep mask
++//     (UpdateSystemConstantValuesFull -> GetPSIColorFormatInfo, from bits 4i..4i+3 of normalized_color_mask) isn't
++//     all ones. draw_util::GetNormalizedColorMask is 0 unless RB_MODECONTROL is kColorDepth, the pixel shader
++//     statically writes the target and RB_COLOR_MASK enables a component the format has; 0 without a pixel shader.
++// (2) No depth or stencil stored. FSI_DepthStencilTest (spirv_translator_rb.cpp) stores a sample's depth / stencil
++//     only if the new value differs from the old one. The depth part changes only with kSysFlag_FSIDepthWrite,
++//     which UpdateSystemConstantValuesFull sets only with normalized z_enable and z_write_enable. The stencil part
++//     is old & ~write mask | new & write mask, with new = old for kKeep; the back-face reference / masks / ops are
++//     used only for polygons with backface_enable (otherwise the front ones are copied). Normalized depth control
++//     is all 0 outside kColorDepth / kDepthOnly. Conservative: depth func never, replace with an equal reference
++//     and the like count as writes.
++// (3) No memexport: the only memory a guest vertex shader writes, and besides the EDRAM, a pixel shader's.
++// (4) No sample counting: the only draw-dependent result the guest can read is the host occlusion query between
++//     EVENT_WRITE_ZPD begin and end (BeginGuestOcclusionQuery / EndGuestOcclusionQuery, active_occlusion_query_);
++//     without it ZPD writes a fixed fake count, and VIZ_QUERY results are always "visible"
++//     (CommandProcessor::ExecutePacketType3_VIZ_QUERY), neither depending on draws.
++// Without rasterization nothing reaches the EDRAM ((1) and (2) hold); IssueDraw only gets here then for
++// memexport, which (3) rejects. Alpha test, alpha to coverage and pixel shader kills only narrow the samples that
++// are written or counted, so they don't matter once (1), (2) and (4) hold.
++bool VulkanCommandProcessor::NoopSkipDraw(bool skip, bool is_rasterization_done,
++                                          bool primitive_polygonal,
++                                          reg::RB_DEPTHCONTROL normalized_depth_control,
++                                          uint32_t normalized_color_mask, bool memexport_used_vertex,
++                                          bool memexport_used_pixel) {
++  NoopSkipStats& stats = noop_skip_stats_;
++  NoopSkipStats::Counts& frame = stats.frame;
++  ++frame.checked;
++  NoopSkipOutcome outcome = kNoopSkipOk;
++  if (is_rasterization_done) {
++    if (normalized_color_mask) {
++      ++frame.color;
++      return false;
++    }
++    if (normalized_depth_control.z_enable && normalized_depth_control.z_write_enable) {
++      outcome = kNoopSkipRejectDepthWrite;
++    } else if (normalized_depth_control.stencil_enable) {
++      const RegisterFile& regs = *register_file_;
++      auto face_may_write = [](uint32_t write_mask, xenos::StencilOp fail, xenos::StencilOp zpass,
++                               xenos::StencilOp zfail) {
++        return write_mask != 0 &&
++               (fail != xenos::StencilOp::kKeep || zpass != xenos::StencilOp::kKeep ||
++                zfail != xenos::StencilOp::kKeep);
++      };
++      bool stencil_may_write = face_may_write(
++          regs.Get<reg::RB_STENCILREFMASK>().stencilwritemask, normalized_depth_control.stencilfail,
++          normalized_depth_control.stencilzpass, normalized_depth_control.stencilzfail);
++      if (!stencil_may_write && primitive_polygonal && normalized_depth_control.backface_enable) {
++        stencil_may_write = face_may_write(
++            regs.Get<reg::RB_STENCILREFMASK>(XE_GPU_REG_RB_STENCILREFMASK_BF).stencilwritemask,
++            normalized_depth_control.stencilfail_bf, normalized_depth_control.stencilzpass_bf,
++            normalized_depth_control.stencilzfail_bf);
++      }
++      if (stencil_may_write) {
++        outcome = kNoopSkipRejectStencilWrite;
++      }
++    }
++  }
++  if (outcome == kNoopSkipOk) {
++    if (memexport_used_vertex) {
++      outcome = kNoopSkipRejectMemexportVertex;
++    } else if (memexport_used_pixel) {
++      outcome = kNoopSkipRejectMemexportPixel;
++    } else if (active_occlusion_query_.valid) {
++      outcome = kNoopSkipRejectOcclusionQuery;
++    }
++  }
++  ++frame.outcomes[outcome];
++  if (outcome != kNoopSkipOk) {
++    return false;
++  }
++  // Guest shader pair, as the frame anatomy records it (the bound shaders, also when the pixel shader isn't used).
++  const Shader* guest_vertex_shader = active_vertex_shader();
++  const Shader* guest_pixel_shader = active_pixel_shader();
++  uint64_t vs_hash = guest_vertex_shader ? guest_vertex_shader->ucode_data_hash() : 0;
++  uint64_t ps_hash = guest_pixel_shader ? guest_pixel_shader->ucode_data_hash() : 0;
++  bool pair_found = false;
++  for (uint32_t i = 0; i < stats.shader_pair_count; ++i) {
++    NoopSkipStats::ShaderPair& pair = stats.shader_pairs[i];
++    if (pair.vs_hash == vs_hash && pair.ps_hash == ps_hash) {
++      ++pair.draws;
++      pair_found = true;
++      break;
++    }
++  }
++  if (!pair_found) {
++    if (stats.shader_pair_count < NoopSkipStats::kMaxShaderPairs) {
++      NoopSkipStats::ShaderPair& pair = stats.shader_pairs[stats.shader_pair_count++];
++      pair.vs_hash = vs_hash;
++      pair.ps_hash = ps_hash;
++      pair.draws = 1;
++    } else {
++      ++stats.shader_pairs_dropped;
++    }
++  }
++  if (!skip) {
++    return false;
++  }
++  ++frame.skipped;
++  return true;
++}
++
++// wwe2k14 patch (Session 7c, NOOPSKIP): called at every frame boundary (from CollectFrameCounters, right before the
++// cpf* events and cp_swap). Records, while the timeline is on and either setting is on (or the frame classified a
++// draw), with a fixed layout (for the report tool):
++//   cpf_noop  a = draws that can't change anything (skipped with gpu_skip_noop_draws, would be with the stats
++//             setting only), b = draws writing no color render target but depth (or stencil), c = draws writing
++//             nothing to the EDRAM but rejected for memexport (vertex or pixel shader) or an active occlusion query
++// and logs an [s7][NOOPSKIP] summary every 300 frames when the window classified any draw. The window and its
++// per-frame rates only count classified frames (either setting on at this boundary, or a draw classified in the
++// frame), so a window spanning a toggle (or both settings off) isn't diluted by frames that weren't classified; for
++// an A/B of gpu_skip_noop_draws keep gpu_skip_noop_draws_stats on in both arms, so both are classified and cost the
++// same.
++void VulkanCommandProcessor::NoopSkipFrameBoundary() {
++  NoopSkipStats& stats = noop_skip_stats_;
++  NoopSkipStats::Counts& frame = stats.frame;
++  const bool skip_on = REXCVAR_GET(gpu_skip_noop_draws);
++  const bool frame_classified = frame.checked || skip_on || REXCVAR_GET(gpu_skip_noop_draws_stats);
++  if (frame_classified && perf::timeline::Enabled()) {
++    perf::timeline::Record(
++        "cpf_noop", uint32_t(frame.outcomes[kNoopSkipOk]),
++        uint32_t(frame.outcomes[kNoopSkipRejectDepthWrite] +
++                 frame.outcomes[kNoopSkipRejectStencilWrite]),
++        uint32_t(frame.outcomes[kNoopSkipRejectMemexportVertex] +
++                 frame.outcomes[kNoopSkipRejectMemexportPixel] +
++                 frame.outcomes[kNoopSkipRejectOcclusionQuery]));
++  }
++  // Logs and empties the window. The shader pairs are counted straight into the window by NoopSkipDraw, so they're
++  // emptied here, not when the next window starts (after the next frame's draws).
++  auto close_window = [this, &stats](const char* note) {
++    NoopSkipLogWindow(note);
++    stats.window = NoopSkipStats::Counts();
++    stats.shader_pair_count = 0;
++    stats.shader_pairs_dropped = 0;
++    stats.window_first_frame = UINT64_MAX;
++    stats.window_frames_classified = 0;
++    stats.window_frames_skip_on = 0;
++  };
++  const uint64_t frame_number = frame_current_;
++  if (stats.window_first_frame != UINT64_MAX && frame_number < stats.window_last_frame) {
++    // frame_current_ went back: the context was recreated (ShutdownContext resets it to 1). The pairs of this
++    // frame's draws go into the closed window.
++    close_window(" (partial window: context recreated)");
++  }
++  if (frame_classified) {
++    if (stats.window_first_frame == UINT64_MAX) {
++      stats.window_first_frame = frame_number;
++    }
++    ++stats.window_frames_classified;
++    if (skip_on || frame.skipped) {
++      ++stats.window_frames_skip_on;
++    }
++    NoopSkipStats::Counts& window = stats.window;
++    window.checked += frame.checked;
++    window.color += frame.color;
++    for (uint32_t i = 0; i < kNoopSkipOutcomeCount; ++i) {
++      window.outcomes[i] += frame.outcomes[i];
++    }
++    window.skipped += frame.skipped;
++    frame = NoopSkipStats::Counts();
++  }
++  // Not classified: frame is already empty (frame.checked is 0, and only NoopSkipDraw counts).
++  if (stats.window_first_frame == UINT64_MAX) {
++    return;
++  }
++  stats.window_last_frame = frame_number;
++  if (frame_number - stats.window_first_frame + 1 >= 300) {
++    close_window("");
++  }
++}
++
++void VulkanCommandProcessor::NoopSkipLogWindow(const char* note) {
++  const NoopSkipStats& stats = noop_skip_stats_;
++  const NoopSkipStats::Counts& window = stats.window;
++  if (!window.checked || stats.window_first_frame == UINT64_MAX) {
++    return;
++  }
++  static const char* const kRejectNames[kNoopSkipOutcomeCount] = {
++      nullptr, "depth write", "stencil write", "vertex shader memexport", "pixel shader memexport",
++      "occlusion query active"};
++  // Rejection reasons, most first.
++  uint32_t reject_order[kNoopSkipOutcomeCount - 1];
++  for (uint32_t i = 0; i < kNoopSkipOutcomeCount - 1; ++i) {
++    reject_order[i] = i + 1;
++  }
++  std::stable_sort(std::begin(reject_order), std::end(reject_order),
++                   [&window](uint32_t a, uint32_t b) { return window.outcomes[a] > window.outcomes[b]; });
++  std::string rejects;
++  for (uint32_t outcome : reject_order) {
++    if (!window.outcomes[outcome]) {
++      continue;
++    }
++    fmt::format_to(std::back_inserter(rejects), "{}{} {}", rejects.empty() ? "" : ", ",
++                   kRejectNames[outcome], window.outcomes[outcome]);
++  }
++  std::string pairs;
++  for (uint32_t i = 0; i < stats.shader_pair_count; ++i) {
++    const NoopSkipStats::ShaderPair& pair = stats.shader_pairs[i];
++    fmt::format_to(std::back_inserter(pairs), "{}{:016X}/{:016X} {}", i ? ", " : "", pair.vs_hash,
++                   pair.ps_hash, pair.draws);
++  }
++  if (stats.shader_pairs_dropped) {
++    fmt::format_to(std::back_inserter(pairs), "{}{} more with other pairs", pairs.empty() ? "" : ", ",
++                   stats.shader_pairs_dropped);
++  }
++  // Per-frame rates over the classified frames only (see NoopSkipFrameBoundary). Skipped draws can only happen in
++  // frames with gpu_skip_noop_draws on, and drawn (stats only) ones in the other classified frames, so each is
++  // averaged over its own arm.
++  const uint64_t frames = stats.window_frames_classified;
++  const uint64_t frames_skip_on = stats.window_frames_skip_on;  // a subset of the classified frames
++  const uint64_t frames_skip_off = frames - frames_skip_on;
++  auto per_frame = [](uint64_t count, uint64_t frame_count) {
++    return frame_count ? double(count) / double(frame_count) : 0.0;
++  };
++  const uint64_t noop = window.outcomes[kNoopSkipOk];
++  const uint64_t drawn = noop - window.skipped;
++  REXGPU_INFO(
++      "[s7][NOOPSKIP] frames {}-{}{}: {} of them classified ({} with gpu_skip_noop_draws on, {} off; now "
++      "gpu_skip_noop_draws {}, gpu_skip_noop_draws_stats {}), /frame = per classified frame: {} draws checked "
++      "({:.1f}/frame), {} of them writing color; {} can't change anything ({:.1f}/frame): {} skipped "
++      "({:.1f}/frame with skip on), {} drawn, stats only ({:.1f}/frame with skip off); not skipped although no "
++      "color is written (most first): {}; can't-change-anything draws by guest VS/PS: {}",
++      stats.window_first_frame, stats.window_last_frame, note, frames, frames_skip_on, frames_skip_off,
++      REXCVAR_GET(gpu_skip_noop_draws) ? "on" : "off",
++      REXCVAR_GET(gpu_skip_noop_draws_stats) ? "on" : "off", window.checked,
++      per_frame(window.checked, frames), window.color, noop, per_frame(noop, frames), window.skipped,
++      per_frame(window.skipped, frames_skip_on), drawn, per_frame(drawn, frames_skip_off),
++      rejects.empty() ? std::string("none") : rejects, pairs.empty() ? std::string("none") : pairs);
++}
++
+ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_size) {
+   if (!total_size || memexport_ranges_.empty()) {
+     return true;
+@@ -10626,6 +10900,7 @@ void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
+     marks.counter_dropped = 0;
+     marks.counter_frames_written = 0;
+   }
++  NoopSkipFrameBoundary();  // wwe2k14 patch (Session 7c, NOOPSKIP): cpf_noop and its log.
+ }
+ 
+ // wwe2k14 patch (Session 7b, REBAR): measurement only. Called at every frame boundary (from

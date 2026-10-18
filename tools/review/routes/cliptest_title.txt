@@ -1,0 +1,22 @@
+# In-game clip self-test (src/clip_capture.h): boot to "Press Start" (title video playing), record two short clips
+# (full resolution at 60 fps, then half size at 30 fps) with native stills inside them, quit.
+# Needs --wwe2k14_clip_dir=<folder> (without it the clip lines are logged and ignored). Files are NNN_clip_full.*
+# and NNN_clip_half.* (NNN = run log number), so shared runs (up to 3 at once) can use the same folder.
+# Run: pwsh -NoProfile -Command "& tools\bench\run_list.ps1 -Scripts @('..\..\..\tools\review\routes\cliptest_title.txt') -Extra '--wwe2k14_clip_dir=..\..\..\out\harness\clips\selftest'"
+log cliptest: start
+wait_file SaveData.Dat 3600
+wait_frames 60
+clip_start full 60 1
+wait_frames 120
+screenshot cliptest_full_t2
+wait_frames 180
+clip_stop full
+wait_frames 30
+clip_start half 30 0.5
+wait_frames 120
+screenshot cliptest_half_t2
+wait_frames 60
+clip_stop half
+wait_frames 60
+log cliptest: done
+quit

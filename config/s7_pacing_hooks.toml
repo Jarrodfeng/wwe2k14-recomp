@@ -1,0 +1,188 @@
+# Session 7, frame pacing Step 0 (docs/systems/frame_pacing.md "Safe experiment for 60 fps entrances"):
+# LOG ONLY, no behaviour change. Hook functions live in src/pacing_hooks.h. None of these hooks returns a value, so
+# none can return or jump: the guest code runs exactly as before.
+#
+# Addresses: db/frame_pacing.json (static reading, Session 6), each re-checked in Session 7 against the generated
+# code with tools/analysis/list_function.py. The call-site list was re-derived by scanning every generated function
+# for a branch to 0x82BB6D50 (halve) or 0x82BB6DF0 (restore): 9 + 15 sites, all `bl`, no tail-call `b`, no other
+# branch form; identical to the db's lists. Nothing branches directly to 0x82CAA838.
+#
+# A hook runs before the instruction at its address (after_instruction defaults to false), and also when code jumps
+# to that address (the hook is emitted after the label).
+
+# ---------------------------------------------------------------------------------------------------------------
+# End of frame, sub_82BA84E8 (called only by the render command thread sub_82BB5CC0), at the compare of the cached
+# frame-rate word with the current one. Both present paths (0x82BA855C jumps to 0x82BA85D8; the other path falls
+# through from the present call at 0x82BA85D4) reach it, so it runs once per presented frame. Before this instruction
+# executes: r9 = engine object +472 (the copy of the word from the last change, loaded at 0x82BA85DC) and
+# r10 = the frame-rate word at 0x8392DC40 (timing block base 0x8392DC38 built at 0x82BA85D8/0x82BA85E0, +8 loaded
+# at 0x82BA85E4). The function returns early at 0x82BA8500 (engine +308 == 0) without reaching this point.
+[[midasm_hook]]
+address = 0x82BA85E8
+name = "wwe2k14_pacing_fps_word"
+registers = ["r9", "r10"]
+
+# ---------------------------------------------------------------------------------------------------------------
+# Late-frame threshold setter sub_82CAA838 (row 95 of the render-state table at 0x8362EFB0; no direct caller), at its
+# first instruction: r3 = D3D device, r4 = new threshold (the low 7 bits go to bits 23-29 of device+12284).
+# Reached only through a pointer (the device reset sub_82CC0150 walks the table) or not at all.
+[[midasm_hook]]
+address = 0x82CAA838
+name = "wwe2k14_pacing_threshold"
+registers = ["r3", "r4"]
+
+# ---------------------------------------------------------------------------------------------------------------
+# Calls to sub_82BB6D50 (halve: 60 -> 30, 50 -> 25; anything else is left alone). One hook per call instruction;
+# the name carries the call-site address, which is also the site id in the log and the timeline.
+# The halve routine takes no arguments, so these hooks read no registers.
+
+# sub_8339E720 (UI toggle), switching on and the sub_8339DFA0 check passed.
+[[midasm_hook]]
+address = 0x8339E7D0
+name = "wwe2k14_pacing_halve_8339E7D0"
+registers = []
+
+# sub_8235B948 (transition end, 'FADE' object), flag +348 set and counters +84/+88 zero.
+[[midasm_hook]]
+address = 0x8235BA64
+name = "wwe2k14_pacing_halve_8235BA64"
+registers = []
+
+# sub_825BEE80 (scripted multi-wrestler scene), first state, only when the word is not already 30/25.
+[[midasm_hook]]
+address = 0x825BF048
+name = "wwe2k14_pacing_halve_825BF048"
+registers = []
+
+# sub_82331628 (UI sequence object constructor), half-rate branch.
+[[midasm_hook]]
+address = 0x82331778
+name = "wwe2k14_pacing_halve_82331778"
+registers = []
+# Session 7 prep experiment (wwe2k14_entrance_60fps): when the hook returns true, skip the call.
+jump_address_on_true = 0x8233177C
+
+# sub_82330B50 (UI sequence object destructor), puts half rate back (its +40 flag set).
+[[midasm_hook]]
+address = 0x82330BC0
+name = "wwe2k14_pacing_halve_82330BC0"
+registers = []
+
+# sub_833B59E0 (overlay/window object), unconditional in that function.
+[[midasm_hook]]
+address = 0x833B5A1C
+name = "wwe2k14_pacing_halve_833B5A1C"
+registers = []
+
+# sub_825C0EC8 (scene setup), flag +1584 of the object in 0x83924734 non-zero.
+[[midasm_hook]]
+address = 0x825C0FA8
+name = "wwe2k14_pacing_halve_825C0FA8"
+registers = []
+
+# sub_82A4BCE0 (destructor, vtable 0x82059B90), unconditional in that function.
+[[midasm_hook]]
+address = 0x82A4BD1C
+name = "wwe2k14_pacing_halve_82A4BD1C"
+registers = []
+
+# sub_82704CF8 (scene code), same +1584 flag non-zero.
+[[midasm_hook]]
+address = 0x82704D24
+name = "wwe2k14_pacing_halve_82704D24"
+registers = []
+
+# ---------------------------------------------------------------------------------------------------------------
+# Calls to sub_82BB6DF0 (restore: 30 -> 60, 25 -> 50; a no-op when the lock flag 0x8392DC44 is non-zero or the word
+# is anything else). The restore routine takes no arguments, so these hooks read no registers.
+
+# sub_8339E720 (UI toggle), switching off while at half rate (branch target).
+[[midasm_hook]]
+address = 0x8339E83C
+name = "wwe2k14_pacing_restore_8339E83C"
+registers = []
+
+# sub_825BBC00 (not examined in Session 6), when its +136 flag is set.
+[[midasm_hook]]
+address = 0x825BBE24
+name = "wwe2k14_pacing_restore_825BBE24"
+registers = []
+
+# sub_825BEE80 (scripted multi-wrestler scene), first restore, guarded by its ownership flag +136.
+[[midasm_hook]]
+address = 0x825BF818
+name = "wwe2k14_pacing_restore_825BF818"
+registers = []
+
+# sub_825BEE80, second restore, same guard.
+[[midasm_hook]]
+address = 0x825BF89C
+name = "wwe2k14_pacing_restore_825BF89C"
+registers = []
+
+# sub_82331628 (UI sequence object constructor), full-rate branch (branch target).
+[[midasm_hook]]
+address = 0x8233178C
+name = "wwe2k14_pacing_restore_8233178C"
+registers = []
+
+# sub_82330B50 (UI sequence object destructor), full-rate branch (branch target).
+[[midasm_hook]]
+address = 0x82330BC8
+name = "wwe2k14_pacing_restore_82330BC8"
+registers = []
+
+# sub_833929E8 (overlay/window object), when the word is 30/25 (branch target).
+[[midasm_hook]]
+address = 0x83392A28
+name = "wwe2k14_pacing_restore_83392A28"
+registers = []
+
+# sub_82A44A38 (method of the vtable 0x82059B90 class), unconditional, near the function start.
+[[midasm_hook]]
+address = 0x82A44A4C
+name = "wwe2k14_pacing_restore_82A44A4C"
+registers = []
+
+# sub_833B5198 (overlay/window object), branch target: skipped only when a global object exists, its +76 is
+# non-zero and the sub_8339DFA0 check returns non-zero.
+[[midasm_hook]]
+address = 0x833B51F8
+name = "wwe2k14_pacing_restore_833B51F8"
+registers = []
+
+# sub_82705C80 (scene code), flag +1584 of the object in 0x83924734 non-zero.
+[[midasm_hook]]
+address = 0x82705CA0
+name = "wwe2k14_pacing_restore_82705CA0"
+registers = []
+
+# sub_82A49C48 (method of the vtable 0x82059B90 class), unconditional, near the function start.
+[[midasm_hook]]
+address = 0x82A49C58
+name = "wwe2k14_pacing_restore_82A49C58"
+registers = []
+
+# sub_82A4C0F0 (method of the vtable 0x82059B90 class), unconditional, near the function start.
+[[midasm_hook]]
+address = 0x82A4C100
+name = "wwe2k14_pacing_restore_82A4C100"
+registers = []
+
+# sub_8232F7D8 (not examined in Session 6), branch target, reached on every path through the tests before it.
+[[midasm_hook]]
+address = 0x8232F80C
+name = "wwe2k14_pacing_restore_8232F80C"
+registers = []
+
+# sub_827ABDD8 (scene code), same +1584 flag non-zero.
+[[midasm_hook]]
+address = 0x827ABECC
+name = "wwe2k14_pacing_restore_827ABECC"
+registers = []
+
+# sub_8235B688 (transition begin), when the word is 30/25 (branch target).
+[[midasm_hook]]
+address = 0x8235B92C
+name = "wwe2k14_pacing_restore_8235B92C"
+registers = []

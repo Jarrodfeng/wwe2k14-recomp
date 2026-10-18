@@ -1,0 +1,47 @@
+# Session 14 (Jarrod's request): the full 40-man Royal Rumble, all CPU, FAST-FORWARDED. Use with --wwe2k14_launch=rumble_40
+# --wwe2k14_load_turbo=false (its in-game windows switch vsync themselves and would end the fast-forward).
+# From the in-game sequence on, vsync is off: the guest clock runs unthrottled and the game takes one fixed step per
+# frame (S3 / S5, runs 1059-1065), so it is the same match, faster (~170 game fps in run 1063 vs 60). Normal speed
+# again once the match is decided (finish type G+472 0x8376ACCC != 0; 7 = Rumble). Screenshot every 18000 frames,
+# then 30 / 60 s after the decision. Based on tools\sweep\scripts\full_rumble_40.txt (Session 10: 61 min at normal speed).
+# on_fail quit. Screenshots f_* are local only.
+on_fail quit
+log full: start (rumble_40)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log full: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log full: in-game sequence loading
+cvar vsync false
+log full: fast-forward on
+screenshot_every 18000 f
+wait_file M3.PAC 36000 optional
+log full: match scene wait over
+log_state seq
+wait_frames 600
+screenshot f_m600
+wait_state 0x8376ACCC !=0 540000 2 optional
+cvar vsync true
+log full: decided wait over (finish type G+472), normal speed again
+log_state 0x8376ACCC
+log_state 0x8376E3EC
+log_state 0x836F3928
+screenshot f_decided
+wait_frames 1800
+screenshot f_dec30
+wait_frames 1800
+screenshot f_dec60
+wait_frames 600
+log_state seq
+screenshot f_after
+wait_frames 60
+log full: end
+quit

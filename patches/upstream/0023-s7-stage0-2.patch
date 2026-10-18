@@ -1,0 +1,54 @@
+Subject: [ReXGlue] merge s7/stage0
+
+Class: DIAG
+What: Predicated-tiling counters and log.
+Evidence: Tool (PLAYBOOK Session 7).
+On / off: gpu_tiling_log_frames (0 = off).
+Commit: d5afabf (diff against d5afabf^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index cd14279..da4078e 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -404,6 +404,9 @@ class CommandProcessor {
+   bool tiling_select_counted_ = false;
+   // A gpu_tiling_log_frames log is running (changes only at frame boundaries).
+   bool tiling_log_active_ = false;
++  // The counter_ value the last cp_swap event recorded (its b), for the tiling log's frame row. Saved because
++  // the vsync thread also increments counter_ (GraphicsSystem::MarkVblank). CP thread only.
++  uint32_t tiling_swap_counter_ = 0;
+   void CountTilingSelect();
+   // After a SET_BIN_SELECT* / SET_BIN_MASK* packet changed bin_select_ / bin_mask_ (`kind` is the log row kind,
+   // a string literal).
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index e441aad..7f99ef7 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -1686,7 +1686,10 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   if (anatomy_active_) {
+     AnatomyEndFrame();
+   }
+-  perf::timeline::Record("cp_swap", frontbuffer_ptr, counter_);
++  // wwe2k14 patch (Session 7, TILING-STAGE0 review): the vsync thread also increments counter_
++  // (GraphicsSystem::MarkVblank), so keep the exact value cp_swap records for the tiling log's frame row.
++  tiling_swap_counter_ = counter_;
++  perf::timeline::Record("cp_swap", frontbuffer_ptr, tiling_swap_counter_);
+   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
+ 
+   // wwe2k14 patch (Session 6, CP10): once per frame, see GetReadbackResolveMode.
+@@ -2939,11 +2942,11 @@ void CommandProcessor::TilingLogEvent(const char* kind, int64_t value, int64_t i
+ 
+ void CommandProcessor::TilingLogFrameBoundary() {
+   if (tiling_log_active_) {
+-    // Close the frame that just ended (called after the swap's ++counter_; the swap packet is the last one
+-    // TilingLogPacket noted).
++    // Close the frame that just ended (called after the swap; the swap packet is the last one TilingLogPacket
++    // noted). value = the counter_ value cp_swap recorded, not counter_ - 1: vblanks also increment counter_.
+     TilingLog& log = *tiling_log_;
+     TilingLogEndSegment(bin_select_);
+-    TilingLogRow("frame", bin_select_, int64_t(uint32_t(counter_ - 1)), -1, true, &log.frame_totals);
++    TilingLogRow("frame", bin_select_, int64_t(tiling_swap_counter_), -1, true, &log.frame_totals);
+     TilingLogFlush();
+     // Ties the log's frames to the timeline's cp_swap events.
+     perf::timeline::Record("tiling_log", log.logs_started - 1, log.frame, log.seq);

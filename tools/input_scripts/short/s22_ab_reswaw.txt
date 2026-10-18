@@ -1,0 +1,45 @@
+# In-run A/B of vulkan_resolve_skip_disjoint_waw (period 30 frames) on profile_lesnar_bryan.txt; made by make_ab.py
+# harness: realtime (timed profile route, Session 19; pass --vsync=false for the fast-forwarded arm)
+# Session 19 item 1: the performance profile route. Same start as short\bench_launch_lesnar_bryan_pan.txt (use with
+# --wwe2k14_launch=lesnar_bryan: Brock Lesnar vs Daniel Bryan, Over the Limit BG04, Quick pace), then both entrances
+# in full and 2,000 match frames from M3.PAC. Scene marks: tron_343 (Brock), tron_324 (Bryan), match. Timed runs:
+# run_list -Exclusive. Needs the frozen user data (run_list.ps1). on_fail quit. Screenshots p_* are local only.
+on_fail quit
+log bench: start profile_lesnar_bryan (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+mark 1 ab_entrances
+repeat 123
+cvar vulkan_resolve_skip_disjoint_waw true
+wait_frames 30
+cvar vulkan_resolve_skip_disjoint_waw false
+wait_frames 30
+end_repeat
+cvar vulkan_resolve_skip_disjoint_waw false
+wait_file M3.PAC 6000
+mark 2 ab_match
+wait_frames 300
+repeat 60
+cvar vulkan_resolve_skip_disjoint_waw true
+wait_frames 30
+cvar vulkan_resolve_skip_disjoint_waw false
+wait_frames 30
+end_repeat
+cvar vulkan_resolve_skip_disjoint_waw false
+mark 3 ab_done
+wait_frames 30
+quit

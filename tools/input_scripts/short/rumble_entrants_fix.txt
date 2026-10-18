@@ -1,0 +1,36 @@
+# Session 14 (M5 Track A): does a launched Royal Rumble play entrants #1 / #2's entrances? Use with
+# --wwe2k14_launch=rumble_40. Pass = titantron 125.bik2 (Big Show, #1) then 322.bik2 (Del Rio, #2) after the opening
+# (Jarrod's menu Rumble, run 486), then the match scene (M3.PAC). Screenshots: each entrant's segment (step 5 on
+# slot 0 / 1, then 3 s) and the match. Untimed (lanes OK). Needs the frozen user data. on_fail quit.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log rr: in-game sequence loading
+wait_file 125.bik2 9000
+log rr: entrant 1 titantron
+wait_state entrance_step_0 >=5 2400 2 optional
+wait_frames 180
+screenshot rr_entrant1
+wait_file 322.bik2 9000
+log rr: entrant 2 titantron
+wait_state entrance_step_1 >=5 2400 2 optional
+wait_frames 180
+screenshot rr_entrant2
+wait_file M3.PAC 12000
+log rr: match scene
+wait_frames 600
+screenshot rr_match
+wait_frames 60
+log rr: end
+quit

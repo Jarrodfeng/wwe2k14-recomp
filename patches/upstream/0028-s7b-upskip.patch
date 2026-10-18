@@ -1,0 +1,1020 @@
+Subject: [ReXGlue] merge s7b/upskip
+
+Class: RGO
+What: Upload skip: XXH3 per 4 KB page, skip re-uploads of bytes the GPU already holds.
+Evidence: Verify 0 mismatches (runs 152 / 159); GPU -4.6 ms/frame (run 158); docs\upstream\gpu_upload_skip_unchanged.md.
+On / off: gpu_upload_skip_unchanged (+_stats, _verify), off.
+Commit: 9820278 (diff against 9820278^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index b9c8f41..950ca66 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -135,6 +135,21 @@ class SharedMemory {
+   // region. For CPU work that reads guest memory standing in for the host copy (screen extents estimates).
+   bool IsRangeGpuWritten(uint32_t start, uint32_t length);
+ 
++  // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged (see shared_memory.cpp). Per-frame counters for
++  // the cpf_up / cpf_up2 timeline events, taken (and reset) by the command processor at each frame boundary; this
++  // also adds them to the [s7][UPSKIP] summary logged about every 300 frames (only when hashing was on) and
++  // advances the verify round robin. Command processor thread only.
++  struct UploadSkipStats {
++    uint32_t upload_calls = 0;    // UploadRanges calls (each records one or more copies)
++    uint32_t pages_uploaded = 0;  // pages passed to UploadRanges
++    uint32_t pages_skipped = 0;   // pages made valid without a copy (bytes equal to the last upload)
++    uint32_t pages_c1_stale = 0;  // uploaded pages whose bytes changed while only the frame-end clear
++                                  // invalidated them (what clear_memory_page_state=false would show stale)
++    uint64_t bytes_hashed = 0;    // bytes hashed (skip checks and hashed uploads)
++    uint64_t hash_ns = 0;         // time in the hashing loops
++  };
++  UploadSkipStats TakeUploadSkipStats(uint64_t frame);
++
+  protected:
+   SharedMemory(memory::Memory& memory);
+   // Call in implementation-specific initialization.
+@@ -180,6 +195,34 @@ class SharedMemory {
+   virtual bool UploadRanges(
+       const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) = 0;
+ 
++  // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged.
++  // Latched for each RequestRanges call: whether UploadRanges must copy each chunk with CopyAndHashUploadPages.
++  bool upload_hash_tracking() const { return upload_hash_tracking_; }
++  // In place of the UploadRanges memcpy, after its MakeRangeValid: copies size bytes of guest memory from page
++  // page_first on into dest through a one-page snapshot, hashing each snapshot, so the recorded hash is of
++  // exactly the bytes that go to the GPU buffer.
++  void CopyAndHashUploadPages(uint8_t* dest, uint32_t page_first, uint32_t size);
++  // A GPU write other than an upload (resolve, memory export) to the range: its pages no longer hold the bytes
++  // last uploaded to them, so they can't be skipped until uploaded again. Command processor thread.
++  void InvalidateUploadHashes(uint32_t start, uint32_t length);
++  // gpu_upload_skip_unchanged_verify: record a copy of the page from the host GPU buffer at this point of the
++  // command stream, to be compared with bytes (the guest bytes that were hashed, page-sized) once the submission
++  // has completed. Returns whether it was recorded.
++  virtual bool RecordUploadSkipVerify(uint32_t page, const uint8_t* bytes) { return false; }
++  struct UploadSkipVerifyStats {
++    uint64_t recorded = 0;    // readback copies recorded
++    uint64_t dropped = 0;     // not recorded (readback ring full, or no readback buffer)
++    uint64_t checked = 0;     // compared after the submission completed
++    uint64_t mismatches = 0;  // GPU bytes != hashed guest bytes
++  };
++  UploadSkipVerifyStats& upload_skip_verify_stats() { return upload_skip_verify_stats_; }
++  uint64_t upload_skip_verify_mismatches_logged_ = 0;
++  // A count that grows whenever copies already recorded (UploadRanges) may never reach the GPU buffer (Vulkan:
++  // an async submission whose commands were dropped - SUBMITFIX). Read on the command processor thread at each
++  // locked request while hashing is on; when it has changed, every upload hash is dropped and the pages valid
++  // only through uploads are invalidated (see LatchUploadSkipSettings). Any thread may increase it.
++  virtual uint64_t GetLostUploadCount() const { return 0; }
++
+  private:
+   memory::Memory& memory_;
+ 
+@@ -234,6 +277,58 @@ class SharedMemory {
+   // mismatch from a race with a guest invalidation).
+   std::atomic<uint64_t> invalidation_count_{0};
+ 
++  // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged state. Command processor thread only (every
++  // RequestRanges, RangeWrittenByGpu and UploadRanges caller is on it), except where noted.
++  void LatchUploadSkipSettings();
++  // Copies ~watch-fired into upload_clear_only_ for the pages of upload_ranges_. Global critical region held.
++  void CaptureUploadClearOnly();
++  // Hashes the hashed pages of upload_ranges_ and fills upload_ranges_after_skip_ with what still needs a copy.
++  void SkipUnchangedUploadPages();
++  // UploadRanges failed (no upload buffer space): makes the pages of upload_ranges_after_skip_ not valid again,
++  // since SkipUnchangedUploadPages made the hashed ones among them valid before UploadRanges could copy them.
++  void InvalidateFailedUploadPages();
++  // CopyAndHashUploadPages: the page after the last one hashed in the current UploadRanges call. upload_ranges_
++  // can list a page twice (the boundary page of two merged ranges in the same page, not merged since their
++  // bytes are disjoint); pages come in ascending order otherwise, so a page below this is a repeat.
++  uint32_t upload_hash_next_page_ = 0;
++  uint64_t upload_hashes_lost_seen_ = 0;  // GetLostUploadCount at the last request with hashing on
++  bool upload_hash_tracking_ = false;           // hash uploads (skip or stats on), latched per request
++  bool upload_hash_tracking_previous_ = false;  // at the previous request (off -> on drops every hash)
++  bool upload_skip_ = false;                    // gpu_upload_skip_unchanged, latched per request
++  bool upload_skip_verify_ = false;             // gpu_upload_skip_unchanged_verify (with skip), per request
++  // Per page: XXH3 of the bytes last copied to the page of the GPU buffer, valid while the page's bit in
++  // upload_hash_valid_ is set (cleared by GPU writes other than uploads). Allocated when first turned on.
++  std::vector<uint64_t> upload_hashes_;
++  std::vector<uint64_t> upload_hash_valid_;
++  // Per page of upload_ranges_: no watch fired since the page was last made valid (captured in the scan).
++  std::vector<uint64_t> upload_clear_only_;
++  std::vector<uint8_t> upload_hash_scratch_;  // one page
++  std::vector<std::pair<uint32_t, uint32_t>> upload_ranges_after_skip_;
++  UploadSkipStats upload_skip_frame_stats_;
++  UploadSkipVerifyStats upload_skip_verify_stats_;
++  // Verify round robin: would-be-skipped pages seen this frame, readbacks recorded this frame, and the index of
++  // the first would-be-skipped page of the frame to record (moves on by the per-frame cap every frame).
++  uint32_t upload_skip_verify_candidates_ = 0;
++  uint32_t upload_skip_verify_recorded_frame_ = 0;
++  uint32_t upload_skip_verify_offset_ = 0;
++  struct UploadSkipWindow {
++    uint64_t window_first_frame = UINT64_MAX;
++    uint64_t upload_calls = 0;
++    uint64_t pages_uploaded = 0;
++    uint64_t pages_skipped = 0;
++    uint64_t pages_matched_verify = 0;  // would-be-skipped pages uploaded anyway (verify)
++    uint64_t pages_c1_stale = 0;
++    uint64_t pages_hash_checked = 0;    // invalid pages with a hash, checked against guest memory
++    uint64_t skip_make_valid_calls = 0;
++    uint64_t bytes_hashed = 0;
++    uint64_t hash_ns = 0;
++    uint64_t c1_stale_total = 0;
++    uint32_t c1_examples[4] = {};
++    uint32_t c1_example_count = 0;
++    UploadSkipVerifyStats verify_at_start;
++  };
++  UploadSkipWindow upload_skip_window_;
++
+   // Mutex between the guest memory subsystem and the command processor, to be
+   // locked when checking or updating validity of pages/ranges and when firing
+   // watches.
+@@ -247,6 +342,11 @@ class SharedMemory {
+   std::vector<uint64_t> system_page_flags_valid_;
+   // Subset of valid pages containing data written by the GPU.
+   std::vector<uint64_t> system_page_flags_valid_and_gpu_written_;
++  // wwe2k14 patch (Session 7b, UPSKIP): pages a guest write watch (MemoryInvalidationCallback), InvalidateAllPages
++  // or ClearCache invalidated since they were last made valid (MakeRangeValid clears them). The frame-end clear
++  // (clear_memory_page_state) does not set them: a page that is invalid with its bit clear would still be valid
++  // with clear_memory_page_state=false. Maintained in every mode (an OR / AND per 64-page block).
++  std::vector<uint64_t> system_page_flags_watch_fired_;
+   uint32_t num_system_page_flags_ = 0;
+ 
+   static std::pair<uint32_t, uint32_t> MemoryInvalidationCallbackThunk(
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index ec2edc2..5c07a0b 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -161,6 +161,12 @@ class VulkanCommandProcessor : public CommandProcessor {
+     return submission_completed_ + uint64_t(submissions_in_flight_fences_.size()) + 1;
+   }
+   uint64_t GetCompletedSubmission() const { return submission_completed_; }
++  // wwe2k14 patch (Session 7b, UPSKIP review): how many async submissions had their commands dropped (SUBMITFIX:
++  // recording failed, or vkQueueSubmit kept failing) or abandoned - their recorded uploads never ran. Increased on
++  // the submit thread before the submission's fence can be signaled. Any thread.
++  uint64_t GetAsyncSubmitCommandsDropped() const {
++    return async_submit_commands_dropped_.load(std::memory_order_acquire);
++  }
+ 
+   // Sparse binds are:
+   // - In a single submission, all submitted in one vkQueueBindSparse.
+@@ -767,6 +773,7 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool async_submit_busy_ = false;
+   bool async_submit_stop_ = false;
+   std::atomic<bool> async_submit_device_lost_{false};
++  std::atomic<uint64_t> async_submit_commands_dropped_{0};  // wwe2k14 patch (Session 7b, UPSKIP review)
+   // wwe2k14 patch (Session 6, DRAIN): vulkan_async_swap. Swap submissions go to the submit thread as well, and
+   // the presenter orders its own queue operations after them with tickets of this (shared with the presenter's
+   // guest output images, so it may outlive this object).
+diff --git a/include/rex/graphics/vulkan/shared_memory.h b/include/rex/graphics/vulkan/shared_memory.h
+index 9a2f8b0..3c85c72 100644
+--- a/include/rex/graphics/vulkan/shared_memory.h
++++ b/include/rex/graphics/vulkan/shared_memory.h
+@@ -55,7 +55,33 @@ class VulkanSharedMemory : public SharedMemory {
+ 
+   bool UploadRanges(const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) override;
+ 
++  // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged_verify.
++  bool RecordUploadSkipVerify(uint32_t page, const uint8_t* bytes) override;
++  // wwe2k14 patch (Session 7b, UPSKIP review): async submissions whose commands were dropped.
++  uint64_t GetLostUploadCount() const override;
++
+  private:
++  // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged_verify - a ring of page-sized readback slots
++  // (copies of a page of buffer_ recorded at the point the page would have been skipped) and the guest bytes
++  // that were hashed there, compared in order once their submissions have completed. Command processor thread.
++  void CheckUploadSkipVerifyReadbacks();
++  void ShutdownUploadSkipVerify();
++  static constexpr uint32_t kUploadSkipVerifySlots = 1024;
++  struct UploadSkipVerifySlot {
++    uint64_t submission;
++    uint64_t lost_upload_count;  // GetLostUploadCount when recorded (changed: the readback may not have run)
++    uint32_t page;
++  };
++  VkBuffer upload_skip_verify_buffer_ = VK_NULL_HANDLE;
++  VkDeviceMemory upload_skip_verify_memory_ = VK_NULL_HANDLE;
++  uint8_t* upload_skip_verify_mapping_ = nullptr;
++  bool upload_skip_verify_coherent_ = false;
++  bool upload_skip_verify_unavailable_ = false;  // creation failed, not retried
++  std::vector<UploadSkipVerifySlot> upload_skip_verify_slots_;
++  std::vector<uint8_t> upload_skip_verify_hashed_bytes_;
++  uint32_t upload_skip_verify_head_ = 0;
++  uint32_t upload_skip_verify_count_ = 0;
++
+   void GetUsageMasks(Usage usage, VkPipelineStageFlags& stage_mask,
+                      VkAccessFlags& access_mask) const;
+ 
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index cd54551..00c90e9 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <chrono>
+ #include <cstring>
+ #include <utility>
+ 
+@@ -19,6 +20,7 @@
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/graphics/shared_memory.h>
++#include <rex/hash.h>
+ #include <rex/logging.h>
+ #include <rex/math.h>
+ #include <rex/memory.h>
+@@ -36,6 +38,38 @@ REXCVAR_DEFINE_BOOL(gpu_request_ranges_fast_verify, false, "GPU",
+                     "still run the original locked path (so the result is the original one) and count and "
+                     "log disagreements ([s6][CP2]).");
+ 
++// wwe2k14 patch (Session 7b, UPSKIP): with clear_memory_page_state (our default) the frame end clears the valid
++// bit of every page the GPU hasn't written, so every page a frame uses is uploaded again the next time it's
++// requested: ~1,000 mid-frame uploads per heavy frame, each ending the render pass with a whole-buffer barrier
++// (session7b notes: ~83-85% of them re-upload unchanged bytes; with clear_memory_page_state=false, run 141, GPU
++// time per heavy 1440p60 frame fell 18 -> 10.6 ms). With this on, the bytes last copied to each page of the GPU
++// buffer are hashed (XXH3-64 of the exact snapshot uploaded), and the hash is dropped when anything else writes
++// that page of the buffer (resolve, memory export: RangeWrittenByGpu / MakeRangeValid(written_by_gpu) and
++// VulkanSharedMemory::Use with a write usage). A requested page that is not valid but still has its hash is made
++// valid and watched exactly as UploadRanges does before its copy, then its guest bytes are hashed; if the hash is
++// the same, the GPU buffer already holds these bytes and the copy is skipped, otherwise it is uploaded as before.
++// clear_memory_page_state stays on: the decision compares bytes, it doesn't trust the write watch.
++REXCVAR_DEFINE_BOOL(gpu_upload_skip_unchanged, false, "GPU",
++                    "Skip shared memory uploads of pages whose guest bytes hash (XXH3-64) the same as the bytes "
++                    "last uploaded to that page, when nothing else has written that page of the GPU buffer since; "
++                    "the page is made valid and watched as by an upload. Per-frame counters: cpf_up / cpf_up2 "
++                    "timeline events, [s7][UPSKIP] log. Read per request (toggle-safe)");
++REXCVAR_DEFINE_BOOL(gpu_upload_skip_unchanged_stats, false, "GPU",
++                    "Hash shared memory uploads as gpu_upload_skip_unchanged does without skipping anything, to "
++                    "count (cpf_up c) uploaded pages whose bytes changed while only the frame-end clear "
++                    "(clear_memory_page_state) had invalidated them - the pages clear_memory_page_state=false "
++                    "would have left stale. Read per request (toggle-safe)");
++REXCVAR_DEFINE_BOOL(gpu_upload_skip_unchanged_verify, false, "GPU",
++                    "With gpu_upload_skip_unchanged: upload the pages it would skip anyway (rendering as with it "
++                    "off), and for up to 256 of them per frame (round robin) first copy the page out of the GPU "
++                    "buffer at that point of the command stream and compare it with the hashed guest bytes once "
++                    "the submission has completed; logs [s7][UPSKIP] verify mismatches (slow, for checking only)");
++
++namespace {
++// wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged_verify readbacks per frame.
++constexpr uint32_t kUploadSkipVerifyPagesPerFrame = 256;
++}  // namespace
++
+ // wwe2k14 patch (Session 7, PROTECT): defined in src/system/xmemory.cpp (rexruntime).
+ REXCVAR_DECLARE(bool, gpu_protect_batch);
+ 
+@@ -53,6 +87,8 @@ void SharedMemory::InitializeCommon() {
+   num_system_page_flags_ = ((kBufferSize >> page_size_log2_) + 63) / 64;
+   system_page_flags_valid_.assign(num_system_page_flags_, 0);
+   system_page_flags_valid_and_gpu_written_.assign(num_system_page_flags_, 0);
++  // wwe2k14 patch (Session 7b, UPSKIP): never made valid yet, so not "invalidated only by the frame-end clear".
++  system_page_flags_watch_fired_.assign(num_system_page_flags_, UINT64_MAX);
+ 
+   memory_invalidation_callback_handle_ =
+       memory_.RegisterPhysicalMemoryInvalidationCallback(MemoryInvalidationCallbackThunk, this);
+@@ -106,6 +142,20 @@ void SharedMemory::ShutdownCommon() {
+   system_page_flags_valid_and_gpu_written_.clear();
+   system_page_flags_valid_and_gpu_written_.shrink_to_fit();
+   num_system_page_flags_ = 0;
++
++  // wwe2k14 patch (Session 7b, UPSKIP): the GPU buffer goes away with the implementation's shutdown.
++  system_page_flags_watch_fired_.clear();
++  system_page_flags_watch_fired_.shrink_to_fit();
++  upload_hashes_.clear();
++  upload_hashes_.shrink_to_fit();
++  upload_hash_valid_.clear();
++  upload_hash_valid_.shrink_to_fit();
++  upload_clear_only_.clear();
++  upload_clear_only_.shrink_to_fit();
++  upload_hash_tracking_ = false;
++  upload_hash_tracking_previous_ = false;
++  upload_skip_ = false;
++  upload_skip_verify_ = false;
+ }
+ 
+ void SharedMemory::InvalidateAllPages() {
+@@ -114,6 +164,9 @@ void SharedMemory::InvalidateAllPages() {
+   std::fill(system_page_flags_valid_.begin(), system_page_flags_valid_.end(), uint64_t(0));
+   std::fill(system_page_flags_valid_and_gpu_written_.begin(),
+             system_page_flags_valid_and_gpu_written_.end(), uint64_t(0));
++  // wwe2k14 patch (Session 7b, UPSKIP): an invalidation clear_memory_page_state=false would make too. The GPU
++  // buffer is not touched, so the upload hashes stay.
++  std::fill(system_page_flags_watch_fired_.begin(), system_page_flags_watch_fired_.end(), UINT64_MAX);
+ }
+ 
+ void SharedMemory::SetSystemPageBlocksValidWithGpuDataWritten() {
+@@ -141,6 +194,12 @@ void SharedMemory::ClearCache() {
+     delete[] pool;
+   }
+   watch_range_pools_.clear();
++  {
++    // wwe2k14 patch (Session 7b, UPSKIP): this clear happens with clear_memory_page_state=false too, unlike the
++    // frame-end one. The GPU buffer is not touched, so the upload hashes stay.
++    auto global_lock = global_critical_region_.Acquire();
++    std::fill(system_page_flags_watch_fired_.begin(), system_page_flags_watch_fired_.end(), UINT64_MAX);
++  }
+   SetSystemPageBlocksValidWithGpuDataWritten();
+ }
+ 
+@@ -310,6 +369,12 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length, bool written_
+   uint32_t valid_block_first = valid_page_first >> 6;
+   uint32_t valid_block_last = valid_page_last >> 6;
+ 
++  // wwe2k14 patch (Session 7b, UPSKIP): GPU-written data (resolve, memory export) replaced what was last
++  // uploaded to these pages of the GPU buffer.
++  if (written_by_gpu) {
++    InvalidateUploadHashes(start, length);
++  }
++
+   {
+     auto global_lock = global_critical_region_.Acquire();
+ 
+@@ -324,6 +389,8 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length, bool written_
+       system_page_flags_valid_[i] |= valid_bits;
+       uint64_t& gpu_written = system_page_flags_valid_and_gpu_written_[i];
+       gpu_written = written_by_gpu ? (gpu_written | valid_bits) : (gpu_written & ~valid_bits);
++      // wwe2k14 patch (Session 7b, UPSKIP): valid (and watched) again from here.
++      system_page_flags_watch_fired_[i] &= ~valid_bits;
+     }
+ 
+     // wwe2k14 patch (Session 7, PROTECT): with gpu_protect_batch, watch the pages without leaving the global
+@@ -444,6 +511,9 @@ bool SharedMemory::RequestMergedRanges(const std::pair<uint32_t, uint32_t>* merg
+     }
+   }
+ 
++  // wwe2k14 patch (Session 7b, UPSKIP): the settings for this request and its UploadRanges call.
++  LatchUploadSkipSettings();
++
+   upload_ranges_.clear();
+   auto append_upload_range = [this](uint32_t page_start, uint32_t page_count) {
+     if (!page_count) {
+@@ -509,6 +579,11 @@ bool SharedMemory::RequestMergedRanges(const std::pair<uint32_t, uint32_t>* merg
+         append_upload_range(range_start, page_last + 1 - range_start);
+       }
+     }
++    // wwe2k14 patch (Session 7b, UPSKIP): for cpf_up c, whether a watch fired for these pages since they were
++    // last made valid - read under the global critical region, as the scan is.
++    if (upload_hash_tracking_ && !upload_ranges_.empty()) {
++      CaptureUploadClearOnly();
++    }
+   }
+ 
+   COUNT_profile_set("gpu/shared_memory/request_ranges_count", uint32_t(request_count));
+@@ -520,12 +595,389 @@ bool SharedMemory::RequestMergedRanges(const std::pair<uint32_t, uint32_t>* merg
+     return true;
+   }
+ 
++  // wwe2k14 patch (Session 7b, UPSKIP): pages whose bytes are already in the GPU buffer are made valid here
++  // without a copy; the rest is uploaded as before. upload_ranges_ keeps every page found not valid (what
++  // gpu_request_ranges_fast's statistics and verify read).
++  const std::vector<std::pair<uint32_t, uint32_t>>* ranges_to_upload = &upload_ranges_;
++  if (upload_skip_) {
++    SkipUnchangedUploadPages();
++    if (upload_ranges_after_skip_.empty()) {
++      return true;
++    }
++    ranges_to_upload = &upload_ranges_after_skip_;
++  }
++
+   // wwe2k14 patch (Session 6, COUNTERS): what goes to the upload.
+   ++request_stats_.upload_calls;
+-  for (const std::pair<uint32_t, uint32_t>& upload_range : upload_ranges_) {
++  uint32_t upload_pages = 0;
++  for (const std::pair<uint32_t, uint32_t>& upload_range : *ranges_to_upload) {
+     request_stats_.upload_bytes += uint64_t(upload_range.second) << page_size_log2_;
++    upload_pages += upload_range.second;
++  }
++  // wwe2k14 patch (Session 7b, UPSKIP): cpf_up a, cpf_up2 a.
++  ++upload_skip_frame_stats_.upload_calls;
++  upload_skip_frame_stats_.pages_uploaded += upload_pages;
++  upload_hash_next_page_ = 0;
++  if (!UploadRanges(*ranges_to_upload)) {
++    // wwe2k14 patch (Session 7b, UPSKIP review): without skipping, UploadRanges only makes a chunk valid once it
++    // has upload buffer space for it, so on failure the rest stays not valid and is retried on its next request.
++    if (upload_skip_) {
++      InvalidateFailedUploadPages();
++    }
++    return false;
++  }
++  return true;
++}
++
++void SharedMemory::InvalidateFailedUploadPages() {
++  // wwe2k14 patch (Session 7b, UPSKIP review): SkipUnchangedUploadPages made every hashed page it checked valid
++  // before comparing, and left the ones whose bytes changed for UploadRanges to copy. UploadRanges has failed
++  // part-way (no upload buffer space), so some of them may be valid without their copy. Every page of the list
++  // is made not valid again: the ones UploadRanges did copy are only uploaded (or skipped by their new hash)
++  // again on their next request, the ones it didn't are retried, as without skipping. They were all made valid
++  // with written_by_gpu false, so no GPU-written page loses its bit. Marked as watch-fired (an invalidation
++  // clear_memory_page_state=false would make too). Their watches stay armed: a watch firing on a page that is
++  // not valid only invalidates it again.
++  if (upload_ranges_after_skip_.empty()) {
++    return;
++  }
++  auto global_lock = global_critical_region_.Acquire();
++  for (const std::pair<uint32_t, uint32_t>& upload_range : upload_ranges_after_skip_) {
++    uint32_t page_first = upload_range.first;
++    uint32_t page_last = upload_range.first + upload_range.second - 1;
++    uint32_t block_first = page_first >> 6;
++    uint32_t block_last = page_last >> 6;
++    for (uint32_t i = block_first; i <= block_last; ++i) {
++      uint64_t mask = UINT64_MAX;
++      if (i == block_first) {
++        mask &= ~((uint64_t(1) << (page_first & 63)) - 1);
++      }
++      if (i == block_last && (page_last & 63) != 63) {
++        mask &= (uint64_t(1) << ((page_last & 63) + 1)) - 1;
++      }
++      // The lock-free gpu_request_ranges_fast check reads these blocks on this thread only, so no atomic store
++      // is needed for it; guest threads change them under the global critical region, held here.
++      system_page_flags_valid_[i] &= ~mask;
++      system_page_flags_valid_and_gpu_written_[i] &= ~mask;
++      system_page_flags_watch_fired_[i] |= mask;
++    }
++  }
++  REXGPU_ERROR(
++      "[s7][UPSKIP] an upload failed with gpu_upload_skip_unchanged on - its {} range(s) made not valid again",
++      upload_ranges_after_skip_.size());
++}
++
++void SharedMemory::LatchUploadSkipSettings() {
++  // wwe2k14 patch (Session 7b, UPSKIP). Read once per request; nothing here depends on the previous request's
++  // settings except the hashes, and uploads made while hashing was off didn't record any, so every hash is
++  // dropped when hashing starts (again).
++  const bool skip = REXCVAR_GET(gpu_upload_skip_unchanged);
++  const bool tracking = skip || REXCVAR_GET(gpu_upload_skip_unchanged_stats);
++  if (tracking && !upload_hash_tracking_previous_) {
++    size_t page_count = size_t(kBufferSize >> page_size_log2_);
++    if (upload_hashes_.size() != page_count) {
++      // 8 bytes per page (1 MB with 4 KB pages), allocated the first time it's turned on.
++      upload_hashes_.assign(page_count, 0);
++      upload_hash_valid_.assign(num_system_page_flags_, 0);
++      upload_clear_only_.assign(num_system_page_flags_, 0);
++      upload_hash_scratch_.resize(size_t(1) << page_size_log2_);
++    } else {
++      std::fill(upload_hash_valid_.begin(), upload_hash_valid_.end(), uint64_t(0));
++    }
++    // wwe2k14 patch (Session 7b, UPSKIP review): no hash is left to drop for earlier losses.
++    upload_hashes_lost_seen_ = GetLostUploadCount();
++  } else if (tracking) {
++    // wwe2k14 patch (Session 7b, UPSKIP review): copies recorded earlier may never have reached the GPU buffer
++    // (Vulkan: SUBMITFIX dropped the commands of an async submission after its recording or ~1 s of submit
++    // retries failed). Their hashes would say the buffer holds bytes it doesn't, and with skipping that would
++    // last until the guest changes those bytes, where without it the next frame's re-upload repairs them. So
++    // every hash is dropped, and with skipping on, the pages valid only through uploads (or skips relying on
++    // them) are made not valid, as the frame-end clear does, so all of them are uploaded again on their next
++    // request (stats only: uploads as without hashing, nothing else changes). Before this request's scan. Draws
++    // recorded between the loss and here may have read stale data (also without skipping, for the lost copies;
++    // with skipping, also for pages skipped meanwhile, in the submissions recorded before the submit thread
++    // gave up on that one - repaired from here on).
++    const uint64_t lost = GetLostUploadCount();
++    if (lost != upload_hashes_lost_seen_) {
++      upload_hashes_lost_seen_ = lost;
++      std::fill(upload_hash_valid_.begin(), upload_hash_valid_.end(), uint64_t(0));
++      if (skip) {
++        SetSystemPageBlocksValidWithGpuDataWritten();
++      }
++      REXGPU_ERROR(
++          "[s7][UPSKIP] recorded uploads were lost (dropped submission commands, {} so far) - every upload hash "
++          "dropped{}",
++          lost, skip ? " and the uploaded pages made not valid" : "");
++    }
++  }
++  upload_hash_tracking_previous_ = tracking;
++  upload_hash_tracking_ = tracking;
++  upload_skip_ = skip;
++  upload_skip_verify_ = skip && REXCVAR_GET(gpu_upload_skip_unchanged_verify);
++}
++
++void SharedMemory::CaptureUploadClearOnly() {
++  // wwe2k14 patch (Session 7b, UPSKIP): global critical region held by the caller (the watch-fired bits are set
++  // by guest threads in MemoryInvalidationCallback).
++  for (const std::pair<uint32_t, uint32_t>& upload_range : upload_ranges_) {
++    uint32_t page_first = upload_range.first;
++    uint32_t page_last = upload_range.first + upload_range.second - 1;
++    uint32_t block_first = page_first >> 6;
++    uint32_t block_last = page_last >> 6;
++    for (uint32_t i = block_first; i <= block_last; ++i) {
++      uint64_t mask = UINT64_MAX;
++      if (i == block_first) {
++        mask &= ~((uint64_t(1) << (page_first & 63)) - 1);
++      }
++      if (i == block_last && (page_last & 63) != 63) {
++        mask &= (uint64_t(1) << ((page_last & 63) + 1)) - 1;
++      }
++      upload_clear_only_[i] =
++          (upload_clear_only_[i] & ~mask) | (~system_page_flags_watch_fired_[i] & mask);
++    }
++  }
++}
++
++void SharedMemory::SkipUnchangedUploadPages() {
++  // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged. For each page of upload_ranges_ (not valid,
++  // about to be uploaded) whose upload hash is valid - the GPU buffer holds exactly the bytes last uploaded to it,
++  // nothing else has written it since - do what UploadRanges does to the page before its copy (MakeRangeValid:
++  // valid, not GPU-written, watched, so a guest write from now on invalidates it again), then hash the guest
++  // bytes at that point, where UploadRanges would read them for the copy. Equal hash: the buffer already holds
++  // these bytes, nothing to copy. Otherwise, and for pages without a hash, the page goes to the upload as before
++  // (UploadRanges makes it valid again before copying, which changes nothing if no write came in between, or
++  // re-validates it after one, as it would without this). The pages left are merged into ascending ranges as
++  // the scan makes them.
++  upload_ranges_after_skip_.clear();
++  auto append = [this](uint32_t page_start, uint32_t page_count) {
++    if (!page_count) {
++      return;
++    }
++    if (!upload_ranges_after_skip_.empty()) {
++      std::pair<uint32_t, uint32_t>& last_range = upload_ranges_after_skip_.back();
++      if (last_range.first + last_range.second == page_start) {
++        last_range.second += page_count;
++        return;
++      }
++    }
++    upload_ranges_after_skip_.emplace_back(page_start, page_count);
++  };
++  const uint32_t page_size = uint32_t(1) << page_size_log2_;
++  const uint64_t* hash_valid = upload_hash_valid_.data();
++  auto has_hash = [hash_valid](uint32_t page) -> bool {
++    return (hash_valid[page >> 6] >> (page & 63)) & 1;
++  };
++  uint8_t* snapshot = upload_hash_scratch_.data();
++  const bool verify = upload_skip_verify_;
++  UploadSkipStats& stats = upload_skip_frame_stats_;
++  UploadSkipWindow& window = upload_skip_window_;
++  // wwe2k14 patch (Session 7b, UPSKIP review): upload_ranges_ is in ascending page order except that a page can
++  // be listed twice (the boundary page of two merged byte ranges sharing it). Each page is checked and kept for
++  // the upload once, so it is copied once - without this it would be copied twice with overlapping destination
++  // regions (and, should a guest write land between the two snapshots, the GPU buffer could end up with either
++  // while the hash is of the second). Pages from processed_end on are not processed yet.
++  uint32_t processed_end = 0;
++  for (const std::pair<uint32_t, uint32_t>& upload_range : upload_ranges_) {
++    const uint32_t range_end = upload_range.first + upload_range.second;
++    uint32_t page = std::max(upload_range.first, processed_end);
++    processed_end = std::max(processed_end, range_end);
++    while (page < range_end) {
++      uint32_t hashed_first = page;
++      while (hashed_first < range_end && !has_hash(hashed_first)) {
++        ++hashed_first;
++      }
++      append(page, hashed_first - page);
++      if (hashed_first >= range_end) {
++        break;
++      }
++      uint32_t hashed_end = hashed_first + 1;
++      while (hashed_end < range_end && has_hash(hashed_end)) {
++        ++hashed_end;
++      }
++      MakeRangeValid(hashed_first << page_size_log2_, (hashed_end - hashed_first) << page_size_log2_,
++                     false);
++      ++window.skip_make_valid_calls;
++      const auto hash_start = std::chrono::steady_clock::now();
++      for (uint32_t hashed_page = hashed_first; hashed_page < hashed_end; ++hashed_page) {
++        const uint8_t* guest = memory().TranslatePhysical(hashed_page << page_size_log2_);
++        const uint8_t* hashed_bytes = guest;
++        if (verify) {
++          // Keep the exact bytes hashed for the comparison with the GPU buffer.
++          std::memcpy(snapshot, guest, page_size);
++          hashed_bytes = snapshot;
++        }
++        if (XXH3_64bits(hashed_bytes, page_size) != upload_hashes_[hashed_page]) {
++          append(hashed_page, 1);
++          continue;
++        }
++        if (!verify) {
++          ++stats.pages_skipped;
++          continue;
++        }
++        // Verify: uploaded anyway; up to kUploadSkipVerifyPagesPerFrame per frame first get a readback of the
++        // GPU buffer's page as it is here, before this upload.
++        ++window.pages_matched_verify;
++        uint32_t candidate = upload_skip_verify_candidates_++;
++        if (candidate >= upload_skip_verify_offset_ &&
++            upload_skip_verify_recorded_frame_ < kUploadSkipVerifyPagesPerFrame &&
++            RecordUploadSkipVerify(hashed_page, snapshot)) {
++          ++upload_skip_verify_recorded_frame_;
++        }
++        append(hashed_page, 1);
++      }
++      stats.hash_ns += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                    std::chrono::steady_clock::now() - hash_start)
++                                    .count());
++      stats.bytes_hashed += uint64_t(hashed_end - hashed_first) << page_size_log2_;
++      window.pages_hash_checked += hashed_end - hashed_first;
++      page = hashed_end;
++    }
++  }
++}
++
++void SharedMemory::CopyAndHashUploadPages(uint8_t* dest, uint32_t page_first, uint32_t size) {
++  // wwe2k14 patch (Session 7b, UPSKIP): the UploadRanges copy of one chunk (after its MakeRangeValid), through a
++  // one-page snapshot: guest -> snapshot, hash the snapshot, snapshot -> upload buffer. The bytes copied are
++  // those of a read of guest memory at the same point as the plain memcpy's, and the hash is of exactly those
++  // bytes, even if a guest thread writes the page meanwhile (that write invalidates the page through its watch,
++  // so it is requested again; the hash stays that of what the GPU buffer gets).
++  const uint32_t page_size = uint32_t(1) << page_size_log2_;
++  const uint8_t* source = memory().TranslatePhysical(page_first << page_size_log2_);
++  uint8_t* snapshot = upload_hash_scratch_.data();
++  UploadSkipStats& stats = upload_skip_frame_stats_;
++  UploadSkipWindow& window = upload_skip_window_;
++  const auto hash_start = std::chrono::steady_clock::now();
++  uint32_t page = page_first;
++  uint32_t offset = 0;
++  for (; size - offset >= page_size; offset += page_size, ++page) {
++    std::memcpy(snapshot, source + offset, page_size);
++    const uint64_t hash = XXH3_64bits(snapshot, page_size);
++    std::memcpy(dest + offset, snapshot, page_size);
++    const uint64_t page_bit = uint64_t(1) << (page & 63);
++    uint64_t& hash_valid_block = upload_hash_valid_[page >> 6];
++    if (page < upload_hash_next_page_) {
++      // wwe2k14 patch (Session 7b, UPSKIP review): copied a second time in this call (a page listed twice in
++      // upload_ranges_ - only without skipping, which uploads each page once). The two copies' destination
++      // regions overlap, so if the snapshots differ (a guest write in between) the buffer may hold either:
++      // no hash, so the page is uploaded again on its next request, as without hashing.
++      hash_valid_block &= ~page_bit;
++      continue;
++    }
++    upload_hash_next_page_ = page + 1;
++    // cpf_up c: the GPU buffer held the previous upload's bytes, no watch fired since the page was last made
++    // valid (so with clear_memory_page_state=false it would have stayed valid, read from the buffer), and the
++    // guest bytes differ from them.
++    if ((hash_valid_block & page_bit) && (upload_clear_only_[page >> 6] & page_bit) &&
++        upload_hashes_[page] != hash) {
++      ++stats.pages_c1_stale;
++      if (window.c1_example_count < uint32_t(rex::countof(window.c1_examples))) {
++        window.c1_examples[window.c1_example_count++] = page << page_size_log2_;
++      }
++    }
++    upload_hashes_[page] = hash;
++    hash_valid_block |= page_bit;
++  }
++  if (offset < size) {
++    // Not a whole page (UploadRanges copies whole pages, so not expected): copied as without hashing, and the
++    // page has no hash until it's uploaded whole.
++    std::memcpy(dest + offset, source + offset, size - offset);
++    upload_hash_valid_[page >> 6] &= ~(uint64_t(1) << (page & 63));
++  }
++  stats.hash_ns += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                std::chrono::steady_clock::now() - hash_start)
++                                .count());
++  stats.bytes_hashed += offset;
++}
++
++void SharedMemory::InvalidateUploadHashes(uint32_t start, uint32_t length) {
++  // wwe2k14 patch (Session 7b, UPSKIP). Maintained whenever the hashes exist (also while hashing is off, though
++  // turning it on drops them all anyway).
++  if (upload_hash_valid_.empty() || !length || start >= kBufferSize) {
++    return;
++  }
++  length = std::min(length, kBufferSize - start);
++  uint32_t page_first = start >> page_size_log2_;
++  uint32_t page_last = (start + length - 1) >> page_size_log2_;
++  uint32_t block_first = page_first >> 6;
++  uint32_t block_last = page_last >> 6;
++  for (uint32_t i = block_first; i <= block_last; ++i) {
++    uint64_t mask = UINT64_MAX;
++    if (i == block_first) {
++      mask &= ~((uint64_t(1) << (page_first & 63)) - 1);
++    }
++    if (i == block_last && (page_last & 63) != 63) {
++      mask &= (uint64_t(1) << ((page_last & 63) + 1)) - 1;
++    }
++    upload_hash_valid_[i] &= ~mask;
++  }
++}
++
++SharedMemory::UploadSkipStats SharedMemory::TakeUploadSkipStats(uint64_t frame) {
++  // wwe2k14 patch (Session 7b, UPSKIP).
++  UploadSkipStats stats = upload_skip_frame_stats_;
++  upload_skip_frame_stats_ = UploadSkipStats();
++  // Verify round robin: the next frame starts recording after the would-be-skipped pages recorded this frame
++  // (from the first one again once that passes this frame's count).
++  if (uint64_t(upload_skip_verify_offset_) + kUploadSkipVerifyPagesPerFrame <
++      upload_skip_verify_candidates_) {
++    upload_skip_verify_offset_ += kUploadSkipVerifyPagesPerFrame;
++  } else {
++    upload_skip_verify_offset_ = 0;
++  }
++  upload_skip_verify_candidates_ = 0;
++  upload_skip_verify_recorded_frame_ = 0;
++
++  UploadSkipWindow& window = upload_skip_window_;
++  window.upload_calls += stats.upload_calls;
++  window.pages_uploaded += stats.pages_uploaded;
++  window.pages_skipped += stats.pages_skipped;
++  window.pages_c1_stale += stats.pages_c1_stale;
++  window.c1_stale_total += stats.pages_c1_stale;
++  window.bytes_hashed += stats.bytes_hashed;
++  window.hash_ns += stats.hash_ns;
++  if (window.window_first_frame == UINT64_MAX) {
++    window.window_first_frame = frame;
++    window.verify_at_start = upload_skip_verify_stats_;
++    return stats;
++  }
++  if (frame - window.window_first_frame < 300) {
++    return stats;
++  }
++  const UploadSkipVerifyStats& verify_now = upload_skip_verify_stats_;
++  const UploadSkipVerifyStats& verify_start = window.verify_at_start;
++  // Only when hashing ran in this window (nothing is hashed with every setting off).
++  if (window.bytes_hashed || verify_now.recorded != verify_start.recorded ||
++      verify_now.checked != verify_start.checked) {
++    uint64_t frames = std::max(frame - window.window_first_frame, uint64_t(1));
++    std::string c1_examples;
++    for (uint32_t i = 0; i < window.c1_example_count; ++i) {
++      c1_examples += fmt::format("{}0x{:08X}", i ? ", " : "", window.c1_examples[i]);
++    }
++    REXGPU_INFO(
++        "[s7][UPSKIP] frames {}-{} (skip {}, stats {}, verify {}): {} upload calls ({:.1f}/frame), {} pages "
++        "uploaded ({:.1f}/frame), {} pages skipped ({:.1f}/frame) of {} not-valid pages with a hash checked, {} "
++        "matched but uploaded for verify; {} uploaded pages changed while only the frame-end clear had "
++        "invalidated them (stale with clear_memory_page_state=false; {} in total){}{}; hashed {} MB in {:.2f} "
++        "ms ({:.3f} ms/frame); {} MakeRangeValid calls for skip checks; verify: {} readbacks recorded, {} "
++        "dropped, {} compared, {} mismatches ({} in total)",
++        window.window_first_frame, frame, REXCVAR_GET(gpu_upload_skip_unchanged),
++        REXCVAR_GET(gpu_upload_skip_unchanged_stats), REXCVAR_GET(gpu_upload_skip_unchanged_verify),
++        window.upload_calls, double(window.upload_calls) / double(frames), window.pages_uploaded,
++        double(window.pages_uploaded) / double(frames), window.pages_skipped,
++        double(window.pages_skipped) / double(frames), window.pages_hash_checked,
++        window.pages_matched_verify, window.pages_c1_stale, window.c1_stale_total,
++        window.c1_example_count ? ", e.g. " : "", c1_examples, window.bytes_hashed >> 20,
++        double(window.hash_ns) / 1.0e6, double(window.hash_ns) / 1.0e6 / double(frames),
++        window.skip_make_valid_calls, verify_now.recorded - verify_start.recorded,
++        verify_now.dropped - verify_start.dropped, verify_now.checked - verify_start.checked,
++        verify_now.mismatches - verify_start.mismatches, verify_now.mismatches);
+   }
+-  return UploadRanges(upload_ranges_);
++  UploadSkipWindow next_window;
++  next_window.window_first_frame = frame;
++  next_window.c1_stale_total = window.c1_stale_total;
++  next_window.verify_at_start = upload_skip_verify_stats_;
++  window = next_window;
++  return stats;
+ }
+ 
+ bool SharedMemory::RequestRangesFast(const std::pair<uint32_t, uint32_t>* ranges, size_t count) {
+@@ -823,6 +1275,8 @@ std::pair<uint32_t, uint32_t> SharedMemory::MemoryInvalidationCallback(
+     valid_block.store(valid_block.load(std::memory_order_relaxed) & ~invalidate_bits,
+                       std::memory_order_relaxed);
+     system_page_flags_valid_and_gpu_written_[i] &= ~invalidate_bits;
++    // wwe2k14 patch (Session 7b, UPSKIP): invalidated by a watch (as with clear_memory_page_state=false too).
++    system_page_flags_watch_fired_[i] |= invalidate_bits;
+   }
+   // wwe2k14 patch (Session 6, CP2): for gpu_request_ranges_fast_verify, after
+   // the bits (release), under the global critical region.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 62a279d..f8e6aa7 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -5060,6 +5060,8 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+   }
+   if (!recorded) {
+     REXGPU_ERROR("Async submit: failed to record a Vulkan command buffer (submission {})", job.submission);
++    // wwe2k14 patch (Session 7b, UPSKIP review): its uploads never run (before the fence can be signaled).
++    async_submit_commands_dropped_.fetch_add(1, std::memory_order_release);
+   }
+ 
+   // Even without a command buffer, submit so the wait semaphores are consumed and the fence gets signaled:
+@@ -5103,6 +5105,10 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+       }
+       if (!AsyncSubmitRetryWait(retry)) {
+         REXGPU_ERROR("[s7][SUBMITFIX] Async submit: stopping, submission {} abandoned", job.submission);
++        if (submit_info.commandBufferCount) {
++          // wwe2k14 patch (Session 7b, UPSKIP review): its uploads never run.
++          async_submit_commands_dropped_.fetch_add(1, std::memory_order_release);
++        }
+         break;
+       }
+       if (retry > kRetriesWithCommands && submit_info.commandBufferCount) {
+@@ -5113,6 +5119,9 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+             job.submission);
+         submit_info.commandBufferCount = 0;
+         submit_info.pCommandBuffers = nullptr;
++        // wwe2k14 patch (Session 7b, UPSKIP review): its uploads never run - counted before the submission that
++        // signals its fence, so whoever sees the fence signaled sees the count too.
++        async_submit_commands_dropped_.fetch_add(1, std::memory_order_release);
+       }
+       submit_result = dfn.vkQueueSubmit(queue_acquisition.queue(), 1, &submit_info, job.fence);
+       if (submit_result == VK_SUCCESS) {
+@@ -10223,6 +10232,20 @@ void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
+     counters.request_ranges = request_stats.calls;
+     counters.request_ranges_all_valid = request_stats.calls - request_stats.upload_calls;
+     counters.upload_kib = uint32_t(request_stats.upload_bytes >> 10);
++    // wwe2k14 patch (Session 7b, UPSKIP): recorded here, right before the cpf events and cp_swap (so they belong
++    // to the same CP frame). Fixed layout (for the report tool):
++    //   cpf_up   a = UploadRanges calls (uploads that record copies), b = pages made valid without a copy by
++    //            gpu_upload_skip_unchanged, c = uploaded pages whose bytes changed while only the frame-end clear
++    //            had invalidated them (what clear_memory_page_state=false would have read stale; needs
++    //            gpu_upload_skip_unchanged or gpu_upload_skip_unchanged_stats, 0 otherwise)
++    //   cpf_up2  a = pages uploaded, b = KiB hashed, c = microseconds in the hashing loops (skip checks: hash;
++    //            hashed uploads: snapshot copy + hash + copy to the upload buffer)
++    SharedMemory::UploadSkipStats upload_skip_stats = shared_memory_->TakeUploadSkipStats(frame_current_);
++    perf::timeline::Record("cpf_up", upload_skip_stats.upload_calls, upload_skip_stats.pages_skipped,
++                           upload_skip_stats.pages_c1_stale);
++    perf::timeline::Record("cpf_up2", upload_skip_stats.pages_uploaded,
++                           uint32_t(upload_skip_stats.bytes_hashed >> 10),
++                           uint32_t(upload_skip_stats.hash_ns / 1000));
+   }
+   counters.checkpoint_next_id = crash_checkpoints_enabled() ? uint32_t(crash_checkpoint_next_id_) : 0;
+ }
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 1e5e3f1..367794f 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -254,6 +254,7 @@ bool VulkanSharedMemory::Initialize() {
+ 
+ void VulkanSharedMemory::Shutdown(bool from_destructor) {
+   upload_buffer_pool_.reset();
++  ShutdownUploadSkipVerify();  // wwe2k14 patch (Session 7b, UPSKIP)
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -274,6 +275,8 @@ void VulkanSharedMemory::Shutdown(bool from_destructor) {
+ 
+ void VulkanSharedMemory::CompletedSubmissionUpdated() {
+   upload_buffer_pool_->Reclaim(command_processor_.GetCompletedSubmission());
++  // wwe2k14 patch (Session 7b, UPSKIP): returns right away with no readback pending.
++  CheckUploadSkipVerifyReadbacks();
+ }
+ 
+ void VulkanSharedMemory::EndSubmission() {
+@@ -383,6 +386,12 @@ void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_
+   written_range.first = std::min(written_range.first, kBufferSize);
+   written_range.second = std::min(written_range.second, kBufferSize - written_range.first);
+   assert_true(usage != Usage::kRead || !written_range.second);
++  // wwe2k14 patch (Session 7b, UPSKIP): a shader write to the buffer (resolve, memory export) follows - the pages
++  // it may write lose their upload hashes (an empty range: every page). RangeWrittenByGpu drops them too.
++  if (usage == Usage::kComputeWrite || usage == Usage::kGuestDrawReadWrite) {
++    InvalidateUploadHashes(written_range.second ? written_range.first : 0,
++                           written_range.second ? written_range.second : kBufferSize);
++  }
+   if (last_usage_ != usage || last_written_range_.second) {
+     VkPipelineStageFlags src_stage_mask, dst_stage_mask;
+     VkAccessFlags src_access_mask, dst_access_mask;
+@@ -494,7 +503,10 @@ bool VulkanSharedMemory::UploadRanges(
+       // wwe2k14 patch (Session 7, PROTECT): counters.
+       ++protect_upload_stats.chunks;
+       protect_upload_stats.pages += upload_buffer_size >> page_size_log2();
+-      if (streaming_copy) {
++      if (upload_hash_tracking()) {
++        // wwe2k14 patch (Session 7b, UPSKIP): the same bytes, hashed for gpu_upload_skip_unchanged(_stats).
++        CopyAndHashUploadPages(upload_buffer_mapping, upload_range_start, uint32_t(upload_buffer_size));
++      } else if (streaming_copy) {
+         // wwe2k14 patch (Session 6, RESID)
+         CopyUploadChunkStreaming(upload_buffer_mapping, upload_range_start << page_size_log2(),
+                                  size_t(upload_buffer_size));
+@@ -531,6 +543,157 @@ bool VulkanSharedMemory::UploadRanges(
+   return successful;
+ }
+ 
++bool VulkanSharedMemory::RecordUploadSkipVerify(uint32_t page, const uint8_t* bytes) {
++  // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged_verify. Called from SharedMemory::
++  // SkipUnchangedUploadPages for a page it would skip, before that request's UploadRanges (which then uploads the
++  // page anyway): copies the page as the GPU buffer holds it at this point of the command stream to a readback
++  // slot, keeping the hashed guest bytes for CheckUploadSkipVerifyReadbacks.
++  UploadSkipVerifyStats& stats = upload_skip_verify_stats();
++  const VkDeviceSize page_size = VkDeviceSize(1) << page_size_log2();
++  if (upload_skip_verify_buffer_ == VK_NULL_HANDLE) {
++    if (upload_skip_verify_unavailable_) {
++      ++stats.dropped;
++      return false;
++    }
++    const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++    const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++    const VkDevice device = vulkan_device->device();
++    uint32_t memory_type = UINT32_MAX;
++    void* mapping = nullptr;
++    if (!ui::vulkan::util::CreateDedicatedAllocationBuffer(
++            vulkan_device, page_size * kUploadSkipVerifySlots, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
++            ui::vulkan::util::MemoryPurpose::kReadback, upload_skip_verify_buffer_,
++            upload_skip_verify_memory_, &memory_type) ||
++        dfn.vkMapMemory(device, upload_skip_verify_memory_, 0, VK_WHOLE_SIZE, 0, &mapping) !=
++            VK_SUCCESS) {
++      REXGPU_ERROR("[s7][UPSKIP] verify: failed to create the readback buffer - verify is off");
++      ShutdownUploadSkipVerify();
++      upload_skip_verify_unavailable_ = true;
++      ++stats.dropped;
++      return false;
++    }
++    upload_skip_verify_mapping_ = static_cast<uint8_t*>(mapping);
++    upload_skip_verify_coherent_ =
++        (vulkan_device->memory_types().host_coherent & (uint32_t(1) << memory_type)) != 0;
++    upload_skip_verify_slots_.resize(kUploadSkipVerifySlots);
++    upload_skip_verify_hashed_bytes_.resize(size_t(page_size) * kUploadSkipVerifySlots);
++    upload_skip_verify_head_ = 0;
++    upload_skip_verify_count_ = 0;
++  }
++  if (upload_skip_verify_count_ >= kUploadSkipVerifySlots) {
++    CheckUploadSkipVerifyReadbacks();
++    if (upload_skip_verify_count_ >= kUploadSkipVerifySlots) {
++      ++stats.dropped;
++      return false;
++    }
++  }
++  uint32_t slot = (upload_skip_verify_head_ + upload_skip_verify_count_) % kUploadSkipVerifySlots;
++  // Every earlier write to the buffer (uploads, resolves, memory export) made visible to the transfer read.
++  Use(Usage::kRead);
++  command_processor_.SubmitBarriers(true);
++  VkBufferCopy readback_region;
++  readback_region.srcOffset = VkDeviceSize(page) << page_size_log2();
++  readback_region.dstOffset = VkDeviceSize(slot) * page_size;
++  readback_region.size = page_size;
++  command_processor_.deferred_command_buffer().CmdVkCopyBuffer(buffer_, upload_skip_verify_buffer_, 1,
++                                                               &readback_region);
++  command_processor_.PushBufferMemoryBarrier(
++      upload_skip_verify_buffer_, readback_region.dstOffset, page_size, VK_PIPELINE_STAGE_TRANSFER_BIT,
++      VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT);
++  std::memcpy(upload_skip_verify_hashed_bytes_.data() + size_t(slot) * size_t(page_size), bytes,
++              size_t(page_size));
++  upload_skip_verify_slots_[slot].submission = command_processor_.GetCurrentSubmission();
++  upload_skip_verify_slots_[slot].lost_upload_count = GetLostUploadCount();
++  upload_skip_verify_slots_[slot].page = page;
++  ++upload_skip_verify_count_;
++  ++stats.recorded;
++  return true;
++}
++
++uint64_t VulkanSharedMemory::GetLostUploadCount() const {
++  // wwe2k14 patch (Session 7b, UPSKIP review): see SharedMemory::GetLostUploadCount.
++  return command_processor_.GetAsyncSubmitCommandsDropped();
++}
++
++void VulkanSharedMemory::CheckUploadSkipVerifyReadbacks() {
++  // wwe2k14 patch (Session 7b, UPSKIP): compares the readbacks of completed submissions, oldest first.
++  if (!upload_skip_verify_count_) {
++    return;
++  }
++  const uint64_t submission_completed = command_processor_.GetCompletedSubmission();
++  if (upload_skip_verify_slots_[upload_skip_verify_head_].submission > submission_completed) {
++    return;
++  }
++  if (!upload_skip_verify_coherent_) {
++    const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++    VkMappedMemoryRange readback_memory_range = {};
++    readback_memory_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
++    readback_memory_range.memory = upload_skip_verify_memory_;
++    readback_memory_range.offset = 0;
++    readback_memory_range.size = VK_WHOLE_SIZE;
++    vulkan_device->functions().vkInvalidateMappedMemoryRanges(vulkan_device->device(), 1,
++                                                              &readback_memory_range);
++  }
++  UploadSkipVerifyStats& stats = upload_skip_verify_stats();
++  const size_t page_size = size_t(1) << page_size_log2();
++  while (upload_skip_verify_count_) {
++    const UploadSkipVerifySlot& slot = upload_skip_verify_slots_[upload_skip_verify_head_];
++    if (slot.submission > submission_completed) {
++      break;
++    }
++    // wwe2k14 patch (Session 7b, UPSKIP review): an async submission's commands were dropped since this readback
++    // was recorded (counted before that submission's fence can be signaled, so seen here if it was this one):
++    // the readback may never have run, so it is not compared (counted as dropped).
++    if (GetLostUploadCount() != slot.lost_upload_count) {
++      ++stats.dropped;
++      upload_skip_verify_head_ = (upload_skip_verify_head_ + 1) % kUploadSkipVerifySlots;
++      --upload_skip_verify_count_;
++      continue;
++    }
++    const uint8_t* gpu_bytes = upload_skip_verify_mapping_ + size_t(upload_skip_verify_head_) * page_size;
++    const uint8_t* hashed_bytes =
++        upload_skip_verify_hashed_bytes_.data() + size_t(upload_skip_verify_head_) * page_size;
++    ++stats.checked;
++    if (std::memcmp(gpu_bytes, hashed_bytes, page_size)) {
++      ++stats.mismatches;
++      if (upload_skip_verify_mismatches_logged_ < 32) {
++        ++upload_skip_verify_mismatches_logged_;
++        size_t first_difference = 0;
++        while (first_difference < page_size &&
++               gpu_bytes[first_difference] == hashed_bytes[first_difference]) {
++          ++first_difference;
++        }
++        size_t differing_bytes = 0;
++        for (size_t i = first_difference; i < page_size; ++i) {
++          differing_bytes += gpu_bytes[i] != hashed_bytes[i];
++        }
++        REXGPU_WARN(
++            "[s7][UPSKIP] verify mismatch addr=0x{:08X}: the GPU buffer did not hold the guest bytes whose hash "
++            "matched (first difference at +0x{:X}, {} bytes differ; submission {}, {} mismatches so far)",
++            slot.page << page_size_log2(), first_difference, differing_bytes, slot.submission,
++            stats.mismatches);
++      }
++    }
++    upload_skip_verify_head_ = (upload_skip_verify_head_ + 1) % kUploadSkipVerifySlots;
++    --upload_skip_verify_count_;
++  }
++}
++
++void VulkanSharedMemory::ShutdownUploadSkipVerify() {
++  // wwe2k14 patch (Session 7b, UPSKIP).
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (upload_skip_verify_mapping_) {
++    dfn.vkUnmapMemory(device, upload_skip_verify_memory_);
++    upload_skip_verify_mapping_ = nullptr;
++  }
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device, upload_skip_verify_buffer_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device, upload_skip_verify_memory_);
++  upload_skip_verify_head_ = 0;
++  upload_skip_verify_count_ = 0;
++}
++
+ void VulkanSharedMemory::GetUsageMasks(Usage usage, VkPipelineStageFlags& stage_mask,
+                                        VkAccessFlags& access_mask) const {
+   switch (usage) {

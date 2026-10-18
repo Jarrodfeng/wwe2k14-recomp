@@ -1,0 +1,17 @@
+# In-game clip self-test (src/clip_capture.h), fixer pass: the 30 fps and half-size paths on the current build, and
+# `quit` while a clip is still recording (quit must stop it and wait until its json is written: the log shows
+# "quit waits for 1 clip(s)" and then "quitting after the failure or quit ... clips in flight: 0").
+# Needs --wwe2k14_clip_dir=<folder>. Untimed: shared run-lock mode is fine.
+# Run: pwsh -NoProfile -Command "& tools\bench\run_list.ps1 -Scripts @('..\..\..\tools\review\routes\cliptest_quitwait.txt') -Extra '--wwe2k14_clip_dir=C:\Users\Jarrod\wwe2k14-recomp\out\harness\clips\selftest'"
+# Expect: NNN_clip_q30.json (30 fps, ~3 s) and NNN_clip_qhalf.json (scale 1/2, ~2 s), both ffmpeg_rc 0.
+log cliptest_quitwait: start
+wait_file SaveData.Dat 3600
+wait_frames 60
+clip_start q30 30 1
+wait_frames 180
+clip_stop q30
+wait_frames 10
+clip_start qhalf 60 0.5
+wait_frames 120
+log cliptest_quitwait: quit with clip qhalf still recording
+quit

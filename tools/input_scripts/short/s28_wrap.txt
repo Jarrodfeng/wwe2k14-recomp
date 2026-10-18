@@ -1,0 +1,56 @@
+# harness: fast-forward ok (Session 28: the OPTIONS list at its ends: UP from the first item, then DOWN to the end and one more DOWN; the cursor is logged at each step (stock: stays on the first item at the top, last = 6; patched: last = 7); frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 450
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+wait_state cursor 6 300 10
+press A
+wait_frames 120
+wait_state menu 4 600 10
+log mark: in OPTIONS, cursor on the first item
+log_state cursor
+press UP
+wait_frames 40
+log mark: after UP from the first item
+log_state cursor
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+log mark: after 9 DOWNs (the end of the list)
+log_state cursor
+press DOWN
+wait_frames 40
+log mark: one more DOWN at the end
+log_state cursor
+quit

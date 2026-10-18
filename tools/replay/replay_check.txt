@@ -1,0 +1,80 @@
+# Session 16 item 1: replay check route. Run with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true
+# --wwe2k14_launch_participants=343:0,324 (controller 1 plays Lesnar) and --wwe2k14_replay_record=NAME or
+# --wwe2k14_replay_play=NAME, plus --wwe2k14_det_hash=default,objects for tools\determinism\det_compare.py
+# (tools\replay\run_replay_check.ps1 adds them). Boots like det_launch_fast.txt, then in the match: walks, strikes,
+# grapples, with a screenshot every 300 frames to 3,600. In playback the script's pad is ignored (the recording
+# answers every controller call), so only its waits, screenshots and quit matter there. Fast-forward OK. on_fail quit.
+on_fail quit
+log bench: start replay_check
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+log bench: match launched
+wait_file M3.PAC 72000
+log scene=match
+wait_frames 300
+screenshot d_match0300
+# walk right, then up, then left (left stick), 50 frames each
+set 0x0000 0 0 24000 0 0 0
+wait_frames 50
+set 0x0000 0 0 0 24000 0 0
+wait_frames 50
+set 0x0000 0 0 -24000 0 0 0
+wait_frames 50
+set 0x0000 0 0 0 0 0 0
+wait_frames 150
+screenshot d_match0600
+# strikes (X) and a grapple (A), then a grapple move (A + left stick up)
+press X 6 20
+press X 6 20
+press X 6 40
+press A 6 60
+set 0x1000 0 0 0 24000 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 82
+screenshot d_match0900
+# run (RT) towards the opponent and strike
+set 0x0000 0 255 24000 0 0 0
+wait_frames 40
+set 0x0000 0 0 0 0 0 0
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 -24000 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 82
+screenshot d_match1200
+wait_frames 300
+screenshot d_match1500
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 24000 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 170
+screenshot d_match1800
+wait_frames 300
+screenshot d_match2100
+wait_frames 300
+screenshot d_match2400
+wait_frames 300
+screenshot d_match2700
+wait_frames 300
+screenshot d_match3000
+wait_frames 300
+screenshot d_match3300
+wait_frames 300
+screenshot d_match3600
+wait_frames 60
+log bench: done
+quit

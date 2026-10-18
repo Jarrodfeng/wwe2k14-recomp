@@ -1,0 +1,99 @@
+Subject: [ReXGlue] merge s7/seams
+
+Class: RGF candidate
+What: Port of Xenia Canary #1257: negative host viewport origin for predicated tiling.
+Evidence: No seams seen in this title either way (run 126); unconfirmed whether it matters.
+On / off: gpu_tiling_viewport_fix (+_stats), off.
+Commit: 9a6e6e8 (diff against 9a6e6e8^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 9d724b4..7f9b51d 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -567,11 +567,15 @@ class VulkanCommandProcessor : public CommandProcessor {
+     uint64_t draws_clip_enabled = 0;  // Only clip-enabled draws can differ.
+     // Draws whose ViewportInfo differs with and without the fix, split by whether a non-zero window
+     // offset is applied to vertices (PA_SU_SC_MODE_CNTL vtx_window_offset_enable and PA_SC_WINDOW_OFFSET).
++    // A draw counts only if the difference can change what is rendered: both viewports empty on some axis
++    // (UpdateDynamicState then uses its dummy viewport either way) goes to differ_empty_only instead.
+     uint64_t differ_window_offset = 0;
+     uint64_t differ_no_window_offset = 0;
+-    // Smallest host viewport origin with the fix among the differing draws (0 if none).
++    uint64_t differ_empty_only = 0;
++    // Smallest host viewport origin with the fix among the counted differing draws (0 if none).
+     int32_t min_origin_with_fix[2] = {};
+-    // Distinct PA_SC_WINDOW_OFFSET values (plus vtx_window_offset_enable) seen in the window, first 8.
++    // Distinct PA_SC_WINDOW_OFFSET values (plus vtx_window_offset_enable) seen in the window, first 8;
++    // differ counts the same draws as differ_window_offset / differ_no_window_offset.
+     struct WindowOffset {
+       uint32_t window_offset;
+       bool vtx_window_offset_enable;
+diff --git a/src/graphics/util/draw.cpp b/src/graphics/util/draw.cpp
+index 617ca8f..40adf5d 100644
+--- a/src/graphics/util/draw.cpp
++++ b/src/graphics/util/draw.cpp
+@@ -374,6 +374,8 @@ void GetHostViewportInfo(const RegisterFile& regs, uint32_t draw_resolution_scal
+       // vertices if we did flooring in host pixels. Instead of flooring, also
+       // doing truncation for simplicity - since maxing with 0 is done anyway
+       // (we only return viewports in the positive quarter-plane).
++      // (wwe2k14 Session 7, SEAMS: not with negative_origin - that branch
++      // floors, as Canary does, see below.)
+       uint32_t axis_resolution_scale = i ? draw_resolution_scale_y : draw_resolution_scale_x;
+       float offset_axis = offset_base_xy[i] + offset_add_xy[i];
+       float scale_axis = scale_xy[i];
+@@ -388,9 +390,12 @@ void GetHostViewportInfo(const RegisterFile& regs, uint32_t draw_resolution_scal
+       // frames the same geometry came out as a flat wedge or rectangle in one
+       // tile only. WWE 2K14 draws its main scene in 4 strips of 320 pixels with
+       // window offsets 0, -320, -640, -960 (docs/research/predicated_tiling.md
+-      // 1.2), so cropping gives its strips 1-3 host viewports of 960, 640 and
+-      // 320 pixels starting at the strip's left edge; with negative_origin all
+-      // four are 1280 wide with the same ndc_scale / ndc_offset. The extent
++      // 1.2, static analysis). Assuming a full-screen guest viewport with
++      // vertex window offsetting on (inferred, not yet measured -
++      // gpu_tiling_viewport_fix_stats logs both), cropping gives its strips 1-3
++      // host viewports of 960, 640 and 320 pixels starting at the strip's left
++      // edge, with NDC scales of 4/3, 2 and 4; with negative_origin all four
++      // are 1280 wide with the same ndc_scale / ndc_offset. The extent
+       // still stays within max. Where the start is not negative, both branches
+       // give the same values (floor and truncation agree on non-negative
+       // numbers, and the lower clamp bound float(axis_1_int) - max is <= 0).
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index c56e9d2..62a279d 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -6233,6 +6233,18 @@ void VulkanCommandProcessor::TilingViewportFixStatsDraw(
+   if (!std::memcmp(&without_fix, &with_fix, sizeof(with_fix))) {
+     return;
+   }
++  // A host viewport that is empty on either axis renders nothing either way: UpdateDynamicState then ignores
++  // xy_offset and sets its 1x1 viewport outside the framebuffer. The fix still changes such a viewport's
++  // origin (its start is no longer cropped at 0 - for example a guest viewport left of the strip, or NaN
++  // registers, which clamp to -max), so count it apart and keep it out of the differ counts and the
++  // smallest origin.
++  auto viewport_empty = [](const draw_util::ViewportInfo& info) {
++    return !info.xy_extent[0] || !info.xy_extent[1];
++  };
++  if (viewport_empty(without_fix) && viewport_empty(with_fix)) {
++    ++stats.differ_empty_only;
++    return;
++  }
+   for (uint32_t i = 0; i < 2; ++i) {
+     stats.min_origin_with_fix[i] = std::min(stats.min_origin_with_fix[i], with_fix.xy_offset[i]);
+   }
+@@ -6281,11 +6293,12 @@ void VulkanCommandProcessor::TilingViewportFixStatsReport(const char* note) {
+   }
+   REXGPU_INFO(
+       "[s7][SEAMS] frames {}-{}{}: {} draws ({} of them with gpu_tiling_viewport_fix on), {} with clipping; "
+-      "host viewport differs with the fix in {} draws with a window offset and {} without; smallest origin "
+-      "with the fix ({}, {}); window offsets: {}{}",
++      "host viewport differs with the fix in {} draws with a window offset and {} without (plus {} that "
++      "only move an empty viewport, rendered the same); smallest origin with the fix ({}, {}); window "
++      "offsets: {}{}",
+       stats.window_first_frame, stats.last_frame, note, stats.draws, stats.draws_fix_on,
+       stats.draws_clip_enabled, stats.differ_window_offset, stats.differ_no_window_offset,
+-      stats.min_origin_with_fix[0], stats.min_origin_with_fix[1], offsets,
++      stats.differ_empty_only, stats.min_origin_with_fix[0], stats.min_origin_with_fix[1], offsets,
+       stats.window_offsets_dropped
+           ? fmt::format("; {} draws with further values not listed", stats.window_offsets_dropped)
+           : std::string());

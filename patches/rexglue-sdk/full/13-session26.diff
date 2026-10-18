@@ -1,0 +1,343 @@
+# ReXGlue SDK changes for WWE 2K14 (session26): 6a2666fe6dad..2aaec24b364c on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  2aaec24 Session 26 ISO review fixes: each directory table parsed once and each entry visited once (a damaged image is refused, never looped), total depth 1024 with no logging inside the recursion, an empty folder stored as 0xFF padding accepted, zero-length files never count as past the end
+#  8c75702 Session 26 ISO: play from a disc image (a file game_data_root mounts DiscImageDevice), parser bounds + incomplete-image check, xex_apply_patch (default true; false = a sibling .xexp is logged and ignored), entry XEX check through the VFS, a message box when runtime setup fails
+
+diff --git a/include/rex/filesystem/devices/disc_image_device.h b/include/rex/filesystem/devices/disc_image_device.h
+index 21832129ad42c1eae9a02eb5e1111e102231e0ea..a97863d757df0c509d255804f0668e0d59b1b3b7 100644
+--- a/include/rex/filesystem/devices/disc_image_device.h
++++ b/include/rex/filesystem/devices/disc_image_device.h
+@@ -13,6 +13,7 @@
+ 
+ #include <memory>
+ #include <string>
++#include <vector>
+ 
+ #include <rex/filesystem/device.h>
+ #include <rex/memory/mapped_memory.h>
+@@ -82,8 +83,17 @@ class DiscImageDevice : public Device {
+   Error Verify(ParseState* state);
+   bool VerifyMagic(ParseState* state, size_t offset);
+   Error ReadAllEntries(ParseState* state, const uint8_t* root_buffer);
+-  bool ReadEntry(ParseState* state, const uint8_t* buffer, uint16_t entry_ordinal,
+-                 DiscImageEntry* parent);
++  // WWE 2K14 Session 26: a damaged image fails the mount instead of reading outside a table, looping or running out
++  // of stack. ReadTable: one directory table (inside the image, parsed once); ReadEntry: one entry of it (inside the
++  // table, visited once); depth counts both tree links and folder nesting. No logging inside the recursion (small
++  // stack frames): Damaged() records the reason, Initialize logs it.
++  bool ReadTable(ParseState* state, size_t offset, size_t size, DiscImageEntry* parent, uint32_t depth);
++  bool ReadEntry(ParseState* state, const uint8_t* buffer, size_t dir_size, uint16_t entry_ordinal,
++                 DiscImageEntry* parent, uint32_t depth, std::vector<uint8_t>& visited);
++  bool Damaged(const char* what, size_t a, size_t b);
++  uint64_t files_past_end_ = 0;  // files whose data lies beyond the end of the image (a truncated copy)
++  std::string parse_error_;
++  std::vector<size_t> tables_seen_;  // offsets of the directory tables already parsed
+ };
+ 
+ }  // namespace rex::filesystem
+diff --git a/src/filesystem/devices/disc_image_device.cpp b/src/filesystem/devices/disc_image_device.cpp
+index 9d477349425db96db5078f0ee42871eb17b5ef1c..8000a816163e06053832848edb3b8dc34f78f90c 100644
+--- a/src/filesystem/devices/disc_image_device.cpp
++++ b/src/filesystem/devices/disc_image_device.cpp
+@@ -12,6 +12,11 @@
+ #include <rex/filesystem/devices/disc_image_device.h>
+ #include <rex/filesystem/devices/disc_image_entry.h>
+ 
++#include <algorithm>
++#include <vector>
++
++#include <fmt/format.h>
++
+ #include <rex/literals.h>
+ #include <rex/logging.h>
+ #include <rex/math.h>
+@@ -47,9 +52,19 @@ bool DiscImageDevice::Initialize() {
+ 
+   result = ReadAllEntries(&state, state.ptr + state.root_offset);
+   if (result != Error::kSuccess) {
+-    REXFS_ERROR("Failed to read all GDFX entries: {}", static_cast<int>(result));
++    REXFS_ERROR("Failed to read all GDFX entries: {} (disc image {}: {})", static_cast<int>(result),
++                host_path_.string(), parse_error_.empty() ? "?" : parse_error_);
++    return false;
++  }
++  // WWE 2K14 Session 26: an image cut short (an interrupted copy) lists files it doesn't hold; refuse it here instead
++  // of failing on a read in the middle of the game.
++  if (files_past_end_) {
++    REXFS_ERROR("Disc image {} is incomplete: {} of {} files lie beyond its end ({} bytes); copy it again",
++                host_path_.string(), files_past_end_, file_count_, state.size);
+     return false;
+   }
++  REXFS_INFO("Disc image {}: {} files, {} bytes, game partition at {:#x}", host_path_.string(), file_count_,
++             total_file_size_, state.game_offset);
+ 
+   return true;
+ }
+@@ -99,6 +114,9 @@ DiscImageDevice::Error DiscImageDevice::Verify(ParseState* state) {
+   if (state->root_size < 13 || state->root_size > 32_MiB) {
+     return Error::kErrorDamagedFile;
+   }
++  if (state->root_offset + state->root_size > state->size) {  // Session 26: the root table must be inside the image
++    return Error::kErrorDamagedFile;
++  }
+ 
+   disc_info_.game_offset = state->game_offset;
+   disc_info_.root_sector = state->root_sector;
+@@ -109,7 +127,7 @@ DiscImageDevice::Error DiscImageDevice::Verify(ParseState* state) {
+ }
+ 
+ bool DiscImageDevice::VerifyMagic(ParseState* state, size_t offset) {
+-  if (offset >= state->size) {
++  if (offset + 28 > state->size) {  // Session 26: the magic and the root sector / size after it
+     return false;
+   }
+ 
+@@ -123,16 +141,59 @@ DiscImageDevice::Error DiscImageDevice::ReadAllEntries(ParseState* state,
+   root_entry->attributes_ = kFileAttributeDirectory;
+   root_entry_ = std::unique_ptr<Entry>(root_entry);
+ 
+-  if (!ReadEntry(state, root_buffer, 0, root_entry)) {
+-    return Error::kErrorOutOfMemory;
++  (void)root_buffer;  // Session 26: ReadTable checks the root table's bounds itself
++  if (!ReadTable(state, state->root_offset, state->root_size, root_entry, 0)) {
++    return Error::kErrorDamagedFile;
+   }
+ 
+   return Error::kSuccess;
+ }
+ 
+-bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer, uint16_t entry_ordinal,
+-                                DiscImageEntry* parent) {
+-  const uint8_t* p = buffer + (entry_ordinal * 4);
++// WWE 2K14 Session 26: records why the image is refused (logged once by Initialize). Out of line, so the recursive
++// functions keep small stack frames.
++__attribute__((noinline)) bool DiscImageDevice::Damaged(const char* what, size_t a, size_t b) {
++  if (parse_error_.empty()) {
++    parse_error_ = fmt::format("damaged directory table: {} ({}, {})", what, a, b);
++  }
++  return false;
++}
++
++bool DiscImageDevice::ReadTable(ParseState* state, size_t offset, size_t size, DiscImageEntry* parent,
++                                uint32_t depth) {
++  if (offset + size > state->size || size > 32_MiB) {
++    return Damaged("a table lies beyond the end of the image", offset, size);
++  }
++  // A table parsed twice means two folders share it, or a folder contains itself.
++  if (std::find(tables_seen_.begin(), tables_seen_.end(), offset) != tables_seen_.end()) {
++    return Damaged("a table is used twice", offset, size);
++  }
++  tables_seen_.push_back(offset);
++  const uint8_t* buffer = state->ptr + offset;
++  // An empty folder may be stored as a table of padding (0xFF) instead of a zero length: no entries.
++  if (size >= 4 && memory::load<uint32_t>(buffer) == 0xFFFFFFFFu) {
++    return true;
++  }
++  std::vector<uint8_t> visited(size / 4 + 1, 0);
++  return ReadEntry(state, buffer, size, 0, parent, depth, visited);
++}
++
++bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer, size_t dir_size,
++                                uint16_t entry_ordinal, DiscImageEntry* parent, uint32_t depth,
++                                std::vector<uint8_t>& visited) {
++  // Session 26: a real disc's trees are balanced (height ~17 for the largest possible table) and folders nest a few
++  // levels, so 1024 is far above any valid image and far below the main thread's stack.
++  const size_t entry_offset = size_t(entry_ordinal) * 4;
++  if (depth > 1024) {
++    return Damaged("too deep", depth, dir_size);
++  }
++  if (entry_offset + 14 > dir_size) {
++    return Damaged("an entry lies outside its table", entry_ordinal, dir_size);
++  }
++  if (visited[entry_ordinal]) {
++    return Damaged("an entry is linked twice", entry_ordinal, dir_size);
++  }
++  visited[entry_ordinal] = 1;
++  const uint8_t* p = buffer + entry_offset;
+ 
+   uint16_t node_l = memory::load<uint16_t>(p + 0);
+   uint16_t node_r = memory::load<uint16_t>(p + 2);
+@@ -141,8 +202,11 @@ bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer, uint16
+   uint8_t attributes = memory::load<uint8_t>(p + 12);
+   uint8_t name_length = memory::load<uint8_t>(p + 13);
+   auto name_buffer = reinterpret_cast<const char*>(p + 14);
++  if (entry_offset + 14 + name_length > dir_size) {
++    return Damaged("a name runs past its table", entry_ordinal, dir_size);
++  }
+ 
+-  if (node_l && !ReadEntry(state, buffer, node_l, parent)) {
++  if (node_l && !ReadEntry(state, buffer, dir_size, node_l, parent, depth + 1, visited)) {
+     return false;
+   }
+ 
+@@ -163,14 +227,8 @@ bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer, uint16
+     entry->data_offset_ = 0;
+     entry->data_size_ = 0;
+     if (length) {
+-      // Not a leaf - read in children.
+-      if (state->size < state->game_offset + (sector * kXESectorSize)) {
+-        // Out of bounds read.
+-        return false;
+-      }
+-      // Read child list.
+-      uint8_t* folder_ptr = state->ptr + state->game_offset + (sector * kXESectorSize);
+-      if (!ReadEntry(state, folder_ptr, 0, entry.get())) {
++      // Not a leaf - read in children (Session 26: ReadTable checks the whole table is inside the image).
++      if (!ReadTable(state, state->game_offset + (sector * kXESectorSize), length, entry.get(), depth + 1)) {
+         return false;
+       }
+     }
+@@ -180,13 +238,16 @@ bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer, uint16
+     entry->data_size_ = length;
+     ++file_count_;
+     total_file_size_ += length;
++    if (length && entry->data_offset_ + length > state->size) {
++      ++files_past_end_;  // Session 26: Initialize refuses the image (a truncated copy)
++    }
+   }
+ 
+   // Add to parent.
+   parent->children_.emplace_back(std::move(entry));
+ 
+   // Read next file in the list.
+-  if (node_r && !ReadEntry(state, buffer, node_r, parent)) {
++  if (node_r && !ReadEntry(state, buffer, dir_size, node_r, parent, depth + 1, visited)) {
+     return false;
+   }
+ 
+diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
+index c10694c856d5bf2e0336606266c87205c6774ad9..6179b907e2d6bcb48e34b924f645974a689d7fd4 100644
+--- a/src/system/runtime.cpp
++++ b/src/system/runtime.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <rex/chrono/clock.h>
+ #include <rex/cvar.h>
++#include <rex/filesystem/devices/disc_image_device.h>
+ #include <rex/filesystem/devices/host_path_device.h>
+ #include <rex/filesystem/devices/null_device.h>
+ #include <rex/filesystem/vfs.h>
+@@ -303,19 +304,27 @@ bool Runtime::SetupVfs() {
+     return false;
+   }
+ 
+-  // Mount game_data_root as \Device\Harddisk0\Partition1
++  // Mount game_data_root as \Device\Harddisk0\Partition1: a folder, or (WWE 2K14 Session 26) a disc image file
++  // (.iso: a full disc image or a trimmed XISO), read-only.
+   auto mount_path = "\\Device\\Harddisk0\\Partition1";
+-  auto device = std::make_unique<rex::filesystem::HostPathDevice>(
+-      mount_path, abs_game_root, !REXCVAR_GET(allow_game_relative_writes));
++  std::unique_ptr<rex::filesystem::Device> device;
++  const bool disc_image = std::filesystem::is_regular_file(abs_game_root);
++  if (disc_image) {
++    device = std::make_unique<rex::filesystem::DiscImageDevice>(mount_path, abs_game_root);
++  } else {
++    device = std::make_unique<rex::filesystem::HostPathDevice>(
++        mount_path, abs_game_root, !REXCVAR_GET(allow_game_relative_writes));
++  }
+   if (!device->Initialize()) {
+-    REXSYS_ERROR("Runtime::SetupVfs: Failed to initialize host path device");
++    REXSYS_ERROR("Runtime::SetupVfs: Failed to open {} {}", disc_image ? "disc image" : "folder",
++                 abs_game_root.string());
+     return false;
+   }
+   if (!file_system_->RegisterDevice(std::move(device))) {
+-    REXSYS_ERROR("Runtime::SetupVfs: Failed to register host path device");
++    REXSYS_ERROR("Runtime::SetupVfs: Failed to register the game device");
+     return false;
+   }
+-  REXSYS_DEBUG("  Mounted {} at {}", abs_game_root.string(), mount_path);
++  REXSYS_INFO("  Mounted {} {} at {}", disc_image ? "disc image" : "folder", abs_game_root.string(), mount_path);
+ 
+   // Register symbolic links for game: and D:
+   file_system_->RegisterSymbolicLink("game:", mount_path);
+diff --git a/src/system/user_module.cpp b/src/system/user_module.cpp
+index 171546fbe4e29e2562afd9730ba4317a87f3c3a4..51fbae4cb87b643b73dab74b316e4dec447bb23d 100644
+--- a/src/system/user_module.cpp
++++ b/src/system/user_module.cpp
+@@ -23,6 +23,11 @@
+ #include <rex/system/xfile.h>
+ #include <rex/system/xthread.h>
+ 
++// WWE 2K14 Session 26: false = a sibling <name>.xexp (title update) is logged and ignored instead of applied.
++REXCVAR_DEFINE_BOOL(xex_apply_patch, true, "Kernel",
++                    "Apply a title update patch (<module>.xexp next to the XEX) at load; recompiled code is built "
++                    "from one XEX image, so a patch must match the image the code came from");
++
+ namespace rex::system {
+ 
+ UserModule::UserModule(KernelState* kernel_state)
+@@ -104,6 +109,13 @@ X_STATUS UserModule::LoadFromFile(const std::string_view path) {
+ 
+   // Search for sibling XEX patch file
+   auto patch_entry = kernel_state_->file_system()->ResolvePath(path_ + "p");
++  if (patch_entry && !REXCVAR_GET(xex_apply_patch)) {
++    // WWE 2K14 Session 26: recompiled code matches one XEX image. A title update patches that image's data and code,
++    // and only the data would change here: the game would run patched data under unpatched code.
++    REXSYS_WARN("Ignoring XEX patch {} (xex_apply_patch=false: this build's code is from the unpatched XEX)",
++                patch_entry->absolute_path());
++    patch_entry = nullptr;
++  }
+   if (patch_entry) {
+     auto patch_path = patch_entry->absolute_path();
+ 
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+index b94fe9e4814b7e66305d3b983732aebdfb0bced4..d648bf0906783e3e944c0baa2fe3650e61565718 100644
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -207,7 +207,9 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
+     return false;
+   }
+-  if (!std::filesystem::is_directory(paths.game_data_root)) {
++  // A folder, or (WWE 2K14 Session 26) a disc image file; Runtime::SetupVfs mounts either.
++  if (!std::filesystem::is_directory(paths.game_data_root) &&
++      !std::filesystem::is_regular_file(paths.game_data_root)) {
+     auto msg = fmt::format("--game_data_root does not exist: {}", paths.game_data_root.string());
+     REXLOG_ERROR("{}", msg);
+     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
+@@ -237,6 +239,11 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+   auto status = runtime_->Setup(ppc_info_, std::move(config_));
+   if (XFAILED(status)) {
+     REXLOG_ERROR("Runtime setup failed: {:08X}", status);
++    // Session 26: say so (a damaged disc image fails here; the log has the reason).
++    rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error,
++                              fmt::format("Could not start (status {:08X}) with the game files at {}. The log in "
++                                          "the logs folder next to the program says why.",
++                                          status, paths.game_data_root.string()));
+     return false;
+   }
+ 
+@@ -262,25 +269,14 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+   std::string xex_image = "game:\\default.xex";
+   OnLoadXexImage(xex_image);
+ 
+-  // Mirrors the game:\ / d:\ -> game_data_root mapping in Runtime::SetupVfs.
+-  {
+-    constexpr std::string_view kGameDevice = "game:\\";
+-    constexpr std::string_view kDDevice = "d:\\";
+-    std::string_view tail = xex_image;
+-    if (tail.starts_with(kGameDevice)) {
+-      tail.remove_prefix(kGameDevice.size());
+-    } else if (tail.starts_with(kDDevice)) {
+-      tail.remove_prefix(kDDevice.size());
+-    }
+-    std::string host_tail{tail};
+-    std::replace(host_tail.begin(), host_tail.end(), '\\', '/');
+-    auto xex_host = paths.game_data_root / host_tail;
+-    if (!std::filesystem::is_regular_file(xex_host)) {
+-      auto msg = fmt::format("Entrypoint XEX not found: {}", xex_host.string());
+-      REXLOG_ERROR("{}", msg);
+-      rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
+-      return false;
+-    }
++  // Session 26: looked up through the VFS (game:\ / d:\ are mounted by Runtime::SetupVfs), so a disc image's
++  // default.xex is found too.
++  if (!runtime_->file_system()->ResolvePath(xex_image)) {
++    auto msg = fmt::format("Entrypoint XEX not found: {} (game files: {})", xex_image,
++                           paths.game_data_root.string());
++    REXLOG_ERROR("{}", msg);
++    rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
++    return false;
+   }
+ 
+   status = runtime_->LoadXexImage(xex_image);

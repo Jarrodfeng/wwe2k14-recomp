@@ -1,0 +1,7 @@
+# nav: main menu -> OPTIONS. Session 30 navigation library; `include menu_to_options`.
+# Start: main menu (menu 1), any cursor (the game remembers it after B; boot_to_menu leaves 0).
+# End:   the OPTIONS list (menu 4), cursor 0 = IN-GAME MANUAL (target 18). Checked live, run 2236 (2026-10-18).
+# OPTIONS items with the Session 28 GRAPHICS patch: targets 18 19 20 1300 1314 1315 1319 1316 (docs/systems/menus.md).
+press_until_state DOWN cursor >=6 24 30 5 if_needed
+press_until_state UP cursor 6 24 30 5 if_needed
+press_until_state A menu 4

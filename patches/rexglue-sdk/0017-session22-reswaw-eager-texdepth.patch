@@ -1,0 +1,2028 @@
+From 1db4af8ab78dd1d764af9a793b3b672ffc72fe67 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 14:15:29 +1100
+Subject: [PATCH 1/5] Session 22 RESWAW: vulkan_resolve_skip_disjoint_waw
+ (default off): no write-after-write barrier between resolves into
+ non-overlapping scaled resolve buffer ranges; [s22][RESWAW] log
+
+---
+ include/rex/graphics/vulkan/texture_cache.h |  5 ++
+ src/graphics/vulkan/texture_cache.cpp       | 78 ++++++++++++++++++---
+ 2 files changed, 75 insertions(+), 8 deletions(-)
+
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index f3f6e61..0ab302e 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -737,6 +737,11 @@ class VulkanTextureCache final : public TextureCache {
+   std::vector<uint64_t> scaled_resolve_sparse_allocated_;
+   bool scaled_resolve_last_usage_write_ = false;
+   std::pair<uint64_t, uint64_t> scaled_resolve_last_written_range_{0, 0};
++  // wwe2k14 patch (Session 22, RESWAW): the non-empty ranges resolves wrote since the last barrier that ordered the
++  // scaled resolve buffer's writes (one entry unless vulkan_resolve_skip_disjoint_waw skipped a barrier), and counts.
++  std::vector<std::pair<uint64_t, uint64_t>> scaled_resolve_unordered_writes_;
++  uint64_t resolve_waw_skipped_ = 0;
++  uint64_t resolve_waw_kept_ = 0;
+ 
+   // wwe2k14 patch (Session 6, CP6): see the types above. Allocated on first use, zero-initialized; only
+   // accessed on the command processor thread.
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 344114d..dcf75be 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -97,6 +97,11 @@ REXCVAR_DEFINE_BOOL(vulkan_texture_load_scratch_ring, false, "GPU/Vulkan",
+                     "scratch buffer, so the untiling dispatch of one load can overlap the copy of the previous one. "
+                     "Same texture contents (except texels the load never writes, see AcquireScratchGpuBufferRing); "
+                     "up to 4x the scratch memory (freed when turned off)");
++// wwe2k14 patch (Session 22, RESWAW): see UseScaledResolveBufferForWrite. Read per resolve (can be flipped any time).
++REXCVAR_DEFINE_BOOL(vulkan_resolve_skip_disjoint_waw, false, "GPU/Vulkan",
++                    "No write-after-write barrier between resolves that write non-overlapping ranges of the "
++                    "resolution-scaled resolve buffer (a resolve right after another one then needs no pipeline "
++                    "barrier). Readers still get the whole-buffer barrier");
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -2539,6 +2544,17 @@ void VulkanTextureCache::TexLoadFrameBoundary(uint64_t frame) {
+         ring.grows - stats.ring_grows_start, stats.ring_waw_barriers,
+         ring.releases - stats.ring_releases_start, command_processor_.GetScratchRingSize() >> 20);
+   }
++  // wwe2k14 patch (Session 22, RESWAW): resolves that followed unordered resolve writes, per window.
++  if (resolve_waw_skipped_ || resolve_waw_kept_) {
++    REXGPU_INFO("[s22][RESWAW] frames {}-{}: write-after-write barriers between resolves: {:.1f}/frame kept, "
++                "{:.1f}/frame skipped (vulkan_resolve_skip_disjoint_waw {})",
++                stats.window_first_frame, frame,
++                double(resolve_waw_kept_) / double(frame - stats.window_first_frame),
++                double(resolve_waw_skipped_) / double(frame - stats.window_first_frame),
++                REXCVAR_GET(vulkan_resolve_skip_disjoint_waw) ? "on" : "off");
++    resolve_waw_skipped_ = 0;
++    resolve_waw_kept_ = 0;
++  }
+   start_window();
+ }
+ 
+@@ -3153,6 +3169,7 @@ bool VulkanTextureCache::InitializeScaledResolveBuffer() {
+ 
+   scaled_resolve_last_usage_write_ = false;
+   scaled_resolve_last_written_range_ = std::make_pair(uint64_t(0), uint64_t(0));
++  scaled_resolve_unordered_writes_.clear();  // wwe2k14 patch (Session 22, RESWAW)
+   return true;
+ }
+ 
+@@ -3173,6 +3190,7 @@ void VulkanTextureCache::ShutdownScaledResolveBuffer() {
+   scaled_resolve_sparse_granularity_log2_ = UINT32_MAX;
+   scaled_resolve_last_usage_write_ = false;
+   scaled_resolve_last_written_range_ = std::make_pair(uint64_t(0), uint64_t(0));
++  scaled_resolve_unordered_writes_.clear();  // wwe2k14 patch (Session 22, RESWAW)
+ }
+ 
+ bool VulkanTextureCache::GetScaledResolveRange(uint32_t start_unscaled, uint32_t length_unscaled,
+@@ -3293,6 +3311,8 @@ void VulkanTextureCache::UseScaledResolveBufferForRead() {
+     offset = 0;
+     size = VK_WHOLE_SIZE;
+     scaled_resolve_last_usage_write_ = false;
++    // wwe2k14 patch (Session 22, RESWAW): the whole-buffer barrier orders every earlier write.
++    scaled_resolve_unordered_writes_.clear();
+   }
+   command_processor_.PushBufferMemoryBarrier(
+       scaled_resolve_buffer_, offset, size, src_stage_mask, dst_stage_mask, src_access_mask,
+@@ -3311,14 +3331,52 @@ void VulkanTextureCache::UseScaledResolveBufferForWrite(uint64_t written_start_s
+   written_length_scaled =
+       std::min(written_length_scaled, scaled_resolve_buffer_size_ - written_start_scaled);
+ 
+-  if (scaled_resolve_last_usage_write_ && scaled_resolve_last_written_range_.second) {
+-    VkPipelineStageFlags stage_mask;
+-    VkAccessFlags access_mask;
+-    GetScaledResolveUsageMasks(stage_mask, access_mask, true);
+-    command_processor_.PushBufferMemoryBarrier(
+-        scaled_resolve_buffer_, VkDeviceSize(scaled_resolve_last_written_range_.first),
+-        VkDeviceSize(scaled_resolve_last_written_range_.second), stage_mask, stage_mask,
+-        access_mask, access_mask, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, false);
++  // wwe2k14 patch (Session 22, RESWAW): vulkan_resolve_skip_disjoint_waw. Upstream orders every resolve after the
++  // previous one's write (a write-after-write barrier on the previous range), which costs a pipeline barrier between
++  // two resolves in a row even when they write different bytes (Bryan's pan: 29 of ~100 resolves per frame follow
++  // another resolve directly, and that barrier is their only one). Why skipping it for non-overlapping ranges is safe:
++  // - The barrier only orders this resolve's writes after the earlier ones on the same bytes (WAW). Two dispatches
++  //   that write disjoint bytes and read nothing of this buffer have no hazard between them; the resolve reads only
++  //   the EDRAM buffer, which UseEdramBuffer orders separately (unchanged).
++  // - Every write not yet ordered is kept in scaled_resolve_unordered_writes_ (upstream needs only the last one,
++  //   because it orders each write before the next). A write that overlaps any of them gets the barrier, over the
++  //   whole buffer when more than one write is unordered.
++  // - Readers are unchanged: every read of the buffer (texture loads, the readback downscale) calls
++  //   UseScaledResolveBufferForRead, which after writes records a whole-buffer write -> read barrier (all compute
++  //   writes before it, including skipped ones, made visible), and clears the list. The read -> write barrier before
++  //   the first write after reads stays as upstream (whole buffer), and clears the list.
++  // - Off (default): one entry at most, identical barriers to upstream. Turning it off after skips: the barrier
++  //   covers the whole buffer while more than one write is unordered.
++  if (scaled_resolve_last_usage_write_ &&
++      (scaled_resolve_last_written_range_.second || !scaled_resolve_unordered_writes_.empty())) {
++    bool skip = false;
++    if (REXCVAR_GET(vulkan_resolve_skip_disjoint_waw) && scaled_resolve_unordered_writes_.size() < 64) {
++      skip = true;
++      for (const std::pair<uint64_t, uint64_t>& w : scaled_resolve_unordered_writes_) {
++        if (written_start_scaled < w.first + w.second && w.first < written_start_scaled + written_length_scaled) {
++          skip = false;
++          break;
++        }
++      }
++    }
++    if (skip) {
++      ++resolve_waw_skipped_;
++    } else {
++      VkDeviceSize offset = VkDeviceSize(scaled_resolve_last_written_range_.first);
++      VkDeviceSize size = VkDeviceSize(scaled_resolve_last_written_range_.second);
++      if (scaled_resolve_unordered_writes_.size() > 1 || !size) {
++        offset = 0;
++        size = VK_WHOLE_SIZE;
++      }
++      VkPipelineStageFlags stage_mask;
++      VkAccessFlags access_mask;
++      GetScaledResolveUsageMasks(stage_mask, access_mask, true);
++      command_processor_.PushBufferMemoryBarrier(
++          scaled_resolve_buffer_, offset, size, stage_mask, stage_mask, access_mask, access_mask,
++          VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, false);
++      scaled_resolve_unordered_writes_.clear();
++      ++resolve_waw_kept_;
++    }
+   } else if (!scaled_resolve_last_usage_write_) {
+     VkPipelineStageFlags src_stage_mask, dst_stage_mask;
+     VkAccessFlags src_access_mask, dst_access_mask;
+@@ -3328,9 +3386,13 @@ void VulkanTextureCache::UseScaledResolveBufferForWrite(uint64_t written_start_s
+         scaled_resolve_buffer_, 0, VK_WHOLE_SIZE, src_stage_mask, dst_stage_mask, src_access_mask,
+         dst_access_mask, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, false);
+     scaled_resolve_last_usage_write_ = true;
++    scaled_resolve_unordered_writes_.clear();  // wwe2k14 patch (Session 22, RESWAW)
+   }
+ 
+   scaled_resolve_last_written_range_ = std::make_pair(written_start_scaled, written_length_scaled);
++  if (written_length_scaled) {
++    scaled_resolve_unordered_writes_.push_back(scaled_resolve_last_written_range_);  // Session 22, RESWAW
++  }
+ }
+ 
+ bool VulkanTextureCache::Initialize() {
+-- 
+2.52.0.windows.1
+
+
+From b625393ba5d4e72c2ed18d3defc10b16d15fd659 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 14:28:04 +1100
+Subject: [PATCH 2/5] Session 22 EAGER: vulkan_texture_load_eager (default
+ off): load a scaled texture right after the resolve that completed it when
+ the previous frame loaded it late; [s22][EAGER] log
+
+---
+ include/rex/graphics/vulkan/texture_cache.h |  30 +++++
+ src/graphics/vulkan/render_target_cache.cpp |   1 +
+ src/graphics/vulkan/texture_cache.cpp       | 142 ++++++++++++++++++++
+ 3 files changed, 173 insertions(+)
+
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 0ab302e..165277c 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -179,6 +179,9 @@ class VulkanTextureCache final : public TextureCache {
+   }
+   VkBuffer scaled_resolve_buffer() const { return scaled_resolve_buffer_; }
+   void UseScaledResolveBufferForRead();
++  // wwe2k14 patch (Session 22, EAGER): a resolve was recorded (after MarkRangeAsResolved). See
++  // vulkan_texture_load_eager in texture_cache.cpp.
++  void EagerNoteResolve();
+   void UseScaledResolveBufferForWrite(uint64_t written_start_scaled,
+                                       uint64_t written_length_scaled);
+ 
+@@ -310,6 +313,9 @@ class VulkanTextureCache final : public TextureCache {
+     // is still a transfer destination needs the image write-after-write barrier if either load used the ring).
+     bool last_load_used_scratch_ring() const { return last_load_used_scratch_ring_; }
+     void SetLastLoadUsedScratchRing(bool used) { last_load_used_scratch_ring_ = used; }
++    // wwe2k14 patch (Session 22, EAGER): the frame of the texture's last early load (UINT64_MAX: none).
++    uint64_t eager_loaded_frame() const { return eager_loaded_frame_; }
++    void SetEagerLoadedFrame(uint64_t frame) { eager_loaded_frame_ = frame; }
+ 
+    private:
+     union ViewKey {
+@@ -364,6 +370,7 @@ class VulkanTextureCache final : public TextureCache {
+ 
+     Usage usage_ = Usage::kUndefined;
+     bool last_load_used_scratch_ring_ = false;  // wwe2k14 patch (Session 7c, TEXLOAD)
++    uint64_t eager_loaded_frame_ = UINT64_MAX;  // wwe2k14 patch (Session 22, EAGER)
+ 
+     std::unordered_map<ViewKey, VkImageView, ViewKey::Hasher> views_;
+     std::unique_ptr<VulkanTexture> texture_3d_as_2d_;
+@@ -743,6 +750,29 @@ class VulkanTextureCache final : public TextureCache {
+   uint64_t resolve_waw_skipped_ = 0;
+   uint64_t resolve_waw_kept_ = 0;
+ 
++  // wwe2k14 patch (Session 22, EAGER): early texture loads (vulkan_texture_load_eager). Command processor thread
++  // only. A plan entry is (the frame's resolve count when the texture was loaded late, the texture), learned in
++  // one frame (eager_plan_next_) and used in the next (eager_plan_prev_, in resolve order; a destroyed texture's
++  // entry becomes nullptr). eager_pending_: textures to load at the next draw.
++  void EagerRotate(uint64_t frame);
++  void EagerRecordLoad(VulkanTexture& texture);
++  void EagerForget(const VulkanTexture* texture);
++  uint64_t eager_frame_ = UINT64_MAX;
++  uint32_t eager_resolves_ = 0;
++  uint32_t eager_draws_since_resolve_ = 0;
++  bool eager_loading_ = false;
++  size_t eager_plan_cursor_ = 0;
++  std::vector<std::pair<uint32_t, VulkanTexture*>> eager_plan_prev_;
++  std::vector<std::pair<uint32_t, VulkanTexture*>> eager_plan_next_;
++  std::vector<VulkanTexture*> eager_pending_;
++  struct EagerStats {
++    uint64_t loads = 0;          // early loads done
++    uint64_t learned = 0;        // late loads recorded for the next frame
++    uint64_t reloaded = 0;       // textures loaded again at their use after an early load in the same frame
++    uint64_t already_valid = 0;  // due, but not outdated (nothing to load)
++    uint64_t failed = 0;
++  } eager_stats_;
++
+   // wwe2k14 patch (Session 6, CP6): see the types above. Allocated on first use, zero-initialized; only
+   // accessed on the command processor thread.
+   mutable std::unique_ptr<SamplerParameterCacheSet[]> sampler_parameter_cache_;
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 5f306ff..866a5d0 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1288,6 +1288,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           // Invalidate textures and mark the range as scaled if needed.
+           texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
+                                             resolve_info.copy_dest_extent_length);
++          texture_cache.EagerNoteResolve();  // wwe2k14 patch (Session 22, EAGER)
+           written_address_out = resolve_info.copy_dest_extent_start;
+           written_length_out = resolve_info.copy_dest_extent_length;
+           copied = true;
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index dcf75be..1e93832 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -103,6 +103,13 @@ REXCVAR_DEFINE_BOOL(vulkan_resolve_skip_disjoint_waw, false, "GPU/Vulkan",
+                     "resolution-scaled resolve buffer (a resolve right after another one then needs no pipeline "
+                     "barrier). Readers still get the whole-buffer barrier");
+ 
++// wwe2k14 patch (Session 22, EAGER): see VulkanTextureCache::RequestTextures. Read per draw (can be flipped any time).
++REXCVAR_DEFINE_BOOL(vulkan_texture_load_eager, false, "GPU/Vulkan",
++                    "Load a resolution-scaled texture right after the resolve that completed it, when in the "
++                    "previous frame it was loaded only after more draws (so its barrier waits for one resolve "
++                    "instead of the draws in flight). Same texture contents (a texture written again before its "
++                    "use is reloaded at its use)");
++
+ namespace rex::graphics::vulkan {
+ 
+ // Generated with `xb buildshaders`.
+@@ -647,6 +654,66 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+   SCOPE_profile_cpu_f("gpu");
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+ 
++  // wwe2k14 patch (Session 22, EAGER): vulkan_texture_load_eager. A texture made from resolved data is loaded at
++  // its first use after the resolve - often after a long run of draws (Bryan's pan: 22 loads per frame each after
++  // ~68 crowd draws), so the load's barrier waits for all those draws, and a second barrier makes the image
++  // readable right before the draw. Here, a texture that the previous frame loaded late (2+ draws after the
++  // frame's k-th resolve, with no resolve in between) is loaded at the first draw after this frame's k-th resolve
++  // instead, where the draw needs a barrier anyway (EDRAM) and only the resolve is in flight; its image is made
++  // readable in that draw's barrier. Why the contents stay the same:
++  // - It is the same load (LoadTextureData: the source ranges requested, the same load code with its barriers:
++  //   resolve writes -> read, earlier sampling of the image -> write). It only runs if the texture is outdated,
++  //   i.e. its memory was written since its last load, and it reads what the memory holds at this point.
++  // - The load re-arms the texture's memory watch (MakeUpToDateAndWatch). If anything writes the memory again
++  //   before the texture's use (another resolve, the CPU), the watch marks it outdated and the draw that samples it
++  //   loads it again, as without this setting. So every draw samples the latest memory, as before.
++  // - The image is transitioned to the sampled usage right after (compute write -> shader read, the barrier
++  //   RequestTextures records for a loaded texture), recorded before any draw that can sample it.
++  // Learning a late load changes no command; off = no early load.
++  {
++    const uint64_t frame = command_processor_.GetCurrentFrame();
++    if (frame != eager_frame_) {
++      EagerRotate(frame);
++    }
++    if (!eager_pending_.empty()) {
++      if (REXCVAR_GET(vulkan_texture_load_eager)) {
++        VkPipelineStageFlags sampled_stage_mask;
++        VkAccessFlags sampled_access_mask;
++        VkImageLayout sampled_layout;
++        GetTextureUsageMasks(VulkanTexture::Usage::kGuestShaderSampled, sampled_stage_mask,
++                             sampled_access_mask, sampled_layout);
++        for (VulkanTexture* texture : eager_pending_) {
++          if (!texture->outdated_mask()) {
++            ++eager_stats_.already_valid;
++            continue;
++          }
++          eager_loading_ = true;
++          const bool loaded = LoadTextureData(*texture);
++          eager_loading_ = false;
++          if (!loaded || texture->outdated_mask()) {
++            ++eager_stats_.failed;
++            continue;
++          }
++          texture->SetEagerLoadedFrame(frame);
++          ++eager_stats_.loads;
++          VulkanTexture::Usage old_usage = texture->SetUsage(VulkanTexture::Usage::kGuestShaderSampled);
++          if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
++            VkPipelineStageFlags src_stage_mask;
++            VkAccessFlags src_access_mask;
++            VkImageLayout old_layout;
++            GetTextureUsageMasks(old_usage, src_stage_mask, src_access_mask, old_layout);
++            command_processor_.PushImageMemoryBarrier(texture->image(),
++                                                      ui::vulkan::util::InitializeSubresourceRange(),
++                                                      src_stage_mask, sampled_stage_mask, src_access_mask,
++                                                      sampled_access_mask, old_layout, sampled_layout);
++          }
++        }
++      }
++      eager_pending_.clear();
++    }
++    ++eager_draws_since_resolve_;
++  }
++
+   TextureCache::RequestTextures(used_texture_mask);
+ 
+   // wwe2k14 patch (Session 7, TEXREQ): the loops below create 3D-as-2D views for 3D bindings, mark the used
+@@ -1726,6 +1793,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+                                                                bool load_mips) {
+   VulkanTexture& vulkan_texture = static_cast<VulkanTexture&>(texture);
+   TextureKey texture_key = vulkan_texture.key();
++  EagerRecordLoad(vulkan_texture);  // wwe2k14 patch (Session 22, EAGER)
+ 
+   // Get the pipeline.
+   const HostFormatPair& host_format_pair = GetHostFormatPair(texture_key);
+@@ -2555,6 +2623,18 @@ void VulkanTextureCache::TexLoadFrameBoundary(uint64_t frame) {
+     resolve_waw_skipped_ = 0;
+     resolve_waw_kept_ = 0;
+   }
++  // wwe2k14 patch (Session 22, EAGER): per window.
++  if (eager_stats_.loads || eager_stats_.learned || eager_stats_.reloaded) {
++    const double frames = double(frame - stats.window_first_frame);
++    REXGPU_INFO("[s22][EAGER] frames {}-{}: per frame {:.1f} early loads, {:.1f} late loads learned, {:.1f} "
++                "loaded again at their use after an early load, {:.1f} due but already valid, {:.1f} failed "
++                "(vulkan_texture_load_eager {})",
++                stats.window_first_frame, frame, double(eager_stats_.loads) / frames,
++                double(eager_stats_.learned) / frames, double(eager_stats_.reloaded) / frames,
++                double(eager_stats_.already_valid) / frames, double(eager_stats_.failed) / frames,
++                REXCVAR_GET(vulkan_texture_load_eager) ? "on" : "off");
++    eager_stats_ = EagerStats();
++  }
+   start_window();
+ }
+ 
+@@ -2700,6 +2780,8 @@ VulkanTextureCache::VulkanTexture::VulkanTexture(VulkanTextureCache& texture_cac
+ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
+   const VulkanTextureCache& vulkan_texture_cache =
+       static_cast<const VulkanTextureCache&>(texture_cache());
++  // wwe2k14 patch (Session 22, EAGER): no plan or pending entry may outlive the texture.
++  const_cast<VulkanTextureCache&>(vulkan_texture_cache).EagerForget(this);
+   const ui::vulkan::VulkanDevice* const vulkan_device =
+       vulkan_texture_cache.command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -3320,6 +3402,66 @@ void VulkanTextureCache::UseScaledResolveBufferForRead() {
+   scaled_resolve_last_written_range_ = std::make_pair(uint64_t(0), uint64_t(0));
+ }
+ 
++// wwe2k14 patch (Session 22, EAGER).
++void VulkanTextureCache::EagerRotate(uint64_t frame) {
++  eager_plan_prev_.swap(eager_plan_next_);
++  eager_plan_next_.clear();
++  eager_plan_cursor_ = 0;
++  eager_resolves_ = 0;
++  eager_draws_since_resolve_ = 0;
++  eager_pending_.clear();
++  eager_frame_ = frame;
++}
++
++void VulkanTextureCache::EagerNoteResolve() {
++  const uint64_t frame = command_processor_.GetCurrentFrame();
++  if (frame != eager_frame_) {
++    EagerRotate(frame);
++  }
++  ++eager_resolves_;
++  eager_draws_since_resolve_ = 0;
++  const bool on = REXCVAR_GET(vulkan_texture_load_eager);
++  while (eager_plan_cursor_ < eager_plan_prev_.size() &&
++         eager_plan_prev_[eager_plan_cursor_].first <= eager_resolves_) {
++    const std::pair<uint32_t, VulkanTexture*>& entry = eager_plan_prev_[eager_plan_cursor_++];
++    if (on && entry.first == eager_resolves_ && entry.second) {
++      eager_pending_.push_back(entry.second);
++    }
++  }
++}
++
++void VulkanTextureCache::EagerRecordLoad(VulkanTexture& texture) {
++  if (eager_loading_) {
++    return;
++  }
++  const uint64_t frame = command_processor_.GetCurrentFrame();
++  if (frame != eager_frame_) {
++    EagerRotate(frame);
++  }
++  if (texture.eager_loaded_frame() == frame) {
++    ++eager_stats_.reloaded;
++  }
++  // A late load: of resolved data, after this frame's eager_resolves_-th resolve, 2+ draws after it (the first
++  // draw after a resolve gains nothing from loading earlier).
++  if (!texture.key().scaled_resolve || !eager_resolves_ || eager_draws_since_resolve_ < 2 ||
++      eager_plan_next_.size() >= 256) {
++    return;
++  }
++  eager_plan_next_.emplace_back(eager_resolves_, &texture);
++  ++eager_stats_.learned;
++}
++
++void VulkanTextureCache::EagerForget(const VulkanTexture* texture) {
++  for (std::pair<uint32_t, VulkanTexture*>& entry : eager_plan_prev_) {
++    if (entry.second == texture) {
++      entry.second = nullptr;
++    }
++  }
++  std::erase_if(eager_plan_next_,
++                [texture](const std::pair<uint32_t, VulkanTexture*>& e) { return e.second == texture; });
++  std::erase(eager_pending_, texture);
++}
++
+ void VulkanTextureCache::UseScaledResolveBufferForWrite(uint64_t written_start_scaled,
+                                                         uint64_t written_length_scaled) {
+   if (!scaled_resolve_buffer_) {
+-- 
+2.52.0.windows.1
+
+
+From 27c646abaf6d2b2945d559a29c479e6226133320 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 14:30:12 +1100
+Subject: [PATCH 3/5] Session 22 EAGER: early loads stay in the next frame's
+ plan (no every-other-frame pattern)
+
+---
+ src/graphics/vulkan/texture_cache.cpp | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 1e93832..93c5caf 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -3431,13 +3431,18 @@ void VulkanTextureCache::EagerNoteResolve() {
+ }
+ 
+ void VulkanTextureCache::EagerRecordLoad(VulkanTexture& texture) {
+-  if (eager_loading_) {
+-    return;
+-  }
+   const uint64_t frame = command_processor_.GetCurrentFrame();
+   if (frame != eager_frame_) {
+     EagerRotate(frame);
+   }
++  if (eager_loading_) {
++    // An early load stays in the plan (at the resolve it now follows), or the next frame would load it late
++    // again (every other frame).
++    if (eager_plan_next_.size() < 256) {
++      eager_plan_next_.emplace_back(eager_resolves_, &texture);
++    }
++    return;
++  }
+   if (texture.eager_loaded_frame() == frame) {
+     ++eager_stats_.reloaded;
+   }
+-- 
+2.52.0.windows.1
+
+
+From 52be943ff0b0058b40613d5ef564ca3aa09c45c9 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 14:38:47 +1100
+Subject: [PATCH 4/5] Session 22 TEXDEPTH: vulkan_texture_load_direct_depth
+ (default off): direct (one dispatch) loads of scaled 24-bit float depth
+ textures; shader variant + generated header
+
+---
+ include/rex/graphics/vulkan/texture_cache.h   |   12 +
+ .../texture_load_scaled_direct.cs.glsl        |   36 +
+ ...exture_load_depth_float_scaled_direct_cs.h | 1303 +++++++++++++++++
+ src/graphics/vulkan/texture_cache.cpp         |   30 +-
+ 4 files changed, 1375 insertions(+), 6 deletions(-)
+ create mode 100644 src/graphics/shaders/vulkan_spirv/texture_load_depth_float_scaled_direct_cs.h
+
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 165277c..daf2a5c 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -463,6 +463,7 @@ class VulkanTextureCache final : public TextureCache {
+   enum DirectLoadShader : uint32_t {
+     kDirectLoadShader32bpb,
+     kDirectLoadShader64bpb,
++    kDirectLoadShaderDepthFloat,  // wwe2k14 patch (Session 22, TEXDEPTH)
+     kDirectLoadShaderCount,
+   };
+   // Why an eligible-looking load (scaled resolve source, setting on) took the buffer + copy path.
+@@ -576,6 +577,17 @@ class VulkanTextureCache final : public TextureCache {
+ 
+   // The view format of the storage view for a load shader, VK_FORMAT_UNDEFINED if not covered.
+   static VkFormat GetDirectLoadViewFormat(LoadShaderIndex load_shader);
++  // wwe2k14 patch (Session 22, TEXDEPTH): the direct load shader for a load shader GetDirectLoadViewFormat accepts.
++  static DirectLoadShader GetDirectLoadShader(LoadShaderIndex load_shader) {
++    switch (load_shader) {
++      case kLoadShaderIndex64bpb:
++        return kDirectLoadShader64bpb;
++      case kLoadShaderIndexDepthFloat:
++        return kDirectLoadShaderDepthFloat;
++      default:
++        return kDirectLoadShader32bpb;
++    }
++  }
+   // Whether a host format can be loaded through the GetDirectLoadViewFormat view of its load shader bit-exactly
+   // (same texel size and plain memory layout), and supports storage images with optimal tiling here.
+   bool IsDirectLoadHostFormatSupported(VkFormat format, LoadShaderIndex load_shader) const;
+diff --git a/src/graphics/shaders/texture_load_scaled_direct.cs.glsl b/src/graphics/shaders/texture_load_scaled_direct.cs.glsl
+index 2f56b2c..a1ad405 100644
+--- a/src/graphics/shaders/texture_load_scaled_direct.cs.glsl
++++ b/src/graphics/shaders/texture_load_scaled_direct.cs.glsl
+@@ -48,6 +48,17 @@
+ #if defined(XE_TEXTURE_LOAD_DIRECT_32BPB) == defined(XE_TEXTURE_LOAD_DIRECT_64BPB)
+ #error Define exactly one of XE_TEXTURE_LOAD_DIRECT_32BPB and XE_TEXTURE_LOAD_DIRECT_64BPB.
+ #endif
++// wwe2k14 patch (Session 22, TEXDEPTH): XE_TEXTURE_LOAD_DIRECT_DEPTH_FLOAT (with _32BPB) = the direct variant of
++// the scaled 24-bit float depth load shader (vulkan_spirv/texture_load_depth_float_scaled_cs.h, k_24_8_FLOAT ->
++// R32_SFLOAT). Its SPIR-V differs from the 32bpb one only by a 24-bit float -> 32-bit float conversion of each
++// endian-swapped 16-byte group before the store (XeDepthFloat24To32 below); the load info (bytes per block, blocks
++// per thread) is the same. Generated with tools\perf\gen_spirv_header.py (which reproduces the two Session 7c
++// headers bit for bit):
++//   -DXE_TEXTURE_LOAD_DIRECT_32BPB -DXE_TEXTURE_LOAD_DIRECT_DEPTH_FLOAT
++//     -> vulkan_spirv/texture_load_depth_float_scaled_direct_cs.h
++#if defined(XE_TEXTURE_LOAD_DIRECT_DEPTH_FLOAT) && !defined(XE_TEXTURE_LOAD_DIRECT_32BPB)
++#error XE_TEXTURE_LOAD_DIRECT_DEPTH_FLOAT needs XE_TEXTURE_LOAD_DIRECT_32BPB.
++#endif
+ 
+ layout(local_size_x = 4, local_size_y = 32, local_size_z = 1) in;
+ 
+@@ -130,6 +141,26 @@ uvec4 XeEndianSwap32(uvec4 value, uint endian) {
+   return value;
+ }
+ 
++#ifdef XE_TEXTURE_LOAD_DIRECT_DEPTH_FLOAT
++// Statement by statement from texture_load_depth_float_scaled_cs.h (the ids of its first copy, %7000 .. %24661):
++// the guest's 24-bit float depth (20e4, the top 24 bits of the word) to a 32-bit float, denormals normalized,
++// 0 kept as 0. Integer operations only (no float rounding or NaN handling involved).
++uvec4 XeDepthFloat24To32(uvec4 value) {
++  uvec4 depth = value >> 8u;                                       // %7000
++  uvec4 mantissa = depth & uvec4(1048575u);                        // %12837
++  uvec4 exponent = depth >> 20u;                                   // %22636
++  bvec4 is_denormal = equal(exponent, uvec4(0u));                  // %16585
++  uvec4 msb = uvec4(findMSB(mantissa));                            // %11339, %10773
++  uvec4 shift = uvec4(20u) - msb;                                  // %6266
++  uvec4 exponent_denormal = msb + uvec4(4294967277u);              // %8720
++  exponent = mix(exponent, exponent_denormal, is_denormal);        // %10351
++  uvec4 mantissa_normalized = (mantissa << shift) & uvec4(1048575u);  // %23252, %18842
++  mantissa = mix(mantissa, mantissa_normalized, is_denormal);      // %10910
++  uvec4 result = ((exponent + uvec4(112u)) << 23u) | (mantissa << 3u);  // %24569, %20351, %16294, %22396
++  return mix(result, uvec4(0u), equal(depth, uvec4(0u)));          // %12703, %24661
++}
++#endif
++
+ void XeStoreGroup(uint first_block_x, uint row, uint width_blocks, uvec4 blocks) {
+ #ifdef XE_TEXTURE_LOAD_DIRECT_32BPB
+   for (uint i = 0u; i < 4u; ++i) {
+@@ -199,6 +230,11 @@ void main() {
+   uvec4 blocks1 = XeEndianSwap32(
+       xe_texture_load_source[source_index + ((source_step * resolution_scale.y) >> 4u)], endian);
+ 
++#ifdef XE_TEXTURE_LOAD_DIRECT_DEPTH_FLOAT
++  blocks0 = XeDepthFloat24To32(blocks0);
++  blocks1 = XeDepthFloat24To32(blocks1);
++#endif
++
+   uint width_blocks = xe_texture_load_size_blocks.x;
+   XeStoreGroup(block_index.x, block_index.y, width_blocks, blocks0);
+   XeStoreGroup(block_index.x + (1u << kBlocksPerGroupLog2), block_index.y, width_blocks, blocks1);
+diff --git a/src/graphics/shaders/vulkan_spirv/texture_load_depth_float_scaled_direct_cs.h b/src/graphics/shaders/vulkan_spirv/texture_load_depth_float_scaled_direct_cs.h
+new file mode 100644
+index 0000000..24f5cca
+--- /dev/null
++++ b/src/graphics/shaders/vulkan_spirv/texture_load_depth_float_scaled_direct_cs.h
+@@ -0,0 +1,1303 @@
++// wwe2k14 patch (Session 22): generated from ../texture_load_scaled_direct.cs.glsl with
++// glslangValidator -V --target-env vulkan1.0 -DXE_TEXTURE_LOAD_DIRECT_32BPB -DXE_TEXTURE_LOAD_DIRECT_DEPTH_FLOAT -S comp (glslang 11.0.0 from the
++// SDK's thirdparty/glslang submodule, built out of tree, no spirv-opt; tools\perf\gen_spirv_header.py);
++// disassembly from its -H option.
++#if 0
++// Module Version 10000
++// Generated by (magic number): 8000a
++// Id's are bound by 608
++
++                              Capability Shader
++               1:             ExtInstImport  "GLSL.std.450"
++                              MemoryModel Logical GLSL450
++                              EntryPoint GLCompute 4  "main" 416
++                              ExecutionMode 4 LocalSize 4 32 1
++                              Source GLSL 460
++                              Name 4  "main"
++                              Name 15  "XeTextureTiledOffset2D(vi2;u1;u1;"
++                              Name 12  "p"
++                              Name 13  "pitch_aligned"
++                              Name 14  "bpb_log2"
++                              Name 24  "XeTextureTiledOffset3D(vi3;u1;u1;u1;"
++                              Name 20  "p"
++                              Name 21  "pitch_aligned"
++                              Name 22  "height_aligned"
++                              Name 23  "bpb_log2"
++                              Name 31  "XeEndianSwap32(vu4;u1;"
++                              Name 29  "value"
++                              Name 30  "endian"
++                              Name 35  "XeDepthFloat24To32(vu4;"
++                              Name 34  "value"
++                              Name 42  "XeStoreGroup(u1;u1;u1;vu4;"
++                              Name 38  "first_block_x"
++                              Name 39  "row"
++                              Name 40  "width_blocks"
++                              Name 41  "blocks"
++                              Name 45  "macro"
++                              Name 65  "micro"
++                              Name 79  "offset"
++                              Name 132  "macro_outer"
++                              Name 150  "macro"
++                              Name 163  "micro"
++                              Name 176  "offset_outer"
++                              Name 185  "offset1"
++                              Name 196  "offset2"
++                              Name 217  "address"
++                              Name 289  "depth"
++                              Name 293  "mantissa"
++                              Name 298  "exponent"
++                              Name 305  "is_denormal"
++                              Name 309  "msb"
++                              Name 314  "shift"
++                              Name 318  "exponent_denormal"
++                              Name 327  "mantissa_normalized"
++                              Name 336  "result"
++                              Name 354  "i"
++                              Name 362  "x"
++                              Name 373  "xe_texture_load_dest"
++                              Name 386  "flags"
++                              Name 388  "XeTextureLoadConstants"
++                              MemberName 388(XeTextureLoadConstants) 0  "xe_texture_load_is_tiled_3d_endian_scale"
++                              MemberName 388(XeTextureLoadConstants) 1  "xe_texture_load_guest_offset"
++                              MemberName 388(XeTextureLoadConstants) 2  "xe_texture_load_guest_pitch_aligned"
++                              MemberName 388(XeTextureLoadConstants) 3  "xe_texture_load_guest_z_stride_block_rows_aligned"
++                              MemberName 388(XeTextureLoadConstants) 4  "xe_texture_load_size_blocks"
++                              MemberName 388(XeTextureLoadConstants) 5  "xe_texture_load_host_offset"
++                              MemberName 388(XeTextureLoadConstants) 6  "xe_texture_load_host_pitch"
++                              MemberName 388(XeTextureLoadConstants) 7  "xe_texture_load_height_texels"
++                              Name 390  ""
++                              Name 396  "is_3d_tiled"
++                              Name 400  "endian"
++                              Name 406  "resolution_scale"
++                              Name 414  "block_index"
++                              Name 416  "gl_GlobalInvocationID"
++                              Name 432  "group_scaled"
++                              Name 439  "group_unscaled"
++                              Name 443  "guest_block_index"
++                              Name 455  "guest_offset_unscaled"
++                              Name 458  "param"
++                              Name 459  "param"
++                              Name 462  "param"
++                              Name 465  "param"
++                              Name 472  "param"
++                              Name 473  "param"
++                              Name 476  "param"
++                              Name 479  "group_sub"
++                              Name 485  "source_offset"
++                              Name 508  "source_index"
++                              Name 514  "blocks0"
++                              Name 516  "XeTextureLoadSource"
++                              MemberName 516(XeTextureLoadSource) 0  "xe_texture_load_source"
++                              Name 518  ""
++                              Name 520  "param"
++                              Name 524  "param"
++                              Name 532  "group_sub_x"
++                              Name 551  "source_step"
++                              Name 561  "blocks1"
++                              Name 569  "param"
++                              Name 572  "param"
++                              Name 575  "param"
++                              Name 578  "param"
++                              Name 581  "width_blocks"
++                              Name 584  "param"
++                              Name 587  "param"
++                              Name 590  "param"
++                              Name 592  "param"
++                              Name 598  "param"
++                              Name 599  "param"
++                              Name 602  "param"
++                              Name 604  "param"
++                              Decorate 373(xe_texture_load_dest) DescriptorSet 0
++                              Decorate 373(xe_texture_load_dest) Binding 0
++                              Decorate 373(xe_texture_load_dest) NonReadable
++                              MemberDecorate 388(XeTextureLoadConstants) 0 Offset 0
++                              MemberDecorate 388(XeTextureLoadConstants) 1 Offset 4
++                              MemberDecorate 388(XeTextureLoadConstants) 2 Offset 8
++                              MemberDecorate 388(XeTextureLoadConstants) 3 Offset 12
++                              MemberDecorate 388(XeTextureLoadConstants) 4 Offset 16
++                              MemberDecorate 388(XeTextureLoadConstants) 5 Offset 28
++                              MemberDecorate 388(XeTextureLoadConstants) 6 Offset 32
++                              MemberDecorate 388(XeTextureLoadConstants) 7 Offset 36
++                              Decorate 388(XeTextureLoadConstants) Block
++                              Decorate 416(gl_GlobalInvocationID) BuiltIn GlobalInvocationId
++                              Decorate 515 ArrayStride 16
++                              MemberDecorate 516(XeTextureLoadSource) 0 NonWritable
++                              MemberDecorate 516(XeTextureLoadSource) 0 Offset 0
++                              Decorate 516(XeTextureLoadSource) BufferBlock
++                              Decorate 518 DescriptorSet 1
++                              Decorate 518 Binding 0
++                              Decorate 607 BuiltIn WorkgroupSize
++               2:             TypeVoid
++               3:             TypeFunction 2
++               6:             TypeInt 32 1
++               7:             TypeVector 6(int) 2
++               8:             TypePointer Function 7(ivec2)
++               9:             TypeInt 32 0
++              10:             TypePointer Function 9(int)
++              11:             TypeFunction 6(int) 8(ptr) 10(ptr) 10(ptr)
++              17:             TypeVector 6(int) 3
++              18:             TypePointer Function 17(ivec3)
++              19:             TypeFunction 6(int) 18(ptr) 10(ptr) 10(ptr) 10(ptr)
++              26:             TypeVector 9(int) 4
++              27:             TypePointer Function 26(ivec4)
++              28:             TypeFunction 26(ivec4) 27(ptr) 10(ptr)
++              33:             TypeFunction 26(ivec4) 27(ptr)
++              37:             TypeFunction 2 10(ptr) 10(ptr) 10(ptr) 27(ptr)
++              44:             TypePointer Function 6(int)
++              46:      9(int) Constant 0
++              49:      6(int) Constant 5
++              51:      9(int) Constant 1
++              56:      9(int) Constant 5
++              62:      9(int) Constant 7
++              68:      6(int) Constant 7
++              72:      6(int) Constant 14
++              74:      6(int) Constant 2
++              82:      6(int) Constant 4294967280
++              84:      6(int) Constant 1
++              88:      6(int) Constant 15
++              94:      6(int) Constant 4
++              98:      6(int) Constant 4294966784
++             100:      6(int) Constant 3
++             104:      6(int) Constant 16
++             109:      6(int) Constant 448
++             115:      6(int) Constant 8
++             123:      6(int) Constant 6
++             127:      6(int) Constant 63
++             136:      9(int) Constant 2
++             141:      9(int) Constant 4
++             157:      9(int) Constant 6
++             160:      6(int) Constant 268435455
++             229:      6(int) Constant 4294967294
++             249:             TypeBool
++             257:      9(int) Constant 16711935
++             260:      9(int) Constant 8
++             264:      9(int) Constant 4278255360
++             273:      9(int) Constant 3
++             279:      9(int) Constant 16
++             295:      9(int) Constant 1048575
++             296:   26(ivec4) ConstantComposite 295 295 295 295
++             300:      9(int) Constant 20
++             303:             TypeVector 249(bool) 4
++             304:             TypePointer Function 303(bvec4)
++             307:   26(ivec4) ConstantComposite 46 46 46 46
++             311:             TypeVector 6(int) 4
++             315:   26(ivec4) ConstantComposite 300 300 300 300
++             320:      9(int) Constant 4294967277
++             321:   26(ivec4) ConstantComposite 320 320 320 320
++             338:      9(int) Constant 112
++             339:   26(ivec4) ConstantComposite 338 338 338 338
++             341:      9(int) Constant 23
++             371:             TypeImage 9(int) 2D nonsampled format:R32ui
++             372:             TypePointer UniformConstant 371
++373(xe_texture_load_dest):    372(ptr) Variable UniformConstant
++             387:             TypeVector 9(int) 3
++388(XeTextureLoadConstants):             TypeStruct 9(int) 9(int) 9(int) 9(int) 387(ivec3) 9(int) 9(int) 9(int)
++             389:             TypePointer PushConstant 388(XeTextureLoadConstants)
++             390:    389(ptr) Variable PushConstant
++             391:      6(int) Constant 0
++             392:             TypePointer PushConstant 9(int)
++             395:             TypePointer Function 249(bool)
++             404:             TypeVector 9(int) 2
++             405:             TypePointer Function 404(ivec2)
++             409:  404(ivec2) ConstantComposite 141 62
++             413:             TypePointer Function 387(ivec3)
++             415:             TypePointer Input 387(ivec3)
++416(gl_GlobalInvocationID):    415(ptr) Variable Input
++             418:  387(ivec3) ConstantComposite 273 46 46
++             422:             TypePointer PushConstant 387(ivec3)
++             426:             TypeVector 249(bool) 2
++             515:             TypeRuntimeArray 26(ivec4)
++516(XeTextureLoadSource):             TypeStruct 515
++             517:             TypePointer Uniform 516(XeTextureLoadSource)
++             518:    517(ptr) Variable Uniform
++             521:             TypePointer Uniform 26(ivec4)
++             552:      9(int) Constant 32
++             607:  387(ivec3) ConstantComposite 141 552 51
++         4(main):           2 Function None 3
++               5:             Label
++      386(flags):     10(ptr) Variable Function
++396(is_3d_tiled):    395(ptr) Variable Function
++     400(endian):     10(ptr) Variable Function
++406(resolution_scale):    405(ptr) Variable Function
++414(block_index):    413(ptr) Variable Function
++432(group_scaled):    405(ptr) Variable Function
++439(group_unscaled):    405(ptr) Variable Function
++443(guest_block_index):    413(ptr) Variable Function
++455(guest_offset_unscaled):     10(ptr) Variable Function
++      458(param):     18(ptr) Variable Function
++      459(param):     10(ptr) Variable Function
++      462(param):     10(ptr) Variable Function
++      465(param):     10(ptr) Variable Function
++      472(param):      8(ptr) Variable Function
++      473(param):     10(ptr) Variable Function
++      476(param):     10(ptr) Variable Function
++  479(group_sub):    405(ptr) Variable Function
++485(source_offset):     10(ptr) Variable Function
++508(source_index):     10(ptr) Variable Function
++    514(blocks0):     27(ptr) Variable Function
++      520(param):     27(ptr) Variable Function
++      524(param):     10(ptr) Variable Function
++532(group_sub_x):     10(ptr) Variable Function
++551(source_step):     10(ptr) Variable Function
++    561(blocks1):     27(ptr) Variable Function
++      569(param):     27(ptr) Variable Function
++      572(param):     10(ptr) Variable Function
++      575(param):     27(ptr) Variable Function
++      578(param):     27(ptr) Variable Function
++581(width_blocks):     10(ptr) Variable Function
++      584(param):     10(ptr) Variable Function
++      587(param):     10(ptr) Variable Function
++      590(param):     10(ptr) Variable Function
++      592(param):     27(ptr) Variable Function
++      598(param):     10(ptr) Variable Function
++      599(param):     10(ptr) Variable Function
++      602(param):     10(ptr) Variable Function
++      604(param):     27(ptr) Variable Function
++             393:    392(ptr) AccessChain 390 391
++             394:      9(int) Load 393
++                              Store 386(flags) 394
++             397:      9(int) Load 386(flags)
++             398:      9(int) BitwiseAnd 397 136
++             399:   249(bool) INotEqual 398 46
++                              Store 396(is_3d_tiled) 399
++             401:      9(int) Load 386(flags)
++             402:      9(int) ShiftRightLogical 401 136
++             403:      9(int) BitwiseAnd 402 273
++                              Store 400(endian) 403
++             407:      9(int) Load 386(flags)
++             408:  404(ivec2) CompositeConstruct 407 407
++             410:  404(ivec2) ShiftRightLogical 408 409
++             411:  404(ivec2) CompositeConstruct 62 62
++             412:  404(ivec2) BitwiseAnd 410 411
++                              Store 406(resolution_scale) 412
++             417:  387(ivec3) Load 416(gl_GlobalInvocationID)
++             419:  387(ivec3) ShiftLeftLogical 417 418
++                              Store 414(block_index) 419
++             420:  387(ivec3) Load 414(block_index)
++             421:  404(ivec2) VectorShuffle 420 420 0 1
++             423:    422(ptr) AccessChain 390 94
++             424:  387(ivec3) Load 423
++             425:  404(ivec2) VectorShuffle 424 424 0 1
++             427:  426(bvec2) UGreaterThanEqual 421 425
++             428:   249(bool) Any 427
++                              SelectionMerge 430 None
++                              BranchConditional 428 429 430
++             429:               Label
++                                Return
++             430:             Label
++             433:     10(ptr) AccessChain 414(block_index) 46
++             434:      9(int) Load 433
++             435:      9(int) ShiftRightLogical 434 136
++             436:     10(ptr) AccessChain 414(block_index) 51
++             437:      9(int) Load 436
++             438:  404(ivec2) CompositeConstruct 435 437
++                              Store 432(group_scaled) 438
++             440:  404(ivec2) Load 432(group_scaled)
++             441:  404(ivec2) Load 406(resolution_scale)
++             442:  404(ivec2) UDiv 440 441
++                              Store 439(group_unscaled) 442
++             444:     10(ptr) AccessChain 439(group_unscaled) 46
++             445:      9(int) Load 444
++             446:      9(int) ShiftLeftLogical 445 136
++             447:     10(ptr) AccessChain 439(group_unscaled) 51
++             448:      9(int) Load 447
++             449:     10(ptr) AccessChain 414(block_index) 136
++             450:      9(int) Load 449
++             451:  387(ivec3) CompositeConstruct 446 448 450
++                              Store 443(guest_block_index) 451
++             452:   249(bool) Load 396(is_3d_tiled)
++                              SelectionMerge 454 None
++                              BranchConditional 452 453 468
++             453:               Label
++             456:  387(ivec3)   Load 443(guest_block_index)
++             457:   17(ivec3)   Bitcast 456
++                                Store 458(param) 457
++             460:    392(ptr)   AccessChain 390 74
++             461:      9(int)   Load 460
++                                Store 459(param) 461
++             463:    392(ptr)   AccessChain 390 100
++             464:      9(int)   Load 463
++                                Store 462(param) 464
++                                Store 465(param) 136
++             466:      6(int)   FunctionCall 24(XeTextureTiledOffset3D(vi3;u1;u1;u1;) 458(param) 459(param) 462(param) 465(param)
++             467:      9(int)   Bitcast 466
++                                Store 455(guest_offset_unscaled) 467
++                                Branch 454
++             468:               Label
++             469:  387(ivec3)   Load 443(guest_block_index)
++             470:  404(ivec2)   VectorShuffle 469 469 0 1
++             471:    7(ivec2)   Bitcast 470
++                                Store 472(param) 471
++             474:    392(ptr)   AccessChain 390 74
++             475:      9(int)   Load 474
++                                Store 473(param) 475
++                                Store 476(param) 136
++             477:      6(int)   FunctionCall 15(XeTextureTiledOffset2D(vi2;u1;u1;) 472(param) 473(param) 476(param)
++             478:      9(int)   Bitcast 477
++                                Store 455(guest_offset_unscaled) 478
++                                Branch 454
++             454:             Label
++             480:  404(ivec2) Load 432(group_scaled)
++             481:  404(ivec2) Load 439(group_unscaled)
++             482:  404(ivec2) Load 406(resolution_scale)
++             483:  404(ivec2) IMul 481 482
++             484:  404(ivec2) ISub 480 483
++                              Store 479(group_sub) 484
++             486:      9(int) Load 455(guest_offset_unscaled)
++             487:     10(ptr) AccessChain 406(resolution_scale) 46
++             488:      9(int) Load 487
++             489:     10(ptr) AccessChain 406(resolution_scale) 51
++             490:      9(int) Load 489
++             491:      9(int) IMul 488 490
++             492:      9(int) IMul 486 491
++             493:     10(ptr) AccessChain 479(group_sub) 46
++             494:      9(int) Load 493
++             495:     10(ptr) AccessChain 406(resolution_scale) 51
++             496:      9(int) Load 495
++             497:      9(int) IMul 494 496
++             498:     10(ptr) AccessChain 479(group_sub) 51
++             499:      9(int) Load 498
++             500:      9(int) IAdd 497 499
++             501:      9(int) ShiftLeftLogical 500 136
++             502:     10(ptr) AccessChain 414(block_index) 46
++             503:      9(int) Load 502
++             504:      9(int) BitwiseAnd 503 273
++             505:      9(int) IAdd 501 504
++             506:      9(int) ShiftLeftLogical 505 136
++             507:      9(int) IAdd 492 506
++                              Store 485(source_offset) 507
++             509:    392(ptr) AccessChain 390 84
++             510:      9(int) Load 509
++             511:      9(int) Load 485(source_offset)
++             512:      9(int) IAdd 510 511
++             513:      9(int) ShiftRightLogical 512 141
++                              Store 508(source_index) 513
++             519:      9(int) Load 508(source_index)
++             522:    521(ptr) AccessChain 518 391 519
++             523:   26(ivec4) Load 522
++                              Store 520(param) 523
++             525:      9(int) Load 400(endian)
++                              Store 524(param) 525
++             526:   26(ivec4) FunctionCall 31(XeEndianSwap32(vu4;u1;) 520(param) 524(param)
++                              Store 514(blocks0) 526
++             527:     10(ptr) AccessChain 406(resolution_scale) 46
++             528:      9(int) Load 527
++             529:   249(bool) UGreaterThan 528 51
++                              SelectionMerge 531 None
++                              BranchConditional 529 530 560
++             530:               Label
++             533:     10(ptr)   AccessChain 432(group_scaled) 46
++             534:      9(int)   Load 533
++             535:     10(ptr)   AccessChain 432(group_scaled) 46
++             536:      9(int)   Load 535
++             537:     10(ptr)   AccessChain 406(resolution_scale) 46
++             538:      9(int)   Load 537
++             539:      9(int)   UDiv 536 538
++             540:     10(ptr)   AccessChain 406(resolution_scale) 46
++             541:      9(int)   Load 540
++             542:      9(int)   IMul 539 541
++             543:      9(int)   ISub 534 542
++                                Store 532(group_sub_x) 543
++             544:      9(int)   Load 532(group_sub_x)
++             545:      9(int)   IAdd 544 51
++             546:     10(ptr)   AccessChain 406(resolution_scale) 46
++             547:      9(int)   Load 546
++             548:   249(bool)   IEqual 545 547
++                                SelectionMerge 550 None
++                                BranchConditional 548 549 559
++             549:                 Label
++             553:     10(ptr)     AccessChain 406(resolution_scale) 46
++             554:      9(int)     Load 553
++             555:      9(int)     IMul 552 554
++             556:      9(int)     Load 532(group_sub_x)
++             557:      9(int)     ShiftLeftLogical 556 141
++             558:      9(int)     ISub 555 557
++                                  Store 551(source_step) 558
++                                  Branch 550
++             559:                 Label
++                                  Store 551(source_step) 279
++                                  Branch 550
++             550:               Label
++                                Branch 531
++             560:               Label
++                                Store 551(source_step) 552
++                                Branch 531
++             531:             Label
++             562:      9(int) Load 508(source_index)
++             563:      9(int) Load 551(source_step)
++             564:     10(ptr) AccessChain 406(resolution_scale) 51
++             565:      9(int) Load 564
++             566:      9(int) IMul 563 565
++             567:      9(int) ShiftRightLogical 566 141
++             568:      9(int) IAdd 562 567
++             570:    521(ptr) AccessChain 518 391 568
++             571:   26(ivec4) Load 570
++                              Store 569(param) 571
++             573:      9(int) Load 400(endian)
++                              Store 572(param) 573
++             574:   26(ivec4) FunctionCall 31(XeEndianSwap32(vu4;u1;) 569(param) 572(param)
++                              Store 561(blocks1) 574
++             576:   26(ivec4) Load 514(blocks0)
++                              Store 575(param) 576
++             577:   26(ivec4) FunctionCall 35(XeDepthFloat24To32(vu4;) 575(param)
++                              Store 514(blocks0) 577
++             579:   26(ivec4) Load 561(blocks1)
++                              Store 578(param) 579
++             580:   26(ivec4) FunctionCall 35(XeDepthFloat24To32(vu4;) 578(param)
++                              Store 561(blocks1) 580
++             582:    392(ptr) AccessChain 390 94 46
++             583:      9(int) Load 582
++                              Store 581(width_blocks) 583
++             585:     10(ptr) AccessChain 414(block_index) 46
++             586:      9(int) Load 585
++                              Store 584(param) 586
++             588:     10(ptr) AccessChain 414(block_index) 51
++             589:      9(int) Load 588
++                              Store 587(param) 589
++             591:      9(int) Load 581(width_blocks)
++                              Store 590(param) 591
++             593:   26(ivec4) Load 514(blocks0)
++                              Store 592(param) 593
++             594:           2 FunctionCall 42(XeStoreGroup(u1;u1;u1;vu4;) 584(param) 587(param) 590(param) 592(param)
++             595:     10(ptr) AccessChain 414(block_index) 46
++             596:      9(int) Load 595
++             597:      9(int) IAdd 596 141
++                              Store 598(param) 597
++             600:     10(ptr) AccessChain 414(block_index) 51
++             601:      9(int) Load 600
++                              Store 599(param) 601
++             603:      9(int) Load 581(width_blocks)
++                              Store 602(param) 603
++             605:   26(ivec4) Load 561(blocks1)
++                              Store 604(param) 605
++             606:           2 FunctionCall 42(XeStoreGroup(u1;u1;u1;vu4;) 598(param) 599(param) 602(param) 604(param)
++                              Return
++                              FunctionEnd
++15(XeTextureTiledOffset2D(vi2;u1;u1;):      6(int) Function None 11
++           12(p):      8(ptr) FunctionParameter
++13(pitch_aligned):     10(ptr) FunctionParameter
++    14(bpb_log2):     10(ptr) FunctionParameter
++              16:             Label
++       45(macro):     44(ptr) Variable Function
++       65(micro):     44(ptr) Variable Function
++      79(offset):     44(ptr) Variable Function
++              47:     44(ptr) AccessChain 12(p) 46
++              48:      6(int) Load 47
++              50:      6(int) ShiftRightArithmetic 48 49
++              52:     44(ptr) AccessChain 12(p) 51
++              53:      6(int) Load 52
++              54:      6(int) ShiftRightArithmetic 53 49
++              55:      9(int) Load 13(pitch_aligned)
++              57:      9(int) ShiftRightLogical 55 56
++              58:      6(int) Bitcast 57
++              59:      6(int) IMul 54 58
++              60:      6(int) IAdd 50 59
++              61:      9(int) Load 14(bpb_log2)
++              63:      9(int) IAdd 61 62
++              64:      6(int) ShiftLeftLogical 60 63
++                              Store 45(macro) 64
++              66:     44(ptr) AccessChain 12(p) 46
++              67:      6(int) Load 66
++              69:      6(int) BitwiseAnd 67 68
++              70:     44(ptr) AccessChain 12(p) 51
++              71:      6(int) Load 70
++              73:      6(int) BitwiseAnd 71 72
++              75:      6(int) ShiftLeftLogical 73 74
++              76:      6(int) IAdd 69 75
++              77:      9(int) Load 14(bpb_log2)
++              78:      6(int) ShiftLeftLogical 76 77
++                              Store 65(micro) 78
++              80:      6(int) Load 45(macro)
++              81:      6(int) Load 65(micro)
++              83:      6(int) BitwiseAnd 81 82
++              85:      6(int) ShiftLeftLogical 83 84
++              86:      6(int) IAdd 80 85
++              87:      6(int) Load 65(micro)
++              89:      6(int) BitwiseAnd 87 88
++              90:      6(int) IAdd 86 89
++              91:     44(ptr) AccessChain 12(p) 51
++              92:      6(int) Load 91
++              93:      6(int) BitwiseAnd 92 84
++              95:      6(int) ShiftLeftLogical 93 94
++              96:      6(int) IAdd 90 95
++                              Store 79(offset) 96
++              97:      6(int) Load 79(offset)
++              99:      6(int) BitwiseAnd 97 98
++             101:      6(int) ShiftLeftLogical 99 100
++             102:     44(ptr) AccessChain 12(p) 51
++             103:      6(int) Load 102
++             105:      6(int) BitwiseAnd 103 104
++             106:      6(int) ShiftLeftLogical 105 68
++             107:      6(int) IAdd 101 106
++             108:      6(int) Load 79(offset)
++             110:      6(int) BitwiseAnd 108 109
++             111:      6(int) ShiftLeftLogical 110 74
++             112:      6(int) IAdd 107 111
++             113:     44(ptr) AccessChain 12(p) 51
++             114:      6(int) Load 113
++             116:      6(int) BitwiseAnd 114 115
++             117:      6(int) ShiftRightArithmetic 116 74
++             118:     44(ptr) AccessChain 12(p) 46
++             119:      6(int) Load 118
++             120:      6(int) ShiftRightArithmetic 119 100
++             121:      6(int) IAdd 117 120
++             122:      6(int) BitwiseAnd 121 100
++             124:      6(int) ShiftLeftLogical 122 123
++             125:      6(int) IAdd 112 124
++             126:      6(int) Load 79(offset)
++             128:      6(int) BitwiseAnd 126 127
++             129:      6(int) IAdd 125 128
++                              ReturnValue 129
++                              FunctionEnd
++24(XeTextureTiledOffset3D(vi3;u1;u1;u1;):      6(int) Function None 19
++           20(p):     18(ptr) FunctionParameter
++21(pitch_aligned):     10(ptr) FunctionParameter
++22(height_aligned):     10(ptr) FunctionParameter
++    23(bpb_log2):     10(ptr) FunctionParameter
++              25:             Label
++132(macro_outer):     44(ptr) Variable Function
++      150(macro):     44(ptr) Variable Function
++      163(micro):     44(ptr) Variable Function
++176(offset_outer):     44(ptr) Variable Function
++    185(offset1):     44(ptr) Variable Function
++    196(offset2):     44(ptr) Variable Function
++    217(address):     44(ptr) Variable Function
++             133:     44(ptr) AccessChain 20(p) 51
++             134:      6(int) Load 133
++             135:      6(int) ShiftRightArithmetic 134 94
++             137:     44(ptr) AccessChain 20(p) 136
++             138:      6(int) Load 137
++             139:      6(int) ShiftRightArithmetic 138 74
++             140:      9(int) Load 22(height_aligned)
++             142:      9(int) ShiftRightLogical 140 141
++             143:      6(int) Bitcast 142
++             144:      6(int) IMul 139 143
++             145:      6(int) IAdd 135 144
++             146:      9(int) Load 21(pitch_aligned)
++             147:      9(int) ShiftRightLogical 146 56
++             148:      6(int) Bitcast 147
++             149:      6(int) IMul 145 148
++                              Store 132(macro_outer) 149
++             151:     44(ptr) AccessChain 20(p) 46
++             152:      6(int) Load 151
++             153:      6(int) ShiftRightArithmetic 152 49
++             154:      6(int) Load 132(macro_outer)
++             155:      6(int) IAdd 153 154
++             156:      9(int) Load 23(bpb_log2)
++             158:      9(int) IAdd 156 157
++             159:      6(int) ShiftLeftLogical 155 158
++             161:      6(int) BitwiseAnd 159 160
++             162:      6(int) ShiftLeftLogical 161 84
++                              Store 150(macro) 162
++             164:     44(ptr) AccessChain 20(p) 46
++             165:      6(int) Load 164
++             166:      6(int) BitwiseAnd 165 68
++             167:     44(ptr) AccessChain 20(p) 51
++             168:      6(int) Load 167
++             169:      6(int) BitwiseAnd 168 123
++             170:      6(int) ShiftLeftLogical 169 74
++             171:      6(int) IAdd 166 170
++             172:      9(int) Load 23(bpb_log2)
++             173:      9(int) IAdd 172 157
++             174:      6(int) ShiftLeftLogical 171 173
++             175:      6(int) ShiftRightArithmetic 174 123
++                              Store 163(micro) 175
++             177:     44(ptr) AccessChain 20(p) 51
++             178:      6(int) Load 177
++             179:      6(int) ShiftRightArithmetic 178 100
++             180:     44(ptr) AccessChain 20(p) 136
++             181:      6(int) Load 180
++             182:      6(int) ShiftRightArithmetic 181 74
++             183:      6(int) IAdd 179 182
++             184:      6(int) BitwiseAnd 183 84
++                              Store 176(offset_outer) 184
++             186:      6(int) Load 176(offset_outer)
++             187:     44(ptr) AccessChain 20(p) 46
++             188:      6(int) Load 187
++             189:      6(int) ShiftRightArithmetic 188 100
++             190:      6(int) Load 176(offset_outer)
++             191:      6(int) ShiftLeftLogical 190 84
++             192:      6(int) IAdd 189 191
++             193:      6(int) BitwiseAnd 192 100
++             194:      6(int) ShiftLeftLogical 193 84
++             195:      6(int) IAdd 186 194
++                              Store 185(offset1) 195
++             197:      6(int) Load 150(macro)
++             198:      6(int) Load 163(micro)
++             199:      6(int) BitwiseAnd 198 82
++             200:      6(int) IAdd 197 199
++             201:      6(int) ShiftLeftLogical 200 84
++             202:      6(int) Load 163(micro)
++             203:      6(int) BitwiseAnd 202 88
++             204:      6(int) IAdd 201 203
++             205:     44(ptr) AccessChain 20(p) 136
++             206:      6(int) Load 205
++             207:      6(int) BitwiseAnd 206 100
++             208:      9(int) Load 23(bpb_log2)
++             209:      9(int) IAdd 208 157
++             210:      6(int) ShiftLeftLogical 207 209
++             211:      6(int) IAdd 204 210
++             212:     44(ptr) AccessChain 20(p) 51
++             213:      6(int) Load 212
++             214:      6(int) BitwiseAnd 213 84
++             215:      6(int) ShiftLeftLogical 214 94
++             216:      6(int) IAdd 211 215
++                              Store 196(offset2) 216
++             218:      6(int) Load 185(offset1)
++             219:      6(int) BitwiseAnd 218 84
++             220:      6(int) ShiftLeftLogical 219 100
++                              Store 217(address) 220
++             221:      6(int) Load 196(offset2)
++             222:      6(int) ShiftRightArithmetic 221 123
++             223:      6(int) BitwiseAnd 222 68
++             224:      6(int) Load 217(address)
++             225:      6(int) IAdd 224 223
++                              Store 217(address) 225
++             226:      6(int) Load 217(address)
++             227:      6(int) ShiftLeftLogical 226 100
++                              Store 217(address) 227
++             228:      6(int) Load 185(offset1)
++             230:      6(int) BitwiseAnd 228 229
++             231:      6(int) Load 217(address)
++             232:      6(int) IAdd 231 230
++                              Store 217(address) 232
++             233:      6(int) Load 217(address)
++             234:      6(int) ShiftLeftLogical 233 74
++                              Store 217(address) 234
++             235:      6(int) Load 196(offset2)
++             236:      6(int) BitwiseAnd 235 98
++             237:      6(int) Load 217(address)
++             238:      6(int) IAdd 237 236
++                              Store 217(address) 238
++             239:      6(int) Load 217(address)
++             240:      6(int) ShiftLeftLogical 239 100
++                              Store 217(address) 240
++             241:      6(int) Load 196(offset2)
++             242:      6(int) BitwiseAnd 241 127
++             243:      6(int) Load 217(address)
++             244:      6(int) IAdd 243 242
++                              Store 217(address) 244
++             245:      6(int) Load 217(address)
++                              ReturnValue 245
++                              FunctionEnd
++31(XeEndianSwap32(vu4;u1;):   26(ivec4) Function None 28
++       29(value):     27(ptr) FunctionParameter
++      30(endian):     10(ptr) FunctionParameter
++              32:             Label
++             248:      9(int) Load 30(endian)
++             250:   249(bool) IEqual 248 51
++             251:      9(int) Load 30(endian)
++             252:   249(bool) IEqual 251 136
++             253:   249(bool) LogicalOr 250 252
++                              SelectionMerge 255 None
++                              BranchConditional 253 254 255
++             254:               Label
++             256:   26(ivec4)   Load 29(value)
++             258:   26(ivec4)   CompositeConstruct 257 257 257 257
++             259:   26(ivec4)   BitwiseAnd 256 258
++             261:   26(ivec4)   CompositeConstruct 260 260 260 260
++             262:   26(ivec4)   ShiftLeftLogical 259 261
++             263:   26(ivec4)   Load 29(value)
++             265:   26(ivec4)   CompositeConstruct 264 264 264 264
++             266:   26(ivec4)   BitwiseAnd 263 265
++             267:   26(ivec4)   CompositeConstruct 260 260 260 260
++             268:   26(ivec4)   ShiftRightLogical 266 267
++             269:   26(ivec4)   BitwiseOr 262 268
++                                Store 29(value) 269
++                                Branch 255
++             255:             Label
++             270:      9(int) Load 30(endian)
++             271:   249(bool) IEqual 270 136
++             272:      9(int) Load 30(endian)
++             274:   249(bool) IEqual 272 273
++             275:   249(bool) LogicalOr 271 274
++                              SelectionMerge 277 None
++                              BranchConditional 275 276 277
++             276:               Label
++             278:   26(ivec4)   Load 29(value)
++             280:   26(ivec4)   CompositeConstruct 279 279 279 279
++             281:   26(ivec4)   ShiftLeftLogical 278 280
++             282:   26(ivec4)   Load 29(value)
++             283:   26(ivec4)   CompositeConstruct 279 279 279 279
++             284:   26(ivec4)   ShiftRightLogical 282 283
++             285:   26(ivec4)   BitwiseOr 281 284
++                                Store 29(value) 285
++                                Branch 277
++             277:             Label
++             286:   26(ivec4) Load 29(value)
++                              ReturnValue 286
++                              FunctionEnd
++35(XeDepthFloat24To32(vu4;):   26(ivec4) Function None 33
++       34(value):     27(ptr) FunctionParameter
++              36:             Label
++      289(depth):     27(ptr) Variable Function
++   293(mantissa):     27(ptr) Variable Function
++   298(exponent):     27(ptr) Variable Function
++305(is_denormal):    304(ptr) Variable Function
++        309(msb):     27(ptr) Variable Function
++      314(shift):     27(ptr) Variable Function
++318(exponent_denormal):     27(ptr) Variable Function
++327(mantissa_normalized):     27(ptr) Variable Function
++     336(result):     27(ptr) Variable Function
++             290:   26(ivec4) Load 34(value)
++             291:   26(ivec4) CompositeConstruct 260 260 260 260
++             292:   26(ivec4) ShiftRightLogical 290 291
++                              Store 289(depth) 292
++             294:   26(ivec4) Load 289(depth)
++             297:   26(ivec4) BitwiseAnd 294 296
++                              Store 293(mantissa) 297
++             299:   26(ivec4) Load 289(depth)
++             301:   26(ivec4) CompositeConstruct 300 300 300 300
++             302:   26(ivec4) ShiftRightLogical 299 301
++                              Store 298(exponent) 302
++             306:   26(ivec4) Load 298(exponent)
++             308:  303(bvec4) IEqual 306 307
++                              Store 305(is_denormal) 308
++             310:   26(ivec4) Load 293(mantissa)
++             312:  311(ivec4) ExtInst 1(GLSL.std.450) 75(FindUMsb) 310
++             313:   26(ivec4) Bitcast 312
++                              Store 309(msb) 313
++             316:   26(ivec4) Load 309(msb)
++             317:   26(ivec4) ISub 315 316
++                              Store 314(shift) 317
++             319:   26(ivec4) Load 309(msb)
++             322:   26(ivec4) IAdd 319 321
++                              Store 318(exponent_denormal) 322
++             323:   26(ivec4) Load 298(exponent)
++             324:   26(ivec4) Load 318(exponent_denormal)
++             325:  303(bvec4) Load 305(is_denormal)
++             326:   26(ivec4) Select 325 324 323
++                              Store 298(exponent) 326
++             328:   26(ivec4) Load 293(mantissa)
++             329:   26(ivec4) Load 314(shift)
++             330:   26(ivec4) ShiftLeftLogical 328 329
++             331:   26(ivec4) BitwiseAnd 330 296
++                              Store 327(mantissa_normalized) 331
++             332:   26(ivec4) Load 293(mantissa)
++             333:   26(ivec4) Load 327(mantissa_normalized)
++             334:  303(bvec4) Load 305(is_denormal)
++             335:   26(ivec4) Select 334 333 332
++                              Store 293(mantissa) 335
++             337:   26(ivec4) Load 298(exponent)
++             340:   26(ivec4) IAdd 337 339
++             342:   26(ivec4) CompositeConstruct 341 341 341 341
++             343:   26(ivec4) ShiftLeftLogical 340 342
++             344:   26(ivec4) Load 293(mantissa)
++             345:   26(ivec4) CompositeConstruct 273 273 273 273
++             346:   26(ivec4) ShiftLeftLogical 344 345
++             347:   26(ivec4) BitwiseOr 343 346
++                              Store 336(result) 347
++             348:   26(ivec4) Load 336(result)
++             349:   26(ivec4) Load 289(depth)
++             350:  303(bvec4) IEqual 349 307
++             351:   26(ivec4) Select 350 307 348
++                              ReturnValue 351
++                              FunctionEnd
++42(XeStoreGroup(u1;u1;u1;vu4;):           2 Function None 37
++38(first_block_x):     10(ptr) FunctionParameter
++         39(row):     10(ptr) FunctionParameter
++40(width_blocks):     10(ptr) FunctionParameter
++      41(blocks):     27(ptr) FunctionParameter
++              43:             Label
++          354(i):     10(ptr) Variable Function
++          362(x):     10(ptr) Variable Function
++                              Store 354(i) 46
++                              Branch 355
++             355:             Label
++                              LoopMerge 357 358 None
++                              Branch 359
++             359:             Label
++             360:      9(int) Load 354(i)
++             361:   249(bool) ULessThan 360 141
++                              BranchConditional 361 356 357
++             356:               Label
++             363:      9(int)   Load 38(first_block_x)
++             364:      9(int)   Load 354(i)
++             365:      9(int)   IAdd 363 364
++                                Store 362(x) 365
++             366:      9(int)   Load 362(x)
++             367:      9(int)   Load 40(width_blocks)
++             368:   249(bool)   ULessThan 366 367
++                                SelectionMerge 370 None
++                                BranchConditional 368 369 370
++             369:                 Label
++             374:         371     Load 373(xe_texture_load_dest)
++             375:      9(int)     Load 362(x)
++             376:      6(int)     Bitcast 375
++             377:      9(int)     Load 39(row)
++             378:      6(int)     Bitcast 377
++             379:    7(ivec2)     CompositeConstruct 376 378
++             380:      9(int)     Load 354(i)
++             381:     10(ptr)     AccessChain 41(blocks) 380
++             382:      9(int)     Load 381
++             383:   26(ivec4)     CompositeConstruct 382 46 46 46
++                                  ImageWrite 374 379 383
++                                  Branch 370
++             370:               Label
++                                Branch 358
++             358:               Label
++             384:      9(int)   Load 354(i)
++             385:      9(int)   IAdd 384 84
++                                Store 354(i) 385
++                                Branch 355
++             357:             Label
++                              Return
++                              FunctionEnd
++#endif
++
++const uint32_t texture_load_depth_float_scaled_direct_cs[] = {
++    0x07230203, 0x00010000, 0x0008000A, 0x00000260, 0x00000000, 0x00020011, 0x00000001, 0x0006000B,
++    0x00000001, 0x4C534C47, 0x6474732E, 0x3035342E, 0x00000000, 0x0003000E, 0x00000000, 0x00000001,
++    0x0006000F, 0x00000005, 0x00000004, 0x6E69616D, 0x00000000, 0x000001A0, 0x00060010, 0x00000004,
++    0x00000011, 0x00000004, 0x00000020, 0x00000001, 0x00030003, 0x00000002, 0x000001CC, 0x00040005,
++    0x00000004, 0x6E69616D, 0x00000000, 0x000B0005, 0x0000000F, 0x65546558, 0x72757478, 0x6C695465,
++    0x664F6465, 0x74657366, 0x76284432, 0x753B3269, 0x31753B31, 0x0000003B, 0x00030005, 0x0000000C,
++    0x00000070, 0x00060005, 0x0000000D, 0x63746970, 0x6C615F68, 0x656E6769, 0x00000064, 0x00050005,
++    0x0000000E, 0x5F627062, 0x32676F6C, 0x00000000, 0x000C0005, 0x00000018, 0x65546558, 0x72757478,
++    0x6C695465, 0x664F6465, 0x74657366, 0x76284433, 0x753B3369, 0x31753B31, 0x3B31753B, 0x00000000,
++    0x00030005, 0x00000014, 0x00000070, 0x00060005, 0x00000015, 0x63746970, 0x6C615F68, 0x656E6769,
++    0x00000064, 0x00060005, 0x00000016, 0x67696568, 0x615F7468, 0x6E67696C, 0x00006465, 0x00050005,
++    0x00000017, 0x5F627062, 0x32676F6C, 0x00000000, 0x00080005, 0x0000001F, 0x6E456558, 0x6E616964,
++    0x70617753, 0x76283233, 0x753B3475, 0x00003B31, 0x00040005, 0x0000001D, 0x756C6176, 0x00000065,
++    0x00040005, 0x0000001E, 0x69646E65, 0x00006E61, 0x00080005, 0x00000023, 0x65446558, 0x46687470,
++    0x74616F6C, 0x6F543432, 0x76283233, 0x003B3475, 0x00040005, 0x00000022, 0x756C6176, 0x00000065,
++    0x00090005, 0x0000002A, 0x74536558, 0x4765726F, 0x70756F72, 0x3B317528, 0x753B3175, 0x75763B31,
++    0x00003B34, 0x00060005, 0x00000026, 0x73726966, 0x6C625F74, 0x5F6B636F, 0x00000078, 0x00030005,
++    0x00000027, 0x00776F72, 0x00060005, 0x00000028, 0x74646977, 0x6C625F68, 0x736B636F, 0x00000000,
++    0x00040005, 0x00000029, 0x636F6C62, 0x0000736B, 0x00040005, 0x0000002D, 0x7263616D, 0x0000006F,
++    0x00040005, 0x00000041, 0x7263696D, 0x0000006F, 0x00040005, 0x0000004F, 0x7366666F, 0x00007465,
++    0x00050005, 0x00000084, 0x7263616D, 0x756F5F6F, 0x00726574, 0x00040005, 0x00000096, 0x7263616D,
++    0x0000006F, 0x00040005, 0x000000A3, 0x7263696D, 0x0000006F, 0x00060005, 0x000000B0, 0x7366666F,
++    0x6F5F7465, 0x72657475, 0x00000000, 0x00040005, 0x000000B9, 0x7366666F, 0x00317465, 0x00040005,
++    0x000000C4, 0x7366666F, 0x00327465, 0x00040005, 0x000000D9, 0x72646461, 0x00737365, 0x00040005,
++    0x00000121, 0x74706564, 0x00000068, 0x00050005, 0x00000125, 0x746E616D, 0x61737369, 0x00000000,
++    0x00050005, 0x0000012A, 0x6F707865, 0x746E656E, 0x00000000, 0x00050005, 0x00000131, 0x645F7369,
++    0x726F6E65, 0x006C616D, 0x00030005, 0x00000135, 0x0062736D, 0x00040005, 0x0000013A, 0x66696873,
++    0x00000074, 0x00070005, 0x0000013E, 0x6F707865, 0x746E656E, 0x6E65645F, 0x616D726F, 0x0000006C,
++    0x00070005, 0x00000147, 0x746E616D, 0x61737369, 0x726F6E5F, 0x696C616D, 0x0064657A, 0x00040005,
++    0x00000150, 0x75736572, 0x0000746C, 0x00030005, 0x00000162, 0x00000069, 0x00030005, 0x0000016A,
++    0x00000078, 0x00080005, 0x00000175, 0x745F6578, 0x75747865, 0x6C5F6572, 0x5F64616F, 0x74736564,
++    0x00000000, 0x00040005, 0x00000182, 0x67616C66, 0x00000073, 0x00080005, 0x00000184, 0x65546558,
++    0x72757478, 0x616F4C65, 0x6E6F4364, 0x6E617473, 0x00007374, 0x000E0006, 0x00000184, 0x00000000,
++    0x745F6578, 0x75747865, 0x6C5F6572, 0x5F64616F, 0x745F7369, 0x64656C69, 0x5F64335F, 0x69646E65,
++    0x735F6E61, 0x656C6163, 0x00000000, 0x000B0006, 0x00000184, 0x00000001, 0x745F6578, 0x75747865,
++    0x6C5F6572, 0x5F64616F, 0x73657567, 0x666F5F74, 0x74657366, 0x00000000, 0x000C0006, 0x00000184,
++    0x00000002, 0x745F6578, 0x75747865, 0x6C5F6572, 0x5F64616F, 0x73657567, 0x69705F74, 0x5F686374,
++    0x67696C61, 0x0064656E, 0x00100006, 0x00000184, 0x00000003, 0x745F6578, 0x75747865, 0x6C5F6572,
++    0x5F64616F, 0x73657567, 0x5F7A5F74, 0x69727473, 0x625F6564, 0x6B636F6C, 0x776F725F, 0x6C615F73,
++    0x656E6769, 0x00000064, 0x000A0006, 0x00000184, 0x00000004, 0x745F6578, 0x75747865, 0x6C5F6572,
++    0x5F64616F, 0x657A6973, 0x6F6C625F, 0x00736B63, 0x000A0006, 0x00000184, 0x00000005, 0x745F6578,
++    0x75747865, 0x6C5F6572, 0x5F64616F, 0x74736F68, 0x66666F5F, 0x00746573, 0x000A0006, 0x00000184,
++    0x00000006, 0x745F6578, 0x75747865, 0x6C5F6572, 0x5F64616F, 0x74736F68, 0x7469705F, 0x00006863,
++    0x000B0006, 0x00000184, 0x00000007, 0x745F6578, 0x75747865, 0x6C5F6572, 0x5F64616F, 0x67696568,
++    0x745F7468, 0x6C657865, 0x00000073, 0x00030005, 0x00000186, 0x00000000, 0x00050005, 0x0000018C,
++    0x335F7369, 0x69745F64, 0x0064656C, 0x00040005, 0x00000190, 0x69646E65, 0x00006E61, 0x00070005,
++    0x00000196, 0x6F736572, 0x6974756C, 0x735F6E6F, 0x656C6163, 0x00000000, 0x00050005, 0x0000019E,
++    0x636F6C62, 0x6E695F6B, 0x00786564, 0x00080005, 0x000001A0, 0x475F6C67, 0x61626F6C, 0x766E496C,
++    0x7461636F, 0x496E6F69, 0x00000044, 0x00060005, 0x000001B0, 0x756F7267, 0x63735F70, 0x64656C61,
++    0x00000000, 0x00060005, 0x000001B7, 0x756F7267, 0x6E755F70, 0x6C616373, 0x00006465, 0x00070005,
++    0x000001BB, 0x73657567, 0x6C625F74, 0x5F6B636F, 0x65646E69, 0x00000078, 0x00080005, 0x000001C7,
++    0x73657567, 0x666F5F74, 0x74657366, 0x736E755F, 0x656C6163, 0x00000064, 0x00040005, 0x000001CA,
++    0x61726170, 0x0000006D, 0x00040005, 0x000001CB, 0x61726170, 0x0000006D, 0x00040005, 0x000001CE,
++    0x61726170, 0x0000006D, 0x00040005, 0x000001D1, 0x61726170, 0x0000006D, 0x00040005, 0x000001D8,
++    0x61726170, 0x0000006D, 0x00040005, 0x000001D9, 0x61726170, 0x0000006D, 0x00040005, 0x000001DC,
++    0x61726170, 0x0000006D, 0x00050005, 0x000001DF, 0x756F7267, 0x75735F70, 0x00000062, 0x00060005,
++    0x000001E5, 0x72756F73, 0x6F5F6563, 0x65736666, 0x00000074, 0x00060005, 0x000001FC, 0x72756F73,
++    0x695F6563, 0x7865646E, 0x00000000, 0x00040005, 0x00000202, 0x636F6C62, 0x0030736B, 0x00070005,
++    0x00000204, 0x65546558, 0x72757478, 0x616F4C65, 0x756F5364, 0x00656372, 0x00090006, 0x00000204,
++    0x00000000, 0x745F6578, 0x75747865, 0x6C5F6572, 0x5F64616F, 0x72756F73, 0x00006563, 0x00030005,
++    0x00000206, 0x00000000, 0x00040005, 0x00000208, 0x61726170, 0x0000006D, 0x00040005, 0x0000020C,
++    0x61726170, 0x0000006D, 0x00050005, 0x00000214, 0x756F7267, 0x75735F70, 0x00785F62, 0x00050005,
++    0x00000227, 0x72756F73, 0x735F6563, 0x00706574, 0x00040005, 0x00000231, 0x636F6C62, 0x0031736B,
++    0x00040005, 0x00000239, 0x61726170, 0x0000006D, 0x00040005, 0x0000023C, 0x61726170, 0x0000006D,
++    0x00040005, 0x0000023F, 0x61726170, 0x0000006D, 0x00040005, 0x00000242, 0x61726170, 0x0000006D,
++    0x00060005, 0x00000245, 0x74646977, 0x6C625F68, 0x736B636F, 0x00000000, 0x00040005, 0x00000248,
++    0x61726170, 0x0000006D, 0x00040005, 0x0000024B, 0x61726170, 0x0000006D, 0x00040005, 0x0000024E,
++    0x61726170, 0x0000006D, 0x00040005, 0x00000250, 0x61726170, 0x0000006D, 0x00040005, 0x00000256,
++    0x61726170, 0x0000006D, 0x00040005, 0x00000257, 0x61726170, 0x0000006D, 0x00040005, 0x0000025A,
++    0x61726170, 0x0000006D, 0x00040005, 0x0000025C, 0x61726170, 0x0000006D, 0x00040047, 0x00000175,
++    0x00000022, 0x00000000, 0x00040047, 0x00000175, 0x00000021, 0x00000000, 0x00030047, 0x00000175,
++    0x00000019, 0x00050048, 0x00000184, 0x00000000, 0x00000023, 0x00000000, 0x00050048, 0x00000184,
++    0x00000001, 0x00000023, 0x00000004, 0x00050048, 0x00000184, 0x00000002, 0x00000023, 0x00000008,
++    0x00050048, 0x00000184, 0x00000003, 0x00000023, 0x0000000C, 0x00050048, 0x00000184, 0x00000004,
++    0x00000023, 0x00000010, 0x00050048, 0x00000184, 0x00000005, 0x00000023, 0x0000001C, 0x00050048,
++    0x00000184, 0x00000006, 0x00000023, 0x00000020, 0x00050048, 0x00000184, 0x00000007, 0x00000023,
++    0x00000024, 0x00030047, 0x00000184, 0x00000002, 0x00040047, 0x000001A0, 0x0000000B, 0x0000001C,
++    0x00040047, 0x00000203, 0x00000006, 0x00000010, 0x00040048, 0x00000204, 0x00000000, 0x00000018,
++    0x00050048, 0x00000204, 0x00000000, 0x00000023, 0x00000000, 0x00030047, 0x00000204, 0x00000003,
++    0x00040047, 0x00000206, 0x00000022, 0x00000001, 0x00040047, 0x00000206, 0x00000021, 0x00000000,
++    0x00040047, 0x0000025F, 0x0000000B, 0x00000019, 0x00020013, 0x00000002, 0x00030021, 0x00000003,
++    0x00000002, 0x00040015, 0x00000006, 0x00000020, 0x00000001, 0x00040017, 0x00000007, 0x00000006,
++    0x00000002, 0x00040020, 0x00000008, 0x00000007, 0x00000007, 0x00040015, 0x00000009, 0x00000020,
++    0x00000000, 0x00040020, 0x0000000A, 0x00000007, 0x00000009, 0x00060021, 0x0000000B, 0x00000006,
++    0x00000008, 0x0000000A, 0x0000000A, 0x00040017, 0x00000011, 0x00000006, 0x00000003, 0x00040020,
++    0x00000012, 0x00000007, 0x00000011, 0x00070021, 0x00000013, 0x00000006, 0x00000012, 0x0000000A,
++    0x0000000A, 0x0000000A, 0x00040017, 0x0000001A, 0x00000009, 0x00000004, 0x00040020, 0x0000001B,
++    0x00000007, 0x0000001A, 0x00050021, 0x0000001C, 0x0000001A, 0x0000001B, 0x0000000A, 0x00040021,
++    0x00000021, 0x0000001A, 0x0000001B, 0x00070021, 0x00000025, 0x00000002, 0x0000000A, 0x0000000A,
++    0x0000000A, 0x0000001B, 0x00040020, 0x0000002C, 0x00000007, 0x00000006, 0x0004002B, 0x00000009,
++    0x0000002E, 0x00000000, 0x0004002B, 0x00000006, 0x00000031, 0x00000005, 0x0004002B, 0x00000009,
++    0x00000033, 0x00000001, 0x0004002B, 0x00000009, 0x00000038, 0x00000005, 0x0004002B, 0x00000009,
++    0x0000003E, 0x00000007, 0x0004002B, 0x00000006, 0x00000044, 0x00000007, 0x0004002B, 0x00000006,
++    0x00000048, 0x0000000E, 0x0004002B, 0x00000006, 0x0000004A, 0x00000002, 0x0004002B, 0x00000006,
++    0x00000052, 0xFFFFFFF0, 0x0004002B, 0x00000006, 0x00000054, 0x00000001, 0x0004002B, 0x00000006,
++    0x00000058, 0x0000000F, 0x0004002B, 0x00000006, 0x0000005E, 0x00000004, 0x0004002B, 0x00000006,
++    0x00000062, 0xFFFFFE00, 0x0004002B, 0x00000006, 0x00000064, 0x00000003, 0x0004002B, 0x00000006,
++    0x00000068, 0x00000010, 0x0004002B, 0x00000006, 0x0000006D, 0x000001C0, 0x0004002B, 0x00000006,
++    0x00000073, 0x00000008, 0x0004002B, 0x00000006, 0x0000007B, 0x00000006, 0x0004002B, 0x00000006,
++    0x0000007F, 0x0000003F, 0x0004002B, 0x00000009, 0x00000088, 0x00000002, 0x0004002B, 0x00000009,
++    0x0000008D, 0x00000004, 0x0004002B, 0x00000009, 0x0000009D, 0x00000006, 0x0004002B, 0x00000006,
++    0x000000A0, 0x0FFFFFFF, 0x0004002B, 0x00000006, 0x000000E5, 0xFFFFFFFE, 0x00020014, 0x000000F9,
++    0x0004002B, 0x00000009, 0x00000101, 0x00FF00FF, 0x0004002B, 0x00000009, 0x00000104, 0x00000008,
++    0x0004002B, 0x00000009, 0x00000108, 0xFF00FF00, 0x0004002B, 0x00000009, 0x00000111, 0x00000003,
++    0x0004002B, 0x00000009, 0x00000117, 0x00000010, 0x0004002B, 0x00000009, 0x00000127, 0x000FFFFF,
++    0x0007002C, 0x0000001A, 0x00000128, 0x00000127, 0x00000127, 0x00000127, 0x00000127, 0x0004002B,
++    0x00000009, 0x0000012C, 0x00000014, 0x00040017, 0x0000012F, 0x000000F9, 0x00000004, 0x00040020,
++    0x00000130, 0x00000007, 0x0000012F, 0x0007002C, 0x0000001A, 0x00000133, 0x0000002E, 0x0000002E,
++    0x0000002E, 0x0000002E, 0x00040017, 0x00000137, 0x00000006, 0x00000004, 0x0007002C, 0x0000001A,
++    0x0000013B, 0x0000012C, 0x0000012C, 0x0000012C, 0x0000012C, 0x0004002B, 0x00000009, 0x00000140,
++    0xFFFFFFED, 0x0007002C, 0x0000001A, 0x00000141, 0x00000140, 0x00000140, 0x00000140, 0x00000140,
++    0x0004002B, 0x00000009, 0x00000152, 0x00000070, 0x0007002C, 0x0000001A, 0x00000153, 0x00000152,
++    0x00000152, 0x00000152, 0x00000152, 0x0004002B, 0x00000009, 0x00000155, 0x00000017, 0x00090019,
++    0x00000173, 0x00000009, 0x00000001, 0x00000000, 0x00000000, 0x00000000, 0x00000002, 0x00000021,
++    0x00040020, 0x00000174, 0x00000000, 0x00000173, 0x0004003B, 0x00000174, 0x00000175, 0x00000000,
++    0x00040017, 0x00000183, 0x00000009, 0x00000003, 0x000A001E, 0x00000184, 0x00000009, 0x00000009,
++    0x00000009, 0x00000009, 0x00000183, 0x00000009, 0x00000009, 0x00000009, 0x00040020, 0x00000185,
++    0x00000009, 0x00000184, 0x0004003B, 0x00000185, 0x00000186, 0x00000009, 0x0004002B, 0x00000006,
++    0x00000187, 0x00000000, 0x00040020, 0x00000188, 0x00000009, 0x00000009, 0x00040020, 0x0000018B,
++    0x00000007, 0x000000F9, 0x00040017, 0x00000194, 0x00000009, 0x00000002, 0x00040020, 0x00000195,
++    0x00000007, 0x00000194, 0x0005002C, 0x00000194, 0x00000199, 0x0000008D, 0x0000003E, 0x00040020,
++    0x0000019D, 0x00000007, 0x00000183, 0x00040020, 0x0000019F, 0x00000001, 0x00000183, 0x0004003B,
++    0x0000019F, 0x000001A0, 0x00000001, 0x0006002C, 0x00000183, 0x000001A2, 0x00000111, 0x0000002E,
++    0x0000002E, 0x00040020, 0x000001A6, 0x00000009, 0x00000183, 0x00040017, 0x000001AA, 0x000000F9,
++    0x00000002, 0x0003001D, 0x00000203, 0x0000001A, 0x0003001E, 0x00000204, 0x00000203, 0x00040020,
++    0x00000205, 0x00000002, 0x00000204, 0x0004003B, 0x00000205, 0x00000206, 0x00000002, 0x00040020,
++    0x00000209, 0x00000002, 0x0000001A, 0x0004002B, 0x00000009, 0x00000228, 0x00000020, 0x0006002C,
++    0x00000183, 0x0000025F, 0x0000008D, 0x00000228, 0x00000033, 0x00050036, 0x00000002, 0x00000004,
++    0x00000000, 0x00000003, 0x000200F8, 0x00000005, 0x0004003B, 0x0000000A, 0x00000182, 0x00000007,
++    0x0004003B, 0x0000018B, 0x0000018C, 0x00000007, 0x0004003B, 0x0000000A, 0x00000190, 0x00000007,
++    0x0004003B, 0x00000195, 0x00000196, 0x00000007, 0x0004003B, 0x0000019D, 0x0000019E, 0x00000007,
++    0x0004003B, 0x00000195, 0x000001B0, 0x00000007, 0x0004003B, 0x00000195, 0x000001B7, 0x00000007,
++    0x0004003B, 0x0000019D, 0x000001BB, 0x00000007, 0x0004003B, 0x0000000A, 0x000001C7, 0x00000007,
++    0x0004003B, 0x00000012, 0x000001CA, 0x00000007, 0x0004003B, 0x0000000A, 0x000001CB, 0x00000007,
++    0x0004003B, 0x0000000A, 0x000001CE, 0x00000007, 0x0004003B, 0x0000000A, 0x000001D1, 0x00000007,
++    0x0004003B, 0x00000008, 0x000001D8, 0x00000007, 0x0004003B, 0x0000000A, 0x000001D9, 0x00000007,
++    0x0004003B, 0x0000000A, 0x000001DC, 0x00000007, 0x0004003B, 0x00000195, 0x000001DF, 0x00000007,
++    0x0004003B, 0x0000000A, 0x000001E5, 0x00000007, 0x0004003B, 0x0000000A, 0x000001FC, 0x00000007,
++    0x0004003B, 0x0000001B, 0x00000202, 0x00000007, 0x0004003B, 0x0000001B, 0x00000208, 0x00000007,
++    0x0004003B, 0x0000000A, 0x0000020C, 0x00000007, 0x0004003B, 0x0000000A, 0x00000214, 0x00000007,
++    0x0004003B, 0x0000000A, 0x00000227, 0x00000007, 0x0004003B, 0x0000001B, 0x00000231, 0x00000007,
++    0x0004003B, 0x0000001B, 0x00000239, 0x00000007, 0x0004003B, 0x0000000A, 0x0000023C, 0x00000007,
++    0x0004003B, 0x0000001B, 0x0000023F, 0x00000007, 0x0004003B, 0x0000001B, 0x00000242, 0x00000007,
++    0x0004003B, 0x0000000A, 0x00000245, 0x00000007, 0x0004003B, 0x0000000A, 0x00000248, 0x00000007,
++    0x0004003B, 0x0000000A, 0x0000024B, 0x00000007, 0x0004003B, 0x0000000A, 0x0000024E, 0x00000007,
++    0x0004003B, 0x0000001B, 0x00000250, 0x00000007, 0x0004003B, 0x0000000A, 0x00000256, 0x00000007,
++    0x0004003B, 0x0000000A, 0x00000257, 0x00000007, 0x0004003B, 0x0000000A, 0x0000025A, 0x00000007,
++    0x0004003B, 0x0000001B, 0x0000025C, 0x00000007, 0x00050041, 0x00000188, 0x00000189, 0x00000186,
++    0x00000187, 0x0004003D, 0x00000009, 0x0000018A, 0x00000189, 0x0003003E, 0x00000182, 0x0000018A,
++    0x0004003D, 0x00000009, 0x0000018D, 0x00000182, 0x000500C7, 0x00000009, 0x0000018E, 0x0000018D,
++    0x00000088, 0x000500AB, 0x000000F9, 0x0000018F, 0x0000018E, 0x0000002E, 0x0003003E, 0x0000018C,
++    0x0000018F, 0x0004003D, 0x00000009, 0x00000191, 0x00000182, 0x000500C2, 0x00000009, 0x00000192,
++    0x00000191, 0x00000088, 0x000500C7, 0x00000009, 0x00000193, 0x00000192, 0x00000111, 0x0003003E,
++    0x00000190, 0x00000193, 0x0004003D, 0x00000009, 0x00000197, 0x00000182, 0x00050050, 0x00000194,
++    0x00000198, 0x00000197, 0x00000197, 0x000500C2, 0x00000194, 0x0000019A, 0x00000198, 0x00000199,
++    0x00050050, 0x00000194, 0x0000019B, 0x0000003E, 0x0000003E, 0x000500C7, 0x00000194, 0x0000019C,
++    0x0000019A, 0x0000019B, 0x0003003E, 0x00000196, 0x0000019C, 0x0004003D, 0x00000183, 0x000001A1,
++    0x000001A0, 0x000500C4, 0x00000183, 0x000001A3, 0x000001A1, 0x000001A2, 0x0003003E, 0x0000019E,
++    0x000001A3, 0x0004003D, 0x00000183, 0x000001A4, 0x0000019E, 0x0007004F, 0x00000194, 0x000001A5,
++    0x000001A4, 0x000001A4, 0x00000000, 0x00000001, 0x00050041, 0x000001A6, 0x000001A7, 0x00000186,
++    0x0000005E, 0x0004003D, 0x00000183, 0x000001A8, 0x000001A7, 0x0007004F, 0x00000194, 0x000001A9,
++    0x000001A8, 0x000001A8, 0x00000000, 0x00000001, 0x000500AE, 0x000001AA, 0x000001AB, 0x000001A5,
++    0x000001A9, 0x0004009A, 0x000000F9, 0x000001AC, 0x000001AB, 0x000300F7, 0x000001AE, 0x00000000,
++    0x000400FA, 0x000001AC, 0x000001AD, 0x000001AE, 0x000200F8, 0x000001AD, 0x000100FD, 0x000200F8,
++    0x000001AE, 0x00050041, 0x0000000A, 0x000001B1, 0x0000019E, 0x0000002E, 0x0004003D, 0x00000009,
++    0x000001B2, 0x000001B1, 0x000500C2, 0x00000009, 0x000001B3, 0x000001B2, 0x00000088, 0x00050041,
++    0x0000000A, 0x000001B4, 0x0000019E, 0x00000033, 0x0004003D, 0x00000009, 0x000001B5, 0x000001B4,
++    0x00050050, 0x00000194, 0x000001B6, 0x000001B3, 0x000001B5, 0x0003003E, 0x000001B0, 0x000001B6,
++    0x0004003D, 0x00000194, 0x000001B8, 0x000001B0, 0x0004003D, 0x00000194, 0x000001B9, 0x00000196,
++    0x00050086, 0x00000194, 0x000001BA, 0x000001B8, 0x000001B9, 0x0003003E, 0x000001B7, 0x000001BA,
++    0x00050041, 0x0000000A, 0x000001BC, 0x000001B7, 0x0000002E, 0x0004003D, 0x00000009, 0x000001BD,
++    0x000001BC, 0x000500C4, 0x00000009, 0x000001BE, 0x000001BD, 0x00000088, 0x00050041, 0x0000000A,
++    0x000001BF, 0x000001B7, 0x00000033, 0x0004003D, 0x00000009, 0x000001C0, 0x000001BF, 0x00050041,
++    0x0000000A, 0x000001C1, 0x0000019E, 0x00000088, 0x0004003D, 0x00000009, 0x000001C2, 0x000001C1,
++    0x00060050, 0x00000183, 0x000001C3, 0x000001BE, 0x000001C0, 0x000001C2, 0x0003003E, 0x000001BB,
++    0x000001C3, 0x0004003D, 0x000000F9, 0x000001C4, 0x0000018C, 0x000300F7, 0x000001C6, 0x00000000,
++    0x000400FA, 0x000001C4, 0x000001C5, 0x000001D4, 0x000200F8, 0x000001C5, 0x0004003D, 0x00000183,
++    0x000001C8, 0x000001BB, 0x0004007C, 0x00000011, 0x000001C9, 0x000001C8, 0x0003003E, 0x000001CA,
++    0x000001C9, 0x00050041, 0x00000188, 0x000001CC, 0x00000186, 0x0000004A, 0x0004003D, 0x00000009,
++    0x000001CD, 0x000001CC, 0x0003003E, 0x000001CB, 0x000001CD, 0x00050041, 0x00000188, 0x000001CF,
++    0x00000186, 0x00000064, 0x0004003D, 0x00000009, 0x000001D0, 0x000001CF, 0x0003003E, 0x000001CE,
++    0x000001D0, 0x0003003E, 0x000001D1, 0x00000088, 0x00080039, 0x00000006, 0x000001D2, 0x00000018,
++    0x000001CA, 0x000001CB, 0x000001CE, 0x000001D1, 0x0004007C, 0x00000009, 0x000001D3, 0x000001D2,
++    0x0003003E, 0x000001C7, 0x000001D3, 0x000200F9, 0x000001C6, 0x000200F8, 0x000001D4, 0x0004003D,
++    0x00000183, 0x000001D5, 0x000001BB, 0x0007004F, 0x00000194, 0x000001D6, 0x000001D5, 0x000001D5,
++    0x00000000, 0x00000001, 0x0004007C, 0x00000007, 0x000001D7, 0x000001D6, 0x0003003E, 0x000001D8,
++    0x000001D7, 0x00050041, 0x00000188, 0x000001DA, 0x00000186, 0x0000004A, 0x0004003D, 0x00000009,
++    0x000001DB, 0x000001DA, 0x0003003E, 0x000001D9, 0x000001DB, 0x0003003E, 0x000001DC, 0x00000088,
++    0x00070039, 0x00000006, 0x000001DD, 0x0000000F, 0x000001D8, 0x000001D9, 0x000001DC, 0x0004007C,
++    0x00000009, 0x000001DE, 0x000001DD, 0x0003003E, 0x000001C7, 0x000001DE, 0x000200F9, 0x000001C6,
++    0x000200F8, 0x000001C6, 0x0004003D, 0x00000194, 0x000001E0, 0x000001B0, 0x0004003D, 0x00000194,
++    0x000001E1, 0x000001B7, 0x0004003D, 0x00000194, 0x000001E2, 0x00000196, 0x00050084, 0x00000194,
++    0x000001E3, 0x000001E1, 0x000001E2, 0x00050082, 0x00000194, 0x000001E4, 0x000001E0, 0x000001E3,
++    0x0003003E, 0x000001DF, 0x000001E4, 0x0004003D, 0x00000009, 0x000001E6, 0x000001C7, 0x00050041,
++    0x0000000A, 0x000001E7, 0x00000196, 0x0000002E, 0x0004003D, 0x00000009, 0x000001E8, 0x000001E7,
++    0x00050041, 0x0000000A, 0x000001E9, 0x00000196, 0x00000033, 0x0004003D, 0x00000009, 0x000001EA,
++    0x000001E9, 0x00050084, 0x00000009, 0x000001EB, 0x000001E8, 0x000001EA, 0x00050084, 0x00000009,
++    0x000001EC, 0x000001E6, 0x000001EB, 0x00050041, 0x0000000A, 0x000001ED, 0x000001DF, 0x0000002E,
++    0x0004003D, 0x00000009, 0x000001EE, 0x000001ED, 0x00050041, 0x0000000A, 0x000001EF, 0x00000196,
++    0x00000033, 0x0004003D, 0x00000009, 0x000001F0, 0x000001EF, 0x00050084, 0x00000009, 0x000001F1,
++    0x000001EE, 0x000001F0, 0x00050041, 0x0000000A, 0x000001F2, 0x000001DF, 0x00000033, 0x0004003D,
++    0x00000009, 0x000001F3, 0x000001F2, 0x00050080, 0x00000009, 0x000001F4, 0x000001F1, 0x000001F3,
++    0x000500C4, 0x00000009, 0x000001F5, 0x000001F4, 0x00000088, 0x00050041, 0x0000000A, 0x000001F6,
++    0x0000019E, 0x0000002E, 0x0004003D, 0x00000009, 0x000001F7, 0x000001F6, 0x000500C7, 0x00000009,
++    0x000001F8, 0x000001F7, 0x00000111, 0x00050080, 0x00000009, 0x000001F9, 0x000001F5, 0x000001F8,
++    0x000500C4, 0x00000009, 0x000001FA, 0x000001F9, 0x00000088, 0x00050080, 0x00000009, 0x000001FB,
++    0x000001EC, 0x000001FA, 0x0003003E, 0x000001E5, 0x000001FB, 0x00050041, 0x00000188, 0x000001FD,
++    0x00000186, 0x00000054, 0x0004003D, 0x00000009, 0x000001FE, 0x000001FD, 0x0004003D, 0x00000009,
++    0x000001FF, 0x000001E5, 0x00050080, 0x00000009, 0x00000200, 0x000001FE, 0x000001FF, 0x000500C2,
++    0x00000009, 0x00000201, 0x00000200, 0x0000008D, 0x0003003E, 0x000001FC, 0x00000201, 0x0004003D,
++    0x00000009, 0x00000207, 0x000001FC, 0x00060041, 0x00000209, 0x0000020A, 0x00000206, 0x00000187,
++    0x00000207, 0x0004003D, 0x0000001A, 0x0000020B, 0x0000020A, 0x0003003E, 0x00000208, 0x0000020B,
++    0x0004003D, 0x00000009, 0x0000020D, 0x00000190, 0x0003003E, 0x0000020C, 0x0000020D, 0x00060039,
++    0x0000001A, 0x0000020E, 0x0000001F, 0x00000208, 0x0000020C, 0x0003003E, 0x00000202, 0x0000020E,
++    0x00050041, 0x0000000A, 0x0000020F, 0x00000196, 0x0000002E, 0x0004003D, 0x00000009, 0x00000210,
++    0x0000020F, 0x000500AC, 0x000000F9, 0x00000211, 0x00000210, 0x00000033, 0x000300F7, 0x00000213,
++    0x00000000, 0x000400FA, 0x00000211, 0x00000212, 0x00000230, 0x000200F8, 0x00000212, 0x00050041,
++    0x0000000A, 0x00000215, 0x000001B0, 0x0000002E, 0x0004003D, 0x00000009, 0x00000216, 0x00000215,
++    0x00050041, 0x0000000A, 0x00000217, 0x000001B0, 0x0000002E, 0x0004003D, 0x00000009, 0x00000218,
++    0x00000217, 0x00050041, 0x0000000A, 0x00000219, 0x00000196, 0x0000002E, 0x0004003D, 0x00000009,
++    0x0000021A, 0x00000219, 0x00050086, 0x00000009, 0x0000021B, 0x00000218, 0x0000021A, 0x00050041,
++    0x0000000A, 0x0000021C, 0x00000196, 0x0000002E, 0x0004003D, 0x00000009, 0x0000021D, 0x0000021C,
++    0x00050084, 0x00000009, 0x0000021E, 0x0000021B, 0x0000021D, 0x00050082, 0x00000009, 0x0000021F,
++    0x00000216, 0x0000021E, 0x0003003E, 0x00000214, 0x0000021F, 0x0004003D, 0x00000009, 0x00000220,
++    0x00000214, 0x00050080, 0x00000009, 0x00000221, 0x00000220, 0x00000033, 0x00050041, 0x0000000A,
++    0x00000222, 0x00000196, 0x0000002E, 0x0004003D, 0x00000009, 0x00000223, 0x00000222, 0x000500AA,
++    0x000000F9, 0x00000224, 0x00000221, 0x00000223, 0x000300F7, 0x00000226, 0x00000000, 0x000400FA,
++    0x00000224, 0x00000225, 0x0000022F, 0x000200F8, 0x00000225, 0x00050041, 0x0000000A, 0x00000229,
++    0x00000196, 0x0000002E, 0x0004003D, 0x00000009, 0x0000022A, 0x00000229, 0x00050084, 0x00000009,
++    0x0000022B, 0x00000228, 0x0000022A, 0x0004003D, 0x00000009, 0x0000022C, 0x00000214, 0x000500C4,
++    0x00000009, 0x0000022D, 0x0000022C, 0x0000008D, 0x00050082, 0x00000009, 0x0000022E, 0x0000022B,
++    0x0000022D, 0x0003003E, 0x00000227, 0x0000022E, 0x000200F9, 0x00000226, 0x000200F8, 0x0000022F,
++    0x0003003E, 0x00000227, 0x00000117, 0x000200F9, 0x00000226, 0x000200F8, 0x00000226, 0x000200F9,
++    0x00000213, 0x000200F8, 0x00000230, 0x0003003E, 0x00000227, 0x00000228, 0x000200F9, 0x00000213,
++    0x000200F8, 0x00000213, 0x0004003D, 0x00000009, 0x00000232, 0x000001FC, 0x0004003D, 0x00000009,
++    0x00000233, 0x00000227, 0x00050041, 0x0000000A, 0x00000234, 0x00000196, 0x00000033, 0x0004003D,
++    0x00000009, 0x00000235, 0x00000234, 0x00050084, 0x00000009, 0x00000236, 0x00000233, 0x00000235,
++    0x000500C2, 0x00000009, 0x00000237, 0x00000236, 0x0000008D, 0x00050080, 0x00000009, 0x00000238,
++    0x00000232, 0x00000237, 0x00060041, 0x00000209, 0x0000023A, 0x00000206, 0x00000187, 0x00000238,
++    0x0004003D, 0x0000001A, 0x0000023B, 0x0000023A, 0x0003003E, 0x00000239, 0x0000023B, 0x0004003D,
++    0x00000009, 0x0000023D, 0x00000190, 0x0003003E, 0x0000023C, 0x0000023D, 0x00060039, 0x0000001A,
++    0x0000023E, 0x0000001F, 0x00000239, 0x0000023C, 0x0003003E, 0x00000231, 0x0000023E, 0x0004003D,
++    0x0000001A, 0x00000240, 0x00000202, 0x0003003E, 0x0000023F, 0x00000240, 0x00050039, 0x0000001A,
++    0x00000241, 0x00000023, 0x0000023F, 0x0003003E, 0x00000202, 0x00000241, 0x0004003D, 0x0000001A,
++    0x00000243, 0x00000231, 0x0003003E, 0x00000242, 0x00000243, 0x00050039, 0x0000001A, 0x00000244,
++    0x00000023, 0x00000242, 0x0003003E, 0x00000231, 0x00000244, 0x00060041, 0x00000188, 0x00000246,
++    0x00000186, 0x0000005E, 0x0000002E, 0x0004003D, 0x00000009, 0x00000247, 0x00000246, 0x0003003E,
++    0x00000245, 0x00000247, 0x00050041, 0x0000000A, 0x00000249, 0x0000019E, 0x0000002E, 0x0004003D,
++    0x00000009, 0x0000024A, 0x00000249, 0x0003003E, 0x00000248, 0x0000024A, 0x00050041, 0x0000000A,
++    0x0000024C, 0x0000019E, 0x00000033, 0x0004003D, 0x00000009, 0x0000024D, 0x0000024C, 0x0003003E,
++    0x0000024B, 0x0000024D, 0x0004003D, 0x00000009, 0x0000024F, 0x00000245, 0x0003003E, 0x0000024E,
++    0x0000024F, 0x0004003D, 0x0000001A, 0x00000251, 0x00000202, 0x0003003E, 0x00000250, 0x00000251,
++    0x00080039, 0x00000002, 0x00000252, 0x0000002A, 0x00000248, 0x0000024B, 0x0000024E, 0x00000250,
++    0x00050041, 0x0000000A, 0x00000253, 0x0000019E, 0x0000002E, 0x0004003D, 0x00000009, 0x00000254,
++    0x00000253, 0x00050080, 0x00000009, 0x00000255, 0x00000254, 0x0000008D, 0x0003003E, 0x00000256,
++    0x00000255, 0x00050041, 0x0000000A, 0x00000258, 0x0000019E, 0x00000033, 0x0004003D, 0x00000009,
++    0x00000259, 0x00000258, 0x0003003E, 0x00000257, 0x00000259, 0x0004003D, 0x00000009, 0x0000025B,
++    0x00000245, 0x0003003E, 0x0000025A, 0x0000025B, 0x0004003D, 0x0000001A, 0x0000025D, 0x00000231,
++    0x0003003E, 0x0000025C, 0x0000025D, 0x00080039, 0x00000002, 0x0000025E, 0x0000002A, 0x00000256,
++    0x00000257, 0x0000025A, 0x0000025C, 0x000100FD, 0x00010038, 0x00050036, 0x00000006, 0x0000000F,
++    0x00000000, 0x0000000B, 0x00030037, 0x00000008, 0x0000000C, 0x00030037, 0x0000000A, 0x0000000D,
++    0x00030037, 0x0000000A, 0x0000000E, 0x000200F8, 0x00000010, 0x0004003B, 0x0000002C, 0x0000002D,
++    0x00000007, 0x0004003B, 0x0000002C, 0x00000041, 0x00000007, 0x0004003B, 0x0000002C, 0x0000004F,
++    0x00000007, 0x00050041, 0x0000002C, 0x0000002F, 0x0000000C, 0x0000002E, 0x0004003D, 0x00000006,
++    0x00000030, 0x0000002F, 0x000500C3, 0x00000006, 0x00000032, 0x00000030, 0x00000031, 0x00050041,
++    0x0000002C, 0x00000034, 0x0000000C, 0x00000033, 0x0004003D, 0x00000006, 0x00000035, 0x00000034,
++    0x000500C3, 0x00000006, 0x00000036, 0x00000035, 0x00000031, 0x0004003D, 0x00000009, 0x00000037,
++    0x0000000D, 0x000500C2, 0x00000009, 0x00000039, 0x00000037, 0x00000038, 0x0004007C, 0x00000006,
++    0x0000003A, 0x00000039, 0x00050084, 0x00000006, 0x0000003B, 0x00000036, 0x0000003A, 0x00050080,
++    0x00000006, 0x0000003C, 0x00000032, 0x0000003B, 0x0004003D, 0x00000009, 0x0000003D, 0x0000000E,
++    0x00050080, 0x00000009, 0x0000003F, 0x0000003D, 0x0000003E, 0x000500C4, 0x00000006, 0x00000040,
++    0x0000003C, 0x0000003F, 0x0003003E, 0x0000002D, 0x00000040, 0x00050041, 0x0000002C, 0x00000042,
++    0x0000000C, 0x0000002E, 0x0004003D, 0x00000006, 0x00000043, 0x00000042, 0x000500C7, 0x00000006,
++    0x00000045, 0x00000043, 0x00000044, 0x00050041, 0x0000002C, 0x00000046, 0x0000000C, 0x00000033,
++    0x0004003D, 0x00000006, 0x00000047, 0x00000046, 0x000500C7, 0x00000006, 0x00000049, 0x00000047,
++    0x00000048, 0x000500C4, 0x00000006, 0x0000004B, 0x00000049, 0x0000004A, 0x00050080, 0x00000006,
++    0x0000004C, 0x00000045, 0x0000004B, 0x0004003D, 0x00000009, 0x0000004D, 0x0000000E, 0x000500C4,
++    0x00000006, 0x0000004E, 0x0000004C, 0x0000004D, 0x0003003E, 0x00000041, 0x0000004E, 0x0004003D,
++    0x00000006, 0x00000050, 0x0000002D, 0x0004003D, 0x00000006, 0x00000051, 0x00000041, 0x000500C7,
++    0x00000006, 0x00000053, 0x00000051, 0x00000052, 0x000500C4, 0x00000006, 0x00000055, 0x00000053,
++    0x00000054, 0x00050080, 0x00000006, 0x00000056, 0x00000050, 0x00000055, 0x0004003D, 0x00000006,
++    0x00000057, 0x00000041, 0x000500C7, 0x00000006, 0x00000059, 0x00000057, 0x00000058, 0x00050080,
++    0x00000006, 0x0000005A, 0x00000056, 0x00000059, 0x00050041, 0x0000002C, 0x0000005B, 0x0000000C,
++    0x00000033, 0x0004003D, 0x00000006, 0x0000005C, 0x0000005B, 0x000500C7, 0x00000006, 0x0000005D,
++    0x0000005C, 0x00000054, 0x000500C4, 0x00000006, 0x0000005F, 0x0000005D, 0x0000005E, 0x00050080,
++    0x00000006, 0x00000060, 0x0000005A, 0x0000005F, 0x0003003E, 0x0000004F, 0x00000060, 0x0004003D,
++    0x00000006, 0x00000061, 0x0000004F, 0x000500C7, 0x00000006, 0x00000063, 0x00000061, 0x00000062,
++    0x000500C4, 0x00000006, 0x00000065, 0x00000063, 0x00000064, 0x00050041, 0x0000002C, 0x00000066,
++    0x0000000C, 0x00000033, 0x0004003D, 0x00000006, 0x00000067, 0x00000066, 0x000500C7, 0x00000006,
++    0x00000069, 0x00000067, 0x00000068, 0x000500C4, 0x00000006, 0x0000006A, 0x00000069, 0x00000044,
++    0x00050080, 0x00000006, 0x0000006B, 0x00000065, 0x0000006A, 0x0004003D, 0x00000006, 0x0000006C,
++    0x0000004F, 0x000500C7, 0x00000006, 0x0000006E, 0x0000006C, 0x0000006D, 0x000500C4, 0x00000006,
++    0x0000006F, 0x0000006E, 0x0000004A, 0x00050080, 0x00000006, 0x00000070, 0x0000006B, 0x0000006F,
++    0x00050041, 0x0000002C, 0x00000071, 0x0000000C, 0x00000033, 0x0004003D, 0x00000006, 0x00000072,
++    0x00000071, 0x000500C7, 0x00000006, 0x00000074, 0x00000072, 0x00000073, 0x000500C3, 0x00000006,
++    0x00000075, 0x00000074, 0x0000004A, 0x00050041, 0x0000002C, 0x00000076, 0x0000000C, 0x0000002E,
++    0x0004003D, 0x00000006, 0x00000077, 0x00000076, 0x000500C3, 0x00000006, 0x00000078, 0x00000077,
++    0x00000064, 0x00050080, 0x00000006, 0x00000079, 0x00000075, 0x00000078, 0x000500C7, 0x00000006,
++    0x0000007A, 0x00000079, 0x00000064, 0x000500C4, 0x00000006, 0x0000007C, 0x0000007A, 0x0000007B,
++    0x00050080, 0x00000006, 0x0000007D, 0x00000070, 0x0000007C, 0x0004003D, 0x00000006, 0x0000007E,
++    0x0000004F, 0x000500C7, 0x00000006, 0x00000080, 0x0000007E, 0x0000007F, 0x00050080, 0x00000006,
++    0x00000081, 0x0000007D, 0x00000080, 0x000200FE, 0x00000081, 0x00010038, 0x00050036, 0x00000006,
++    0x00000018, 0x00000000, 0x00000013, 0x00030037, 0x00000012, 0x00000014, 0x00030037, 0x0000000A,
++    0x00000015, 0x00030037, 0x0000000A, 0x00000016, 0x00030037, 0x0000000A, 0x00000017, 0x000200F8,
++    0x00000019, 0x0004003B, 0x0000002C, 0x00000084, 0x00000007, 0x0004003B, 0x0000002C, 0x00000096,
++    0x00000007, 0x0004003B, 0x0000002C, 0x000000A3, 0x00000007, 0x0004003B, 0x0000002C, 0x000000B0,
++    0x00000007, 0x0004003B, 0x0000002C, 0x000000B9, 0x00000007, 0x0004003B, 0x0000002C, 0x000000C4,
++    0x00000007, 0x0004003B, 0x0000002C, 0x000000D9, 0x00000007, 0x00050041, 0x0000002C, 0x00000085,
++    0x00000014, 0x00000033, 0x0004003D, 0x00000006, 0x00000086, 0x00000085, 0x000500C3, 0x00000006,
++    0x00000087, 0x00000086, 0x0000005E, 0x00050041, 0x0000002C, 0x00000089, 0x00000014, 0x00000088,
++    0x0004003D, 0x00000006, 0x0000008A, 0x00000089, 0x000500C3, 0x00000006, 0x0000008B, 0x0000008A,
++    0x0000004A, 0x0004003D, 0x00000009, 0x0000008C, 0x00000016, 0x000500C2, 0x00000009, 0x0000008E,
++    0x0000008C, 0x0000008D, 0x0004007C, 0x00000006, 0x0000008F, 0x0000008E, 0x00050084, 0x00000006,
++    0x00000090, 0x0000008B, 0x0000008F, 0x00050080, 0x00000006, 0x00000091, 0x00000087, 0x00000090,
++    0x0004003D, 0x00000009, 0x00000092, 0x00000015, 0x000500C2, 0x00000009, 0x00000093, 0x00000092,
++    0x00000038, 0x0004007C, 0x00000006, 0x00000094, 0x00000093, 0x00050084, 0x00000006, 0x00000095,
++    0x00000091, 0x00000094, 0x0003003E, 0x00000084, 0x00000095, 0x00050041, 0x0000002C, 0x00000097,
++    0x00000014, 0x0000002E, 0x0004003D, 0x00000006, 0x00000098, 0x00000097, 0x000500C3, 0x00000006,
++    0x00000099, 0x00000098, 0x00000031, 0x0004003D, 0x00000006, 0x0000009A, 0x00000084, 0x00050080,
++    0x00000006, 0x0000009B, 0x00000099, 0x0000009A, 0x0004003D, 0x00000009, 0x0000009C, 0x00000017,
++    0x00050080, 0x00000009, 0x0000009E, 0x0000009C, 0x0000009D, 0x000500C4, 0x00000006, 0x0000009F,
++    0x0000009B, 0x0000009E, 0x000500C7, 0x00000006, 0x000000A1, 0x0000009F, 0x000000A0, 0x000500C4,
++    0x00000006, 0x000000A2, 0x000000A1, 0x00000054, 0x0003003E, 0x00000096, 0x000000A2, 0x00050041,
++    0x0000002C, 0x000000A4, 0x00000014, 0x0000002E, 0x0004003D, 0x00000006, 0x000000A5, 0x000000A4,
++    0x000500C7, 0x00000006, 0x000000A6, 0x000000A5, 0x00000044, 0x00050041, 0x0000002C, 0x000000A7,
++    0x00000014, 0x00000033, 0x0004003D, 0x00000006, 0x000000A8, 0x000000A7, 0x000500C7, 0x00000006,
++    0x000000A9, 0x000000A8, 0x0000007B, 0x000500C4, 0x00000006, 0x000000AA, 0x000000A9, 0x0000004A,
++    0x00050080, 0x00000006, 0x000000AB, 0x000000A6, 0x000000AA, 0x0004003D, 0x00000009, 0x000000AC,
++    0x00000017, 0x00050080, 0x00000009, 0x000000AD, 0x000000AC, 0x0000009D, 0x000500C4, 0x00000006,
++    0x000000AE, 0x000000AB, 0x000000AD, 0x000500C3, 0x00000006, 0x000000AF, 0x000000AE, 0x0000007B,
++    0x0003003E, 0x000000A3, 0x000000AF, 0x00050041, 0x0000002C, 0x000000B1, 0x00000014, 0x00000033,
++    0x0004003D, 0x00000006, 0x000000B2, 0x000000B1, 0x000500C3, 0x00000006, 0x000000B3, 0x000000B2,
++    0x00000064, 0x00050041, 0x0000002C, 0x000000B4, 0x00000014, 0x00000088, 0x0004003D, 0x00000006,
++    0x000000B5, 0x000000B4, 0x000500C3, 0x00000006, 0x000000B6, 0x000000B5, 0x0000004A, 0x00050080,
++    0x00000006, 0x000000B7, 0x000000B3, 0x000000B6, 0x000500C7, 0x00000006, 0x000000B8, 0x000000B7,
++    0x00000054, 0x0003003E, 0x000000B0, 0x000000B8, 0x0004003D, 0x00000006, 0x000000BA, 0x000000B0,
++    0x00050041, 0x0000002C, 0x000000BB, 0x00000014, 0x0000002E, 0x0004003D, 0x00000006, 0x000000BC,
++    0x000000BB, 0x000500C3, 0x00000006, 0x000000BD, 0x000000BC, 0x00000064, 0x0004003D, 0x00000006,
++    0x000000BE, 0x000000B0, 0x000500C4, 0x00000006, 0x000000BF, 0x000000BE, 0x00000054, 0x00050080,
++    0x00000006, 0x000000C0, 0x000000BD, 0x000000BF, 0x000500C7, 0x00000006, 0x000000C1, 0x000000C0,
++    0x00000064, 0x000500C4, 0x00000006, 0x000000C2, 0x000000C1, 0x00000054, 0x00050080, 0x00000006,
++    0x000000C3, 0x000000BA, 0x000000C2, 0x0003003E, 0x000000B9, 0x000000C3, 0x0004003D, 0x00000006,
++    0x000000C5, 0x00000096, 0x0004003D, 0x00000006, 0x000000C6, 0x000000A3, 0x000500C7, 0x00000006,
++    0x000000C7, 0x000000C6, 0x00000052, 0x00050080, 0x00000006, 0x000000C8, 0x000000C5, 0x000000C7,
++    0x000500C4, 0x00000006, 0x000000C9, 0x000000C8, 0x00000054, 0x0004003D, 0x00000006, 0x000000CA,
++    0x000000A3, 0x000500C7, 0x00000006, 0x000000CB, 0x000000CA, 0x00000058, 0x00050080, 0x00000006,
++    0x000000CC, 0x000000C9, 0x000000CB, 0x00050041, 0x0000002C, 0x000000CD, 0x00000014, 0x00000088,
++    0x0004003D, 0x00000006, 0x000000CE, 0x000000CD, 0x000500C7, 0x00000006, 0x000000CF, 0x000000CE,
++    0x00000064, 0x0004003D, 0x00000009, 0x000000D0, 0x00000017, 0x00050080, 0x00000009, 0x000000D1,
++    0x000000D0, 0x0000009D, 0x000500C4, 0x00000006, 0x000000D2, 0x000000CF, 0x000000D1, 0x00050080,
++    0x00000006, 0x000000D3, 0x000000CC, 0x000000D2, 0x00050041, 0x0000002C, 0x000000D4, 0x00000014,
++    0x00000033, 0x0004003D, 0x00000006, 0x000000D5, 0x000000D4, 0x000500C7, 0x00000006, 0x000000D6,
++    0x000000D5, 0x00000054, 0x000500C4, 0x00000006, 0x000000D7, 0x000000D6, 0x0000005E, 0x00050080,
++    0x00000006, 0x000000D8, 0x000000D3, 0x000000D7, 0x0003003E, 0x000000C4, 0x000000D8, 0x0004003D,
++    0x00000006, 0x000000DA, 0x000000B9, 0x000500C7, 0x00000006, 0x000000DB, 0x000000DA, 0x00000054,
++    0x000500C4, 0x00000006, 0x000000DC, 0x000000DB, 0x00000064, 0x0003003E, 0x000000D9, 0x000000DC,
++    0x0004003D, 0x00000006, 0x000000DD, 0x000000C4, 0x000500C3, 0x00000006, 0x000000DE, 0x000000DD,
++    0x0000007B, 0x000500C7, 0x00000006, 0x000000DF, 0x000000DE, 0x00000044, 0x0004003D, 0x00000006,
++    0x000000E0, 0x000000D9, 0x00050080, 0x00000006, 0x000000E1, 0x000000E0, 0x000000DF, 0x0003003E,
++    0x000000D9, 0x000000E1, 0x0004003D, 0x00000006, 0x000000E2, 0x000000D9, 0x000500C4, 0x00000006,
++    0x000000E3, 0x000000E2, 0x00000064, 0x0003003E, 0x000000D9, 0x000000E3, 0x0004003D, 0x00000006,
++    0x000000E4, 0x000000B9, 0x000500C7, 0x00000006, 0x000000E6, 0x000000E4, 0x000000E5, 0x0004003D,
++    0x00000006, 0x000000E7, 0x000000D9, 0x00050080, 0x00000006, 0x000000E8, 0x000000E7, 0x000000E6,
++    0x0003003E, 0x000000D9, 0x000000E8, 0x0004003D, 0x00000006, 0x000000E9, 0x000000D9, 0x000500C4,
++    0x00000006, 0x000000EA, 0x000000E9, 0x0000004A, 0x0003003E, 0x000000D9, 0x000000EA, 0x0004003D,
++    0x00000006, 0x000000EB, 0x000000C4, 0x000500C7, 0x00000006, 0x000000EC, 0x000000EB, 0x00000062,
++    0x0004003D, 0x00000006, 0x000000ED, 0x000000D9, 0x00050080, 0x00000006, 0x000000EE, 0x000000ED,
++    0x000000EC, 0x0003003E, 0x000000D9, 0x000000EE, 0x0004003D, 0x00000006, 0x000000EF, 0x000000D9,
++    0x000500C4, 0x00000006, 0x000000F0, 0x000000EF, 0x00000064, 0x0003003E, 0x000000D9, 0x000000F0,
++    0x0004003D, 0x00000006, 0x000000F1, 0x000000C4, 0x000500C7, 0x00000006, 0x000000F2, 0x000000F1,
++    0x0000007F, 0x0004003D, 0x00000006, 0x000000F3, 0x000000D9, 0x00050080, 0x00000006, 0x000000F4,
++    0x000000F3, 0x000000F2, 0x0003003E, 0x000000D9, 0x000000F4, 0x0004003D, 0x00000006, 0x000000F5,
++    0x000000D9, 0x000200FE, 0x000000F5, 0x00010038, 0x00050036, 0x0000001A, 0x0000001F, 0x00000000,
++    0x0000001C, 0x00030037, 0x0000001B, 0x0000001D, 0x00030037, 0x0000000A, 0x0000001E, 0x000200F8,
++    0x00000020, 0x0004003D, 0x00000009, 0x000000F8, 0x0000001E, 0x000500AA, 0x000000F9, 0x000000FA,
++    0x000000F8, 0x00000033, 0x0004003D, 0x00000009, 0x000000FB, 0x0000001E, 0x000500AA, 0x000000F9,
++    0x000000FC, 0x000000FB, 0x00000088, 0x000500A6, 0x000000F9, 0x000000FD, 0x000000FA, 0x000000FC,
++    0x000300F7, 0x000000FF, 0x00000000, 0x000400FA, 0x000000FD, 0x000000FE, 0x000000FF, 0x000200F8,
++    0x000000FE, 0x0004003D, 0x0000001A, 0x00000100, 0x0000001D, 0x00070050, 0x0000001A, 0x00000102,
++    0x00000101, 0x00000101, 0x00000101, 0x00000101, 0x000500C7, 0x0000001A, 0x00000103, 0x00000100,
++    0x00000102, 0x00070050, 0x0000001A, 0x00000105, 0x00000104, 0x00000104, 0x00000104, 0x00000104,
++    0x000500C4, 0x0000001A, 0x00000106, 0x00000103, 0x00000105, 0x0004003D, 0x0000001A, 0x00000107,
++    0x0000001D, 0x00070050, 0x0000001A, 0x00000109, 0x00000108, 0x00000108, 0x00000108, 0x00000108,
++    0x000500C7, 0x0000001A, 0x0000010A, 0x00000107, 0x00000109, 0x00070050, 0x0000001A, 0x0000010B,
++    0x00000104, 0x00000104, 0x00000104, 0x00000104, 0x000500C2, 0x0000001A, 0x0000010C, 0x0000010A,
++    0x0000010B, 0x000500C5, 0x0000001A, 0x0000010D, 0x00000106, 0x0000010C, 0x0003003E, 0x0000001D,
++    0x0000010D, 0x000200F9, 0x000000FF, 0x000200F8, 0x000000FF, 0x0004003D, 0x00000009, 0x0000010E,
++    0x0000001E, 0x000500AA, 0x000000F9, 0x0000010F, 0x0000010E, 0x00000088, 0x0004003D, 0x00000009,
++    0x00000110, 0x0000001E, 0x000500AA, 0x000000F9, 0x00000112, 0x00000110, 0x00000111, 0x000500A6,
++    0x000000F9, 0x00000113, 0x0000010F, 0x00000112, 0x000300F7, 0x00000115, 0x00000000, 0x000400FA,
++    0x00000113, 0x00000114, 0x00000115, 0x000200F8, 0x00000114, 0x0004003D, 0x0000001A, 0x00000116,
++    0x0000001D, 0x00070050, 0x0000001A, 0x00000118, 0x00000117, 0x00000117, 0x00000117, 0x00000117,
++    0x000500C4, 0x0000001A, 0x00000119, 0x00000116, 0x00000118, 0x0004003D, 0x0000001A, 0x0000011A,
++    0x0000001D, 0x00070050, 0x0000001A, 0x0000011B, 0x00000117, 0x00000117, 0x00000117, 0x00000117,
++    0x000500C2, 0x0000001A, 0x0000011C, 0x0000011A, 0x0000011B, 0x000500C5, 0x0000001A, 0x0000011D,
++    0x00000119, 0x0000011C, 0x0003003E, 0x0000001D, 0x0000011D, 0x000200F9, 0x00000115, 0x000200F8,
++    0x00000115, 0x0004003D, 0x0000001A, 0x0000011E, 0x0000001D, 0x000200FE, 0x0000011E, 0x00010038,
++    0x00050036, 0x0000001A, 0x00000023, 0x00000000, 0x00000021, 0x00030037, 0x0000001B, 0x00000022,
++    0x000200F8, 0x00000024, 0x0004003B, 0x0000001B, 0x00000121, 0x00000007, 0x0004003B, 0x0000001B,
++    0x00000125, 0x00000007, 0x0004003B, 0x0000001B, 0x0000012A, 0x00000007, 0x0004003B, 0x00000130,
++    0x00000131, 0x00000007, 0x0004003B, 0x0000001B, 0x00000135, 0x00000007, 0x0004003B, 0x0000001B,
++    0x0000013A, 0x00000007, 0x0004003B, 0x0000001B, 0x0000013E, 0x00000007, 0x0004003B, 0x0000001B,
++    0x00000147, 0x00000007, 0x0004003B, 0x0000001B, 0x00000150, 0x00000007, 0x0004003D, 0x0000001A,
++    0x00000122, 0x00000022, 0x00070050, 0x0000001A, 0x00000123, 0x00000104, 0x00000104, 0x00000104,
++    0x00000104, 0x000500C2, 0x0000001A, 0x00000124, 0x00000122, 0x00000123, 0x0003003E, 0x00000121,
++    0x00000124, 0x0004003D, 0x0000001A, 0x00000126, 0x00000121, 0x000500C7, 0x0000001A, 0x00000129,
++    0x00000126, 0x00000128, 0x0003003E, 0x00000125, 0x00000129, 0x0004003D, 0x0000001A, 0x0000012B,
++    0x00000121, 0x00070050, 0x0000001A, 0x0000012D, 0x0000012C, 0x0000012C, 0x0000012C, 0x0000012C,
++    0x000500C2, 0x0000001A, 0x0000012E, 0x0000012B, 0x0000012D, 0x0003003E, 0x0000012A, 0x0000012E,
++    0x0004003D, 0x0000001A, 0x00000132, 0x0000012A, 0x000500AA, 0x0000012F, 0x00000134, 0x00000132,
++    0x00000133, 0x0003003E, 0x00000131, 0x00000134, 0x0004003D, 0x0000001A, 0x00000136, 0x00000125,
++    0x0006000C, 0x00000137, 0x00000138, 0x00000001, 0x0000004B, 0x00000136, 0x0004007C, 0x0000001A,
++    0x00000139, 0x00000138, 0x0003003E, 0x00000135, 0x00000139, 0x0004003D, 0x0000001A, 0x0000013C,
++    0x00000135, 0x00050082, 0x0000001A, 0x0000013D, 0x0000013B, 0x0000013C, 0x0003003E, 0x0000013A,
++    0x0000013D, 0x0004003D, 0x0000001A, 0x0000013F, 0x00000135, 0x00050080, 0x0000001A, 0x00000142,
++    0x0000013F, 0x00000141, 0x0003003E, 0x0000013E, 0x00000142, 0x0004003D, 0x0000001A, 0x00000143,
++    0x0000012A, 0x0004003D, 0x0000001A, 0x00000144, 0x0000013E, 0x0004003D, 0x0000012F, 0x00000145,
++    0x00000131, 0x000600A9, 0x0000001A, 0x00000146, 0x00000145, 0x00000144, 0x00000143, 0x0003003E,
++    0x0000012A, 0x00000146, 0x0004003D, 0x0000001A, 0x00000148, 0x00000125, 0x0004003D, 0x0000001A,
++    0x00000149, 0x0000013A, 0x000500C4, 0x0000001A, 0x0000014A, 0x00000148, 0x00000149, 0x000500C7,
++    0x0000001A, 0x0000014B, 0x0000014A, 0x00000128, 0x0003003E, 0x00000147, 0x0000014B, 0x0004003D,
++    0x0000001A, 0x0000014C, 0x00000125, 0x0004003D, 0x0000001A, 0x0000014D, 0x00000147, 0x0004003D,
++    0x0000012F, 0x0000014E, 0x00000131, 0x000600A9, 0x0000001A, 0x0000014F, 0x0000014E, 0x0000014D,
++    0x0000014C, 0x0003003E, 0x00000125, 0x0000014F, 0x0004003D, 0x0000001A, 0x00000151, 0x0000012A,
++    0x00050080, 0x0000001A, 0x00000154, 0x00000151, 0x00000153, 0x00070050, 0x0000001A, 0x00000156,
++    0x00000155, 0x00000155, 0x00000155, 0x00000155, 0x000500C4, 0x0000001A, 0x00000157, 0x00000154,
++    0x00000156, 0x0004003D, 0x0000001A, 0x00000158, 0x00000125, 0x00070050, 0x0000001A, 0x00000159,
++    0x00000111, 0x00000111, 0x00000111, 0x00000111, 0x000500C4, 0x0000001A, 0x0000015A, 0x00000158,
++    0x00000159, 0x000500C5, 0x0000001A, 0x0000015B, 0x00000157, 0x0000015A, 0x0003003E, 0x00000150,
++    0x0000015B, 0x0004003D, 0x0000001A, 0x0000015C, 0x00000150, 0x0004003D, 0x0000001A, 0x0000015D,
++    0x00000121, 0x000500AA, 0x0000012F, 0x0000015E, 0x0000015D, 0x00000133, 0x000600A9, 0x0000001A,
++    0x0000015F, 0x0000015E, 0x00000133, 0x0000015C, 0x000200FE, 0x0000015F, 0x00010038, 0x00050036,
++    0x00000002, 0x0000002A, 0x00000000, 0x00000025, 0x00030037, 0x0000000A, 0x00000026, 0x00030037,
++    0x0000000A, 0x00000027, 0x00030037, 0x0000000A, 0x00000028, 0x00030037, 0x0000001B, 0x00000029,
++    0x000200F8, 0x0000002B, 0x0004003B, 0x0000000A, 0x00000162, 0x00000007, 0x0004003B, 0x0000000A,
++    0x0000016A, 0x00000007, 0x0003003E, 0x00000162, 0x0000002E, 0x000200F9, 0x00000163, 0x000200F8,
++    0x00000163, 0x000400F6, 0x00000165, 0x00000166, 0x00000000, 0x000200F9, 0x00000167, 0x000200F8,
++    0x00000167, 0x0004003D, 0x00000009, 0x00000168, 0x00000162, 0x000500B0, 0x000000F9, 0x00000169,
++    0x00000168, 0x0000008D, 0x000400FA, 0x00000169, 0x00000164, 0x00000165, 0x000200F8, 0x00000164,
++    0x0004003D, 0x00000009, 0x0000016B, 0x00000026, 0x0004003D, 0x00000009, 0x0000016C, 0x00000162,
++    0x00050080, 0x00000009, 0x0000016D, 0x0000016B, 0x0000016C, 0x0003003E, 0x0000016A, 0x0000016D,
++    0x0004003D, 0x00000009, 0x0000016E, 0x0000016A, 0x0004003D, 0x00000009, 0x0000016F, 0x00000028,
++    0x000500B0, 0x000000F9, 0x00000170, 0x0000016E, 0x0000016F, 0x000300F7, 0x00000172, 0x00000000,
++    0x000400FA, 0x00000170, 0x00000171, 0x00000172, 0x000200F8, 0x00000171, 0x0004003D, 0x00000173,
++    0x00000176, 0x00000175, 0x0004003D, 0x00000009, 0x00000177, 0x0000016A, 0x0004007C, 0x00000006,
++    0x00000178, 0x00000177, 0x0004003D, 0x00000009, 0x00000179, 0x00000027, 0x0004007C, 0x00000006,
++    0x0000017A, 0x00000179, 0x00050050, 0x00000007, 0x0000017B, 0x00000178, 0x0000017A, 0x0004003D,
++    0x00000009, 0x0000017C, 0x00000162, 0x00050041, 0x0000000A, 0x0000017D, 0x00000029, 0x0000017C,
++    0x0004003D, 0x00000009, 0x0000017E, 0x0000017D, 0x00070050, 0x0000001A, 0x0000017F, 0x0000017E,
++    0x0000002E, 0x0000002E, 0x0000002E, 0x00040063, 0x00000176, 0x0000017B, 0x0000017F, 0x000200F9,
++    0x00000172, 0x000200F8, 0x00000172, 0x000200F9, 0x00000166, 0x000200F8, 0x00000166, 0x0004003D,
++    0x00000009, 0x00000180, 0x00000162, 0x00050080, 0x00000009, 0x00000181, 0x00000180, 0x00000054,
++    0x0003003E, 0x00000162, 0x00000181, 0x000200F9, 0x00000163, 0x000200F8, 0x00000165, 0x000100FD,
++    0x00010038,
++};
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 93c5caf..8ed73cb 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -110,6 +110,13 @@ REXCVAR_DEFINE_BOOL(vulkan_texture_load_eager, false, "GPU/Vulkan",
+                     "instead of the draws in flight). Same texture contents (a texture written again before its "
+                     "use is reloaded at its use)");
+ 
++// wwe2k14 patch (Session 22, TEXDEPTH): see GetDirectLoadViewFormat. Read when a texture is created (whether its
++// image gets the storage usage) and per load.
++REXCVAR_DEFINE_BOOL(vulkan_texture_load_direct_depth, false, "GPU/Vulkan",
++                    "With vulkan_texture_load_direct: also load resolution-scaled 24-bit float depth textures "
++                    "(k_24_8_FLOAT -> R32_SFLOAT) directly into the image (one dispatch instead of a dispatch into a "
++                    "scratch buffer + a copy). Bit-exact (vulkan_texture_load_direct_verify compares)");
++
+ namespace rex::graphics::vulkan {
+ 
+ // Generated with `xb buildshaders`.
+@@ -173,6 +180,7 @@ namespace shaders {
+ // wwe2k14 patch (Session 7c, TEXDIRECT): from texture_load_scaled_direct.cs.glsl (see the header comments).
+ #include "../shaders/vulkan_spirv/texture_load_32bpb_scaled_direct_cs.h"
+ #include "../shaders/vulkan_spirv/texture_load_64bpb_scaled_direct_cs.h"
++#include "../shaders/vulkan_spirv/texture_load_depth_float_scaled_direct_cs.h"  // Session 22, TEXDEPTH
+ }  // namespace shaders
+ 
+ namespace {
+@@ -1883,9 +1891,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+     }
+     if (direct_load_fallback == kDirectLoadFallbackCount) {
+       // is_3d is false here (single-layer 1D / 2D only).
+-      return LoadTextureDataDirect(vulkan_texture,
+-                                   load_shader == kLoadShaderIndex64bpb ? kDirectLoadShader64bpb
+-                                                                        : kDirectLoadShader32bpb,
++      return LoadTextureDataDirect(vulkan_texture, GetDirectLoadShader(load_shader),  // Session 22, TEXDEPTH
+                                    load_shader, direct_load_descriptor_set,
+                                    vulkan_texture.force_load_3d_tiling());
+     }
+@@ -4506,6 +4512,11 @@ VkFormat VulkanTextureCache::GetDirectLoadViewFormat(LoadShaderIndex load_shader
+       // image format needs the StorageImageExtendedFormats capability, R16G16B16A16_UINT's doesn't, and storage
+       // image support for it is mandatory.
+       return VK_FORMAT_R16G16B16A16_UINT;
++    case kLoadShaderIndexDepthFloat:
++      // wwe2k14 patch (Session 22, TEXDEPTH): the converted 32-bit float's bits (the word the buffer variant
++      // stores and the copy writes into the R32_SFLOAT image), one per texel. Off: the buffer + copy path as before
++      // (and new images without the storage usage).
++      return REXCVAR_GET(vulkan_texture_load_direct_depth) ? VK_FORMAT_R32_UINT : VK_FORMAT_UNDEFINED;
+     default:
+       return VK_FORMAT_UNDEFINED;
+   }
+@@ -4544,6 +4555,12 @@ bool VulkanTextureCache::IsDirectLoadHostFormatSupported(VkFormat format,
+           return false;
+       }
+       break;
++    case kLoadShaderIndexDepthFloat:
++      // wwe2k14 patch (Session 22, TEXDEPTH): k_24_8_FLOAT's host format (both signednesses).
++      if (format != VK_FORMAT_R32_SFLOAT) {
++        return false;
++      }
++      break;
+     default:
+       return false;
+   }
+@@ -4585,9 +4602,7 @@ VkFormat VulkanTextureCache::GetDirectLoadFormatForNewTexture(TextureKey key, co
+   }
+   VkFormat view_format = GetDirectLoadViewFormat(host_format.load_shader);
+   if (view_format == VK_FORMAT_UNDEFINED ||
+-      direct_load_pipelines_[host_format.load_shader == kLoadShaderIndex64bpb
+-                                 ? kDirectLoadShader64bpb
+-                                 : kDirectLoadShader32bpb] == VK_NULL_HANDLE ||
++      direct_load_pipelines_[GetDirectLoadShader(host_format.load_shader)] == VK_NULL_HANDLE ||
+       std::find(direct_load_storage_formats_.cbegin(), direct_load_storage_formats_.cend(),
+                 view_format) == direct_load_storage_formats_.cend()) {
+     return VK_FORMAT_UNDEFINED;
+@@ -4706,6 +4721,9 @@ bool VulkanTextureCache::InitializeDirectLoad() {
+        sizeof(shaders::texture_load_32bpb_scaled_direct_cs)},
+       {shaders::texture_load_64bpb_scaled_direct_cs,
+        sizeof(shaders::texture_load_64bpb_scaled_direct_cs)},
++      // wwe2k14 patch (Session 22, TEXDEPTH).
++      {shaders::texture_load_depth_float_scaled_direct_cs,
++       sizeof(shaders::texture_load_depth_float_scaled_direct_cs)},
+   };
+   for (uint32_t i = 0; i < kDirectLoadShaderCount; ++i) {
+     direct_load_pipelines_[i] = ui::vulkan::util::CreateComputePipeline(
+-- 
+2.52.0.windows.1
+
+
+From 63b87cfa2981455d61b5e22f1908f70da0780041 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 15:39:35 +1100
+Subject: [PATCH 5/5] Session 22 TEXDEPTH:
+ vulkan_texture_load_direct_verify_shader (measurement: verify one direct
+ shader's loads)
+
+---
+ src/graphics/vulkan/texture_cache.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 8ed73cb..0f10f46 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -117,6 +117,10 @@ REXCVAR_DEFINE_BOOL(vulkan_texture_load_direct_depth, false, "GPU/Vulkan",
+                     "(k_24_8_FLOAT -> R32_SFLOAT) directly into the image (one dispatch instead of a dispatch into a "
+                     "scratch buffer + a copy). Bit-exact (vulkan_texture_load_direct_verify compares)");
+ 
++REXCVAR_DEFINE_INT32(vulkan_texture_load_direct_verify_shader, -1, "GPU/Vulkan",
++                     "vulkan_texture_load_direct_verify only for the loads of one direct load shader (0 32bpb, 1 "
++                     "64bpb, 2 24-bit float depth); -1 = any");
++
+ namespace rex::graphics::vulkan {
+ 
+ // Generated with `xb buildshaders`.
+@@ -4921,7 +4925,10 @@ bool VulkanTextureCache::LoadTextureDataDirect(VulkanTexture& texture, DirectLoa
+ 
+   if (REXCVAR_GET(vulkan_texture_load_direct_verify) &&
+       direct_load_index_in_frame >= direct_load_verify_skip_ &&
+-      int32_t(direct_load_frame_verifies_) < REXCVAR_GET(vulkan_texture_load_direct_verify_per_frame)) {
++      int32_t(direct_load_frame_verifies_) < REXCVAR_GET(vulkan_texture_load_direct_verify_per_frame) &&
++      // wwe2k14 patch (Session 22, TEXDEPTH): measurement only - verify only one direct shader's loads.
++      (REXCVAR_GET(vulkan_texture_load_direct_verify_shader) < 0 ||
++       REXCVAR_GET(vulkan_texture_load_direct_verify_shader) == int32_t(shader))) {
+     RecordDirectLoadVerify(texture, load_shader, descriptor_set_source, load_constants, group_count_x,
+                            group_count_y, load_shader_info.bytes_per_host_block);
+   }
+-- 
+2.52.0.windows.1
+

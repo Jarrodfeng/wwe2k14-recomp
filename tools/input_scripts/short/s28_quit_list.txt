@@ -1,0 +1,26 @@
+# harness: fast-forward ok (Session 28: the main menu list with QUIT TO DESKTOP: PLAY highlighted at rest, then DOWN / UP, then down to the item; run with --wwe2k14_quit_item=true; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 400
+screenshot ql_0_rest
+press DOWN
+wait_frames 60
+press UP
+wait_frames 200
+screenshot ql_1_back_on_play
+press DOWN
+wait_frames 40
+press DOWN
+wait_frames 40
+screenshot ql_2_item2
+press UP
+wait_frames 40
+press UP
+wait_frames 200
+screenshot ql_3_back_play_again
+quit

@@ -1,0 +1,128 @@
+# Session 25 item 1 check 3: an imported logo on a Create-a-Wrestler attire (run 1748: PASS). Route to the editor
+# from tools\coverage\routes\cov_caw.txt (Jarrod's recording timings) -> RB x2 = CLOTHING -> LOWER BODY -> EDIT LAYERS
+# -> EDIT PARTS -> 9 TRUNKS & UNDERWEAR -> style 1 -> LOGOS -> CUSTOM LOGO DATA -> left stick down = the imported logo
+# -> A -> the High Resolution notice (max 2 different 256x256 logos per superstar) -> LEFT = YES -> A: the logo on the
+# trunks (caw_on_trunks2). Run with -Data userdata_logo (out\bench: the frozen save + an imported logo in slot 3).
+# Never answers a save prompt. Untimed.
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+press DOWN
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press A
+wait_frames 90
+press A
+wait_file CREATEMODE.PAC 900
+wait_frames 60
+wait_frames 20
+wait_frames 180
+wait_frames 300
+wait_frames 300
+wait_frames 600
+press A
+wait_file ED02.PAC 600
+wait_frames 177
+wait_frames 300
+wait_frames 90
+wait_frames 120
+screenshot caw_parts
+press RB
+wait_frames 40
+press RB
+wait_frames 40
+press DOWN
+wait_frames 30
+screenshot caw_cl_d1
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 30
+screenshot caw_cl_lower
+press A
+wait_frames 90
+screenshot caw_lower_a
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+screenshot caw_el_sel
+press A
+wait_frames 90
+screenshot caw_el_a1
+press A
+wait_frames 60
+screenshot caw_el_a2
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+screenshot caw_p9
+press A
+wait_frames 90
+screenshot caw_p9_a
+press A
+wait_frames 90
+screenshot caw_style_a
+press DOWN
+wait_frames 30
+press A
+wait_frames 90
+screenshot caw_logos_a1
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 15
+press DOWN
+wait_frames 20
+screenshot caw_cld_sel
+press A
+wait_frames 90
+screenshot caw_cld_a
+press L_DOWN 8 20
+wait_frames 30
+screenshot caw_cld_ld
+press A
+wait_frames 90
+screenshot caw_cld_placed
+press LEFT
+wait_frames 20
+screenshot caw_yes
+press A
+wait_frames 120
+screenshot caw_on_trunks
+wait_frames 120
+screenshot caw_on_trunks2
+log caw: end
+wait_frames 30
+quit

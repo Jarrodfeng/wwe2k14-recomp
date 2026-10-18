@@ -1,0 +1,509 @@
+From eba0b492a47aabd797ced8e38bad57e447ba937a Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 07:25:04 +1100
+Subject: [PATCH] wwe2k14 Session 15 (determinism): det_frames (default off):
+ quiescent vblank, virtual guest time, timed guest waits/sleeps in det vblanks
+
+---
+ include/rex/det.h                  |  58 +++++++++++
+ src/core/CMakeLists.txt            |   1 +
+ src/core/clock.cpp                 |   9 ++
+ src/core/det.cpp                   | 152 +++++++++++++++++++++++++++++
+ src/graphics/command_processor.cpp |   5 +
+ src/graphics/graphics_system.cpp   |  23 +++++
+ src/system/xobject.cpp             |  40 +++++++-
+ src/system/xthread.cpp             |  17 ++++
+ 8 files changed, 304 insertions(+), 1 deletion(-)
+ create mode 100644 include/rex/det.h
+ create mode 100644 src/core/det.cpp
+
+diff --git a/include/rex/det.h b/include/rex/det.h
+new file mode 100644
+index 0000000..a44bf40
+--- /dev/null
++++ b/include/rex/det.h
+@@ -0,0 +1,58 @@
++/**
++ * wwe2k14 patch (Session 15, determinism): deterministic frames mode (det_frames, default off).
++ *
++ * Why: a guest advances frames on the vblank, while its other threads (loaders, decoders, workers) and the GPU
++ * finish their work in host wall time. How much work lands in which frame then depends on host timing, so a title
++ * that does anything per frame (RNG draws, animation steps, staged setup) runs differently every time, and more so
++ * the faster the frames go. With det_frames on:
++ *   - quiescent vblank: the vblank thread fires the next vblank only once every guest thread is blocked (in a kernel
++ *     wait, a sleep, or a spin wait the title marks with WaitScope) and the command processor is idle or waiting,
++ *     and that state has held for det_frames_settle_us; so each frame contains all the work its inputs allow;
++ *   - virtual time: guest timebase / system time reads return a time derived from the det vblank count (60 Hz) plus
++ *     a tiny per-thread step per read, so time-budgeted guest code sees the same time every run;
++ *   - timed guest waits and sleeps end at vblank boundaries (their length counted in det vblanks), not in host time.
++ * Threads are counted only while they are guest threads (XThread); host threads never block a vblank.
++ */
++#pragma once
++
++#include <cstdint>
++
++namespace rex::det {
++
++bool Enabled();
++
++// Guest thread lifetime (XThread::Execute).
++void GuestThreadStarted();
++void GuestThreadExiting();
++bool IsGuestThread();
++
++// A guest thread blocks (no effect on host threads or with det_frames off).
++void EnterWait();
++void LeaveWait();
++struct WaitScope {
++  WaitScope() { EnterWait(); }
++  ~WaitScope() { LeaveWait(); }
++  WaitScope(const WaitScope&) = delete;
++  WaitScope& operator=(const WaitScope&) = delete;
++};
++
++// Command processor: idle (no commands) or blocked in a WAIT_REG_MEM poll.
++void SetCpWaiting(bool waiting);
++
++// Det vblank count and waiting on it (the caller counts as blocked while waiting).
++uint64_t Vblanks();
++void NoteVblank();
++void WaitVblanks(uint64_t target);
++// Det vblanks for a guest timeout in milliseconds (at least 1).
++uint64_t VblanksForMs(uint64_t ms);
++
++// Vblank thread: blocks until the guest is quiescent (as above) for settle_us, or timeout_ms passed (returns false).
++// 0 = the det_frames_settle_us / det_frames_timeout_ms settings.
++bool WaitQuiescent(uint32_t settle_us, uint32_t timeout_ms);
++int32_t RunningGuestThreads();
++
++// Virtual guest time (det_frames on, guest thread): timebase ticks and 100 ns system-time offset.
++uint64_t VirtualGuestTicks(uint64_t real_ticks, uint64_t guest_tick_frequency);
++uint64_t VirtualSystemTimeOffset(uint64_t real_offset);
++
++}  // namespace rex::det
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 878e597..429836b 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -8,6 +8,7 @@ add_library(rexcore OBJECT
+     byte_stream.cpp
+     clock.cpp
+     cvar.cpp
++    det.cpp
+     exception_handler.cpp
+     filesystem.cpp
+     filesystem_wildcard.cpp
+diff --git a/src/core/clock.cpp b/src/core/clock.cpp
+index ae72b7a..5534560 100644
+--- a/src/core/clock.cpp
++++ b/src/core/clock.cpp
+@@ -15,6 +15,7 @@
+ 
+ #include <rex/chrono/clock.h>
+ #include <rex/cvar.h>
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_frames virtual time
+ #include <rex/math.h>
+ 
+ REXCVAR_DEFINE_BOOL(clock_no_scaling, false, "Clock",
+@@ -157,6 +158,10 @@ void Clock::set_guest_system_time_base(uint64_t time_base) {
+ 
+ uint64_t Clock::QueryGuestTickCount() {
+   auto guest_tick_count = UpdateGuestClock();
++  // wwe2k14 patch (Session 15): det_frames: guest threads see a time derived from the det vblank count.
++  if (det::Enabled() && det::IsGuestThread()) {
++    return det::VirtualGuestTicks(guest_tick_count, guest_tick_frequency_);
++  }
+   return guest_tick_count;
+ }
+ 
+@@ -166,6 +171,10 @@ uint64_t Clock::QueryGuestSystemTime() {
+   }
+ 
+   auto guest_system_time_offset = QueryGuestSystemTimeOffset();
++  // wwe2k14 patch (Session 15): det_frames virtual system time for guest threads.
++  if (det::Enabled() && det::IsGuestThread()) {
++    guest_system_time_offset = det::VirtualSystemTimeOffset(guest_system_time_offset);
++  }
+   return guest_system_time_base_ + guest_system_time_offset;
+ }
+ 
+diff --git a/src/core/det.cpp b/src/core/det.cpp
+new file mode 100644
+index 0000000..32e9f2f
+--- /dev/null
++++ b/src/core/det.cpp
+@@ -0,0 +1,152 @@
++/**
++ * wwe2k14 patch (Session 15, determinism): deterministic frames mode. See include/rex/det.h.
++ */
++#include <rex/cvar.h>
++#include <rex/det.h>
++#include <rex/logging.h>
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <mutex>
++#include <thread>
++
++#if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
++#include <immintrin.h>
++#endif
++
++REXCVAR_DEFINE_BOOL(det_frames, false, "GPU",
++                    "wwe2k14 (Session 15): deterministic frames: a vblank only once all guest threads are blocked and "
++                    "the command processor waits; guest time derived from the vblank count; timed guest waits end at "
++                    "vblanks. Set at startup");
++REXCVAR_DEFINE_INT32(det_frames_settle_us, 200, "GPU",
++                     "det_frames: how long the guest must stay quiescent before the next vblank (microseconds)");
++REXCVAR_DEFINE_INT32(det_frames_timeout_ms, 250, "GPU",
++                     "det_frames: longest wait for quiescence before a vblank is fired anyway (logged)");
++
++namespace rex::det {
++namespace {
++std::atomic<int32_t> g_running{0};
++std::atomic<bool> g_cp_waiting{true};
++std::atomic<uint64_t> g_vblanks{0};
++std::mutex g_mutex;
++std::condition_variable g_cv;
++thread_local bool t_guest = false;
++thread_local int32_t t_wait_depth = 0;
++thread_local uint64_t t_read_vblank = ~0ull;
++thread_local uint64_t t_reads = 0;
++std::atomic<bool> g_base_ticks_set{false}, g_base_sys_set{false};
++std::atomic<uint64_t> g_base_ticks{0}, g_base_sys{0};
++
++inline void Pause() {
++#if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
++  _mm_pause();
++#endif
++}
++}  // namespace
++
++bool Enabled() { return REXCVAR_GET(det_frames); }
++
++void GuestThreadStarted() {
++  if (t_guest) return;
++  t_guest = true;
++  t_wait_depth = 0;
++  g_running.fetch_add(1, std::memory_order_acq_rel);
++}
++
++void GuestThreadExiting() {
++  if (!t_guest) return;
++  if (t_wait_depth == 0) g_running.fetch_sub(1, std::memory_order_acq_rel);
++  t_guest = false;
++  t_wait_depth = 0;
++}
++
++bool IsGuestThread() { return t_guest; }
++
++void EnterWait() {
++  if (!t_guest) return;
++  if (t_wait_depth++ == 0) g_running.fetch_sub(1, std::memory_order_acq_rel);
++}
++
++void LeaveWait() {
++  if (!t_guest || t_wait_depth <= 0) return;
++  if (--t_wait_depth == 0) g_running.fetch_add(1, std::memory_order_acq_rel);
++}
++
++void SetCpWaiting(bool waiting) { g_cp_waiting.store(waiting, std::memory_order_release); }
++
++uint64_t Vblanks() { return g_vblanks.load(std::memory_order_acquire); }
++
++void NoteVblank() {
++  {
++    std::lock_guard<std::mutex> lock(g_mutex);
++    g_vblanks.fetch_add(1, std::memory_order_acq_rel);
++  }
++  g_cv.notify_all();
++}
++
++void WaitVblanks(uint64_t target) {
++  WaitScope scope;
++  std::unique_lock<std::mutex> lock(g_mutex);
++  g_cv.wait(lock, [&] { return g_vblanks.load(std::memory_order_acquire) >= target || !Enabled(); });
++}
++
++uint64_t VblanksForMs(uint64_t ms) { return std::max<uint64_t>(1, (ms * 60 + 999) / 1000); }
++
++bool WaitQuiescent(uint32_t settle_us, uint32_t timeout_ms) {
++  if (settle_us == 0) settle_us = uint32_t(std::max(1, REXCVAR_GET(det_frames_settle_us)));
++  if (timeout_ms == 0) timeout_ms = uint32_t(std::max(1, REXCVAR_GET(det_frames_timeout_ms)));
++  using clock = std::chrono::steady_clock;
++  const auto start = clock::now();
++  auto stable_since = clock::time_point::min();
++  uint32_t spins = 0;
++  for (;;) {
++    const auto now = clock::now();
++    const bool quiet =
++        g_running.load(std::memory_order_acquire) <= 0 && g_cp_waiting.load(std::memory_order_acquire);
++    if (quiet) {
++      if (stable_since == clock::time_point::min()) {
++        stable_since = now;
++      } else if (now - stable_since >= std::chrono::microseconds(settle_us)) {
++        return true;
++      }
++    } else {
++      stable_since = clock::time_point::min();
++    }
++    if (now - start >= std::chrono::milliseconds(timeout_ms)) return false;
++    if (++spins % 64 == 0) {
++      std::this_thread::yield();
++    } else {
++      Pause();
++    }
++  }
++}
++
++int32_t RunningGuestThreads() { return g_running.load(std::memory_order_acquire); }
++
++uint64_t VirtualGuestTicks(uint64_t real_ticks, uint64_t guest_tick_frequency) {
++  if (!g_base_ticks_set.load(std::memory_order_acquire)) {
++    bool expected = false;
++    if (g_base_ticks_set.compare_exchange_strong(expected, true)) g_base_ticks.store(real_ticks);
++  }
++  const uint64_t vb = g_vblanks.load(std::memory_order_acquire);
++  if (t_read_vblank != vb) {
++    t_read_vblank = vb;
++    t_reads = 0;
++  }
++  ++t_reads;
++  const uint64_t per_frame = guest_tick_frequency / 60;
++  const uint64_t step = std::max<uint64_t>(1, per_frame / 100000);
++  return g_base_ticks.load(std::memory_order_relaxed) + vb * per_frame + t_reads * step;
++}
++
++uint64_t VirtualSystemTimeOffset(uint64_t real_offset) {
++  if (!g_base_sys_set.load(std::memory_order_acquire)) {
++    bool expected = false;
++    if (g_base_sys_set.compare_exchange_strong(expected, true)) g_base_sys.store(real_offset);
++  }
++  return g_base_sys.load(std::memory_order_relaxed) + g_vblanks.load(std::memory_order_acquire) * 166667ull;
++}
++
++}  // namespace rex::det
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 27d05bb..6e64ab2 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -25,6 +25,7 @@
+ 
+ #include <fmt/format.h>
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_frames
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/perf/counter.h>
+@@ -545,6 +546,7 @@ void CommandProcessor::WorkerThreadMain() {
+       // We spin here waiting for new ones, as the overhead of waiting on our
+       // event is too high.
+       PrepareForWait();
++      det::SetCpWaiting(true);  // wwe2k14 patch (Session 15): det_frames
+       uint32_t loop_count = 0;
+       do {
+         // If we spin around too much, revert to a "low-power" state.
+@@ -560,6 +562,7 @@ void CommandProcessor::WorkerThreadMain() {
+       } while (worker_running_ && pending_fns_.empty() &&
+                (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index));
+       ReturnFromWait();
++      det::SetCpWaiting(false);  // wwe2k14 patch (Session 15): det_frames
+       if (!worker_running_ || !pending_fns_.empty()) {
+         continue;
+       }
+@@ -1867,6 +1870,7 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+     }
+     if (!matched) {
+       waited = true;
++      det::SetCpWaiting(true);  // wwe2k14 patch (Session 15): det_frames (cleared after the wait loop)
+       if (!timeline_wait_recorded && perf::timeline::Enabled()) {
+         perf::timeline::Record("wrm_b", poll_reg_addr, ref, value);
+         timeline_wait_recorded = true;
+@@ -1895,6 +1899,7 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+       }
+     }
+   } while (!matched);
++  if (waited) det::SetCpWaiting(false);  // wwe2k14 patch (Session 15): det_frames
+   if (timeline_wait_recorded) {
+     perf::timeline::Record("wrm_e", poll_reg_addr, ref, value);
+   }
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index 313cc8a..4820e13 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_frames
+ #include <rex/graphics/graphics_system.h>
+ #include <rex/perf/timeline.h>
+ 
+@@ -315,7 +316,29 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+ #if REX_PLATFORM_WIN32
+         PreciseVblankWaiter precise_waiter;
+ #endif
++        uint64_t det_timeouts = 0;
+         while (vsync_worker_running_) {
++          // wwe2k14 patch (Session 15): det_frames: the next vblank only once the guest is quiescent (all guest
++          // threads blocked, the CP idle or waiting); with vsync on, also not before the 60 Hz deadline.
++          if (det::Enabled()) {
++            if (!det::WaitQuiescent(0, 0)) {
++              ++det_timeouts;
++              if (det_timeouts <= 20 || det_timeouts % 100 == 0) {
++                REXGPU_WARN("[det] vblank {} fired without quiescence ({} guest threads running) #{}",
++                            det::Vblanks() + 1, det::RunningGuestThreads(), det_timeouts);
++              }
++            }
++            if (REXCVAR_GET(vsync)) {
++              while (vsync_worker_running_ &&
++                     chrono::Clock::QueryGuestTickCount() - last_frame_time < vsync_interval_ticks) {
++                rex::thread::Sleep(std::chrono::milliseconds(1));
++              }
++            }
++            last_frame_time = chrono::Clock::QueryGuestTickCount();
++            MarkVblank(0, 0, 0);
++            det::NoteVblank();
++            continue;
++          }
+           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
+           uint64_t interval_ticks =
+               REXCVAR_GET(vsync) ? vsync_interval_ticks : no_vsync_interval_ticks;
+diff --git a/src/system/xobject.cpp b/src/system/xobject.cpp
+index d358f39..58bdf4b 100644
+--- a/src/system/xobject.cpp
++++ b/src/system/xobject.cpp
+@@ -9,6 +9,8 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_frames
++#include <optional>
+ #include <vector>
+ 
+ #include <rex/chrono/clock.h>
+@@ -213,7 +215,22 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode, uint32_t a
+                                 : std::chrono::milliseconds::max();
+ 
+   XThread::CheckTitleTermination();
+-  auto result = rex::thread::Wait(wait_handle, alertable ? true : false, timeout_ms);
++  rex::thread::WaitResult result;
++  // wwe2k14 patch (Session 15): det_frames: a blocking wait counts the guest thread as blocked; a finite timeout
++  // ends at a det vblank (counted from now), not in host time.
++  if (det::Enabled() && det::IsGuestThread() && timeout_ms.count() != 0) {
++    det::WaitScope scope;
++    if (timeout_ms == std::chrono::milliseconds::max()) {
++      result = rex::thread::Wait(wait_handle, alertable ? true : false, timeout_ms);
++    } else {
++      const uint64_t target = det::Vblanks() + det::VblanksForMs(uint64_t(timeout_ms.count()));
++      do {
++        result = rex::thread::Wait(wait_handle, alertable ? true : false, std::chrono::milliseconds(1));
++      } while (result == rex::thread::WaitResult::kTimeout && det::Vblanks() < target);
++    }
++  } else {
++    result = rex::thread::Wait(wait_handle, alertable ? true : false, timeout_ms);
++  }
+   XThread::CheckTitleTermination();
+   switch (result) {
+     case rex::thread::WaitResult::kSuccess:
+@@ -239,6 +256,9 @@ X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object, ui
+                                       TimeoutTicksToMs(*opt_timeout)))
+                                 : std::chrono::milliseconds::max();
+ 
++  // wwe2k14 patch (Session 15): det_frames: counted as blocked (timeouts stay host time here: rare).
++  std::optional<det::WaitScope> det_scope;
++  if (det::Enabled() && det::IsGuestThread() && timeout_ms.count() != 0) det_scope.emplace();
+   auto result =
+       rex::thread::SignalAndWait(signal_object->GetWaitHandle(), wait_object->GetWaitHandle(),
+                                  alertable ? true : false, timeout_ms);
+@@ -273,9 +293,22 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects, uint32_t wait_
+                                 : std::chrono::milliseconds::max();
+ 
+   XThread::CheckTitleTermination();
++  // wwe2k14 patch (Session 15): det_frames: counted as blocked; a finite timeout ends at a det vblank.
++  std::optional<det::WaitScope> det_scope;
++  const bool det_on = det::Enabled() && det::IsGuestThread() && timeout_ms.count() != 0;
++  if (det_on) det_scope.emplace();
++  const bool det_timed = det_on && timeout_ms != std::chrono::milliseconds::max();
++  const uint64_t det_target =
++      det_timed ? det::Vblanks() + det::VblanksForMs(uint64_t(timeout_ms.count())) : 0;
++  if (det_timed) timeout_ms = std::chrono::milliseconds(1);
+   if (wait_type) {
++    auto handles_copy = wait_handles;
+     auto result =
+         rex::thread::WaitAny(std::move(wait_handles), alertable ? true : false, timeout_ms);
++    while (det_timed && result.first == rex::thread::WaitResult::kTimeout && det::Vblanks() < det_target) {
++      auto again = handles_copy;
++      result = rex::thread::WaitAny(std::move(again), alertable ? true : false, timeout_ms);
++    }
+     XThread::CheckTitleTermination();
+     switch (result.first) {
+       case rex::thread::WaitResult::kSuccess:
+@@ -295,8 +328,13 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects, uint32_t wait_
+         return X_STATUS_UNSUCCESSFUL;
+     }
+   } else {
++    auto handles_copy = wait_handles;
+     auto result =
+         rex::thread::WaitAll(std::move(wait_handles), alertable ? true : false, timeout_ms);
++    while (det_timed && result == rex::thread::WaitResult::kTimeout && det::Vblanks() < det_target) {
++      auto again = handles_copy;
++      result = rex::thread::WaitAll(std::move(again), alertable ? true : false, timeout_ms);
++    }
+     XThread::CheckTitleTermination();
+     switch (result) {
+       case rex::thread::WaitResult::kSuccess:
+diff --git a/src/system/xthread.cpp b/src/system/xthread.cpp
+index 77bce25..7239973 100644
+--- a/src/system/xthread.cpp
++++ b/src/system/xthread.cpp
+@@ -16,6 +16,7 @@
+ #include <fmt/format.h>
+ 
+ #include <rex/chrono/clock.h>
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_frames
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/perf/counter.h>
+@@ -496,6 +497,8 @@ X_STATUS XThread::Exit(int exit_code) {
+   // while this method is still running.
+   auto self = retain_object(this);
+ 
++  det::GuestThreadExiting();  // wwe2k14 patch (Session 15): det_frames thread accounting
++
+   // Mark as terminated before running down APCs.
+   auto kthread = guest_object<X_KTHREAD>();
+   kthread->terminated = 1;
+@@ -574,6 +577,7 @@ void XThread::Execute() {
+ 
+   // Let the kernel know we are starting.
+   kernel_state_->OnThreadExecute(this);
++  det::GuestThreadStarted();  // wwe2k14 patch (Session 15): det_frames thread accounting
+ 
+   // Dispatch any APCs that were queued before the thread was created first.
+   DeliverAPCs();
+@@ -1013,6 +1017,19 @@ X_STATUS XThread::Delay(uint32_t processor_mode, uint32_t alertable, uint64_t in
+   }
+   timeout_ms = chrono::Clock::ScaleGuestDurationMillis(timeout_ms);
+   CheckTitleTermination();
++  // wwe2k14 patch (Session 15): det_frames: a guest sleep (also 0 ms, a yield) lasts whole det vblanks, so where it
++  // ends does not depend on host time. Alertable: pending APCs first, as the real sleep would deliver them.
++  if (det::Enabled() && det::IsGuestThread()) {
++    if (alertable) {
++      if (rex::thread::AlertableSleep(std::chrono::milliseconds(0)) == rex::thread::SleepResult::kAlerted) {
++        CheckTitleTermination();
++        return X_STATUS_USER_APC;
++      }
++    }
++    det::WaitVblanks(det::Vblanks() + det::VblanksForMs(timeout_ms));
++    CheckTitleTermination();
++    return X_STATUS_SUCCESS;
++  }
+   if (alertable) {
+     auto result = rex::thread::AlertableSleep(std::chrono::milliseconds(timeout_ms));
+     CheckTitleTermination();
+-- 
+2.52.0.windows.1
+

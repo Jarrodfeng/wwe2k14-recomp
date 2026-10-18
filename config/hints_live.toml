@@ -1,0 +1,7 @@
+# Function-entry hints confirmed by a live crash: "[FATAL] Call to invalid or unregistered function at guest
+# address 0x...". The game itself called the address, so it is a function entry (CLAUDE.md rule 5: live trace).
+# One line per crash: address, log it came from, and what else is known.
+
+[functions]
+0x8331EA70 = {} # wwe2k14_008.log, ~5 s into the attract-mode demo match. Code-built by sub_8331EA80 (lis+addi); sits 0x10 before it, in the uncovered 0x8331E9E8-0x8331EA80 region. Skipped as "ambiguous" in round 4.
+0x823F16E0 = {} # wwe2k14_013.log, switching Create a Story entrance from AJ Lee to John Cena. One of the 4 unreferenced 16-byte slots in the all-vcall-thunk block 0x823F1010-0x823F1CE0 (other 201 slots already registered).

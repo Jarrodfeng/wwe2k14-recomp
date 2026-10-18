@@ -1,0 +1,52 @@
+# harness: fast-forward ok (Session 28: VISUAL PRESENTATION value change; snapshots before / after to find the working copy of the options; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 60
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 150
+cvar wwe2k14_snapshot_now a0
+wait_frames 90
+press RIGHT
+wait_frames 90
+cvar wwe2k14_snapshot_now a1
+wait_frames 90
+press DOWN
+wait_frames 30
+press RIGHT
+wait_frames 90
+cvar wwe2k14_snapshot_now a2
+wait_frames 90
+press B
+wait_frames 90
+cvar wwe2k14_snapshot_now a3
+wait_frames 90
+quit

@@ -1,0 +1,61 @@
+# harness: realtime (screenshot sheet: same replay frames for two render paths; normal speed like screenshot references)
+# Session 22 item 5: screenshots of the same replay frames for the FBO vs FSI render path sheet (for Jarrod's eyes).
+# Play with --wwe2k14_launch=lesnar_bryan --wwe2k14_replay_play=s21_lb (out\replays\s21_lb.rec: Brock vs Bryan, both
+# entrances, 2,000 match frames, CPU vs CPU) and --render_target_path_vulkan=fbo|fsi. Shots f_* (local only): Brock's
+# entrance (ramp, crowd, ring ropes), Bryan's entrance (wide crowd shots, the pan, close-ups), the match (ring,
+# ropes, wrestlers up close: depth-heavy moments). Make the sheet: py tools\perf\fbo_sheet.py RUN_FSI RUN_FBO.
+on_fail quit
+log bench: start s22_fbo_shots (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 100
+screenshot f_brock0100
+wait_frames 500
+screenshot f_brock0600
+wait_frames 900
+screenshot f_brock1500
+wait_frames 1500
+screenshot f_brock3000
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 300
+screenshot f_bryan0300
+wait_frames 140
+screenshot f_bryan0440
+wait_frames 560
+screenshot f_bryan1000
+wait_frames 700
+screenshot f_bryan1700
+wait_frames 600
+screenshot f_bryan2300
+wait_frames 1200
+screenshot f_bryan3500
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 200
+screenshot f_match0200
+wait_frames 400
+screenshot f_match0600
+wait_frames 400
+screenshot f_match1000
+wait_frames 500
+screenshot f_match1500
+wait_frames 400
+screenshot f_match1900
+wait_frames 60
+log bench: done
+quit

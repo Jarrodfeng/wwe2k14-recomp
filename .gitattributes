@@ -1,0 +1,3 @@
+# Patches must stay byte-exact for git apply (no CRLF conversion).
+*.patch -text
+*.diff -text

@@ -1,0 +1,26 @@
+# harness: realtime (Session 27 item C: Cena's title as he comes out, as Jarrod sees it; entrance step 120 (Jarrod: high refresh))
+# Session 27 item C (Cena's title flying mid-entrance): launch_boot_check.txt, then screenshots every 60 game frames
+# from INGAMELUA.PAC for 9000 frames (both entrances). Use with --wwe2k14_launch=hiac_cena_brodus
+# --wwe2k14_replay_mode=true (same entrance every run).
+on_fail quit
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log launch: in-game sequence loading
+wait_frames 1300
+clip_start walkout 120 0.5
+wait_frames 1300
+clip_stop walkout
+wait_frames 60
+log short route: end (INGAMELUA.PAC + 9000 frames)
+quit

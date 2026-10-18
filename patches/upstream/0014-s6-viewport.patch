@@ -1,0 +1,328 @@
+Subject: [ReXGlue] merge s6/viewport
+
+Class: RGO
+What: One-entry GetHostViewportInfo cache.
+Evidence: A/B -0.5 +-0.5 ms/frame (in combination only).
+On / off: vulkan_viewport_info_cache (+_verify), off.
+Commit: 1056402 (diff against 1056402^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index b15ac46..ea998d2 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -477,6 +477,71 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool IssueDraw_MemexportReadbackFullPath(uint32_t total_size);
+   bool IssueDraw_MemexportReadbackFastPath(uint32_t total_size);
+ 
++  // wwe2k14 patch (Session 6, VIEWPORT): IssueDraw recomputed draw_util::GetHostViewportInfo on every
++  // draw (0.7% of the command processor thread in heavy entrance frames). With vulkan_viewport_info_cache,
++  // the last result is reused while every input of that function is bit-identical to the previous call.
++  // Port of our D3D12 ViewportCacheKey (d3d12/command_processor.cpp), with the inputs that key misses
++  // (RB_DEPTH_INFO, the half_pixel_offset setting, the resolution scale, the viewport bounds and the
++  // thread's floating-point rounding / denormal mode) added.
++  // The arguments are exactly GetHostViewportInfo's.
++  void GetHostViewportInfoCached(const RegisterFile& regs, uint32_t draw_resolution_scale_x,
++                                 uint32_t draw_resolution_scale_y, bool origin_bottom_left,
++                                 uint32_t x_max, uint32_t y_max, bool allow_reverse_z,
++                                 reg::RB_DEPTHCONTROL normalized_depth_control,
++                                 bool convert_z_to_float24, bool full_float24_in_0_to_1,
++                                 bool pixel_shader_writes_depth,
++                                 draw_util::ViewportInfo& viewport_info_out);
++  // Every value draw_util::GetHostViewportInfo's result depends on (see GetHostViewportInfoCached for the
++  // list and why it's complete). Only whole 32-bit words, so there's no padding and == compares every bit.
++  struct ViewportInfoCacheKey {
++    // Registers.
++    uint32_t pa_cl_clip_cntl;
++    uint32_t pa_cl_vte_cntl;
++    uint32_t pa_su_sc_mode_cntl;
++    uint32_t pa_su_vtx_cntl;
++    uint32_t pa_sc_window_offset;
++    uint32_t rb_depth_info;
++    uint32_t vport_regs[6];  // PA_CL_VPORT_XSCALE, XOFFSET, YSCALE, YOFFSET, ZSCALE, ZOFFSET.
++    // Arguments.
++    uint32_t normalized_depth_control;
++    uint32_t draw_resolution_scale_x;
++    uint32_t draw_resolution_scale_y;
++    uint32_t x_max;
++    uint32_t y_max;
++    // Bits: kViewportInfoCacheFlag*.
++    uint32_t flags;
++    // Host floating-point control bits that guest code changes on this thread (rounding mode and
++    // flush-to-zero / denormals-are-zero: MXCSR on x64, FPCR on arm64).
++    uint32_t host_fp_control;
++    bool operator==(const ViewportInfoCacheKey&) const = default;
++  };
++  static constexpr uint32_t kViewportInfoCacheFlagOriginBottomLeft = 1u << 0;
++  static constexpr uint32_t kViewportInfoCacheFlagAllowReverseZ = 1u << 1;
++  static constexpr uint32_t kViewportInfoCacheFlagConvertZToFloat24 = 1u << 2;
++  static constexpr uint32_t kViewportInfoCacheFlagFullFloat24In0To1 = 1u << 3;
++  static constexpr uint32_t kViewportInfoCacheFlagPixelShaderWritesDepth = 1u << 4;
++  static constexpr uint32_t kViewportInfoCacheFlagHalfPixelOffset = 1u << 5;
++  ViewportInfoCacheKey viewport_info_cache_key_{};
++  draw_util::ViewportInfo viewport_info_cache_value_{};
++  bool viewport_info_cache_valid_ = false;
++  // Statistics since stats_frame, logged as "[s6][VIEWPORT]" every 300 frames while the cache is on. A
++  // window is also closed (and logged up to last_frame) when the cache is turned back on after being off,
++  // so the off period is never counted.
++  struct ViewportInfoCacheStats {
++    uint64_t stats_frame = 0;
++    uint64_t last_frame = 0;  // Frame of the latest lookup (0: none yet).
++    uint64_t hits = 0;
++    uint64_t misses_invalid = 0;  // Nothing cached (first draw, or the cache was off).
++    uint64_t misses_viewport = 0;  // PA_CL_VPORT_* changed.
++    uint64_t misses_registers = 0;  // Only other registers changed.
++    uint64_t misses_arguments = 0;  // Only non-register inputs changed (arguments, settings, FP control).
++    uint64_t verify_checks = 0;
++    uint64_t verify_mismatches = 0;
++    uint64_t verify_mismatches_total = 0;
++    uint32_t verify_mismatches_logged = 0;
++  };
++  ViewportInfoCacheStats viewport_info_cache_stats_;
++
+   void SplitPendingBarrier();
+ 
+   void DestroyScratchBuffer();
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index a476c84..cf19d39 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -47,6 +47,7 @@
+ #include <rex/kernel/xboxkrnl/video.h>
+ #include <rex/types.h>
+ #include <rex/memory/utils.h>
++#include <rex/platform/fpscr.h>  // wwe2k14 patch (Session 6, VIEWPORT): host FP control in the key.
+ #include <rex/ui/flags.h>
+ #include <rex/ui/vulkan/presenter.h>
+ #include <rex/ui/vulkan/util.h>
+@@ -145,6 +146,15 @@ REXCVAR_DEFINE_BOOL(vulkan_vertex_residency_check, false, "GPU/Vulkan",
+                     "Count the vertex buffer requests the residency cache skips (or would skip, with "
+                     "vulkan_vertex_residency_cache_off) while their pages are not valid - potentially "
+                     "stale vertex data - and log a [s6][RESID] summary every 300 frames");
++// wwe2k14 patch (Session 6, VIEWPORT): IssueDraw ran draw_util::GetHostViewportInfo on every draw. Both
++// settings are read per draw, so they can be flipped at any time (the cache is dropped while it's off).
++REXCVAR_DEFINE_BOOL(vulkan_viewport_info_cache, false, "GPU/Vulkan",
++                    "Reuse the previous draw's host viewport info when every register and setting it's "
++                    "computed from is unchanged");
++REXCVAR_DEFINE_BOOL(vulkan_viewport_info_cache_verify, false, "GPU/Vulkan",
++                    "With vulkan_viewport_info_cache: on every reuse, also compute the viewport info, "
++                    "compare all of it, use the computed one on a difference, and log mismatches "
++                    "([s6][VIEWPORT])");
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -4778,12 +4788,24 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // life. Or even disregard the viewport bounds range in the fragment shader
+   // interlocks case completely - apply the viewport and the scissor offset
+   // directly to pixel address and to things like ps_param_gen.
+-  draw_util::GetHostViewportInfo(
+-      regs, draw_resolution_scale_x, draw_resolution_scale_y, false,
+-      device_properties.maxViewportDimensions[0], device_properties.maxViewportDimensions[1], true,
+-      normalized_depth_control,
+-      host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader(),
+-      host_render_targets_used, pixel_shader && pixel_shader->writes_depth(), viewport_info);
++  // wwe2k14 patch (Session 6, VIEWPORT): with vulkan_viewport_info_cache, the same call through a
++  // one-entry cache keyed by every input (same arguments). Off: the original call, and nothing cached.
++  if (REXCVAR_GET(vulkan_viewport_info_cache)) {
++    GetHostViewportInfoCached(
++        regs, draw_resolution_scale_x, draw_resolution_scale_y, false,
++        device_properties.maxViewportDimensions[0], device_properties.maxViewportDimensions[1],
++        true, normalized_depth_control,
++        host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader(),
++        host_render_targets_used, pixel_shader && pixel_shader->writes_depth(), viewport_info);
++  } else {
++    viewport_info_cache_valid_ = false;
++    draw_util::GetHostViewportInfo(
++        regs, draw_resolution_scale_x, draw_resolution_scale_y, false,
++        device_properties.maxViewportDimensions[0], device_properties.maxViewportDimensions[1], true,
++        normalized_depth_control,
++        host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader(),
++        host_render_targets_used, pixel_shader && pixel_shader->writes_depth(), viewport_info);
++  }
+ 
+   // Update dynamic graphics pipeline state.
+   UpdateDynamicState(viewport_info, primitive_polygonal, normalized_depth_control);
+@@ -5091,6 +5113,183 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 6, VIEWPORT): vulkan_viewport_info_cache.
++namespace {
++
++// Space-separated 32-bit words, for the [s6][VIEWPORT] mismatch log.
++std::string ViewportInfoCacheWordsHex(const void* data, size_t size) {
++  std::string text;
++  const uint8_t* bytes = static_cast<const uint8_t*>(data);
++  for (size_t i = 0; i + sizeof(uint32_t) <= size; i += sizeof(uint32_t)) {
++    uint32_t word;
++    std::memcpy(&word, bytes + i, sizeof(word));
++    fmt::format_to(std::back_inserter(text), "{}{:08X}", i ? " " : "", word);
++  }
++  return text;
++}
++
++}  // namespace
++
++// draw_util::GetHostViewportInfo (util/draw.cpp) is a pure function of the following, and all of it is in
++// the key (read in source, Session 6):
++// - Registers: PA_CL_CLIP_CNTL (clip_disable, dx_clip_space_def), PA_CL_VTE_CNTL (vport_x/y/z_scale_ena,
++//   vport_x/y/z_offset_ena), PA_SU_SC_MODE_CNTL (vtx_window_offset_enable), PA_SU_VTX_CNTL (pix_center),
++//   PA_SC_WINDOW_OFFSET (read only with vtx_window_offset_enable), PA_CL_VPORT_XSCALE...ZOFFSET (each read
++//   only if its _ena bit is set), RB_DEPTH_INFO (depth_format, read only with z_enable). Whole registers are
++//   keyed, including fields and registers that end up not being read, which can only cause extra misses.
++// - Arguments: draw_resolution_scale_x/y, origin_bottom_left, x_max, y_max, allow_reverse_z,
++//   normalized_depth_control (only z_enable is read; the whole value is keyed), convert_z_to_float24,
++//   full_float24_in_0_to_1, pixel_shader_writes_depth.
++// - Setting: half_pixel_offset (REXCVAR_GET inside the function, so keyed as a flag).
++// Everything else it uses is a constant (xenos::kTexture2DCubeMaxWidthHeight) or a pure function of the
++// above (rex::clamp_float, rex::saturate, std::abs, xenos::Float32To20e4 / Float20e4To32). As IssueDraw
++// calls it, origin_bottom_left (false) and allow_reverse_z (true) are constants, and the resolution scale
++// (texture cache), x_max / y_max (device maxViewportDimensions), full_float24_in_0_to_1 (render target cache
++// path) and the float24 conversion setting of the render target cache are fixed at initialization; they're
++// keyed anyway, so a hit doesn't depend on that. pixel_shader_writes_depth is per shader (ucode analysis).
++// - Host floating-point control (key.host_fp_control): the function's float math (scales, offsets, clamps,
++//   z range) runs under this thread's rounding mode and flush-to-zero / denormals-are-zero bits, and those
++//   do change between draws on this thread: a PM4_INTERRUPT packet runs the guest's interrupt callback here
++//   (ExecutePacketType3_INTERRUPT -> GraphicsSystem::DispatchInterruptCallback ->
++//   FunctionDispatcher::ExecuteInterrupt), recompiled guest code sets those bits (ctx.fpscr
++//   enable/disableFlushMode for VMX/FPU code, storeFromGuest for mtfsf), and ExecuteInterrupt doesn't
++//   restore them. So the current bits are read and keyed: rex::platform::FPSCRPlatform RoundMaskVal |
++//   FlushMask, the same bits as ppc::FPSCRRegister::GuestMask. On x64 those are all the MXCSR bits that
++//   affect results (the rest are sticky status flags, which would only break hits, and exception masks); on
++//   arm64 the other FPCR bits are host policy that guest code doesn't touch.
++// Registers: draws read them on this (the command processor) thread, which writes them from the ring
++// buffer. Guest MMIO writes (GraphicsSystem::WriteRegister) can store any register from another thread,
++// but a write to any register other than CP_RB_WPTR / AVIVO_D1GRPH_PRIMARY_SURFACE_ADDRESS logs "Unknown
++// GPU register". Such a write landing between the key reads below and the computation would store the new
++// value's result under the old key; the next draw then misses (the register no longer matches the key)
++// unless the register was written back to the old value in between, which _verify would show.
++void VulkanCommandProcessor::GetHostViewportInfoCached(
++    const RegisterFile& regs, uint32_t draw_resolution_scale_x, uint32_t draw_resolution_scale_y,
++    bool origin_bottom_left, uint32_t x_max, uint32_t y_max, bool allow_reverse_z,
++    reg::RB_DEPTHCONTROL normalized_depth_control, bool convert_z_to_float24,
++    bool full_float24_in_0_to_1, bool pixel_shader_writes_depth,
++    draw_util::ViewportInfo& viewport_info_out) {
++  static_assert(sizeof(ViewportInfoCacheKey) == sizeof(uint32_t) * 19,
++                "ViewportInfoCacheKey must have no padding (== compares every member)");
++  static_assert(sizeof(draw_util::ViewportInfo) == sizeof(uint32_t) * 12,
++                "ViewportInfo must have no padding (the verify memcmp compares every field)");
++  static_assert(XE_GPU_REG_PA_CL_VPORT_ZOFFSET == XE_GPU_REG_PA_CL_VPORT_XSCALE + 5,
++                "PA_CL_VPORT_* must be 6 consecutive registers");
++
++  ViewportInfoCacheKey key;
++  key.pa_cl_clip_cntl = regs[XE_GPU_REG_PA_CL_CLIP_CNTL];
++  key.pa_cl_vte_cntl = regs[XE_GPU_REG_PA_CL_VTE_CNTL];
++  key.pa_su_sc_mode_cntl = regs[XE_GPU_REG_PA_SU_SC_MODE_CNTL];
++  key.pa_su_vtx_cntl = regs[XE_GPU_REG_PA_SU_VTX_CNTL];
++  key.pa_sc_window_offset = regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET];
++  key.rb_depth_info = regs[XE_GPU_REG_RB_DEPTH_INFO];
++  std::memcpy(key.vport_regs, &regs[XE_GPU_REG_PA_CL_VPORT_XSCALE], sizeof(key.vport_regs));
++  key.normalized_depth_control = normalized_depth_control.value;
++  key.draw_resolution_scale_x = draw_resolution_scale_x;
++  key.draw_resolution_scale_y = draw_resolution_scale_y;
++  key.x_max = x_max;
++  key.y_max = y_max;
++  key.flags = (origin_bottom_left ? kViewportInfoCacheFlagOriginBottomLeft : 0) |
++              (allow_reverse_z ? kViewportInfoCacheFlagAllowReverseZ : 0) |
++              (convert_z_to_float24 ? kViewportInfoCacheFlagConvertZToFloat24 : 0) |
++              (full_float24_in_0_to_1 ? kViewportInfoCacheFlagFullFloat24In0To1 : 0) |
++              (pixel_shader_writes_depth ? kViewportInfoCacheFlagPixelShaderWritesDepth : 0) |
++              (REXCVAR_GET(half_pixel_offset) ? kViewportInfoCacheFlagHalfPixelOffset : 0);
++  key.host_fp_control =
++      rex::platform::FPSCRPlatform::getcsr() &
++      uint32_t(rex::platform::FPSCRPlatform::RoundMaskVal | rex::platform::FPSCRPlatform::FlushMask);
++
++  // Statistics window, before counting so this lookup counts in the window of its own frame.
++  ViewportInfoCacheStats& stats = viewport_info_cache_stats_;
++  {
++    // Nothing cached: the first lookup, or the first since the cache was turned back on (the off path in
++    // IssueDraw clears viewport_info_cache_valid_). frame_current_ going back: the context was recreated
++    // (ShutdownContext resets it to 1). In both cases close the open window at its last lookup, so neither
++    // the off period nor another context is counted in it, and start a new one at this frame.
++    bool window_restart = !viewport_info_cache_valid_ || frame_current_ < stats.last_frame;
++    if (window_restart || frame_current_ - stats.stats_frame >= 300) {
++      if (stats.last_frame) {
++        uint64_t misses = stats.misses_invalid + stats.misses_viewport + stats.misses_registers +
++                          stats.misses_arguments;
++        uint64_t lookups = stats.hits + misses;
++        REXGPU_INFO(
++            "[s6][VIEWPORT] frames {}-{}{}: viewport info reused {} of {} ({:.1f}%); computed: "
++            "nothing cached {}, viewport registers {}, other registers {}, other inputs {}; verify {} "
++            "checks, {} mismatches ({} total)",
++            stats.stats_frame, window_restart ? stats.last_frame : frame_current_ - 1,
++            window_restart ? " (partial window: cache turned off or context recreated after it)" : "",
++            stats.hits, lookups, lookups ? 100.0 * double(stats.hits) / double(lookups) : 0.0,
++            stats.misses_invalid, stats.misses_viewport, stats.misses_registers,
++            stats.misses_arguments, stats.verify_checks, stats.verify_mismatches,
++            stats.verify_mismatches_total);
++      }
++      uint64_t verify_mismatches_total = stats.verify_mismatches_total;
++      uint32_t verify_mismatches_logged = stats.verify_mismatches_logged;
++      stats = ViewportInfoCacheStats();
++      stats.stats_frame = frame_current_;
++      stats.verify_mismatches_total = verify_mismatches_total;
++      stats.verify_mismatches_logged = verify_mismatches_logged;
++    }
++    stats.last_frame = frame_current_;
++  }
++
++  if (viewport_info_cache_valid_ && key == viewport_info_cache_key_) {
++    ++stats.hits;
++    if (REXCVAR_GET(vulkan_viewport_info_cache_verify)) {
++      draw_util::ViewportInfo computed{};
++      draw_util::GetHostViewportInfo(regs, draw_resolution_scale_x, draw_resolution_scale_y,
++                                     origin_bottom_left, x_max, y_max, allow_reverse_z,
++                                     normalized_depth_control, convert_z_to_float24,
++                                     full_float24_in_0_to_1, pixel_shader_writes_depth, computed);
++      ++stats.verify_checks;
++      if (std::memcmp(&computed, &viewport_info_cache_value_, sizeof(computed))) {
++        ++stats.verify_mismatches;
++        ++stats.verify_mismatches_total;
++        if (stats.verify_mismatches_logged < 8) {
++          ++stats.verify_mismatches_logged;
++          REXGPU_WARN(
++              "[s6][VIEWPORT] verify mismatch at frame {}: cached [{}] computed [{}] (xy_offset[2] "
++              "xy_extent[2] z_min z_max ndc_scale[3] ndc_offset[3]); key [{}] (clip_cntl vte_cntl "
++              "sc_mode_cntl vtx_cntl window_offset depth_info vport[6] depth_control scale_x scale_y "
++              "x_max y_max flags fp_control)",
++              frame_current_,
++              ViewportInfoCacheWordsHex(&viewport_info_cache_value_,
++                                        sizeof(viewport_info_cache_value_)),
++              ViewportInfoCacheWordsHex(&computed, sizeof(computed)),
++              ViewportInfoCacheWordsHex(&key, sizeof(key)));
++        }
++        // Continue with the computed value, as with the cache off.
++        viewport_info_cache_value_ = computed;
++      }
++    }
++    viewport_info_out = viewport_info_cache_value_;
++  } else {
++    if (!viewport_info_cache_valid_) {
++      ++stats.misses_invalid;
++    } else if (std::memcmp(key.vport_regs, viewport_info_cache_key_.vport_regs,
++                           sizeof(key.vport_regs))) {
++      ++stats.misses_viewport;
++    } else if (key.pa_cl_clip_cntl != viewport_info_cache_key_.pa_cl_clip_cntl ||
++               key.pa_cl_vte_cntl != viewport_info_cache_key_.pa_cl_vte_cntl ||
++               key.pa_su_sc_mode_cntl != viewport_info_cache_key_.pa_su_sc_mode_cntl ||
++               key.pa_su_vtx_cntl != viewport_info_cache_key_.pa_su_vtx_cntl ||
++               key.pa_sc_window_offset != viewport_info_cache_key_.pa_sc_window_offset ||
++               key.rb_depth_info != viewport_info_cache_key_.rb_depth_info) {
++      ++stats.misses_registers;
++    } else {
++      ++stats.misses_arguments;
++    }
++    draw_util::GetHostViewportInfo(regs, draw_resolution_scale_x, draw_resolution_scale_y,
++                                   origin_bottom_left, x_max, y_max, allow_reverse_z,
++                                   normalized_depth_control, convert_z_to_float24,
++                                   full_float24_in_0_to_1, pixel_shader_writes_depth,
++                                   viewport_info_out);
++    viewport_info_cache_key_ = key;
++    viewport_info_cache_value_ = viewport_info_out;
++    viewport_info_cache_valid_ = true;
++  }
++}
++
+ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_size) {
+   if (!total_size || memexport_ranges_.empty()) {
+     return true;

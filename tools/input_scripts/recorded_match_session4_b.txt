@@ -1,0 +1,1107 @@
+# recorded by wwe2k14 (frames = guest frames)
+# frame 0: opened D:\plist360.arc
+# frame 0: opened D:\plist360.def
+# frame 0: opened D:\pac\_startup.pac
+# frame 0: opened \Device\Harddisk0\partition0
+# frame 0: opened \Device\Harddisk0\partition0
+# frame 0: opened \Device\Harddisk0\Cache1
+# frame 0: opened \Device\Harddisk0\Cache1\
+# frame 0: opened \Device\Harddisk0\Cache1
+# frame 0: opened \Device\Harddisk0\Cache1\
+# frame 0: opened \Device\Harddisk0\partition0
+# frame 0: opened \Device\Harddisk0\partition0
+# frame 0: opened \Device\Harddisk0\Cache1
+# frame 0: opened \Device\Harddisk0\Cache1\
+# frame 0: opened \Device\Harddisk0\Cache1
+# frame 0: opened \Device\Harddisk0\Cache1\
+wait_frames 5
+# frame 5: opened GAME:\Sound\Game_Sound_E_S.pck
+# frame 5: opened GAME:\Sound\Game_Sound_E_S.pck
+# frame 5: opened GAME:\Sound\Game_Sound_M.pck
+# frame 5: opened GAME:\Sound\Game_Sound_M.pck
+# frame 5: opened GAME:\Sound\Comm.pck
+# frame 5: opened GAME:\Sound\Comm.pck
+wait_frames 31
+# frame 36: opened D:\PAC\STRING.PAC
+# frame 36: opened D:\PAC\STRING.PAC
+wait_frames 4
+# frame 40: opened D:\PAC\CH\CHETC.PAC
+wait_frames 4
+# frame 44: opened D:\PAC\NOLU.PAC
+wait_frames 4
+# frame 48: opened D:\PAC\CH\CHETC.PAC
+wait_frames 4
+# frame 52: opened D:\PAC\SOUND.PAC
+wait_frames 4
+# frame 56: opened D:\PAC\MISC05_SAVE.PAC
+wait_frames 4
+# frame 60: opened D:\PAC\CH\CHETC.PAC
+wait_frames 4
+# frame 64: opened D:\PAC\CH\CHETC.PAC
+wait_frames 6
+# frame 70: opened D:\PAC\SOUND.PAC
+wait_frames 4
+# frame 74: opened D:\PAC\EVT\EVTDATA.PAC
+wait_frames 5
+# frame 79: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 79: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 83: opened D:\PAC\MISC01_START.PAC
+wait_frames 4
+# frame 87: opened D:\PAC\MISC_MW.PAC
+wait_frames 4
+# frame 91: opened D:\PAC\MISC02_INGAME.PAC
+wait_frames 4
+# frame 95: opened D:\PAC\MISC03_HVK.PAC
+wait_frames 4
+# frame 99: opened D:\PAC\MISC04_SEASON.PAC
+wait_frames 312
+# frame 411: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 411: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 7
+# frame 418: opened D:\PAC\MENU\FONTHD.PAC
+# frame 418: opened D:\PAC\MENU\FONTHD.PAC
+wait_frames 4
+# frame 422: opened D:\PAC\STRING.PAC
+# frame 422: opened D:\PAC\STRING.PAC
+wait_frames 4
+# frame 426: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 426: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 430: opened D:\PAC\MENU\MENU.PAC
+# frame 430: opened D:\PAC\MENU\MENU.PAC
+wait_frames 7
+# frame 437: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 437: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 441: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 441: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 445: opened D:\PAC\PRTCLS.PAC
+wait_frames 4
+# frame 449: opened D:\PAC\PRTCLS.PAC
+wait_frames 2
+# frame 451: opened GAME:\movies\title_logo.bik2
+# frame 451: opened GAME:\movies\title_logo.bik2
+wait_frames 397
+# frame 848: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 848: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 209
+# frame 1057: opened SaveDrive:\SaveData.Dat
+# frame 1057: opened SaveDrive:\SaveData.Dat
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 60
+# frame 1363: opened SaveDrive:\SaveData.Dat
+# frame 1363: opened SaveDrive:\SaveData.Dat
+wait_frames 2
+# frame 1365: opened SaveDrive:\SaveData.Dat
+# frame 1365: opened SaveDrive:\SaveData.Dat
+wait_frames 256
+# frame 1621: opened SaveDrive:\SaveData.Dat
+# frame 1621: opened SaveDrive:\SaveData.Dat
+wait_frames 250
+# frame 1871: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 1871: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 1875: opened D:\PAC\MENU\MENUHD.PAC
+# frame 1875: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 1879: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 8
+# frame 1887: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 5
+# frame 1892: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 98
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 7
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 13
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 5
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 11
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 5
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 81
+# frame 2112: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 2112: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 2116: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2116: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 2120: opened D:\PAC\MENU\MENU.PAC
+# frame 2120: opened D:\PAC\MENU\MENU.PAC
+wait_frames 4
+# frame 2124: opened D:\PAC\BG\BG06.PAC
+wait_frames 6
+# frame 2130: opened D:\PAC\GAME2DHD.PAC
+wait_frames 20
+# frame 2150: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2150: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 14
+# frame 2164: opened D:\PAC\GAME2DHD.PAC
+wait_frames 27
+set 0x0002 0 0 0 0 -770 -1136
+wait_frames 7
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 4
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 4
+# frame 2206: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2206: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 2
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 25
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 12
+# frame 2245: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2245: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 10
+# frame 2255: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2255: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 2
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 4
+# frame 2261: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2261: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 9
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 4
+# frame 2274: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2274: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 3
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 5
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 6
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 6
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 2
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 2
+# frame 2298: opened D:\PAC\CH\CH343.PAC
+wait_frames 5
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 4
+# frame 2307: opened D:\PAC\COM.PAC
+wait_frames 1
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 3
+# frame 2311: opened D:\PAC\EXCLUSIVEAI.PAC
+wait_frames 1
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 3
+# frame 2315: opened D:\PAC\COM.PAC
+wait_frames 6
+# frame 2321: opened D:\PAC\EXCLUSIVEAI.PAC
+wait_frames 16
+# frame 2337: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2337: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 15
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 12
+# frame 2364: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2364: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 10
+# frame 2374: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2374: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 6
+# frame 2380: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2380: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 2
+# frame 2386: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2386: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 11
+set 0x0001 0 0 0 0 -770 -1136
+wait_frames 7
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 5
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 4
+# frame 2413: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2413: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 3
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 7
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 12
+# frame 2435: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2435: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 10
+# frame 2445: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2445: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 3
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 3
+# frame 2451: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2451: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 12
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 4
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 6
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 4
+# frame 2477: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2477: opened D:\PAC\MENU\MENUHD.PAC
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 8
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 4
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 6
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 4
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 5
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 2
+# frame 2506: opened D:\PAC\CH\CH324.PAC
+wait_frames 2
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 7
+# frame 2515: opened D:\PAC\COM.PAC
+wait_frames 4
+# frame 2519: opened D:\PAC\EXCLUSIVEAI.PAC
+wait_frames 60
+# frame 2579: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 11
+# frame 2590: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2590: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 2594: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2594: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 2598: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2598: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 2602: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2602: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 2606: opened D:\PAC\MENU\MENUHD.PAC
+# frame 2606: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 6
+# frame 2612: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 2612: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 2616: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 2616: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 2620: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 2620: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 2624: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 2624: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 2628: opened D:\PAC\CH\CH255.PAC
+wait_frames 5
+# frame 2633: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 2633: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 15
+# frame 2648: opened D:\PAC\COM.PAC
+wait_frames 6
+# frame 2654: opened D:\PAC\CH\CH150.PAC
+wait_frames 11
+# frame 2665: opened D:\PAC\CH\CH153.PAC
+wait_frames 77
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 6
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 4
+set 0x0008 0 0 0 0 -770 -1136
+wait_frames 6
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 2
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 6
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 27
+set 0x0001 0 0 0 0 -770 -1136
+wait_frames 5
+set 0x0005 0 0 0 0 -770 -1136
+wait_frames 4
+set 0x0004 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 2
+set 0x0001 0 0 0 0 -770 -1136
+wait_frames 8
+set 0x0004 0 0 0 0 -770 -1136
+wait_frames 7
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 5
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 5
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 37
+# frame 2876: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 2876: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 6
+# frame 2882: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 2882: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 2886: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 2886: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 42
+set 0x0000 0 61 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 125 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 175 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 211 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 217 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 223 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 225 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 188 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 134 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 66 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 30 0 0 -770 -1136
+wait_frames 1
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 26
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 1
+# frame 2966: opened D:\PAC\AUDIENCE.PAC
+wait_frames 4
+# frame 2970: opened D:\PAC\M2.PAC
+# frame 2970: opened D:\PAC\M2.PAC
+wait_frames 1
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 95
+# frame 3066: opened D:\PAC\MENU\LOADHD.PAC
+# frame 3066: opened D:\PAC\MENU\LOADHD.PAC
+wait_frames 13
+# frame 3079: opened D:\PAC\YASE\INGAMELUA.PAC
+# frame 3079: opened D:\PAC\YASE\INGAMELUA.PAC
+wait_frames 8
+# frame 3087: opened D:\PAC\M2.PAC
+# frame 3087: opened D:\PAC\M2.PAC
+wait_frames 4
+# frame 3091: opened D:\PAC\PRTCLS.PAC
+wait_frames 4
+# frame 3095: opened D:\PAC\STRING.PAC
+# frame 3095: opened D:\PAC\STRING.PAC
+wait_frames 4
+# frame 3099: opened D:\PAC\M2.PAC
+# frame 3099: opened D:\PAC\M2.PAC
+wait_frames 3
+# frame 3102: opened D:\PAC\COM.PAC
+wait_frames 5
+# frame 3107: opened D:\PAC\GAME2DHD.PAC
+wait_frames 6
+# frame 3113: opened D:\PAC\BG\BGETC.PAC
+wait_frames 4
+# frame 3117: opened D:\PAC\M2.PAC
+# frame 3117: opened D:\PAC\M2.PAC
+wait_frames 4
+# frame 3121: opened D:\PAC\MISC02_INGAME.PAC
+wait_frames 4
+# frame 3125: opened D:\PAC\MISC_MW.PAC
+wait_frames 4
+# frame 3129: opened D:\PAC\CH\CHCOMMON.PAC
+wait_frames 5
+# frame 3134: opened D:\PAC\DLC.PAC
+wait_frames 4
+# frame 3138: opened D:\PAC\BG\BG01.PAC
+# frame 3138: opened D:\PAC\BG\BG01.PAC
+wait_frames 4
+# frame 3142: opened D:\PAC\GAME2DHD.PAC
+wait_frames 82
+# frame 3224: opened D:\PAC\EVT\EVTMOV2.PAC
+# frame 3224: opened D:\PAC\EVT\EVTMOV2.PAC
+wait_frames 4
+# frame 3228: opened D:\PAC\EVT\EVTMOV3.PAC
+# frame 3228: opened D:\PAC\EVT\EVTMOV3.PAC
+wait_frames 4
+# frame 3232: opened D:\PAC\EVT\EVTGDHD.PAC
+wait_frames 4
+# frame 3236: opened D:\PAC\EVT\EVTMOT.PAC
+wait_frames 6
+# frame 3242: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 3242: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 4
+# frame 3246: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 3246: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 4
+# frame 3250: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 7
+# frame 3257: opened D:\PAC\EVT\ENTRANCE02.PAC
+wait_frames 10
+# frame 3267: opened D:\PAC\CH\CH187.PAC
+wait_frames 35
+# frame 3302: opened D:\PAC\EVT\ENTRANCE02.PAC
+wait_frames 4
+# frame 3306: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 4
+# frame 3310: opened D:\PAC\GM.PAC
+wait_frames 4
+# frame 3314: opened D:\PAC\GM.PAC
+wait_frames 4
+# frame 3318: opened D:\PAC\PRTCLS.PAC
+wait_frames 6
+# frame 3324: opened GAME:\movies\titantron\343.bik2
+# frame 3324: opened GAME:\movies\titantron\343.bik2
+wait_frames 17
+# frame 3341: opened D:\PAC\EVT\ENTRANCE02.PAC
+wait_frames 4
+# frame 3345: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 3345: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 64
+# frame 3409: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 3409: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 49
+# frame 3458: opened D:\PAC\CH\CH324.PAC
+wait_frames 263
+# frame 3721: opened D:\PAC\EVT\ENTRANCE02.PAC
+wait_frames 34
+# frame 3755: opened D:\PAC\GM.PAC
+wait_frames 6
+# frame 3761: opened D:\PAC\PRTCLS.PAC
+wait_frames 1125
+# frame 4886: opened GAME:\movies\titantron\324.bik2
+# frame 4886: opened GAME:\movies\titantron\324.bik2
+wait_frames 17
+# frame 4903: opened D:\PAC\CH\CH255.PAC
+wait_frames 2254
+# frame 7157: opened D:\PAC\MENU\LOADHD.PAC
+# frame 7157: opened D:\PAC\MENU\LOADHD.PAC
+wait_frames 30
+# frame 7187: opened D:\PAC\COM.PAC
+wait_frames 42
+# frame 7229: opened D:\PAC\M3.PAC
+# frame 7229: opened D:\PAC\M3.PAC
+wait_frames 4
+# frame 7233: opened D:\PAC\M3.PAC
+# frame 7233: opened D:\PAC\M3.PAC
+wait_frames 4
+# frame 7237: opened D:\PAC\MOT04.PAC
+# frame 7237: opened D:\PAC\MOT04.PAC
+wait_frames 6
+# frame 7243: opened D:\PAC\MOT00.PAC
+# frame 7243: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 7247: opened D:\PAC\MOT00.PAC
+# frame 7247: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 7251: opened D:\PAC\MOT07.PAC
+# frame 7251: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 7255: opened D:\PAC\MOT07.PAC
+# frame 7255: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 7259: opened D:\PAC\MOT08.PAC
+# frame 7259: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7263: opened D:\PAC\MOT08.PAC
+# frame 7263: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7267: opened D:\PAC\MOT08.PAC
+# frame 7267: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7271: opened D:\PAC\MOT08.PAC
+# frame 7271: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7275: opened D:\PAC\MOT08.PAC
+# frame 7275: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7279: opened D:\PAC\MOT08.PAC
+# frame 7279: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7283: opened D:\PAC\MOT08.PAC
+# frame 7283: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7287: opened D:\PAC\MOT08.PAC
+# frame 7287: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7291: opened D:\PAC\MOT07.PAC
+# frame 7291: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 7295: opened D:\PAC\MOT07.PAC
+# frame 7295: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 7299: opened D:\PAC\MOT07.PAC
+# frame 7299: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 7303: opened D:\PAC\MOT07.PAC
+# frame 7303: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 7307: opened D:\PAC\MOT07.PAC
+# frame 7307: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 7311: opened D:\PAC\MOT07.PAC
+# frame 7311: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 7315: opened D:\PAC\MOT08.PAC
+# frame 7315: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7319: opened D:\PAC\MOT08.PAC
+# frame 7319: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7323: opened D:\PAC\MOT08.PAC
+# frame 7323: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7327: opened D:\PAC\MOT08.PAC
+# frame 7327: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7331: opened D:\PAC\MOT08.PAC
+# frame 7331: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7335: opened D:\PAC\MOT08.PAC
+# frame 7335: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7339: opened D:\PAC\MOT08.PAC
+# frame 7339: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 7343: opened D:\PAC\MOT00.PAC
+# frame 7343: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 7347: opened D:\PAC\MOT00.PAC
+# frame 7347: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 7351: opened D:\PAC\MOT01.PAC
+# frame 7351: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 7355: opened D:\PAC\MOT01.PAC
+# frame 7355: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 7359: opened D:\PAC\MOT01.PAC
+# frame 7359: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 7363: opened D:\PAC\MOT01.PAC
+# frame 7363: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 7367: opened D:\PAC\MOT00.PAC
+# frame 7367: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 7371: opened D:\PAC\MOT01.PAC
+# frame 7371: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 7375: opened D:\PAC\MOT02.PAC
+# frame 7375: opened D:\PAC\MOT02.PAC
+wait_frames 7662
+set 0x0000 0 0 0 -2059 48 -499
+wait_frames 43
+set 0x0000 0 0 0 1010 48 -499
+wait_frames 11
+set 0x0000 0 0 0 1034 512 9766
+wait_frames 1
+set 0x0000 0 0 0 1034 3195 27815
+wait_frames 1
+set 0x0000 0 0 0 1034 3877 32767
+wait_frames 1
+set 0x0000 0 0 0 1034 3970 29981
+wait_frames 1
+set 0x0000 0 0 0 1034 -897 -18630
+wait_frames 1
+set 0x0000 0 0 0 1034 1241 10327
+wait_frames 1
+set 0x0000 0 0 0 1034 544 -1734
+wait_frames 2
+set 0x0000 0 0 0 1034 544 972
+wait_frames 14
+set 0x0010 0 0 0 1034 -1061 -320
+wait_frames 6
+set 0x0010 0 0 0 1034 -2796 -2464
+wait_frames 3
+set 0x0000 0 0 0 1034 -170 -2464
+wait_frames 17
+set 0x0001 0 0 0 1034 -140 -1007
+wait_frames 5
+set 0x0000 0 0 0 1034 -140 -1007
+wait_frames 4
+set 0x1000 0 0 0 1034 -140 -1007
+wait_frames 3
+set 0x0000 0 0 0 1034 -140 -1007
+wait_frames 29
+set 0x0004 0 0 0 1034 -140 -1007
+wait_frames 6
+set 0x1000 0 0 0 1034 -140 -1007
+wait_frames 3
+set 0x0000 0 0 0 1034 -140 -1007
+wait_frames 102
+# frame 15291: opened D:\PAC\MENU\LOADHD.PAC
+# frame 15291: opened D:\PAC\MENU\LOADHD.PAC
+wait_frames 13
+# frame 15304: opened D:\PAC\STRING.PAC
+# frame 15304: opened D:\PAC\STRING.PAC
+wait_frames 6
+# frame 15310: opened D:\PAC\MENU\FONTHD.PAC
+# frame 15310: opened D:\PAC\MENU\FONTHD.PAC
+wait_frames 4
+# frame 15314: opened D:\PAC\STRING.PAC
+# frame 15314: opened D:\PAC\STRING.PAC
+wait_frames 4
+# frame 15318: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 15318: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 15322: opened D:\PAC\MENU\MENU.PAC
+# frame 15322: opened D:\PAC\MENU\MENU.PAC
+wait_frames 6
+# frame 15328: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 15328: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 15332: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15332: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 15336: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 8
+# frame 15344: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 5
+# frame 15349: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 8
+# frame 15357: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 15357: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 15361: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 15361: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 15365: opened D:\PAC\PRTCLS.PAC
+wait_frames 4
+# frame 15369: opened D:\PAC\PRTCLS.PAC
+wait_frames 2
+# frame 15371: opened GAME:\movies\title_logo.bik2
+# frame 15371: opened GAME:\movies\title_logo.bik2
+wait_frames 98
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 5
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 16
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 5
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 15
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 5
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 81
+# frame 15596: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 15596: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 15600: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15600: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 15604: opened D:\PAC\MENU\MENU.PAC
+# frame 15604: opened D:\PAC\MENU\MENU.PAC
+wait_frames 4
+# frame 15608: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15608: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 51
+set 0x0002 0 0 0 1034 -264 -1007
+wait_frames 7
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 2
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 4
+# frame 15672: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15672: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 1
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 30
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 4
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 5
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 5
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 4
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 3
+# frame 15724: opened D:\PAC\CH\CH139.PAC
+wait_frames 1
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 8
+# frame 15733: opened D:\PAC\EXCLUSIVEAI.PAC
+wait_frames 4
+# frame 15737: opened D:\PAC\EXCLUSIVEAI.PAC
+wait_frames 25
+# frame 15762: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15762: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 20
+set 0x0008 0 0 0 1034 -264 -1007
+wait_frames 12
+# frame 15794: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15794: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 10
+# frame 15804: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15804: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 6
+# frame 15810: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15810: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 2
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 4
+# frame 15816: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15816: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 12
+set 0x0001 0 0 0 1034 -264 -1007
+wait_frames 7
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 3
+set 0x0008 0 0 0 1034 -264 -1007
+wait_frames 4
+# frame 15842: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15842: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 3
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 4
+set 0x0008 0 0 0 1034 -264 -1007
+wait_frames 4
+# frame 15853: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15853: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 1
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 6
+set 0x0008 0 0 0 1034 -264 -1007
+wait_frames 4
+# frame 15864: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15864: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 1
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 9
+set 0x0008 0 0 0 1034 -264 -1007
+wait_frames 5
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 7
+# frame 15886: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15886: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 19
+set 0x0008 0 0 0 1034 -264 -1007
+wait_frames 5
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 7
+# frame 15917: opened D:\PAC\MENU\MENUHD.PAC
+# frame 15917: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 16
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 2
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 9
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 4
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 5
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 3
+# frame 15956: opened D:\PAC\CH\CH131.PAC
+wait_frames 3
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 2
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 3
+# frame 15964: opened D:\PAC\EXCLUSIVEAI.PAC
+wait_frames 2
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 2
+# frame 15968: opened D:\PAC\EXCLUSIVEAI.PAC
+wait_frames 60
+# frame 16028: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 11
+# frame 16039: opened D:\PAC\MENU\MENUHD.PAC
+# frame 16039: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 16043: opened D:\PAC\MENU\MENUHD.PAC
+# frame 16043: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 6
+# frame 16049: opened D:\PAC\MENU\MENUHD.PAC
+# frame 16049: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 16053: opened D:\PAC\MENU\MENUHD.PAC
+# frame 16053: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 6
+# frame 16059: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 16059: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 16063: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 16063: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 16067: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 16067: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 16071: opened D:\PAC\MENU\MATCHHD.PAC
+# frame 16071: opened D:\PAC\MENU\MATCHHD.PAC
+wait_frames 4
+# frame 16075: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 16075: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 107
+set 0x0000 0 13 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 146 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 236 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 255 0 1034 -264 -1007
+wait_frames 4
+set 0x0000 0 251 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 246 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 203 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 99 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 41 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 36 0 1034 -264 -1007
+wait_frames 1
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 12
+set 0x1000 0 0 0 1034 -264 -1007
+wait_frames 4
+set 0x0000 0 0 0 1034 -264 -1007
+wait_frames 96
+# frame 16307: opened D:\PAC\MENU\LOADHD.PAC
+# frame 16307: opened D:\PAC\MENU\LOADHD.PAC
+wait_frames 13
+# frame 16320: opened D:\PAC\YASE\INGAMELUA.PAC
+# frame 16320: opened D:\PAC\YASE\INGAMELUA.PAC
+wait_frames 4
+# frame 16324: opened D:\PAC\PRTCLS.PAC
+wait_frames 4
+# frame 16328: opened D:\PAC\STRING.PAC
+# frame 16328: opened D:\PAC\STRING.PAC
+wait_frames 4
+# frame 16332: opened D:\PAC\M2.PAC
+# frame 16332: opened D:\PAC\M2.PAC
+wait_frames 4
+# frame 16336: opened D:\PAC\MISC02_INGAME.PAC
+wait_frames 4
+# frame 16340: opened D:\PAC\MISC_MW.PAC
+wait_frames 4
+# frame 16344: opened D:\PAC\DLC.PAC
+wait_frames 59
+# frame 16403: opened D:\PAC\EVT\EVTMOV2_2.PAC
+# frame 16403: opened D:\PAC\EVT\EVTMOV2_2.PAC
+wait_frames 4
+# frame 16407: opened D:\PAC\EVT\EVTMOV3.PAC
+# frame 16407: opened D:\PAC\EVT\EVTMOV3.PAC
+wait_frames 4
+# frame 16411: opened D:\PAC\EVT\EVTGDHD.PAC
+wait_frames 4
+# frame 16415: opened D:\PAC\EVT\EVTMOT.PAC
+wait_frames 6
+# frame 16421: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 16421: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 4
+# frame 16425: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 16425: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 4
+# frame 16429: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 7
+# frame 16436: opened D:\PAC\EVT\ENTRANCE06.PAC
+wait_frames 9
+# frame 16445: opened D:\PAC\CH\CH139.PAC
+wait_frames 25
+# frame 16470: opened D:\PAC\CH\CH187.PAC
+wait_frames 39
+# frame 16509: opened D:\PAC\EVT\ENTRANCE06.PAC
+wait_frames 4
+# frame 16513: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 4
+# frame 16517: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 4
+# frame 16521: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 4
+# frame 16525: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 4
+# frame 16529: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 4
+# frame 16533: opened D:\PAC\GM.PAC
+wait_frames 4
+# frame 16537: opened D:\PAC\GM.PAC
+wait_frames 4
+# frame 16541: opened D:\PAC\PRTCLS.PAC
+wait_frames 6
+# frame 16547: opened GAME:\movies\titantron\139.bik2
+# frame 16547: opened GAME:\movies\titantron\139.bik2
+wait_frames 17
+# frame 16564: opened D:\PAC\EVT\ENTRANCE00.PAC
+wait_frames 4
+# frame 16568: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 16568: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 64
+# frame 16632: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 16632: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 78
+# frame 16710: opened D:\PAC\CH\CH131.PAC
+wait_frames 200
+# frame 16910: opened D:\PAC\EVT\ENTRANCE00.PAC
+wait_frames 19
+# frame 16929: opened D:\PAC\GM.PAC
+wait_frames 6
+# frame 16935: opened D:\PAC\PRTCLS.PAC
+wait_frames 538
+set 0x0010 0 0 0 629 -356 -249
+wait_frames 5
+set 0x0000 0 0 0 629 -356 -249
+wait_frames 36
+# frame 17514: opened D:\PAC\EVT\EVTMOV2.PAC
+# frame 17514: opened D:\PAC\EVT\EVTMOV2.PAC
+wait_frames 4
+# frame 17518: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 17518: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 4
+# frame 17522: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 17522: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 4
+# frame 17526: opened D:\PAC\EVT\ENTRANCE00.PAC
+wait_frames 49
+# frame 17575: opened GAME:\movies\titantron\131.bik2
+# frame 17575: opened GAME:\movies\titantron\131.bik2
+wait_frames 17
+# frame 17592: opened D:\PAC\CH\CH255.PAC
+wait_frames 2546
+# frame 20138: opened D:\PAC\MENU\LOADHD.PAC
+# frame 20138: opened D:\PAC\MENU\LOADHD.PAC
+wait_frames 30
+# frame 20168: opened D:\PAC\COM.PAC
+wait_frames 4
+# frame 20172: opened D:\PAC\COM.PAC
+wait_frames 41
+# frame 20213: opened D:\PAC\M3.PAC
+# frame 20213: opened D:\PAC\M3.PAC
+wait_frames 4
+# frame 20217: opened D:\PAC\M3.PAC
+# frame 20217: opened D:\PAC\M3.PAC
+wait_frames 4
+# frame 20221: opened D:\PAC\MOT04.PAC
+# frame 20221: opened D:\PAC\MOT04.PAC
+wait_frames 6
+# frame 20227: opened D:\PAC\MOT00.PAC
+# frame 20227: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 20231: opened D:\PAC\MOT00.PAC
+# frame 20231: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 20235: opened D:\PAC\MOT07.PAC
+# frame 20235: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 20239: opened D:\PAC\MOT07.PAC
+# frame 20239: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 20243: opened D:\PAC\MOT08.PAC
+# frame 20243: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20247: opened D:\PAC\MOT08.PAC
+# frame 20247: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20251: opened D:\PAC\MOT08.PAC
+# frame 20251: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20255: opened D:\PAC\MOT08.PAC
+# frame 20255: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20259: opened D:\PAC\MOT08.PAC
+# frame 20259: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20263: opened D:\PAC\MOT08.PAC
+# frame 20263: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20267: opened D:\PAC\MOT08.PAC
+# frame 20267: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20271: opened D:\PAC\MOT08.PAC
+# frame 20271: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20275: opened D:\PAC\MOT07.PAC
+# frame 20275: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 20279: opened D:\PAC\MOT07.PAC
+# frame 20279: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 20283: opened D:\PAC\MOT07.PAC
+# frame 20283: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 20287: opened D:\PAC\MOT07.PAC
+# frame 20287: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 20291: opened D:\PAC\MOT07.PAC
+# frame 20291: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 20295: opened D:\PAC\MOT07.PAC
+# frame 20295: opened D:\PAC\MOT07.PAC
+wait_frames 4
+# frame 20299: opened D:\PAC\MOT08.PAC
+# frame 20299: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20303: opened D:\PAC\MOT08.PAC
+# frame 20303: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20307: opened D:\PAC\MOT08.PAC
+# frame 20307: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20311: opened D:\PAC\MOT08.PAC
+# frame 20311: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20315: opened D:\PAC\MOT08.PAC
+# frame 20315: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20319: opened D:\PAC\MOT08.PAC
+# frame 20319: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20323: opened D:\PAC\MOT08.PAC
+# frame 20323: opened D:\PAC\MOT08.PAC
+wait_frames 4
+# frame 20327: opened D:\PAC\MOT00.PAC
+# frame 20327: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 20331: opened D:\PAC\MOT00.PAC
+# frame 20331: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 20335: opened D:\PAC\MOT01.PAC
+# frame 20335: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 20339: opened D:\PAC\MOT01.PAC
+# frame 20339: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 20343: opened D:\PAC\MOT01.PAC
+# frame 20343: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 20347: opened D:\PAC\MOT01.PAC
+# frame 20347: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 20351: opened D:\PAC\MOT00.PAC
+# frame 20351: opened D:\PAC\MOT00.PAC
+wait_frames 4
+# frame 20355: opened D:\PAC\MOT01.PAC
+# frame 20355: opened D:\PAC\MOT01.PAC
+wait_frames 4
+# frame 20359: opened D:\PAC\MOT02.PAC
+# frame 20359: opened D:\PAC\MOT02.PAC
+wait_frames 6444
+# frame 26803: opened D:\PAC\EVT\EVTGDHD.PAC
+wait_frames 4
+# frame 26807: opened D:\PAC\EVT\EVTMOT.PAC
+wait_frames 4
+# frame 26811: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 26811: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 4
+# frame 26815: opened D:\PAC\EVT\EVTMOV.PAC
+# frame 26815: opened D:\PAC\EVT\EVTMOV.PAC
+wait_frames 4
+# frame 26819: opened D:\PAC\EVT\EVTOBJ.PAC
+wait_frames 7
+# frame 26826: opened D:\PAC\EVT\WINNING00.PAC
+wait_frames 24
+# frame 26850: opened D:\PAC\EVT\WINNING00.PAC
+wait_frames 5
+# frame 26855: opened D:\PAC\GM.PAC

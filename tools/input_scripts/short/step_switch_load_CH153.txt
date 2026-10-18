@@ -1,0 +1,27 @@
+# harness: fast-forward ok (Session 19 item 10: bisect of the black-arena setup; untimed)
+# Launch (--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_step_hz=0); switch to step 120
+# when CH153.PAC opens during the in-game load, then screenshots in the match (is the arena lit?). on_fail quit.
+on_fail quit
+log step_switch_load: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file CH153.PAC 3600
+cvar wwe2k14_step_hz 120
+log step_switch_load: switched at CH153.PAC
+wait_file M3.PAC 36000
+log scene=match
+wait_frames 900
+screenshot w_m900
+wait_frames 1200
+screenshot w_m2100
+wait_frames 60
+log step_switch_load: end
+quit

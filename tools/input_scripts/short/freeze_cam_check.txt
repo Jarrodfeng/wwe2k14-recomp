@@ -1,0 +1,43 @@
+# Session 16 item 6: freeze cam check. Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true
+# --wwe2k14_cinecam=true --wwe2k14_cinecam_freeze=true (+ --wwe2k14_cinecam_path_log=true to see the hand-offs).
+# CPU vs CPU, fast-forwarded (harness default) to the finish and 6,000 frames past it (the post-match menu freeze
+# starts ~2,450 frames after the finish: Session 14 S5), free camera on the hard-cam pose from the match start; in the
+# freeze: screenshot, then a scripted move (sideways + turn) with a screenshot every 60 frames, then the camera off
+# (the F8 hand-back) and a last screenshot. on_fail quit.
+on_fail quit
+log fz: start
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+log fz: main menu reached
+wait_file INGAMELUA.PAC 36000
+wait_state match_clock !=0 36000 2
+cvar wwe2k14_cinecam_on true
+cvar wwe2k14_cinecam_test_pose -1,-268,-1294,-90,1.3,44.7
+wait_frames 30
+screenshot fz_match
+wait_state 0x8376ACCC !=0 400000 1
+log fz: finish
+wait_frames 6000
+log fz: in the freeze
+screenshot fz_frozen
+cvar wwe2k14_cinecam_test_move 250,0,0,25
+screenshot_every 60 fz_move
+wait_frames 600
+screenshot_every 0
+cvar wwe2k14_cinecam_test_move 0,0,0,0
+wait_frames 30
+screenshot fz_moved
+cvar wwe2k14_cinecam_on false
+wait_frames 60
+screenshot fz_handback
+wait_frames 60
+log fz: end
+quit

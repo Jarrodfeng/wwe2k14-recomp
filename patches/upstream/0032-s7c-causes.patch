@@ -1,0 +1,1344 @@
+Subject: [ReXGlue] merge s7c/causes
+
+Class: DIAG
+What: Stall attribution columns in the anatomy capture, cpf_sync counters.
+Evidence: Tool.
+On / off: Always on (counters).
+Commit: 8b68939 (diff against 8b68939^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 55891c2..08c5978 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -397,6 +397,34 @@ class CommandProcessor {
+   // anatomy_gpu_row_ is still the ended frame's row count (reset to 0 after it).
+   uint32_t anatomy_gpu_row_ = 0;
+   virtual void AnatomyGpuFrameBoundary(const std::string& /* rows_path */, int64_t /* frame */) {}
++  // wwe2k14 patch (Session 7c, CAUSES): what the backend recorded for each anatomy row (the cause columns at the
++  // end of the anatomy CSV). Measurement only. AnatomyRowCauses is called on this thread at the end of every
++  // anatomy row (out: the counts of the row's window - its preparation, see the backend) and at the start of every
++  // capture frame (out == nullptr: discard what was counted since the last row). Returns false if the backend
++  // counts nothing (the row's cause columns stay empty).
++  struct AnatomyCauses {
++    uint32_t up_calls;            // shared memory UploadRanges calls (each records upload copies)
++    uint32_t up_pages;            // pages they uploaded
++    uint32_t tex_loads;           // texture loads the texture cache recorded (load dispatches + copy to the image)
++    uint32_t tex_loads_scaled;    // of those, loads from the resolution-scaled resolve buffer
++    uint32_t tex_load_kib;        // KiB the loads read (their source ranges), rounded up
++    uint32_t dispatches;          // compute dispatches recorded (texture loads, clears, any other; a resolve's own
++                                  // are its exec, in no row)
++    uint32_t barrier_batches;     // pipeline barrier batches recorded (SubmitBarriers calls that recorded
++                                  // vkCmdPipelineBarrier, and barriers recorded directly)
++    uint32_t barrier_src_stages;  // OR of their source stage masks
++    uint32_t barrier_dst_stages;  // OR of their destination stage masks
++    uint32_t rendering_restarts;  // render pass / dynamic rendering instances begun
++    uint32_t fsi_edram_barriers;  // full-EDRAM-buffer self-barriers placed by EDRAM write commits (the fragment
++                                  // shader interlock barrier, and commits of earlier compute clears)
++    uint32_t desc_writes;         // descriptor sets allocated or written
++    uint32_t pipeline_created;    // guest graphics pipelines created or queued for creation
++    uint32_t pipeline_pending;    // draws skipped because their pipeline was still being created
++  };
++  virtual bool AnatomyRowCauses(AnatomyCauses* /* out */) { return false; }
++  // An IssueDraw call of a capture is in progress (between AnatomyBeginDraw and AnatomyEndDraw): during it,
++  // anatomy_gpu_row_ is its row, otherwise the next row's index.
++  bool anatomy_in_draw_ = false;
+ 
+   // wwe2k14 patch (Session 7, TILING-STAGE0): predicated tiling counters, recorded with the other cpf* events
+   // (cpf_tile, cpf_bin; see RecordFrameCounters) and reset at each frame boundary, and the gpu_tiling_log_frames
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index b49680b..6c1583e 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -265,6 +265,32 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // Returns the text to display in the GPU backend name in the window title.
+   std::string GetWindowTitleText() const;
+ 
++  // wwe2k14 patch (Session 7c, CAUSES): running counts of what this command processor and its caches record,
++  // for the frame-anatomy cause columns (AnatomyRowCauses), the cpf_sync / cpf_sync2 timeline events and the
++  // [s7][CAUSES] summary. Measurement only: plain increments where the work is recorded, nothing else changes.
++  // Command processor thread only. Never reset (readers take differences, which wrap correctly), except the two
++  // stage masks, which are ORed since the cause window's start. Dispatches and render pass begins are counted by the
++  // deferred command buffer (dispatches_recorded, rendering_begins_recorded).
++  struct CauseCounts {
++    uint32_t up_calls = 0;            // VulkanSharedMemory::UploadRanges calls that record copies
++    uint32_t up_pages = 0;            // pages they upload
++    uint32_t tex_loads = 0;           // VulkanTextureCache loads recorded (dispatches + copy to the image)
++    uint32_t tex_loads_scaled = 0;    // of those, from the resolution-scaled resolve buffer
++    uint64_t tex_load_bytes = 0;      // bytes of their source ranges
++    uint32_t barrier_batches = 0;     // SubmitBarriers calls that recorded barriers, + barriers recorded directly
++    uint32_t fsi_edram_barriers = 0;  // full-EDRAM-buffer self-barriers pushed by EDRAM write commits
++    uint32_t desc_writes = 0;         // descriptor sets allocated or written
++    uint32_t pipelines_created = 0;   // guest graphics pipelines created or queued (ConfigurePipeline, on success)
++    uint32_t pipelines_pending = 0;   // draws skipped because their pipeline was still being created
++    uint32_t pipeline_binds = 0;      // guest graphics pipeline binds that changed the bound pipeline
++    VkPipelineStageFlags barrier_src_stages = 0;  // OR of the recorded barriers' stage masks in the window
++    VkPipelineStageFlags barrier_dst_stages = 0;
++  };
++  CauseCounts& cause_counts() { return cause_counts_; }
++  // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1, called by the deferred command buffer's
++  // event hook (DeferredCommandBuffer::SetEventHook) right before the first event command after an unmarked row.
++  void GpuMarksSparseBeforeEvent();
++
+  protected:
+   bool SetupContext() override;
+   void ShutdownContext() override;
+@@ -295,6 +321,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+   void CollectFrameCounters(FrameCounters& counters) override;
+   // wwe2k14 patch (Session 7b, GPUMARKS): gpu_anatomy_gpu_marks, see GpuMarks.
+   void AnatomyGpuFrameBoundary(const std::string& rows_path, int64_t frame) override;
++  // wwe2k14 patch (Session 7c, CAUSES): the anatomy cause columns, see CauseCounts.
++  bool AnatomyRowCauses(AnatomyCauses* out) override;
+   // wwe2k14 patch (Session 7, EXTENTS-SHADOW).
+   SharedMemory* GetSharedMemoryForExtents() const override { return shared_memory_.get(); }
+ 
+@@ -762,6 +790,10 @@ class VulkanCommandProcessor : public CommandProcessor {
+     uint32_t cb_begin = UINT32_MAX;
+     uint32_t cb_end = UINT32_MAX;
+     bool cb_begin_tried = false;  // command processor thread bookkeeping (cb_begin allocated or dropped)
++    // wwe2k14 patch (Session 7c, CAUSES): command processor thread bookkeeping - where among the anatomy rows
++    // (GpuMarks::Mark::pos) the submission's command buffer (or, for a submission open across an anatomy frame
++    // boundary, this frame's part of it) starts, for the rows_covered column.
++    uint32_t begin_pos = 0;
+   };
+ 
+   // wwe2k14 patch (vulkan_async_submit): a thread that replays recorded non-swap submissions into their Vulkan
+@@ -853,12 +885,38 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // wwe2k14 patch (Session 7b, GPUMARKS): GPU timestamps per frame-anatomy row (gpu_anatomy_gpu_marks, measurement
+   // only). State in command_processor.cpp (created at the first marked frame); gpu_marks_active_: the current
+   // anatomy frame records marks (changes only at anatomy frame boundaries), the only thing the draw path tests.
+-  enum class GpuMarkKind : uint8_t { kCbBegin, kCbEnd, kDrawPre, kDrawPost, kCopyBefore, kCopyAfter };
++  // wwe2k14 patch (Session 7c, CAUSES): kPrepBegin and kBlockEnd are gpu_anatomy_gpu_marks_mode 1 marks (see
++  // GpuMarksSparseDrawPre).
++  enum class GpuMarkKind : uint8_t {
++    kCbBegin,
++    kCbEnd,
++    kDrawPre,
++    kDrawPost,
++    kCopyBefore,
++    kCopyAfter,
++    kPrepBegin,
++    kBlockEnd
++  };
+   struct GpuMarks;
+   std::unique_ptr<GpuMarks> gpu_marks_;
+   bool gpu_marks_active_ = false;
++  // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 for the frame being marked (only while
++  // gpu_marks_active_).
++  bool gpu_marks_sparse_ = false;
+   // A bottom-of-pipe timestamp into the deferred command buffer (call only while gpu_marks_active_).
+   void GpuMark(GpuMarkKind kind);
++  // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 (only while gpu_marks_active_ and
++  // gpu_marks_sparse_): the draw's marks at its pre / post points, the bookkeeping after a mark, and the start
++  // of a submission (any mode, while gpu_marks_ exists).
++  void GpuMarksSparseDrawPre();
++  void GpuMarksSparseDrawPost();
++  void GpuMarksSparseNoteMark(GpuMarkKind kind);
++  // The end of the row in progress for mode 1: an unmarked row opens a block (arms the event hook).
++  void GpuMarksSparseRowEnd();
++  void GpuMarksBeginSubmission();
++  // Where the command stream is among the anatomy rows (GpuMarks::Mark::pos) for a mark that starts an interval
++  // (interval_start: before the row's next commands) or ends one.
++  uint32_t GpuMarksPosition(bool interval_start) const;
+   bool GpuMarksAllocate(GpuMarkKind kind, uint32_t& query_out);
+   bool GpuMarksInitialize();
+   // At EndSubmission: the marks to write around the submission's command buffer (cb_end allocated here).
+@@ -879,6 +937,40 @@ class VulkanCommandProcessor : public CommandProcessor {
+   std::mutex gpu_marks_not_run_mutex_;
+   std::vector<uint64_t> gpu_marks_not_run_;
+ 
++  // wwe2k14 patch (Session 7c, CAUSES): see CauseCounts (command_processor.cpp, "Session 7c, CAUSES").
++  struct CauseSnapshot {
++    CauseCounts counts;
++    uint32_t dispatches = 0;
++    uint32_t rendering_begins = 0;
++  };
++  CauseSnapshot CausesNow() const;
++  // The sum of the counters whose change makes a row's preparation "eventful" for gpu_anatomy_gpu_marks_mode 1
++  // (uploads, texture loads, dispatches, barrier batches, rendering begins, pipeline binds and creations): it
++  // changes exactly when one of them does.
++  uint64_t CausesEventSum() const;
++  // During a capture, at a draw's post point (right after its draw call; copy false) or a resolve's before point
++  // (right after its before mark; copy true): its row's cause window (its preparation) ends there, and the row's
++  // columns are computed then (causes_row_cut_result_).
++  void CausesCut(bool copy);
++  // The window from causes_row_start_ to now into out (with the stage masks ORed since its start); the next window
++  // starts now.
++  void CausesCloseWindow(AnatomyCauses& out);
++  // Review fix: discard what was counted since causes_row_start_, the next window starts now (a capture frame's
++  // start, the end of a resolve's own commands, a new submission's command buffer).
++  void CausesRestartWindow();
++  // Every frame boundary (CollectFrameCounters): cpf_sync / cpf_sync2 and the [s7][CAUSES] summary.
++  void CausesFrameBoundary();
++  CauseCounts cause_counts_;
++  CauseSnapshot causes_row_start_;            // the current cause window's start
++  AnatomyCauses causes_row_cut_result_ = {};  // the row's columns, if cut (one of the two flags below)
++  bool causes_row_cut_valid_ = false;         // in a draw, after its draw call (CausesCut(false))
++  bool causes_copy_cut_valid_ = false;        // review fix: in a resolve, after its before point (CausesCut(true))
++  CauseSnapshot causes_frame_start_;  // cpf_sync / cpf_sync2
++  CauseSnapshot causes_log_start_;    // [s7][CAUSES]
++  uint64_t causes_log_first_frame_ = 0;
++  uint32_t causes_log_frames_ = 0;
++  bool causes_log_timeline_ = true;  // the timeline was on at every frame boundary of the summary window
++
+   std::vector<VkSparseMemoryBind> sparse_memory_binds_;
+   std::vector<SparseBufferBind> sparse_buffer_binds_;
+   // SparseBufferBind converted to VkSparseBufferMemoryBindInfo to this buffer
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 232cc12..d3db631 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -36,10 +36,24 @@ class DeferredCommandBuffer {
+   void SwapStream(std::vector<uintmax_t>& other) { command_stream_.swap(other); }
+   void ExecuteStream(const std::vector<uintmax_t>& stream, VkCommandBuffer command_buffer) const;
+ 
++  // wwe2k14 patch (Session 7c, CAUSES): measurement only, nothing recorded changes. Running counts of recorded
++  // compute dispatches and render pass / dynamic rendering begins (never reset, not even by Reset; readers take
++  // differences, which wrap correctly), for the frame-anatomy cause columns and the cpf_sync events.
++  uint32_t dispatches_recorded() const { return dispatches_recorded_; }
++  uint32_t rendering_begins_recorded() const { return rendering_begins_recorded_; }
++  // gpu_anatomy_gpu_marks_mode 1: while set, the command processor's GpuMarksSparseBeforeEvent is called (once,
++  // the hook is cleared first) right before the next "event" command is written: a pipeline barrier, a render
++  // pass / dynamic rendering begin or end, a pipeline bind, a dispatch, a copy or a clear (not descriptor set,
++  // vertex / index buffer binds, push constants, dynamic state, draws, queries, timestamps or checkpoints).
++  // nullptr: off (one pointer test per such command).
++  void SetEventHook(VulkanCommandProcessor* hook) { event_hook_ = hook; }
++
+   // render_pass_begin->pNext of all barriers must be null.
+   void CmdVkBeginRenderPass(const VkRenderPassBeginInfo* render_pass_begin,
+                             VkSubpassContents contents) {
+     assert_null(render_pass_begin->pNext);
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
++    ++rendering_begins_recorded_;
+     size_t arguments_size = sizeof(ArgsVkBeginRenderPass);
+     uint32_t clear_value_count = render_pass_begin->clearValueCount;
+     size_t clear_values_offset = 0;
+@@ -100,6 +114,7 @@ class DeferredCommandBuffer {
+   }
+ 
+   void CmdVkBindPipeline(VkPipelineBindPoint pipeline_bind_point, VkPipeline pipeline) {
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+     auto& args = *reinterpret_cast<ArgsVkBindPipeline*>(
+         WriteCommand(Command::kVkBindPipeline, sizeof(ArgsVkBindPipeline)));
+     args.pipeline_bind_point = pipeline_bind_point;
+@@ -125,6 +140,7 @@ class DeferredCommandBuffer {
+ 
+   void CmdClearAttachmentsEmplace(uint32_t attachment_count, VkClearAttachment*& attachments_out,
+                                   uint32_t rect_count, VkClearRect*& rects_out) {
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+     size_t arguments_size = rex::align(sizeof(ArgsVkClearAttachments), alignof(VkClearAttachment));
+     size_t attachments_offset = arguments_size;
+     arguments_size = rex::align(arguments_size + sizeof(VkClearAttachment) * attachment_count,
+@@ -151,6 +167,7 @@ class DeferredCommandBuffer {
+   VkImageSubresourceRange* CmdClearColorImageEmplace(VkImage image, VkImageLayout image_layout,
+                                                      const VkClearColorValue* color,
+                                                      uint32_t range_count) {
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+     const size_t header_size =
+         rex::align(sizeof(ArgsVkClearColorImage), alignof(VkImageSubresourceRange));
+     uint8_t* args_ptr = reinterpret_cast<uint8_t*>(WriteCommand(
+@@ -171,6 +188,7 @@ class DeferredCommandBuffer {
+ 
+   VkBufferCopy* CmdCopyBufferEmplace(VkBuffer src_buffer, VkBuffer dst_buffer,
+                                      uint32_t region_count) {
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+     const size_t header_size = rex::align(sizeof(ArgsVkCopyBuffer), alignof(VkBufferCopy));
+     uint8_t* args_ptr = reinterpret_cast<uint8_t*>(
+         WriteCommand(Command::kVkCopyBuffer, header_size + sizeof(VkBufferCopy) * region_count));
+@@ -197,6 +215,7 @@ class DeferredCommandBuffer {
+   VkBufferImageCopy* CmdCopyBufferToImageEmplace(VkBuffer src_buffer, VkImage dst_image,
+                                                  VkImageLayout dst_image_layout,
+                                                  uint32_t region_count) {
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+     const size_t header_size =
+         rex::align(sizeof(ArgsVkCopyBufferToImage), alignof(VkBufferImageCopy));
+     uint8_t* args_ptr = reinterpret_cast<uint8_t*>(WriteCommand(
+@@ -230,6 +249,8 @@ class DeferredCommandBuffer {
+   }
+ 
+   void CmdVkDispatch(uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z) {
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
++    ++dispatches_recorded_;
+     auto& args = *reinterpret_cast<ArgsVkDispatch*>(
+         WriteCommand(Command::kVkDispatch, sizeof(ArgsVkDispatch)));
+     args.group_count_x = group_count_x;
+@@ -264,11 +285,17 @@ class DeferredCommandBuffer {
+     args.query = query;
+   }
+ 
+-  void CmdVkEndRenderPass() { WriteCommand(Command::kVkEndRenderPass, 0); }
++  void CmdVkEndRenderPass() {
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
++    WriteCommand(Command::kVkEndRenderPass, 0);
++  }
+ 
+   // Dynamic rendering (VK_KHR_dynamic_rendering / Vulkan 1.3).
+   void CmdVkBeginRendering(const VkRenderingInfo* rendering_info);
+-  void CmdVkEndRendering() { WriteCommand(Command::kVkEndRendering, 0); }
++  void CmdVkEndRendering() {
++    BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
++    WriteCommand(Command::kVkEndRendering, 0);
++  }
+ 
+   void CmdVkResetQueryPool(VkQueryPool query_pool, uint32_t first_query, uint32_t query_count) {
+     auto& args = *reinterpret_cast<ArgsVkResetQueryPool*>(
+@@ -637,6 +664,17 @@ class DeferredCommandBuffer {
+ 
+   void* WriteCommand(Command command, size_t arguments_size_bytes);
+ 
++  // wwe2k14 patch (Session 7c, CAUSES): see SetEventHook and dispatches_recorded.
++  void BeforeEventCommand() {
++    if (event_hook_) {
++      CallEventHook();
++    }
++  }
++  void CallEventHook();
++  VulkanCommandProcessor* event_hook_ = nullptr;
++  uint32_t dispatches_recorded_ = 0;
++  uint32_t rendering_begins_recorded_ = 0;
++
+   const VulkanCommandProcessor& command_processor_;
+ 
+   // uintmax_t to ensure uint64_t and pointer alignment of all structures.
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index d60a4de..81605c3 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -301,6 +301,9 @@ struct CommandProcessor::AnatomyCapture {
+     uint32_t pa_cl_vport_xoffset;
+     uint32_t pa_cl_vport_yscale;
+     uint32_t pa_cl_vport_yoffset;
++    // wwe2k14 patch (Session 7c, CAUSES): what the backend recorded for the row (AnatomyRowCauses).
++    bool causes_valid;
++    AnatomyCauses causes;
+   };
+ 
+   // A guard against unbounded memory if swaps stop coming.
+@@ -2624,6 +2627,7 @@ void CommandProcessor::AnatomyBeginDraw() {
+   anatomy_skip_reason_ = kAnatomySkipOther;
+   // wwe2k14 patch (Session 7b, GPUMARKS): the row index of this call's GPU marks.
+   anatomy_gpu_row_ = uint32_t(capture.rows.size());
++  anatomy_in_draw_ = true;  // wwe2k14 patch (Session 7c, CAUSES)
+   capture.draw_start_ns = AnatomyNowNs();
+ }
+ 
+@@ -2631,12 +2635,17 @@ void CommandProcessor::AnatomyEndDraw(uint32_t vgt_draw_initiator_value, bool is
+                                       bool succeeded, bool predicated) {
+   const int64_t end_ns = AnatomyNowNs();
+   AnatomyCapture& capture = *anatomy_;
++  anatomy_in_draw_ = false;  // wwe2k14 patch (Session 7c, CAUSES)
+   if (capture.rows.size() >= AnatomyCapture::kMaxRowsPerFrame) {
+     ++capture.rows_dropped;
++    AnatomyRowCauses(nullptr);  // wwe2k14 patch (Session 7c, CAUSES): not carried over to a later row
+     return;
+   }
+   AnatomyCapture::Row& row = capture.rows.emplace_back();
+   anatomy_gpu_row_ = uint32_t(capture.rows.size());  // wwe2k14 patch (Session 7b, GPUMARKS): the next row
++  // wwe2k14 patch (Session 7c, CAUSES): what the backend recorded for this row (also the row's end for the
++  // sparse GPU marks).
++  row.causes_valid = AnatomyRowCauses(&row.causes);
+   row.start_ns = capture.frame_started ? capture.draw_start_ns - capture.frame_start_ns : 0;
+   row.cp_ns = end_ns - capture.draw_start_ns;
+   // What happened is read from the counters the backend increments (draws_issued at its host draw call,
+@@ -2735,14 +2744,25 @@ void CommandProcessor::AnatomyFrameBoundary() {
+                      row.pa_sc_screen_scissor_br, row.pa_cl_vport_xscale, row.pa_cl_vport_xoffset,
+                      row.pa_cl_vport_yscale, row.pa_cl_vport_yoffset);
+       // wwe2k14 patch (Session 7, EXTENTS-SHADOW): ext_minx,ext_maxx,ext_miny,ext_maxy,ext_ok,ext_why,ext_us, after
+-      // the TILING-STAGE0 columns; they end the row.
++      // the TILING-STAGE0 columns.
+       if (row.ext_attempted) {
+-        fmt::format_to(std::back_inserter(text), "{},{},{},{},{},{},{:.1f}\n", row.ext_min_x, row.ext_max_x,
++        fmt::format_to(std::back_inserter(text), "{},{},{},{},{},{},{:.1f}", row.ext_min_x, row.ext_max_x,
+                        row.ext_min_y, row.ext_max_y, row.ext_ok ? 1 : 0,
+                        row.ext_ok ? "" : GetScreenExtentsFallbackName(ScreenExtentsFallback(row.ext_fallback)),
+                        row.ext_us);
+       } else {
+-        fmt::format_to(std::back_inserter(text), ",,,,,,\n");
++        fmt::format_to(std::back_inserter(text), ",,,,,,");
++      }
++      // wwe2k14 patch (Session 7c, CAUSES): the cause columns (AnatomyCauses, in order) end the row.
++      if (row.causes_valid) {
++        const AnatomyCauses& causes = row.causes;
++        fmt::format_to(std::back_inserter(text), ",{},{},{},{},{},{},{},0x{:08X},0x{:08X},{},{},{},{},{}\n",
++                       causes.up_calls, causes.up_pages, causes.tex_loads, causes.tex_loads_scaled,
++                       causes.tex_load_kib, causes.dispatches, causes.barrier_batches, causes.barrier_src_stages,
++                       causes.barrier_dst_stages, causes.rendering_restarts, causes.fsi_edram_barriers,
++                       causes.desc_writes, causes.pipeline_created, causes.pipeline_pending);
++      } else {
++        fmt::format_to(std::back_inserter(text), ",,,,,,,,,,,,,,\n");
+       }
+     }
+     bool write_ok = true;
+@@ -2773,6 +2793,9 @@ void CommandProcessor::AnatomyFrameBoundary() {
+     // ended frame's row count during the call).
+     AnatomyGpuFrameBoundary(capture.rows_path, int64_t(capture.frame));
+     anatomy_gpu_row_ = 0;
++    // wwe2k14 patch (Session 7c, CAUSES): the next frame's first row counts from here (the swap's own commands
++    // belong to no row: they are its submission's tail).
++    AnatomyRowCauses(nullptr);
+     return;
+   }
+ 
+@@ -2832,7 +2855,10 @@ void CommandProcessor::AnatomyFrameBoundary() {
+       "pa_sc_window_scissor_br,pa_sc_screen_scissor_tl,pa_sc_screen_scissor_br,pa_cl_vport_xscale,"
+       "pa_cl_vport_xoffset,pa_cl_vport_yscale,pa_cl_vport_yoffset,"
+       // wwe2k14 patch (Session 7, EXTENTS-SHADOW): after the TILING-STAGE0 columns.
+-      "ext_minx,ext_maxx,ext_miny,ext_maxy,ext_ok,ext_why,ext_us\n",
++      "ext_minx,ext_maxx,ext_miny,ext_maxy,ext_ok,ext_why,ext_us,"
++      // wwe2k14 patch (Session 7c, CAUSES): after the EXTENTS-SHADOW columns (AnatomyCauses).
++      "up_calls,up_pages,tex_loads,tex_loads_scaled,tex_load_kib,dispatches,barrier_batches,barrier_src_stages,"
++      "barrier_dst_stages,rendering_restarts,fsi_edram_barriers,desc_writes,pipeline_created,pipeline_pending\n",
+       capture.rows_file);
+   std::fputs("frame,draws,copies,cp_us_sum,span_us\n", capture.frames_file);
+   capture.requested = requested;
+@@ -2849,6 +2875,7 @@ void CommandProcessor::AnatomyFrameBoundary() {
+   // wwe2k14 patch (Session 7b, GPUMARKS): the first capture frame's GPU marks.
+   AnatomyGpuFrameBoundary(capture.rows_path, 0);
+   anatomy_gpu_row_ = 0;
++  AnatomyRowCauses(nullptr);  // wwe2k14 patch (Session 7c, CAUSES): the first row counts from here
+ }
+ 
+ void CommandProcessor::AnatomyFinish(const char* why) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 1f09b9a..55da5fb 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -140,6 +140,17 @@ REXCVAR_DEFINE_BOOL(gpu_anatomy_gpu_marks, false, "GPU/Vulkan",
+                     "read back without waiting once the frame's submissions have completed and written to "
+                     "<anatomy file>_gpu.csv (per row: GPU preparation and draw time) and <anatomy "
+                     "file>_gpu_frames.csv. Takes effect at the next anatomy frame");
++// wwe2k14 patch (Session 7c, CAUSES): measurement only. Both latched at each frame-anatomy frame boundary.
++REXCVAR_DEFINE_INT32(gpu_anatomy_gpu_marks_mode, 0, "GPU/Vulkan",
++                     "With gpu_anatomy_gpu_marks: 0 = marks before and after every draw and resolve; 1 = sparse: "
++                     "marks around the draws whose preparation recorded uploads, texture loads, dispatches, "
++                     "barriers, render pass changes or pipeline binds / creations (plus one right before the first "
++                     "such command after an unmarked draw), around every resolve, and otherwise one block mark "
++                     "after every gpu_anatomy_gpu_marks_every-th draw; unmarked draws are timed as blocks "
++                     "(rows_covered in the _gpu.csv). Takes effect at the next anatomy frame");
++REXCVAR_DEFINE_INT32(gpu_anatomy_gpu_marks_every, 64, "GPU/Vulkan",
++                     "gpu_anatomy_gpu_marks_mode 1: a block mark after a draw once this many anatomy rows have "
++                     "passed without a mark (values below 1 count as 1). Takes effect at the next anatomy frame");
+ // wwe2k14 patch (Session 6, CP3): UpdateBindings gathered the used float constants one at a time
+ // (a bit scan plus a 16-byte memcpy per constant). Both are read per constant buffer write, so they
+ // can be flipped at any time.
+@@ -1373,6 +1384,7 @@ struct VulkanCommandProcessor::ConstantsDynamicOffsets {
+                                                       nullptr);
+     ++page_sets_created;
+     ++cp.frame_counters_.constants_sets_written;  // Session 6, COUNTERS: a constants set written
++    ++cp.cause_counts_.desc_writes;                // wwe2k14 patch (Session 7c, CAUSES)
+     return set;
+   }
+ 
+@@ -1822,6 +1834,10 @@ struct VulkanCommandProcessor::GpuMarks {
+     uint64_t submission;  // GetCurrentSubmission() when recorded
+     uint32_t row;         // anatomy_gpu_row_ when recorded
+     GpuMarkKind kind;
++    // wwe2k14 patch (Session 7c, CAUSES): where the mark is among the frame's anatomy rows, in half rows: 2 * r =
++    // the start of row r (before any of its commands), 2 * r + 1 = inside row r, 2 * r + 2 = its end (see
++    // GpuMarksAllocate). An interval from position a to b overlaps rows a / 2 to (b + 1) / 2 - 1.
++    uint32_t pos;
+   };
+   // A capture's two CSVs, shared by its frames whose results haven't been written yet.
+   struct Files {
+@@ -1846,8 +1862,18 @@ struct VulkanCommandProcessor::GpuMarks {
+     uint64_t last_submission = 0;  // the last submission holding marks of this frame (0: none)
+     std::vector<Mark> marks;
+     std::shared_ptr<Files> files;
++    uint32_t mode = 0;  // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode it was marked with
+   };
+ 
++  // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 state of the frame being marked (see
++  // GpuMarksSparseDrawPre).
++  uint32_t sparse_every = 64;          // gpu_anatomy_gpu_marks_every, latched with the mode
++  uint64_t sparse_event_sum = 0;       // CausesEventSum() at the last row-end mark (or submission start)
++  uint32_t sparse_first_row = 0;       // the first row after the last mark ending a row (or a block)
++  bool sparse_row_marked = false;      // the row in progress got its post / after / block mark
++  bool sparse_post_pending = false;    // GpuMarksSparseDrawPost records sparse_post_kind
++  GpuMarkKind sparse_post_kind = GpuMarkKind::kDrawPost;
++
+   VkQueryPool pool = VK_NULL_HANDLE;
+   bool unsupported = false;
+   double period_ns = 0.0;
+@@ -1873,6 +1899,11 @@ struct VulkanCommandProcessor::GpuMarks {
+   double log_idle_us = 0.0;
+   double log_prep_us = 0.0;
+   double log_exec_us = 0.0;
++  // wwe2k14 patch (Session 7c, CAUSES): block / prep_begin rows (mode 1) and the rows their intervals cover.
++  uint64_t log_blocks = 0;
++  uint64_t log_block_rows = 0;
++  double log_block_us = 0.0;
++  uint32_t log_frames_sparse = 0;
+   std::string log_path;  // the _gpu.csv last written to
+   // Review fix: the last cb_end with a result in the frames written so far (frames are written in order), for
+   // the prep of the next submission's first row when that submission is in the next frame.
+@@ -4633,15 +4664,23 @@ bool VulkanCommandProcessor::SubmitBarriers(bool force_end_render_pass) {
+     return false;
+   }
+   EndRenderPass();
++  // wwe2k14 patch (Session 7c, CAUSES): one batch (the barriers below are recorded back to back).
++  ++cause_counts_.barrier_batches;
+   for (auto it = pending_barriers_.cbegin(); it != pending_barriers_.cend(); ++it) {
+     auto it_next = std::next(it);
+     bool is_last = it_next == pending_barriers_.cend();
++    // wwe2k14 patch (Session 7c, CAUSES): the stage masks as recorded, ORed for the anatomy cause columns.
++    const VkPipelineStageFlags src_stage_mask =
++        it->src_stage_mask ? it->src_stage_mask : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
++    const VkPipelineStageFlags dst_stage_mask =
++        it->dst_stage_mask ? it->dst_stage_mask : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
++    cause_counts_.barrier_src_stages |= src_stage_mask;
++    cause_counts_.barrier_dst_stages |= dst_stage_mask;
+     // .data() + offset, not &[offset], for buffer and image barriers, because
+     // if there are no buffer or image memory barriers in the last pipeline
+     // barriers, the offsets may be equal to the sizes of the vectors.
+     deferred_command_buffer_.CmdVkPipelineBarrier(
+-        it->src_stage_mask ? it->src_stage_mask : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+-        it->dst_stage_mask ? it->dst_stage_mask : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
++        src_stage_mask, dst_stage_mask, 0, 0,
+         nullptr,
+         uint32_t((is_last ? pending_barriers_buffer_memory_barriers_.size()
+                           : it_next->buffer_memory_barriers_offset) -
+@@ -4877,6 +4916,7 @@ VkDescriptorSet VulkanCommandProcessor::AllocateSingleTransientDescriptor(
+   used_descriptor.layout = transient_descriptor_layout;
+   used_descriptor.set = descriptor_set;
+   single_transient_descriptors_used_.emplace_back(used_descriptor);
++  ++cause_counts_.desc_writes;  // wwe2k14 patch (Session 7c, CAUSES)
+   return descriptor_set;
+ }
+ 
+@@ -5731,6 +5771,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     anatomy_skip_reason_ = kAnatomySkipPlaceholder;  // wwe2k14 patch (Session 6, COUNTERS)
+     // wwe2k14 patch (Session 6, H1): counted for the vulkan_pipeline_no_submit_wait log.
+     ++pipeline_no_wait_stats.frame_skipped_draws;
++    ++cause_counts_.pipelines_pending;  // wwe2k14 patch (Session 7c, CAUSES)
+     return true;
+   }
+   if (pipeline == VK_NULL_HANDLE || pipeline_layout_provider == nullptr) {
+@@ -5765,6 +5806,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   }
+   if (current_guest_graphics_pipeline_ != pipeline) {
+     ++frame_counters_.pipeline_binds_changed;  // wwe2k14 patch (Session 6, COUNTERS)
++    ++cause_counts_.pipeline_binds;            // wwe2k14 patch (Session 7c, CAUSES)
+     deferred_command_buffer_.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+     current_guest_graphics_pipeline_ = pipeline;
+     current_external_graphics_pipeline_ = VK_NULL_HANDLE;
+@@ -6096,7 +6138,12 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       render_target_cache_->last_update_framebuffer());
+   // wwe2k14 patch (Session 7b, GPUMARKS): everything this draw needed before its draw call is recorded.
+   if (gpu_marks_active_) {
+-    GpuMark(GpuMarkKind::kDrawPre);
++    // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 decides whether this draw is marked.
++    if (gpu_marks_sparse_) {
++      GpuMarksSparseDrawPre();
++    } else {
++      GpuMark(GpuMarkKind::kDrawPre);
++    }
+   }
+ 
+   if (crash_record) {
+@@ -6162,7 +6209,19 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   }
+   // wwe2k14 patch (Session 7b, GPUMARKS).
+   if (gpu_marks_active_) {
+-    GpuMark(GpuMarkKind::kDrawPost);
++    // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1: the mark GpuMarksSparseDrawPre chose.
++    if (gpu_marks_sparse_) {
++      GpuMarksSparseDrawPost();
++    } else {
++      GpuMark(GpuMarkKind::kDrawPost);
++    }
++  }
++  // wwe2k14 patch (Session 7c, CAUSES): the row's cause window ends here, like its GPU marks: what is recorded
++  // after the draw call (memexport readback below) in this submission falls into the next row's preparation on
++  // the GPU, so it is counted for the next row (unless the readback ends the submission: then it is that
++  // submission's tail, and the next submission's command buffer starts the next row's window).
++  if (anatomy_active_) {
++    CausesCut(false);
+   }
+ 
+   // Invalidate textures in memexported memory and watch for changes.
+@@ -6912,6 +6971,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+   if (gpu_marks_active_) {
+     GpuMark(GpuMarkKind::kCopyBefore);
+   }
++  // wwe2k14 patch (Session 7c, CAUSES; review fix): the resolve's cause window (its preparation) ends here, like
++  // its GPU prep interval; what the resolve records from here on is its exec and is counted for no row.
++  if (anatomy_active_) {
++    CausesCut(true);
++  }
+ 
+   if (crash_checkpoints_enabled()) {
+     const RegisterFile& regs = *register_file_;
+@@ -7133,6 +7197,11 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     deferred_command_buffer_.CmdVkPipelineBarrier(
+         VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &pre_barrier, 0, nullptr);
++    // wwe2k14 patch (Session 7c, CAUSES): a barrier recorded outside SubmitBarriers.
++    ++cause_counts_.barrier_batches;
++    cause_counts_.barrier_src_stages |=
++        VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++    cause_counts_.barrier_dst_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+ 
+     BindExternalComputePipeline(resolve_downscale_pipeline_);
+ 
+@@ -7166,6 +7235,10 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     deferred_command_buffer_.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                                   VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1,
+                                                   &downscale_barrier, 0, nullptr);
++    // wwe2k14 patch (Session 7c, CAUSES): a barrier recorded outside SubmitBarriers.
++    ++cause_counts_.barrier_batches;
++    cause_counts_.barrier_src_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++    cause_counts_.barrier_dst_stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+ 
+     VkBufferCopy readback_region = {};
+     readback_region.srcOffset = 0;
+@@ -7786,6 +7859,16 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+     // the end of the submission (when async pipeline object creation requests
+     // are fulfilled).
+     deferred_command_buffer_.Reset();
++    // wwe2k14 patch (Session 7c, CAUSES): where the submission starts among the anatomy rows (GPU marks).
++    if (gpu_marks_) {
++      GpuMarksBeginSubmission();
++    }
++    // wwe2k14 patch (Session 7c, CAUSES; review fix): the cause columns' window starts again here. What was
++    // recorded before (EndSubmission's barriers, a memexport readback that waited for the GPU) ran in the earlier
++    // submission after its last mark - its tail up to cb_end - not in the preparation of this submission's rows.
++    if (anatomy_active_) {
++      CausesRestartWindow();
++    }
+     if (crash_checkpoints_enabled()) {
+       InsertCrashCheckpoint(*BeginCrashCheckpointRecord(), CrashCheckpointPhase::kSubmissionBegin);
+     }
+@@ -7961,6 +8044,10 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ 
+   bool is_closing_frame = is_swap && frame_open_;
+ 
++  // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1: what the submission's end records below is
++  // its tail (up to its cb_end), not a block's start.
++  deferred_command_buffer_.SetEventHook(nullptr);
++
+   if (is_closing_frame) {
+     texture_cache_->EndFrame();
+ 
+@@ -10348,6 +10435,11 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       ((write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetTexturesPixel) & 1);
+   frame_counters_.constants_sets_written +=
+       (write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetConstants) & 1;
++  // wwe2k14 patch (Session 7c, CAUSES): the same sets.
++  cause_counts_.desc_writes +=
++      ((write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetTexturesVertex) & 1) +
++      ((write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetTexturesPixel) & 1) +
++      ((write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetConstants) & 1);
+   // wwe2k14 patch (Session 6, CP5): store the texture sets written by this draw for reuse - only now that
+   // their writes have been done or recorded (in the deferred command buffer, before any bind of them), so a
+   // set is still written exactly once, before it's bound.
+@@ -10523,6 +10615,7 @@ void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
+   }
+   counters.checkpoint_next_id = crash_checkpoints_enabled() ? uint32_t(crash_checkpoint_next_id_) : 0;
+   RebarFrameBoundary();  // wwe2k14 patch (Session 7b, REBAR)
++  CausesFrameBoundary();  // wwe2k14 patch (Session 7c, CAUSES): cpf_sync, cpf_sync2, [s7][CAUSES]
+   // wwe2k14 patch (Session 7b, GPUMARKS): cpf_gm.
+   if (gpu_marks_) {
+     GpuMarks& marks = *gpu_marks_;
+@@ -10801,11 +10894,19 @@ void VulkanCommandProcessor::GpuTimestampsShutdown() {
+ //                submission's work
+ //   gpu_exec_us  post minus pre (the draw), after minus before (the whole resolve)
+ //   gpu_row_us   prep + exec (cb_end: the tail)
++//   rows_covered, first_idx   (Session 7c, CAUSES) the anatomy rows the interval since the previous mark of the
++//                same submission overlaps (draw / copy: their prep), first_idx .. first_idx + rows_covered - 1;
++//                empty without that interval. Mode 0: 1 for a draw (more if skipped rows came before it).
++//   With gpu_anatomy_gpu_marks_mode 1 (Session 7c, CAUSES; see GpuMarksPosition) unmarked draws have no row, and
++//   two more kinds of rows: block (a block mark after row idx's draw call) and prep_begin (a mark right before
++//   the first event command of row idx, or after row idx's draw call). Their gpu_prep_us and gpu_row_us are the
++//   interval since the previous mark (whole unmarked rows), gpu_exec_us is empty.
+ // <anatomy>_gpu_frames.csv: one row per marked frame: frame, submissions (with both cb marks in this frame),
+ // cb_sum_us (cb_end - cb_begin summed over them; may count the overlap of consecutive submissions twice),
+ // busy_union_us (the union of those intervals), idle_gap_us (first cb_begin to last cb_end minus busy_union_us),
+ // marks, marks_dropped (frame slot full), marks_unavailable (no result: the command never ran, or its
+-// submission's command buffer wasn't submitted - those queries aren't read).
++// submission's command buffer wasn't submitted - those queries aren't read), marks_mode (Session 7c, CAUSES:
++// gpu_anatomy_gpu_marks_mode the frame was marked with).
+ // Empty columns: a mark is missing. Bottom-of-pipe timestamps between draws may keep the GPU from overlapping
+ // consecutive draws, so a marked frame can take longer than an unmarked one; compare cb_sum_us with the gpu_ts
+ // events of unmarked frames.
+@@ -10849,6 +10950,9 @@ void VulkanCommandProcessor::AnatomyGpuFrameBoundary(const std::string& rows_pat
+     }
+     marks.frames[marks.current].ended = true;
+     gpu_marks_active_ = false;
++    // wwe2k14 patch (Session 7c, CAUSES): mode 1 ends with the frame.
++    gpu_marks_sparse_ = false;
++    deferred_command_buffer_.SetEventHook(nullptr);
+   }
+   if (frame < 0 || !REXCVAR_GET(gpu_anatomy_gpu_marks)) {
+     if (gpu_marks_) {
+@@ -10880,9 +10984,13 @@ void VulkanCommandProcessor::AnatomyGpuFrameBoundary(const std::string& rows_pat
+     files->rows = GpuMarksOpenFile(gpu_path);
+     files->frames = GpuMarksOpenFile(frames_path);
+     if (files->rows && files->frames) {
+-      std::fputs("frame,idx,kind,submission,gpu_t_us,gpu_prep_us,gpu_exec_us,gpu_row_us\n", files->rows);
++      // wwe2k14 patch (Session 7c, CAUSES): rows_covered, first_idx and marks_mode appended.
+       std::fputs(
+-          "frame,submissions,cb_sum_us,busy_union_us,idle_gap_us,marks,marks_dropped,marks_unavailable\n",
++          "frame,idx,kind,submission,gpu_t_us,gpu_prep_us,gpu_exec_us,gpu_row_us,rows_covered,first_idx\n",
++          files->rows);
++      std::fputs(
++          "frame,submissions,cb_sum_us,busy_union_us,idle_gap_us,marks,marks_dropped,marks_unavailable,"
++          "marks_mode\n",
+           files->frames);
+       REXGPU_INFO("[s7][GPUMARKS] GPU marks for this capture -> {}", files->gpu_path);
+     } else {
+@@ -10914,10 +11022,20 @@ void VulkanCommandProcessor::AnatomyGpuFrameBoundary(const std::string& rows_pat
+   slot_frame.files = marks.files;
+   gpu_marks_active_ = true;
+   anatomy_gpu_row_ = 0;
++  // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode for this frame, and mode 1's state.
++  slot_frame.mode = REXCVAR_GET(gpu_anatomy_gpu_marks_mode) == 1 ? 1 : 0;
++  gpu_marks_sparse_ = slot_frame.mode == 1;
++  marks.sparse_every = uint32_t(std::max(REXCVAR_GET(gpu_anatomy_gpu_marks_every), int32_t(1)));
++  marks.sparse_event_sum = CausesEventSum();
++  marks.sparse_first_row = 0;
++  marks.sparse_row_marked = false;
++  marks.sparse_post_pending = false;
++  deferred_command_buffer_.SetEventHook(nullptr);
+   // Review fix: a submission still open (see above) starts this frame's part of it here, bottom-of-pipe, so after
+   // the earlier frame's part (its top-of-pipe cb_begin at the command buffer's start, if any, stays the earlier
+   // frame's).
+   if (submission_open_) {
++    marks.open.begin_pos = 0;  // wwe2k14 patch (Session 7c, CAUSES): before this frame's first row
+     marks.open.cb_begin_tried = true;
+     uint32_t query;
+     if (GpuMarksAllocate(GpuMarkKind::kCbBegin, query)) {
+@@ -10991,7 +11109,28 @@ bool VulkanCommandProcessor::GpuMarksAllocate(GpuMarkKind kind, uint32_t& query_
+     ++open.reset_count;
+   }
+   const uint64_t submission = GetCurrentSubmission();
+-  frame.marks.push_back({submission, anatomy_gpu_row_, kind});
++  // wwe2k14 patch (Session 7c, CAUSES): the mark's position among the anatomy rows (Mark::pos).
++  uint32_t pos;
++  switch (kind) {
++    case GpuMarkKind::kCbBegin:
++      // Top-of-pipe at the command buffer's start (or this frame's part of it, see AnatomyGpuFrameBoundary).
++      pos = open.begin_pos;
++      break;
++    case GpuMarkKind::kPrepBegin:
++      pos = GpuMarksPosition(true);
++      break;
++    case GpuMarkKind::kCbEnd:
++      pos = GpuMarksPosition(false);
++      break;
++    case GpuMarkKind::kDrawPre:
++    case GpuMarkKind::kCopyBefore:
++      pos = 2 * anatomy_gpu_row_ + 1;
++      break;
++    default:  // kDrawPost, kCopyAfter, kBlockEnd
++      pos = 2 * anatomy_gpu_row_ + 2;
++      break;
++  }
++  frame.marks.push_back({submission, anatomy_gpu_row_, kind, pos});
+   frame.last_submission = submission;
+   ++marks.counter_marks;
+   query_out = query;
+@@ -11016,6 +11155,276 @@ void VulkanCommandProcessor::GpuMark(GpuMarkKind kind) {
+   if (GpuMarksAllocate(kind, query)) {
+     deferred_command_buffer_.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, marks.pool, query);
+   }
++  // wwe2k14 patch (Session 7c, CAUSES): mode 1 bookkeeping (also for a dropped mark: the intervals of the marks
++  // that were recorded still chain, see Mark::pos).
++  if (gpu_marks_sparse_) {
++    GpuMarksSparseNoteMark(kind);
++  }
++}
++
++// wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 (sparse marks) and the rows_covered column.
++// Measurement only, like the marks themselves.
++// Mode 1 marks a draw (pre + post, as mode 0) only if something was recorded for it since the last mark that
++// ended a row (CausesEventSum changed: an upload, a texture load, a dispatch, a barrier batch, a render pass begin,
++// a pipeline bind or creation). Every resolve keeps its before / after marks. A draw that isn't marked and has no
++// event leaves its time in a block, which ends at the next mark of any kind; to keep a marked draw's preparation
++// free of the unmarked draws before it, an unmarked row's end arms the deferred command buffer's event hook, and the
++// first event command recorded after it gets a prep_begin mark right before it (GpuMarksSparseBeforeEvent). After
++// gpu_anatomy_gpu_marks_every rows without a mark, an event-free draw gets a block mark after its draw call.
++// So: a "block" row's interval holds whole event-free rows; a "prep_begin" row's interval holds the rows from the
++// last mark up to the event that follows it; a marked draw's prep starts at its own first event (or the previous
++// row's end). Each _gpu.csv row says which anatomy rows its interval overlaps (rows_covered from first_idx; see
++// Mark::pos). The marks still chain from cb_begin to cb_end in each submission.
++
++uint32_t VulkanCommandProcessor::GpuMarksPosition(bool interval_start) const {
++  const uint32_t row = anatomy_gpu_row_;
++  if (!anatomy_in_draw_) {
++    // Between rows: the start of the next one.
++    return 2 * row;
++  }
++  if (causes_row_cut_valid_) {
++    // In a draw, after its draw call (CausesCut): the row's end.
++    return 2 * row + 2;
++  }
++  // In a draw or a resolve: an interval starting here holds the row's commands from here on (its start, for the
++  // first event command or a submission begun by the row), one ending here holds part of the row.
++  return 2 * row + (interval_start ? 0 : 1);
++}
++
++void VulkanCommandProcessor::GpuMarksBeginSubmission() {
++  GpuMarks& marks = *gpu_marks_;
++  // Bookkeeping only (meaningful while gpu_marks_active_): where the new command buffer's cb_begin will be.
++  marks.open.begin_pos = GpuMarksPosition(true);
++  if (gpu_marks_active_ && gpu_marks_sparse_) {
++    // The cb_begin starts the next interval: no block is open, and the previous submission's tail (after its last
++    // mark, up to its cb_end) doesn't make this submission's first draw eventful.
++    deferred_command_buffer_.SetEventHook(nullptr);
++    marks.sparse_event_sum = CausesEventSum();
++    marks.sparse_first_row = marks.open.begin_pos / 2;
++  }
++}
++
++void VulkanCommandProcessor::GpuMarksSparseDrawPre() {
++  GpuMarks& marks = *gpu_marks_;
++  marks.sparse_post_pending = false;
++  if (CausesEventSum() != marks.sparse_event_sum) {
++    GpuMark(GpuMarkKind::kDrawPre);
++    marks.sparse_post_pending = true;
++    marks.sparse_post_kind = GpuMarkKind::kDrawPost;
++  } else if (int64_t(anatomy_gpu_row_) + 1 - int64_t(marks.sparse_first_row) >= int64_t(marks.sparse_every)) {
++    // Event-free: a block mark after the draw call ends the block of rows sparse_first_row...this one.
++    marks.sparse_post_pending = true;
++    marks.sparse_post_kind = GpuMarkKind::kBlockEnd;
++  }
++}
++
++void VulkanCommandProcessor::GpuMarksSparseDrawPost() {
++  GpuMarks& marks = *gpu_marks_;
++  if (marks.sparse_post_pending) {
++    marks.sparse_post_pending = false;
++    GpuMark(marks.sparse_post_kind);
++  }
++}
++
++void VulkanCommandProcessor::GpuMarksSparseNoteMark(GpuMarkKind kind) {
++  GpuMarks& marks = *gpu_marks_;
++  // Any mark starts a new interval, so the block (if one was open) ends here.
++  deferred_command_buffer_.SetEventHook(nullptr);
++  switch (kind) {
++    case GpuMarkKind::kDrawPost:
++    case GpuMarkKind::kCopyAfter:
++    case GpuMarkKind::kBlockEnd:
++      // The row's end: what is recorded from here on counts for the next row's decision.
++      marks.sparse_event_sum = CausesEventSum();
++      marks.sparse_first_row = anatomy_gpu_row_ + 1;
++      marks.sparse_row_marked = true;
++      break;
++    case GpuMarkKind::kPrepBegin:
++      // The rows before here are in the block that ends here; sparse_event_sum is kept, so the events recorded
++      // from here on (and any since the last row end) still mark the next draw.
++      marks.sparse_first_row = GpuMarksPosition(true) / 2;
++      break;
++    default:
++      break;
++  }
++}
++
++void VulkanCommandProcessor::GpuMarksSparseRowEnd() {
++  GpuMarks& marks = *gpu_marks_;
++  if (!marks.sparse_row_marked && submission_open_) {
++    // An unmarked row: its time stays in a block; the first event command recorded from here on gets a
++    // prep_begin mark. (Without an open submission, the next one's cb_begin starts the next interval.)
++    deferred_command_buffer_.SetEventHook(this);
++  }
++  marks.sparse_row_marked = false;
++  marks.sparse_post_pending = false;
++}
++
++void VulkanCommandProcessor::GpuMarksSparseBeforeEvent() {
++  // The event hook is only armed while marking in mode 1, and cleared at every frame boundary.
++  if (gpu_marks_active_ && gpu_marks_sparse_) {
++    GpuMark(GpuMarkKind::kPrepBegin);
++  }
++}
++
++// wwe2k14 patch (Session 7c, CAUSES): the frame-anatomy cause columns and the per-frame counters. Measurement only:
++// the counters are plain increments at the recording sites (CauseCounts, DeferredCommandBuffer::
++// dispatches_recorded / rendering_begins_recorded); this reads differences.
++// A row's cause window runs from the end of the previous row's window (or the start of the capture frame, or, when
++// later, the start of the current submission's command buffer) to:
++//   - a draw that reached its draw call: right after the draw call (CausesCut), like its GPU marks - what IssueDraw
++//     records after it in the same submission (memexport readback) is the next row's (on the GPU it falls into the
++//     next row's prep);
++//   - a resolve: right after its before mark (CausesCut), so its columns are its preparation, like its GPU prep
++//     interval; the resolve's own commands (from there to the end of the row) are its exec on the GPU, between its
++//     before / after marks, and are counted for no row (review fix);
++//   - any other row (skipped or failed draws, a resolve that couldn't begin a submission): the end of its IssueDraw
++//     call.
++// Review fix: a new submission's command buffer starts a new window (BeginSubmission): what was recorded before it
++// (a submission's end - EndSubmission's barriers -, a memexport readback that waits for the GPU) ran in the earlier
++// submission, after its last mark (its tail up to cb_end), not in the next row's preparation.
++// So a draw's columns are what was recorded for its preparation (plus any between-packet work before it in the same
++// submission; the commands of skipped rows are in their own rows). Not in any row: the resolves' own commands,
++// submission tails and the swap. The cpf_sync / cpf_sync2 events and the [s7][CAUSES] summary count everything.
++
++VulkanCommandProcessor::CauseSnapshot VulkanCommandProcessor::CausesNow() const {
++  CauseSnapshot now;
++  now.counts = cause_counts_;
++  now.dispatches = deferred_command_buffer_.dispatches_recorded();
++  now.rendering_begins = deferred_command_buffer_.rendering_begins_recorded();
++  return now;
++}
++
++uint64_t VulkanCommandProcessor::CausesEventSum() const {
++  const CauseCounts& counts = cause_counts_;
++  return uint64_t(counts.up_calls) + counts.tex_loads + counts.barrier_batches + counts.pipeline_binds +
++         counts.pipelines_created + deferred_command_buffer_.dispatches_recorded() +
++         deferred_command_buffer_.rendering_begins_recorded();
++}
++
++void VulkanCommandProcessor::CausesCloseWindow(AnatomyCauses& out) {
++  const CauseSnapshot end = CausesNow();
++  const CauseSnapshot& start = causes_row_start_;
++  const CauseCounts& e = end.counts;
++  const CauseCounts& s = start.counts;
++  out.up_calls = e.up_calls - s.up_calls;
++  out.up_pages = e.up_pages - s.up_pages;
++  out.tex_loads = e.tex_loads - s.tex_loads;
++  out.tex_loads_scaled = e.tex_loads_scaled - s.tex_loads_scaled;
++  out.tex_load_kib = uint32_t(std::min((e.tex_load_bytes - s.tex_load_bytes + 1023) >> 10, uint64_t(UINT32_MAX)));
++  out.dispatches = end.dispatches - start.dispatches;
++  out.barrier_batches = e.barrier_batches - s.barrier_batches;
++  out.barrier_src_stages = cause_counts_.barrier_src_stages;
++  out.barrier_dst_stages = cause_counts_.barrier_dst_stages;
++  out.rendering_restarts = end.rendering_begins - start.rendering_begins;
++  out.fsi_edram_barriers = e.fsi_edram_barriers - s.fsi_edram_barriers;
++  out.desc_writes = e.desc_writes - s.desc_writes;
++  out.pipeline_created = e.pipelines_created - s.pipelines_created;
++  out.pipeline_pending = e.pipelines_pending - s.pipelines_pending;
++  // The stage masks are ORed since the window's start: the next window's start from here.
++  cause_counts_.barrier_src_stages = 0;
++  cause_counts_.barrier_dst_stages = 0;
++  causes_row_start_ = end;
++}
++
++void VulkanCommandProcessor::CausesRestartWindow() {
++  causes_row_start_ = CausesNow();
++  cause_counts_.barrier_src_stages = 0;
++  cause_counts_.barrier_dst_stages = 0;
++}
++
++void VulkanCommandProcessor::CausesCut(bool copy) {
++  CausesCloseWindow(causes_row_cut_result_);
++  if (copy) {
++    // A resolve: the row (and its mode 1 bookkeeping) ends at AnatomyRowCauses, after its after mark.
++    causes_copy_cut_valid_ = true;
++    return;
++  }
++  causes_row_cut_valid_ = true;
++  // The row's end for mode 1 too (after its post / block mark, if it got one).
++  if (gpu_marks_active_ && gpu_marks_sparse_) {
++    GpuMarksSparseRowEnd();
++  }
++}
++
++bool VulkanCommandProcessor::AnatomyRowCauses(AnatomyCauses* out) {
++  const bool draw_cut = causes_row_cut_valid_;
++  const bool copy_cut = causes_copy_cut_valid_;
++  causes_row_cut_valid_ = false;
++  causes_copy_cut_valid_ = false;
++  if (!out) {
++    // A capture frame starts (or a row is dropped): discard what was counted since the last row.
++    CausesRestartWindow();
++    return true;
++  }
++  if (draw_cut || copy_cut) {
++    *out = causes_row_cut_result_;
++    if (copy_cut) {
++      // Review fix: the resolve's own commands since its before point are its exec, no row's preparation.
++      CausesRestartWindow();
++    }
++    // After a draw's cut, what was recorded since stays counted for the next row.
++  } else {
++    // A row without a draw call or a resolve (a skipped or failed draw) ends here.
++    CausesCloseWindow(*out);
++  }
++  // A row without a draw call (a resolve or a skipped draw) ends here for mode 1 (a draw's ended at its cut).
++  if (!draw_cut && gpu_marks_active_ && gpu_marks_sparse_) {
++    GpuMarksSparseRowEnd();
++  }
++  return true;
++}
++
++// Every frame boundary (CollectFrameCounters, right before the cpf* events and cp_swap). With the timeline on:
++//   cpf_sync   a = pipeline barrier batches recorded, b = render pass / dynamic rendering instances begun (the
++//              rendering restarts), c = compute dispatches recorded
++//   cpf_sync2  a = texture loads recorded, b = of those, from the resolution-scaled resolve buffer, c = full-EDRAM
++//              barriers placed by EDRAM write commits (fragment shader interlock barriers)
++// and, about every 300 frames while the timeline is on, an [s7][CAUSES] summary of all the cause counters.
++void VulkanCommandProcessor::CausesFrameBoundary() {
++  const CauseSnapshot now = CausesNow();
++  const bool timeline = perf::timeline::Enabled();
++  if (timeline) {
++    const CauseSnapshot& start = causes_frame_start_;
++    perf::timeline::Record("cpf_sync", now.counts.barrier_batches - start.counts.barrier_batches,
++                           now.rendering_begins - start.rendering_begins, now.dispatches - start.dispatches);
++    perf::timeline::Record("cpf_sync2", now.counts.tex_loads - start.counts.tex_loads,
++                           now.counts.tex_loads_scaled - start.counts.tex_loads_scaled,
++                           now.counts.fsi_edram_barriers - start.counts.fsi_edram_barriers);
++  }
++  causes_frame_start_ = now;
++  if (!causes_log_frames_) {
++    causes_log_first_frame_ = frame_current_;
++  }
++  causes_log_timeline_ = causes_log_timeline_ && timeline;
++  if (++causes_log_frames_ < 300) {
++    return;
++  }
++  if (causes_log_timeline_) {
++    const CauseSnapshot& first = causes_log_start_;
++    const CauseCounts& e = now.counts;
++    const CauseCounts& s = first.counts;
++    const double frames = double(causes_log_frames_);
++    auto per_frame = [frames](uint64_t value) { return double(value) / frames; };
++    REXGPU_INFO(
++        "[s7][CAUSES] frames {}-{}, per frame: barrier batches {:.1f}, rendering begins {:.1f}, dispatches "
++        "{:.1f}, uploads {:.1f} ({:.1f} pages), texture loads {:.1f} ({:.1f} scaled, {:.0f} KiB), FSI EDRAM "
++        "barriers {:.1f}, descriptor sets {:.1f}, pipeline binds {:.1f}, pipelines created {:.2f}, draws skipped "
++        "for pending pipelines {:.2f}",
++        causes_log_first_frame_, frame_current_, per_frame(e.barrier_batches - s.barrier_batches),
++        per_frame(uint32_t(now.rendering_begins - first.rendering_begins)),
++        per_frame(uint32_t(now.dispatches - first.dispatches)), per_frame(uint32_t(e.up_calls - s.up_calls)),
++        per_frame(uint32_t(e.up_pages - s.up_pages)), per_frame(uint32_t(e.tex_loads - s.tex_loads)),
++        per_frame(uint32_t(e.tex_loads_scaled - s.tex_loads_scaled)),
++        per_frame((e.tex_load_bytes - s.tex_load_bytes) >> 10),
++        per_frame(uint32_t(e.fsi_edram_barriers - s.fsi_edram_barriers)),
++        per_frame(uint32_t(e.desc_writes - s.desc_writes)), per_frame(uint32_t(e.pipeline_binds - s.pipeline_binds)),
++        per_frame(uint32_t(e.pipelines_created - s.pipelines_created)),
++        per_frame(uint32_t(e.pipelines_pending - s.pipelines_pending)));
++  }
++  causes_log_start_ = now;
++  causes_log_frames_ = 0;
++  causes_log_timeline_ = true;
+ }
+ 
+ VulkanCommandProcessor::GpuMarksSubmission VulkanCommandProcessor::GpuMarksEndSubmission() {
+@@ -11188,14 +11597,27 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+       text.push_back(',');
+     }
+   };
++  // wwe2k14 patch (Session 7c, CAUSES): rows_covered and first_idx end each row: the anatomy rows the row's
++  // interval overlaps (draw / copy: its prep; block, prep_begin, cb_end: the whole interval), from Mark::pos.
++  struct Covered {
++    bool valid = false;
++    uint32_t first = 0;
++    uint32_t count = 0;
++  };
+   auto append_row = [&](uint32_t row, const char* kind, uint64_t submission, bool t_valid, double t_us,
+                         bool prep_valid, double prep_us, bool exec_valid, double exec_us, bool row_valid,
+-                        double row_us) {
++                        double row_us, const Covered& covered) {
+     fmt::format_to(std::back_inserter(text), "{},{},{},{}", frame.frame, row, kind, submission);
+     append_us(t_valid, t_us);
+     append_us(prep_valid, prep_us);
+     append_us(exec_valid, exec_us);
+     append_us(row_valid, row_us);
++    if (covered.valid) {
++      fmt::format_to(std::back_inserter(text), ",{},{}", covered.count, covered.first);
++    } else {
++      text.push_back(',');
++      text.push_back(',');
++    }
+     text.push_back('\n');
+   };
+ 
+@@ -11209,15 +11631,20 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+     uint64_t t = 0;
+     bool prep_valid = false;
+     double prep_us = 0.0;
++    Covered covered;  // wwe2k14 patch (Session 7c, CAUSES)
+   } open_row;
+   double prep_sum_us = 0.0;
+   double exec_sum_us = 0.0;
++  // wwe2k14 patch (Session 7c, CAUSES): block / prep_begin rows (mode 1).
++  uint32_t blocks = 0;
++  uint64_t block_rows = 0;
++  double block_sum_us = 0.0;
+   auto flush_open_row = [&](bool post_valid, uint64_t post_t) {
+     const bool exec_valid = open_row.t_valid && post_valid;
+     const double exec_us = exec_valid ? us(post_t, open_row.t) : 0.0;
+     append_row(open_row.row, open_row.copy ? "copy" : "draw", open_row.submission, open_row.t_valid && base_found,
+                open_row.t_valid ? us(open_row.t, base) : 0.0, open_row.prep_valid, open_row.prep_us, exec_valid,
+-               exec_us, open_row.prep_valid && exec_valid, open_row.prep_us + exec_us);
++               exec_us, open_row.prep_valid && exec_valid, open_row.prep_us + exec_us, open_row.covered);
+     if (open_row.prep_valid) {
+       prep_sum_us += open_row.prep_us;
+     }
+@@ -11233,6 +11660,7 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+   bool prev_valid = false;
+   uint64_t prev_t = 0;
+   uint64_t prev_submission = 0;
++  uint32_t prev_pos = 0;  // wwe2k14 patch (Session 7c, CAUSES): Mark::pos of the mark prev_t is from
+   bool cb_begin_valid = false;
+   uint64_t cb_begin_t = 0;
+   uint64_t cb_begin_submission = 0;
+@@ -11250,12 +11678,20 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+     // The time since the previous mark of the same submission (after a cb_begin: see kCbBegin).
+     const bool since_prev_valid = valid && prev_valid && prev_submission == mark.submission;
+     const double since_prev_us = since_prev_valid ? us(t, prev_t) : 0.0;
++    // wwe2k14 patch (Session 7c, CAUSES): the anatomy rows that interval overlaps.
++    Covered since_prev_covered;
++    if (since_prev_valid) {
++      since_prev_covered.valid = true;
++      since_prev_covered.first = prev_pos / 2;
++      const uint32_t end_row = (mark.pos + 1) / 2;
++      since_prev_covered.count = end_row > since_prev_covered.first ? end_row - since_prev_covered.first : 0;
++    }
+     // Where the next mark of this submission measures from.
+     uint64_t next_prev_t = t;
+     switch (mark.kind) {
+       case GpuMarkKind::kCbBegin:
+         append_row(mark.row, "cb_begin", mark.submission, valid && base_found, valid ? us(t, base) : 0.0, false,
+-                   0.0, false, 0.0, false, 0.0);
++                   0.0, false, 0.0, false, 0.0, Covered());
+         cb_begin_valid = valid;
+         cb_begin_t = t;
+         cb_begin_submission = mark.submission;
+@@ -11278,7 +11714,8 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+         }
+         const double tail_us = copy_ended ? 0.0 : since_prev_us;
+         append_row(mark.row, "cb_end", mark.submission, valid && base_found, valid ? us(t, base) : 0.0,
+-                   since_prev_valid, tail_us, false, 0.0, since_prev_valid, tail_us);
++                   since_prev_valid, tail_us, false, 0.0, since_prev_valid, tail_us,
++                   copy_ended ? Covered() : since_prev_covered);
+         if (valid && cb_begin_valid && cb_begin_submission == mark.submission) {
+           intervals.emplace_back(delta(cb_begin_t, base), delta(t, base));
+         }
+@@ -11301,6 +11738,7 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+         open_row.t = t;
+         open_row.prep_valid = since_prev_valid;
+         open_row.prep_us = since_prev_us;
++        open_row.covered = since_prev_covered;  // wwe2k14 patch (Session 7c, CAUSES)
+         break;
+       case GpuMarkKind::kDrawPost:
+       case GpuMarkKind::kCopyAfter: {
+@@ -11313,14 +11751,33 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+             flush_open_row(false, 0);
+           }
+           append_row(mark.row, copy ? "copy" : "draw", mark.submission, false, 0.0, false, 0.0, false, 0.0, false,
+-                     0.0);
++                     0.0, Covered());
+         }
+       } break;
++      // wwe2k14 patch (Session 7c, CAUSES): mode 1 block marks. The interval since the previous mark (in prep and
++      // row) holds whole unmarked rows (block: after the draw call of row idx; prep_begin: before the first event
++      // command of row idx, or after row idx's draw call when recorded after it).
++      case GpuMarkKind::kPrepBegin:
++      case GpuMarkKind::kBlockEnd:
++        if (open_row.valid) {
++          // Its post mark was dropped.
++          flush_open_row(false, 0);
++        }
++        append_row(mark.row, mark.kind == GpuMarkKind::kBlockEnd ? "block" : "prep_begin", mark.submission,
++                   valid && base_found, valid ? us(t, base) : 0.0, since_prev_valid, since_prev_us, false, 0.0,
++                   since_prev_valid, since_prev_us, since_prev_covered);
++        ++blocks;
++        if (since_prev_valid) {
++          block_rows += since_prev_covered.count;
++          block_sum_us += since_prev_us;
++        }
++        break;
+     }
+     if (valid) {
+       prev_valid = true;
+       prev_t = next_prev_t;
+       prev_submission = mark.submission;
++      prev_pos = mark.pos;  // wwe2k14 patch (Session 7c, CAUSES)
+     }
+   }
+   if (open_row.valid) {
+@@ -11363,9 +11820,10 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+   GpuMarks::Files* files = frame.files.get();
+   if (files && !files->write_failed && files->rows && files->frames) {
+     bool write_ok = !text.size() || std::fwrite(text.data(), 1, text.size(), files->rows) == text.size();
+-    write_ok = std::fprintf(files->frames, "%u,%u,%.2f,%.2f,%.2f,%u,%u,%u\n", frame.frame,
++    // wwe2k14 patch (Session 7c, CAUSES): marks_mode appended.
++    write_ok = std::fprintf(files->frames, "%u,%u,%.2f,%.2f,%.2f,%u,%u,%u,%u\n", frame.frame,
+                             uint32_t(intervals.size()), cb_sum_us, busy_us, idle_us, count, frame.dropped,
+-                            unavailable) > 0 &&
++                            unavailable, frame.mode) > 0 &&
+                write_ok;
+     if (!write_ok) {
+       files->write_failed = true;
+@@ -11384,6 +11842,11 @@ void VulkanCommandProcessor::GpuMarksWriteFrame(uint32_t slot) {
+   marks.log_idle_us += idle_us;
+   marks.log_prep_us += prep_sum_us;
+   marks.log_exec_us += exec_sum_us;
++  // wwe2k14 patch (Session 7c, CAUSES).
++  marks.log_blocks += blocks;
++  marks.log_block_rows += block_rows;
++  marks.log_block_us += block_sum_us;
++  marks.log_frames_sparse += frame.mode == 1 ? 1 : 0;
+   ++marks.counter_frames_written;
+ 
+   frame.in_use = false;
+@@ -11405,6 +11868,18 @@ void VulkanCommandProcessor::GpuMarksLogSummary() {
+       marks.log_cb_sum_us / frames / 1000.0, marks.log_busy_us / frames / 1000.0,
+       marks.log_idle_us / frames / 1000.0, marks.log_prep_us / frames / 1000.0,
+       marks.log_exec_us / frames / 1000.0, marks.log_frames_not_marked);
++  // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 frames.
++  if (marks.log_frames_sparse) {
++    REXGPU_INFO(
++        "[s7][GPUMARKS] {} of them sparse (gpu_anatomy_gpu_marks_mode 1), per frame: {:.1f} block / prep_begin "
++        "marks covering {:.1f} rows, {:.2f} ms in blocks",
++        marks.log_frames_sparse, double(marks.log_blocks) / frames, double(marks.log_block_rows) / frames,
++        marks.log_block_us / frames / 1000.0);
++  }
++  marks.log_blocks = 0;
++  marks.log_block_rows = 0;
++  marks.log_block_us = 0.0;
++  marks.log_frames_sparse = 0;
+   marks.log_frames = 0;
+   marks.log_frames_not_marked = 0;
+   marks.log_marks = 0;
+@@ -11428,6 +11903,9 @@ void VulkanCommandProcessor::GpuMarksShutdown() {
+     marks.frames[marks.current].ended = true;
+     gpu_marks_active_ = false;
+   }
++  // wwe2k14 patch (Session 7c, CAUSES).
++  gpu_marks_sparse_ = false;
++  deferred_command_buffer_.SetEventHook(nullptr);
+   marks.files.reset();
+   GpuMarksRead();
+   uint32_t abandoned = 0;
+diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
+index 7a9bd94..be51c4c 100644
+--- a/src/graphics/vulkan/deferred_command_buffer.cpp
++++ b/src/graphics/vulkan/deferred_command_buffer.cpp
+@@ -33,6 +33,14 @@ void DeferredCommandBuffer::Reset() {
+   command_stream_.clear();
+ }
+ 
++// wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1, see SetEventHook. Cleared before the call:
++// the hook records a timestamp (not an event command) into this buffer, before the event command is written.
++void DeferredCommandBuffer::CallEventHook() {
++  VulkanCommandProcessor* hook = event_hook_;
++  event_hook_ = nullptr;
++  hook->GpuMarksSparseBeforeEvent();
++}
++
+ bool DeferredCommandBuffer::GetDescriptorPayload(VkDescriptorType type, DescriptorPayload& payload_out,
+                                                  size_t& element_size_out) {
+   switch (type) {
+@@ -454,6 +462,7 @@ void DeferredCommandBuffer::CmdVkPipelineBarrier(
+     const VkMemoryBarrier* memory_barriers, uint32_t buffer_memory_barrier_count,
+     const VkBufferMemoryBarrier* buffer_memory_barriers, uint32_t image_memory_barrier_count,
+     const VkImageMemoryBarrier* image_memory_barriers) {
++  BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+   size_t arguments_size = sizeof(ArgsVkPipelineBarrier);
+   size_t memory_barriers_offset = 0;
+   if (memory_barrier_count) {
+@@ -498,6 +507,9 @@ void DeferredCommandBuffer::CmdVkPipelineBarrier(
+ 
+ void DeferredCommandBuffer::CmdVkBeginRendering(const VkRenderingInfo* rendering_info) {
+   assert_null(rendering_info->pNext);
++  // wwe2k14 patch (Session 7c, CAUSES)
++  BeforeEventCommand();
++  ++rendering_begins_recorded_;
+ 
+   size_t arguments_size =
+       rex::align(sizeof(ArgsVkBeginRendering), alignof(VkRenderingAttachmentInfo));
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 9f21dbb..c3c5936 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -1188,6 +1188,9 @@ bool VulkanPipelineCache::ConfigurePipeline(
+           !EnsurePipelineCreated(creation_arguments)) {
+         return false;
+       }
++      // wwe2k14 patch (Session 7c, CAUSES): measurement only - created now, on this thread (review fix: only
++      // once the creation has succeeded).
++      ++command_processor_.cause_counts().pipelines_created;
+       found_pipeline = it->second.pipeline.load(std::memory_order_acquire);
+     }
+     const PipelineLayoutProvider* found_pipeline_layout =
+@@ -1274,6 +1277,9 @@ bool VulkanPipelineCache::ConfigurePipeline(
+     pipelines_.erase(description);
+     return false;
+   }
++  // wwe2k14 patch (Session 7c, CAUSES): measurement only - a new pipeline, created or queued above (review fix:
++  // not counted when its creation arguments or its creation failed).
++  ++command_processor_.cause_counts().pipelines_created;
+   if (!queued_async_creation) {
+     pipeline.second.is_placeholder.store(false, std::memory_order_release);
+   }
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 01db486..5f306ff 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -2203,6 +2203,9 @@ void VulkanRenderTargetCache::CommitEdramBufferShaderWrites(
+   command_processor_.PushBufferMemoryBarrier(
+       edram_buffer_, 0, VK_WHOLE_SIZE, stage_mask, stage_mask, access_mask, access_mask,
+       VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, false);
++  // wwe2k14 patch (Session 7c, CAUSES): measurement only - a full-EDRAM barrier placed (recorded by the next
++  // SubmitBarriers).
++  ++command_processor_.cause_counts().fsi_edram_barriers;
+   edram_buffer_modification_status_ = EdramBufferModificationStatus::kUnmodified;
+   PixelShaderInterlockFullEdramBarrierPlaced();
+ }
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 5992344..c259aa4 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -672,6 +672,14 @@ bool VulkanSharedMemory::UploadRanges(
+   if (upload_page_ranges.empty()) {
+     return true;
+   }
++  // wwe2k14 patch (Session 7c, CAUSES): measurement only - this call records its barrier and copies from here on.
++  {
++    VulkanCommandProcessor::CauseCounts& causes = command_processor_.cause_counts();
++    ++causes.up_calls;
++    for (const std::pair<uint32_t, uint32_t>& upload_range : upload_page_ranges) {
++      causes.up_pages += upload_range.second;
++    }
++  }
+   // upload_page_ranges are sorted, use them to determine the range for the
+   // ordering barrier.
+   Use(Usage::kTransferDestination,
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index cdce162..57ce2fa 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1756,6 +1756,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   uint32_t source_length_alignment = UINT32_C(1) << load_shader_info.source_bpe_log2;
+   VkDescriptorSet descriptor_set_source_base = VK_NULL_HANDLE;
+   VkDescriptorSet descriptor_set_source_mips = VK_NULL_HANDLE;
++  uint64_t source_bytes = 0;  // wwe2k14 patch (Session 7c, CAUSES): the source ranges the load reads
+   VkDescriptorBufferInfo write_descriptor_set_source_base_buffer_info;
+   VkDescriptorBufferInfo write_descriptor_set_source_mips_buffer_info;
+   if (level_first == 0) {
+@@ -1785,6 +1786,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+     }
+     write_descriptor_set_source_base_buffer_info.offset = source_base_start;
+     write_descriptor_set_source_base_buffer_info.range = source_base_range;
++    source_bytes += source_base_range;  // wwe2k14 patch (Session 7c, CAUSES)
+     VkWriteDescriptorSet& write_descriptor_set_source_base =
+         write_descriptor_sets[write_descriptor_set_count++];
+     write_descriptor_set_source_base.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+@@ -1825,6 +1827,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+     }
+     write_descriptor_set_source_mips_buffer_info.offset = source_mips_start;
+     write_descriptor_set_source_mips_buffer_info.range = source_mips_range;
++    source_bytes += source_mips_range;  // wwe2k14 patch (Session 7c, CAUSES)
+     VkWriteDescriptorSet& write_descriptor_set_source_mips =
+         write_descriptor_sets[write_descriptor_set_count++];
+     write_descriptor_set_source_mips.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+@@ -1853,6 +1856,17 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+ 
+   DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
+ 
++  // wwe2k14 patch (Session 7c, CAUSES): measurement only - the load records its commands from here on (no early
++  // return after this point).
++  {
++    VulkanCommandProcessor::CauseCounts& causes = command_processor_.cause_counts();
++    ++causes.tex_loads;
++    if (texture_key.scaled_resolve) {
++      ++causes.tex_loads_scaled;
++    }
++    causes.tex_load_bytes += source_bytes;
++  }
++
+   command_processor_.BindExternalComputePipeline(pipeline);
+ 
+   command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, load_pipeline_layout_,

@@ -1,0 +1,20 @@
+# Session 14 (M5 Track A): launched Royal Rumble; write watch on the entrance object's block 1 character id
+# (object 0xA4C2E480 + 16 + 12 + 332 + 140; runs 1020-1022). Use with --wwe2k14_launch=rumble_40. Untimed. on_fail quit.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+watch 0xA4C2E674 4 any
+wait_frames 600
+wait_frames 30
+quit

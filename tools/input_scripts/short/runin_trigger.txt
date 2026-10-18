@@ -1,0 +1,34 @@
+# Session 16 item 9: run-in trigger test. Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true
+# --wwe2k14_runin=true --wwe2k14_log_file_opens=true (+ peeks on the manager 0x83763B58 and its entry +4080). CPU vs CPU,
+# fast-forwarded: from 600 frames into the match, `cvar wwe2k14_runin_now 1` calls the game's own trigger every 500
+# frames, alternating the target between slot 1 and slot 0, 12 times, with a screenshot every 300 frames (does anyone
+# come out? which CHnnn.PAC loads?), then quit. on_fail quit.
+on_fail quit
+log ri: start
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+wait_file INGAMELUA.PAC 36000
+wait_state match_clock !=0 36000 2
+log ri: match running
+wait_frames 600
+screenshot ri_before
+screenshot_every 300 ri
+repeat 6
+cvar wwe2k14_runin_target 1
+cvar wwe2k14_runin_now 1
+wait_frames 500
+cvar wwe2k14_runin_target 0
+cvar wwe2k14_runin_now 1
+wait_frames 500
+end_repeat
+screenshot_every 0
+log ri: end
+quit

@@ -1,0 +1,683 @@
+{
+  "about": "WWE 2K14 (Xbox 360) arena ids: the value the menus pass to the arena setter sub_822C9748 (M+532, then G+64), and the arena archive pac\\bg\\BGnn.PAC it loads (nn = the id, two digits). Session 9, 2026-10-10. 'confirmed' = the menu value and the archive opened at match load were both seen in a run; 'id_list' = the arena id list Jarrod found (names); 'icon_table' = Session 8's static reading of the arena icon table at 0x8203F998 (docs/systems/match_setup.md) only. 300 is not an arena: it means 'the match type's default arena'.",
+  "evidence_key": {
+    "capture": "a capture's arena (M+532) for an arena Jarrod picked (run 486) or the scripted route picked",
+    "bg_load": "BGnn.PAC opened at match load with that value in G+64",
+    "icon_table": "Session 8: arena icon table {BG id, icon name, x} at 0x8203F998, names read from the icon names (static, not seen in a run)",
+    "grid": "position on the arena select grid (Jarrod's screenshot, 2026-10-10; ARENAS tab)",
+    "id_list": "Smacktalks thread \"WWE 2K14 complete CH and BG pac list\", https://smacktalks.org/forums/topic/44532-wwe-2k14-complete-ch-and-bg-pac-list/ : the BG list as pasted by Jarrod (2026-10-10; the page refuses automated fetches, so not read by us). Agrees with every arena id confirmed in our runs (0, 4, 6, 9, 21, 22, 56), and the dump holds exactly the bgNN.pac set it lists"
+  },
+  "menu_grid": {
+    "tab": "ARENAS (first of the LB / RB tabs; the WrestleMania arenas are another tab, locked on the frozen save)",
+    "rows": [
+      [
+        "RAW",
+        "SmackDown",
+        "Main Event",
+        "Superstars",
+        "NXT"
+      ],
+      [
+        "SummerSlam",
+        "Survivor Series",
+        "Royal Rumble",
+        "(locked)"
+      ],
+      [
+        "Over the Limit",
+        "No Way Out",
+        "Money in the Bank",
+        "Night of Champions"
+      ],
+      [
+        "Hell in a Cell",
+        "TLC",
+        "Elimination Chamber",
+        "Extreme Rules",
+        "WrestleMania XXX Moment"
+      ]
+    ],
+    "note": "Rows are 5 / 4 / 4 / 5 wide and the cursor wraps: UP from RAW lands on Hell in a Cell, UP UP on Over the Limit (Session 6 cursor facts). The grid opens on a random pre-selected arena: reset the cursor first (RB x3 -> RAW, Session 6)."
+  },
+  "entries": [
+    {
+      "id": 0,
+      "name": "SmackDown",
+      "bg": "BG00.PAC",
+      "evidence": [
+        "capture (tag_hellno_shield, Jarrod picked SmackDown)",
+        "bg_load (runs 486, 491)",
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 1,
+      "name": "RAW",
+      "bg": "BG01.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 2,
+      "name": "NXT",
+      "bg": "BG02.PAC",
+      "evidence": [
+        "bg_load (Session 6)",
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 3,
+      "name": "Superstars",
+      "bg": "BG03.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 4,
+      "name": "Over the Limit",
+      "bg": "BG04.PAC",
+      "evidence": [
+        "capture (lesnar_bryan, Jarrod's recording 056)",
+        "bg_load (runs 078, 208, 470-482)",
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 5,
+      "name": "No Way Out",
+      "bg": "BG05.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 6,
+      "name": "Money in the Bank",
+      "bg": "BG06.PAC",
+      "evidence": [
+        "capture (bryan_lesnar_mitb, Jarrod picked it)",
+        "bg_load (runs 486, 487)",
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 7,
+      "name": "SummerSlam",
+      "bg": "BG07.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 8,
+      "name": "Night of Champions",
+      "bg": "BG08.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 9,
+      "name": "Hell in a Cell",
+      "bg": "BG09.PAC",
+      "evidence": [
+        "capture (hiac_cena_brodus, Jarrod picked it)",
+        "bg_load (runs 486, 490)",
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 11,
+      "name": "Survivor Series",
+      "bg": "BG11.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 12,
+      "name": "TLC: Tables, Ladders & Chairs",
+      "bg": "BG12.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 13,
+      "name": "Royal Rumble",
+      "bg": "BG13.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 14,
+      "name": "Elimination Chamber",
+      "bg": "BG14.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 15,
+      "name": "WrestleMania 29",
+      "bg": "BG15.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 16,
+      "name": "Extreme Rules",
+      "bg": "BG16.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 17,
+      "name": "Main Event",
+      "bg": "BG17.PAC",
+      "evidence": [
+        "icon_table",
+        "id_list"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 21,
+      "name": "Elimination Chamber",
+      "bg": "BG21.PAC",
+      "evidence": [
+        "capture (chamber_6man: the menus passed 21)",
+        "bg_load (BG21 opened in the menus, run 486; at match load, run 488)",
+        "id_list"
+      ],
+      "confidence": "high",
+      "note": "the Elimination Chamber match uses 21, not 14 (chamber_6man: the menus passed 21)"
+    },
+    {
+      "id": 22,
+      "name": "Royal Rumble",
+      "bg": "BG22.PAC",
+      "evidence": [
+        "capture (rumble_40: the menus passed 22)",
+        "bg_load (run 489)",
+        "id_list"
+      ],
+      "confidence": "high",
+      "note": "the Royal Rumble match uses 22, not 13 (rumble_40: the menus passed 22)"
+    },
+    {
+      "id": 23,
+      "name": "RAW",
+      "bg": "BG23.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "a second RAW arena (unknown which match type uses it)"
+    },
+    {
+      "id": 28,
+      "name": "WrestleMania",
+      "bg": "BG28.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 29,
+      "name": "WrestleMania 2",
+      "bg": "BG29.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 30,
+      "name": "WrestleMania III",
+      "bg": "BG30.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 31,
+      "name": "WrestleMania IV",
+      "bg": "BG31.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 32,
+      "name": "WrestleMania V",
+      "bg": "BG32.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 33,
+      "name": "WrestleMania VI",
+      "bg": "BG33.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 34,
+      "name": "WrestleMania VII",
+      "bg": "BG34.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 35,
+      "name": "WrestleMania VIII",
+      "bg": "BG35.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 36,
+      "name": "WrestleMania IX",
+      "bg": "BG36.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 37,
+      "name": "WrestleMania X",
+      "bg": "BG37.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 38,
+      "name": "WrestleMania XI",
+      "bg": "BG38.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 39,
+      "name": "WrestleMania XII",
+      "bg": "BG39.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 40,
+      "name": "WrestleMania 13",
+      "bg": "BG40.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 41,
+      "name": "WrestleMania XIV",
+      "bg": "BG41.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 42,
+      "name": "WrestleMania XV",
+      "bg": "BG42.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 43,
+      "name": "WrestleMania 2000",
+      "bg": "BG43.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 44,
+      "name": "WrestleMania X-Seven",
+      "bg": "BG44.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 45,
+      "name": "WrestleMania X8",
+      "bg": "BG45.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 46,
+      "name": "WrestleMania XIX",
+      "bg": "BG46.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 47,
+      "name": "WrestleMania XX",
+      "bg": "BG47.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 48,
+      "name": "WrestleMania 21",
+      "bg": "BG48.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 49,
+      "name": "WrestleMania 22",
+      "bg": "BG49.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 50,
+      "name": "WrestleMania 23",
+      "bg": "BG50.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 51,
+      "name": "WrestleMania XXIV",
+      "bg": "BG51.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 52,
+      "name": "WrestleMania XXV",
+      "bg": "BG52.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 53,
+      "name": "WrestleMania XXVI",
+      "bg": "BG53.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 54,
+      "name": "WrestleMania XXVII",
+      "bg": "BG54.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 55,
+      "name": "WrestleMania XXVIII",
+      "bg": "BG55.PAC",
+      "evidence": [
+        "id_list",
+        "icon_table (28-55 = WrestleMania I-XXVIII)",
+        "archive present in the dump; the stage code tests G+64 for 28-55 (sub_824E7030)"
+      ],
+      "confidence": "medium",
+      "locked": "on the frozen save (WRESTLEMANIA ARENAS tab)"
+    },
+    {
+      "id": 56,
+      "name": "WrestleMania XXX",
+      "bg": "BG56.PAC",
+      "evidence": [
+        "bg_load (run 083, the bench_taker_wm route)",
+        "icon_table (WrestleMania 30 icon)",
+        "grid (last tile)",
+        "id_list"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 66,
+      "name": "Create-a-Superstar background",
+      "bg": "BG66.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "not a match arena (menu / story backgrounds)"
+    },
+    {
+      "id": 67,
+      "name": "Restaurant",
+      "bg": "BG67.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "not a match arena (menu / story backgrounds)"
+    },
+    {
+      "id": 68,
+      "name": "GM Office",
+      "bg": "BG68.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "not a match arena (menu / story backgrounds)"
+    },
+    {
+      "id": 76,
+      "name": "black (N/A)",
+      "bg": "BG76.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "not a match arena (menu / story backgrounds)"
+    },
+    {
+      "id": 77,
+      "name": "black (N/A)",
+      "bg": "BG77.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "not a match arena (menu / story backgrounds)"
+    },
+    {
+      "id": 78,
+      "name": "black (N/A)",
+      "bg": "BG78.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "not a match arena (menu / story backgrounds)"
+    },
+    {
+      "id": 79,
+      "name": "black (N/A)",
+      "bg": "BG79.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "not a match arena (menu / story backgrounds)"
+    },
+    {
+      "id": 80,
+      "name": "Backstage",
+      "bg": "BG80.PAC",
+      "evidence": [
+        "id_list"
+      ],
+      "confidence": "medium",
+      "note": "not a match arena (menu / story backgrounds)"
+    }
+  ]
+}

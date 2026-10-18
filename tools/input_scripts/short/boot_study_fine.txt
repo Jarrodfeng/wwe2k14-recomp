@@ -1,0 +1,12 @@
+# harness: realtime (load-time measurement (wall clock); Session 16: run_list fast-forwards other routes)
+# Session 12: boot-screen check with --wwe2k14_skip_boot_screens: a screenshot every 4 frames from the first frame to
+# the title screen data (+60 frames). Untimed. Screenshots bf_* are local only. on_fail quit.
+on_fail quit
+screenshot_every 4 bf
+log bf: start
+wait_file SaveData.Dat 3600
+log bf: title data
+wait_frames 60
+screenshot_every 0
+log bf: end
+quit

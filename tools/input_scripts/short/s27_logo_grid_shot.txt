@@ -1,0 +1,29 @@
+# harness: fast-forward ok (Session 27 item 2: the logo grid of a save copy, screenshot only; never opens a slot)
+on_fail quit
+log grid_shot: start
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_state 0x839400F8>0>48 75 1200
+wait_state 0x8392945C>364 1 600
+wait_frames 60
+press_until_state DOWN 0x8392945C>368 3 6 40
+assert_state 0x8392945C>368 3
+press A
+wait_state 0x8392945C>364 3 300
+wait_frames 20
+press_until_state DOWN 0x8392945C>368 1522 12 40
+assert_state 0x8392945C>368 1522
+press A
+wait_state 0x839400F8>0>48 78 900
+wait_state 0x839400F8>256>76>1200 1 900
+wait_file CASTHUMB.PAC 900 optional
+wait_file SaveData.Dat 1800 optional
+wait_frames 280
+screenshot logo_grid
+log grid_shot: end
+wait_frames 30
+quit

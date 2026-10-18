@@ -1,0 +1,901 @@
+Subject: [ReXGlue] merge s7/protect
+
+Class: RGO
+What: Join VirtualProtect runs over already-protected pages.
+Evidence: No gain measured (run 133).
+On / off: gpu_protect_batch (+_verify), off.
+Commit: ec65b10 (diff against ec65b10^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index 252a29a..14661d6 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -36,6 +36,9 @@ REXCVAR_DEFINE_BOOL(gpu_request_ranges_fast_verify, false, "GPU",
+                     "still run the original locked path (so the result is the original one) and count and "
+                     "log disagreements ([s6][CP2]).");
+ 
++// wwe2k14 patch (Session 7, PROTECT): defined in src/system/xmemory.cpp (rexruntime).
++REXCVAR_DECLARE(bool, gpu_protect_batch);
++
+ namespace rex::graphics {
+ 
+ SharedMemory::SharedMemory(memory::Memory& memory) : memory_(memory) {
+@@ -322,6 +325,23 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length, bool written_
+       uint64_t& gpu_written = system_page_flags_valid_and_gpu_written_[i];
+       gpu_written = written_by_gpu ? (gpu_written | valid_bits) : (gpu_written & ~valid_bits);
+     }
++
++    // wwe2k14 patch (Session 7, PROTECT): with gpu_protect_batch, watch the pages without leaving the global
++    // critical region (Memory::EnablePhysicalMemoryAccessCallbacks and each physical view enter it again,
++    // only a count for the owning thread): one acquisition instead of four. The same calls in the same
++    // order. The only difference: a guest write access violation on these pages (possible where they are
++    // still watched from an earlier upload) can no longer be handled between marking them valid and
++    // watching them, only before both (this call then watches them again: the retried write lands before
++    // the new watch, so before the caller's copy, or traps on it) or after both (it clears the valid bits,
++    // so they are uploaded again on their next use) - both outcomes the original has too.
++    if (REXCVAR_GET(gpu_protect_batch)) {
++      if (memory_invalidation_callback_handle_) {
++        memory().EnablePhysicalMemoryAccessCallbacks(
++            valid_page_first << page_size_log2_,
++            (valid_page_last - valid_page_first + 1) << page_size_log2_, true, false);
++      }
++      return;
++    }
+   }
+ 
+   if (memory_invalidation_callback_handle_) {
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 1c5b6c5..1e5e3f1 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -44,8 +44,29 @@ REXCVAR_DEFINE_BOOL(gpu_upload_streaming_copy_verify, false, "GPU/Vulkan",
+                     "With gpu_upload_streaming_copy: compare every streamed chunk with guest memory (slow - "
+                     "reads the upload buffer back), count and log mismatches ([s6][RESID])");
+ 
++// wwe2k14 patch (Session 7, PROTECT): page protection counters, defined in src/system/xmemory.cpp
++// (rexruntime exports all symbols) - declared here, not in rex/system/xmemory.h, which the game executable
++// includes.
++namespace rex::memory {
++void ResetPhysicalProtectStats();
++void LogPhysicalProtectStats(uint64_t first_frame, uint64_t last_frame);
++}  // namespace rex::memory
++
+ namespace {
+ 
++// wwe2k14 patch (Session 7, PROTECT): what UploadRanges hands to SharedMemory::MakeRangeValid (each chunk is
++// one MakeRangeValid -> EnableAccessCallbacks in the three physical views), logged with the page protection
++// counters about every 300 frames. Command processor thread only, like UploadRanges.
++struct ProtectUploadStats {
++  uint64_t window_first_frame = UINT64_MAX;
++  uint64_t calls = 0;        // UploadRanges calls
++  uint64_t multi_range = 0;  // of them with more than one upload range
++  uint64_t ranges = 0;       // upload ranges
++  uint64_t chunks = 0;       // MakeRangeValid calls (ranges split at upload buffer page ends)
++  uint64_t pages = 0;        // pages made valid
++};
++ProtectUploadStats protect_upload_stats;
++
+ // wwe2k14 patch (Session 6, RESID): gpu_upload_streaming_copy.
+ constexpr size_t kUploadStreamingCopyMinSize = 8192;
+ 
+@@ -262,6 +283,25 @@ void VulkanSharedMemory::EndSubmission() {
+   ReportRequestRangesFastStats(command_processor_.GetCurrentFrame());
+   // wwe2k14 patch (Session 6, RESID): same for gpu_upload_streaming_copy.
+   ReportUploadCopyStats(command_processor_.GetCurrentFrame());
++  // wwe2k14 patch (Session 7, PROTECT): page protection counters, about every 300 frames (a comparison per
++  // submission otherwise).
++  ProtectUploadStats& protect_stats = protect_upload_stats;
++  uint64_t frame = command_processor_.GetCurrentFrame();
++  if (protect_stats.window_first_frame == UINT64_MAX) {
++    // Start the first window here, with the counters since startup dropped on both sides.
++    rex::memory::ResetPhysicalProtectStats();
++    protect_stats = ProtectUploadStats();
++    protect_stats.window_first_frame = frame;
++  } else if (frame - protect_stats.window_first_frame >= 300) {
++    rex::memory::LogPhysicalProtectStats(protect_stats.window_first_frame, frame);
++    REXGPU_INFO(
++        "[s7][PROTECT] frames {}-{} uploads: {} UploadRanges calls ({} with several ranges), {} ranges, "
++        "{} chunks (MakeRangeValid calls), {} pages",
++        protect_stats.window_first_frame, frame, protect_stats.calls, protect_stats.multi_range,
++        protect_stats.ranges, protect_stats.chunks, protect_stats.pages);
++    protect_stats = ProtectUploadStats();
++    protect_stats.window_first_frame = frame;
++  }
+ }
+ 
+ void VulkanSharedMemory::CopyUploadChunkStreaming(uint8_t* dest, uint32_t guest_start, size_t size) {
+@@ -429,6 +469,12 @@ bool VulkanSharedMemory::UploadRanges(
+   upload_regions_.clear();
+   // wwe2k14 patch (Session 6, RESID): read once per call; nothing carries over between calls.
+   const bool streaming_copy = REXCVAR_GET(gpu_upload_streaming_copy);
++  // wwe2k14 patch (Session 7, PROTECT): counters.
++  ++protect_upload_stats.calls;
++  protect_upload_stats.ranges += upload_page_ranges.size();
++  if (upload_page_ranges.size() > 1) {
++    ++protect_upload_stats.multi_range;
++  }
+   VkBuffer upload_buffer_previous = VK_NULL_HANDLE;
+   for (auto upload_range : upload_page_ranges) {
+     uint32_t upload_range_start = upload_range.first;
+@@ -445,6 +491,9 @@ bool VulkanSharedMemory::UploadRanges(
+         break;
+       }
+       MakeRangeValid(upload_range_start << page_size_log2(), uint32_t(upload_buffer_size), false);
++      // wwe2k14 patch (Session 7, PROTECT): counters.
++      ++protect_upload_stats.chunks;
++      protect_upload_stats.pages += upload_buffer_size >> page_size_log2();
+       if (streaming_copy) {
+         // wwe2k14 patch (Session 6, RESID)
+         CopyUploadChunkStreaming(upload_buffer_mapping, upload_range_start << page_size_log2(),
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index 76cc877..83363f6 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -10,7 +10,9 @@
+  */
+ 
+ #include <algorithm>
++#include <bit>
+ #include <cstring>
++#include <string>
+ #include <utility>
+ 
+ #if REX_PLATFORM_MAC
+@@ -41,8 +43,253 @@ REXCVAR_DEFINE_BOOL(protect_on_release, false, "Memory",
+ 
+ REXCVAR_DEFINE_BOOL(scribble_heap, false, "Memory", "Scribble 0xCD into all allocated heap memory");
+ 
++// wwe2k14 patch (Session 7, PROTECT): every upload to GPU shared memory and every resolve watch their
++// pages for guest writes (SharedMemory::MakeRangeValid -> PhysicalHeap::EnableAccessCallbacks in all three
++// physical views), ~2-4% of the command processor thread in heavy WWE 2K14 entrance frames (stacks_111:
++// VirtualProtect ~70% of it, the per-page loop and the global critical region most of the rest). Pages
++// already watched are skipped by the original loop (the watch bit means "write-protected"), so only
++// unwatched pages are ever protected; what is left to save is the number of VirtualProtect calls and the
++// loop. Defined here (rexruntime) and read by the GPU plugin through REXCVAR_DECLARE.
++REXCVAR_DEFINE_BOOL(gpu_protect_batch, false, "GPU",
++                    "Physical memory write watches with fewer VirtualProtect calls and less looping: "
++                    "one call per run of newly watched pages joined over up to 64 already watched, "
++                    "committed, guest-writable pages (normally read-only already), the same when "
++                    "access violations make pages writable again (joined over unwatched, committed, "
++                    "guest-writable pages, normally writable already), watched pages passed over by "
++                    "bit scan without reading the page table, and one entry into the global critical "
++                    "region per SharedMemory::MakeRangeValid. Same pages watched and unwatched. Final "
++                    "host protection also the same, except on joined pages the original code left "
++                    "inconsistent (a watched page made writable again without unwatching it: made "
++                    "read-only again here, so its next guest write invalidates - an extra invalidation "
++                    "at most, never a lost one) or that a guest allocation/protection change on another "
++                    "thread is changing at that moment. No joining while protect_on_release is on. "
++                    "Read per call (toggle-safe)");
++REXCVAR_DEFINE_BOOL(gpu_protect_batch_verify, false, "GPU",
++                    "With gpu_protect_batch: query the host protection (VirtualQuery) of every joined "
++                    "gap before and of every protected or unprotected range after the call (expected "
++                    "read-only when watching, read-write when unwatching), and recompute which pages "
++                    "the original loop would have watched; count and log mismatches ([s7][PROTECT], "
++                    "slow). Joined gaps not already at the target protection (stale watches the original "
++                    "code left, see gpu_protect_batch) are counted and logged separately as gap changes, "
++                    "not as mismatches");
++
+ namespace rex::memory {
+ 
++namespace {
++
++// wwe2k14 patch (Session 7, PROTECT): page protection counters, kept in both modes (a few increments per
++// EnableAccessCallbacks / TriggerCallbacks call, under the global critical region that both already hold)
++// and logged about every 300 frames by the GPU command processor thread (LogPhysicalProtectStats).
++constexpr uint32_t kProtectBridgeMaxPages = 64;
++
++// How many pages already at the target protection a gpu_protect_batch run may be joined over (also what the
++// batch-off "joinable" counters assume). None while protect_on_release is on: BaseHeap::Release then makes a
++// released physical range no-access before it clears its page table entries, without the global critical
++// region (AcquireHostPageReconcileLock is empty for the physical views), so a joined call between the two
++// could see a released page as still allocated and undo the no-access - which the original loops can't do
++// in one step, as they never touch pages they don't watch or unwatch themselves.
++uint32_t ProtectBridgeMaxPages() {
++  return REXCVAR_GET(protect_on_release) ? 0 : kProtectBridgeMaxPages;
++}
++
++struct ProtectHeapStats {
++  uint64_t calls = 0;               // EnableAccessCallbacks calls that reached the page loop
++  uint64_t pages_scanned = 0;       // system pages in their ranges
++  uint64_t pages_watched = 0;       // pages newly watched (and write-protected)
++  uint64_t runs = 0;                // runs of newly watched pages (the original loop: one Protect each)
++  uint64_t runs_bridgeable = 0;     // batch off: runs separated from the call's previous run only by up to
++                                    // ProtectBridgeMaxPages() watched, committed, guest-writable pages
++  uint64_t runs_bridged = 0;        // batch on: runs joined to the previous run that way
++  uint64_t pages_skipped = 0;       // batch on: watched pages passed over without reading the page table
++  uint64_t protect_calls = 0;       // rex::memory::Protect (VirtualProtect) calls
++  uint64_t pages_protected = 0;     // pages passed to them (with joined, already watched pages)
++  uint64_t protect_sequential = 0;  // Protect calls starting right where the previous one in this view ended
++  uint64_t protect_ahead = 0;       // ... starting 1-64 pages after it (ring-buffer-like streams)
++};
++struct UnwatchHeapStats {
++  uint64_t triggers = 0;            // TriggerCallbacks calls that found watched pages
++  uint64_t triggers_expanded = 0;   // of them not exact-range (guest write access violations)
++  uint64_t pages_unwatched = 0;     // watch bits cleared
++  uint64_t runs = 0;                // runs of pages made writable again = Protect calls of the original loop
++  uint64_t runs_bridgeable = 0;     // batch off: runs separated from the previous one only by up to
++                                    // ProtectBridgeMaxPages() unwatched, committed, guest-writable pages
++  uint64_t runs_bridged = 0;        // batch on: runs joined that way
++  uint64_t unprotect_calls = 0;     // Protect(kReadWrite) calls
++  uint64_t pages_unprotected = 0;   // pages passed to them
++};
++struct ProtectStats {
++  // [gpu_protect_batch][heap_base >> 29]: 5 = 0xA0000000, 6 = 0xC0000000, 7 = 0xE0000000.
++  ProtectHeapStats heaps[2][8];
++  UnwatchHeapStats unwatch[2][8];
++  uint64_t verify_checks = 0;
++  uint64_t verify_mismatches = 0;
++  // Joined gaps found not already at the target protection before the joined call, [0] watching (watched
++  // pages not read-only: stale watches left by the original code, or a guest change in flight), [1]
++  // unwatching (unwatched pages not writable: a guest change in flight, or stale host protection). Not
++  // batch defects, so not mismatches: the join is what fixes or changes them.
++  uint64_t verify_gap_changed[2] = {};
++};
++// Protected by the global critical region.
++ProtectStats protect_stats;
++uint32_t protect_last_end[8] = {};  // one past the last page protected in each view (both modes)
++uint64_t protect_verify_mismatches_total = 0;
++uint32_t protect_verify_mismatches_logged = 0;
++uint64_t protect_verify_gap_changed_total[2] = {};
++uint32_t protect_verify_gap_changed_logged = 0;
++
++void ProtectVerifyMismatch(uint32_t heap_base, uint32_t page_first, uint32_t page_last,
++                           const char* what) {
++  ++protect_stats.verify_mismatches;
++  ++protect_verify_mismatches_total;
++  if (protect_verify_mismatches_logged >= 16) {
++    return;
++  }
++  ++protect_verify_mismatches_logged;
++  REXSYS_WARN("[s7][PROTECT] verify mismatch {}: view {:08X} system pages {:X}-{:X}: {}",
++              protect_verify_mismatches_total, heap_base, page_first, page_last, what);
++}
++
++const char* ProtectAccessName(rex::memory::PageAccess access) {
++  switch (access) {
++    case rex::memory::PageAccess::kNoAccess:
++      return "no access";
++    case rex::memory::PageAccess::kReadOnly:
++      return "read-only";
++    case rex::memory::PageAccess::kReadWrite:
++      return "read-write";
++    default:
++      return "executable";
++  }
++}
++
++// Whether the host pages page_first...page_last (from a page-aligned base) all have the access `expected`:
++// an empty string if so, otherwise a description of the first page that doesn't (or of the VirtualQuery
++// failure).
++std::string ProtectQueryAccess(uint8_t* base, uint32_t page_size, uint32_t page_first, uint32_t page_last,
++                               rex::memory::PageAccess expected) {
++  uint8_t* address = base + size_t(page_first) * page_size;
++  uint8_t* end = base + (size_t(page_last) + 1) * page_size;
++  while (address < end) {
++    size_t region_length = 0;
++    rex::memory::PageAccess access = rex::memory::PageAccess::kNoAccess;
++    if (!rex::memory::QueryProtect(address, region_length, access) || !region_length) {
++      return "VirtualQuery failed";
++    }
++    if (access != expected) {
++      return fmt::format("host page {:X} is {} instead of {}", uint32_t((address - base) / page_size),
++                         ProtectAccessName(access), ProtectAccessName(expected));
++    }
++    address += region_length;
++  }
++  return std::string();
++}
++
++// A range the batch has just protected or unprotected: anything else than `expected` is a batch defect.
++void ProtectVerifyAccess(uint8_t* base, uint32_t page_size, uint32_t heap_base, uint32_t page_first,
++                         uint32_t page_last, rex::memory::PageAccess expected, const char* what) {
++  ++protect_stats.verify_checks;
++  std::string found = ProtectQueryAccess(base, page_size, page_first, page_last, expected);
++  if (!found.empty()) {
++    std::string message = fmt::format("{}: {}", what, found);
++    ProtectVerifyMismatch(heap_base, page_first, page_last, message.c_str());
++  }
++}
++
++// A gap about to be joined (before the joined call), expected at the target protection already. If it
++// isn't, the joined call changes it where the original loop wouldn't have - counted and logged as a gap
++// change, not a mismatch (see ProtectStats::verify_gap_changed).
++void ProtectVerifyGap(uint8_t* base, uint32_t page_size, uint32_t heap_base, uint32_t page_first,
++                      uint32_t page_last, bool unwatch) {
++  ++protect_stats.verify_checks;
++  rex::memory::PageAccess expected =
++      unwatch ? rex::memory::PageAccess::kReadWrite : rex::memory::PageAccess::kReadOnly;
++  std::string found = ProtectQueryAccess(base, page_size, page_first, page_last, expected);
++  if (found.empty()) {
++    return;
++  }
++  ++protect_stats.verify_gap_changed[unwatch ? 1 : 0];
++  uint64_t total = ++protect_verify_gap_changed_total[unwatch ? 1 : 0];
++  if (protect_verify_gap_changed_logged >= 16) {
++    return;
++  }
++  ++protect_verify_gap_changed_logged;
++  REXSYS_INFO(
++      "[s7][PROTECT] verify gap change {} ({}): view {:08X} system pages {:X}-{:X}: {} - {}", total,
++      unwatch ? "unwatch" : "watch", heap_base, page_first, page_last, found,
++      unwatch ? "unwatched, committed and guest-writable but not writable on the host (a guest "
++                "allocation/protection change in flight on another thread, or stale host protection); "
++                "the joined call makes it writable, as AccessViolationCallback's recovery path would on its "
++                "next guest write"
++              : "watched, committed and guest-writable but not read-only on the host (a stale watch the "
++                "original code left - made writable again without unwatching - or a guest change in "
++                "flight); the joined call makes it read-only, so its next guest write invalidates: an extra "
++                "invalidation at most, never a lost one");
++}
++
++// A gpu_protect_batch run: up to kProtectJoinMaxRuns runs of the original loop (pages that need the new
++// protection), joined over pages that already have it.
++constexpr uint32_t kProtectJoinMaxRuns = 16;
++struct ProtectJoinedRun {
++  uint32_t count = 0;      // runs of the original loop in it; 0 = no open run
++  uint32_t gap_pages = 0;  // pages after the last run already having the protection (joined if a run follows)
++  uint32_t first[kProtectJoinMaxRuns];
++  uint32_t last[kProtectJoinMaxRuns];
++
++  void Start(uint32_t page) {
++    count = 1;
++    first[0] = page;
++    last[0] = page;
++    gap_pages = 0;
++  }
++  // The next page of the run directly after the previous one (no gap).
++  void Extend(uint32_t page) { last[count - 1] = page; }
++  // A new run of the original loop after gap_pages joined pages (count < kProtectJoinMaxRuns).
++  void Join(uint32_t page) {
++    first[count] = page;
++    last[count] = page;
++    ++count;
++    gap_pages = 0;
++  }
++  void Reset() {
++    count = 0;
++    gap_pages = 0;
++  }
++};
++
++uint64_t protect_fallbacks_total = 0;  // protected by the global critical region
++
++// Sets the protection of a joined run with one Protect call. If that fails (a page in it can't be protected,
++// for instance one never committed on the host), sets it for its original runs one by one instead, so each
++// of them fails or succeeds as with the original loop. count_call(first page, last page) for every call.
++// Returns whether the joined call succeeded.
++template <typename CountCall>
++bool ProtectJoinedRunApply(const ProtectJoinedRun& run, uint8_t* base, uint32_t page_size,
++                           rex::memory::PageAccess access, uint32_t heap_base, CountCall&& count_call) {
++  uint32_t page_first = run.first[0];
++  uint32_t page_last = run.last[run.count - 1];
++  bool result = rex::memory::Protect(base + size_t(page_first) * page_size,
++                                     size_t(page_last + 1 - page_first) * page_size, access);
++  count_call(page_first, page_last);
++  if (result || run.count <= 1) {
++    return result;
++  }
++  ++protect_fallbacks_total;
++  if (protect_fallbacks_total <= 16) {
++    REXSYS_WARN(
++        "[s7][PROTECT] joined Protect of view {:08X} system pages {:X}-{:X} ({}) failed, setting its {} "
++        "original runs one by one ({} such fallbacks so far)",
++        heap_base, page_first, page_last, ProtectAccessName(access), run.count, protect_fallbacks_total);
++  }
++  for (uint32_t k = 0; k < run.count; ++k) {
++    rex::memory::Protect(base + size_t(run.first[k]) * page_size,
++                         size_t(run.last[k] + 1 - run.first[k]) * page_size, access);
++    count_call(run.first[k], run.last[k]);
++  }
++  return false;
++}
++
++}  // namespace
++
+ uint32_t get_page_count(uint32_t value, uint32_t page_size, uint32_t page_size_shift) {
+   return rex::round_up(value, page_size) >> page_size_shift;
+ }
+@@ -682,6 +929,13 @@ void Memory::UnregisterPhysicalMemoryInvalidationCallback(void* callback_handle)
+ void Memory::EnablePhysicalMemoryAccessCallbacks(uint32_t physical_address, uint32_t length,
+                                                  bool enable_invalidation_notifications,
+                                                  bool enable_data_providers) {
++  // wwe2k14 patch (Session 7, PROTECT): with gpu_protect_batch, enter the global critical region once for the
++  // three views - each EnableAccessCallbacks enters it again, which for the owning thread of the recursive
++  // mutex is only a count. The views are still done one after another, each under the region as before.
++  std::unique_lock<std::recursive_mutex> batch_global_lock;
++  if (REXCVAR_GET(gpu_protect_batch)) {
++    batch_global_lock = global_critical_region_.Acquire();
++  }
+   heaps_.vA0000000.EnableAccessCallbacks(physical_address, length,
+                                          enable_invalidation_notifications, enable_data_providers);
+   heaps_.vC0000000.EnableAccessCallbacks(physical_address, length,
+@@ -2101,6 +2355,212 @@ void PhysicalHeap::EnableAccessCallbacks(uint32_t physical_address, uint32_t len
+   uint8_t* protect_base = membase_ + heap_base_;
+   uint32_t protect_system_page_first = UINT32_MAX;
+   auto global_lock = global_critical_region_.Acquire();
++
++  // wwe2k14 patch (Session 7, PROTECT): counters (both modes) and gpu_protect_batch.
++  const bool protect_batch =
++      REXCVAR_GET(gpu_protect_batch) && enable_invalidation_notifications && !enable_data_providers;
++  const uint32_t stats_view = heap_base_ >> 29;
++  ProtectHeapStats& stats = protect_stats.heaps[protect_batch ? 1 : 0][stats_view];
++  ++stats.calls;
++  stats.pages_scanned += system_page_last - system_page_first + 1;
++  // Watched, committed and writable for the guest: normally write-protected (read-only) on the host since it
++  // was watched - changes of the guest protection to writable with kMemoryProtectWrite clear the watch first
++  // (PhysicalHeap::Protect), as do access violations, decommit and release (TriggerCallbacks) - so
++  // protecting it again changes nothing. Not always, though: the original code leaves some watched pages
++  // writable on the host ("stale" watches, whose guest writes never invalidate) - a commit over a
++  // decommitted watched page (BaseHeap::AllocFixed sets the host protection with VirtualAlloc(MEM_COMMIT)
++  // without unwatching - from reading the code, that this changes the protection of the still committed
++  // view pages is unconfirmed; the original loop watches decommitted pages too, it only reads
++  // current_protect), a guest protection of
++  // read-only + write-combine (ToPageAccess counts write-combine as writable, PhysicalHeap::Protect only
++  // unwatches on kMemoryProtectWrite), and a page watched again by another thread between the unwatch and
++  // the host protection change in PhysicalHeap::Protect (the global critical region is released between
++  // them). A joined call makes such a page read-only again, so its next guest write traps and invalidates:
++  // an extra invalidation at most (the watch bit is set, so TriggerCallbacks handles the trap), never a
++  // lost one. Requiring commitment keeps out pages in the middle of being committed again (BaseHeap::
++  // AllocFixed changes the host protection before the page table) - those stay as the original leaves them.
++  auto watched_and_guest_writable = [this](uint32_t page) -> bool {
++    if (!(system_page_flags_[page >> 6].notify_on_invalidation & (uint64_t(1) << (page & 63)))) {
++      return false;
++    }
++    uint32_t guest_page =
++        rex::sat_sub(page * system_page_size_, host_address_offset()) >> page_size_shift_;
++    if (guest_page >= page_table_.size()) {
++      return false;
++    }
++    const PageEntry& entry = page_table_[guest_page];
++    return (entry.state & memory::kMemoryAllocationCommit) &&
++           ToPageAccess(entry.current_protect) == rex::memory::PageAccess::kReadWrite;
++  };
++  const uint32_t bridge_max_pages = ProtectBridgeMaxPages();
++  auto count_protect = [&stats, stats_view](uint32_t page_first, uint32_t page_last) {
++    ++stats.protect_calls;
++    stats.pages_protected += page_last - page_first + 1;
++    uint32_t& last_end = protect_last_end[stats_view];
++    if (page_first == last_end) {
++      ++stats.protect_sequential;
++    } else if (page_first > last_end && page_first - last_end <= kProtectBridgeMaxPages) {
++      ++stats.protect_ahead;
++    }
++    last_end = page_last + 1;
++  };
++
++  if (protect_batch) {
++    // gpu_protect_batch: the same pages get watched as in the loop below - unwatched pages the guest can
++    // write (kReadWrite; the only ToPageAccess value the loop below protects) - and every one of them is
++    // inside a Protect(kReadOnly) call that has returned before this function does, as there. So the first
++    // guest write to a page after this call traps exactly as with the loop below, and TriggerCallbacks
++    // (which finds its watch bit) invalidates it. Differences:
++    // - While no run is open, watched pages are passed over without reading the page table, by bit scan to
++    //   the next unwatched page of the 64-page group (the loop below does nothing for them but end a run).
++    // - A run of newly watched pages doesn't end at watched, committed, guest-writable pages (normally
++    //   read-only already, see watched_and_guest_writable) if another newly watched page follows within
++    //   bridge_max_pages (64, or 0 with protect_on_release): one Protect call over both runs and the pages
++    //   between. That changes nothing on those pages, except on stale watches the original code left
++    //   (made read-only again: an extra invalidation at most, never a lost one, since they are watched) and
++    //   on pages a guest allocation or protection change on another thread is changing right then (the page
++    //   table is read without the heap mutex, as in the loop below, and the host protection is changed
++    //   before the page table there: such a page can end up read-only where the guest just asked for no
++    //   access - weaker than asked, never a lost invalidation; the loop below has the same race for the
++    //   pages it protects itself). Every other page (not writable for the guest, not committed, not
++    //   watched) still ends the run. Up to kProtectJoinMaxRuns runs are joined; if the joined call fails,
++    //   they are protected one by one (ProtectJoinedRunApply), so a page that can't be protected affects
++    //   only its own run, as below.
++    // - Out-of-bounds pages (none exist in practice) are skipped without ending the run, as below.
++    const bool verify = REXCVAR_GET(gpu_protect_batch_verify);
++    std::vector<uint64_t> verify_bits_before;
++    if (verify) {
++      for (uint32_t block = system_page_first >> 6; block <= (system_page_last >> 6); ++block) {
++        verify_bits_before.push_back(system_page_flags_[block].notify_on_invalidation);
++      }
++    }
++    ProtectJoinedRun run;
++    auto end_run = [&]() {
++      if (!run.count) {
++        return;
++      }
++      bool joined = ProtectJoinedRunApply(run, protect_base, system_page_size_, protect_access, heap_base_,
++                                          count_protect);
++      if (verify) {
++        if (joined) {
++          ProtectVerifyAccess(protect_base, system_page_size_, heap_base_, run.first[0],
++                              run.last[run.count - 1], rex::memory::PageAccess::kReadOnly,
++                              "watched run after Protect");
++        } else {
++          for (uint32_t k = 0; k < run.count; ++k) {
++            ProtectVerifyAccess(protect_base, system_page_size_, heap_base_, run.first[k], run.last[k],
++                                rex::memory::PageAccess::kReadOnly,
++                                "watched run after Protect (one by one after the joined call failed)");
++          }
++        }
++      }
++      run.Reset();
++    };
++    uint32_t i = system_page_first;
++    while (i <= system_page_last) {
++      uint64_t block_flags = system_page_flags_[i >> 6].notify_on_invalidation;
++      uint64_t page_flags_bit = uint64_t(1) << (i & 63);
++      if (block_flags & page_flags_bit) {
++        if (!run.count) {
++          // No open run: on to the next unwatched page of this 64-page group, or past the group.
++          uint32_t group_last = std::min(system_page_last, i | 63);
++          uint64_t unwatched_from_i = ~block_flags & (UINT64_MAX << (i & 63));
++          uint32_t next = unwatched_from_i
++                              ? (i & ~uint32_t(63)) + uint32_t(std::countr_zero(unwatched_from_i))
++                              : UINT32_MAX;
++          next = std::min(next, group_last + 1);
++          stats.pages_skipped += next - i;
++          i = next;
++          continue;
++        }
++        if (run.gap_pages < bridge_max_pages && watched_and_guest_writable(i)) {
++          ++run.gap_pages;
++        } else {
++          end_run();
++        }
++        ++i;
++        continue;
++      }
++      uint32_t guest_page_number =
++          rex::sat_sub(i * system_page_size_, host_address_offset()) >> page_size_shift_;
++      if (guest_page_number >= page_table_.size()) {
++        REXSYS_ERROR("Access callback page OOB: system_page={} guest_page={} offset=0x{:X}", i,
++                     guest_page_number, host_address_offset());
++        assert_always();
++        // Directly after a newly watched page the run goes on over it, as below; after joined pages it ends.
++        if (run.gap_pages) {
++          end_run();
++        }
++        ++i;
++        continue;
++      }
++      if (ToPageAccess(page_table_[guest_page_number].current_protect) !=
++          rex::memory::PageAccess::kReadWrite) {
++        // Not accessible or read-only for the guest: not watched (real access violations are needed there),
++        // ends the run like below.
++        end_run();
++        ++i;
++        continue;
++      }
++      system_page_flags_[i >> 6].notify_on_invalidation |= page_flags_bit;
++      ++stats.pages_watched;
++      if (!run.count) {
++        run.Start(i);
++        ++stats.runs;
++      } else if (!run.gap_pages) {
++        run.Extend(i);
++      } else if (run.count >= kProtectJoinMaxRuns) {
++        end_run();
++        run.Start(i);
++        ++stats.runs;
++      } else {
++        // A new run of the original loop, joined to the open one over gap_pages watched pages.
++        if (verify) {
++          ProtectVerifyGap(protect_base, system_page_size_, heap_base_, run.last[run.count - 1] + 1, i - 1,
++                           false);
++        }
++        run.Join(i);
++        ++stats.runs;
++        ++stats.runs_bridged;
++      }
++      ++i;
++    }
++    end_run();
++    if (verify) {
++      // Which pages the original loop would have watched: the unwatched guest-writable ones (the page table
++      // can only change under the heap mutex meanwhile, so a mismatch here may also be an allocation race).
++      ++protect_stats.verify_checks;
++      uint32_t mismatch_pages = 0;
++      uint32_t mismatch_first = UINT32_MAX;
++      for (uint32_t page = system_page_first; page <= system_page_last; ++page) {
++        uint64_t bit = uint64_t(1) << (page & 63);
++        bool before =
++            (verify_bits_before[(page >> 6) - (system_page_first >> 6)] & bit) != 0;
++        bool after = (system_page_flags_[page >> 6].notify_on_invalidation & bit) != 0;
++        uint32_t guest_page =
++            rex::sat_sub(page * system_page_size_, host_address_offset()) >> page_size_shift_;
++        bool expected =
++            before || (guest_page < page_table_.size() &&
++                       ToPageAccess(page_table_[guest_page].current_protect) ==
++                           rex::memory::PageAccess::kReadWrite);
++        if (after != expected) {
++          ++mismatch_pages;
++          mismatch_first = std::min(mismatch_first, page);
++        }
++      }
++      if (mismatch_pages) {
++        std::string message = fmt::format(
++            "{} page(s) watched differently from the original loop (first {:X})", mismatch_pages,
++            mismatch_first);
++        ProtectVerifyMismatch(heap_base_, system_page_first, system_page_last, message.c_str());
++      }
++    }
++    return;
++  }
++
++  // Counters only: the previous newly watched page of this call, to see whether a new run could have been
++  // joined to the previous one.
++  uint32_t stats_last_watched = UINT32_MAX;
+   for (uint32_t i = system_page_first; i <= system_page_last; ++i) {
+     // Check if need to enable callbacks for the page and raise its protection.
+     //
+@@ -2156,11 +2616,25 @@ void PhysicalHeap::EnableAccessCallbacks(uint32_t physical_address, uint32_t len
+     if (protect_system_page) {
+       if (protect_system_page_first == UINT32_MAX) {
+         protect_system_page_first = i;
++        // wwe2k14 patch (Session 7, PROTECT): counters only.
++        ++stats.runs;
++        if (stats_last_watched != UINT32_MAX && i - 1 - stats_last_watched <= bridge_max_pages) {
++          bool bridgeable = true;
++          for (uint32_t page = stats_last_watched + 1; page < i && bridgeable; ++page) {
++            bridgeable = watched_and_guest_writable(page);
++          }
++          if (bridgeable) {
++            ++stats.runs_bridgeable;
++          }
++        }
+       }
++      stats_last_watched = i;
++      ++stats.pages_watched;
+     } else {
+       if (protect_system_page_first != UINT32_MAX) {
+         rex::memory::Protect(protect_base + protect_system_page_first * system_page_size_,
+                              (i - protect_system_page_first) * system_page_size_, protect_access);
++        count_protect(protect_system_page_first, i - 1);  // wwe2k14 patch (Session 7, PROTECT)
+         protect_system_page_first = UINT32_MAX;
+       }
+     }
+@@ -2169,6 +2643,7 @@ void PhysicalHeap::EnableAccessCallbacks(uint32_t physical_address, uint32_t len
+     rex::memory::Protect(protect_base + protect_system_page_first * system_page_size_,
+                          (system_page_last + 1 - protect_system_page_first) * system_page_size_,
+                          protect_access);
++    count_protect(protect_system_page_first, system_page_last);  // wwe2k14 patch (Session 7, PROTECT)
+   }
+ }
+ 
+@@ -2224,6 +2699,15 @@ bool PhysicalHeap::TriggerCallbacks(std::unique_lock<std::recursive_mutex> globa
+     return false;
+   }
+ 
++  // wwe2k14 patch (Session 7, PROTECT): counters (both modes) and gpu_protect_batch for making pages writable
++  // again (the global critical region is held, moved in by the caller).
++  const bool unprotect_batch = REXCVAR_GET(gpu_protect_batch);
++  UnwatchHeapStats& unwatch_stats = protect_stats.unwatch[unprotect_batch ? 1 : 0][heap_base_ >> 29];
++  ++unwatch_stats.triggers;
++  if (!unwatch_exact_range) {
++    ++unwatch_stats.triggers_expanded;
++  }
++
+   // Trigger callbacks.
+   if (!unprotect) {
+     // If not doing anything with protection, no point in unwatching excess
+@@ -2278,10 +2762,112 @@ bool PhysicalHeap::TriggerCallbacks(std::unique_lock<std::recursive_mutex> globa
+     block_index_last = system_page_last >> 6;
+   }
+ 
++  // wwe2k14 patch (Session 7, PROTECT): unwatched, committed and writable for the guest - normally writable on
++  // the host (pages are only write-protected while watched, and unwatching makes guest-writable pages
++  // writable again, here and in PhysicalHeap::Protect), so making it writable again changes nothing.
++  // Exceptions: stale host protection (read-only although writable for the guest and unwatched - which
++  // AccessViolationCallback's recovery path makes writable on the next guest write anyway), and pages a
++  // guest allocation change on another thread is changing right then: BaseHeap::AllocFixed (a commit over
++  // committed pages with a new protection) and BaseHeap::Release with protect_on_release change the host
++  // protection before the page table, without the global critical region for the physical views, and the
++  // page table is read here without the heap mutex. The former can leave such a page writable where the
++  // guest just asked for read-only or no access - weaker than asked, and the loop below has the same race
++  // for the pages it unprotects itself; it can't lose an invalidation, as the page is unwatched. Requiring
++  // commitment keeps out pages being committed again after a decommit; the latter is avoided by not joining
++  // at all with protect_on_release (ProtectBridgeMaxPages).
++  auto unwatched_and_guest_writable = [this](uint32_t page) -> bool {
++    if (system_page_flags_[page >> 6].notify_on_invalidation & (uint64_t(1) << (page & 63))) {
++      return false;
++    }
++    uint32_t guest_page =
++        rex::sat_sub(page * system_page_size_, host_address_offset()) >> page_size_shift_;
++    if (guest_page >= page_table_.size()) {
++      return false;
++    }
++    const PageEntry& entry = page_table_[guest_page];
++    return (entry.state & memory::kMemoryAllocationCommit) &&
++           ToPageAccess(entry.current_protect) == rex::memory::PageAccess::kReadWrite;
++  };
++  const uint32_t unprotect_bridge_max_pages = ProtectBridgeMaxPages();
++
+   // Unprotect ranges that need unprotection.
+-  if (unprotect) {
++  if (unprotect && unprotect_batch) {
++    // wwe2k14 patch (Session 7, PROTECT): gpu_protect_batch - the same pages are made writable (watched pages
++    // writable for the guest), but a run of them doesn't end at up to unprotect_bridge_max_pages (64, or 0
++    // with protect_on_release) unwatched, committed, guest-writable pages (normally writable already, see
++    // above) if another such run follows: one Protect call where the loop below makes one per run (an access
++    // violation in a 256 KB group that the command processor re-protected piece by piece unwatches the whole
++    // group). Watch bits are cleared below exactly as without the batch, so no invalidation is lost.
++    const bool verify = REXCVAR_GET(gpu_protect_batch_verify);
++    uint8_t* protect_base = membase_ + heap_base_;
++    auto count_unprotect = [&unwatch_stats](uint32_t page_first, uint32_t page_last) {
++      ++unwatch_stats.unprotect_calls;
++      unwatch_stats.pages_unprotected += page_last - page_first + 1;
++    };
++    ProtectJoinedRun run;
++    auto end_run = [&]() {
++      if (!run.count) {
++        return;
++      }
++      bool joined = ProtectJoinedRunApply(run, protect_base, system_page_size_,
++                                          rex::memory::PageAccess::kReadWrite, heap_base_, count_unprotect);
++      if (verify) {
++        if (joined) {
++          ProtectVerifyAccess(protect_base, system_page_size_, heap_base_, run.first[0],
++                              run.last[run.count - 1], rex::memory::PageAccess::kReadWrite,
++                              "unwatched run after Protect");
++        } else {
++          for (uint32_t k = 0; k < run.count; ++k) {
++            ProtectVerifyAccess(protect_base, system_page_size_, heap_base_, run.first[k], run.last[k],
++                                rex::memory::PageAccess::kReadWrite,
++                                "unwatched run after Protect (one by one after the joined call failed)");
++          }
++        }
++      }
++      run.Reset();
++    };
++    for (uint32_t i = system_page_first; i <= system_page_last; ++i) {
++      bool unprotect_page =
++          (system_page_flags_[i >> 6].notify_on_invalidation & (uint64_t(1) << (i & 63))) != 0;
++      if (unprotect_page) {
++        uint32_t guest_page_number =
++            rex::sat_sub(i * system_page_size_, host_address_offset()) >> page_size_shift_;
++        if (ToPageAccess(page_table_[guest_page_number].current_protect) !=
++            rex::memory::PageAccess::kReadWrite) {
++          unprotect_page = false;
++        }
++      }
++      if (unprotect_page) {
++        if (!run.count) {
++          run.Start(i);
++          ++unwatch_stats.runs;
++        } else if (!run.gap_pages) {
++          run.Extend(i);
++        } else if (run.count >= kProtectJoinMaxRuns) {
++          end_run();
++          run.Start(i);
++          ++unwatch_stats.runs;
++        } else {
++          if (verify) {
++            ProtectVerifyGap(protect_base, system_page_size_, heap_base_, run.last[run.count - 1] + 1, i - 1,
++                             true);
++          }
++          run.Join(i);
++          ++unwatch_stats.runs;
++          ++unwatch_stats.runs_bridged;
++        }
++      } else if (run.count && run.gap_pages < unprotect_bridge_max_pages &&
++                 unwatched_and_guest_writable(i)) {
++        ++run.gap_pages;
++      } else {
++        end_run();
++      }
++    }
++    end_run();
++  } else if (unprotect) {
+     uint8_t* protect_base = membase_ + heap_base_;
+     uint32_t unprotect_system_page_first = UINT32_MAX;
++    uint32_t stats_last_unprotected = UINT32_MAX;  // wwe2k14 patch (Session 7, PROTECT): counters only
+     for (uint32_t i = system_page_first; i <= system_page_last; ++i) {
+       // Check if need to allow writing to this page.
+       bool unprotect_page =
+@@ -2297,12 +2883,28 @@ bool PhysicalHeap::TriggerCallbacks(std::unique_lock<std::recursive_mutex> globa
+       if (unprotect_page) {
+         if (unprotect_system_page_first == UINT32_MAX) {
+           unprotect_system_page_first = i;
++          // wwe2k14 patch (Session 7, PROTECT): counters only.
++          ++unwatch_stats.runs;
++          if (stats_last_unprotected != UINT32_MAX &&
++              i - 1 - stats_last_unprotected <= unprotect_bridge_max_pages) {
++            bool bridgeable = true;
++            for (uint32_t page = stats_last_unprotected + 1; page < i && bridgeable; ++page) {
++              bridgeable = unwatched_and_guest_writable(page);
++            }
++            if (bridgeable) {
++              ++unwatch_stats.runs_bridgeable;
++            }
++          }
+         }
++        stats_last_unprotected = i;
+       } else {
+         if (unprotect_system_page_first != UINT32_MAX) {
+           rex::memory::Protect(protect_base + unprotect_system_page_first * system_page_size_,
+                                (i - unprotect_system_page_first) * system_page_size_,
+                                rex::memory::PageAccess::kReadWrite);
++          // wwe2k14 patch (Session 7, PROTECT): counters only.
++          ++unwatch_stats.unprotect_calls;
++          unwatch_stats.pages_unprotected += i - unprotect_system_page_first;
+           unprotect_system_page_first = UINT32_MAX;
+         }
+       }
+@@ -2311,6 +2913,9 @@ bool PhysicalHeap::TriggerCallbacks(std::unique_lock<std::recursive_mutex> globa
+       rex::memory::Protect(protect_base + unprotect_system_page_first * system_page_size_,
+                            (system_page_last + 1 - unprotect_system_page_first) * system_page_size_,
+                            rex::memory::PageAccess::kReadWrite);
++      // wwe2k14 patch (Session 7, PROTECT): counters only.
++      ++unwatch_stats.unprotect_calls;
++      unwatch_stats.pages_unprotected += system_page_last + 1 - unprotect_system_page_first;
+     }
+   }
+ 
+@@ -2323,6 +2928,8 @@ bool PhysicalHeap::TriggerCallbacks(std::unique_lock<std::recursive_mutex> globa
+     if (i == block_index_last && (system_page_last & 63) != 63) {
+       mask |= ~((uint64_t(1) << ((system_page_last & 63) + 1)) - 1);
+     }
++    // wwe2k14 patch (Session 7, PROTECT): counters only.
++    unwatch_stats.pages_unwatched += std::popcount(system_page_flags_[i].notify_on_invalidation & ~mask);
+     system_page_flags_[i].notify_on_invalidation &= mask;
+   }
+ 
+@@ -2357,4 +2964,63 @@ uint32_t PhysicalHeap::GetPhysicalAddress(uint32_t address) const {
+   return address;
+ }
+ 
++// wwe2k14 patch (Session 7, PROTECT): the page protection counters, for the GPU command processor thread
++// (VulkanSharedMemory), which declares these itself - they are not in rex/system/xmemory.h, which the game
++// executable includes. rexruntime exports all symbols.
++void ResetPhysicalProtectStats();
++void LogPhysicalProtectStats(uint64_t first_frame, uint64_t last_frame);
++
++void ResetPhysicalProtectStats() {
++  auto global_lock = rex::thread::global_critical_region::AcquireDirect();
++  protect_stats = ProtectStats();
++}
++
++void LogPhysicalProtectStats(uint64_t first_frame, uint64_t last_frame) {
++  ProtectStats stats;
++  uint64_t verify_mismatches_total;
++  uint64_t verify_gap_changed_total[2];
++  uint64_t fallbacks_total;
++  {
++    auto global_lock = rex::thread::global_critical_region::AcquireDirect();
++    stats = protect_stats;
++    protect_stats = ProtectStats();
++    verify_mismatches_total = protect_verify_mismatches_total;
++    verify_gap_changed_total[0] = protect_verify_gap_changed_total[0];
++    verify_gap_changed_total[1] = protect_verify_gap_changed_total[1];
++    fallbacks_total = protect_fallbacks_total;
++  }
++  double frames = double(std::max(last_frame - first_frame, uint64_t(1)));
++  for (uint32_t batch = 0; batch < 2; ++batch) {
++    for (uint32_t view = 0; view < 8; ++view) {
++      const ProtectHeapStats& watch = stats.heaps[batch][view];
++      const UnwatchHeapStats& unwatch = stats.unwatch[batch][view];
++      if (!watch.calls && !unwatch.triggers) {
++        continue;
++      }
++      REXSYS_INFO(
++          "[s7][PROTECT] frames {}-{} gpu_protect_batch {} view {:08X}: watch: {} calls, {} pages, {} "
++          "newly watched in {} runs ({} {}), {} VirtualProtect ({:.1f}/frame, {} pages; {} sequential, {} "
++          "1-64 pages ahead), {} watched pages skipped | unwatch: {} triggers ({} from access "
++          "violations), {} pages unwatched, {} runs ({} {}), {} VirtualProtect ({:.1f}/frame, {} pages)",
++          first_frame, last_frame, batch ? "on" : "off", view << 29, watch.calls, watch.pages_scanned,
++          watch.pages_watched, watch.runs, batch ? watch.runs_bridged : watch.runs_bridgeable,
++          batch ? "joined" : "joinable", watch.protect_calls, double(watch.protect_calls) / frames,
++          watch.pages_protected, watch.protect_sequential, watch.protect_ahead, watch.pages_skipped,
++          unwatch.triggers, unwatch.triggers_expanded, unwatch.pages_unwatched, unwatch.runs,
++          batch ? unwatch.runs_bridged : unwatch.runs_bridgeable, batch ? "joined" : "joinable",
++          unwatch.unprotect_calls, double(unwatch.unprotect_calls) / frames, unwatch.pages_unprotected);
++    }
++  }
++  if (stats.verify_checks || fallbacks_total) {
++    REXSYS_INFO(
++        "[s7][PROTECT] frames {}-{} verify: {} checks, {} mismatches, {} mismatches in total; joined gaps "
++        "not already at the target protection (not batch defects, see gpu_protect_batch_verify): {} "
++        "watch ({} in total), {} unwatch ({} in total); {} failed joined Protect calls (redone one "
++        "original run at a time) in total",
++        first_frame, last_frame, stats.verify_checks, stats.verify_mismatches, verify_mismatches_total,
++        stats.verify_gap_changed[0], verify_gap_changed_total[0], stats.verify_gap_changed[1],
++        verify_gap_changed_total[1], fallbacks_total);
++  }
++}
++
+ }  // namespace rex::memory

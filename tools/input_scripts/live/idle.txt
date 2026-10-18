@@ -1,0 +1,3 @@
+# Session 29: live session start (tools\live\live.py start --script idle): presses nothing; the game boots to the
+# title screen and every input comes over the live channel (--wwe2k14_live=NAME) or the real controller.
+log live: idle start; batches come over the live channel

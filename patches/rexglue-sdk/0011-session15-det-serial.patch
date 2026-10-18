@@ -1,0 +1,1543 @@
+diff --git a/include/rex/audio/xma/decoder.h b/include/rex/audio/xma/decoder.h
+index df00f06..ba92d65 100644
+--- a/include/rex/audio/xma/decoder.h
++++ b/include/rex/audio/xma/decoder.h
+@@ -72,6 +72,11 @@ class XmaDecoder {
+   runtime::FunctionDispatcher* function_dispatcher_ = nullptr;
+ 
+   std::atomic<bool> worker_running_ = {false};
++  // wwe2k14 patch (Session 15): det_serial drain: work-event sets so far, and the count the worker has caught up
++  // with when it last went to sleep.
++  std::atomic<uint64_t> det_kicks_ = {0};
++  std::atomic<uint64_t> det_done_ = {0};
++  std::atomic<bool> det_idle_ = {false};
+   system::object_ref<system::XHostThread> worker_thread_;
+   std::unique_ptr<rex::thread::Event> work_event_ = nullptr;
+ 
+diff --git a/include/rex/det.h b/include/rex/det.h
+index a44bf40..0f95fe0 100644
+--- a/include/rex/det.h
++++ b/include/rex/det.h
+@@ -16,6 +16,8 @@
+ #pragma once
+ 
+ #include <cstdint>
++#include <functional>
++#include <string>
+ 
+ namespace rex::det {
+ 
+@@ -50,9 +52,62 @@ uint64_t VblanksForMs(uint64_t ms);
+ // 0 = the det_frames_settle_us / det_frames_timeout_ms settings.
+ bool WaitQuiescent(uint32_t settle_us, uint32_t timeout_ms);
+ int32_t RunningGuestThreads();
++// Host thread ids of the running guest threads, and the CP state (for the timeout log).
++std::string DescribeRunning();
++
++// Frame barrier: the guest's frame thread calls FrameBarrier() at each present (VdSwap); it counts as blocked and
++// returns when the vblank thread, at the next quiescent point, calls ReleaseBarrier(). At that point the vblank thread
++// fires a vblank unless one already fired since the previous barrier (VblankDueAtBarrier() == false), so time moves
++// at least one 60 Hz step per frame even when the guest does not pace on the vblank.
++void FrameBarrier();
++bool BarrierWaiting();
++bool VblankDueAtBarrier();
++void ReleaseBarrier();
+ 
+ // Virtual guest time (det_frames on, guest thread): timebase ticks and 100 ns system-time offset.
+ uint64_t VirtualGuestTicks(uint64_t real_ticks, uint64_t guest_tick_frequency);
+ uint64_t VirtualSystemTimeOffset(uint64_t real_offset);
++uint32_t VirtualUptimeMillis(uint32_t real_ms);
++// Work that must happen exactly at det vblanks (the vblank thread, at idle, right after NoteVblank): e.g. the
++// kernel's KeTimeStampBundle, which a host timer otherwise rewrites every millisecond.
++void AddVblankHook(std::function<void()> hook);
++void RunVblankHooks();
++
++// Command processor state as SetCpWaiting left it.
++bool CpWaiting();
++
++// det_serial (needs det_frames): a deterministic cooperative scheduler. One guest thread runs at a time; it gives
++// the baton up only when it blocks (SerialBlock), and the next ready thread is picked round-robin in creation order.
++// A blocked thread is ready when its deadline (det vblank) has come or its ready() test says so (evaluated by the
++// scheduler; must not consume anything: use HandleSignaled). Before every decision the command processor is drained
++// and pending external requests (host threads that must run guest code: GPU interrupts) run one at a time.
++bool SerialEnabled();
++// guest = false for host workers that take part (the audio worker): they never take the first turn, and vblanks
++// start only once a guest thread exists.
++int SerialRegisterThread(bool runnable, bool guest = true);  // at XThread creation (the creator's turn): a slot in creation order
++void SerialMarkRunnable(int slot);        // a thread created suspended is resumed
++void SerialThreadStart(int slot);  // at XThread::Execute: wait for the first turn
++void SerialThreadExit();
++bool SerialIsGuestThread();
++void SerialBlock(std::function<bool()> ready, uint64_t deadline_vblank);
++// cp_request: the command processor asks: it counts as waiting from the moment the request is queued (atomically,
++// under the scheduler lock) until fn has run (cleared before the scheduler continues).
++void SerialRunExternal(const std::function<void()>& fn, bool cp_request = false);
++bool SerialWaitIdle(uint32_t timeout_ms);  // vblank thread: until nothing is runnable (true) or timeout
++void SerialAfterVblank();                  // vblank thread: schedule after the vblank work
++void NoteCpProgress();
++// Host workers that change guest memory on their own register a "drained" test (checked before every decision).
++void AddDrainCheck(std::function<bool()> drained);
++// Audio under det_serial: the worker waits for pumps (AudioWaitPump), runs its client callbacks once per pump and
++// reports AudioPumpDone; the vblank thread asks for this vblank's pumps at idle and waits for them.
++void AudioSetWorker(bool present);
++void AudioAddPumps(uint64_t n);
++bool AudioWaitPump(uint32_t timeout_ms);
++void AudioPumpDone();
++void RunAudioForVblank();   // vblank thread: add this vblank's pumps (the worker's slot becomes ready)
++bool AudioPumpsPending();
++uint64_t CpProgress();
++// Signalled now, without consuming it (Windows: NtQueryEvent / NtQuerySemaphore / NtQueryMutant / NtQueryTimer).
++bool HandleSignaled(void* native_handle);
+ 
+ }  // namespace rex::det
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 6007e40..7f339b8 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -293,6 +293,12 @@ class CommandProcessor {
+ 
+   std::unique_ptr<rex::thread::Event> write_ptr_index_event_;
+   std::atomic<uint32_t> write_ptr_index_;
++  // wwe2k14 patch (Session 15): det_serial drain: what the command processor waits on while det "waiting" (0 none,
++  // 1 idle at det_wait_addr_ = the read pointer, 2 WAIT_REG_MEM on memory, 3 on a register), so the scheduler can
++  // tell "waiting with nothing to do" from "work arrived but the loop has not noticed yet".
++  std::atomic<int> det_wait_kind_{0};
++  std::atomic<uint32_t> det_wait_addr_{0}, det_wait_ref_{0}, det_wait_mask_{0}, det_wait_func_{0};
++  bool DetDrained();
+ 
+   // Some titles submit writes beyond the emulated register file range in PM4
+   // packets. Preserve these values so dependent packet logic can still observe
+diff --git a/include/rex/system/xthread.h b/include/rex/system/xthread.h
+index a72911e..2ccccc0 100644
+--- a/include/rex/system/xthread.h
++++ b/include/rex/system/xthread.h
+@@ -350,6 +350,8 @@ class XThread : public XObject {
+   void LeaveCriticalRegion();
+ 
+   void DeliverAPCs();
++  // wwe2k14 patch (Session 15): det_serial readiness: user APCs queued (not yet delivered).
++  bool HasUserApcs();
+   void LockApc();
+   void UnlockApc(bool queue_delivery);
+   void EnqueueApc(uint32_t normal_routine, uint32_t normal_context, uint32_t arg1, uint32_t arg2);
+@@ -418,6 +420,7 @@ class XThread : public XObject {
+   uint32_t stack_limit_ = 0;       // Low address
+   bool guest_thread_ = false;
+   bool main_thread_ = false;  // Entry-point thread
++  int det_slot_ = -1;          // wwe2k14 patch (Session 15): det_serial scheduler slot (-1 = none)
+   // Atomic: written by the thread itself in Exit/Terminate, read cross-thread by
+   // KernelState::TerminateTitle's cooperative drain.
+   std::atomic<bool> running_{false};
+diff --git a/src/audio/audio_system.cpp b/src/audio/audio_system.cpp
+index 7a711a8..7a44300 100644
+--- a/src/audio/audio_system.cpp
++++ b/src/audio/audio_system.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_serial
+ #include <rex/assert.h>
+ #include <rex/audio/audio_driver.h>
+ #include <rex/audio/audio_system.h>
+@@ -77,6 +78,10 @@ AudioSystem::~AudioSystem() {
+   }
+ }
+ 
++namespace {
++int g_det_audio_slot = -1;  // wwe2k14 patch (Session 15): det_serial slot, registered in Setup (fixed order)
++}  // namespace
++
+ X_STATUS AudioSystem::Setup(system::KernelState* kernel_state) {
+   X_STATUS result = xma_decoder_->Setup(kernel_state);
+   if (result) {
+@@ -84,6 +89,13 @@ X_STATUS AudioSystem::Setup(system::KernelState* kernel_state) {
+   }
+ 
+   worker_running_ = true;
++  // wwe2k14 patch (Session 15): det_serial: the worker's slot and pump state exist from here, not from whenever
++  // the host thread gets going (which raced guest thread creation and dropped early vblanks' pumps).
++  if (det::SerialEnabled()) {
++    det::AudioSetWorker(true);
++    g_det_audio_slot = det::SerialRegisterThread(true, false);
++    REXAPU_WARN("[det] serial slot {} = audio worker", g_det_audio_slot);
++  }
+   worker_thread_ = system::object_ref<system::XHostThread>(
+       new system::XHostThread(kernel_state, 128 * 1024, 0, [this]() {
+         WorkerThreadMain();
+@@ -100,6 +112,33 @@ void AudioSystem::WorkerThreadMain() {
+   // Initialize driver and ringbuffer.
+   Initialize();
+ 
++  // wwe2k14 patch (Session 15): det_serial: client callbacks run on det audio pumps (from the vblank thread at
++  // idle), not when the host backend frees a buffer.
++  if (det::SerialEnabled()) {
++    // The worker takes part in the scheduler like a guest thread (its callbacks wait on guest threads).
++    det::SerialThreadStart(g_det_audio_slot);
++    while (worker_running_) {
++      if (!det::AudioPumpsPending()) {
++        det::SerialBlock([] { return det::AudioPumpsPending(); }, ~0ull);
++        continue;
++      }
++      for (size_t index = 0; index < kMaximumClientCount; ++index) {
++        auto global_lock = global_critical_region_.Acquire();
++        const uint32_t client_callback = clients_[index].callback;
++        const uint32_t client_callback_arg = clients_[index].wrapped_callback_arg;
++        global_lock.unlock();
++        if (!client_callback) continue;
++        uint64_t args[] = {client_callback_arg};
++        function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
++                                      rex::countof(args));
++      }
++      det::AudioPumpDone();
++    }
++    det::AudioSetWorker(false);
++    det::SerialThreadExit();
++    return;
++  }
++
+   // Main run loop.
+   uint32_t diag_pump_count = 0;
+   while (worker_running_) {
+@@ -240,6 +279,7 @@ X_STATUS AudioSystem::RegisterClient(uint32_t callback, uint32_t callback_arg, s
+   auto client_semaphore = client_semaphores_[index].get();
+   auto ret = client_semaphore->Release(queued_frames_, nullptr);
+   assert_true(ret);
++  if (det::SerialEnabled()) det::AudioAddPumps(queued_frames_);  // wwe2k14 patch (Session 15)
+ 
+   AudioDriver* driver;
+   auto result = CreateDriver(index, client_semaphore, &driver);
+diff --git a/src/audio/xma_decoder.cpp b/src/audio/xma_decoder.cpp
+index a0a178d..d6c0101 100644
+--- a/src/audio/xma_decoder.cpp
++++ b/src/audio/xma_decoder.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_serial
+ #include <rex/audio/xma/context.h>
+ #include <rex/audio/xma/decoder.h>
+ #include <rex/cvar.h>
+@@ -138,7 +139,14 @@ X_STATUS XmaDecoder::Setup(system::KernelState* kernel_state) {
+ }
+ 
+ void XmaDecoder::WorkerThreadMain() {
++  // wwe2k14 patch (Session 15): det_serial: a scheduling decision waits until this worker has caught up.
++  if (det::SerialEnabled()) {
++    det::AddDrainCheck([this] {
++      return !worker_running_ || (det_idle_.load() && det_done_.load() >= det_kicks_.load());
++    });
++  }
+   while (worker_running_) {
++    const uint64_t det_seen = det_kicks_.load();
+     // Okay, let's loop through XMA contexts to find ones we need to decode!
+     bool did_work = false;
+     for (uint32_t n = 0; n < kContextCount && worker_running_; n++) {
+@@ -160,7 +168,10 @@ void XmaDecoder::WorkerThreadMain() {
+       continue;
+     }
+     // No work done this iteration, block until signaled.
++    det_done_.store(det_seen);
++    det_idle_.store(true);
+     rex::thread::Wait(work_event_.get(), false);
++    det_idle_.store(false);
+   }
+ }
+ 
+@@ -304,6 +315,7 @@ void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {
+         }
+       }
+     }
++    det_kicks_.fetch_add(1);
+     work_event_->Set();
+   } else if (r >= XmaRegister::Context0Lock && r <= XmaRegister::Context9Lock) {
+     // Context lock command.
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 429836b..3334429 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -9,6 +9,7 @@ add_library(rexcore OBJECT
+     clock.cpp
+     cvar.cpp
+     det.cpp
++    det_serial.cpp
+     exception_handler.cpp
+     filesystem.cpp
+     filesystem_wildcard.cpp
+diff --git a/src/core/clock.cpp b/src/core/clock.cpp
+index 5534560..e670640 100644
+--- a/src/core/clock.cpp
++++ b/src/core/clock.cpp
+@@ -179,8 +179,11 @@ uint64_t Clock::QueryGuestSystemTime() {
+ }
+ 
+ uint32_t Clock::QueryGuestUptimeMillis() {
+-  return static_cast<uint32_t>(std::min<uint64_t>(QueryGuestSystemTimeOffset() / 10000,
+-                                                  std::numeric_limits<uint32_t>::max()));
++  const auto real = static_cast<uint32_t>(std::min<uint64_t>(QueryGuestSystemTimeOffset() / 10000,
++                                                              std::numeric_limits<uint32_t>::max()));
++  // wwe2k14 patch (Session 15): det_frames: guest threads see uptime derived from the det vblank count.
++  if (det::Enabled() && det::IsGuestThread()) return det::VirtualUptimeMillis(real);
++  return real;
+ }
+ 
+ void Clock::SetGuestSystemTime(uint64_t system_time) {
+diff --git a/src/core/det.cpp b/src/core/det.cpp
+index 32e9f2f..901fea6 100644
+--- a/src/core/det.cpp
++++ b/src/core/det.cpp
+@@ -10,8 +10,13 @@
+ #include <chrono>
+ #include <condition_variable>
+ #include <mutex>
++#include <string>
+ #include <thread>
+ 
++#if defined(_WIN32)
++#include "platform_win.h"
++#endif
++
+ #if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
+ #include <immintrin.h>
+ #endif
+@@ -37,8 +42,23 @@ thread_local int32_t t_wait_depth = 0;
+ thread_local uint64_t t_read_vblank = ~0ull;
+ thread_local uint64_t t_reads = 0;
+ std::atomic<bool> g_base_ticks_set{false}, g_base_sys_set{false};
++// Per guest thread: host thread id and whether it is running (for the timeout log).
++constexpr int kSlots = 128;
++std::atomic<uint32_t> g_slot_tid[kSlots];
++std::atomic<int32_t> g_slot_running[kSlots];
++std::atomic<int32_t> g_slot_count{0};
++thread_local int32_t t_slot = -1;
++inline uint32_t HostTid();
+ std::atomic<uint64_t> g_base_ticks{0}, g_base_sys{0};
+ 
++inline uint32_t HostTid() {
++#if defined(_WIN32)
++  return uint32_t(GetCurrentThreadId());  // the [tNNNN] id of the log lines
++#else
++  return uint32_t(std::hash<std::thread::id>{}(std::this_thread::get_id()));
++#endif
++}
++
+ inline void Pause() {
+ #if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
+   _mm_pause();
+@@ -52,12 +72,21 @@ void GuestThreadStarted() {
+   if (t_guest) return;
+   t_guest = true;
+   t_wait_depth = 0;
++  if (t_slot < 0) {
++    const int32_t i = g_slot_count.fetch_add(1);
++    if (i < kSlots) {
++      t_slot = i;
++      g_slot_tid[i].store(HostTid());
++    }
++  }
++  if (t_slot >= 0) g_slot_running[t_slot].store(1);
+   g_running.fetch_add(1, std::memory_order_acq_rel);
+ }
+ 
+ void GuestThreadExiting() {
+   if (!t_guest) return;
+   if (t_wait_depth == 0) g_running.fetch_sub(1, std::memory_order_acq_rel);
++  if (t_slot >= 0) g_slot_running[t_slot].store(0);
+   t_guest = false;
+   t_wait_depth = 0;
+ }
+@@ -66,15 +95,22 @@ bool IsGuestThread() { return t_guest; }
+ 
+ void EnterWait() {
+   if (!t_guest) return;
+-  if (t_wait_depth++ == 0) g_running.fetch_sub(1, std::memory_order_acq_rel);
++  if (t_wait_depth++ == 0) {
++    if (t_slot >= 0) g_slot_running[t_slot].store(0);
++    g_running.fetch_sub(1, std::memory_order_acq_rel);
++  }
+ }
+ 
+ void LeaveWait() {
+   if (!t_guest || t_wait_depth <= 0) return;
+-  if (--t_wait_depth == 0) g_running.fetch_add(1, std::memory_order_acq_rel);
++  if (--t_wait_depth == 0) {
++    if (t_slot >= 0) g_slot_running[t_slot].store(1);
++    g_running.fetch_add(1, std::memory_order_acq_rel);
++  }
+ }
+ 
+ void SetCpWaiting(bool waiting) { g_cp_waiting.store(waiting, std::memory_order_release); }
++bool CpWaiting() { return g_cp_waiting.load(std::memory_order_acquire); }
+ 
+ uint64_t Vblanks() { return g_vblanks.load(std::memory_order_acquire); }
+ 
+@@ -123,8 +159,56 @@ bool WaitQuiescent(uint32_t settle_us, uint32_t timeout_ms) {
+   }
+ }
+ 
++// Frame barrier (see det.h). Guarded by g_mutex.
++namespace {
++bool g_barrier_waiting = false;
++uint64_t g_barrier_release = 0;
++uint64_t g_vblanks_at_last_barrier = ~0ull;
++}  // namespace
++
++void FrameBarrier() {
++  WaitScope scope;
++  std::unique_lock<std::mutex> lock(g_mutex);
++  g_barrier_waiting = true;
++  const uint64_t release = g_barrier_release;
++  g_cv.wait(lock, [&] { return g_barrier_release != release || !Enabled(); });
++}
++
++bool BarrierWaiting() {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  return g_barrier_waiting;
++}
++
++bool VblankDueAtBarrier() {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  return g_vblanks.load(std::memory_order_acquire) == g_vblanks_at_last_barrier;
++}
++
++void ReleaseBarrier() {
++  {
++    std::lock_guard<std::mutex> lock(g_mutex);
++    if (!g_barrier_waiting) return;
++    g_barrier_waiting = false;
++    g_vblanks_at_last_barrier = g_vblanks.load(std::memory_order_acquire);
++    ++g_barrier_release;
++  }
++  g_cv.notify_all();
++}
++
+ int32_t RunningGuestThreads() { return g_running.load(std::memory_order_acquire); }
+ 
++std::string DescribeRunning() {
++  std::string out;
++  const int32_t n = std::min(g_slot_count.load(), kSlots);
++  for (int32_t i = 0; i < n; ++i) {
++    if (g_slot_running[i].load()) {
++      if (!out.empty()) out += ",";
++      out += std::to_string(g_slot_tid[i].load());
++    }
++  }
++  return out + (g_cp_waiting.load() ? " (cp waiting)" : " (cp busy)");
++}
++
+ uint64_t VirtualGuestTicks(uint64_t real_ticks, uint64_t guest_tick_frequency) {
+   if (!g_base_ticks_set.load(std::memory_order_acquire)) {
+     bool expected = false;
+@@ -141,6 +225,31 @@ uint64_t VirtualGuestTicks(uint64_t real_ticks, uint64_t guest_tick_frequency) {
+   return g_base_ticks.load(std::memory_order_relaxed) + vb * per_frame + t_reads * step;
+ }
+ 
++uint32_t VirtualUptimeMillis(uint32_t real_ms) {
++  static std::atomic<bool> set{false};
++  static std::atomic<uint32_t> base{0};
++  if (!set.load(std::memory_order_acquire)) {
++    bool expected = false;
++    if (set.compare_exchange_strong(expected, true)) base.store(real_ms);
++  }
++  return base.load(std::memory_order_relaxed) + uint32_t(g_vblanks.load(std::memory_order_acquire) * 50 / 3);
++}
++
++namespace {
++std::mutex g_hook_mu;
++std::vector<std::function<void()>> g_vblank_hooks;
++}  // namespace
++
++void AddVblankHook(std::function<void()> hook) {
++  std::lock_guard<std::mutex> lock(g_hook_mu);
++  g_vblank_hooks.push_back(std::move(hook));
++}
++
++void RunVblankHooks() {
++  std::lock_guard<std::mutex> lock(g_hook_mu);
++  for (auto& h : g_vblank_hooks) h();
++}
++
+ uint64_t VirtualSystemTimeOffset(uint64_t real_offset) {
+   if (!g_base_sys_set.load(std::memory_order_acquire)) {
+     bool expected = false;
+diff --git a/src/core/det_serial.cpp b/src/core/det_serial.cpp
+new file mode 100644
+index 0000000..a2ec7d5
+--- /dev/null
++++ b/src/core/det_serial.cpp
+@@ -0,0 +1,450 @@
++/**
++ * wwe2k14 patch (Session 15, determinism): det_serial, a deterministic cooperative scheduler. See include/rex/det.h.
++ */
++#include <rex/cvar.h>
++#include <rex/det.h>
++#include <rex/logging.h>
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <deque>
++#include <functional>
++#include <memory>
++#include <mutex>
++#include <string>
++#include <thread>
++#include <vector>
++
++#if defined(_WIN32)
++#include "platform_win.h"
++#include <winternl.h>
++#endif
++
++#if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
++#include <immintrin.h>
++#endif
++
++REXCVAR_DEFINE_BOOL(det_serial, false, "GPU",
++                    "wwe2k14 (Session 15): with det_frames, run guest threads one at a time (a baton), switching only "
++                    "when one blocks, in a fixed order; GPU interrupts and other host-side guest code run between "
++                    "turns. Set at startup");
++REXCVAR_DEFINE_INT32(det_serial_vblank_timeout_ms, 10000, "GPU",
++                     "det_serial: longest wait for idle before a vblank is fired anyway (breaks determinism; logged)");
++REXCVAR_DEFINE_STRING(det_serial_trace, "", "GPU",
++                      "det_serial: folder for a scheduler trace (det_serial_<pid>.txt: one line per det vblank with the "
++                      "decision count, a hash of the picks and the first picks; x = an external request, - = idle)");
++REXCVAR_DEFINE_INT32(det_serial_stall_ms, 3000, "GPU",
++                     "det_serial: log when one guest thread keeps the baton this long (a spin wait on another thread?)");
++
++namespace rex::det {
++namespace {
++struct Slot {
++  int state = 0;  // 1 runnable (not run yet), 2 running, 3 blocked, 4 exited, 5 created suspended
++  std::function<bool()> ready;
++  uint64_t deadline = ~0ull;
++  bool go = false;
++  std::condition_variable cv;
++  uint32_t tid = 0;
++  bool guest = true;
++};
++struct External {
++  bool granted = false, done = false;
++  std::condition_variable cv;
++};
++std::mutex s_mu;
++std::vector<std::unique_ptr<Slot>> s_slots;
++std::deque<std::shared_ptr<External>> s_ext;  // shared: the requester may return first
++int s_holder = -1;  // slot running guest code, -1 = none
++int s_last = -1;    // last slot that ran (round-robin start)
++bool s_external_running = false;
++bool s_idle = false;  // nothing runnable: the vblank thread's turn
++bool s_guest_started = false;  // a guest thread has taken the first turn (no vblanks before)
++std::condition_variable s_idle_cv;
++std::atomic<uint64_t> s_cp_progress{0};
++std::atomic<int64_t> s_holder_since_ms{0};
++thread_local int t_sslot = -1;
++
++// Scheduler trace (det_serial_trace), written under s_mu.
++FILE* s_trace = nullptr;
++bool s_trace_tried = false;
++uint64_t s_tr_count = 0, s_tr_hash = 1469598103934665603ull;
++std::string s_tr_picks;
++void TraceNote(int code) {  // slot, -1 idle, -2 external
++  if (!s_trace_tried) {
++    s_trace_tried = true;
++    const std::string dir = REXCVAR_GET(det_serial_trace);
++    if (!dir.empty()) {
++#if defined(_WIN32)
++      const std::string path = dir + "\\det_serial_" + std::to_string(GetCurrentProcessId()) + ".txt";
++#else
++      const std::string path = dir + "/det_serial.txt";
++#endif
++      s_trace = std::fopen(path.c_str(), "w");
++      REXLOG_INFO("[det] serial trace -> {} ({})", path, s_trace ? "open" : "failed");
++    }
++  }
++  if (!s_trace) return;
++  ++s_tr_count;
++  s_tr_hash = (s_tr_hash ^ uint64_t(code + 3)) * 1099511628211ull;
++  if (s_tr_picks.size() < 240) {
++    s_tr_picks += code == -1 ? "-" : code == -2 ? "x" : std::to_string(code);
++    s_tr_picks += ' ';
++  }
++}
++void TraceFlush() {
++  if (!s_trace) return;
++  std::fprintf(s_trace, "%llu %llu %016llx %s\n", (unsigned long long)Vblanks(), (unsigned long long)s_tr_count,
++               (unsigned long long)s_tr_hash, s_tr_picks.c_str());
++  if (Vblanks() % 60 == 0) std::fflush(s_trace);
++  s_tr_count = 0;
++  s_tr_hash = 1469598103934665603ull;
++  s_tr_picks.clear();
++}
++
++inline void Pause() {
++#if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
++  _mm_pause();
++#endif
++}
++
++inline uint32_t HostTid() {
++#if defined(_WIN32)
++  return uint32_t(GetCurrentThreadId());
++#else
++  return uint32_t(std::hash<std::thread::id>{}(std::this_thread::get_id()));
++#endif
++}
++
++int64_t NowMs() {
++  return std::chrono::duration_cast<std::chrono::milliseconds>(
++             std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++
++// Other host workers that change guest memory on their own (the XMA decoder): drained when all return true.
++std::mutex s_drain_mu;
++std::vector<std::function<bool()>> s_drains;
++int g_last_undrained = -2;  // -1 = the command processor, n = drain check n (for the stall log)
++bool AllDrained() {
++  if (!CpWaiting()) {
++    g_last_undrained = -1;
++    return false;
++  }
++  std::lock_guard<std::mutex> lock(s_drain_mu);
++  for (size_t i = 0; i < s_drains.size(); ++i) {
++    if (!s_drains[i]()) {
++      g_last_undrained = int(i);
++      return false;
++    }
++  }
++  return true;
++}
++
++// Wait (without the lock) until the command processor (and the other registered host workers) have drained, so
++// whatever they do with the work submitted so far (fences written, interrupts requested, audio decoded) is done
++// before a scheduling decision.
++void WaitCpDrained(std::unique_lock<std::mutex>& lock) {
++  if (AllDrained()) return;
++  lock.unlock();
++  uint32_t spins = 0;
++  auto since = std::chrono::steady_clock::now();
++  while (!AllDrained()) {
++    if (std::chrono::steady_clock::now() - since > std::chrono::seconds(3)) {
++      REXLOG_WARN("[det] serial: still waiting for a drain after 3 s ({})",
++                  g_last_undrained == -1 ? std::string("command processor busy")
++                                         : "drain check " + std::to_string(g_last_undrained));
++      since = std::chrono::steady_clock::now();
++    }
++    if (++spins % 64 == 0) {
++      std::this_thread::yield();
++    } else {
++      Pause();
++    }
++  }
++  lock.lock();
++}
++
++// With the lock held: run pending external requests one at a time (arrival order), then give the baton to the next
++// ready slot after s_last (round-robin), or go idle. Called by whoever gives the baton up.
++void ScheduleLocked(std::unique_lock<std::mutex>& lock) {
++  for (;;) {
++    WaitCpDrained(lock);
++    if (s_ext.empty()) break;
++    std::shared_ptr<External> e = s_ext.front();
++    s_ext.pop_front();
++    TraceNote(-2);
++    s_external_running = true;
++    e->granted = true;
++    e->cv.notify_all();
++    e->cv.wait(lock, [&] { return e->done; });
++    s_external_running = false;
++  }
++  const int n = int(s_slots.size());
++  const uint64_t vb = Vblanks();
++  for (int k = 1; k <= n; ++k) {
++    const int i = ((s_last < 0 ? -1 : s_last) + k) % n;
++    Slot& s = *s_slots[i];
++    bool pick = false;
++    if (s.state == 1) {
++      pick = true;
++    } else if (s.state == 3) {
++      pick = vb >= s.deadline || (s.ready && s.ready());
++    }
++    if (pick) {
++      TraceNote(i);
++      s.state = 2;
++      s.go = true;
++      s_holder = i;
++      s_last = i;
++      s_idle = false;
++      s_holder_since_ms.store(NowMs());
++      s.cv.notify_all();
++      return;
++    }
++  }
++  TraceNote(-1);
++  s_holder = -1;
++  s_idle = true;
++  s_idle_cv.notify_all();
++}
++}  // namespace
++
++bool SerialEnabled() { return Enabled() && REXCVAR_GET(det_serial); }
++
++int SerialRegisterThread(bool runnable, bool guest) {
++  std::unique_lock<std::mutex> lock(s_mu);
++  s_slots.push_back(std::make_unique<Slot>());
++  s_slots.back()->state = runnable ? 1 : 5;
++  s_slots.back()->guest = guest;
++  return int(s_slots.size()) - 1;
++}
++
++void SerialMarkRunnable(int slot) {
++  if (slot < 0) return;
++  std::unique_lock<std::mutex> lock(s_mu);
++  if (s_slots[slot]->state == 5) s_slots[slot]->state = 1;
++}
++
++void SerialThreadStart(int slot) {
++  if (slot < 0) return;
++  std::unique_lock<std::mutex> lock(s_mu);
++  t_sslot = slot;
++  Slot& s = *s_slots[slot];
++  s.tid = HostTid();
++  // The first guest thread of the run (nobody holds the baton and nothing ran yet): take it. Host workers (the
++  // audio worker) wait for the scheduler instead, whenever their host thread happens to start.
++  if (s.guest && !s_guest_started && s_holder < 0 && s_last < 0 && !s_idle && !s_external_running &&
++      s.state == 1) {
++    s_guest_started = true;
++    s_idle_cv.notify_all();
++    s.state = 2;
++    s.go = true;
++    s_holder = slot;
++    s_last = slot;
++    s_holder_since_ms.store(NowMs());
++  }
++  s.cv.wait(lock, [&] { return s.go; });
++  s.go = false;
++}
++
++void SerialThreadExit() {
++  if (t_sslot < 0) return;
++  std::unique_lock<std::mutex> lock(s_mu);
++  s_slots[t_sslot]->state = 4;
++  if (s_holder == t_sslot) ScheduleLocked(lock);
++  t_sslot = -1;
++}
++
++bool SerialIsGuestThread() { return t_sslot >= 0; }
++
++void SerialBlock(std::function<bool()> ready, uint64_t deadline_vblank) {
++  if (t_sslot < 0) return;
++  std::unique_lock<std::mutex> lock(s_mu);
++  Slot& s = *s_slots[t_sslot];
++  s.state = 3;
++  s.ready = std::move(ready);
++  s.deadline = deadline_vblank;
++  if (s_holder == t_sslot) ScheduleLocked(lock);
++  s.cv.wait(lock, [&] { return s.go; });
++  s.go = false;
++  s.ready = nullptr;
++  s.deadline = ~0ull;
++}
++
++void SerialRunExternal(const std::function<void()>& fn, bool cp_request) {
++  auto e = std::make_shared<External>();
++  {
++    std::unique_lock<std::mutex> lock(s_mu);
++    s_ext.push_back(e);
++    if (cp_request) SetCpWaiting(true);
++    s_idle_cv.notify_all();  // if idle, the vblank thread grants it
++    e->cv.wait(lock, [&] { return e->granted; });
++  }
++  fn();
++  if (cp_request) SetCpWaiting(false);
++  {
++    std::unique_lock<std::mutex> lock(s_mu);
++    e->done = true;
++    e->cv.notify_all();
++  }
++}
++
++bool SerialWaitIdle(uint32_t timeout_ms) {
++  if (timeout_ms == 0) timeout_ms = uint32_t(std::max(1, REXCVAR_GET(det_serial_vblank_timeout_ms)));
++  std::unique_lock<std::mutex> lock(s_mu);
++  // No vblanks before the first guest thread runs (their number would depend on host start-up time).
++  while (!s_guest_started) s_idle_cv.wait_for(lock, std::chrono::milliseconds(100));
++  const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
++  for (;;) {
++    if (s_idle && s_holder < 0 && !s_external_running) {
++      if (!s_ext.empty()) {
++        ScheduleLocked(lock);  // external requests while idle: the vblank thread runs the decision
++        continue;
++      }
++      WaitCpDrained(lock);
++      if (s_idle && s_holder < 0 && s_ext.empty()) return true;
++      continue;
++    }
++    if (s_holder >= 0) {
++      const int64_t held = NowMs() - s_holder_since_ms.load();
++      if (held > REXCVAR_GET(det_serial_stall_ms)) {
++        REXLOG_WARN("[det] serial: slot {} (host tid {}) has held the baton for {} ms", s_holder,
++                    s_slots[s_holder]->tid, held);
++        s_holder_since_ms.store(NowMs());
++      }
++    }
++    if (s_idle_cv.wait_until(lock, until) == std::cv_status::timeout) return false;
++  }
++}
++
++void SerialAfterVblank() {
++  std::unique_lock<std::mutex> lock(s_mu);
++  TraceFlush();
++  if (s_holder < 0) ScheduleLocked(lock);
++}
++
++void AddDrainCheck(std::function<bool()> drained) {
++  std::lock_guard<std::mutex> lock(s_drain_mu);
++  s_drains.push_back(std::move(drained));
++}
++
++// Audio pumps: the audio worker runs its client callbacks when the vblank thread asks, at idle.
++namespace {
++std::mutex a_mu;
++std::condition_variable a_cv;
++uint64_t a_requested = 0, a_done = 0, a_extra = 0, a_acc = 0;
++bool a_worker = false;
++}  // namespace
++
++void AudioSetWorker(bool present) {
++  std::lock_guard<std::mutex> lock(a_mu);
++  a_worker = present;
++  a_cv.notify_all();
++}
++
++void AudioAddPumps(uint64_t n) {
++  std::lock_guard<std::mutex> lock(a_mu);
++  a_extra += n;
++}
++
++bool AudioWaitPump(uint32_t timeout_ms) {
++  std::unique_lock<std::mutex> lock(a_mu);
++  return a_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [] { return a_requested > a_done; });
++}
++
++void AudioPumpDone() {
++  std::lock_guard<std::mutex> lock(a_mu);
++  ++a_done;
++  a_cv.notify_all();
++}
++
++void RunAudioForVblank() {
++  std::unique_lock<std::mutex> lock(a_mu);
++  if (!a_worker) return;
++  // 256-sample frames at 48 kHz: 3.125 per 60 Hz vblank; plus the queue fill a client gets when it registers.
++  // The audio worker is a scheduler participant: its slot is ready while pumps are pending.
++  a_acc += 3125;
++  const uint64_t n = a_acc / 1000 + a_extra;
++  a_acc %= 1000;
++  a_extra = 0;
++  a_requested += n;
++}
++
++bool AudioPumpsPending() {
++  std::lock_guard<std::mutex> lock(a_mu);
++  return a_requested > a_done;
++}
++
++void NoteCpProgress() { s_cp_progress.fetch_add(1, std::memory_order_acq_rel); }
++uint64_t CpProgress() { return s_cp_progress.load(std::memory_order_acquire); }
++
++#if defined(_WIN32)
++namespace {
++typedef LONG(NTAPI* NtQueryFn)(HANDLE, int, PVOID, ULONG, PULONG);
++struct NtFns {
++  NtQueryFn query_object = nullptr, query_event = nullptr, query_semaphore = nullptr, query_mutant = nullptr,
++            query_timer = nullptr;
++  NtFns() {
++    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
++    query_object = reinterpret_cast<NtQueryFn>(GetProcAddress(nt, "NtQueryObject"));
++    query_event = reinterpret_cast<NtQueryFn>(GetProcAddress(nt, "NtQueryEvent"));
++    query_semaphore = reinterpret_cast<NtQueryFn>(GetProcAddress(nt, "NtQuerySemaphore"));
++    query_mutant = reinterpret_cast<NtQueryFn>(GetProcAddress(nt, "NtQueryMutant"));
++    query_timer = reinterpret_cast<NtQueryFn>(GetProcAddress(nt, "NtQueryTimer"));
++  }
++};
++const NtFns& Nt() {
++  static NtFns fns;
++  return fns;
++}
++}  // namespace
++#endif
++
++bool HandleSignaled(void* native_handle) {
++#if defined(_WIN32)
++  HANDLE h = HANDLE(native_handle);
++  const NtFns& nt = Nt();
++  alignas(8) uint8_t buf[512];
++  ULONG len = 0;
++  // ObjectTypeInformation (2) starts with the type name (UNICODE_STRING).
++  if (nt.query_object && nt.query_object(h, 2, buf, sizeof(buf), &len) >= 0) {
++    auto* name = reinterpret_cast<UNICODE_STRING*>(buf);
++    const std::wstring type(name->Buffer, name->Length / sizeof(wchar_t));
++    if (type == L"Event") {
++      struct {
++        int type;
++        LONG state;
++      } info{};
++      if (nt.query_event(h, 0, &info, sizeof(info), &len) >= 0) return info.state != 0;
++    } else if (type == L"Semaphore") {
++      struct {
++        LONG count;
++        LONG max;
++      } info{};
++      if (nt.query_semaphore(h, 0, &info, sizeof(info), &len) >= 0) return info.count > 0;
++    } else if (type == L"Mutant") {
++      struct {
++        LONG count;
++        BOOLEAN owned_by_caller;
++        BOOLEAN abandoned;
++      } info{};
++      if (nt.query_mutant(h, 0, &info, sizeof(info), &len) >= 0) return info.count > 0;
++    } else if (type == L"Timer") {
++      struct {
++        LARGE_INTEGER remaining;
++        BOOLEAN state;
++      } info{};
++      if (nt.query_timer(h, 0, &info, sizeof(info), &len) >= 0) return info.state != 0;
++    }
++  }
++  // Threads, processes and anything else: a zero wait does not consume their signal.
++  return WaitForSingleObject(h, 0) == WAIT_OBJECT_0;
++#else
++  (void)native_handle;
++  return false;
++#endif
++}
++
++}  // namespace rex::det
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 6e64ab2..ad1f5df 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -527,6 +527,8 @@ void CommandProcessor::WorkerThreadMain() {
+     rex::FatalError("Unable to setup command processor internal state");
+     return;
+   }
++  // wwe2k14 patch (Session 15): det_serial: drained = waiting with nothing to do (see DetDrained).
++  if (det::SerialEnabled()) det::AddDrainCheck([this] { return DetDrained(); });
+   // wwe2k14 patch (Session 6, CP10): initial values of the cached setting lookups.
+   RefreshReadbackResolveModeCache();
+   RefreshGpuDebugLogCache();
+@@ -546,6 +548,8 @@ void CommandProcessor::WorkerThreadMain() {
+       // We spin here waiting for new ones, as the overhead of waiting on our
+       // event is too high.
+       PrepareForWait();
++      det_wait_addr_.store(read_ptr_index_);
++      det_wait_kind_.store(1);
+       det::SetCpWaiting(true);  // wwe2k14 patch (Session 15): det_frames
+       uint32_t loop_count = 0;
+       do {
+@@ -563,6 +567,7 @@ void CommandProcessor::WorkerThreadMain() {
+                (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index));
+       ReturnFromWait();
+       det::SetCpWaiting(false);  // wwe2k14 patch (Session 15): det_frames
++      det_wait_kind_.store(0);
+       if (!worker_running_ || !pending_fns_.empty()) {
+         continue;
+       }
+@@ -571,6 +576,7 @@ void CommandProcessor::WorkerThreadMain() {
+ 
+     // Execute. Note that we handle wraparound transparently.
+     read_ptr_index_ = ExecutePrimaryBuffer(read_ptr_index_, write_ptr_index);
++    det::NoteCpProgress();  // wwe2k14 patch (Session 15): det_serial (GPU wait loops re-check after progress)
+ 
+     // TODO(benvanik): use reader->Read_update_freq_ and only issue after moving
+     //     that many indices.
+@@ -658,6 +664,44 @@ void CommandProcessor::EnableReadPointerWriteBack(uint32_t ptr, uint32_t block_s
+   read_ptr_update_freq_ = uint32_t(1) << block_size_log2 >> 2;
+ }
+ 
++// wwe2k14 patch (Session 15): det_serial drain check (scheduler thread): true when the wait the command processor
++// is in would not end now (nothing new to execute / the polled value still does not match).
++bool CommandProcessor::DetDrained() {
++  switch (det_wait_kind_.load()) {
++    case 1: {
++      const uint32_t w = write_ptr_index_.load();
++      return w == 0xBAADF00D || w == det_wait_addr_.load();
++    }
++    case 2:
++    case 3: {
++      const uint32_t addr = det_wait_addr_.load();
++      uint32_t value;
++      if (det_wait_kind_.load() == 2) {
++        value = *reinterpret_cast<uint32_t*>(memory_->TranslatePhysical(addr & ~uint32_t(0x3)));
++        value = xenos::GpuSwap(value, static_cast<xenos::Endian>(addr & 0x3));
++      } else {
++        if (addr == XE_GPU_REG_COHER_STATUS_HOST) return false;  // the command processor makes it coherent itself
++        value = ReadRegisterValue(addr);
++      }
++      const uint32_t v = value & det_wait_mask_.load(), ref = det_wait_ref_.load();
++      bool matched = false;
++      switch (det_wait_func_.load()) {
++        case 0x1: matched = v < ref; break;
++        case 0x2: matched = v <= ref; break;
++        case 0x3: matched = v == ref; break;
++        case 0x4: matched = v != ref; break;
++        case 0x5: matched = v >= ref; break;
++        case 0x6: matched = v > ref; break;
++        case 0x7: matched = true; break;
++        default: matched = false; break;
++      }
++      return !matched;
++    }
++    default:
++      return true;
++  }
++}
++
+ void CommandProcessor::UpdateWritePointer(uint32_t value) {
+   perf::timeline::Record("wptr", value);
+   write_ptr_index_ = value;
+@@ -1655,7 +1699,12 @@ bool CommandProcessor::ExecutePacketType3_INTERRUPT(memory::RingBuffer* reader,
+   for (int n = 0; n < 6; n++) {
+     if (cpu_mask & (1 << n)) {
+       if (graphics_system_) {
+-        graphics_system_->DispatchInterruptCallback(1, n);
++        // wwe2k14 patch (Session 15): det_serial: the guest interrupt routine runs between guest turns.
++        if (det::SerialEnabled()) {
++          det::SerialRunExternal([&] { graphics_system_->DispatchInterruptCallback(1, n); }, true);
++        } else {
++          graphics_system_->DispatchInterruptCallback(1, n);
++        }
+       }
+     }
+   }
+@@ -1870,6 +1919,11 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+     }
+     if (!matched) {
+       waited = true;
++      det_wait_addr_.store(poll_reg_addr);
++      det_wait_ref_.store(ref);
++      det_wait_mask_.store(mask);
++      det_wait_func_.store(wait_info & 0x7);
++      det_wait_kind_.store(is_memory ? 2 : 3);
+       det::SetCpWaiting(true);  // wwe2k14 patch (Session 15): det_frames (cleared after the wait loop)
+       if (!timeline_wait_recorded && perf::timeline::Enabled()) {
+         perf::timeline::Record("wrm_b", poll_reg_addr, ref, value);
+@@ -1899,7 +1953,11 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+       }
+     }
+   } while (!matched);
+-  if (waited) det::SetCpWaiting(false);  // wwe2k14 patch (Session 15): det_frames
++  if (waited) {
++    det::SetCpWaiting(false);  // wwe2k14 patch (Session 15): det_frames
++    det_wait_kind_.store(0);
++    det::NoteCpProgress();
++  }
+   if (timeline_wait_recorded) {
+     perf::timeline::Record("wrm_e", poll_reg_addr, ref, value);
+   }
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index 4820e13..4278395 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -320,12 +320,14 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+         while (vsync_worker_running_) {
+           // wwe2k14 patch (Session 15): det_frames: the next vblank only once the guest is quiescent (all guest
+           // threads blocked, the CP idle or waiting); with vsync on, also not before the 60 Hz deadline.
+-          if (det::Enabled()) {
+-            if (!det::WaitQuiescent(0, 0)) {
++          // wwe2k14 patch (Session 15): det_serial: a vblank only when nothing is runnable (idle); the vblank's
++          // interrupt then runs, and the scheduler picks who goes next.
++          if (det::SerialEnabled()) {
++            if (!det::SerialWaitIdle(0)) {
+               ++det_timeouts;
+               if (det_timeouts <= 20 || det_timeouts % 100 == 0) {
+-                REXGPU_WARN("[det] vblank {} fired without quiescence ({} guest threads running) #{}",
+-                            det::Vblanks() + 1, det::RunningGuestThreads(), det_timeouts);
++                REXGPU_WARN("[det] serial: vblank {} fired while a guest thread still runs #{}", det::Vblanks() + 1,
++                            det_timeouts);
+               }
+             }
+             if (REXCVAR_GET(vsync)) {
+@@ -337,6 +339,34 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+             last_frame_time = chrono::Clock::QueryGuestTickCount();
+             MarkVblank(0, 0, 0);
+             det::NoteVblank();
++            det::RunVblankHooks();
++            det::RunAudioForVblank();
++            det::SerialAfterVblank();
++            continue;
++          }
++          if (det::Enabled()) {
++            if (!det::WaitQuiescent(0, 0)) {
++              ++det_timeouts;
++              if (det_timeouts <= 20 || det_timeouts % 100 == 0) {
++                REXGPU_WARN("[det] vblank {} fired without quiescence ({} guest threads running: host tids {}) #{}",
++                            det::Vblanks() + 1, det::RunningGuestThreads(), det::DescribeRunning(), det_timeouts);
++              }
++            }
++            if (REXCVAR_GET(vsync)) {
++              while (vsync_worker_running_ &&
++                     chrono::Clock::QueryGuestTickCount() - last_frame_time < vsync_interval_ticks) {
++                rex::thread::Sleep(std::chrono::milliseconds(1));
++              }
++            }
++            last_frame_time = chrono::Clock::QueryGuestTickCount();
++            // At a quiescent point: the frame thread waiting at its barrier is released (with a vblank only if none
++            // fired since its previous barrier); otherwise everyone waits on something only a vblank can give.
++            const bool barrier = det::BarrierWaiting();
++            if (!barrier || det::VblankDueAtBarrier()) {
++              MarkVblank(0, 0, 0);
++              det::NoteVblank();
++            }
++            if (barrier) det::ReleaseBarrier();
+             continue;
+           }
+           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
+diff --git a/src/kernel/xam/xam_ui.cpp b/src/kernel/xam/xam_ui.cpp
+index 5a572ce..9417e65 100644
+--- a/src/kernel/xam/xam_ui.cpp
++++ b/src/kernel/xam/xam_ui.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 15)
+ #include <rex/logging.h>
+ #include <rex/runtime.h>
+ #include <rex/string.h>
+@@ -98,7 +99,8 @@ X_RESULT xeXamDispatchDialog(T* dialog, std::function<X_RESULT(T*)> close_callba
+     return result;
+   };
+   auto post = []() {
+-    rex::thread::Sleep(std::chrono::milliseconds(100));
++    // wwe2k14 patch (Session 15): det_serial: the delay is the det stage timing (kernel_state.cpp)
++    if (!rex::det::SerialEnabled()) rex::thread::Sleep(std::chrono::milliseconds(100));
+     // Broadcast XN_SYS_UI = false
+     REX_KERNEL_STATE()->BroadcastNotification(0x9, false);
+   };
+@@ -140,7 +142,8 @@ X_RESULT xeXamDispatchDialogEx(T* dialog,
+     return result;
+   };
+   auto post = []() {
+-    rex::thread::Sleep(std::chrono::milliseconds(100));
++    // wwe2k14 patch (Session 15): det_serial: the delay is the det stage timing (kernel_state.cpp)
++    if (!rex::det::SerialEnabled()) rex::thread::Sleep(std::chrono::milliseconds(100));
+     // Broadcast XN_SYS_UI = false
+     REX_KERNEL_STATE()->BroadcastNotification(0x9, false);
+   };
+@@ -164,7 +167,8 @@ X_RESULT xeXamDispatchHeadless(std::function<X_RESULT()> run_callback, uint32_t
+     REX_KERNEL_STATE()->BroadcastNotification(0x9, true);
+   };
+   auto post = []() {
+-    rex::thread::Sleep(std::chrono::milliseconds(100));
++    // wwe2k14 patch (Session 15): det_serial: the delay is the det stage timing (kernel_state.cpp)
++    if (!rex::det::SerialEnabled()) rex::thread::Sleep(std::chrono::milliseconds(100));
+     REXKRNL_DEBUG("xeXamDispatchHeadless: Broadcasting XN_SYS_UI = false");
+     // Broadcast XN_SYS_UI = false
+     REX_KERNEL_STATE()->BroadcastNotification(0x9, false);
+@@ -187,7 +191,8 @@ X_RESULT xeXamDispatchHeadlessEx(std::function<X_RESULT(uint32_t&, uint32_t&)> r
+     REX_KERNEL_STATE()->BroadcastNotification(0x9, true);
+   };
+   auto post = []() {
+-    rex::thread::Sleep(std::chrono::milliseconds(100));
++    // wwe2k14 patch (Session 15): det_serial: the delay is the det stage timing (kernel_state.cpp)
++    if (!rex::det::SerialEnabled()) rex::thread::Sleep(std::chrono::milliseconds(100));
+     // Broadcast XN_SYS_UI = false
+     REX_KERNEL_STATE()->BroadcastNotification(0x9, false);
+   };
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_module.cpp b/src/kernel/xboxkrnl/xboxkrnl_module.cpp
+index dcb3af6..b9c906e 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_module.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_module.cpp
+@@ -18,6 +18,7 @@
+ 
+ #include <fmt/format.h>
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_frames
+ #include <rex/chrono/clock.h>
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+@@ -192,8 +193,17 @@ XboxkrnlModule::XboxkrnlModule(Runtime* emulator, KernelState* kernel_state)
+   memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 16,
+                                    chrono::Clock::QueryGuestUptimeMillis());
+   memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 20, 0);
++  // wwe2k14 patch (Session 15): det_frames: the bundle changes only at det vblanks (a vblank hook), with uptime
++  // derived from the vblank count; the 1 ms host timer leaves it alone.
++  if (det::Enabled()) {
++    det::AddVblankHook([lpKeTimeStampBundle]() {
++      memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 16,
++                                       det::VirtualUptimeMillis(chrono::Clock::QueryGuestUptimeMillis()));
++    });
++  }
+   timestamp_timer_ = rex::thread::HighResolutionTimer::CreateRepeating(
+       std::chrono::milliseconds(1), [lpKeTimeStampBundle]() {
++        if (det::Enabled()) return;
+         memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 16,
+                                          chrono::Clock::QueryGuestUptimeMillis());
+       });
+diff --git a/src/system/kernel_state.cpp b/src/system/kernel_state.cpp
+index 697399c..596bc8e 100644
+--- a/src/system/kernel_state.cpp
++++ b/src/system/kernel_state.cpp
+@@ -42,11 +42,29 @@
+ #include <rex/system/xsemaphore.h>
+ #include <rex/system/xthread.h>
+ #include <rex/system/xtimer.h>
++#include <rex/det.h>  // wwe2k14 patch (Session 15): det_serial
++
++#include <condition_variable>
++#include <deque>
++#include <map>
++#include <mutex>
++#include <vector>
+ 
+ namespace rex::system {
+ 
+ constexpr uint32_t kDeferredOverlappedDelayMillis = 100;
+ 
++// wwe2k14 patch (Session 15): det_serial: a deferred overlapped request runs in stages at det vblanks instead of
++// around host-time sleeps: pre at +1 vblank, the completion 100 ms (6 vblanks) later, post another 100 ms later (as
++// the original pre / sleep / complete / sleep-in-post). A vblank hook (the vblank thread, at idle) hands the due stages
++// to the dispatch thread and waits until they have run.
++namespace {
++std::mutex g_det_disp_mu;
++std::condition_variable g_det_disp_cv;
++std::map<std::pair<uint64_t, uint64_t>, std::function<void()>> g_det_items;  // (due vblank, seq) -> stage
++uint64_t g_det_seq = 0, g_det_released = 0, g_det_done = 0;
++}  // namespace
++
+ // This is a global object initialized with the XboxkrnlModule.
+ // It references the current kernel state object that all kernel methods should
+ // be using to stash their variables.
+@@ -663,6 +681,7 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
+         REXSYS_NOISY_DEBUG("Dispatch thread processing queued item ({} remaining)",
+                            dispatch_queue_.size());
+         global_lock.unlock();
++        const bool det_item = rex::det::SerialEnabled();
+ 
+         // Throws out of fn leave the originating overlapped uncompleted and
+         // the waiting guest thread stuck; fail visibly rather than swallow.
+@@ -674,10 +693,40 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
+           REX_FATAL("Dispatch thread: deferred completion threw non-std exception");
+         }
+         REXSYS_NOISY_DEBUG("Dispatch thread completed item");
++        if (det_item) {
++          std::lock_guard<std::mutex> det_lock(g_det_disp_mu);
++          ++g_det_done;
++          g_det_disp_cv.notify_all();
++        }
+       }
+       return 0;
+     }));
+     dispatch_thread_->set_name("Kernel Dispatch");
++    if (rex::det::SerialEnabled()) {
++      rex::det::AddVblankHook([this]() {
++        std::vector<std::function<void()>> due;
++        {
++          std::lock_guard<std::mutex> det_lock(g_det_disp_mu);
++          const uint64_t vb = rex::det::Vblanks();
++          while (!g_det_items.empty() && g_det_items.begin()->first.first <= vb) {
++            due.push_back(std::move(g_det_items.begin()->second));
++            g_det_items.erase(g_det_items.begin());
++          }
++          g_det_released += due.size();
++        }
++        if (due.empty()) return;
++        {
++          auto global_lock = global_critical_region_.Acquire();
++          for (auto& fn : due) dispatch_queue_.push_back(std::move(fn));
++        }
++        dispatch_cond_.notify_all();
++        std::unique_lock<std::mutex> det_lock(g_det_disp_mu);
++        while (!g_det_disp_cv.wait_for(det_lock, std::chrono::seconds(3),
++                                       [] { return g_det_done >= g_det_released; })) {
++          REXSYS_WARN("[det] deferred stages not done after 3 s ({} of {})", g_det_done, g_det_released);
++        }
++      });
++    }
+     X_STATUS create_status = dispatch_thread_->Create();
+     if (XFAILED(create_status)) {
+       dispatch_thread_running_ = false;
+@@ -1220,6 +1269,20 @@ void KernelState::CompleteOverlappedDeferredEx(
+   auto ptr = memory()->TranslateVirtual(overlapped_ptr);
+   XOverlappedSetResult(ptr, X_ERROR_IO_PENDING);
+   XOverlappedSetContext(ptr, XThread::GetCurrentThreadHandle());
++  if (rex::det::SerialEnabled()) {
++    std::lock_guard<std::mutex> det_lock(g_det_disp_mu);
++    const uint64_t vb = rex::det::Vblanks(), d = rex::det::VblanksForMs(kDeferredOverlappedDelayMillis);
++    REXSYS_INFO("[det] deferred overlapped {:08X} at vblank {}: pre at {}, completion at {}, post at {}",
++                overlapped_ptr, vb, vb + 1, vb + 1 + d, vb + 1 + 2 * d);
++    if (pre_callback) g_det_items.emplace(std::make_pair(vb + 1, ++g_det_seq), pre_callback);
++    g_det_items.emplace(std::make_pair(vb + 1 + d, ++g_det_seq), [this, completion_callback, overlapped_ptr]() {
++      uint32_t extended_error = 0, length = 0;
++      auto result = completion_callback(extended_error, length);
++      CompleteOverlappedEx(overlapped_ptr, result, extended_error, length);
++    });
++    if (post_callback) g_det_items.emplace(std::make_pair(vb + 1 + 2 * d, ++g_det_seq), post_callback);
++    return;
++  }
+   auto global_lock = global_critical_region_.Acquire();
+   dispatch_queue_.push_back(
+       [this, completion_callback, overlapped_ptr, pre_callback, post_callback]() {
+diff --git a/src/system/xobject.cpp b/src/system/xobject.cpp
+index 58bdf4b..411efbd 100644
+--- a/src/system/xobject.cpp
++++ b/src/system/xobject.cpp
+@@ -216,6 +216,27 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode, uint32_t a
+ 
+   XThread::CheckTitleTermination();
+   rex::thread::WaitResult result;
++  // wwe2k14 patch (Session 15): det_serial: try the wait without blocking; if it would block, give the baton up
++  // until the object is signalled (checked without consuming it), an APC is pending (alertable), or the timeout's
++  // det vblank has come.
++  if (det::SerialEnabled() && det::SerialIsGuestThread()) {
++    const bool infinite = timeout_ms == std::chrono::milliseconds::max();
++    const uint64_t target =
++        infinite ? ~0ull : det::Vblanks() + det::VblanksForMs(uint64_t(timeout_ms.count()));
++    void* native = wait_handle->native_handle();
++    auto* thread = XThread::GetCurrentThread();
++    for (;;) {
++      result = rex::thread::Wait(wait_handle, alertable ? true : false, std::chrono::milliseconds(0));
++      if (result != rex::thread::WaitResult::kTimeout || timeout_ms.count() == 0) break;
++      if (!infinite && det::Vblanks() >= target) break;
++      det::SerialBlock(
++          [native, thread, alertable] {
++            return det::HandleSignaled(native) ||
++                   (alertable && thread && thread->HasUserApcs());
++          },
++          target);
++    }
++  } else
+   // wwe2k14 patch (Session 15): det_frames: a blocking wait counts the guest thread as blocked; a finite timeout
+   // ends at a det vblank (counted from now), not in host time.
+   if (det::Enabled() && det::IsGuestThread() && timeout_ms.count() != 0) {
+@@ -256,6 +277,37 @@ X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object, ui
+                                       TimeoutTicksToMs(*opt_timeout)))
+                                 : std::chrono::milliseconds::max();
+ 
++  // wwe2k14 patch (Session 15): det_serial: signal, try the wait, then the scheduler loop as in Wait.
++  if (det::SerialEnabled() && det::SerialIsGuestThread()) {
++    auto r = rex::thread::SignalAndWait(signal_object->GetWaitHandle(), wait_object->GetWaitHandle(),
++                                        alertable ? true : false, std::chrono::milliseconds(0));
++    const bool infinite = timeout_ms == std::chrono::milliseconds::max();
++    const uint64_t target =
++        infinite ? ~0ull : det::Vblanks() + det::VblanksForMs(uint64_t(timeout_ms.count()));
++    void* native = wait_object->GetWaitHandle()->native_handle();
++    auto* thread = XThread::GetCurrentThread();
++    while (r == rex::thread::WaitResult::kTimeout && timeout_ms.count() != 0 &&
++           (infinite || det::Vblanks() < target)) {
++      det::SerialBlock(
++          [native, thread, alertable] {
++            return det::HandleSignaled(native) ||
++                   (alertable && thread && thread->HasUserApcs());
++          },
++          target);
++      r = rex::thread::Wait(wait_object->GetWaitHandle(), alertable ? true : false, std::chrono::milliseconds(0));
++    }
++    switch (r) {
++      case rex::thread::WaitResult::kSuccess:
++        wait_object->WaitCallback();
++        return X_STATUS_SUCCESS;
++      case rex::thread::WaitResult::kUserCallback:
++        return X_STATUS_USER_APC;
++      case rex::thread::WaitResult::kTimeout:
++        return X_STATUS_TIMEOUT;
++      default:
++        return X_STATUS_ABANDONED_WAIT_0;
++    }
++  }
+   // wwe2k14 patch (Session 15): det_frames: counted as blocked (timeouts stay host time here: rare).
+   std::optional<det::WaitScope> det_scope;
+   if (det::Enabled() && det::IsGuestThread() && timeout_ms.count() != 0) det_scope.emplace();
+@@ -293,6 +345,69 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects, uint32_t wait_
+                                 : std::chrono::milliseconds::max();
+ 
+   XThread::CheckTitleTermination();
++  // wwe2k14 patch (Session 15): det_serial: as XObject::Wait, over all the objects (any / all).
++  if (det::SerialEnabled() && det::SerialIsGuestThread()) {
++    const bool infinite = timeout_ms == std::chrono::milliseconds::max();
++    const uint64_t target =
++        infinite ? ~0ull : det::Vblanks() + det::VblanksForMs(uint64_t(timeout_ms.count()));
++    std::vector<void*> natives;
++    for (auto* h : wait_handles) natives.push_back(h->native_handle());
++    auto* thread = XThread::GetCurrentThread();
++    const bool any = wait_type != 0;
++    for (;;) {
++      if (any) {
++        auto copy = wait_handles;
++        auto r = rex::thread::WaitAny(std::move(copy), alertable ? true : false, std::chrono::milliseconds(0));
++        if (r.first != rex::thread::WaitResult::kTimeout || timeout_ms.count() == 0 ||
++            (!infinite && det::Vblanks() >= target)) {
++          XThread::CheckTitleTermination();
++          switch (r.first) {
++            case rex::thread::WaitResult::kSuccess:
++              objects[r.second]->WaitCallback();
++              return X_STATUS(r.second);
++            case rex::thread::WaitResult::kUserCallback:
++              return X_STATUS_USER_APC;
++            case rex::thread::WaitResult::kTimeout:
++              return X_STATUS_TIMEOUT;
++            case rex::thread::WaitResult::kAbandoned:
++              return X_STATUS(X_STATUS_ABANDONED_WAIT_0 + r.second);
++            default:
++              return X_STATUS_UNSUCCESSFUL;
++          }
++        }
++      } else {
++        auto copy = wait_handles;
++        auto r = rex::thread::WaitAll(std::move(copy), alertable ? true : false, std::chrono::milliseconds(0));
++        if (r != rex::thread::WaitResult::kTimeout || timeout_ms.count() == 0 ||
++            (!infinite && det::Vblanks() >= target)) {
++          XThread::CheckTitleTermination();
++          switch (r) {
++            case rex::thread::WaitResult::kSuccess:
++              for (uint32_t i = 0; i < count; i++) objects[i]->WaitCallback();
++              return X_STATUS_SUCCESS;
++            case rex::thread::WaitResult::kUserCallback:
++              return X_STATUS_USER_APC;
++            case rex::thread::WaitResult::kTimeout:
++              return X_STATUS_TIMEOUT;
++            default:
++              return X_STATUS_UNSUCCESSFUL;
++          }
++        }
++      }
++      det::SerialBlock(
++          [natives, thread, alertable, any] {
++            if (alertable && thread && thread->HasUserApcs()) return true;
++            bool all = true;
++            for (void* n : natives) {
++              const bool sig = det::HandleSignaled(n);
++              if (any && sig) return true;
++              all = all && sig;
++            }
++            return !any && all;
++          },
++          target);
++    }
++  }
+   // wwe2k14 patch (Session 15): det_frames: counted as blocked; a finite timeout ends at a det vblank.
+   std::optional<det::WaitScope> det_scope;
+   const bool det_on = det::Enabled() && det::IsGuestThread() && timeout_ms.count() != 0;
+diff --git a/src/system/xthread.cpp b/src/system/xthread.cpp
+index 7239973..12ed57a 100644
+--- a/src/system/xthread.cpp
++++ b/src/system/xthread.cpp
+@@ -481,6 +481,13 @@ X_STATUS XThread::Create() {
+ 
+   // TODO(tomc): do we need thread notifications (related to processor thread management)?
+ 
++  // wwe2k14 patch (Session 15): det_serial: a scheduler slot in creation order (the creator's turn).
++  if (det::SerialEnabled() && is_guest_thread()) {
++    det_slot_ = det::SerialRegisterThread((creation_params_.creation_flags & X_CREATE_SUSPENDED) == 0);
++    REXSYS_INFO("[det] serial slot {} = guest thread {:X} '{}' start {:08X} at vblank {}", det_slot_, thread_id_,
++                thread_name_, creation_params_.start_address, det::Vblanks());
++  }
++
+   if ((creation_params_.creation_flags & X_CREATE_SUSPENDED) == 0) {
+     // Start the thread now that we're all setup.
+     thread_->Resume();
+@@ -498,6 +505,7 @@ X_STATUS XThread::Exit(int exit_code) {
+   auto self = retain_object(this);
+ 
+   det::GuestThreadExiting();  // wwe2k14 patch (Session 15): det_frames thread accounting
++  if (det_slot_ >= 0) det::SerialThreadExit();
+ 
+   // Mark as terminated before running down APCs.
+   auto kthread = guest_object<X_KTHREAD>();
+@@ -578,6 +586,7 @@ void XThread::Execute() {
+   // Let the kernel know we are starting.
+   kernel_state_->OnThreadExecute(this);
+   det::GuestThreadStarted();  // wwe2k14 patch (Session 15): det_frames thread accounting
++  det::SerialThreadStart(det_slot_);  // wwe2k14 patch (Session 15): det_serial: wait for the first turn
+ 
+   // Dispatch any APCs that were queued before the thread was created first.
+   DeliverAPCs();
+@@ -721,6 +730,10 @@ void XThread::EnqueueApc(uint32_t normal_routine, uint32_t normal_context, uint3
+   thread_->QueueUserCallback([]() {});
+ }
+ 
++bool XThread::HasUserApcs() {
++  return !guest_object<X_KTHREAD>()->apc_lists[1].empty(memory());
++}
++
+ void XThread::DeliverAPCs() {
+   auto mem = memory();
+   auto* ctx = thread_state_->context();
+@@ -941,6 +954,8 @@ X_STATUS XThread::Resume(uint32_t* out_suspend_count) {
+   if (out_suspend_count) {
+     *out_suspend_count = previous_suspend_count;
+   }
++  // wwe2k14 patch (Session 15): det_serial: a thread created suspended becomes runnable when resumed.
++  if (det_slot_ >= 0 && previous_suspend_count <= 1) det::SerialMarkRunnable(det_slot_);
+   return thread_->Resume(&unused_host_suspend_count) ? X_STATUS_SUCCESS : X_STATUS_UNSUCCESSFUL;
+ #elif REX_PLATFORM_LINUX || REX_PLATFORM_MAC
+   bool should_resume_host = false;
+@@ -1019,14 +1034,42 @@ X_STATUS XThread::Delay(uint32_t processor_mode, uint32_t alertable, uint64_t in
+   CheckTitleTermination();
+   // wwe2k14 patch (Session 15): det_frames: a guest sleep (also 0 ms, a yield) lasts whole det vblanks, so where it
+   // ends does not depend on host time. Alertable: pending APCs first, as the real sleep would deliver them.
++  // wwe2k14 patch (Session 15): det_serial: the sleep gives the baton up until its det vblank (or an APC).
++  if (det::SerialEnabled() && det::SerialIsGuestThread()) {
++    const uint64_t target = det::Vblanks() + det::VblanksForMs(timeout_ms);
++    auto* self = this;
++    for (;;) {
++      if (alertable &&
++          rex::thread::AlertableSleep(std::chrono::milliseconds(0)) == rex::thread::SleepResult::kAlerted) {
++        CheckTitleTermination();
++        return X_STATUS_USER_APC;
++      }
++      if (det::Vblanks() >= target) break;
++      std::function<bool()> ready;
++      if (alertable) {
++        ready = [self] { return self->HasUserApcs(); };
++      }
++      det::SerialBlock(std::move(ready), target);
++    }
++    CheckTitleTermination();
++    return X_STATUS_SUCCESS;
++  }
+   if (det::Enabled() && det::IsGuestThread()) {
+-    if (alertable) {
+-      if (rex::thread::AlertableSleep(std::chrono::milliseconds(0)) == rex::thread::SleepResult::kAlerted) {
++    const uint64_t target = det::Vblanks() + det::VblanksForMs(timeout_ms);
++    if (!alertable) {
++      det::WaitVblanks(target);
++      CheckTitleTermination();
++      return X_STATUS_SUCCESS;
++    }
++    // Alertable (e.g. "sleep until an I/O completion APC arrives"): APCs end the sleep at once, as they would.
++    det::WaitScope scope;
++    for (;;) {
++      if (rex::thread::AlertableSleep(std::chrono::milliseconds(1)) == rex::thread::SleepResult::kAlerted) {
+         CheckTitleTermination();
+         return X_STATUS_USER_APC;
+       }
++      if (det::Vblanks() >= target) break;
+     }
+-    det::WaitVblanks(det::Vblanks() + det::VblanksForMs(timeout_ms));
+     CheckTitleTermination();
+     return X_STATUS_SUCCESS;
+   }
+diff --git a/src/system/xtimer.cpp b/src/system/xtimer.cpp
+index eabf0ae..2f4de04 100644
+--- a/src/system/xtimer.cpp
++++ b/src/system/xtimer.cpp
+@@ -41,6 +41,13 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms, uint32_t routine
+                           uint32_t routine_arg, bool resume) {
+   using rex::chrono::WinSystemClock;
+   using rex::chrono::XSystemClock;
++  {  // wwe2k14 patch (Session 15): det_frames: are guest timers used? (first 20 logged)
++    static int det_logged = 0;
++    if (det_logged < 20) {
++      ++det_logged;
++      REXSYS_INFO("[det] XTimer::SetTimer due={} period_ms={} routine={:08X}", due_time, period_ms, routine);
++    }
++  }
+   // Caller is checking for STATUS_TIMER_RESUME_IGNORED.
+   if (resume) {
+     return X_STATUS_TIMER_RESUME_IGNORED;

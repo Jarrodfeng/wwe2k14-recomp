@@ -1,0 +1,24 @@
+# Session 30 (#3): the Session 28 menu patch checked by screen text, no screenshots: QUIT TO DESKTOP at the end of the
+# main menu list, GRAPHICS in OPTIONS (after GAMEPLAY), the GAMEPLAY list, and PLAY's list. Fast-forwarded (states and
+# text drive it); ~10 s. With --wwe2k14_gfx_menu=false --wwe2k14_quit_item=false the two asserts on the patch fail.
+on_fail quit
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_text PLAY 120
+assert_text QUIT TO DESKTOP          # Session 28 patch (--wwe2k14_quit_item)
+include menu_to_options
+wait_text IN-GAME MANUAL 120
+assert_text GAMEPLAY
+assert_text GRAPHICS                 # Session 28 patch (--wwe2k14_gfx_menu)
+assert_text MUSIC JUKEBOX
+log_text
+press_until_state DOWN cursor 2 24 30
+press_until_state A menu !=4 10 30
+wait_text VISUAL PRESENTATION 120    # the GAMEPLAY list
+press_until_state B menu 4 10 30
+include back_to_menu
+include menu_to_play
+wait_text TRIPLE THREAT 120
+assert_text TOURNAMENTS
+log menu_text_check: PASS
+quit

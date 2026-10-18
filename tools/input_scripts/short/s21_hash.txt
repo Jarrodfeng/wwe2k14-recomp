@@ -1,0 +1,35 @@
+# Session 21: frame-hash route for setting-off vs on correctness pairs. The profile route (launch lesnar_bryan, both
+# entrances, 2,000 match frames; CPU vs CPU) with a frame-locked clip from Brock's titantron to match +2,000 and every
+# frame hashed in full. Record once with --wwe2k14_replay_record=NAME, then play with --wwe2k14_replay_play=NAME plus
+# --wwe2k14_clip_dir=DIR --wwe2k14_clip_frame_locked=true --wwe2k14_clip_hash_log=true (tools\perf\s21_hash_pair.ps1).
+# Compare: py tools\perf\hash_compare.py CSV_A CSV_B. on_fail quit.
+on_fail quit
+log bench: start s21_hash (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+clip_start h 60 1
+wait_frames 100
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 2000
+clip_stop h
+wait_frames 60
+log bench: done
+quit

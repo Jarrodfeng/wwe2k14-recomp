@@ -1,0 +1,27 @@
+# harness: realtime (Session 20 item 10: present timing at a step rate; timed, run_list -Exclusive)
+# Session 20 item 10: boot, launch (use with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true and a
+# step rate, e.g. --wwe2k14_step_hz=165 --wwe2k14_step_vblank=true), 3,000 frames of the match from M3.PAC, quit.
+# Scene mark: match. Present spread: py tools\perf\present_spread.py RUN. Needs the frozen user data (run_list.ps1).
+# on_fail quit. Screenshots pm_* are local only.
+on_fail quit
+log present: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log present: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+wait_file M3.PAC 36000
+log scene=match
+wait_frames 300
+screenshot pm_m300
+wait_frames 2700
+log bench: done
+wait_frames 60
+quit

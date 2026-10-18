@@ -1,0 +1,63 @@
+# harness: realtime (slow motion needs vsync on; Session 16: run_list fast-forwards other routes)
+# Session 14 (S3, report only): slow-motion experiment. Use with --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true (SDK pin-32fae13 or later: gpu_vblank_rate_override_hz). In the match: the guest
+# vblank at 60 (normal), 30, 15 Hz, then back to normal; the match clock (frames) is logged at the start and end of
+# each phase (wall-clock times from the log stamps) and 4 screenshots one game frame apart per rate. on_fail quit.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+wait_state match_clock !=0 3600 2
+wait_frames 120
+cvar gpu_vblank_rate_override_hz 0
+wait_frames 20
+log s3: rate 0 start
+log_state match_clock
+screenshot_every 1 s3_0
+wait_frames 4
+screenshot_every 0
+wait_frames 116
+log s3: rate 0 end
+log_state match_clock
+cvar gpu_vblank_rate_override_hz 30
+wait_frames 20
+log s3: rate 30 start
+log_state match_clock
+screenshot_every 1 s3_30
+wait_frames 4
+screenshot_every 0
+wait_frames 116
+log s3: rate 30 end
+log_state match_clock
+cvar gpu_vblank_rate_override_hz 15
+wait_frames 20
+log s3: rate 15 start
+log_state match_clock
+screenshot_every 1 s3_15
+wait_frames 4
+screenshot_every 0
+wait_frames 116
+log s3: rate 15 end
+log_state match_clock
+cvar gpu_vblank_rate_override_hz 0
+wait_frames 20
+log s3: rate 0 start
+log_state match_clock
+screenshot_every 1 s3_back
+wait_frames 4
+screenshot_every 0
+wait_frames 116
+log s3: rate 0 end
+log_state match_clock
+wait_frames 60
+quit

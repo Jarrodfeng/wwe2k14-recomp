@@ -1,0 +1,869 @@
+{
+  "about": "WWE 2K14 (Xbox 360) match-type ids: the value the type setter sub_822CA9C0 stores at M+8 (docs/systems/match_setup.md) and --wwe2k14_quick_type takes. Found by the Session 30 menu crawler: every PLAY entry leads to a setup screen whose menu id is 2000 + the type; checked against the five types known from match captures (0, 3, 23, 39, 49) and the rule types in match_setup.md (81 Inferno, 26-31 brawl). The type table holds 119 records: ids missing here are not reached from PLAY (e.g. 1, 2, 37 from Session 27, other modes). confidence high = captured or launched, medium = menu id only. Session 30: Quick Match of 60 / 81 needed two rule bytes the menus write (M+21 bit 0 cage, M+71 bit 0 Inferno fire; docs/systems/match_setup.md); src/scenario.h now writes them. Session 31: the other 48 PLAY types launched as Quick Matches (runs 2357-2404) and set high; \"sides\" = the team digit apply gives each slot (tag types alternate, handicaps put slot 0 alone); the steel-cage variants 61-63 get M+21=3 from their own type defaults (runs 2387-2389 and 2405 log 3 -> 3): only 60 needs the write.",
+  "source": "tools/monkey/match_types.py from out/harness/crawl/20261018_2023_play/map.json",
+  "entries": [
+    {
+      "id": 0,
+      "name": "NORMAL",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > NORMAL"
+      ],
+      "setup_menu": 2000,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > NORMAL has menu id 2000 = 2000 + 0 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "capture lesnar_bryan: M+8 = 0 (docs/systems/match_setup.md)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 3,
+      "name": "TAG TEAM",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > TAG TEAM"
+      ],
+      "setup_menu": 2003,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > TAG TEAM has menu id 2003 = 2000 + 3 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "capture tag_hellno_shield: M+8 = 3 (docs/systems/match_setup.md)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 4,
+      "name": "TAG TEAM",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > TORNADO TAG > TAG TEAM"
+      ],
+      "setup_menu": 2004,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > TORNADO TAG > TAG TEAM has menu id 2004 = 2000 + 4 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=4 and 4 wrestlers ran (match clock > 10 s), run 2357 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 7,
+      "name": "MIXED GENDER TAG",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > MIXED GENDER TAG"
+      ],
+      "setup_menu": 2007,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > MIXED GENDER TAG has menu id 2007 = 2000 + 7 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=7 and 4 wrestlers ran (match clock > 10 s), run 2359 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 8,
+      "name": "TAG TEAM",
+      "menu_paths": [
+        "PLAY > 6-MAN > TAG TEAM"
+      ],
+      "setup_menu": 2008,
+      "evidence": [
+        "crawl: the setup screen after PLAY > 6-MAN > TAG TEAM has menu id 2008 = 2000 + 8 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=8 and 6 wrestlers ran (match clock > 10 s), run 2358 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 010101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "010101"
+    },
+    {
+      "id": 9,
+      "name": "TAG TEAM",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > ELIMINATION TAG > TAG TEAM"
+      ],
+      "setup_menu": 2009,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > ELIMINATION TAG > TAG TEAM has menu id 2009 = 2000 + 9 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=9 and 4 wrestlers ran (match clock > 10 s), run 2360 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 10,
+      "name": "TORNADO TAG",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > ELIMINATION TAG > TORNADO TAG"
+      ],
+      "setup_menu": 2010,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > ELIMINATION TAG > TORNADO TAG has menu id 2010 = 2000 + 10 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=10 and 4 wrestlers ran (match clock > 10 s), run 2361 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 11,
+      "name": "ELIMINATION TAG",
+      "menu_paths": [
+        "PLAY > 6-MAN > ELIMINATION TAG"
+      ],
+      "setup_menu": 2011,
+      "evidence": [
+        "crawl: the setup screen after PLAY > 6-MAN > ELIMINATION TAG has menu id 2011 = 2000 + 11 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=11 and 6 wrestlers ran (match clock > 10 s), run 2362 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 010101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "010101"
+    },
+    {
+      "id": 12,
+      "name": "TORNADO TAG TABLE",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > ELIMINATION TAG > TORNADO TAG TABLE"
+      ],
+      "setup_menu": 2012,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > ELIMINATION TAG > TORNADO TAG TABLE has menu id 2012 = 2000 + 12 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=12 and 4 wrestlers ran (match clock > 10 s), run 2363 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 13,
+      "name": "NORMAL",
+      "menu_paths": [
+        "PLAY > TRIPLE THREAT > NORMAL"
+      ],
+      "setup_menu": 2013,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TRIPLE THREAT > NORMAL has menu id 2013 = 2000 + 13 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=13 ran (match clock > 10 s) and the screenshot matches the type (runs 2268, 2276, 2278, 2331, 2332)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 14,
+      "name": "NORMAL",
+      "menu_paths": [
+        "PLAY > FATAL 4-WAY > NORMAL"
+      ],
+      "setup_menu": 2014,
+      "evidence": [
+        "crawl: the setup screen after PLAY > FATAL 4-WAY > NORMAL has menu id 2014 = 2000 + 14 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=14 ran (match clock > 10 s) and the screenshot matches the type (runs 2268, 2276, 2278, 2331, 2332)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 15,
+      "name": "TORNADO TAG",
+      "menu_paths": [
+        "PLAY > HANDICAP > ONE ON TWO > TORNADO TAG"
+      ],
+      "setup_menu": 2015,
+      "evidence": [
+        "crawl: the setup screen after PLAY > HANDICAP > ONE ON TWO > TORNADO TAG has menu id 2015 = 2000 + 15 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=15 and 3 wrestlers ran (match clock > 10 s), run 2364 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 011; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "011"
+    },
+    {
+      "id": 16,
+      "name": "TAG TEAM",
+      "menu_paths": [
+        "PLAY > HANDICAP > ONE ON TWO > TAG TEAM"
+      ],
+      "setup_menu": 2016,
+      "evidence": [
+        "crawl: the setup screen after PLAY > HANDICAP > ONE ON TWO > TAG TEAM has menu id 2016 = 2000 + 16 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=16 and 3 wrestlers ran (match clock > 10 s), run 2365 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 011; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "011"
+    },
+    {
+      "id": 17,
+      "name": "TORNADO TAG",
+      "menu_paths": [
+        "PLAY > HANDICAP > ONE ON THREE > TORNADO TAG"
+      ],
+      "setup_menu": 2017,
+      "evidence": [
+        "crawl: the setup screen after PLAY > HANDICAP > ONE ON THREE > TORNADO TAG has menu id 2017 = 2000 + 17 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=17 and 4 wrestlers ran (match clock > 10 s), run 2366 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0111; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0111"
+    },
+    {
+      "id": 18,
+      "name": "TAG TEAM",
+      "menu_paths": [
+        "PLAY > HANDICAP > ONE ON THREE > TAG TEAM"
+      ],
+      "setup_menu": 2018,
+      "evidence": [
+        "crawl: the setup screen after PLAY > HANDICAP > ONE ON THREE > TAG TEAM has menu id 2018 = 2000 + 18 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=18 and 4 wrestlers ran (match clock > 10 s), run 2367 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0111; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0111"
+    },
+    {
+      "id": 19,
+      "name": "TWO ON THREE",
+      "menu_paths": [
+        "PLAY > HANDICAP > TWO ON THREE"
+      ],
+      "setup_menu": 2019,
+      "evidence": [
+        "crawl: the setup screen after PLAY > HANDICAP > TWO ON THREE has menu id 2019 = 2000 + 19 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=19 and 5 wrestlers ran (match clock > 10 s), run 2368 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 01011; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "01011"
+    },
+    {
+      "id": 20,
+      "name": "10-MAN",
+      "menu_paths": [
+        "PLAY > SPECIALTY > ROYAL RUMBLE > 10-MAN"
+      ],
+      "setup_menu": 2020,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > ROYAL RUMBLE > 10-MAN has menu id 2020 = 2000 + 20 (run 2264, tools/monkey/crawl.py, Session 30)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 21,
+      "name": "20-MAN",
+      "menu_paths": [
+        "PLAY > SPECIALTY > ROYAL RUMBLE > 20-MAN"
+      ],
+      "setup_menu": 2021,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > ROYAL RUMBLE > 20-MAN has menu id 2021 = 2000 + 21 (run 2264, tools/monkey/crawl.py, Session 30)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 22,
+      "name": "30-MAN",
+      "menu_paths": [
+        "PLAY > SPECIALTY > ROYAL RUMBLE > 30-MAN"
+      ],
+      "setup_menu": 2022,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > ROYAL RUMBLE > 30-MAN has menu id 2022 = 2000 + 22 (run 2264, tools/monkey/crawl.py, Session 30)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 23,
+      "name": "40-MAN",
+      "menu_paths": [
+        "PLAY > SPECIALTY > ROYAL RUMBLE > 40-MAN"
+      ],
+      "setup_menu": 2023,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > ROYAL RUMBLE > 40-MAN has menu id 2023 = 2000 + 23 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "capture rumble_40: M+8 = 23 (docs/systems/match_setup.md)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 26,
+      "name": "ONE ON ONE",
+      "menu_paths": [
+        "PLAY > SPECIALTY > BACKSTAGE BRAWL > ONE ON ONE"
+      ],
+      "setup_menu": 2026,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > BACKSTAGE BRAWL > ONE ON ONE has menu id 2026 = 2000 + 26 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "docs/systems/match_setup.md: rule match type 26 = brawl",
+        "launched: a Quick Match with --wwe2k14_quick_type=26 and 2 wrestlers ran (match clock > 10 s), run 2369 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 01; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "01"
+    },
+    {
+      "id": 27,
+      "name": "ONE ON TWO",
+      "menu_paths": [
+        "PLAY > SPECIALTY > BACKSTAGE BRAWL > ONE ON TWO"
+      ],
+      "setup_menu": 2027,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > BACKSTAGE BRAWL > ONE ON TWO has menu id 2027 = 2000 + 27 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "docs/systems/match_setup.md: rule match type 27 = brawl",
+        "launched: a Quick Match with --wwe2k14_quick_type=27 and 3 wrestlers ran (match clock > 10 s), run 2370 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 011; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "011"
+    },
+    {
+      "id": 28,
+      "name": "ONE ON THREE",
+      "menu_paths": [
+        "PLAY > SPECIALTY > BACKSTAGE BRAWL > ONE ON THREE"
+      ],
+      "setup_menu": 2028,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > BACKSTAGE BRAWL > ONE ON THREE has menu id 2028 = 2000 + 28 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "docs/systems/match_setup.md: rule match type 28 = brawl",
+        "launched: a Quick Match with --wwe2k14_quick_type=28 and 4 wrestlers ran (match clock > 10 s), run 2371 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0111; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0111"
+    },
+    {
+      "id": 29,
+      "name": "TWO ON TWO",
+      "menu_paths": [
+        "PLAY > SPECIALTY > BACKSTAGE BRAWL > TWO ON TWO"
+      ],
+      "setup_menu": 2029,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > BACKSTAGE BRAWL > TWO ON TWO has menu id 2029 = 2000 + 29 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "docs/systems/match_setup.md: rule match type 29 = brawl",
+        "launched: a Quick Match with --wwe2k14_quick_type=29 and 4 wrestlers ran (match clock > 10 s), run 2372 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 30,
+      "name": "TRIPLE THREAT",
+      "menu_paths": [
+        "PLAY > SPECIALTY > BACKSTAGE BRAWL > TRIPLE THREAT"
+      ],
+      "setup_menu": 2030,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > BACKSTAGE BRAWL > TRIPLE THREAT has menu id 2030 = 2000 + 30 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "docs/systems/match_setup.md: rule match type 30 = brawl",
+        "launched: a Quick Match with --wwe2k14_quick_type=30 and 3 wrestlers ran (match clock > 10 s), run 2373 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012"
+    },
+    {
+      "id": 31,
+      "name": "FATAL 4-WAY",
+      "menu_paths": [
+        "PLAY > SPECIALTY > BACKSTAGE BRAWL > FATAL 4-WAY"
+      ],
+      "setup_menu": 2031,
+      "evidence": [
+        "crawl: the setup screen after PLAY > SPECIALTY > BACKSTAGE BRAWL > FATAL 4-WAY has menu id 2031 = 2000 + 31 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "docs/systems/match_setup.md: rule match type 31 = brawl",
+        "launched: a Quick Match with --wwe2k14_quick_type=31 and 4 wrestlers ran (match clock > 10 s), run 2374 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0123; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0123"
+    },
+    {
+      "id": 33,
+      "name": "I QUIT",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > I QUIT"
+      ],
+      "setup_menu": 2033,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > I QUIT has menu id 2033 = 2000 + 33 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "a Quick Match with --wwe2k14_quick_type=33 ran (match clock > 10 s); the screenshot (run 2273) showed nothing telling for I QUIT (two wrestlers, a normal ring)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 34,
+      "name": "BATTLE ROYAL",
+      "menu_paths": [
+        "PLAY > FATAL 4-WAY > BATTLE ROYAL"
+      ],
+      "setup_menu": 2034,
+      "evidence": [
+        "crawl: the setup screen after PLAY > FATAL 4-WAY > BATTLE ROYAL has menu id 2034 = 2000 + 34 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=34 and 4 wrestlers ran (match clock > 10 s), run 2375 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0123; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0123"
+    },
+    {
+      "id": 35,
+      "name": "BATTLE ROYAL",
+      "menu_paths": [
+        "PLAY > 6-MAN > BATTLE ROYAL"
+      ],
+      "setup_menu": 2035,
+      "evidence": [
+        "crawl: the setup screen after PLAY > 6-MAN > BATTLE ROYAL has menu id 2035 = 2000 + 35 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=35 and 6 wrestlers ran (match clock > 10 s), run 2376 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012345; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012345"
+    },
+    {
+      "id": 39,
+      "name": "NORMAL",
+      "menu_paths": [
+        "PLAY > 6-MAN > ELIMINATION CHAMBER > NORMAL"
+      ],
+      "setup_menu": 2039,
+      "evidence": [
+        "crawl: the setup screen after PLAY > 6-MAN > ELIMINATION CHAMBER > NORMAL has menu id 2039 = 2000 + 39 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "capture chamber_6man: M+8 = 39 (docs/systems/match_setup.md)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 40,
+      "name": "TORNADO TAG",
+      "menu_paths": [
+        "PLAY > 6-MAN > ELIMINATION CHAMBER > TORNADO TAG"
+      ],
+      "setup_menu": 2040,
+      "evidence": [
+        "crawl: the setup screen after PLAY > 6-MAN > ELIMINATION CHAMBER > TORNADO TAG has menu id 2040 = 2000 + 40 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=40 and 6 wrestlers ran (match clock > 10 s), run 2377 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 011010; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "011010"
+    },
+    {
+      "id": 49,
+      "name": "HELL IN A CELL",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > HELL IN A CELL"
+      ],
+      "setup_menu": 2049,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > HELL IN A CELL has menu id 2049 = 2000 + 49 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "capture hiac_cena_brodus: M+8 = 49 (docs/systems/match_setup.md)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 50,
+      "name": "HELL IN A CELL",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > TORNADO TAG > HELL IN A CELL"
+      ],
+      "setup_menu": 2050,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > TORNADO TAG > HELL IN A CELL has menu id 2050 = 2000 + 50 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=50 and 4 wrestlers ran (match clock > 10 s), run 2378 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 51,
+      "name": "HELL IN A CELL",
+      "menu_paths": [
+        "PLAY > TRIPLE THREAT > HELL IN A CELL"
+      ],
+      "setup_menu": 2051,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TRIPLE THREAT > HELL IN A CELL has menu id 2051 = 2000 + 51 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=51 and 3 wrestlers ran (match clock > 10 s), run 2379 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012"
+    },
+    {
+      "id": 52,
+      "name": "HELL IN A CELL",
+      "menu_paths": [
+        "PLAY > FATAL 4-WAY > HELL IN A CELL"
+      ],
+      "setup_menu": 2052,
+      "evidence": [
+        "crawl: the setup screen after PLAY > FATAL 4-WAY > HELL IN A CELL has menu id 2052 = 2000 + 52 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=52 and 4 wrestlers ran (match clock > 10 s), run 2380 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0123; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0123"
+    },
+    {
+      "id": 53,
+      "name": "HELL IN A CELL",
+      "menu_paths": [
+        "PLAY > 6-MAN > HELL IN A CELL"
+      ],
+      "setup_menu": 2053,
+      "evidence": [
+        "crawl: the setup screen after PLAY > 6-MAN > HELL IN A CELL has menu id 2053 = 2000 + 53 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=53 and 6 wrestlers ran (match clock > 10 s), run 2381 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012345; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012345"
+    },
+    {
+      "id": 54,
+      "name": "IRON MAN",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > IRON MAN"
+      ],
+      "setup_menu": 2054,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > IRON MAN has menu id 2054 = 2000 + 54 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=54 and 2 wrestlers ran (match clock > 10 s), run 2382 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 01; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "01"
+    },
+    {
+      "id": 55,
+      "name": "LADDER",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > LADDER"
+      ],
+      "setup_menu": 2055,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > LADDER has menu id 2055 = 2000 + 55 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=55 ran (match clock > 10 s) and the screenshot matches the type (runs 2268, 2276, 2278, 2331, 2332)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 56,
+      "name": "LADDER",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > TORNADO TAG > LADDER"
+      ],
+      "setup_menu": 2056,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > TORNADO TAG > LADDER has menu id 2056 = 2000 + 56 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=56 and 4 wrestlers ran (match clock > 10 s), run 2383 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 57,
+      "name": "LADDER",
+      "menu_paths": [
+        "PLAY > TRIPLE THREAT > LADDER"
+      ],
+      "setup_menu": 2057,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TRIPLE THREAT > LADDER has menu id 2057 = 2000 + 57 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=57 and 3 wrestlers ran (match clock > 10 s), run 2384 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012"
+    },
+    {
+      "id": 58,
+      "name": "LADDER",
+      "menu_paths": [
+        "PLAY > FATAL 4-WAY > LADDER"
+      ],
+      "setup_menu": 2058,
+      "evidence": [
+        "crawl: the setup screen after PLAY > FATAL 4-WAY > LADDER has menu id 2058 = 2000 + 58 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=58 and 4 wrestlers ran (match clock > 10 s), run 2385 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0123; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0123"
+    },
+    {
+      "id": 59,
+      "name": "LAST MAN STANDING",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > LAST MAN STANDING"
+      ],
+      "setup_menu": 2059,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > LAST MAN STANDING has menu id 2059 = 2000 + 59 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=59 and 2 wrestlers ran (match clock > 10 s), run 2386 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 01; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "01"
+    },
+    {
+      "id": 60,
+      "name": "STEEL CAGE",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > STEEL CAGE"
+      ],
+      "setup_menu": 2060,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > STEEL CAGE has menu id 2060 = 2000 + 60 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=60 ran (match clock > 10 s) and the screenshot matches the type (runs 2268, 2276, 2278, 2331, 2332)",
+        "rule byte M+21 bit 0 = the cage (menu capture s30_cage vs Quick Match, runs 2298-2331); Quick Match writes M+21 = 3"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 61,
+      "name": "STEEL CAGE",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > TORNADO TAG > STEEL CAGE"
+      ],
+      "setup_menu": 2061,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > TORNADO TAG > STEEL CAGE has menu id 2061 = 2000 + 61 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=61 and 4 wrestlers ran (match clock > 10 s), run 2387 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)",
+        "Session 31: the type setter alone leaves M+21 = 3 (the cage bit): runs 2387-2389 (with --wwe2k14_quick_rules=21=3, logged 3 -> 3) and 2405 (no flag: 3 -> 3)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 62,
+      "name": "STEEL CAGE",
+      "menu_paths": [
+        "PLAY > TRIPLE THREAT > STEEL CAGE"
+      ],
+      "setup_menu": 2062,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TRIPLE THREAT > STEEL CAGE has menu id 2062 = 2000 + 62 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=62 and 3 wrestlers ran (match clock > 10 s), run 2388 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)",
+        "Session 31: the type setter alone leaves M+21 = 3 (the cage bit): runs 2387-2389 (with --wwe2k14_quick_rules=21=3, logged 3 -> 3) and 2405 (no flag: 3 -> 3)"
+      ],
+      "confidence": "high",
+      "sides": "012"
+    },
+    {
+      "id": 63,
+      "name": "STEEL CAGE",
+      "menu_paths": [
+        "PLAY > FATAL 4-WAY > STEEL CAGE"
+      ],
+      "setup_menu": 2063,
+      "evidence": [
+        "crawl: the setup screen after PLAY > FATAL 4-WAY > STEEL CAGE has menu id 2063 = 2000 + 63 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=63 and 4 wrestlers ran (match clock > 10 s), run 2389 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0123; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)",
+        "Session 31: the type setter alone leaves M+21 = 3 (the cage bit): runs 2387-2389 (with --wwe2k14_quick_rules=21=3, logged 3 -> 3) and 2405 (no flag: 3 -> 3)"
+      ],
+      "confidence": "high",
+      "sides": "0123"
+    },
+    {
+      "id": 67,
+      "name": "SUBMISSION",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > SUBMISSION"
+      ],
+      "setup_menu": 2067,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > SUBMISSION has menu id 2067 = 2000 + 67 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=67 and 2 wrestlers ran (match clock > 10 s), run 2390 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 01; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "01"
+    },
+    {
+      "id": 68,
+      "name": "TABLE",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > TABLE"
+      ],
+      "setup_menu": 2068,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > TABLE has menu id 2068 = 2000 + 68 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=68 and 2 wrestlers ran (match clock > 10 s), run 2391 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 01; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "01"
+    },
+    {
+      "id": 69,
+      "name": "TABLE",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > TORNADO TAG > TABLE"
+      ],
+      "setup_menu": 2069,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > TORNADO TAG > TABLE has menu id 2069 = 2000 + 69 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=69 and 4 wrestlers ran (match clock > 10 s), run 2392 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 70,
+      "name": "TABLE",
+      "menu_paths": [
+        "PLAY > TRIPLE THREAT > TABLE"
+      ],
+      "setup_menu": 2070,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TRIPLE THREAT > TABLE has menu id 2070 = 2000 + 70 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=70 and 3 wrestlers ran (match clock > 10 s), run 2393 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012"
+    },
+    {
+      "id": 71,
+      "name": "TABLE",
+      "menu_paths": [
+        "PLAY > FATAL 4-WAY > TABLE"
+      ],
+      "setup_menu": 2071,
+      "evidence": [
+        "crawl: the setup screen after PLAY > FATAL 4-WAY > TABLE has menu id 2071 = 2000 + 71 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=71 and 4 wrestlers ran (match clock > 10 s), run 2394 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0123; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0123"
+    },
+    {
+      "id": 72,
+      "name": "TLC",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > TLC"
+      ],
+      "setup_menu": 2072,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > TLC has menu id 2072 = 2000 + 72 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=72 and 2 wrestlers ran (match clock > 10 s), run 2395 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 01; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "01"
+    },
+    {
+      "id": 73,
+      "name": "TLC",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > TORNADO TAG > TLC"
+      ],
+      "setup_menu": 2073,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > TORNADO TAG > TLC has menu id 2073 = 2000 + 73 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=73 and 4 wrestlers ran (match clock > 10 s), run 2396 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 74,
+      "name": "TLC",
+      "menu_paths": [
+        "PLAY > TRIPLE THREAT > TLC"
+      ],
+      "setup_menu": 2074,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TRIPLE THREAT > TLC has menu id 2074 = 2000 + 74 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=74 and 3 wrestlers ran (match clock > 10 s), run 2397 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012"
+    },
+    {
+      "id": 75,
+      "name": "TLC",
+      "menu_paths": [
+        "PLAY > FATAL 4-WAY > TLC"
+      ],
+      "setup_menu": 2075,
+      "evidence": [
+        "crawl: the setup screen after PLAY > FATAL 4-WAY > TLC has menu id 2075 = 2000 + 75 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=75 and 4 wrestlers ran (match clock > 10 s), run 2398 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0123; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0123"
+    },
+    {
+      "id": 76,
+      "name": "LADDER",
+      "menu_paths": [
+        "PLAY > 6-MAN > LADDER"
+      ],
+      "setup_menu": 2076,
+      "evidence": [
+        "crawl: the setup screen after PLAY > 6-MAN > LADDER has menu id 2076 = 2000 + 76 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=76 and 6 wrestlers ran (match clock > 10 s), run 2399 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012345; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012345"
+    },
+    {
+      "id": 77,
+      "name": "EXTREME RULES",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > EXTREME RULES"
+      ],
+      "setup_menu": 2077,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > EXTREME RULES has menu id 2077 = 2000 + 77 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=77 and 2 wrestlers ran (match clock > 10 s), run 2400 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 01; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "01"
+    },
+    {
+      "id": 78,
+      "name": "EXTREME RULES",
+      "menu_paths": [
+        "PLAY > TWO ON TWO > TORNADO TAG > EXTREME RULES"
+      ],
+      "setup_menu": 2078,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TWO ON TWO > TORNADO TAG > EXTREME RULES has menu id 2078 = 2000 + 78 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=78 and 4 wrestlers ran (match clock > 10 s), run 2401 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0101; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0101"
+    },
+    {
+      "id": 79,
+      "name": "EXTREME RULES",
+      "menu_paths": [
+        "PLAY > TRIPLE THREAT > EXTREME RULES"
+      ],
+      "setup_menu": 2079,
+      "evidence": [
+        "crawl: the setup screen after PLAY > TRIPLE THREAT > EXTREME RULES has menu id 2079 = 2000 + 79 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=79 and 3 wrestlers ran (match clock > 10 s), run 2402 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 012; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "012"
+    },
+    {
+      "id": 80,
+      "name": "EXTREME RULES",
+      "menu_paths": [
+        "PLAY > FATAL 4-WAY > EXTREME RULES"
+      ],
+      "setup_menu": 2080,
+      "evidence": [
+        "crawl: the setup screen after PLAY > FATAL 4-WAY > EXTREME RULES has menu id 2080 = 2000 + 80 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=80 and 4 wrestlers ran (match clock > 10 s), run 2403 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0123; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0123"
+    },
+    {
+      "id": 81,
+      "name": "INFERNO",
+      "menu_paths": [
+        "PLAY > ONE ON ONE > INFERNO"
+      ],
+      "setup_menu": 2081,
+      "evidence": [
+        "crawl: the setup screen after PLAY > ONE ON ONE > INFERNO has menu id 2081 = 2000 + 81 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "docs/systems/match_setup.md: rule match type 81 = Inferno",
+        "launched: a Quick Match with --wwe2k14_quick_type=81 ran (match clock > 10 s) and the screenshot matches the type (runs 2268, 2276, 2278, 2331, 2332)",
+        "rule byte M+71 bit 0 = the fire ring (menu capture s30_inferno vs Quick Match, runs 2302-2332); Quick Match writes M+71 = 3"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": 82,
+      "name": "GAUNTLET",
+      "menu_paths": [
+        "PLAY > HANDICAP > GAUNTLET"
+      ],
+      "setup_menu": 2082,
+      "evidence": [
+        "crawl: the setup screen after PLAY > HANDICAP > GAUNTLET has menu id 2082 = 2000 + 82 (run 2264, tools/monkey/crawl.py, Session 30)",
+        "launched: a Quick Match with --wwe2k14_quick_type=82 and 4 wrestlers ran (match clock > 10 s), run 2404 (Session 31 sweep, runs 2357-2404); sides after apply (slot +13, one digit per slot) 0111; the screenshot fits the type (shot-checker: cage / cell / chamber wall / ladders / backstage where expected)"
+      ],
+      "confidence": "high",
+      "sides": "0111"
+    }
+  ]
+}

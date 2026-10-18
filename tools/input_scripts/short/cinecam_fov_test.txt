@@ -1,0 +1,37 @@
+# Session 13 step 1a (CineCam): does the game camera's FOV (+144, written by sub_8257D8E8) change the picture?
+# Use with --wwe2k14_launch=lesnar_bryan. Boot, launch, START through the entrances until the match scene loads
+# (M3.PAC), wait until the shown camera is the game camera (vtable 0x8201D820 at [[0x836F3AA8]+1392]), then three
+# screenshots 10 frames apart: off, --wwe2k14_cinecam_test_fov=60 (game default ~30), off again; quit. Untimed (lanes
+# OK). Needs the frozen user data (run_list.ps1). on_fail quit. Screenshots cc_* are local only.
+on_fail quit
+log cc: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log cc: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log cc: in-game sequence loading; START until the match scene loads
+press_until_file START m3.pac 30 300
+log cc: match scene
+wait_frames 300
+wait_state 0x836F3AA8>1392>0 0x8201D820 1800 30
+log_state 0x836F3AA8>1392>144
+screenshot cc_fov_off1
+cvar wwe2k14_cinecam_test_fov 60
+wait_frames 10
+log_state 0x836F3AA8>1392>144
+screenshot cc_fov_60
+cvar wwe2k14_cinecam_test_fov 0
+wait_frames 10
+log_state 0x836F3AA8>1392>144
+screenshot cc_fov_off2
+wait_frames 60
+log cc: end
+quit

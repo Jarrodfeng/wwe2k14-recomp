@@ -1,0 +1,59 @@
+From d387845af724e97e0adcaee25414e087d9f36900 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 01:02:01 +1100
+Subject: [PATCH] wwe2k14 Session 15 (sub-second loads):
+ gpu_vblank_unthrottled_hz (default 0 = off): with vsync off, run the guest
+ vblank at this rate on the precise timer instead of 1 kHz Sleep(1) polling
+
+---
+ src/graphics/graphics_system.cpp | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index 08b596c..313cc8a 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -70,6 +70,17 @@ REXCVAR_DEFINE_DOUBLE(
+     gpu_vblank_rate_override_hz, 0.0, "GPU",
+     "wwe2k14 (Session 14, S3 slow-motion experiment): feed the guest vblank at this rate (Hz) "
+     "instead of the video mode's (60); 0 = off. Read every vblank loop, only with vsync on");
++// wwe2k14 patch (Session 15, sub-second loads): with vsync off the guest vblank runs at a fixed
++// 1 kHz, polled with Sleep(1) (~1-2 ms per wake on Windows, vblanks fired in batches). A title that
++// waits for N vblanks per present (WAIT_REG_MEM on its vblank-driven pacing word) is then held to
++// ~N ms per frame even when the command processor needs far less (2K14's loading screens: CP busy
++// 0.5 ms, frame 2.1 ms). > 0 = with vsync off, run the vblank at this rate on the high-resolution
++// timer + spin (the gpu_vblank_precise_timer waiter, whatever that setting says). 0 = 1 kHz,
++// Sleep(1) polling, as before. Read every vblank loop.
++REXCVAR_DEFINE_DOUBLE(
++    gpu_vblank_unthrottled_hz, 0.0, "GPU",
++    "wwe2k14 (Session 15): with vsync off, run the guest vblank at this rate (Hz) on the precise "
++    "timer instead of 1 kHz Sleep(1) polling; 0 = off (1 kHz)");
+ REXCVAR_DEFINE_INT32(
+     gpu_vblank_precise_timer_spin_us, 1000, "GPU",
+     "gpu_vblank_precise_timer: how long before each vblank deadline the timer wakes the "
+@@ -314,6 +325,12 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+               hz > 0.0 && REXCVAR_GET(vsync)) {
+             interval_ticks = std::max(uint64_t(1), uint64_t(double(guest_tick_frequency) / hz));
+           }
++          // wwe2k14 patch (Session 15): the vsync-off rate (gpu_vblank_unthrottled_hz).
++          const double unthrottled_hz = REXCVAR_GET(vsync) ? 0.0 : REXCVAR_GET(gpu_vblank_unthrottled_hz);
++          if (unthrottled_hz > 0.0) {
++            interval_ticks =
++                std::max(uint64_t(1), uint64_t(double(guest_tick_frequency) / unthrottled_hz));
++          }
+           bool first_in_batch = true;
+           while (current_time - last_frame_time >= interval_ticks) {
+             // wwe2k14 patch (Session 6, O1): lateness = guest time from this vblank's deadline to
+@@ -358,7 +375,8 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+           // between them keeps the same grid.
+           bool waited = false;
+ #if REX_PLATFORM_WIN32
+-          if (REXCVAR_GET(gpu_vblank_precise_timer) && REXCVAR_GET(vsync) &&
++          if (((REXCVAR_GET(gpu_vblank_precise_timer) && REXCVAR_GET(vsync)) ||
++               unthrottled_hz > 0.0) &&
+               precise_waiter.Available()) {
+             waited = precise_waiter.WaitUntil(last_frame_time + interval_ticks,
+                                               REXCVAR_GET(gpu_vblank_precise_timer_spin_us),
+-- 
+2.52.0.windows.1
+

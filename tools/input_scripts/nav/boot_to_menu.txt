@@ -1,0 +1,13 @@
+# nav: boot -> main menu. Session 30 navigation library (tools/input_scripts/nav/README.md); use with `include boot_to_menu`.
+# Start: the game booting (any speed: every title press waits for boot_step and repeats if dropped).
+# End:   the main menu UI is up (MNUIHD.PAC opened) and menu = 1 (main menu list, cursor 0 = PLAY). Optional: with
+#        --wwe2k14_launch the scenario launcher may leave the menu at once. A screenshot of the menu wants its own
+#        `wait_state menu 1 1200 30` after this.
+# From short/boot_menu_quit.txt and repro_logo_lettering.txt (Session 29: boot_step 3 title / 4 storage notice /
+# 5 after A, found with the memory scanner).
+wait_file SaveData.Dat 3600     # "Press Start" is up once the save is read
+wait_state boot_step 3 1800 2
+press_until_state START boot_step 4 10 30
+press_until_state A boot_step >=5 10 30   # accept the ATTENTION storage notice
+wait_file MNUIHD.PAC 1800       # main menu UI
+wait_state menu 1 1200 2 optional

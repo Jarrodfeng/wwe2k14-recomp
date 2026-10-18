@@ -1,0 +1,21 @@
+Subject: [ReXGlue] s6 merge fix: one asub_b scope (COUNTERS processor number) after the DRAIN merge
+
+Class: RGO
+What: Build fix after the DRAIN merge (one scope for the COUNTERS processor number).
+Evidence: -
+On / off: -
+Commit: 6b20481 (diff against 6b20481^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index bbd8759..439a57a 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -3980,7 +3980,6 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+   // wwe2k14 patch (Session 6, COUNTERS): b = the processor this thread runs on.
+   perf::timeline::Scope timeline_scope("asub_b", "asub_e", uint32_t(job.submission),
+                                        perf::timeline::Enabled() ? perf::CurrentProcessorNumber() : 0);
+-  perf::timeline::Scope timeline_scope("asub_b", "asub_e", uint32_t(job.submission));
+   if (job.order_ticket) {
+     // wwe2k14 patch (Session 6, DRAIN): how long the swap job waited behind earlier jobs - the time
+     // AsyncSubmitDrain would have blocked the command processor thread for.

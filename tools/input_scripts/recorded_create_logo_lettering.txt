@@ -1,0 +1,316 @@
+# recorded by wwe2k14 (frames = guest frames)
+# frame 0: opened D:\plist360.arc
+# frame 0: opened D:\plist360.def
+# frame 0: opened D:\pac\_startup.pac
+# frame 0: opened \Device\Harddisk0\partition0
+# frame 0: opened \Device\Harddisk0\partition0
+# frame 0: opened \Device\Harddisk0\Cache1
+# frame 0: opened \Device\Harddisk0\Cache1\
+# frame 0: opened \Device\Harddisk0\Cache1
+# frame 0: opened \Device\Harddisk0\Cache1\
+# frame 0: opened \Device\Harddisk0\partition0
+# frame 0: opened \Device\Harddisk0\partition0
+# frame 0: opened \Device\Harddisk0\Cache1
+# frame 0: opened \Device\Harddisk0\Cache1\
+# frame 0: opened \Device\Harddisk0\Cache1
+# frame 0: opened \Device\Harddisk0\Cache1\
+wait_frames 5
+# frame 5: opened GAME:\Sound\Game_Sound_E_S.pck
+# frame 5: opened GAME:\Sound\Game_Sound_E_S.pck
+# frame 5: opened GAME:\Sound\Game_Sound_M.pck
+# frame 5: opened GAME:\Sound\Game_Sound_M.pck
+# frame 5: opened GAME:\Sound\Comm.pck
+# frame 5: opened GAME:\Sound\Comm.pck
+wait_frames 31
+# frame 36: opened D:\PAC\STRING.PAC
+# frame 36: opened D:\PAC\STRING.PAC
+wait_frames 4
+# frame 40: opened D:\PAC\CH\CHETC.PAC
+wait_frames 4
+# frame 44: opened D:\PAC\NOLU.PAC
+wait_frames 4
+# frame 48: opened D:\PAC\CH\CHETC.PAC
+wait_frames 4
+# frame 52: opened D:\PAC\SOUND.PAC
+wait_frames 4
+# frame 56: opened D:\PAC\MISC05_SAVE.PAC
+wait_frames 4
+# frame 60: opened D:\PAC\CH\CHETC.PAC
+wait_frames 4
+# frame 64: opened D:\PAC\CH\CHETC.PAC
+wait_frames 6
+# frame 70: opened D:\PAC\SOUND.PAC
+wait_frames 4
+# frame 74: opened D:\PAC\EVT\EVTDATA.PAC
+wait_frames 5
+# frame 79: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 79: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 83: opened D:\PAC\MISC01_START.PAC
+wait_frames 4
+# frame 87: opened D:\PAC\MISC_MW.PAC
+wait_frames 4
+# frame 91: opened D:\PAC\MISC02_INGAME.PAC
+wait_frames 4
+# frame 95: opened D:\PAC\MISC03_HVK.PAC
+wait_frames 4
+# frame 99: opened D:\PAC\MISC04_SEASON.PAC
+wait_frames 312
+# frame 411: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 411: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 7
+# frame 418: opened D:\PAC\MENU\FONTHD.PAC
+# frame 418: opened D:\PAC\MENU\FONTHD.PAC
+wait_frames 4
+# frame 422: opened D:\PAC\STRING.PAC
+# frame 422: opened D:\PAC\STRING.PAC
+wait_frames 4
+# frame 426: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 426: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 430: opened D:\PAC\MENU\MENU.PAC
+# frame 430: opened D:\PAC\MENU\MENU.PAC
+wait_frames 7
+# frame 437: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 437: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 441: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 441: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 445: opened D:\PAC\PRTCLS.PAC
+wait_frames 4
+# frame 449: opened D:\PAC\PRTCLS.PAC
+wait_frames 3
+# frame 452: opened GAME:\movies\title_logo.bik2
+# frame 452: opened GAME:\movies\title_logo.bik2
+wait_frames 306
+set 0x0000 0 0 -2075 219 1189 -869
+wait_frames 2
+set 0x0000 0 0 -3642 310 5833 -1003
+wait_frames 1
+set 0x0000 0 0 -8978 2276 10483 115
+wait_frames 1
+set 0x0000 0 0 -14704 5432 16878 3767
+wait_frames 1
+set 0x0000 0 0 -21025 9158 30134 12966
+wait_frames 1
+set 0x0000 0 0 -22119 9917 32767 16621
+wait_frames 5
+set 0x0000 0 0 -16591 8755 32767 16593
+wait_frames 1
+set 0x0000 0 0 -10652 6328 32767 16593
+wait_frames 1
+set 0x0000 0 0 -3626 2956 32767 16593
+wait_frames 1
+set 0x0000 0 0 -1185 1137 32028 16593
+wait_frames 1
+set 0x0000 0 0 -1185 1110 28683 16388
+wait_frames 1
+set 0x0000 0 0 -1185 1027 24990 15555
+wait_frames 1
+set 0x0000 0 0 -1185 1000 19692 13326
+wait_frames 1
+set 0x0000 0 0 -1185 889 13303 11237
+wait_frames 1
+set 0x0000 0 0 -1185 806 8924 9615
+wait_frames 1
+set 0x0000 0 0 -1185 776 3737 4280
+wait_frames 2
+set 0x0000 0 0 -1185 776 1664 2607
+wait_frames 68
+# frame 848: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 848: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 210
+# frame 1058: opened SaveDrive:\SaveData.Dat
+# frame 1058: opened SaveDrive:\SaveData.Dat
+wait_frames 168
+set 0x0010 0 0 -1185 472 1051 1772
+wait_frames 12
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 58
+set 0x1000 0 0 -1185 472 566 1489
+wait_frames 6
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 60
+# frame 1362: opened SaveDrive:\SaveData.Dat
+# frame 1362: opened SaveDrive:\SaveData.Dat
+wait_frames 2
+# frame 1364: opened SaveDrive:\SaveData.Dat
+# frame 1364: opened SaveDrive:\SaveData.Dat
+wait_frames 256
+# frame 1620: opened SaveDrive:\SaveData.Dat
+# frame 1620: opened SaveDrive:\SaveData.Dat
+wait_frames 250
+# frame 1870: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 1870: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 4
+# frame 1874: opened D:\PAC\MENU\MENUHD.PAC
+# frame 1874: opened D:\PAC\MENU\MENUHD.PAC
+wait_frames 4
+# frame 1878: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 8
+# frame 1886: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 5
+# frame 1891: opened D:\PAC\MENU\MNUIHD.PAC
+wait_frames 139
+set 0x0002 0 0 -1185 472 566 1489
+wait_frames 6
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 5
+set 0x0002 0 0 -1185 472 566 1489
+wait_frames 6
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 7
+set 0x0002 0 0 -1185 472 566 1489
+wait_frames 5
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 12
+set 0x1000 0 0 -1185 472 566 1489
+wait_frames 7
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 77
+set 0x0002 0 0 -1185 472 566 1489
+wait_frames 37
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 30
+set 0x1000 0 0 -1185 472 566 1489
+wait_frames 7
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 37
+# frame 2266: opened D:\PAC\EDIT\EDIT.PAC
+wait_frames 5
+# frame 2271: opened D:\PAC\EDIT\CASTHUMB.PAC
+wait_frames 6
+# frame 2277: opened D:\PAC\EDIT\EDIT.PAC
+wait_frames 4
+# frame 2281: opened D:\PAC\MENU\MNLAYHD.PAC
+# frame 2281: opened D:\PAC\MENU\MNLAYHD.PAC
+wait_frames 111
+# frame 2392: opened SaveDrive:\SaveData.Dat
+# frame 2392: opened SaveDrive:\SaveData.Dat
+wait_frames 282
+set 0x0008 0 0 -1185 472 566 1489
+wait_frames 7
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 14
+set 0x1000 0 0 -1185 472 566 1489
+wait_frames 5
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 43
+set 0x0002 0 0 -1185 472 566 1489
+wait_frames 4
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 5
+set 0x1000 0 0 -1185 472 566 1489
+wait_frames 8
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 52
+set 0x0000 12 0 -1185 472 566 1489
+wait_frames 1
+set 0x0000 99 0 -1185 472 566 1489
+wait_frames 1
+set 0x0000 255 0 -1185 472 566 1489
+wait_frames 6
+set 0x0000 204 0 -1185 472 566 1489
+wait_frames 1
+set 0x0000 42 0 -1185 472 566 1489
+wait_frames 1
+set 0x0000 0 0 -1185 472 566 1489
+wait_frames 37
+set 0x0000 0 0 -1185 -2265 566 1489
+wait_frames 2
+set 0x0000 0 0 -3465 -8387 566 1489
+wait_frames 1
+set 0x0000 0 0 -7203 -23573 566 1489
+wait_frames 1
+set 0x0000 0 0 -7591 -29758 566 1489
+wait_frames 1
+set 0x0000 0 0 -7988 -32768 566 1489
+wait_frames 6
+set 0x0000 0 0 -6552 -28850 566 1489
+wait_frames 1
+set 0x0000 0 0 -1634 -13163 566 1489
+wait_frames 1
+set 0x0000 0 0 -564 -5019 566 1489
+wait_frames 1
+set 0x0000 0 0 364 -947 566 1489
+wait_frames 5
+set 0x0000 0 0 -6207 -11033 566 1489
+wait_frames 1
+set 0x0000 0 0 -11653 -22516 566 1489
+wait_frames 1
+set 0x0000 0 0 -14667 -32541 566 1489
+wait_frames 6
+set 0x0000 0 0 -6314 -32768 566 1489
+wait_frames 1
+set 0x0000 0 0 -1184 -26495 566 1489
+wait_frames 1
+set 0x0000 0 0 -281 -20891 566 1489
+wait_frames 1
+set 0x0000 0 0 516 -1414 566 1489
+wait_frames 12
+set 0x0000 0 0 9670 -502 566 1489
+wait_frames 1
+set 0x0000 0 0 20568 -4122 566 1489
+wait_frames 1
+set 0x0000 0 0 30983 -8389 566 1489
+wait_frames 6
+set 0x0000 0 0 16040 -8412 566 1489
+wait_frames 1
+set 0x0000 0 0 -224 -296 566 1489
+wait_frames 26
+set 0x1000 0 0 106 -420 566 1489
+wait_frames 7
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 68
+set 0x1000 0 0 251 -420 566 1489
+# frame 3011: opened D:\PAC\EDIT\ED49.PAC
+wait_frames 4
+# frame 3015: opened D:\PAC\EDIT\CASTHUMB.PAC
+wait_frames 3
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 29
+set 0x2000 0 0 251 -420 566 1489
+wait_frames 7
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 23
+set 0x0002 0 0 251 -420 566 1489
+wait_frames 7
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 11
+set 0x1000 0 0 251 -420 566 1489
+# frame 3095: opened D:\PAC\EDIT\ED50.PAC
+wait_frames 4
+# frame 3099: opened D:\PAC\EDIT\CASTHUMB.PAC
+wait_frames 4
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 26
+set 0x2000 0 0 251 -420 566 1489
+wait_frames 8
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 23
+set 0x0002 0 0 251 -420 566 1489
+wait_frames 7
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 18
+set 0x1000 0 0 251 -420 566 1489
+wait_frames 1
+# frame 3186: opened D:\PAC\EDIT\ED51.PAC
+wait_frames 4
+# frame 3190: opened D:\PAC\EDIT\CASTHUMB.PAC
+wait_frames 3
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 31
+set 0x2000 0 0 251 -420 566 1489
+wait_frames 7
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 23
+set 0x0002 0 0 251 -420 566 1489
+wait_frames 5
+set 0x0000 0 0 251 -420 566 1489
+wait_frames 13
+set 0x1000 0 0 251 -420 566 1489
+wait_frames 1
+# frame 3273: opened D:\PAC\EDIT\ED57.PAC
+wait_frames 5
+set 0x0000 0 0 251 -420 566 1489

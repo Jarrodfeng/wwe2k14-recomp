@@ -1,0 +1,20 @@
+# Session 14 (M5 Track A): launched 1v1 (lesnar_bryan); write watch on the entrance object's slot 0 entrance record
+# (object 0xA4C774E0 + 3660 + 36 + 20, run 1030). Use with --wwe2k14_launch=lesnar_bryan. Untimed. on_fail quit.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+watch 0xA4C78364 4 any
+wait_file 343.bik2 3000
+wait_frames 120
+quit

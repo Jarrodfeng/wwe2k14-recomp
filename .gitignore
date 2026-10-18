@@ -1,0 +1,32 @@
+# ---- Hard rule: nothing from the game is ever committed ----
+game_data/
+# Everything ReXGlue generates stays out (recompiled game code lives in generated/default/)...
+generated/*
+# ...except this one file: pure ReXGlue CMake boilerplate written by `rexglue init`, no game data.
+# Verified 2026-10-06: differs from the iruka demo's copy only by project name. The build needs it.
+!generated/rexglue.cmake
+out/
+*.xex
+*.pac
+*.bik
+*.bik2
+*.iso
+*.xdbf
+*.stfs
+
+# ---- Build / tooling output ----
+build/
+CMakeUserPresets.json
+logs/
+*.log
+.vs/
+.vscode/
+__pycache__/
+*.pyc
+
+# ---- Third-party checkouts (cloned locally, not vendored) ----
+thirdparty/
+
+
+# Session 29: personal Claude Code settings (the PLAYBOOK upload hook names a personal address)
+.claude/settings.local.json

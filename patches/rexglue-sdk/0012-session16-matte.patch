@@ -1,0 +1,413 @@
+From bb15b443bb7799949a997d59d907a753cceb40ef Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 11:32:08 +1100
+Subject: [PATCH 1/4] Session 16 MATTE: gpu_resolve_log (log the next N
+ resolves) and gpu_depth_dump (one-shot synchronous readback of the depth
+ resolves into files, guest memory untouched); both default off
+
+---
+ .../rex/graphics/vulkan/command_processor.h   |  7 ++
+ src/graphics/vulkan/command_processor.cpp     | 90 ++++++++++++++++++-
+ 2 files changed, 95 insertions(+), 2 deletions(-)
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 48dd741..231e303 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1019,6 +1019,13 @@ class VulkanCommandProcessor : public CommandProcessor {
+   struct GpuMarks;
+   std::unique_ptr<GpuMarks> gpu_marks_;
+   bool gpu_marks_active_ = false;
++  // wwe2k14 patch (Session 16, MATTE): gpu_resolve_log / gpu_depth_dump state.
++  int32_t matte_log_remaining_ = 0;
++  uint32_t matte_resolve_index_ = 0;   // resolves since the last swap (log / file names)
++  uint32_t matte_dumped_ = 0;          // depth resolves dumped for the armed request
++  bool matte_force_readback_ = false;  // this resolve: synchronous readback into a file, guest memory untouched
++  std::string matte_dump_file_;        // the .bin for this resolve
++  uint32_t matte_regs_[8] = {};        // copy control, dest base / info / pitch, surface / depth / color info
+   // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 for the frame being marked (only while
+   // gpu_marks_active_).
+   bool gpu_marks_sparse_ = false;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 1c311cc..69f4635 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -67,6 +67,15 @@
+ REXCVAR_DEFINE_BOOL(vulkan_flight_gpu_records, false, "GPU/Vulkan",
+                     "Let the app's flight recorder read the newest GPU checkpoint records in its dumps");
+ 
++// wwe2k14 patch (Session 16, MATTE): find and dump the game's depth resolves (for depth mattes). Both default off.
++REXCVAR_DEFINE_INT32(gpu_resolve_log, 0, "GPU",
++                     "Log the next N resolves (source colour RT / depth, copy and EDRAM registers, written range), "
++                     "then reset to 0");
++REXCVAR_DEFINE_STRING(gpu_depth_dump, "", "GPU",
++                      "Dump every depth resolve until the next guest swap (at least one) to PATH_K.bin (the resolved "
++                      "bytes as the guest texture would hold them, from a synchronous readback; guest memory is left "
++                      "as it was) + PATH_K.json (registers, range), then reset to empty");
++
+ // Legacy backend compatibility aliases for shared readback controls.
+ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                     "Read render-to-texture results on the CPU")
+@@ -3856,8 +3865,18 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
+   gamma_ramp_pwl_current_frame_ = UINT32_MAX;
+ }
+ 
++// wwe2k14 patch (Session 16, MATTE): a guest swap ends an armed depth dump once something was dumped.
++static void MatteOnSwap(uint32_t& resolve_index, uint32_t& dumped) {
++  resolve_index = 0;
++  if (dumped) {
++    rex::cvar::SetFlagByName("gpu_depth_dump", "");
++    dumped = 0;
++  }
++}
++
+ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                        uint32_t frontbuffer_height) {
++  MatteOnSwap(matte_resolve_index_, matte_dumped_);  // wwe2k14 patch (Session 16, MATTE)
+   SCOPE_profile_cpu_f("gpu");
+   perf::timeline::Scope timeline_scope("vswap_b", "vswap_e", frontbuffer_ptr);
+   // wwe2k14 patch (Session 7b, GPUMARKS): after a capture, write its last marked frames once their submissions
+@@ -7472,9 +7491,50 @@ bool VulkanCommandProcessor::IssueCopy() {
+     InsertCrashCheckpoint(crash_record, CrashCheckpointPhase::kCopy);
+   }
+ 
++  // wwe2k14 patch (Session 16, MATTE): resolve log and the one-shot depth dump.
++  {
++    const RegisterFile& mregs = *register_file_;
++    const reg::RB_COPY_CONTROL copy_control = mregs.Get<reg::RB_COPY_CONTROL>();
++    const bool copying_depth = copy_control.copy_src_select >= xenos::kMaxColorRenderTargets &&
++                               copy_control.copy_command != xenos::CopyCommand::kNull;
++    matte_regs_[0] = copy_control.value;
++    matte_regs_[1] = mregs[XE_GPU_REG_RB_COPY_DEST_BASE];
++    matte_regs_[2] = mregs[XE_GPU_REG_RB_COPY_DEST_INFO];
++    matte_regs_[3] = mregs[XE_GPU_REG_RB_COPY_DEST_PITCH];
++    matte_regs_[4] = mregs[XE_GPU_REG_RB_SURFACE_INFO];
++    matte_regs_[5] = mregs[XE_GPU_REG_RB_DEPTH_INFO];
++    matte_regs_[6] = mregs[XE_GPU_REG_RB_COLOR_INFO];
++    matte_regs_[7] = mregs[XE_GPU_REG_RB_COPY_DEST_INFO];
++    if (const int32_t n = REXCVAR_GET(gpu_resolve_log); n > 0) {
++      matte_log_remaining_ = n;
++      rex::cvar::SetFlagByName("gpu_resolve_log", "0");
++    }
++    if (matte_log_remaining_ > 0) {
++      --matte_log_remaining_;
++      const reg::RB_COPY_DEST_INFO di = mregs.Get<reg::RB_COPY_DEST_INFO>();
++      const reg::RB_COPY_DEST_PITCH dp = mregs.Get<reg::RB_COPY_DEST_PITCH>();
++      REXGPU_INFO("[matte] resolve {} src {} (control 0x{:08X}, command {}), dest 0x{:08X} format {} endian {} "
++                  "pitch {} height {}, surface_info 0x{:08X} depth_info 0x{:08X} color_info 0x{:08X}",
++                  matte_resolve_index_, copying_depth ? std::string("depth") :
++                  "color" + std::to_string(uint32_t(copy_control.copy_src_select)),
++                  copy_control.value, uint32_t(copy_control.copy_command), matte_regs_[1],
++                  uint32_t(di.copy_dest_format), uint32_t(di.copy_dest_endian), uint32_t(dp.copy_dest_pitch),
++                  uint32_t(dp.copy_dest_height), matte_regs_[4], matte_regs_[5], matte_regs_[6]);
++    }
++    matte_force_readback_ = false;
++    if (copying_depth && matte_dumped_ < 16) {
++      const std::string path = REXCVAR_GET(gpu_depth_dump);
++      if (!path.empty()) {
++        matte_force_readback_ = true;
++        matte_dump_file_ = path + "_" + std::to_string(matte_dumped_) + ".bin";
++      }
++    }
++    ++matte_resolve_index_;
++  }
++
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
+   bool copied;
+-  if (readback_mode == ReadbackResolveMode::kDisabled) {
++  if (readback_mode == ReadbackResolveMode::kDisabled && !matte_force_readback_) {
+     uint32_t written_address, written_length;
+     copied = render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
+                                            written_length);
+@@ -7509,6 +7569,12 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+   }
+ 
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
++  // wwe2k14 patch (Session 16, MATTE): a depth dump reads this resolve back synchronously (as "full").
++  const bool matte_dump = matte_force_readback_;
++  matte_force_readback_ = false;
++  if (matte_dump) {
++    readback_mode = ReadbackResolveMode::kFull;
++  }
+   if (readback_mode == ReadbackResolveMode::kDisabled) {
+     return true;
+   }
+@@ -7782,7 +7848,27 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     dfn.vkInvalidateMappedMemoryRanges(device, 1, &readback_memory_range);
+ 
+     uint8_t* destination = memory_->TranslatePhysical(written_address);
+-    if (destination) {
++    if (matte_dump) {
++      // wwe2k14 patch (Session 16, MATTE): to a file only; guest memory stays as it was (readback off).
++      if (std::FILE* f = std::fopen(matte_dump_file_.c_str(), "wb")) {
++        std::fwrite(readback.mapped_data[read_index], 1, written_length, f);
++        std::fclose(f);
++      }
++      std::string json = matte_dump_file_.substr(0, matte_dump_file_.size() - 4) + ".json";
++      if (std::FILE* f = std::fopen(json.c_str(), "w")) {
++        std::fprintf(f,
++                     "{\"written_address\": %u, \"written_length\": %u, \"copy_control\": %u, \"copy_dest_base\": %u, "
++                     "\"copy_dest_info\": %u, \"copy_dest_pitch\": %u, \"surface_info\": %u, \"depth_info\": %u, "
++                     "\"color_info\": %u, \"resolve_index\": %u, \"scaled\": %s}\n",
++                     written_address, written_length, matte_regs_[0], matte_regs_[1], matte_regs_[2], matte_regs_[3],
++                     matte_regs_[4], matte_regs_[5], matte_regs_[6], matte_resolve_index_ - 1,
++                     is_scaled ? "true" : "false");
++        std::fclose(f);
++      }
++      REXGPU_INFO("[matte] depth resolve {} dumped: {} bytes at 0x{:08X} -> {}", matte_resolve_index_ - 1,
++                  written_length, written_address, matte_dump_file_);
++      ++matte_dumped_;
++    } else if (destination) {
+       std::memcpy(destination, readback.mapped_data[read_index], written_length);
+     }
+   }
+-- 
+2.52.0.windows.1
+
+
+From c499eb92718fd89fec9ccf9f5c98c927805f55d3 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 11:35:44 +1100
+Subject: [PATCH 2/4] Session 16 MATTE: gpu_debug_skip_vertex_shader takes a
+ comma-separated list (up to 16 hashes)
+
+---
+ include/rex/graphics/command_processor.h  |  3 +++
+ src/graphics/command_processor.cpp        | 11 ++++++++++-
+ src/graphics/vulkan/command_processor.cpp |  4 +++-
+ 3 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 7f339b8..cb068e3 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -487,6 +487,9 @@ class CommandProcessor {
+   bool gpu_debug_log_may_be_enabled_ = true;
+   // wwe2k14 patch (Session 6, debug): gpu_debug_skip_vertex_shader, parsed at each swap (0 = off).
+   uint64_t debug_skip_vertex_shader_hash_ = 0;
++  // wwe2k14 patch (Session 16, MATTE): the whole comma-separated list (up to 16 hashes; [0] = the first).
++  uint64_t debug_skip_vertex_shader_hashes_[16] = {};
++  uint32_t debug_skip_vertex_shader_count_ = 0;
+   // wwe2k14 patch (Session 15, sub-second loads): gpu_skip_frame_draws, latched at each swap. While it is N > 1,
+   // the draws (except memexport draws) and resolves of N-1 of every N frames are skipped (the previous frame stays
+   // on screen). Resolve destinations of drawn frames are remembered; a skipped resolve to a destination no drawn
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index ad1f5df..9a5a4dd 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -66,7 +66,8 @@ REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes, false, "GPU",
+ // wwe2k14 patch (Session 6, debug): drop every draw whose vertex shader has this ucode hash (hex, as in the frame
+ // anatomy CSV), to see on screen what a shader draws. Read once per frame. Empty = off. Debug only.
+ REXCVAR_DEFINE_STRING(gpu_debug_skip_vertex_shader, "", "GPU",
+-                      "Debug: skip draws whose vertex shader ucode hash equals this hex value (empty = off)");
++                      "Debug: skip draws whose vertex shader ucode hash equals this hex value, or any of a "
++                      "comma-separated list of up to 16 (Session 16) (empty = off)");
+ // wwe2k14 patch (Session 15, sub-second loads): see skip_frame_draws_ in command_processor.h.
+ REXCVAR_DEFINE_INT32(gpu_skip_frame_draws, 0, "GPU",
+                      "wwe2k14 (Session 15): N > 1 = skip the draws (not memexport ones) and resolves of N-1 of every "
+@@ -1765,6 +1766,14 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+     // Copied under the cvar registry lock (SetFlagByName assigns the string under it from other threads).
+     const std::string skip = rex::cvar::Query<std::string>("gpu_debug_skip_vertex_shader");
+     debug_skip_vertex_shader_hash_ = skip.empty() ? 0 : std::strtoull(skip.c_str(), nullptr, 16);
++    // wwe2k14 patch (Session 16, MATTE): a comma-separated list.
++    debug_skip_vertex_shader_count_ = 0;
++    for (size_t pos = 0; pos < skip.size() && debug_skip_vertex_shader_count_ < 16;) {
++      const size_t end = std::min(skip.find(',', pos), skip.size());
++      const uint64_t h = std::strtoull(skip.substr(pos, end - pos).c_str(), nullptr, 16);
++      if (h) debug_skip_vertex_shader_hashes_[debug_skip_vertex_shader_count_++] = h;
++      pos = end + 1;
++    }
+   }
+   // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split summary.
+   Type0BlockSplitFrameEnd();
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 69f4635..2080e9d 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -5719,7 +5719,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   }
+   // wwe2k14 patch (Session 6, debug): gpu_debug_skip_vertex_shader.
+   if (debug_skip_vertex_shader_hash_ && !memexport_used_vertex &&
+-      vertex_shader->ucode_data_hash() == debug_skip_vertex_shader_hash_) {
++      std::find(debug_skip_vertex_shader_hashes_, debug_skip_vertex_shader_hashes_ + debug_skip_vertex_shader_count_,
++                vertex_shader->ucode_data_hash()) !=
++          debug_skip_vertex_shader_hashes_ + debug_skip_vertex_shader_count_) {
+     anatomy_skip_reason_ = kAnatomySkipOther;
+     return true;
+   }
+-- 
+2.52.0.windows.1
+
+
+From ec5eb60300c9b8ba7aa0132db88b0f83f3dc58ba Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 11:42:17 +1100
+Subject: [PATCH 3/4] Session 16 MATTE: gpu_depth_dump also dumps the frame's
+ full-size colour resolves (aligned scene colour); the swap ends the request
+ once a depth resolve was dumped
+
+---
+ .../rex/graphics/vulkan/command_processor.h   |  4 +++-
+ src/graphics/vulkan/command_processor.cpp     | 22 +++++++++++++------
+ 2 files changed, 18 insertions(+), 8 deletions(-)
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 231e303..9ca25eb 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1022,7 +1022,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // wwe2k14 patch (Session 16, MATTE): gpu_resolve_log / gpu_depth_dump state.
+   int32_t matte_log_remaining_ = 0;
+   uint32_t matte_resolve_index_ = 0;   // resolves since the last swap (log / file names)
+-  uint32_t matte_dumped_ = 0;          // depth resolves dumped for the armed request
++  uint32_t matte_dumped_ = 0;          // resolves dumped for the armed request (file numbers)
++  uint32_t matte_depth_dumped_ = 0;    // of which depth: the swap ends the request once this is non-zero
++  bool matte_dump_is_depth_ = false;   // the resolve being dumped copies depth
+   bool matte_force_readback_ = false;  // this resolve: synchronous readback into a file, guest memory untouched
+   std::string matte_dump_file_;        // the .bin for this resolve
+   uint32_t matte_regs_[8] = {};        // copy control, dest base / info / pitch, surface / depth / color info
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 2080e9d..260a09a 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -72,7 +72,7 @@ REXCVAR_DEFINE_INT32(gpu_resolve_log, 0, "GPU",
+                      "Log the next N resolves (source colour RT / depth, copy and EDRAM registers, written range), "
+                      "then reset to 0");
+ REXCVAR_DEFINE_STRING(gpu_depth_dump, "", "GPU",
+-                      "Dump every depth resolve until the next guest swap (at least one) to PATH_K.bin (the resolved "
++                      "Dump every depth resolve and every full-size (>= 640x360) colour resolve until the next guest swap (at least one) to PATH_K.bin (the resolved "
+                       "bytes as the guest texture would hold them, from a synchronous readback; guest memory is left "
+                       "as it was) + PATH_K.json (registers, range), then reset to empty");
+ 
+@@ -3866,17 +3866,18 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
+ }
+ 
+ // wwe2k14 patch (Session 16, MATTE): a guest swap ends an armed depth dump once something was dumped.
+-static void MatteOnSwap(uint32_t& resolve_index, uint32_t& dumped) {
++static void MatteOnSwap(uint32_t& resolve_index, uint32_t& dumped, uint32_t& depth_dumped) {
+   resolve_index = 0;
+-  if (dumped) {
++  if (depth_dumped) {
+     rex::cvar::SetFlagByName("gpu_depth_dump", "");
+     dumped = 0;
++    depth_dumped = 0;
+   }
+ }
+ 
+ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                        uint32_t frontbuffer_height) {
+-  MatteOnSwap(matte_resolve_index_, matte_dumped_);  // wwe2k14 patch (Session 16, MATTE)
++  MatteOnSwap(matte_resolve_index_, matte_dumped_, matte_depth_dumped_);  // wwe2k14 patch (Session 16, MATTE)
+   SCOPE_profile_cpu_f("gpu");
+   perf::timeline::Scope timeline_scope("vswap_b", "vswap_e", frontbuffer_ptr);
+   // wwe2k14 patch (Session 7b, GPUMARKS): after a capture, write its last marked frames once their submissions
+@@ -7524,10 +7525,15 @@ bool VulkanCommandProcessor::IssueCopy() {
+                   uint32_t(dp.copy_dest_height), matte_regs_[4], matte_regs_[5], matte_regs_[6]);
+     }
+     matte_force_readback_ = false;
+-    if (copying_depth && matte_dumped_ < 16) {
++    // Depth resolves, and (Session 16, aligned colour) the frame's full-size colour resolves: the scene colour right
++    // before the depth copy is the same frame's picture without the HUD (run 1287: resolve 51 colour0, 52 depth).
++    const reg::RB_COPY_DEST_PITCH dest_pitch = mregs.Get<reg::RB_COPY_DEST_PITCH>();
++    const bool big = uint32_t(dest_pitch.copy_dest_pitch) * uint32_t(dest_pitch.copy_dest_height) >= 640u * 360u;
++    if ((copying_depth || big) && copy_control.copy_command != xenos::CopyCommand::kNull && matte_dumped_ < 16) {
+       const std::string path = REXCVAR_GET(gpu_depth_dump);
+       if (!path.empty()) {
+         matte_force_readback_ = true;
++        matte_dump_is_depth_ = copying_depth;
+         matte_dump_file_ = path + "_" + std::to_string(matte_dumped_) + ".bin";
+       }
+     }
+@@ -7867,9 +7873,11 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+                      is_scaled ? "true" : "false");
+         std::fclose(f);
+       }
+-      REXGPU_INFO("[matte] depth resolve {} dumped: {} bytes at 0x{:08X} -> {}", matte_resolve_index_ - 1,
+-                  written_length, written_address, matte_dump_file_);
++      REXGPU_INFO("[matte] {} resolve {} dumped: {} bytes at 0x{:08X} -> {}",
++                  matte_dump_is_depth_ ? "depth" : "colour", matte_resolve_index_ - 1, written_length,
++                  written_address, matte_dump_file_);
+       ++matte_dumped_;
++      if (matte_dump_is_depth_) ++matte_depth_dumped_;
+     } else if (destination) {
+       std::memcpy(destination, readback.mapped_data[read_index], written_length);
+     }
+-- 
+2.52.0.windows.1
+
+
+From 69a47ab172944d4bf2546f57d621dfc84e179683 Mon Sep 17 00:00:00 2001
+From: Jarrod <230525910+Jarrodfeng@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 11:44:54 +1100
+Subject: [PATCH 4/4] Session 16 MATTE: scene-size colour dumps only; skip list
+ up to 64 hashes
+
+---
+ include/rex/graphics/command_processor.h  | 4 ++--
+ src/graphics/command_processor.cpp        | 4 ++--
+ src/graphics/vulkan/command_processor.cpp | 5 +++--
+ 3 files changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index cb068e3..52ad3c4 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -487,8 +487,8 @@ class CommandProcessor {
+   bool gpu_debug_log_may_be_enabled_ = true;
+   // wwe2k14 patch (Session 6, debug): gpu_debug_skip_vertex_shader, parsed at each swap (0 = off).
+   uint64_t debug_skip_vertex_shader_hash_ = 0;
+-  // wwe2k14 patch (Session 16, MATTE): the whole comma-separated list (up to 16 hashes; [0] = the first).
+-  uint64_t debug_skip_vertex_shader_hashes_[16] = {};
++  // wwe2k14 patch (Session 16, MATTE): the whole comma-separated list (up to 64 hashes; [0] = the first).
++  uint64_t debug_skip_vertex_shader_hashes_[64] = {};
+   uint32_t debug_skip_vertex_shader_count_ = 0;
+   // wwe2k14 patch (Session 15, sub-second loads): gpu_skip_frame_draws, latched at each swap. While it is N > 1,
+   // the draws (except memexport draws) and resolves of N-1 of every N frames are skipped (the previous frame stays
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 9a5a4dd..eb6039a 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -67,7 +67,7 @@ REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes, false, "GPU",
+ // anatomy CSV), to see on screen what a shader draws. Read once per frame. Empty = off. Debug only.
+ REXCVAR_DEFINE_STRING(gpu_debug_skip_vertex_shader, "", "GPU",
+                       "Debug: skip draws whose vertex shader ucode hash equals this hex value, or any of a "
+-                      "comma-separated list of up to 16 (Session 16) (empty = off)");
++                      "comma-separated list of up to 64 (Session 16) (empty = off)");
+ // wwe2k14 patch (Session 15, sub-second loads): see skip_frame_draws_ in command_processor.h.
+ REXCVAR_DEFINE_INT32(gpu_skip_frame_draws, 0, "GPU",
+                      "wwe2k14 (Session 15): N > 1 = skip the draws (not memexport ones) and resolves of N-1 of every "
+@@ -1768,7 +1768,7 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+     debug_skip_vertex_shader_hash_ = skip.empty() ? 0 : std::strtoull(skip.c_str(), nullptr, 16);
+     // wwe2k14 patch (Session 16, MATTE): a comma-separated list.
+     debug_skip_vertex_shader_count_ = 0;
+-    for (size_t pos = 0; pos < skip.size() && debug_skip_vertex_shader_count_ < 16;) {
++    for (size_t pos = 0; pos < skip.size() && debug_skip_vertex_shader_count_ < 64;) {
+       const size_t end = std::min(skip.find(',', pos), skip.size());
+       const uint64_t h = std::strtoull(skip.substr(pos, end - pos).c_str(), nullptr, 16);
+       if (h) debug_skip_vertex_shader_hashes_[debug_skip_vertex_shader_count_++] = h;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 260a09a..8ad7ca6 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -72,7 +72,7 @@ REXCVAR_DEFINE_INT32(gpu_resolve_log, 0, "GPU",
+                      "Log the next N resolves (source colour RT / depth, copy and EDRAM registers, written range), "
+                      "then reset to 0");
+ REXCVAR_DEFINE_STRING(gpu_depth_dump, "", "GPU",
+-                      "Dump every depth resolve and every full-size (>= 640x360) colour resolve until the next guest swap (at least one) to PATH_K.bin (the resolved "
++                      "Dump every depth resolve and every scene-size (pitch >= 1000, height >= 500) colour resolve until the next guest swap (at least one) to PATH_K.bin (the resolved "
+                       "bytes as the guest texture would hold them, from a synchronous readback; guest memory is left "
+                       "as it was) + PATH_K.json (registers, range), then reset to empty");
+ 
+@@ -7528,7 +7528,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+     // Depth resolves, and (Session 16, aligned colour) the frame's full-size colour resolves: the scene colour right
+     // before the depth copy is the same frame's picture without the HUD (run 1287: resolve 51 colour0, 52 depth).
+     const reg::RB_COPY_DEST_PITCH dest_pitch = mregs.Get<reg::RB_COPY_DEST_PITCH>();
+-    const bool big = uint32_t(dest_pitch.copy_dest_pitch) * uint32_t(dest_pitch.copy_dest_height) >= 640u * 360u;
++    // Scene-size only (run 1288: shadow maps and other 512x512 targets filled the 16 slots before the depth copy).
++    const bool big = uint32_t(dest_pitch.copy_dest_pitch) >= 1000u && uint32_t(dest_pitch.copy_dest_height) >= 500u;
+     if ((copying_depth || big) && copy_control.copy_command != xenos::CopyCommand::kNull && matte_dumped_ < 16) {
+       const std::string path = REXCVAR_GET(gpu_depth_dump);
+       if (!path.empty()) {
+-- 
+2.52.0.windows.1
+

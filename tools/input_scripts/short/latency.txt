@@ -1,0 +1,73 @@
+# harness: realtime (Session 19 item 9: latency, frame times matter)
+# Session 19 item 9, CLEAN run: as latency_map.txt (launch, skip entrances, START 10 times in the match) without
+# screenshots, so nothing but the game runs between the read and the present. tools\perf\latency.py RUN --map MAPRUN
+# uses the mapping run's refresh offset to find each response's host present. on_fail quit.
+on_fail quit
+log latency: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+wait_file M3.PAC 36000
+log scene=match
+wait_frames 900
+wait_frames 4
+log latency: press 1
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 2
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 3
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 4
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 5
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 6
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 7
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 8
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 9
+press START
+wait_frames 24
+wait_frames 120
+wait_frames 4
+log latency: press 10
+press START
+wait_frames 24
+wait_frames 120
+log latency: end
+wait_frames 60
+quit

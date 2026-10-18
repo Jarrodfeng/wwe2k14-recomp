@@ -1,0 +1,63 @@
+# harness: realtime (starts at normal speed; Session 29: the route fast-forwards itself where states drive it)
+# Regression test: Create a Logo -> W stamp tool -> Lettering (PLAYBOOK session 3). Crashed until setjmp/longjmp
+# were configured in the manifest; now expected to reach the SELECT FONT screen and log "PASS". A crash before
+# the PASS line = regression.
+# Built from Jarrod's recording (recorded_create_logo_lettering.txt; summarise with summarize_recording.py):
+# his button order, with file-load sync points from the same recording.
+# Run (from the repo root):
+#   pwsh -File tools\run_and_triage.ps1 -WaitSeconds 240 -ExtraArgs '--wwe2k14_input_script=..\..\..\tools\input_scripts\repro_logo_lettering.txt'
+#
+# Session 29 (Jarrod: no fixed waits): fast-forwarded (`cvar vsync false`) and driven by states / file opens wherever
+# a state exists (states.toml: menu, cursor, target, logo_*; values walked live in run 2172). Fast-forwarded, the
+# menus drop presses (they read input on real time: run 2171 landed on 30 YEARS), so every press there waits for its
+# state (press_until_state) and presses again if it was dropped. The title presses use boot_step (Session 29 scan). One
+# short stretch has no state yet and keeps Jarrod's timing at normal speed: the category walk to Lettering (inside a
+# category logo_screen stays 2, like the list). Screenshots: short normal-speed windows from a
+# state (references rebuilt in Session 29). The quit waits for screenshots by itself (Session 18).
+# Session 30: the navigation comes from the nav library (tools/input_scripts/nav/, `include`): the same state-driven
+# lines as before, now shared with other routes and live `goto`.
+on_fail quit
+cvar vsync false
+include boot_to_menu             # title -> storage notice -> main menu (boot_step states)
+include menu_to_creations        # main menu -> CREATIONS (menu 3)
+include creations_to_logo_grid   # -> LOGO (target 1522) -> the grid ready (logo_phase 124)
+cvar vsync true
+wait_frames 60
+screenshot logo_grid
+cvar vsync false
+include logo_grid_to_editor      # new logo in slot 1, 256x256, the editor (logo_screen 3)
+cvar vsync true
+wait_frames 60
+screenshot editor
+cvar vsync false
+include editor_to_categories     # Tools (LT) -> the W stamp tool -> LOGO CATEGORIES (logo_screen 2)
+cvar vsync true
+wait_frames 60
+screenshot stamp_categories
+# Categories in Jarrod's order: 1st (ED49), back, 2nd (ED50), back, 3rd (ED51), back, 4th = Lettering (ED57).
+# Normal speed with his timing for the B presses (no state tells the list from the inside of a category yet); the
+# DOWN presses wait for logo_category_cursor (Session 29 scan) and repeat if dropped.
+press_until_file A ED49.PAC 3 120
+wait_frames 30
+press B
+wait_frames 20
+press_until_state DOWN logo_category_cursor 1 10 30
+press_until_file A ED50.PAC 3 120
+wait_frames 30
+press B
+wait_frames 20
+press_until_state DOWN logo_category_cursor 2 10 30
+press_until_file A ED51.PAC 3 120
+wait_frames 30
+press B
+wait_frames 20
+press_until_state DOWN logo_category_cursor 3 10 30
+press_until_file A ED57.PAC 3 120
+log repro: Lettering opened (ED57.PAC)
+cvar vsync false
+wait_frames 300
+cvar vsync true
+wait_frames 30
+screenshot after_lettering
+log repro: PASS - no crash within 300 frames of opening Lettering (SELECT FONT screen)
+quit

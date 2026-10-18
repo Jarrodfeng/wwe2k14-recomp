@@ -1,0 +1,38 @@
+# harness: fast-forward ok (Session 28: probe, OPTIONS -> GRAPHICS (patched list) / the stock VISUAL PRESENTATION path; run with --wwe2k14_gfxmenu_probe=true; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+log mark: A on GRAPHICS
+press A
+wait_frames 200
+screenshot gfx_probe
+log mark: B
+press B
+wait_frames 120
+log mark: end
+quit

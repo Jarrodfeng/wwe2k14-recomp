@@ -1,0 +1,62 @@
+# Session 9 Goal 1 step 1: observe the match-setup calls (--wwe2k14_scenario_observe=true, default off). Hook
+# functions: src/scenario.h. Log only: every hook returns at once when the setting is off and never changes a register
+# or guest memory. Addresses from docs/systems/match_setup.md (Session 8 static reading + coverage), each re-checked
+# in Session 9 with tools/analysis/list_function.py; all but the apply exit are first instructions, so r3.. hold the
+# arguments.
+
+# sub_82B6D900 (`stw r4,4(r3)`): M+4 = mode.
+[[midasm_hook]]
+address = 0x82B6D900
+name = "wwe2k14_scn_mode"
+registers = ["r3", "r4"]
+
+# sub_822CA9C0 (`mflr r12`): match type setter (M, type, opt).
+[[midasm_hook]]
+address = 0x822CA9C0
+name = "wwe2k14_scn_type"
+registers = ["r3", "r4", "r5"]
+
+# sub_822C9748 (`mflr r12`): arena setter (M, arena, flag).
+[[midasm_hook]]
+address = 0x822C9748
+name = "wwe2k14_scn_arena"
+registers = ["r3", "r4", "r5"]
+
+# sub_822C89F8 (`cmpwi cr6,r5,500`): participant setter (M, i, id, team, a5, a6, a7, a8).
+[[midasm_hook]]
+address = 0x822C89F8
+name = "wwe2k14_scn_part"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10"]
+
+# sub_829263B0: exhibition finalize (calls the setters, then apply at 0x82927124).
+[[midasm_hook]]
+address = 0x829263B0
+name = "wwe2k14_scn_finalize"
+registers = ["r3", "r4", "r5", "r6"]
+
+# sub_822CA740 (`mflr r12`): apply M to G and the participant slots.
+[[midasm_hook]]
+address = 0x822CA740
+name = "wwe2k14_scn_apply"
+registers = ["r3"]
+
+# sub_822CA740 at 0x822CA77C (`addi r1,r1,96`): after its last call (bl 0x827f5230), before the return.
+[[midasm_hook]]
+address = 0x822CA77C
+name = "wwe2k14_scn_apply_exit"
+
+# sub_827DD0B0 (`mflr r12`): launch match (no arguments).
+[[midasm_hook]]
+address = 0x827DD0B0
+name = "wwe2k14_scn_launch"
+
+# sub_82833440: main-menu dispatcher (switch on the word at 0x83929434).
+[[midasm_hook]]
+address = 0x82833440
+name = "wwe2k14_scn_dispatch"
+
+# sub_8225E790: switch sequence (obj, kind, factory).
+[[midasm_hook]]
+address = 0x8225E790
+name = "wwe2k14_scn_switch"
+registers = ["r3", "r4", "r5"]

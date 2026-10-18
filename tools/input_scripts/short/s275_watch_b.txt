@@ -1,0 +1,27 @@
+# harness: fast-forward ok (Session 27.5 item A: write watch on the title skeleton's node world / local matrices at INGAMELUA + 1080)
+# Use with --wwe2k14_launch=hiac_cena_brodus --wwe2k14_replay_mode=true and --gpu_debug_draw_probe=<character VS
+# hashes> --gpu_debug_draw_probe_path=<csv>. Boot part as s27_cena_motion.txt (launch_boot_check.txt).
+on_fail quit
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log launch: in-game sequence loading
+wait_frames 1080
+log watch: title node 6 world tx (+192 array) and +180 array entry 6 tx
+watch A511EF30 4 change
+watch A511E620 4 change
+wait_frames 40
+unwatch
+wait_frames 20
+log short route: end
+quit

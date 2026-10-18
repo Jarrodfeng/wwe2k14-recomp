@@ -1,0 +1,38 @@
+# Harness self-test, state-aware variant of selftest_title.txt (Session 8 task 9a): boot to "Press Start", Start,
+# accept the storage notice with A, wait for the main menu, screenshot each step, quit. Besides the file syncs it
+# checks the game's own menu state (named states in states.toml, next to this file): the title sequence (3), then
+# the main-menu sequence (75), the SmartMenu, menu id 1 (main) with PLAY (2) highlighted.
+# selftest_title.txt stays unchanged (regress and benchmarks use it).
+# Run (from the repo root; the script path is relative to the exe folder):
+#   pwsh -NoProfile -Command "& C:\Users\Jarrod\wwe2k14-recomp\tools\bench\run_list.ps1 -Scripts @('..\..\..\tools\input_scripts\selftest_title_state.txt')"
+on_fail quit
+log selftest_state: start
+wait_state seq 3 120
+log_state smart_menu
+log_state menu
+log_state frame_rate
+# "Press Start" is up when SaveData.Dat is read (no guest state for it is known yet).
+wait_file SaveData.Dat 3600
+assert_state seq 3
+assert_state smart_menu 0
+wait_frames 180
+screenshot title
+press START
+wait_frames 120
+screenshot storage_notice
+press A
+# Main menu: sequence 75 (run 239: frame 1863), SmartMenu created (1889), menu id 1 with PLAY highlighted (1925).
+wait_state seq 75 1800
+assert_state switch_kind 1
+wait_state smart_menu !=0 600
+wait_state menu 1 600
+assert_state target 2
+assert_state cursor 0
+wait_file MNUIHD.PAC 600
+log_state frame_rate
+wait_frames 300
+assert_state menu 1
+screenshot main_menu
+# The screenshot is saved on another thread; give it time before quitting (Session 7c run 174 lost one at 4K).
+wait_frames 60
+quit

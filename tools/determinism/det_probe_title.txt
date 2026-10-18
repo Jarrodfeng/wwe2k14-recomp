@@ -1,0 +1,34 @@
+# Session 15 (determinism focus): what is on screen after SaveData.Dat opens and after det_launch_fast.txt's presses
+# (to check that route on a det_serial build). Same presses as det_launch_fast.txt, then screenshots every 60 frames
+# for 900 frames, then quit. Use with run_det_fast.ps1 -Script tools\determinism\det_probe_title.txt -Count 1.
+on_fail quit
+log det: title probe
+wait_file SaveData.Dat 36000
+wait_frames 160
+screenshot t160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+screenshot t236
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_frames 60
+screenshot p060
+wait_frames 60
+screenshot p120
+wait_frames 60
+screenshot p180
+wait_frames 60
+screenshot p240
+wait_frames 60
+screenshot p300
+wait_frames 120
+screenshot p420
+wait_frames 180
+screenshot p600
+wait_frames 300
+screenshot p900
+wait_frames 30
+quit

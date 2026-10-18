@@ -1,0 +1,454 @@
+Subject: [ReXGlue] merge s7/seams
+
+Class: RGF candidate
+What: Port of Xenia Canary #1257: negative host viewport origin for predicated tiling.
+Evidence: No seams seen in this title either way (run 126); unconfirmed whether it matters.
+On / off: gpu_tiling_viewport_fix (+_stats), off.
+Commit: 8aa3cd6 (diff against 8aa3cd6^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/util/draw.h b/include/rex/graphics/util/draw.h
+index 3da182d..bca7f7d 100644
+--- a/include/rex/graphics/util/draw.h
++++ b/include/rex/graphics/util/draw.h
+@@ -258,7 +258,13 @@ struct ViewportInfo {
+   // always bigger than maxViewportDimensions. All fractional offsetting,
+   // including the half-pixel offset, and cropping are handled via ndc_scale and
+   // ndc_offset.
+-  uint32_t xy_offset[2];
++  // wwe2k14 patch (Session 7, SEAMS): signed, as in Xenia Canary 188b2d4 (PR
++  // #1257). With GetHostViewportInfo's negative_origin the offset may be
++  // negative, down to -max (Vulkan's viewportBoundsRange always covers
++  // -2 * maxViewportDimensions, Direct3D 12 allows -32768), and the extent is
++  // at most max. Without negative_origin it's never negative, as before (same
++  // values and bits; the largest offset is far below 2^31).
++  int32_t xy_offset[2];
+   // Extent can be zero for an empty viewport - host APIs not supporting empty
+   // viewports need to use an empty scissor rectangle.
+   uint32_t xy_extent[2];
+@@ -272,12 +278,22 @@ struct ViewportInfo {
+ // a viewport, plus values to multiply-add the returned position by, usable on
+ // host graphics APIs such as Direct3D 11+ and Vulkan, also forcing it to the
+ // Direct3D clip space with 0...W Z rather than -W...W.
++// wwe2k14 patch (Session 7, SEAMS): negative_origin (default false = the
++// original behaviour) lets the host viewport of a draw with clipping enabled
++// start at a negative coordinate instead of cropping it at 0 and compensating
++// in ndc_scale / ndc_offset - a port of Xenia Canary 188b2d4 (PR #1257, "Let
++// the host viewport start at a negative coordinate"). With predicated tiling,
++// every tile then gets the same ndc_scale and ndc_offset, and only the integer
++// viewport origin differs between tiles, as the window offset does on the
++// console. It only changes the result where the viewport (after the window and
++// half-pixel offsets) starts left of or above 0 on an axis. The Vulkan backend
++// passes gpu_tiling_viewport_fix; Direct3D 12 keeps the default.
+ void GetHostViewportInfo(const RegisterFile& regs, uint32_t draw_resolution_scale_x,
+                          uint32_t draw_resolution_scale_y, bool origin_bottom_left, uint32_t x_max,
+                          uint32_t y_max, bool allow_reverse_z,
+                          reg::RB_DEPTHCONTROL normalized_depth_control, bool convert_z_to_float24,
+                          bool full_float24_in_0_to_1, bool pixel_shader_writes_depth,
+-                         ViewportInfo& viewport_info_out);
++                         ViewportInfo& viewport_info_out, bool negative_origin = false);
+ 
+ struct Scissor {
+   // Offset from render target UV = 0 to +UV.
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 97cd920..9d724b4 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -483,14 +483,15 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // Port of our D3D12 ViewportCacheKey (d3d12/command_processor.cpp), with the inputs that key misses
+   // (RB_DEPTH_INFO, the half_pixel_offset setting, the resolution scale, the viewport bounds and the
+   // thread's floating-point rounding / denormal mode) added.
+-  // The arguments are exactly GetHostViewportInfo's.
++  // The arguments are exactly GetHostViewportInfo's (Session 7, SEAMS: including negative_origin).
+   void GetHostViewportInfoCached(const RegisterFile& regs, uint32_t draw_resolution_scale_x,
+                                  uint32_t draw_resolution_scale_y, bool origin_bottom_left,
+                                  uint32_t x_max, uint32_t y_max, bool allow_reverse_z,
+                                  reg::RB_DEPTHCONTROL normalized_depth_control,
+                                  bool convert_z_to_float24, bool full_float24_in_0_to_1,
+                                  bool pixel_shader_writes_depth,
+-                                 draw_util::ViewportInfo& viewport_info_out);
++                                 draw_util::ViewportInfo& viewport_info_out,
++                                 bool negative_origin);
+   // Every value draw_util::GetHostViewportInfo's result depends on (see GetHostViewportInfoCached for the
+   // list and why it's complete). Only whole 32-bit words, so there's no padding and == compares every bit.
+   struct ViewportInfoCacheKey {
+@@ -521,6 +522,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+   static constexpr uint32_t kViewportInfoCacheFlagFullFloat24In0To1 = 1u << 3;
+   static constexpr uint32_t kViewportInfoCacheFlagPixelShaderWritesDepth = 1u << 4;
+   static constexpr uint32_t kViewportInfoCacheFlagHalfPixelOffset = 1u << 5;
++  // wwe2k14 patch (Session 7, SEAMS): GetHostViewportInfo's negative_origin (gpu_tiling_viewport_fix).
++  static constexpr uint32_t kViewportInfoCacheFlagNegativeOrigin = 1u << 6;
+   ViewportInfoCacheKey viewport_info_cache_key_{};
+   draw_util::ViewportInfo viewport_info_cache_value_{};
+   bool viewport_info_cache_valid_ = false;
+@@ -542,6 +545,49 @@ class VulkanCommandProcessor : public CommandProcessor {
+   };
+   ViewportInfoCacheStats viewport_info_cache_stats_;
+ 
++  // wwe2k14 patch (Session 7, SEAMS): gpu_tiling_viewport_fix as latched at the first draw of
++  // tiling_viewport_fix_frame_, so every tile of a frame uses the same setting.
++  bool tiling_viewport_fix_ = false;
++  uint64_t tiling_viewport_fix_frame_ = 0;
++  // gpu_tiling_viewport_fix_stats: computes the draw's host viewport with and without the fix (the same
++  // arguments as IssueDraw's GetHostViewportInfo call, without the cache) and counts the differences.
++  void TilingViewportFixStatsDraw(const RegisterFile& regs, uint32_t draw_resolution_scale_x,
++                                  uint32_t draw_resolution_scale_y, uint32_t x_max, uint32_t y_max,
++                                  reg::RB_DEPTHCONTROL normalized_depth_control,
++                                  bool convert_z_to_float24, bool full_float24_in_0_to_1,
++                                  bool pixel_shader_writes_depth);
++  // Logs the open window (frames window_first_frame...last_frame) if it counted any draw.
++  void TilingViewportFixStatsReport(const char* note);
++  struct TilingViewportFixStats {
++    bool active = false;  // A window is open (the stats setting was on at the latest draw).
++    uint64_t window_first_frame = 0;
++    uint64_t last_frame = 0;
++    uint64_t draws = 0;
++    uint64_t draws_fix_on = 0;  // Draws issued with gpu_tiling_viewport_fix on (as latched).
++    uint64_t draws_clip_enabled = 0;  // Only clip-enabled draws can differ.
++    // Draws whose ViewportInfo differs with and without the fix, split by whether a non-zero window
++    // offset is applied to vertices (PA_SU_SC_MODE_CNTL vtx_window_offset_enable and PA_SC_WINDOW_OFFSET).
++    uint64_t differ_window_offset = 0;
++    uint64_t differ_no_window_offset = 0;
++    // Smallest host viewport origin with the fix among the differing draws (0 if none).
++    int32_t min_origin_with_fix[2] = {};
++    // Distinct PA_SC_WINDOW_OFFSET values (plus vtx_window_offset_enable) seen in the window, first 8.
++    struct WindowOffset {
++      uint32_t window_offset;
++      bool vtx_window_offset_enable;
++      uint64_t draws;
++      uint64_t differ;
++    };
++    static constexpr uint32_t kMaxWindowOffsets = 8;
++    WindowOffset window_offsets[kMaxWindowOffsets] = {};
++    uint32_t window_offset_count = 0;
++    uint64_t window_offsets_dropped = 0;  // Draws with a value beyond the first 8.
++    // Differing draws without a window offset (the case Canary's change also affects outside tiling): the
++    // first 8 of the run are logged in detail.
++    uint32_t no_window_offset_logged = 0;
++  };
++  TilingViewportFixStats tiling_viewport_fix_stats_;
++
+   void SplitPendingBarrier();
+ 
+   void DestroyScratchBuffer();
+diff --git a/src/graphics/util/draw.cpp b/src/graphics/util/draw.cpp
+index 830a18d..617ca8f 100644
+--- a/src/graphics/util/draw.cpp
++++ b/src/graphics/util/draw.cpp
+@@ -167,7 +167,7 @@ void GetHostViewportInfo(const RegisterFile& regs, uint32_t draw_resolution_scal
+                          uint32_t y_max, bool allow_reverse_z,
+                          reg::RB_DEPTHCONTROL normalized_depth_control, bool convert_z_to_float24,
+                          bool full_float24_in_0_to_1, bool pixel_shader_writes_depth,
+-                         ViewportInfo& viewport_info_out) {
++                         ViewportInfo& viewport_info_out, bool negative_origin) {
+   assert_not_zero(draw_resolution_scale_x);
+   assert_not_zero(draw_resolution_scale_y);
+ 
+@@ -379,12 +379,39 @@ void GetHostViewportInfo(const RegisterFile& regs, uint32_t draw_resolution_scal
+       float scale_axis = scale_xy[i];
+       float scale_axis_abs = std::abs(scale_xy[i]);
+       float axis_max_unscaled_float = float(xy_max_unscaled[i]);
+-      uint32_t axis_0_int =
+-          uint32_t(rex::clamp_float(offset_axis - scale_axis_abs, 0.0f, axis_max_unscaled_float));
+-      uint32_t axis_1_int =
+-          uint32_t(rex::clamp_float(offset_axis + scale_axis_abs, 0.0f, axis_max_unscaled_float));
+-      uint32_t axis_extent_int = axis_1_int - axis_0_int;
+-      viewport_info_out.xy_offset[i] = axis_0_int * axis_resolution_scale;
++      // wwe2k14 patch (Session 7, SEAMS): with negative_origin, the start may
++      // be negative, down to -max, instead of being cropped at 0 - ported from
++      // Xenia Canary 188b2d4 (PR #1257 by peerloomllc, merged 2026-10-02; BSD
++      // license, like this file). Canary's reasoning: with a window offset
++      // (predicated tiling in 4D5307DF draws its right-hand tile at x -608),
++      // cropping gave the tiles different NDC scales and offsets, and in some
++      // frames the same geometry came out as a flat wedge or rectangle in one
++      // tile only. WWE 2K14 draws its main scene in 4 strips of 320 pixels with
++      // window offsets 0, -320, -640, -960 (docs/research/predicated_tiling.md
++      // 1.2), so cropping gives its strips 1-3 host viewports of 960, 640 and
++      // 320 pixels starting at the strip's left edge; with negative_origin all
++      // four are 1280 wide with the same ndc_scale / ndc_offset. The extent
++      // still stays within max. Where the start is not negative, both branches
++      // give the same values (floor and truncation agree on non-negative
++      // numbers, and the lower clamp bound float(axis_1_int) - max is <= 0).
++      int32_t axis_0_int;
++      uint32_t axis_extent_int;
++      if (negative_origin) {
++        int32_t axis_1_int = int32_t(std::floor(
++            rex::clamp_float(offset_axis + scale_axis_abs, 0.0f, axis_max_unscaled_float)));
++        axis_0_int = int32_t(std::floor(
++            rex::clamp_float(offset_axis - scale_axis_abs,
++                             float(axis_1_int) - axis_max_unscaled_float, axis_max_unscaled_float)));
++        axis_extent_int = axis_1_int > 0 ? uint32_t(axis_1_int - axis_0_int) : 0;
++      } else {
++        uint32_t axis_0_uint =
++            uint32_t(rex::clamp_float(offset_axis - scale_axis_abs, 0.0f, axis_max_unscaled_float));
++        uint32_t axis_1_uint =
++            uint32_t(rex::clamp_float(offset_axis + scale_axis_abs, 0.0f, axis_max_unscaled_float));
++        axis_0_int = int32_t(axis_0_uint);
++        axis_extent_int = axis_1_uint - axis_0_uint;
++      }
++      viewport_info_out.xy_offset[i] = axis_0_int * int32_t(axis_resolution_scale);
+       viewport_info_out.xy_extent[i] = axis_extent_int * axis_resolution_scale;
+       float ndc_scale_axis;
+       float ndc_offset_axis;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 48eacbe..8724ddd 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -157,6 +157,18 @@ REXCVAR_DEFINE_BOOL(vulkan_viewport_info_cache_verify, false, "GPU/Vulkan",
+                     "With vulkan_viewport_info_cache: on every reuse, also compute the viewport info, "
+                     "compare all of it, use the computed one on a difference, and log mismatches "
+                     "([s6][VIEWPORT])");
++// wwe2k14 patch (Session 7, SEAMS): Xenia Canary's predicated tiling viewport fix (PR #1257), see
++// draw_util::GetHostViewportInfo's negative_origin. Latched at the first draw of each frame, so all tiles of a
++// frame use the same setting; it can be flipped at any time. The stats setting is measurement only: read per
++// draw, it costs one branch per draw while off.
++REXCVAR_DEFINE_BOOL(gpu_tiling_viewport_fix, false, "GPU/Vulkan",
++                    "Let the host viewport start at a negative coordinate (Xenia Canary PR #1257) instead of "
++                    "cropping it at 0, so predicated-tiling tiles with negative window offsets rasterize like "
++                    "the first tile");
++REXCVAR_DEFINE_BOOL(gpu_tiling_viewport_fix_stats, false, "GPU/Vulkan",
++                    "Compute every draw's host viewport both with and without gpu_tiling_viewport_fix, count "
++                    "the draws where they differ (with and without a window offset), and log a [s7][SEAMS] "
++                    "summary every 300 frames");
+ // wwe2k14 patch (Session 6, CP7): whenever a constant buffer changed (in practice on every draw), UpdateBindings
+ // took a new transient constants descriptor set and wrote all 5 of its uniform buffer descriptors
+ // (vkUpdateDescriptorSets, on the submit thread with vulkan_deferred_descriptor_writes) before binding it. The
+@@ -5603,23 +5615,47 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // life. Or even disregard the viewport bounds range in the fragment shader
+   // interlocks case completely - apply the viewport and the scissor offset
+   // directly to pixel address and to things like ps_param_gen.
++  // wwe2k14 patch (Session 7, SEAMS): gpu_tiling_viewport_fix (Xenia Canary PR #1257, see
++  // draw_util::GetHostViewportInfo's negative_origin), latched at the first draw of each frame so all the
++  // predicated-tiling tiles of a frame use the same setting.
++  if (tiling_viewport_fix_frame_ != frame_current_) {
++    tiling_viewport_fix_frame_ = frame_current_;
++    bool tiling_viewport_fix = REXCVAR_GET(gpu_tiling_viewport_fix);
++    if (tiling_viewport_fix != tiling_viewport_fix_) {
++      tiling_viewport_fix_ = tiling_viewport_fix;
++      REXGPU_INFO("[s7][SEAMS] gpu_tiling_viewport_fix {} from frame {}",
++                  tiling_viewport_fix ? "on" : "off", frame_current_);
++    }
++  }
++  bool viewport_convert_z_to_float24 =
++      host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader();
++  bool viewport_pixel_shader_writes_depth = pixel_shader && pixel_shader->writes_depth();
+   // wwe2k14 patch (Session 6, VIEWPORT): with vulkan_viewport_info_cache, the same call through a
+   // one-entry cache keyed by every input (same arguments). Off: the original call, and nothing cached.
+   if (REXCVAR_GET(vulkan_viewport_info_cache)) {
+     GetHostViewportInfoCached(
+         regs, draw_resolution_scale_x, draw_resolution_scale_y, false,
+         device_properties.maxViewportDimensions[0], device_properties.maxViewportDimensions[1],
+-        true, normalized_depth_control,
+-        host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader(),
+-        host_render_targets_used, pixel_shader && pixel_shader->writes_depth(), viewport_info);
++        true, normalized_depth_control, viewport_convert_z_to_float24, host_render_targets_used,
++        viewport_pixel_shader_writes_depth, viewport_info, tiling_viewport_fix_);
+   } else {
+     viewport_info_cache_valid_ = false;
+     draw_util::GetHostViewportInfo(
+         regs, draw_resolution_scale_x, draw_resolution_scale_y, false,
+         device_properties.maxViewportDimensions[0], device_properties.maxViewportDimensions[1], true,
+-        normalized_depth_control,
+-        host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader(),
+-        host_render_targets_used, pixel_shader && pixel_shader->writes_depth(), viewport_info);
++        normalized_depth_control, viewport_convert_z_to_float24, host_render_targets_used,
++        viewport_pixel_shader_writes_depth, viewport_info, tiling_viewport_fix_);
++  }
++  // wwe2k14 patch (Session 7, SEAMS): measurement only; one branch per draw while off.
++  if (REXCVAR_GET(gpu_tiling_viewport_fix_stats)) {
++    TilingViewportFixStatsDraw(regs, draw_resolution_scale_x, draw_resolution_scale_y,
++                               device_properties.maxViewportDimensions[0],
++                               device_properties.maxViewportDimensions[1], normalized_depth_control,
++                               viewport_convert_z_to_float24, host_render_targets_used,
++                               viewport_pixel_shader_writes_depth);
++  } else if (tiling_viewport_fix_stats_.active) {
++    TilingViewportFixStatsReport(" (partial window: gpu_tiling_viewport_fix_stats turned off)");
++    tiling_viewport_fix_stats_.active = false;
+   }
+ 
+   // Update dynamic graphics pipeline state.
+@@ -5956,6 +5992,8 @@ std::string ViewportInfoCacheWordsHex(const void* data, size_t size) {
+ //   normalized_depth_control (only z_enable is read; the whole value is keyed), convert_z_to_float24,
+ //   full_float24_in_0_to_1, pixel_shader_writes_depth.
+ // - Setting: half_pixel_offset (REXCVAR_GET inside the function, so keyed as a flag).
++// - Session 7, SEAMS: the negative_origin argument (gpu_tiling_viewport_fix as latched for the frame), keyed
++//   as a flag, so a toggle misses once and is then cached like any other input.
+ // Everything else it uses is a constant (xenos::kTexture2DCubeMaxWidthHeight) or a pure function of the
+ // above (rex::clamp_float, rex::saturate, std::abs, xenos::Float32To20e4 / Float20e4To32). As IssueDraw
+ // calls it, origin_bottom_left (false) and allow_reverse_z (true) are constants, and the resolution scale
+@@ -5983,7 +6021,7 @@ void VulkanCommandProcessor::GetHostViewportInfoCached(
+     bool origin_bottom_left, uint32_t x_max, uint32_t y_max, bool allow_reverse_z,
+     reg::RB_DEPTHCONTROL normalized_depth_control, bool convert_z_to_float24,
+     bool full_float24_in_0_to_1, bool pixel_shader_writes_depth,
+-    draw_util::ViewportInfo& viewport_info_out) {
++    draw_util::ViewportInfo& viewport_info_out, bool negative_origin) {
+   static_assert(sizeof(ViewportInfoCacheKey) == sizeof(uint32_t) * 19,
+                 "ViewportInfoCacheKey must have no padding (== compares every member)");
+   static_assert(sizeof(draw_util::ViewportInfo) == sizeof(uint32_t) * 12,
+@@ -6009,7 +6047,8 @@ void VulkanCommandProcessor::GetHostViewportInfoCached(
+               (convert_z_to_float24 ? kViewportInfoCacheFlagConvertZToFloat24 : 0) |
+               (full_float24_in_0_to_1 ? kViewportInfoCacheFlagFullFloat24In0To1 : 0) |
+               (pixel_shader_writes_depth ? kViewportInfoCacheFlagPixelShaderWritesDepth : 0) |
+-              (REXCVAR_GET(half_pixel_offset) ? kViewportInfoCacheFlagHalfPixelOffset : 0);
++              (REXCVAR_GET(half_pixel_offset) ? kViewportInfoCacheFlagHalfPixelOffset : 0) |
++              (negative_origin ? kViewportInfoCacheFlagNegativeOrigin : 0);
+   key.host_fp_control =
+       rex::platform::FPSCRPlatform::getcsr() &
+       uint32_t(rex::platform::FPSCRPlatform::RoundMaskVal | rex::platform::FPSCRPlatform::FlushMask);
+@@ -6055,7 +6094,8 @@ void VulkanCommandProcessor::GetHostViewportInfoCached(
+       draw_util::GetHostViewportInfo(regs, draw_resolution_scale_x, draw_resolution_scale_y,
+                                      origin_bottom_left, x_max, y_max, allow_reverse_z,
+                                      normalized_depth_control, convert_z_to_float24,
+-                                     full_float24_in_0_to_1, pixel_shader_writes_depth, computed);
++                                     full_float24_in_0_to_1, pixel_shader_writes_depth, computed,
++                                     negative_origin);
+       ++stats.verify_checks;
+       if (std::memcmp(&computed, &viewport_info_cache_value_, sizeof(computed))) {
+         ++stats.verify_mismatches;
+@@ -6098,13 +6138,145 @@ void VulkanCommandProcessor::GetHostViewportInfoCached(
+                                    origin_bottom_left, x_max, y_max, allow_reverse_z,
+                                    normalized_depth_control, convert_z_to_float24,
+                                    full_float24_in_0_to_1, pixel_shader_writes_depth,
+-                                   viewport_info_out);
++                                   viewport_info_out, negative_origin);
+     viewport_info_cache_key_ = key;
+     viewport_info_cache_value_ = viewport_info_out;
+     viewport_info_cache_valid_ = true;
+   }
+ }
+ 
++// wwe2k14 patch (Session 7, SEAMS): gpu_tiling_viewport_fix_stats. Both results are computed here, not taken
++// from IssueDraw (which may come from the viewport info cache), so the comparison doesn't depend on the cache.
++void VulkanCommandProcessor::TilingViewportFixStatsDraw(
++    const RegisterFile& regs, uint32_t draw_resolution_scale_x, uint32_t draw_resolution_scale_y,
++    uint32_t x_max, uint32_t y_max, reg::RB_DEPTHCONTROL normalized_depth_control,
++    bool convert_z_to_float24, bool full_float24_in_0_to_1, bool pixel_shader_writes_depth) {
++  TilingViewportFixStats& stats = tiling_viewport_fix_stats_;
++  // A new window: the first draw since the setting was turned on, or frame_current_ went back (the context
++  // was recreated; ShutdownContext resets it to 1). Otherwise close the window every 300 frames.
++  if (!stats.active || frame_current_ < stats.last_frame) {
++    if (stats.active) {
++      TilingViewportFixStatsReport(" (partial window: context recreated)");
++    }
++    uint32_t no_window_offset_logged = stats.no_window_offset_logged;
++    stats = TilingViewportFixStats();
++    stats.no_window_offset_logged = no_window_offset_logged;
++    stats.active = true;
++    stats.window_first_frame = frame_current_;
++  } else if (frame_current_ - stats.window_first_frame >= 300) {
++    TilingViewportFixStatsReport("");
++    uint32_t no_window_offset_logged = stats.no_window_offset_logged;
++    stats = TilingViewportFixStats();
++    stats.no_window_offset_logged = no_window_offset_logged;
++    stats.active = true;
++    stats.window_first_frame = frame_current_;
++  }
++  stats.last_frame = frame_current_;
++  ++stats.draws;
++  if (tiling_viewport_fix_) {
++    ++stats.draws_fix_on;
++  }
++
++  auto pa_su_sc_mode_cntl = regs.Get<reg::PA_SU_SC_MODE_CNTL>();
++  auto pa_sc_window_offset = regs.Get<reg::PA_SC_WINDOW_OFFSET>();
++  bool vtx_window_offset_enable = pa_su_sc_mode_cntl.vtx_window_offset_enable != 0;
++  bool window_offset_applied =
++      vtx_window_offset_enable &&
++      (pa_sc_window_offset.window_x_offset != 0 || pa_sc_window_offset.window_y_offset != 0);
++  TilingViewportFixStats::WindowOffset* window_offset_entry = nullptr;
++  for (uint32_t i = 0; i < stats.window_offset_count; ++i) {
++    TilingViewportFixStats::WindowOffset& entry = stats.window_offsets[i];
++    if (entry.window_offset == pa_sc_window_offset.value &&
++        entry.vtx_window_offset_enable == vtx_window_offset_enable) {
++      window_offset_entry = &entry;
++      break;
++    }
++  }
++  if (!window_offset_entry && stats.window_offset_count < TilingViewportFixStats::kMaxWindowOffsets) {
++    window_offset_entry = &stats.window_offsets[stats.window_offset_count++];
++    window_offset_entry->window_offset = pa_sc_window_offset.value;
++    window_offset_entry->vtx_window_offset_enable = vtx_window_offset_enable;
++  }
++  if (window_offset_entry) {
++    ++window_offset_entry->draws;
++  } else {
++    ++stats.window_offsets_dropped;
++  }
++
++  // Draws with clipping disabled take the other branch of GetHostViewportInfo, which the fix doesn't touch.
++  if (regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable) {
++    return;
++  }
++  ++stats.draws_clip_enabled;
++  draw_util::ViewportInfo without_fix{};
++  draw_util::ViewportInfo with_fix{};
++  draw_util::GetHostViewportInfo(regs, draw_resolution_scale_x, draw_resolution_scale_y, false, x_max,
++                                 y_max, true, normalized_depth_control, convert_z_to_float24,
++                                 full_float24_in_0_to_1, pixel_shader_writes_depth, without_fix, false);
++  draw_util::GetHostViewportInfo(regs, draw_resolution_scale_x, draw_resolution_scale_y, false, x_max,
++                                 y_max, true, normalized_depth_control, convert_z_to_float24,
++                                 full_float24_in_0_to_1, pixel_shader_writes_depth, with_fix, true);
++  if (!std::memcmp(&without_fix, &with_fix, sizeof(with_fix))) {
++    return;
++  }
++  for (uint32_t i = 0; i < 2; ++i) {
++    stats.min_origin_with_fix[i] = std::min(stats.min_origin_with_fix[i], with_fix.xy_offset[i]);
++  }
++  if (window_offset_entry) {
++    ++window_offset_entry->differ;
++  }
++  if (window_offset_applied) {
++    ++stats.differ_window_offset;
++    return;
++  }
++  ++stats.differ_no_window_offset;
++  // Outside predicated tiling: a guest viewport that itself starts left of or above 0. Log the first few.
++  if (stats.no_window_offset_logged < 8) {
++    ++stats.no_window_offset_logged;
++    REXGPU_INFO(
++        "[s7][SEAMS] frame {}: draw without a window offset gets a different host viewport with the fix: "
++        "PA_CL_VPORT X/Y scale/offset {}/{} {}/{} (VTE_CNTL {:08X}, VTX_CNTL {:08X}, SC_MODE_CNTL {:08X}, "
++        "WINDOW_OFFSET {:08X}); without the fix origin ({}, {}) extent ({}, {}) ndc scale ({}, {}) offset "
++        "({}, {}); with it origin ({}, {}) extent ({}, {}) ndc scale ({}, {}) offset ({}, {})",
++        frame_current_, regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XSCALE),
++        regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XOFFSET), regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YSCALE),
++        regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YOFFSET), regs[XE_GPU_REG_PA_CL_VTE_CNTL],
++        regs[XE_GPU_REG_PA_SU_VTX_CNTL], pa_su_sc_mode_cntl.value, pa_sc_window_offset.value,
++        without_fix.xy_offset[0], without_fix.xy_offset[1], without_fix.xy_extent[0],
++        without_fix.xy_extent[1], without_fix.ndc_scale[0], without_fix.ndc_scale[1],
++        without_fix.ndc_offset[0], without_fix.ndc_offset[1], with_fix.xy_offset[0], with_fix.xy_offset[1],
++        with_fix.xy_extent[0], with_fix.xy_extent[1], with_fix.ndc_scale[0], with_fix.ndc_scale[1],
++        with_fix.ndc_offset[0], with_fix.ndc_offset[1]);
++  }
++}
++
++void VulkanCommandProcessor::TilingViewportFixStatsReport(const char* note) {
++  const TilingViewportFixStats& stats = tiling_viewport_fix_stats_;
++  if (!stats.draws) {
++    return;
++  }
++  std::string offsets;
++  for (uint32_t i = 0; i < stats.window_offset_count; ++i) {
++    const TilingViewportFixStats::WindowOffset& entry = stats.window_offsets[i];
++    reg::PA_SC_WINDOW_OFFSET window_offset;
++    window_offset.value = entry.window_offset;
++    fmt::format_to(std::back_inserter(offsets), "{}({}, {}){}: {} draws, {} differ", i ? "; " : "",
++                   int32_t(window_offset.window_x_offset), int32_t(window_offset.window_y_offset),
++                   entry.vtx_window_offset_enable ? "" : " not applied to vertices", entry.draws,
++                   entry.differ);
++  }
++  REXGPU_INFO(
++      "[s7][SEAMS] frames {}-{}{}: {} draws ({} of them with gpu_tiling_viewport_fix on), {} with clipping; "
++      "host viewport differs with the fix in {} draws with a window offset and {} without; smallest origin "
++      "with the fix ({}, {}); window offsets: {}{}",
++      stats.window_first_frame, stats.last_frame, note, stats.draws, stats.draws_fix_on,
++      stats.draws_clip_enabled, stats.differ_window_offset, stats.differ_no_window_offset,
++      stats.min_origin_with_fix[0], stats.min_origin_with_fix[1], offsets,
++      stats.window_offsets_dropped
++          ? fmt::format("; {} draws with further values not listed", stats.window_offsets_dropped)
++          : std::string());
++}
++
+ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_size) {
+   if (!total_size || memexport_ranges_.empty()) {
+     return true;

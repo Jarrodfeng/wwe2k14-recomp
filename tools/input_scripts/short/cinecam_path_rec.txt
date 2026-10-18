@@ -1,0 +1,36 @@
+# Session 14 (S2): CineCam path RECORD test. Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_cinecam=true
+# --wwe2k14_cinecam_path_record=s14_path.txt --wwe2k14_cinecam_path_log=true (anchor: default step5:0). After slot 0
+# reaches entrance step 5: free camera on, a known pose, a scripted move (test_move), screenshots p_a / p_b / p_c
+# 60 / 180 / 300 frames after the step. Replay: cinecam_path_play.txt. Untimed. on_fail quit.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+wait_state entrance_step_0 >=5 4800 2
+cvar wwe2k14_cinecam_on true
+cvar wwe2k14_cinecam_test_pose -1,-268,-1294,-90,1.3,44.7
+cvar wwe2k14_cinecam_test_move 120,0,40,6
+wait_frames 60
+screenshot p_a
+wait_frames 120
+screenshot p_b
+wait_frames 120
+screenshot p_c
+wait_frames 60
+cvar wwe2k14_cinecam_test_move 0,0,0,0
+wait_frames 60
+wait_file 324.bik2 3000 optional
+wait_frames 300
+screenshot p_d
+wait_frames 60
+quit

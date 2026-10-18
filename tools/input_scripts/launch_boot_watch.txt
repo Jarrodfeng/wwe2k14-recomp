@@ -1,0 +1,18 @@
+# harness: realtime (Jarrod watches / plays; Session 16: run_list fast-forwards other routes)
+# Session 9 (scenario launcher): watched launch for any scenario. Boots to the main menu with the title-screen presses
+# of Jarrod's recording 056 (so the title never times out into the attract-mode demo match), then ends: the real
+# controller is active from the main menu on, and --wwe2k14_launch=NAME fires by itself once the main menu has been
+# idle for --wwe2k14_launch_idle_frames. on_fail continue: a failed wait ends the script and leaves the game running.
+on_fail continue
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached; the controller is yours (the launcher fires after its idle frames)

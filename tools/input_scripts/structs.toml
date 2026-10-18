@@ -1,0 +1,47 @@
+# Typed views of known guest objects (Session 30, #5) for the input-script command `dump_struct NAME [ADDR]`
+# (src/structs.h), live `py tools\live\live.py struct NAME [ADDR]`, and the F11 / auto bookmark bundles (every struct
+# whose base reads as a non-null pointer is dumped there).
+#
+# Format: one [Name] section per object.
+#   base = "CHAIN"   a states.toml chain whose VALUE is the object's address ("0x8392945C" = the pointer stored at
+#                    0x8392945C; "0x839400F8>256>76" = [[[0x839400F8]+256]+76]). dump_struct NAME ADDR uses ADDR instead.
+#   meaning / evidence / confidence   the object as a whole (documentation)
+#   FIELD = "+OFFSET TYPE | meaning | evidence"   OFFSET decimal or 0x hex; TYPE u8 u16 u32 s8 s16 s32 f32 ptr str
+#                    (str = a pointer to ASCII text, up to 64 characters). Every field cites where it comes from:
+#                    nothing here is guessed (CLAUDE.md rule 4); "unconfirmed" when only the value was seen.
+# Add a struct (or a field) with each finding; states.toml stays the place for single values that routes wait on.
+
+[SmartMenu]
+base = "0x8392945C"
+meaning = "the main-menu SmartMenu controller: the open list, its cursor and the highlighted item. 0 outside the main-menu system"
+evidence = "states.toml smart_menu (db/menu_ui.json g_smart_menu, high; live runs 232/233/239)"
+cursor = "+352 u32 | cursor index in the open list | states.toml cursor (db/menu_ui.json SM+352, high); Session 29 scanner ground truth (run 2201)"
+menu = "+364 u32 | the open list: 1 main, 2 PLAY, 3 CREATIONS, 4 OPTIONS, 7 next PLAY level, 2000 setup screens | states.toml menu (run 239); 2 / 4 seen live in run 2236 (Session 30)"
+target = "+368 u32 | the highlighted item's target: a menu id below 1000, else a code; main menu: PLAY 2, 30 YEARS 1500, UNIVERSE 1497, CREATIONS 3, Xbox Live -1, MY WWE 6, OPTIONS 4 | states.toml target (run 239); main-menu values from the recording of run 2243 (Session 30)"
+
+[MessageManager]
+base = "0x839294BC"
+meaning = "the SmartMenu's message manager: the game's own message boxes (YES / NO questions, notices)"
+evidence = "src/gfx_menu.h kMessageManagerPtr (Session 28: vtable slot 27 takes an event; runs 2124 / 2125)"
+state = "+16 u32 | 5 idle, 1 opening, 2 waiting for an answer, 3 answered | src/gfx_menu.h Session 28 (QUIT TO DESKTOP; runs 2124 / 2125); stays 5 during the title's storage notice (Session 29)"
+selected = "+64 u32 | the highlighted button of a YES / NO box: 0 YES, 1 NO | src/gfx_menu.h Session 28 (runs 2124 / 2125)"
+
+[SequenceManager]
+base = "0x839400F8"
+meaning = "the sequence manager: which top-level sequence runs (start-up, main menu, in game) and the objects it holds"
+evidence = "db/menu_ui.json g_sequence_manager; states.toml seq / seq_prev / logo_* chains"
+current = "+0 ptr | the current sequence object; its +48 is the sequence id (states.toml seq: 3 start-up / title, 75 main menu and setup, 9 in game) | states.toml seq chain 0x839400F8>0>48"
+previous_id = "+4 u32 | id of the sequence the current one replaced (0 at boot, 4 after the main menu starts) | states.toml seq_prev (run 239)"
+holder_256 = "+256 ptr | holds the Create a Logo object at its +76 (struct LogoEditor) | states.toml logo_* chains 0x839400F8>256>76>..."
+
+[LogoEditor]
+base = "0x839400F8>256>76"
+meaning = "the Create a Logo object; its fields mean something only inside Create a Logo (elsewhere unrelated memory)"
+evidence = "states.toml logo_* entries (snapshots run 1904, live runs 2172 / 2213)"
+screen = "+1200 u32 | 1 the logo grid, 0 SELECT CANVAS SIZE, 3 the paint editor, 4 the Tools panel, 2 LOGO CATEGORIES (also inside a category) | states.toml logo_screen (run 1904, run 2172)"
+canvas = "+1252 u32 | the editor's canvas size in pixels (256 / 128); 0 on the grid | states.toml logo_canvas (run 1904)"
+tool_cursor = "+1292 u32 | Tools panel cursor: 0 pen, 3 eraser, 6 fill, 7 the W stamp tool, 9 ACCEPT | states.toml logo_tool_cursor (run 1904); 7 = stamp tool (Session 29 logo route)"
+size_cursor = "+1428 u32 | SELECT CANVAS SIZE cursor: 0 = 128x128, 1 = 256x256 | states.toml logo_size_cursor (run 1904)"
+category_cursor = "+1432 u32 | LOGO CATEGORIES cursor (0 the first ... 3 LETTERING); keeps its value inside a category | states.toml logo_category_cursor (Session 29 scan, run 2213)"
+grid_cursor = "+1448 u32 | logo grid slot 0-19 (row 1 = 0-4, row 2 = 5-9 on page 1) | states.toml logo_grid_cursor (run 1904)"
+phase = "+3204 u32 | 124 grid ready, 13 the 'create Custom Logo save data?' prompt, 8 editor | states.toml logo_phase (runs 1904 / 1921)"

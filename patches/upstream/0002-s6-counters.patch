@@ -1,0 +1,1479 @@
+Subject: [ReXGlue] merge s6/counters
+
+Class: DIAG
+What: Per-frame counters in the timeline, frame anatomy CSV, GPU time per submission.
+Evidence: Measurement tool for Session 6 (PLAYBOOK Session 6).
+On / off: gpu_anatomy_capture, gpu_anatomy_path, vulkan_gpu_timestamps (off).
+Commit: 9e64d4d (diff against 9e64d4d^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index da8e432..4df550b 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -277,10 +277,92 @@ class CommandProcessor {
+   // name (for explicit-override compatibility).
+   const char* legacy_readback_memexport_cvar_name_ = nullptr;
+ 
++  // wwe2k14 patch (Session 6, COUNTERS): per-frame counters, recorded to the timeline (perf/timeline.h) as the
++  // cpf* events right before each cp_swap, then reset (RecordFrameCounters). Measurement only. Touched only on
++  // the command processor thread, so plain integers. The event fields are a fixed contract with the benchmark
++  // report tool; see RecordFrameCounters for the layout.
++  struct FrameCounters {
++    uint32_t issue_draw;                  // IssueDraw calls (including the ones handled as IssueCopy)
++    uint32_t draws_issued;                // draws that reached a host draw call
++    uint32_t issue_copy;                  // IssueCopy (resolve) calls
++    uint32_t type0_packets;               // type-0 packets
++    uint32_t type0_registers;             // registers written by type-0 packets
++    uint32_t type0_float_constants;       // of those, in 0x4000-0x47FF
++    uint32_t type0_fetch_constants;       // of those, in 0x4800-0x48FF
++    uint32_t type0_bool_loop_constants;   // of those, in 0x4900-0x4927
++    uint32_t type3_packets;               // type-3 packets
++    uint32_t request_ranges;              // SharedMemory::RequestRange(s) calls
++    uint32_t request_ranges_all_valid;    // of those, returned without uploading anything
++    uint32_t upload_kib;                  // KiB passed to SharedMemory::UploadRanges
++    uint32_t texture_sets_written;        // texture descriptor sets written (vertex + pixel)
++    uint32_t constants_sets_written;      // constants descriptor sets written
++    uint32_t sampler_parameters;          // GetSamplerParameters calls
++    uint32_t fetch_constant_notifications;  // fetch constants notified to the texture cache as written
++    uint32_t fetch_constant_changed;      // of those, whose 6 dwords differ from the last value seen
++    uint32_t pipeline_binds_changed;      // graphics pipeline binds that changed the bound pipeline
++    uint32_t processor_number;            // logical processor of this thread at the swap
++    uint32_t checkpoint_next_id;          // next crash-checkpoint record id (0 without crash diagnostics)
++    uint32_t submissions_ended;           // host submissions ended
++  };
++  FrameCounters frame_counters_ = {};
++  // perf::timeline::Enabled() latched at each frame boundary: gates the counters that cost more than an
++  // increment (type-0 block split, fetch constant value comparison).
++  bool frame_counters_enabled_ = false;
++  // Called at every frame boundary on the command processor thread, before the counters are recorded (or
++  // dropped when the timeline is off): fill in counters kept by the backend's objects and reset them there.
++  virtual void CollectFrameCounters(FrameCounters& /* counters */) {}
++  void RecordFrameCounters();
++  void CountType0Packet(uint32_t base_index, uint32_t count, bool write_one_reg) {
++    FrameCounters& counters = frame_counters_;
++    ++counters.type0_packets;
++    counters.type0_registers += count;
++    // Registers of [first, end) the packet writes (all `count` writes go to base_index with write_one_reg).
++    auto written = [&](uint32_t first, uint32_t end) -> uint32_t {
++      if (write_one_reg) {
++        return (base_index >= first && base_index < end) ? count : 0;
++      }
++      uint32_t low = base_index > first ? base_index : first;
++      uint32_t high = base_index + count < end ? base_index + count : end;
++      return high > low ? high - low : 0;
++    };
++    counters.type0_float_constants += written(0x4000, 0x4800);
++    counters.type0_fetch_constants += written(0x4800, 0x4900);
++    counters.type0_bool_loop_constants += written(0x4900, 0x4928);
++  }
++
++  // wwe2k14 patch (Session 6, COUNTERS): frame-anatomy capture (gpu_anatomy_capture, gpu_anatomy_path): one CSV
++  // row per IssueDraw call (draw or copy) for N frames. Why a draw that reached IssueDraw drew nothing (the
++  // `skipped` column); the backend sets anatomy_skip_reason_ at its early returns, the rest is derived from the
++  // counters above:
++  enum AnatomySkipReason : uint32_t {
++    kAnatomyDrew = 0,             // reached a host draw call (copies: the resolve succeeded)
++    kAnatomySkipZeroPitch = 1,    // RB_SURFACE_INFO surface_pitch 0 with rasterization: nothing drawn
++    kAnatomySkipNoEffect = 2,     // rasterization off and no memexport: the draw has no effect
++    kAnatomySkipNoVertices = 3,   // primitive processing left nothing to draw
++    kAnatomySkipPlaceholder = 4,  // async placeholder pipeline (still compiling), draw dropped
++    kAnatomySkipOther = 5,        // returned success without drawing, reason not classified
++    kAnatomyFailed = 6,           // IssueDraw / IssueCopy returned false
++  };
++  uint32_t anatomy_skip_reason_ = kAnatomySkipOther;
++  // A capture is running (changes only at frame boundaries).
++  bool anatomy_active_ = false;
++
+  private:
+   reg::DC_LUT_30_COLOR gamma_ramp_256_entry_table_[256] = {};
+   reg::DC_LUT_PWL_DATA gamma_ramp_pwl_rgb_[128][3] = {};
+   uint32_t gamma_ramp_rw_component_ = 0;
++
++  // wwe2k14 patch (Session 6, COUNTERS): frame-anatomy capture state (command_processor.cpp).
++  struct AnatomyCapture;
++  std::unique_ptr<AnatomyCapture> anatomy_;
++  // Set at a frame boundary during a capture; the next packet starts the frame's clock.
++  bool anatomy_frame_start_pending_ = false;
++  void AnatomyStartFrame();
++  void AnatomyBeginDraw();
++  void AnatomyEndDraw(uint32_t vgt_draw_initiator, bool is_indexed, bool succeeded);
++  void AnatomyEndFrame();
++  void AnatomyFrameBoundary();
++  void AnatomyFinish(const char* why);
+ };
+ 
+ }  // namespace rex::graphics
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index 4d85a2b..b3899d1 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -79,6 +79,20 @@ class SharedMemory {
+   bool RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, size_t count);
+   bool RequestRange(uint32_t start, uint32_t length);
+ 
++  // wwe2k14 patch (Session 6, COUNTERS): RequestRanges statistics for the per-frame timeline counters, taken
++  // (and reset) by the command processor at each frame boundary. RequestRanges runs only on the command
++  // processor thread (it already relies on that for upload_ranges_), so plain counters are enough.
++  struct RequestStats {
++    uint32_t calls = 0;          // RequestRanges calls (RequestRange included)
++    uint32_t upload_calls = 0;   // of those, the ones that called UploadRanges
++    uint64_t upload_bytes = 0;   // bytes (whole pages) passed to UploadRanges
++  };
++  RequestStats TakeRequestStats() {
++    RequestStats stats = request_stats_;
++    request_stats_ = RequestStats();
++    return stats;
++  }
++
+   // Marks the range and, if not exact_range, potentially its surroundings
+   // (to up to the first GPU-written page, as an access violation exception
+   // count optimization) as modified by the CPU, also invalidating GPU-written
+@@ -160,6 +174,7 @@ class SharedMemory {
+   // Ranges that need to be uploaded, generated by GetRangesToUpload (a
+   // persistently allocated vector).
+   std::vector<std::pair<uint32_t, uint32_t>> upload_ranges_;
++  RequestStats request_stats_;  // wwe2k14 patch (Session 6, COUNTERS)
+ 
+   // Mutex between the guest memory subsystem and the command processor, to be
+   // locked when checking or updating validity of pages/ranges and when firing
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 48f3875..17a302a 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -272,6 +272,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+                  IndexBufferInfo* index_buffer_info, bool major_mode_explicit) override;
+   bool IssueCopy() override;
+ 
++  // wwe2k14 patch (Session 6, COUNTERS): per-frame counters kept outside the base class.
++  void CollectFrameCounters(FrameCounters& counters) override;
++
+  private:
+   struct CommandBuffer {
+     VkCommandPool pool;
+@@ -607,6 +610,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+     std::vector<VkPipelineStageFlags> wait_stage_masks;
+     VkFence fence;
+     uint64_t submission;
++    // wwe2k14 patch (Session 6, COUNTERS): GPU timestamp query pair to write, UINT32_MAX for none.
++    uint32_t timestamp_slot = UINT32_MAX;
+   };
+   void AsyncSubmitThreadMain();
+   void AsyncSubmitExecute(AsyncSubmitJob& job);
+@@ -623,6 +628,34 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool async_submit_stop_ = false;
+   std::atomic<bool> async_submit_device_lost_{false};
+ 
++  // wwe2k14 patch (Session 6, COUNTERS): fetch constant writes that change the value (cpf_fc), compared with the
++  // last value seen per texture fetch constant.
++  void CountFetchConstantsWritten(uint32_t first_index, uint32_t last_index);
++  uint32_t fetch_constants_seen_[32][6] = {};
++
++  // wwe2k14 patch (Session 6, COUNTERS): GPU timestamps per submission (vulkan_gpu_timestamps). A top-of-pipe and
++  // a bottom-of-pipe timestamp around each submission's command buffer, written into the real command buffer by
++  // whichever thread records it (this one or the submit thread), read back only once the submission's fence is
++  // known to be signaled, and recorded to the timeline as gpu_ts.
++  static constexpr uint32_t kGpuTimestampSlots = 256;  // submissions in flight with timestamps
++  // Returns the query pair (slot) to write for the submission being ended, or UINT32_MAX.
++  uint32_t GpuTimestampsBeginSubmission(bool is_swap);
++  bool GpuTimestampsInitialize();
++  void GpuTimestampsWriteBegin(VkCommandBuffer command_buffer, uint32_t slot) const;
++  void GpuTimestampsWriteEnd(VkCommandBuffer command_buffer, uint32_t slot) const;
++  void GpuTimestampsRead();
++  void GpuTimestampsShutdown();
++  VkQueryPool gpu_timestamps_pool_ = VK_NULL_HANDLE;
++  bool gpu_timestamps_unsupported_ = false;
++  double gpu_timestamps_period_ns_ = 0.0;
++  uint64_t gpu_timestamps_mask_ = 0;
++  PFN_vkCmdWriteTimestamp gpu_timestamps_cmd_write_ = nullptr;
++  PFN_vkGetQueryPoolResults gpu_timestamps_get_results_ = nullptr;
++  // Submission whose timestamps are in each slot (0 = none), and whether it was a swap.
++  std::array<uint64_t, kGpuTimestampSlots> gpu_timestamps_slot_submission_ = {};
++  std::array<bool, kGpuTimestampSlots> gpu_timestamps_slot_is_swap_ = {};
++  uint64_t gpu_timestamps_read_up_to_ = 0;
++
+   std::vector<VkSparseMemoryBind> sparse_memory_binds_;
+   std::vector<SparseBufferBind> sparse_buffer_binds_;
+   // SparseBufferBind converted to VkSparseBufferMemoryBindInfo to this buffer
+diff --git a/include/rex/perf/processor.h b/include/rex/perf/processor.h
+new file mode 100644
+index 0000000..66bc448
+--- /dev/null
++++ b/include/rex/perf/processor.h
+@@ -0,0 +1,18 @@
++/**
++ * @file        perf/processor.h
++ * @brief       Which logical processor a thread runs on, for the timeline (wwe2k14 patch, Session 6)
++ *
++ * A separate header so that perf/timeline.h (included by the app) stays unchanged. Defined in
++ * perf/timeline.cpp (rexruntime).
++ */
++#pragma once
++
++#include <cstdint>
++
++namespace rex::perf {
++
++// The logical processor the calling thread is running on right now: on Windows group * 64 + number
++// (GetCurrentProcessorNumberEx), on Linux sched_getcpu(), 0 if unknown.
++uint32_t CurrentProcessorNumber();
++
++}  // namespace rex::perf
+diff --git a/src/core/perf/timeline.cpp b/src/core/perf/timeline.cpp
+index 70534f4..7a284d4 100644
+--- a/src/core/perf/timeline.cpp
++++ b/src/core/perf/timeline.cpp
+@@ -2,27 +2,82 @@
+  * @file        perf/timeline.cpp
+  * @brief       Event timeline for frame-pacing investigations (wwe2k14 patch); see perf/timeline.h
+  */
++#include <rex/perf/processor.h>
+ #include <rex/perf/timeline.h>
++#include <rex/thread.h>
+ 
+ #include <atomic>
+ #include <chrono>
++#include <condition_variable>
+ #include <cstdio>
++#include <cstring>
+ #include <mutex>
++#include <string>
++#include <thread>
++#include <vector>
+ 
+ #ifdef _WIN32
+ #include "../platform_win.h"
+ #else
+ #include <pthread.h>
++#if defined(__linux__)
++#include <sched.h>
+ #endif
++#endif
++
++namespace rex::perf {
++
++uint32_t CurrentProcessorNumber() {
++#ifdef _WIN32
++  PROCESSOR_NUMBER number;
++  GetCurrentProcessorNumberEx(&number);
++  return uint32_t(number.Group) * 64 + uint32_t(number.Number);
++#elif defined(__linux__)
++  int cpu = sched_getcpu();
++  return cpu >= 0 ? uint32_t(cpu) : 0;
++#else
++  return 0;
++#endif
++}
+ 
+-namespace rex::perf::timeline {
++namespace timeline {
+ namespace {
+ 
++// wwe2k14 patch (Session 6, COUNTERS): Record() used to take one global mutex, fprintf under it and fflush about
++// once a second inside it, on whichever thread was recording. Now the line is formatted on the recording thread
++// outside any lock and appended to an in-memory buffer under a short lock (a memcpy, no syscalls); a writer
++// thread started by Start() writes and flushes the buffer every ~250 ms, and Stop() writes the rest. The CSV
++// format is unchanged.
++
+ std::atomic<bool> g_enabled{false};
+-std::mutex g_mutex;
++// steady_clock time of Start(), in ns since the clock's epoch. Written before g_enabled is set (release).
++std::atomic<int64_t> g_start_ns{0};
++
++// Serializes Start() and Stop().
++std::mutex g_control_mutex;
++
++// Recorded lines not yet handed to the writer. Held only for an append or a buffer swap.
++std::mutex g_buffer_mutex;
++std::vector<char> g_buffer;
++bool g_accepting = false;
++
++// Held by whoever writes to the file: the writer thread, or Stop() after joining it.
++std::mutex g_io_mutex;
+ std::FILE* g_file = nullptr;
+-std::chrono::steady_clock::time_point g_start;
+-std::chrono::steady_clock::time_point g_last_flush;
++// The writer's half of the double buffer: swapped with g_buffer, written, cleared (keeping its capacity).
++std::vector<char> g_write_buffer;
++
++std::mutex g_wake_mutex;
++std::condition_variable g_wake_cv;
++bool g_writer_stop = false;
++// Heap-allocated and intentionally leaked if Stop() is never called: a joinable std::thread destroyed during
++// static destruction would call std::terminate.
++std::thread* g_writer = nullptr;
++
++constexpr size_t kBufferReserve = size_t(4) << 20;
++constexpr auto kWriteInterval = std::chrono::milliseconds(250);
++// Longest event name formatted on the stack; longer ones take a slow path (event names are short literals).
++constexpr size_t kMaxFastEventLength = 128;
+ 
+ uint32_t HostThreadId() {
+ #ifdef _WIN32
+@@ -32,44 +87,229 @@ uint32_t HostThreadId() {
+ #endif
+ }
+ 
++int64_t SteadyNowNs() {
++  return int64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                     std::chrono::steady_clock::now().time_since_epoch())
++                     .count());
++}
++
++char* PutDecimal(char* out, uint64_t value) {
++  char digits[20];
++  size_t count = 0;
++  do {
++    digits[count++] = char('0' + value % 10);
++    value /= 10;
++  } while (value);
++  while (count) {
++    *out++ = digits[--count];
++  }
++  return out;
++}
++
++// Same output as printf "0x%X".
++char* PutHex(char* out, uint32_t value) {
++  static const char kHexDigits[] = "0123456789ABCDEF";
++  *out++ = '0';
++  *out++ = 'x';
++  char digits[8];
++  size_t count = 0;
++  do {
++    digits[count++] = kHexDigits[value & 0xF];
++    value >>= 4;
++  } while (value);
++  while (count) {
++    *out++ = digits[--count];
++  }
++  return out;
++}
++
++// Formats "%lld,%u,%s,0x%X,0x%X,0x%X\n" (the format the timeline has always used) into `out`, which must hold
++// at least 72 + event_length bytes. Returns the length.
++size_t FormatLine(char* out, long long t, uint32_t thread, const char* event, size_t event_length, uint32_t a,
++                  uint32_t b, uint32_t c) {
++  char* p = out;
++  if (t < 0) {
++    *p++ = '-';
++    p = PutDecimal(p, uint64_t(0) - uint64_t(t));
++  } else {
++    p = PutDecimal(p, uint64_t(t));
++  }
++  *p++ = ',';
++  p = PutDecimal(p, thread);
++  *p++ = ',';
++  std::memcpy(p, event, event_length);
++  p += event_length;
++  *p++ = ',';
++  p = PutHex(p, a);
++  *p++ = ',';
++  p = PutHex(p, b);
++  *p++ = ',';
++  p = PutHex(p, c);
++  *p++ = '\n';
++  return size_t(p - out);
++}
++
++void Append(const char* line, size_t length) {
++  std::lock_guard<std::mutex> lock(g_buffer_mutex);
++  if (!g_accepting) {
++    return;
++  }
++  g_buffer.insert(g_buffer.end(), line, line + length);
++}
++
++// Takes everything recorded so far and writes it to the file. With `close`, stops accepting new lines in the
++// same step. Call with g_io_mutex held.
++void WriteBufferedLocked(bool flush, bool close) {
++  {
++    std::lock_guard<std::mutex> lock(g_buffer_mutex);
++    // g_write_buffer is empty here, so the recorders continue into its (already reserved) memory.
++    g_buffer.swap(g_write_buffer);
++    if (close) {
++      g_accepting = false;
++    }
++  }
++  if (g_file && !g_write_buffer.empty()) {
++    std::fwrite(g_write_buffer.data(), 1, g_write_buffer.size(), g_file);
++  }
++  g_write_buffer.clear();
++  if (g_file && flush) {
++    std::fflush(g_file);
++  }
++}
++
++void WriterThreadMain() {
++  rex::thread::set_current_thread_name("Timeline Writer");
++  std::unique_lock<std::mutex> wake_lock(g_wake_mutex);
++  for (;;) {
++    g_wake_cv.wait_for(wake_lock, kWriteInterval, [] { return g_writer_stop; });
++    const bool stop = g_writer_stop;
++    wake_lock.unlock();
++    {
++      std::lock_guard<std::mutex> io_lock(g_io_mutex);
++      // Flush so a crash loses little and the file can be read while the game runs.
++      WriteBufferedLocked(true, false);
++    }
++    if (stop) {
++      return;
++    }
++    wake_lock.lock();
++  }
++}
++
++// If the process exits without Stop() (the app doesn't call it), write what is still buffered. rexruntime is a
++// DLL, so on Windows this runs during process detach, after the other threads were terminated, possibly in the
++// middle of a write: only proceed if the locks can be taken. Defined after everything it uses, so it's destroyed
++// first.
++struct ExitFlush {
++  ~ExitFlush() {
++    g_enabled.store(false, std::memory_order_release);
++#ifndef _WIN32
++    // Other threads are still running during static destruction here: let the writer finish first.
++    if (g_writer) {
++      {
++        std::lock_guard<std::mutex> wake_lock(g_wake_mutex);
++        g_writer_stop = true;
++      }
++      g_wake_cv.notify_all();
++      if (g_writer->joinable()) {
++        g_writer->join();
++      }
++    }
++#endif
++    if (!g_io_mutex.try_lock()) {
++      return;
++    }
++    if (g_file && g_buffer_mutex.try_lock()) {
++      g_accepting = false;
++      if (!g_buffer.empty()) {
++        std::fwrite(g_buffer.data(), 1, g_buffer.size(), g_file);
++        g_buffer.clear();
++      }
++      g_buffer_mutex.unlock();
++      std::fflush(g_file);
++    }
++    g_io_mutex.unlock();
++  }
++};
++ExitFlush g_exit_flush;
++
+ }  // namespace
+ 
+ bool Start(const char* path) {
+-  std::lock_guard<std::mutex> lock(g_mutex);
+-  if (g_file) return true;
+-  g_file = std::fopen(path, "w");
+-  if (!g_file) return false;
+-  std::setvbuf(g_file, nullptr, _IOFBF, 4 << 20);
+-  std::fputs("t_ns,thread,event,a,b,c\n", g_file);
+-  g_start = g_last_flush = std::chrono::steady_clock::now();
++  std::lock_guard<std::mutex> control_lock(g_control_mutex);
++  if (g_file) {
++    return true;
++  }
++  std::FILE* file = std::fopen(path, "w");
++  if (!file) {
++    return false;
++  }
++  std::setvbuf(file, nullptr, _IOFBF, size_t(1) << 20);
++  std::fputs("t_ns,thread,event,a,b,c\n", file);
++  {
++    std::lock_guard<std::mutex> io_lock(g_io_mutex);
++    g_file = file;
++    g_write_buffer.clear();
++    g_write_buffer.reserve(kBufferReserve);
++  }
++  {
++    std::lock_guard<std::mutex> buffer_lock(g_buffer_mutex);
++    g_buffer.clear();
++    g_buffer.reserve(kBufferReserve);
++    g_accepting = true;
++  }
++  {
++    std::lock_guard<std::mutex> wake_lock(g_wake_mutex);
++    g_writer_stop = false;
++  }
++  g_writer = new std::thread(WriterThreadMain);
++  g_start_ns.store(SteadyNowNs(), std::memory_order_relaxed);
+   g_enabled.store(true, std::memory_order_release);
+   return true;
+ }
+ 
+ void Stop() {
+-  std::lock_guard<std::mutex> lock(g_mutex);
++  std::lock_guard<std::mutex> control_lock(g_control_mutex);
+   g_enabled.store(false, std::memory_order_release);
+-  if (g_file) {
+-    std::fclose(g_file);
+-    g_file = nullptr;
++  if (g_writer) {
++    {
++      std::lock_guard<std::mutex> wake_lock(g_wake_mutex);
++      g_writer_stop = true;
++    }
++    g_wake_cv.notify_all();
++    g_writer->join();
++    delete g_writer;
++    g_writer = nullptr;
+   }
++  std::lock_guard<std::mutex> io_lock(g_io_mutex);
++  if (!g_file) {
++    return;
++  }
++  // Lines recorded after the writer's last pass, then no more.
++  WriteBufferedLocked(false, true);
++  std::fclose(g_file);
++  g_file = nullptr;
+ }
+ 
+ bool Enabled() { return g_enabled.load(std::memory_order_relaxed); }
+ 
+ void Record(const char* event, uint32_t a, uint32_t b, uint32_t c) {
+-  if (!Enabled()) return;
+-  const auto now = std::chrono::steady_clock::now();
++  if (!g_enabled.load(std::memory_order_acquire)) {
++    return;
++  }
++  const int64_t now_ns = SteadyNowNs();
+   const uint32_t thread = HostThreadId();
+-  std::lock_guard<std::mutex> lock(g_mutex);
+-  if (!g_file) return;
+-  const long long t = std::chrono::duration_cast<std::chrono::nanoseconds>(now - g_start).count();
+-  std::fprintf(g_file, "%lld,%u,%s,0x%X,0x%X,0x%X\n", t, thread, event, a, b, c);
+-  // Flush about once a second so a crash loses little and the file can be read while the game runs.
+-  if (now - g_last_flush >= std::chrono::seconds(1)) {
+-    std::fflush(g_file);
+-    g_last_flush = now;
++  const long long t = (long long)(now_ns - g_start_ns.load(std::memory_order_relaxed));
++  const size_t event_length = std::strlen(event);
++  if (event_length <= kMaxFastEventLength) {
++    char line[kMaxFastEventLength + 80];
++    Append(line, FormatLine(line, t, thread, event, event_length, a, b, c));
++    return;
+   }
++  std::string line(event_length + 80, '\0');
++  line.resize(FormatLine(line.data(), t, thread, event, event_length, a, b, c));
++  Append(line.data(), line.size());
+ }
+ 
+-}  // namespace rex::perf::timeline
++}  // namespace timeline
++}  // namespace rex::perf
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index c181da5..5a635b3 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -14,17 +14,25 @@
+ #include <unordered_map>
+ #include <cinttypes>
+ #include <cmath>
++#include <cstdio>
+ #include <cstring>
++#include <filesystem>
++#include <iterator>
+ #include <string_view>
++#ifdef _WIN32
++#include <share.h>
++#endif
+ 
+ #include <fmt/format.h>
+ 
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/perf/counter.h>
++#include <rex/perf/processor.h>
+ #include <rex/perf/timeline.h>
+ #include <rex/chrono/clock.h>
+ #include <rex/graphics/command_processor.h>
++#include <rex/graphics/pipeline/shader/shader.h>
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/graphics_system.h>
+ #include <rex/graphics/pipeline/texture/info.h>
+@@ -89,6 +97,14 @@ REXCVAR_DEFINE_BOOL(async_shader_compilation, true, "GPU",
+                     "pipelines are being prepared.")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// wwe2k14 patch (Session 6, COUNTERS): frame-anatomy capture, measurement only (no effect on emulation).
++REXCVAR_DEFINE_INT32(gpu_anatomy_capture, 0, "GPU",
++                     "Frame anatomy: when set to N > 0, record one CSV row per draw and resolve for the next "
++                     "N command processor frames (starting at the next swap), then reset to 0");
++REXCVAR_DEFINE_STRING(gpu_anatomy_path, "", "GPU",
++                      "Frame anatomy output file; %d = capture index in this run (default "
++                      "<current dir>/logs/anatomy_%d.csv). Per-frame totals go to <name>_frames.csv");
++
+ namespace rex::graphics {
+ 
+ using namespace rex::graphics::xenos;
+@@ -110,6 +126,73 @@ ReadbackResolveMode ParseReadbackResolveMode(std::string_view value) {
+ 
+ }  // namespace
+ 
++// wwe2k14 patch (Session 6, COUNTERS): frame-anatomy capture state (defined before the destructor, which
++// destroys it). See AnatomyFrameBoundary.
++struct CommandProcessor::AnatomyCapture {
++  struct Row {
++    int64_t start_ns;  // relative to the frame's first command
++    int64_t cp_ns;     // command processor time in IssueDraw
++    uint64_t vs_hash;
++    uint64_t ps_hash;
++    uint32_t prim;
++    uint32_t count;
++    uint32_t indexed;
++    uint32_t index_format;
++    uint32_t rb_surface_info;
++    uint32_t rb_color_info[4];
++    uint32_t rb_depth_info;
++    uint32_t rb_modecontrol;
++    uint32_t rb_depthcontrol;
++    uint32_t rb_colorcontrol;
++    uint32_t rb_color_mask;
++    uint32_t vs_textures;  // texture fetch constants used, bit per fetch constant
++    uint32_t ps_textures;
++    uint32_t vs_float_constants;  // float constants used
++    uint32_t ps_float_constants;
++    uint32_t pipeline_changed;
++    uint32_t skipped;  // AnatomySkipReason
++    uint32_t copy_dest;
++    uint32_t copy_info;
++    bool is_copy;
++  };
++
++  // A guard against unbounded memory if swaps stop coming.
++  static constexpr size_t kMaxRowsPerFrame = size_t(1) << 18;
++
++  ~AnatomyCapture() { CloseFiles(); }
++  void CloseFiles() {
++    for (std::FILE** file : {&rows_file, &frames_file}) {
++      if (*file) {
++        std::fclose(*file);
++        *file = nullptr;
++      }
++    }
++  }
++
++  // Captures started in this run (the %d in the file name).
++  uint32_t captures_started = 0;
++
++  // The running capture.
++  std::FILE* rows_file = nullptr;
++  std::FILE* frames_file = nullptr;
++  std::string rows_path;
++  int32_t requested = 0;  // gpu_anatomy_capture when it started (frames)
++  uint32_t frame = 0;
++  uint64_t rows_written = 0;
++  uint64_t rows_dropped = 0;
++  std::vector<Row> rows;  // of the current frame
++  fmt::memory_buffer text;
++  int64_t frame_start_ns = 0;
++  int64_t frame_end_ns = 0;
++  bool frame_started = false;
++
++  // The IssueDraw in progress.
++  int64_t draw_start_ns = 0;
++  uint32_t draws_issued_before = 0;
++  uint32_t copies_before = 0;
++  uint32_t pipeline_binds_before = 0;
++};
++
+ CommandProcessor::CommandProcessor(GraphicsSystem* graphics_system,
+                                    system::KernelState* kernel_state)
+     : memory_(graphics_system->memory()),
+@@ -677,6 +760,10 @@ void CommandProcessor::ExecutePacket(uint32_t ptr, uint32_t count) {
+ }
+ 
+ bool CommandProcessor::ExecutePacket(memory::RingBuffer* reader) {
++  // wwe2k14 patch (Session 6, COUNTERS): a frame-anatomy capture times each frame from its first command.
++  if (anatomy_frame_start_pending_) {
++    AnatomyStartFrame();
++  }
+   const uint32_t packet = reader->ReadAndSwap<uint32_t>();
+   const uint32_t packet_type = packet >> 30;
+   if (packet == 0) {
+@@ -716,6 +803,10 @@ bool CommandProcessor::ExecutePacketType0(memory::RingBuffer* reader, uint32_t p
+ 
+   uint32_t base_index = (packet & 0x7FFF);
+   uint32_t write_one_reg = (packet >> 15) & 0x1;
++  // wwe2k14 patch (Session 6, COUNTERS): type-0 registers by block (measurement only).
++  if (frame_counters_enabled_) {
++    CountType0Packet(base_index, count, write_one_reg != 0);
++  }
+   for (uint32_t m = 0; m < count; m++) {
+     uint32_t reg_data = reader->ReadAndSwap<uint32_t>();
+     uint32_t target_index = write_one_reg ? base_index : base_index + m;
+@@ -748,6 +839,7 @@ bool CommandProcessor::ExecutePacketType3(memory::RingBuffer* reader, uint32_t p
+   uint32_t opcode = (packet >> 8) & 0x7F;
+   uint32_t count = ((packet >> 16) & 0x3FFF) + 1;
+   auto data_start_offset = reader->read_offset();
++  ++frame_counters_.type3_packets;  // wwe2k14 patch (Session 6, COUNTERS)
+ 
+   if (reader->read_count() < count * sizeof(uint32_t)) {
+     REXGPU_ERROR("ExecutePacketType3 overflow (read count {:08X}, packet count {:08X})",
+@@ -972,10 +1064,21 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   uint32_t frontbuffer_height = reader->ReadAndSwap<uint32_t>();
+   reader->AdvanceRead((count - 4) * sizeof(uint32_t));
+ 
++  // wwe2k14 patch (Session 6, COUNTERS): the frame's counters (cpf* events) right before cp_swap; the end of a
++  // frame-anatomy capture's frame.
++  RecordFrameCounters();
++  if (anatomy_active_) {
++    AnatomyEndFrame();
++  }
+   perf::timeline::Record("cp_swap", frontbuffer_ptr, counter_);
+   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
+ 
+   ++counter_;
++  // wwe2k14 patch (Session 6, COUNTERS): write a captured frame's rows (after the swap, outside the timed draws)
++  // and start or end a frame-anatomy capture.
++  if (anatomy_active_ || REXCVAR_GET(gpu_anatomy_capture) > 0) {
++    AnatomyFrameBoundary();
++  }
+   return true;
+ }
+ 
+@@ -1448,8 +1551,18 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+ 
+       bool major_mode_explicit =
+           xenos::IsMajorModeExplicit(vgt_draw_initiator.major_mode, vgt_draw_initiator.prim_type);
++      // wwe2k14 patch (Session 6, COUNTERS): count the call, and time and describe it during a frame-anatomy
++      // capture (anatomy_active_ only changes at frame boundaries).
++      ++frame_counters_.issue_draw;
++      const bool anatomy = anatomy_active_;
++      if (anatomy) {
++        AnatomyBeginDraw();
++      }
+       draw_succeeded = IssueDraw(vgt_draw_initiator.prim_type, vgt_draw_initiator.num_indices,
+                                  is_indexed ? &index_buffer_info : nullptr, major_mode_explicit);
++      if (anatomy) {
++        AnatomyEndDraw(vgt_draw_initiator.value, is_indexed, draw_succeeded);
++      }
+       if (!draw_succeeded) {
+         auto vgt_output_path_cntl = register_file_->Get<reg::VGT_OUTPUT_PATH_CNTL>();
+         auto vgt_hos_cntl = register_file_->Get<reg::VGT_HOS_CNTL>();
+@@ -1681,4 +1794,305 @@ bool CommandProcessor::ExecutePacketType3_VIZ_QUERY(memory::RingBuffer* reader,
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 6, COUNTERS): per-frame counters and the frame-anatomy capture. Measurement only:
++// nothing here changes what is emulated or drawn.
++
++void CommandProcessor::RecordFrameCounters() {
++  FrameCounters& counters = frame_counters_;
++  CollectFrameCounters(counters);
++  if (perf::timeline::Enabled()) {
++    counters.processor_number = perf::CurrentProcessorNumber();
++    // Fixed layout (a contract with the report tool; don't rename or reorder):
++    //   cpf      a = IssueDraw calls (including the ones handled as copies), b = draws that reached a host draw
++    //            call, c = IssueCopy (resolve) calls
++    //   cpf_t0   a = type-0 packets, b = registers written by them, c = of those, float constants 0x4000-0x47FF
++    //   cpf_t0x  a = type-0 registers in fetch constants 0x4800-0x48FF, b = in bool/loop constants 0x4900-0x4927,
++    //            c = type-3 packets
++    //   cpf_rr   a = SharedMemory::RequestRange(s) calls, b = of those, calls that uploaded nothing, c = KiB
++    //            uploaded by UploadRanges
++    //   cpf_bind a = texture descriptor sets written (vertex + pixel), b = constants descriptor sets written,
++    //            c = GetSamplerParameters calls
++    //   cpf_fc   a = TextureFetchConstantWritten notifications (per fetch constant), b = of those, where the 6
++    //            dwords differ from the last value seen for that fetch constant, c = graphics pipeline binds that
++    //            changed the bound pipeline
++    //   cpf_cpu  a = processor number of this thread now, b = next crash-checkpoint record id (0 if crash
++    //            diagnostics are off), c = submissions ended
++    // Counts cover the command processor's work between two cp_swap events (the swap's own submission is
++    // counted in the next frame). The type-0 split and the fetch constant comparison only count while the
++    // timeline is on (latched at the previous swap).
++    perf::timeline::Record("cpf", counters.issue_draw, counters.draws_issued, counters.issue_copy);
++    perf::timeline::Record("cpf_t0", counters.type0_packets, counters.type0_registers,
++                           counters.type0_float_constants);
++    perf::timeline::Record("cpf_t0x", counters.type0_fetch_constants, counters.type0_bool_loop_constants,
++                           counters.type3_packets);
++    perf::timeline::Record("cpf_rr", counters.request_ranges, counters.request_ranges_all_valid,
++                           counters.upload_kib);
++    perf::timeline::Record("cpf_bind", counters.texture_sets_written, counters.constants_sets_written,
++                           counters.sampler_parameters);
++    perf::timeline::Record("cpf_fc", counters.fetch_constant_notifications, counters.fetch_constant_changed,
++                           counters.pipeline_binds_changed);
++    perf::timeline::Record("cpf_cpu", counters.processor_number, counters.checkpoint_next_id,
++                           counters.submissions_ended);
++  }
++  counters = FrameCounters();
++  frame_counters_enabled_ = perf::timeline::Enabled();
++}
++
++namespace {
++
++int64_t AnatomyNowNs() {
++  return int64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                     std::chrono::steady_clock::now().time_since_epoch())
++                     .count());
++}
++
++std::FILE* AnatomyOpenFile(const std::filesystem::path& path) {
++#ifdef _WIN32
++  // Shared, so the file can be read while the capture runs.
++  return _wfsopen(path.c_str(), L"wb", _SH_DENYNO);
++#else
++  return std::fopen(path.c_str(), "wb");
++#endif
++}
++
++void AnatomyShaderInfo(const Shader* shader, uint64_t& hash, uint32_t& textures, uint32_t& float_constants) {
++  hash = 0;
++  textures = 0;
++  float_constants = 0;
++  if (!shader) {
++    return;
++  }
++  hash = shader->ucode_data_hash();
++  // Analysis happens in IssueDraw; a shader the backend didn't need (for instance the pixel shader of a
++  // depth-only draw) may not be analyzed.
++  if (!shader->is_ucode_analyzed()) {
++    return;
++  }
++  for (const Shader::TextureBinding& binding : shader->texture_bindings()) {
++    textures |= uint32_t(1) << (binding.fetch_constant & 31);
++  }
++  float_constants = shader->constant_register_map().float_count;
++}
++
++void AnatomyAppendHash(fmt::memory_buffer& text, uint64_t hash) {
++  if (hash) {
++    fmt::format_to(std::back_inserter(text), "{:016X}", hash);
++  } else {
++    text.push_back('0');
++  }
++}
++
++}  // namespace
++
++void CommandProcessor::AnatomyStartFrame() {
++  anatomy_frame_start_pending_ = false;
++  if (anatomy_) {
++    anatomy_->frame_start_ns = AnatomyNowNs();
++    anatomy_->frame_started = true;
++  }
++}
++
++void CommandProcessor::AnatomyBeginDraw() {
++  AnatomyCapture& capture = *anatomy_;
++  capture.draws_issued_before = frame_counters_.draws_issued;
++  capture.copies_before = frame_counters_.issue_copy;
++  capture.pipeline_binds_before = frame_counters_.pipeline_binds_changed;
++  anatomy_skip_reason_ = kAnatomySkipOther;
++  capture.draw_start_ns = AnatomyNowNs();
++}
++
++void CommandProcessor::AnatomyEndDraw(uint32_t vgt_draw_initiator_value, bool is_indexed,
++                                      bool succeeded) {
++  const int64_t end_ns = AnatomyNowNs();
++  AnatomyCapture& capture = *anatomy_;
++  if (capture.rows.size() >= AnatomyCapture::kMaxRowsPerFrame) {
++    ++capture.rows_dropped;
++    return;
++  }
++  AnatomyCapture::Row& row = capture.rows.emplace_back();
++  row.start_ns = capture.frame_started ? capture.draw_start_ns - capture.frame_start_ns : 0;
++  row.cp_ns = end_ns - capture.draw_start_ns;
++  // What happened is read from the counters the backend increments (draws_issued at its host draw call,
++  // issue_copy in IssueCopy, pipeline_binds_changed when it binds a different pipeline).
++  row.is_copy = frame_counters_.issue_copy != capture.copies_before;
++  const bool drew = frame_counters_.draws_issued != capture.draws_issued_before;
++  row.pipeline_changed = frame_counters_.pipeline_binds_changed != capture.pipeline_binds_before;
++  if (drew || (row.is_copy && succeeded)) {
++    row.skipped = kAnatomyDrew;
++  } else if (!succeeded) {
++    row.skipped = kAnatomyFailed;
++  } else {
++    row.skipped = anatomy_skip_reason_;
++  }
++  reg::VGT_DRAW_INITIATOR vgt_draw_initiator;
++  vgt_draw_initiator.value = vgt_draw_initiator_value;
++  row.prim = uint32_t(vgt_draw_initiator.prim_type);
++  row.count = vgt_draw_initiator.num_indices;
++  row.indexed = is_indexed ? 1 : 0;
++  row.index_format =
++      is_indexed ? (vgt_draw_initiator.index_size == xenos::IndexFormat::kInt32 ? 32 : 16) : 0;
++  const RegisterFile& regs = *register_file_;
++  row.rb_surface_info = regs[XE_GPU_REG_RB_SURFACE_INFO];
++  row.rb_color_info[0] = regs[XE_GPU_REG_RB_COLOR_INFO];
++  row.rb_color_info[1] = regs[XE_GPU_REG_RB_COLOR1_INFO];
++  row.rb_color_info[2] = regs[XE_GPU_REG_RB_COLOR2_INFO];
++  row.rb_color_info[3] = regs[XE_GPU_REG_RB_COLOR3_INFO];
++  row.rb_depth_info = regs[XE_GPU_REG_RB_DEPTH_INFO];
++  row.rb_modecontrol = regs[XE_GPU_REG_RB_MODECONTROL];
++  row.rb_depthcontrol = regs[XE_GPU_REG_RB_DEPTHCONTROL];
++  row.rb_colorcontrol = regs[XE_GPU_REG_RB_COLORCONTROL];
++  row.rb_color_mask = regs[XE_GPU_REG_RB_COLOR_MASK];
++  if (row.is_copy) {
++    // A resolve runs no guest shaders.
++    row.copy_dest = regs[XE_GPU_REG_RB_COPY_DEST_BASE];
++    row.copy_info = regs[XE_GPU_REG_RB_COPY_DEST_INFO];
++  } else {
++    // The shaders the guest bound for the draw.
++    AnatomyShaderInfo(active_vertex_shader_, row.vs_hash, row.vs_textures, row.vs_float_constants);
++    AnatomyShaderInfo(active_pixel_shader_, row.ps_hash, row.ps_textures, row.ps_float_constants);
++  }
++}
++
++void CommandProcessor::AnatomyEndFrame() { anatomy_->frame_end_ns = AnatomyNowNs(); }
++
++void CommandProcessor::AnatomyFrameBoundary() {
++  if (anatomy_active_) {
++    // Write the frame that just ended.
++    AnatomyCapture& capture = *anatomy_;
++    fmt::memory_buffer& text = capture.text;
++    text.clear();
++    uint32_t draws = 0, copies = 0;
++    int64_t cp_ns_sum = 0;
++    for (size_t i = 0; i < capture.rows.size(); ++i) {
++      const AnatomyCapture::Row& row = capture.rows[i];
++      ++(row.is_copy ? copies : draws);
++      cp_ns_sum += row.cp_ns;
++      fmt::format_to(std::back_inserter(text), "{},{},{},{:.1f},{:.1f},", capture.frame, i,
++                     row.is_copy ? "copy" : "draw", double(row.start_ns) / 1000.0,
++                     double(row.cp_ns) / 1000.0);
++      AnatomyAppendHash(text, row.vs_hash);
++      text.push_back(',');
++      AnatomyAppendHash(text, row.ps_hash);
++      fmt::format_to(std::back_inserter(text),
++                     ",{},{},{},{},0x{:08X},0x{:08X},0x{:08X},0x{:08X},0x{:08X},0x{:08X},0x{:08X},0x{:08X},"
++                     "0x{:08X},0x{:08X},0x{:08X},0x{:08X},{},{},{},{},",
++                     row.prim, row.count, row.indexed, row.index_format, row.rb_surface_info,
++                     row.rb_color_info[0], row.rb_color_info[1], row.rb_color_info[2], row.rb_color_info[3],
++                     row.rb_depth_info, row.rb_modecontrol, row.rb_depthcontrol, row.rb_colorcontrol,
++                     row.rb_color_mask, row.vs_textures, row.ps_textures, row.vs_float_constants,
++                     row.ps_float_constants, row.pipeline_changed, row.skipped);
++      if (row.is_copy) {
++        fmt::format_to(std::back_inserter(text), "0x{:08X},0x{:08X}\n", row.copy_dest, row.copy_info);
++      } else {
++        fmt::format_to(std::back_inserter(text), ",\n");
++      }
++    }
++    bool write_ok = true;
++    if (text.size()) {
++      write_ok = std::fwrite(text.data(), 1, text.size(), capture.rows_file) == text.size();
++    }
++    const int64_t span_ns = capture.frame_started ? capture.frame_end_ns - capture.frame_start_ns : 0;
++    write_ok = std::fprintf(capture.frames_file, "%u,%u,%u,%.1f,%.1f\n", capture.frame, draws, copies,
++                            double(cp_ns_sum) / 1000.0, double(span_ns) / 1000.0) > 0 &&
++               write_ok;
++    // Ties the capture's frames to the timeline's cp_swap events.
++    perf::timeline::Record("anatomy", capture.captures_started - 1, capture.frame,
++                           uint32_t(capture.rows.size()));
++    capture.rows_written += capture.rows.size();
++    capture.rows.clear();
++    capture.frame_started = false;
++    ++capture.frame;
++    if (!write_ok) {
++      AnatomyFinish("write error");
++      return;
++    }
++    if (capture.frame >= uint32_t(capture.requested)) {
++      AnatomyFinish("done");
++      return;
++    }
++    anatomy_frame_start_pending_ = true;
++    return;
++  }
++
++  // Start a capture at this frame boundary.
++  const int32_t requested = REXCVAR_GET(gpu_anatomy_capture);
++  if (requested <= 0) {
++    return;
++  }
++  if (!anatomy_) {
++    anatomy_ = std::make_unique<AnatomyCapture>();
++  }
++  AnatomyCapture& capture = *anatomy_;
++  const std::string index_string = std::to_string(capture.captures_started++);
++  std::filesystem::path rows_path;
++  std::string path_pattern = REXCVAR_GET(gpu_anatomy_path);
++  if (path_pattern.empty()) {
++    std::error_code current_path_error;
++    rows_path = std::filesystem::current_path(current_path_error) / "logs" /
++                ("anatomy_" + index_string + ".csv");
++  } else if (path_pattern.find("%d") != std::string::npos) {
++    for (size_t position = path_pattern.find("%d"); position != std::string::npos;
++         position = path_pattern.find("%d", position + index_string.size())) {
++      path_pattern.replace(position, 2, index_string);
++    }
++    rows_path = path_pattern;
++  } else {
++    rows_path = path_pattern;
++    if (index_string != "0") {
++      // No %d: don't overwrite the first capture's file.
++      rows_path.replace_filename(rows_path.stem().string() + "_" + index_string +
++                                 rows_path.extension().string());
++    }
++  }
++  std::filesystem::path frames_path = rows_path;
++  frames_path.replace_filename(rows_path.stem().string() + "_frames" + rows_path.extension().string());
++  if (rows_path.has_parent_path()) {
++    std::error_code create_error;
++    std::filesystem::create_directories(rows_path.parent_path(), create_error);
++  }
++  capture.CloseFiles();
++  capture.rows_file = AnatomyOpenFile(rows_path);
++  capture.frames_file = AnatomyOpenFile(frames_path);
++  capture.rows_path = rows_path.string();
++  if (!capture.rows_file || !capture.frames_file) {
++    REXGPU_WARN("[s6][COUNTERS] Frame anatomy: can't open {} / {}", capture.rows_path, frames_path.string());
++    capture.CloseFiles();
++    REXCVAR_SET(gpu_anatomy_capture, 0);
++    return;
++  }
++  std::fputs(
++      "frame,idx,kind,t_us,cp_us,vs_hash,ps_hash,prim,count,indexed,index_fmt,rb_surface_info,"
++      "rb_color_info0,rb_color_info1,rb_color_info2,rb_color_info3,rb_depth_info,rb_modecontrol,"
++      "rb_depthcontrol,rb_colorcontrol,rb_color_mask,vs_tex,ps_tex,vs_consts,ps_consts,pipeline_changed,"
++      "skipped,copy_dest,copy_info\n",
++      capture.rows_file);
++  std::fputs("frame,draws,copies,cp_us_sum,span_us\n", capture.frames_file);
++  capture.requested = requested;
++  capture.frame = 0;
++  capture.rows_written = 0;
++  capture.rows_dropped = 0;
++  capture.rows.clear();
++  capture.rows.reserve(8192);
++  capture.frame_started = false;
++  anatomy_active_ = true;
++  anatomy_frame_start_pending_ = true;
++  REXGPU_INFO("[s6][COUNTERS] Frame anatomy capture {} started: {} frames to {}", index_string, requested,
++              capture.rows_path);
++}
++
++void CommandProcessor::AnatomyFinish(const char* why) {
++  AnatomyCapture& capture = *anatomy_;
++  capture.CloseFiles();
++  anatomy_active_ = false;
++  anatomy_frame_start_pending_ = false;
++  // Back to 0 so the harness can see that the capture is over. A different value set meanwhile is a new request
++  // and is kept (it starts at the next frame boundary).
++  if (REXCVAR_GET(gpu_anatomy_capture) == capture.requested) {
++    REXCVAR_SET(gpu_anatomy_capture, 0);
++  }
++  REXGPU_INFO("[s6][COUNTERS] Frame anatomy capture {}: {} frame(s), {} row(s), {} dropped -> {}", why,
++              capture.frame, capture.rows_written, capture.rows_dropped, capture.rows_path);
++  capture.rows = std::vector<AnatomyCapture::Row>();
++}
++
+ }  // namespace rex::graphics
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index ec0df7c..a446c32 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -338,6 +338,7 @@ void SharedMemory::UnlinkWatchRange(WatchRange* range) {
+ }
+ 
+ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, size_t count) {
++  ++request_stats_.calls;  // wwe2k14 patch (Session 6, COUNTERS)
+   if (ranges == nullptr || !count) {
+     return true;
+   }
+@@ -465,6 +466,11 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+     return true;
+   }
+ 
++  // wwe2k14 patch (Session 6, COUNTERS): what goes to the upload.
++  ++request_stats_.upload_calls;
++  for (const std::pair<uint32_t, uint32_t>& upload_range : upload_ranges_) {
++    request_stats_.upload_bytes += uint64_t(upload_range.second) << page_size_log2_;
++  }
+   return UploadRanges(upload_ranges_);
+ }
+ 
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 7e0fa6f..21a11f4 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -27,6 +27,7 @@
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/logging.h>
++#include <rex/perf/processor.h>
+ #include <rex/perf/timeline.h>
+ #include <rex/math.h>
+ #include <rex/graphics/util/draw.h>
+@@ -91,6 +92,11 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+                     "device (falls back to render passes otherwise)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// wwe2k14 patch (Session 6, COUNTERS): measurement only. Decided per submission when it's ended.
++REXCVAR_DEFINE_BOOL(vulkan_gpu_timestamps, false, "GPU/Vulkan",
++                    "With the timeline on: GPU time of each submission from timestamp queries (gpu_ts events), "
++                    "read back without waiting once the submission has completed");
++
+ namespace rex::graphics::vulkan {
+ 
+ namespace {
+@@ -1924,6 +1930,7 @@ bool VulkanCommandProcessor::SetupContext() {
+ void VulkanCommandProcessor::ShutdownContext() {
+   AwaitAllQueueOperationsCompletion();
+   AsyncSubmitStop();
++  GpuTimestampsShutdown();  // wwe2k14 patch (Session 6, COUNTERS)
+   InvalidateAllVertexBufferResidency();
+   ShutdownOcclusionQueryResources();
+ 
+@@ -2181,6 +2188,9 @@ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+     if (texture_cache_) {
+       texture_cache_->TextureFetchConstantWritten((index - XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0) /
+                                                   6);
++      // wwe2k14 patch (Session 6, COUNTERS)
++      CountFetchConstantsWritten((index - XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0) / 6,
++                                 (index - XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0) / 6);
+     }
+     InvalidateVertexBufferResidency((index - XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0) / 2);
+   }
+@@ -2264,6 +2274,7 @@ void VulkanCommandProcessor::WriteRegistersFromMem(uint32_t start_index, uint32_
+     uint32_t last_fetch_dword = end_index - XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0;
+     if (texture_cache_) {
+       texture_cache_->TextureFetchConstantsWritten(first_fetch_dword / 6, last_fetch_dword / 6);
++      CountFetchConstantsWritten(first_fetch_dword / 6, last_fetch_dword / 6);  // wwe2k14 patch (Session 6)
+     }
+     InvalidateVertexBufferResidencyRange(first_fetch_dword / 2, last_fetch_dword / 2);
+     return;
+@@ -3646,7 +3657,9 @@ void VulkanCommandProcessor::AsyncSubmitThreadMain() {
+ }
+ 
+ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+-  perf::timeline::Scope timeline_scope("asub_b", "asub_e", uint32_t(job.submission));
++  // wwe2k14 patch (Session 6, COUNTERS): b = the processor this thread runs on.
++  perf::timeline::Scope timeline_scope("asub_b", "asub_e", uint32_t(job.submission),
++                                       perf::timeline::Enabled() ? perf::CurrentProcessorNumber() : 0);
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+@@ -3661,7 +3674,13 @@ void VulkanCommandProcessor::AsyncSubmitExecute(AsyncSubmitJob& job) {
+     recorded = dfn.vkBeginCommandBuffer(job.command_buffer.buffer, &command_buffer_begin_info) ==
+                VK_SUCCESS;
+     if (recorded) {
++      if (job.timestamp_slot != UINT32_MAX) {
++        GpuTimestampsWriteBegin(job.command_buffer.buffer, job.timestamp_slot);
++      }
+       deferred_command_buffer_.ExecuteStream(job.stream, job.command_buffer.buffer);
++      if (job.timestamp_slot != UINT32_MAX) {
++        GpuTimestampsWriteEnd(job.command_buffer.buffer, job.timestamp_slot);
++      }
+       recorded = dfn.vkEndCommandBuffer(job.command_buffer.buffer) == VK_SUCCESS;
+     }
+   }
+@@ -3782,6 +3801,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   if (surface_pitch_is_zero && is_rasterization_done) {
+     // Doesn't actually draw.
+     // Unlikely that zero would even really be legal though.
++    anatomy_skip_reason_ = kAnatomySkipZeroPitch;  // wwe2k14 patch (Session 6, COUNTERS)
+     return true;
+   }
+   VulkanShader* pixel_shader = nullptr;
+@@ -3802,6 +3822,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     // cache.
+     if (!memexport_used_vertex) {
+       // This draw has no effect.
++      anatomy_skip_reason_ = kAnatomySkipNoEffect;  // wwe2k14 patch (Session 6, COUNTERS)
+       return true;
+     }
+   }
+@@ -3854,6 +3875,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+     if (!primitive_processing_result.host_draw_vertex_count) {
+       // Nothing to draw.
++      anatomy_skip_reason_ = kAnatomySkipNoVertices;  // wwe2k14 patch (Session 6, COUNTERS)
+       return true;
+     }
+     if (primitive_processing_result.host_primitive_type == xenos::PrimitiveType::kTriangleFan) {
+@@ -3922,6 +3944,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       if (!i) {
+         shader_samplers.reserve(shader_sampler_bindings.size());
+         for (const VulkanShader::SamplerBinding& shader_sampler_binding : shader_sampler_bindings) {
++          ++frame_counters_.sampler_parameters;  // wwe2k14 patch (Session 6, COUNTERS)
+           shader_samplers.emplace_back(texture_cache_->GetSamplerParameters(shader_sampler_binding),
+                                        VK_NULL_HANDLE);
+         }
+@@ -4004,12 +4027,14 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                                 &pipeline_is_placeholder);
+   if (REXCVAR_GET(async_shader_compilation) && pipeline_is_placeholder) {
+     frame_used_async_placeholder_pipeline_ = true;
++    anatomy_skip_reason_ = kAnatomySkipPlaceholder;  // wwe2k14 patch (Session 6, COUNTERS)
+     return true;
+   }
+   if (pipeline == VK_NULL_HANDLE || pipeline_layout_provider == nullptr) {
+     return draw_fail("pipeline_lookup");
+   }
+   if (current_guest_graphics_pipeline_ != pipeline) {
++    ++frame_counters_.pipeline_binds_changed;  // wwe2k14 patch (Session 6, COUNTERS)
+     deferred_command_buffer_.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+     current_guest_graphics_pipeline_ = pipeline;
+     current_external_graphics_pipeline_ = VK_NULL_HANDLE;
+@@ -4276,6 +4301,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     InsertCrashCheckpoint(*crash_record, CrashCheckpointPhase::kDraw);
+   }
+ 
++  // wwe2k14 patch (Session 6, COUNTERS): this draw reaches a host draw call.
++  ++frame_counters_.draws_issued;
++
+   // Draw.
+   if (primitive_processing_result.index_buffer_type ==
+           PrimitiveProcessor::ProcessedIndexBufferType::kNone ||
+@@ -4725,6 +4753,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+   SCOPE_profile_cpu_f("gpu");
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+ 
++  ++frame_counters_.issue_copy;  // wwe2k14 patch (Session 6, COUNTERS)
++
+   if (!BeginSubmission(true)) {
+     return false;
+   }
+@@ -5453,6 +5483,10 @@ void VulkanCommandProcessor::CheckSubmissionFenceAndDeviceLoss(uint64_t await_su
+   submissions_in_flight_fences_.erase(submissions_in_flight_fences_.cbegin(),
+                                       submissions_in_flight_fences_awaited_end);
+   submission_completed_ += fences_awaited;
++  // wwe2k14 patch (Session 6, COUNTERS): GPU timestamps of the submissions now known to be complete.
++  if (gpu_timestamps_pool_ != VK_NULL_HANDLE) {
++    GpuTimestampsRead();
++  }
+ 
+   // Reclaim semaphores.
+   while (!submissions_in_flight_semaphores_.empty()) {
+@@ -5793,7 +5827,10 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       bind_sparse_info.pSignalSemaphores = &bind_sparse_semaphore;
+       VkResult bind_sparse_result;
+       // wwe2k14 patch: keep queue order with earlier submissions still on the submit thread.
+-      AsyncSubmitDrain();
++      {
++        perf::timeline::Scope drain_scope("drain_b", "drain_e", 2);  // Session 6, COUNTERS: 2 = sparse bind
++        AsyncSubmitDrain();
++      }
+       {
+         ui::vulkan::VulkanDevice::Queue::Acquisition queue_acquisition =
+             vulkan_device->AcquireQueue(vulkan_device->queue_family_sparse_binding(), 0);
+@@ -5818,6 +5855,8 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     CommandBuffer command_buffer = command_buffers_writable_.back();
+     assert_false(fences_free_.empty());
+     VkFence fence = fences_free_.back();
++    // wwe2k14 patch (Session 6, COUNTERS): GPU timestamps around this submission's command buffer, if on.
++    const uint32_t timestamp_slot = GpuTimestampsBeginSubmission(is_swap);
+     // wwe2k14 patch (vulkan_async_submit): non-swap submissions go to the submit thread (replay + vkQueueSubmit,
+     // in order). Swap submissions stay synchronous after draining it: the presenter submits right after the
+     // swap and relies on the frame's commands being on the queue already.
+@@ -5833,6 +5872,7 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       job.wait_semaphores = current_submission_wait_semaphores_;
+       job.wait_stage_masks = current_submission_wait_stage_masks_;
+       job.submission = GetCurrentSubmission();
++      job.timestamp_slot = timestamp_slot;
+       {
+         std::lock_guard<std::mutex> lock(async_submit_mutex_);
+         if (!async_submit_free_streams_.empty()) {
+@@ -5852,7 +5892,11 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       }
+       async_submit_work_cv_.notify_one();
+     } else {
+-    AsyncSubmitDrain();
++    {
++      // wwe2k14 patch (Session 6, COUNTERS): 1 = swap, 3 = other.
++      perf::timeline::Scope drain_scope("drain_b", "drain_e", is_swap ? 1 : 3);
++      AsyncSubmitDrain();
++    }
+     if (async_submit_device_lost_ && !device_lost_) {
+       device_lost_ = true;
+       ReportGpuCrashDiagnostics();
+@@ -5874,7 +5918,13 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       REXGPU_ERROR("Failed to begin a Vulkan command buffer");
+       return false;
+     }
++    if (timestamp_slot != UINT32_MAX) {
++      GpuTimestampsWriteBegin(command_buffer.buffer, timestamp_slot);
++    }
+     deferred_command_buffer_.Execute(command_buffer.buffer);
++    if (timestamp_slot != UINT32_MAX) {
++      GpuTimestampsWriteEnd(command_buffer.buffer, timestamp_slot);
++    }
+     if (dfn.vkEndCommandBuffer(command_buffer.buffer) != VK_SUCCESS) {
+       REXGPU_ERROR("Failed to end a Vulkan command buffer");
+       return false;
+@@ -5932,6 +5982,7 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     fences_free_.pop_back();
+ 
+     submission_open_ = false;
++    ++frame_counters_.submissions_ended;  // wwe2k14 patch (Session 6, COUNTERS)
+   }
+ 
+   if (is_closing_frame) {
+@@ -7209,6 +7260,12 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   // Only make valid if all descriptor sets have been allocated and written
+   // successfully.
+   current_graphics_descriptor_set_values_up_to_date_ |= write_descriptor_set_bits;
++  // wwe2k14 patch (Session 6, COUNTERS): descriptor sets written for this draw.
++  frame_counters_.texture_sets_written +=
++      ((write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetTexturesVertex) & 1) +
++      ((write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetTexturesPixel) & 1);
++  frame_counters_.constants_sets_written +=
++      (write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetConstants) & 1;
+ 
+   // Bind the new descriptor sets.
+   uint32_t descriptor_sets_needed = (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetCount) - 1;
+@@ -7319,4 +7376,165 @@ uint32_t VulkanCommandProcessor::WriteTransientTextureBindings(
+   return descriptor_set_write_count;
+ }
+ 
++// wwe2k14 patch (Session 6, COUNTERS): per-frame counters and GPU timestamps. Measurement only: nothing here
++// changes what is emulated, recorded into the command stream for the guest, or presented.
++
++void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
++  if (shared_memory_) {
++    SharedMemory::RequestStats request_stats = shared_memory_->TakeRequestStats();
++    counters.request_ranges = request_stats.calls;
++    counters.request_ranges_all_valid = request_stats.calls - request_stats.upload_calls;
++    counters.upload_kib = uint32_t(request_stats.upload_bytes >> 10);
++  }
++  counters.checkpoint_next_id = crash_checkpoints_enabled() ? uint32_t(crash_checkpoint_next_id_) : 0;
++}
++
++void VulkanCommandProcessor::CountFetchConstantsWritten(uint32_t first_index, uint32_t last_index) {
++  // The same range TextureCache::TextureFetchConstantsWritten handles.
++  if (first_index > last_index) {
++    std::swap(first_index, last_index);
++  }
++  if (first_index > 31) {
++    return;
++  }
++  last_index = std::min(last_index, uint32_t(31));
++  frame_counters_.fetch_constant_notifications += last_index - first_index + 1;
++  if (!frame_counters_enabled_) {
++    return;
++  }
++  const uint32_t* fetch_constants = &register_file_->values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0];
++  for (uint32_t i = first_index; i <= last_index; ++i) {
++    const uint32_t* fetch_constant = fetch_constants + i * 6;
++    if (std::memcmp(fetch_constants_seen_[i], fetch_constant, sizeof(fetch_constants_seen_[i]))) {
++      std::memcpy(fetch_constants_seen_[i], fetch_constant, sizeof(fetch_constants_seen_[i]));
++      ++frame_counters_.fetch_constant_changed;
++    }
++  }
++}
++
++uint32_t VulkanCommandProcessor::GpuTimestampsBeginSubmission(bool is_swap) {
++  // Latched here, per submission: the query pair is either written at both ends of the command buffer or not
++  // at all.
++  if (!REXCVAR_GET(vulkan_gpu_timestamps) || !perf::timeline::Enabled()) {
++    return UINT32_MAX;
++  }
++  if (gpu_timestamps_pool_ == VK_NULL_HANDLE &&
++      (gpu_timestamps_unsupported_ || !GpuTimestampsInitialize())) {
++    return UINT32_MAX;
++  }
++  const uint64_t submission = GetCurrentSubmission();
++  const uint32_t slot = uint32_t(submission % kGpuTimestampSlots);
++  uint64_t& slot_submission = gpu_timestamps_slot_submission_[slot];
++  if (slot_submission && slot_submission != submission && slot_submission > submission_completed_) {
++    // Too many submissions in flight: the slot's previous submission hasn't completed. Skip this one.
++    return UINT32_MAX;
++  }
++  slot_submission = submission;
++  gpu_timestamps_slot_is_swap_[slot] = is_swap;
++  return slot;
++}
++
++bool VulkanCommandProcessor::GpuTimestampsInitialize() {
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanInstance::Functions& ifn = vulkan_device->vulkan_instance()->functions();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkPhysicalDevice physical_device = vulkan_device->physical_device();
++  const VkDevice device = vulkan_device->device();
++
++  uint32_t queue_family_count = 0;
++  ifn.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, nullptr);
++  std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
++  ifn.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count,
++                                               queue_families.data());
++  const uint32_t queue_family = vulkan_device->queue_family_graphics_compute();
++  const uint32_t valid_bits =
++      queue_family < queue_family_count ? queue_families[queue_family].timestampValidBits : 0;
++  VkPhysicalDeviceProperties physical_device_properties;
++  ifn.vkGetPhysicalDeviceProperties(physical_device, &physical_device_properties);
++  const float period_ns = physical_device_properties.limits.timestampPeriod;
++  // Core Vulkan 1.0 functions that the device function table doesn't load.
++  gpu_timestamps_cmd_write_ =
++      PFN_vkCmdWriteTimestamp(ifn.vkGetDeviceProcAddr(device, "vkCmdWriteTimestamp"));
++  gpu_timestamps_get_results_ =
++      PFN_vkGetQueryPoolResults(ifn.vkGetDeviceProcAddr(device, "vkGetQueryPoolResults"));
++  if (!valid_bits || !(period_ns > 0.0f) || !gpu_timestamps_cmd_write_ || !gpu_timestamps_get_results_) {
++    REXGPU_WARN(
++        "[s6][COUNTERS] GPU timestamps unavailable (queue family {} timestampValidBits {}, timestampPeriod "
++        "{}); vulkan_gpu_timestamps disabled",
++        queue_family, valid_bits, period_ns);
++    gpu_timestamps_unsupported_ = true;
++    return false;
++  }
++  VkQueryPoolCreateInfo query_pool_create_info = {};
++  query_pool_create_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
++  query_pool_create_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
++  query_pool_create_info.queryCount = kGpuTimestampSlots * 2;
++  if (dfn.vkCreateQueryPool(device, &query_pool_create_info, nullptr, &gpu_timestamps_pool_) !=
++      VK_SUCCESS) {
++    REXGPU_WARN("[s6][COUNTERS] GPU timestamps: failed to create a query pool; vulkan_gpu_timestamps disabled");
++    gpu_timestamps_pool_ = VK_NULL_HANDLE;
++    gpu_timestamps_unsupported_ = true;
++    return false;
++  }
++  gpu_timestamps_period_ns_ = double(period_ns);
++  gpu_timestamps_mask_ = valid_bits >= 64 ? UINT64_MAX : (uint64_t(1) << valid_bits) - 1;
++  gpu_timestamps_slot_submission_.fill(0);
++  gpu_timestamps_read_up_to_ = submission_completed_;
++  REXGPU_INFO("[s6][COUNTERS] GPU timestamps on: {} valid bits, {} ns per tick", valid_bits, period_ns);
++  return true;
++}
++
++void VulkanCommandProcessor::GpuTimestampsWriteBegin(VkCommandBuffer command_buffer,
++                                                     uint32_t slot) const {
++  // At the start of the command buffer: outside any render pass, and before the first command of the
++  // submission. Query commands execute in submission order, so the reset precedes the write.
++  const ui::vulkan::VulkanDevice::Functions& dfn = GetVulkanDevice()->functions();
++  dfn.vkCmdResetQueryPool(command_buffer, gpu_timestamps_pool_, slot * 2, 2);
++  gpu_timestamps_cmd_write_(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, gpu_timestamps_pool_,
++                            slot * 2);
++}
++
++void VulkanCommandProcessor::GpuTimestampsWriteEnd(VkCommandBuffer command_buffer, uint32_t slot) const {
++  gpu_timestamps_cmd_write_(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, gpu_timestamps_pool_,
++                            slot * 2 + 1);
++}
++
++void VulkanCommandProcessor::GpuTimestampsRead() {
++  // Only submissions whose fence has been seen signaled (submission_completed_), so the results are available
++  // and this never waits.
++  const VkDevice device = GetVulkanDevice()->device();
++  uint64_t first = gpu_timestamps_read_up_to_ + 1;
++  if (submission_completed_ >= kGpuTimestampSlots &&
++      first + kGpuTimestampSlots <= submission_completed_) {
++    first = submission_completed_ - kGpuTimestampSlots + 1;
++  }
++  for (uint64_t submission = first; submission <= submission_completed_; ++submission) {
++    const uint32_t slot = uint32_t(submission % kGpuTimestampSlots);
++    if (gpu_timestamps_slot_submission_[slot] != submission) {
++      continue;
++    }
++    gpu_timestamps_slot_submission_[slot] = 0;
++    uint64_t ticks[2];
++    if (gpu_timestamps_get_results_(device, gpu_timestamps_pool_, slot * 2, 2, sizeof(ticks), ticks,
++                                    sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) {
++      continue;
++    }
++    const uint64_t delta_ticks = (ticks[1] - ticks[0]) & gpu_timestamps_mask_;
++    const double gpu_us = double(delta_ticks) * gpu_timestamps_period_ns_ / 1000.0;
++    perf::timeline::Record("gpu_ts", uint32_t(submission),
++                           uint32_t(std::min(gpu_us + 0.5, double(UINT32_MAX))),
++                           gpu_timestamps_slot_is_swap_[slot] ? 1 : 0);
++  }
++  gpu_timestamps_read_up_to_ = submission_completed_;
++}
++
++void VulkanCommandProcessor::GpuTimestampsShutdown() {
++  if (gpu_timestamps_pool_ != VK_NULL_HANDLE) {
++    const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++    vulkan_device->functions().vkDestroyQueryPool(vulkan_device->device(), gpu_timestamps_pool_, nullptr);
++    gpu_timestamps_pool_ = VK_NULL_HANDLE;
++  }
++  gpu_timestamps_slot_submission_.fill(0);
++}
++
+ }  // namespace rex::graphics::vulkan

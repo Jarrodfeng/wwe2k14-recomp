@@ -1,0 +1,35 @@
+# Session 10 A2 (M5 sweep): one wrestler's entrance (unattended, on_fail quit).
+# Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=ID,324 (slot 0 enters first;
+# tools\sweep\run_sweep.ps1 -List roster). Boots to the main menu (title presses of Jarrod's recording 056), lets
+# the launcher fire, then: first titantron (optional: not every wrestler has his own) -> screenshots 300, 800, 1400
+# and 2100 frames later (the first entrance lasts ~3,000 frames: runs 485, 499; for the face check) -> quit.
+# CHnnn.PAC, the titantron file and crashes are read from the log by tools\sweep\results.py. Screenshots r_* are
+# local only.
+on_fail quit
+log sweep: start (roster check)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log sweep: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log sweep: in-game sequence loading
+wait_file titantron 1500 optional
+log sweep: first titantron wait over
+wait_frames 300
+screenshot r_tron300
+wait_frames 500
+screenshot r_tron800
+wait_frames 600
+screenshot r_tron1400
+wait_frames 700
+screenshot r_tron2100
+wait_frames 60
+log sweep: end
+quit

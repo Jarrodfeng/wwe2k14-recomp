@@ -1,0 +1,34 @@
+# harness: realtime (load-time measurement (wall clock); Session 16: run_list fast-forwards other routes)
+# Session 15b: load_times.txt up to the main menu, then a 2-frame GPU anatomy capture (with GPU marks) 150 frames into the pre-entrance loading window, then the first titantron; quit. Use with --wwe2k14_launch=lesnar_bryan.
+# ("lt: ...") at each load boundary so tools\lzx\load_report.py can time the loads from the log's wall-clock stamps:
+#   boot: process start -> title data (SaveData.Dat); menu: last title press -> MNUIHD.PAC (main menu);
+#   launch: "[scenario] ... in-game sequence started" -> first titantron (the loading screen before the entrances);
+#   match: M3.PAC (match scene file) -> match_clock != 0 (the match runs). scene_word is already 1 at M3.PAC on a
+#   launched match (run 836), so it is no marker here.
+# Both entrances are skipped with START once each wrestler's segment starts (entrance_step_N >= 5, Session 11), so
+# entrance length does not dilute the timings. Timed use: run_list -Exclusive, one run per hold. on_fail quit.
+on_fail quit
+log lt: start
+wait_file SaveData.Dat 3600
+log lt: title data
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+log lt: title pressed
+wait_file MNUIHD.PAC 3600
+log lt: main menu
+wait_file INGAMELUA.PAC 1800
+wait_frames 150
+cvar gpu_anatomy_gpu_marks true
+cvar gpu_anatomy_capture 2
+wait_frames 30
+screenshot lt_anatomy
+wait_file titantron 3600
+log lt: first titantron
+wait_frames 60
+quit

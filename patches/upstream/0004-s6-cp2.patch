@@ -1,0 +1,436 @@
+Subject: [ReXGlue] merge s6/cp2
+
+Class: RGO
+What: SharedMemory::RequestRanges: no per-call heap allocation, lock-free all-valid pre-check.
+Evidence: A/B: -3.8 +-1.0 ms/frame heavy (PLAYBOOK Session 6).
+On / off: gpu_request_ranges_fast (+_verify), off.
+Commit: 791f0ad (diff against 791f0ad^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index b3899d1..9487abc 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -10,6 +10,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <atomic>
+ #include <cstdint>
+ #include <mutex>
+ #include <utility>
+@@ -92,6 +93,11 @@ class SharedMemory {
+     request_stats_ = RequestStats();
+     return stats;
+   }
++  // wwe2k14 patch (Session 6, CP2): logs the gpu_request_ranges_fast counters
++  // (hit rate, verify mismatches) about every 300 frames. Call from the command
++  // processor thread with the current frame number, for example once per
++  // submission. Returns right away if nothing has been counted.
++  void ReportRequestRangesFastStats(uint64_t frame);
+ 
+   // Marks the range and, if not exact_range, potentially its surroundings
+   // (to up to the first GPU-written page, as an access violation exception
+@@ -176,6 +182,38 @@ class SharedMemory {
+   std::vector<std::pair<uint32_t, uint32_t>> upload_ranges_;
+   RequestStats request_stats_;  // wwe2k14 patch (Session 6, COUNTERS)
+ 
++  // wwe2k14 patch (Session 6, CP2): RequestRanges split into the merge (shared
++  // by the original and the gpu_request_ranges_fast paths) and the locked scan
++  // + upload of already sorted and merged ranges, plus the lock-free "all pages
++  // valid and host memory allocated" check of the fast path.
++  static size_t SortAndMergeRanges(std::pair<uint32_t, uint32_t>* ranges, size_t count);
++  bool RequestMergedRanges(const std::pair<uint32_t, uint32_t>* merged_ranges,
++                           size_t merged_count, size_t request_count);
++  bool RequestRangesFast(const std::pair<uint32_t, uint32_t>* ranges, size_t count);
++  bool IsRangeValidAndAllocated(uint32_t start, uint32_t length);
++  // Like upload_ranges_, only used on the command processor thread (every
++  // RequestRanges caller is on it), so it can be a persistent member.
++  std::vector<std::pair<uint32_t, uint32_t>> request_ranges_scratch_;
++  struct RequestRangesFastStats {
++    uint64_t window_first_frame = UINT64_MAX;
++    uint64_t requests = 0;
++    uint64_t single_range_requests = 0;
++    uint64_t hits = 0;
++    uint64_t hit_bytes = 0;
++    uint64_t miss_upload_pages = 0;
++    uint64_t verify_checks = 0;
++    uint64_t verify_mismatches = 0;
++    uint64_t verify_mismatches_raced = 0;
++    uint64_t verify_mismatches_total = 0;
++    uint64_t verify_mismatches_logged = 0;
++  };
++  // Command processor thread only.
++  RequestRangesFastStats request_ranges_fast_stats_;
++  // Number of MemoryInvalidationCallback calls (written under the global
++  // critical region, read without it by the verify path to tell a real
++  // mismatch from a race with a guest invalidation).
++  std::atomic<uint64_t> invalidation_count_{0};
++
+   // Mutex between the guest memory subsystem and the command processor, to be
+   // locked when checking or updating validity of pages/ranges and when firing
+   // watches.
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index a446c32..252a29a 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -10,16 +10,32 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cstring>
+ #include <utility>
+ 
+ #include <rex/assert.h>
+ #include <rex/bit.h>
++#include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/graphics/shared_memory.h>
++#include <rex/logging.h>
+ #include <rex/math.h>
+ #include <rex/memory.h>
+ 
++// wwe2k14 patch (Session 6, CP2): RequestRanges runs for the index buffer of every draw and for every vertex
++// buffer whose fetch address changed. In heavy WWE 2K14 entrance shots it was ~6.6% of the command processor
++// thread (stacks_067): the std::vector allocated per call ~2.3%, the process-wide global critical region ~1.1%
++// (partly waiting for guest threads) and EnsureHostGpuMemoryAllocated ~0.6%, against ~2.3% of real uploading.
++REXCVAR_DEFINE_BOOL(gpu_request_ranges_fast, false, "GPU",
++                    "SharedMemory::RequestRanges without a heap allocation per call, returning without "
++                    "the global critical region when every requested page is already valid and its host "
++                    "GPU memory is allocated. Read per call (toggle-safe).");
++REXCVAR_DEFINE_BOOL(gpu_request_ranges_fast_verify, false, "GPU",
++                    "With gpu_request_ranges_fast: when the lock-free check says a request needs nothing, "
++                    "still run the original locked path (so the result is the original one) and count and "
++                    "log disagreements ([s6][CP2]).");
++
+ namespace rex::graphics {
+ 
+ SharedMemory::SharedMemory(memory::Memory& memory) : memory_(memory) {
+@@ -343,6 +359,11 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+     return true;
+   }
+ 
++  // wwe2k14 patch (Session 6, CP2): see RequestRangesFast.
++  if (REXCVAR_GET(gpu_request_ranges_fast)) {
++    return RequestRangesFast(ranges, count);
++  }
++
+   // Some texture or buffer is empty, for example - safe to draw in this case.
+   std::vector<std::pair<uint32_t, uint32_t>> merged_ranges;
+   merged_ranges.reserve(count);
+@@ -363,14 +384,21 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+ 
+   SCOPE_profile_cpu_f("gpu");
+ 
+-  std::sort(merged_ranges.begin(), merged_ranges.end(),
++  merged_ranges.resize(SortAndMergeRanges(merged_ranges.data(), merged_ranges.size()));
++  return RequestMergedRanges(merged_ranges.data(), merged_ranges.size(), count);
++}
++
++size_t SharedMemory::SortAndMergeRanges(std::pair<uint32_t, uint32_t>* ranges, size_t count) {
++  // wwe2k14 patch (Session 6, CP2): moved out of RequestRanges unchanged
++  // (count must be at least 1), returns the number of merged ranges.
++  std::sort(ranges, ranges + count,
+             [](const std::pair<uint32_t, uint32_t>& a, const std::pair<uint32_t, uint32_t>& b) {
+               return a.first < b.first;
+             });
+   size_t merged_write = 0;
+-  for (size_t i = 1; i < merged_ranges.size(); ++i) {
+-    std::pair<uint32_t, uint32_t>& range_previous = merged_ranges[merged_write];
+-    const std::pair<uint32_t, uint32_t>& range_current = merged_ranges[i];
++  for (size_t i = 1; i < count; ++i) {
++    std::pair<uint32_t, uint32_t>& range_previous = ranges[merged_write];
++    const std::pair<uint32_t, uint32_t>& range_current = ranges[i];
+     uint64_t previous_end = uint64_t(range_previous.first) + uint64_t(range_previous.second);
+     uint64_t current_start = uint64_t(range_current.first);
+     if (current_start <= previous_end) {
+@@ -379,12 +407,18 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+         range_previous.second = uint32_t(current_end - uint64_t(range_previous.first));
+       }
+     } else {
+-      merged_ranges[++merged_write] = range_current;
++      ranges[++merged_write] = range_current;
+     }
+   }
+-  merged_ranges.resize(merged_write + 1);
++  return merged_write + 1;
++}
+ 
+-  for (const std::pair<uint32_t, uint32_t>& range : merged_ranges) {
++bool SharedMemory::RequestMergedRanges(const std::pair<uint32_t, uint32_t>* merged_ranges,
++                                       size_t merged_count, size_t request_count) {
++  // wwe2k14 patch (Session 6, CP2): the rest of the original RequestRanges,
++  // unchanged except for taking the merged ranges as a pointer and a count.
++  for (size_t range_index = 0; range_index < merged_count; ++range_index) {
++    const std::pair<uint32_t, uint32_t>& range = merged_ranges[range_index];
+     if (!EnsureHostGpuMemoryAllocated(range.first, range.second)) {
+       return false;
+     }
+@@ -406,7 +440,8 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+   };
+   {
+     auto global_lock = global_critical_region_.Acquire();
+-    for (const std::pair<uint32_t, uint32_t>& range : merged_ranges) {
++    for (size_t range_index = 0; range_index < merged_count; ++range_index) {
++      const std::pair<uint32_t, uint32_t>& range = merged_ranges[range_index];
+       uint32_t page_first = range.first >> page_size_log2_;
+       uint32_t page_last = (range.first + range.second - 1) >> page_size_log2_;
+       uint32_t block_first = page_first >> 6;
+@@ -456,9 +491,8 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+     }
+   }
+ 
+-  COUNT_profile_set("gpu/shared_memory/request_ranges_count", uint32_t(count));
+-  COUNT_profile_set("gpu/shared_memory/request_ranges_merged_count",
+-                    uint32_t(merged_ranges.size()));
++  COUNT_profile_set("gpu/shared_memory/request_ranges_count", uint32_t(request_count));
++  COUNT_profile_set("gpu/shared_memory/request_ranges_merged_count", uint32_t(merged_count));
+   COUNT_profile_set("gpu/shared_memory/request_ranges_upload_count",
+                     uint32_t(upload_ranges_.size()));
+ 
+@@ -474,6 +508,209 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+   return UploadRanges(upload_ranges_);
+ }
+ 
++bool SharedMemory::RequestRangesFast(const std::pair<uint32_t, uint32_t>* ranges, size_t count) {
++  // wwe2k14 patch (Session 6, CP2): gpu_request_ranges_fast.
++  // - If every page of every requested range is already valid and its host GPU
++  //   memory is allocated, the original path would allocate nothing, find
++  //   nothing to upload and return true - return true without the global
++  //   critical region and without merging. Other threads only ever clear valid
++  //   bits (MemoryInvalidationCallback, under the global critical region), and
++  //   a guest CPU write is preceded by that invalidation (the access violation
++  //   is handled before the write is retried), which happens before the
++  //   guest's write pointer kick that this thread acquired before seeing the
++  //   draw - so a valid page seen here can only be stale if the guest writes
++  //   it without synchronizing with the GPU, which races in the original as
++  //   well. Everything that sets valid bits (uploads, resolves, memexport,
++  //   frame-end clearing) runs on this thread.
++  // - Otherwise the original locked path, a single range without a vector,
++  //   several in a reused member vector (every caller is on the command
++  //   processor thread, as for upload_ranges_).
++  // Read per call, nothing carries over between calls, so it can be toggled at
++  // any point.
++  bool verify = REXCVAR_GET(gpu_request_ranges_fast_verify);
++  // Before the lock-free loads (acquire): if an invalidation's count is seen
++  // here, its cleared bits are seen by the loads below.
++  uint64_t invalidation_count_before =
++      verify ? invalidation_count_.load(std::memory_order_acquire) : 0;
++
++  // Same validation as the original path: empty ranges are skipped, a range
++  // outside the buffer fails the request before anything is done.
++  size_t non_empty_count = 0;
++  size_t non_empty_last = 0;
++  uint64_t request_bytes = 0;
++  bool all_valid = true;
++  for (size_t i = 0; i < count; ++i) {
++    uint32_t start = ranges[i].first;
++    uint32_t length = ranges[i].second;
++    if (!length) {
++      continue;
++    }
++    if (start > kBufferSize || (kBufferSize - start) < length) {
++      return false;
++    }
++    ++non_empty_count;
++    non_empty_last = i;
++    request_bytes += length;
++    if (all_valid) {
++      all_valid = IsRangeValidAndAllocated(start, length);
++    }
++  }
++  if (!non_empty_count) {
++    return true;
++  }
++
++  RequestRangesFastStats& stats = request_ranges_fast_stats_;
++  ++stats.requests;
++  if (non_empty_count == 1) {
++    ++stats.single_range_requests;
++  }
++  if (all_valid) {
++    ++stats.hits;
++    stats.hit_bytes += request_bytes;
++    if (!verify) {
++      return true;
++    }
++  }
++
++  SCOPE_profile_cpu_f("gpu");
++
++  uint32_t sparse_allocations_before = host_gpu_memory_sparse_allocations_;
++  bool result;
++  if (non_empty_count == 1) {
++    // One range - nothing to sort or merge.
++    result = RequestMergedRanges(&ranges[non_empty_last], 1, count);
++  } else {
++    request_ranges_scratch_.clear();
++    for (size_t i = 0; i < count; ++i) {
++      if (ranges[i].second) {
++        request_ranges_scratch_.push_back(ranges[i]);
++      }
++    }
++    size_t merged_count =
++        SortAndMergeRanges(request_ranges_scratch_.data(), request_ranges_scratch_.size());
++    result = RequestMergedRanges(request_ranges_scratch_.data(), merged_count, count);
++  }
++
++  if (!all_valid) {
++    if (result) {
++      for (const std::pair<uint32_t, uint32_t>& upload_range : upload_ranges_) {
++        stats.miss_upload_pages += upload_range.second;
++      }
++    }
++    return result;
++  }
++
++  // Verify: the lock-free check said there is nothing to do, the original path
++  // has just run - did it allocate or upload anything (or fail)?
++  ++stats.verify_checks;
++  bool allocated = host_gpu_memory_sparse_allocations_ != sparse_allocations_before;
++  // upload_ranges_ is only stale if RequestMergedRanges failed in
++  // EnsureHostGpuMemoryAllocated, which already counts as a mismatch.
++  bool uploaded = result && !upload_ranges_.empty();
++  if (!result || allocated || uploaded) {
++    // After the locked scan (the global critical region synchronizes with the
++    // invalidation): a changed count means a guest invalidation ran between
++    // the lock-free check and the scan - the same outcome the original path
++    // has when the guest thread takes the lock first, not an error in the
++    // check.
++    bool raced = invalidation_count_.load(std::memory_order_acquire) != invalidation_count_before;
++    ++stats.verify_mismatches;
++    ++stats.verify_mismatches_total;
++    if (raced) {
++      ++stats.verify_mismatches_raced;
++    }
++    if (stats.verify_mismatches_logged < 16) {
++      ++stats.verify_mismatches_logged;
++      const std::pair<uint32_t, uint32_t>& last_range = ranges[non_empty_last];
++      std::pair<uint32_t, uint32_t> first_upload =
++          (result && !upload_ranges_.empty()) ? upload_ranges_.front()
++                                              : std::pair<uint32_t, uint32_t>(0, 0);
++      REXGPU_WARN(
++          "[s6][CP2] verify mismatch {}: lock-free check saw {} range(s) ({} bytes, last "
++          "{:08X}+{:X}) all valid and allocated, but the locked path returned {}, uploaded {} "
++          "range(s) (first page {:X} x{}), sparse allocations {} -> {}{}",
++          stats.verify_mismatches_total, non_empty_count, request_bytes, last_range.first,
++          last_range.second, result, result ? upload_ranges_.size() : size_t(0),
++          first_upload.first, first_upload.second, sparse_allocations_before,
++          host_gpu_memory_sparse_allocations_,
++          raced ? " - raced with a guest invalidation (benign)" : " - NOT explained by a race");
++    }
++  }
++  return result;
++}
++
++bool SharedMemory::IsRangeValidAndAllocated(uint32_t start, uint32_t length) {
++  // wwe2k14 patch (Session 6, CP2): the lock-free check of gpu_request_ranges_fast. The caller has checked
++  // that length != 0 and start + length <= kBufferSize.
++  uint32_t page_first = start >> page_size_log2_;
++  uint32_t page_last = (start + length - 1) >> page_size_log2_;
++  // Whether bits first...last are all set, loading 64-bit blocks with load_block.
++  auto all_bits_set = [](uint32_t first, uint32_t last, auto&& load_block) -> bool {
++    uint32_t block_first = first >> 6;
++    uint32_t block_last = last >> 6;
++    for (uint32_t i = block_first; i <= block_last; ++i) {
++      uint64_t mask = UINT64_MAX;
++      if (i == block_first) {
++        mask &= ~((uint64_t(1) << (first & 63)) - 1);
++      }
++      if (i == block_last && (last & 63) != 63) {
++        mask &= (uint64_t(1) << ((last & 63) + 1)) - 1;
++      }
++      if ((load_block(i) & mask) != mask) {
++        return false;
++      }
++    }
++    return true;
++  };
++  // Sparse host GPU memory: EnsureHostGpuMemoryAllocated (same allocation
++  // index math) would have nothing to allocate. The bitmap is only accessed on
++  // this thread. Checked here rather than assumed from validity, because a
++  // scaled resolve (MarkRangeAsResolved) makes pages valid without requesting
++  // them.
++  if (host_gpu_memory_sparse_granularity_log2_ != UINT32_MAX) {
++    const uint64_t* allocated = host_gpu_memory_sparse_allocated_.data();
++    if (!all_bits_set(page_first << page_size_log2_ >> host_gpu_memory_sparse_granularity_log2_,
++                      page_last << page_size_log2_ >> host_gpu_memory_sparse_granularity_log2_,
++                      [allocated](uint32_t i) { return allocated[i]; })) {
++      return false;
++    }
++  }
++  // Valid pages, without the global critical region: other threads only clear
++  // bits here (MemoryInvalidationCallback, with atomic stores).
++  uint64_t* valid = system_page_flags_valid_.data();
++  return all_bits_set(page_first, page_last, [valid](uint32_t i) {
++    return std::atomic_ref<uint64_t>(valid[i]).load(std::memory_order_relaxed);
++  });
++}
++
++void SharedMemory::ReportRequestRangesFastStats(uint64_t frame) {
++  // wwe2k14 patch (Session 6, CP2).
++  RequestRangesFastStats& stats = request_ranges_fast_stats_;
++  if (!stats.requests) {
++    return;
++  }
++  if (stats.window_first_frame == UINT64_MAX) {
++    stats.window_first_frame = frame;
++    return;
++  }
++  if (frame - stats.window_first_frame < 300) {
++    return;
++  }
++  REXGPU_INFO(
++      "[s6][CP2] frames {}-{}: {} requests ({} single-range), {} all valid ({:.1f}%, {} KB), {} "
++      "took the locked path (uploaded {} KB); verify: {} checked, {} mismatches ({} raced with a "
++      "guest invalidation), {} mismatches in total",
++      stats.window_first_frame, frame, stats.requests, stats.single_range_requests, stats.hits,
++      double(stats.hits) * 100.0 / double(stats.requests), stats.hit_bytes >> 10,
++      stats.requests - stats.hits, (stats.miss_upload_pages << page_size_log2_) >> 10,
++      stats.verify_checks, stats.verify_mismatches, stats.verify_mismatches_raced,
++      stats.verify_mismatches_total);
++  RequestRangesFastStats next_stats;
++  next_stats.verify_mismatches_total = stats.verify_mismatches_total;
++  next_stats.verify_mismatches_logged = stats.verify_mismatches_logged;
++  stats = next_stats;
++}
++
+ bool SharedMemory::RequestRange(uint32_t start, uint32_t length) {
+   std::pair<uint32_t, uint32_t> range(start, length);
+   return RequestRanges(&range, 1);
+@@ -530,9 +767,19 @@ std::pair<uint32_t, uint32_t> SharedMemory::MemoryInvalidationCallback(
+     if (i == block_last && (page_last & 63) != 63) {
+       invalidate_bits &= (uint64_t(1) << ((page_last & 63) + 1)) - 1;
+     }
+-    system_page_flags_valid_[i] &= ~invalidate_bits;
++    // wwe2k14 patch (Session 6, CP2): an atomic store of the same value, since
++    // gpu_request_ranges_fast reads these blocks on the command processor
++    // thread without the global critical region (all writers hold it, so a
++    // separate load and store is enough).
++    std::atomic_ref<uint64_t> valid_block(system_page_flags_valid_[i]);
++    valid_block.store(valid_block.load(std::memory_order_relaxed) & ~invalidate_bits,
++                      std::memory_order_relaxed);
+     system_page_flags_valid_and_gpu_written_[i] &= ~invalidate_bits;
+   }
++  // wwe2k14 patch (Session 6, CP2): for gpu_request_ranges_fast_verify, after
++  // the bits (release), under the global critical region.
++  invalidation_count_.store(invalidation_count_.load(std::memory_order_relaxed) + 1,
++                            std::memory_order_release);
+ 
+   FireWatches(page_first, page_last, false);
+ 
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 6788214..d27b06f 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -195,6 +195,9 @@ void VulkanSharedMemory::CompletedSubmissionUpdated() {
+ 
+ void VulkanSharedMemory::EndSubmission() {
+   upload_buffer_pool_->FlushWrites();
++  // wwe2k14 patch (Session 6, CP2): gpu_request_ranges_fast counters (returns
++  // right away if nothing was counted).
++  ReportRequestRangesFastStats(command_processor_.GetCurrentFrame());
+ }
+ 
+ void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_range) {

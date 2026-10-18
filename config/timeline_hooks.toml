@@ -1,0 +1,21 @@
+# Mid-asm hooks for the frame-pacing timeline (src/gpu_timeline.h, --wwe2k14_timeline=true).
+# They only record when the timeline is on; otherwise each costs one function call per GPU wait (a few per frame).
+# Addresses from the generated code (tools/analysis/list_function.py), Session 5.
+
+# sub_82CB1E58: set-up of every GPU wait loop (r3 = wait record on the stack, r4 = D3D device, r5 = reason code).
+[[midasm_hook]]
+address = 0x82CB1E58
+name = "wwe2k14_gpu_wait_begin"
+registers = ["r3", "r4", "r5"]
+
+# sub_82CB1E88: tear-down of the same loops (r3 = the wait record).
+[[midasm_hook]]
+address = 0x82CB1E88
+name = "wwe2k14_gpu_wait_end"
+registers = ["r3"]
+
+# sub_82CB5A20, at its `bl sub_82CB1E58`: about to wait until the GPU-written counter passes r30 (r31 = device).
+[[midasm_hook]]
+address = 0x82CB5AA8
+name = "wwe2k14_fence_wait_target"
+registers = ["r30", "r31"]

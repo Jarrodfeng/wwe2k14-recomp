@@ -1,0 +1,37 @@
+# Session 12 (Jarrod, 2026-10-11): fast 1v1 check for characters that get no entrance of their own in a match
+# (managers, commentators, security guards, ...: tools\sweep\make_six_roster.py gives them this run). Use with
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=ID,324. The character is loaded (CHnnn.PAC; checked from
+# the log by tools\sweep\six_results.py) but only Daniel Bryan's entrance plays, and it goes first, so: wait until his
+# entrance (slot 1) reaches step 5 (states.toml entrance_step_1), 300 frames (5 s, as the six-pack route), screenshot
+# rp_entrance, then START until the match scene loads (M3.PAC; Jarrod: "skip Daniel Bryan's entrance after step 5
+# as well, redundant"), 300 frames, screenshot rp_match, quit. Session 10 used tools\sweep\scripts\roster_check.txt
+# (2,100 frames of the first entrance). Untimed (lanes OK). Needs the frozen user data. on_fail quit. Screenshots
+# rp_* are local only.
+on_fail quit
+log pair: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log pair: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log pair: in-game sequence loading
+wait_file titantron 2400 optional
+wait_state entrance_step_1 >=5 2400 2 optional
+log pair: Bryan's segment (step 5)
+wait_frames 300
+screenshot rp_entrance
+log pair: START until the match scene loads
+press_until_file START m3.pac 20 300
+log pair: match scene
+wait_frames 300
+screenshot rp_match
+wait_frames 60
+log pair: end
+quit

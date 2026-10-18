@@ -1,0 +1,171 @@
+# ReXGlue SDK changes for WWE 2K14 (session27): 7412a803920f..8794393499be on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  8794393 Session 27 (review): present_effect fsr2 / fsr3 fall back to FSR 1 without the FidelityFX runtime
+#  2946e71 Session 27: FSR 1 (EASU + RCAS) and CAS always built (in-tree precompiled shaders; REX_HAS_FIDELITYFX_SDK defined in presenter.h); FSR 2 / 3 still need the FidelityFX SDK
+#  807c2fa Session 27: DLSS reset hold after a camera cut (gpu_dlss_reset_hold_frames, default 1 = as before): the picture cuts 2-3 frames after the camera
+#  e0e9059 Session 27: start SDL audio in SDLAudioSystem::Setup (UI thread), not Initialize (the Audio Worker thread, which still raced the UI thread's pumps)
+#  c2fb557 Session 27: start SDL audio on the UI thread at setup (audio_sdl_init_on_ui_thread, default true): fixes the boot race in SDL_UpdateAudio (0xC0000264)
+
+diff --git a/include/rex/audio/sdl/sdl_audio_system.h b/include/rex/audio/sdl/sdl_audio_system.h
+index 471149cb40bff6f59baccdce3558fb9dee165da1..937efb804b932681b5e502a366efcb5bb5b485a0 100644
+--- a/include/rex/audio/sdl/sdl_audio_system.h
++++ b/include/rex/audio/sdl/sdl_audio_system.h
+@@ -24,12 +24,17 @@ class SDLAudioSystem : public AudioSystem {
+ 
+   static std::unique_ptr<AudioSystem> Create(runtime::FunctionDispatcher* function_dispatcher);
+ 
++  X_STATUS Setup(system::KernelState* kernel_state) override;  // wwe2k14 patch (Session 27)
++
+   X_STATUS CreateDriver(size_t index, rex::thread::Semaphore* semaphore,
+                         AudioDriver** out_driver) override;
+   void DestroyDriver(AudioDriver* driver) override;
+ 
+  protected:
+   void Initialize() override;
++
++ private:
++  bool sdl_audio_started_ = false;  // wwe2k14 patch (Session 27): see sdl_audio_system.cpp
+ };
+ 
+ }  // namespace rex::audio::sdl
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 2f416abbe770f219d1f8ffccb57b3c6e8605e811..f60f3cc5340fe96f2b809a7021a41131f59bd3cf 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1324,6 +1324,7 @@ class VulkanCommandProcessor : public CommandProcessor {
+   uint64_t objmv_captured_ = 0, objmv_skipped_ = 0, objmv_passes_ = 0;
+   uint32_t objmv_log_left_ = 8;
+   uint64_t dlss_frames_ = 0, dlss_last_eval_frame_ = UINT64_MAX;
++  int dlss_reset_hold_ = 0;  // wwe2k14 patch (Session 27): frames still to reset after a detected cut
+   uint32_t dlss_log_left_ = 8;
+   // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1 for the frame being marked (only while
+   // gpu_marks_active_).
+diff --git a/include/rex/ui/presenter.h b/include/rex/ui/presenter.h
+index b480291807ab7d136fdc5e72c80b433be98389fc..82c5e9bc4ca8f39303430aa54eded9b80cdf9afd 100644
+--- a/include/rex/ui/presenter.h
++++ b/include/rex/ui/presenter.h
+@@ -10,6 +10,14 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++// wwe2k14 patch (Session 27): FSR 1 (EASU + RCAS) and CAS need only the precompiled shaders in this tree and Xenia's
++// own constant setup (below), not the external FidelityFX SDK, so they are always built. The SDK download stays behind
++// REXGLUE_ENABLE_FIDELITYFX / REX_HAS_FIDELITYFX_RUNTIME (FSR 2 / 3). Defined here so the library and every program
++// including this header agree on the class layout.
++#ifndef REX_HAS_FIDELITYFX_SDK
++#define REX_HAS_FIDELITYFX_SDK 1
++#endif
++
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
+diff --git a/src/audio/sdl/sdl_audio_system.cpp b/src/audio/sdl/sdl_audio_system.cpp
+index 68da0cf9652e455c9ba8184f6004253799ca421d..288a235c9c4a80c8f2ac5403f63c684243c424dc 100644
+--- a/src/audio/sdl/sdl_audio_system.cpp
++++ b/src/audio/sdl/sdl_audio_system.cpp
+@@ -12,6 +12,19 @@
+ #include <rex/audio/flags.h>
+ #include <rex/audio/sdl/sdl_audio_driver.h>
+ #include <rex/audio/sdl/sdl_audio_system.h>
++#include <rex/cvar.h>
++#include <rex/logging.h>
++#include <SDL3/SDL.h>
++
++// wwe2k14 patch (Session 27): SDL's audio subsystem is started here, on the UI thread, before the guest runs.
++// SDL_PumpEvents (UI thread) calls SDL_UpdateAudio on every pump, which read-locks and unlocks
++// current_audio.subsystem_rwlock, reading the pointer twice. SDL_InitAudio sets that pointer (and zeroes
++// current_audio per driver it tries) without a lock. When the guest's audio driver ran the first
++// SDL_InitSubSystem(SDL_INIT_AUDIO) on a guest thread, the UI thread could "lock" a null lock and then unlock the new
++// one: ReleaseSRWLockShared on a lock it does not hold = 0xC0000264 (the boot crash in SDL_UpdateAudio,
++// SDL_audio.c:2612, Sessions 22-23). With the subsystem started here, the driver's later init only adds a reference.
++REXCVAR_DEFINE_BOOL(audio_sdl_init_on_ui_thread, true, "Audio",
++                    "Start SDL's audio subsystem on the UI thread at setup (avoids a boot race in SDL_UpdateAudio)");
+ 
+ namespace rex::audio::sdl {
+ 
+@@ -23,7 +36,32 @@ std::unique_ptr<AudioSystem> SDLAudioSystem::Create(
+ SDLAudioSystem::SDLAudioSystem(runtime::FunctionDispatcher* function_dispatcher)
+     : AudioSystem(function_dispatcher) {}
+ 
+-SDLAudioSystem::~SDLAudioSystem() {}
++SDLAudioSystem::~SDLAudioSystem() {
++  // Runtime::Shutdown on the UI thread (ReXApp::OnDestroy), after every driver has quit its own reference.
++  if (sdl_audio_started_) {
++    SDL_QuitSubSystem(SDL_INIT_AUDIO);
++    sdl_audio_started_ = false;
++  }
++}
++
++X_STATUS SDLAudioSystem::Setup(system::KernelState* kernel_state) {
++  // Runtime::Setup, called from ReXApp::OnInitialize / the resume callback on the UI thread, before the guest runs.
++  // (Initialize() runs later on the Audio Worker thread, concurrently with the UI thread's event pumps.)
++  if (REXCVAR_GET(audio_sdl_init_on_ui_thread)) {
++    // The same hints the driver sets; they must be in place before the first init.
++    SDL_SetHint(SDL_HINT_AUDIO_CATEGORY, "playback");
++    SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_NAME_STRING, "rexglue");
++    if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
++      sdl_audio_started_ = true;
++      REXAPU_INFO("SDL audio subsystem started at runtime setup (driver: {})",
++                  SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "?");
++    } else {
++      // Not fatal: the driver tries again on its own thread (the old behaviour) and reports any failure.
++      REXAPU_WARN("SDL_InitSubSystem(SDL_INIT_AUDIO) at setup failed: {}", SDL_GetError());
++    }
++  }
++  return AudioSystem::Setup(kernel_state);
++}
+ 
+ void SDLAudioSystem::Initialize() {
+   AudioSystem::Initialize();
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index a10133c36638d25be71cf59ae6537877adf250d0..0b1a26a31a4ab58be839a3bd5f608380ea7e4b30 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -114,6 +114,9 @@ REXCVAR_DEFINE_DOUBLE(gpu_dlaa_reset_degrees, 15.0, "GPU",
+ REXCVAR_DEFINE_DOUBLE(gpu_dlaa_reset_distance, 0.0, "GPU",
+                       "DLAA / DLSS (Session 24): a camera move longer than this (view units) between frames counts as "
+                       "a cut (DLSS reset); 0 = off (the app sets 200 with --wwe2k14_dlss)");
++REXCVAR_DEFINE_INT32(gpu_dlss_reset_hold_frames, 1, "GPU",
++                     "DLSS (Session 27): after a camera cut, reset the history for this many frames (1 = the cut frame "
++                     "only); the picture cuts 2-3 frames after the camera does, so 4 covers it");
+ REXCVAR_DEFINE_DOUBLE(gpu_dlaa_jitter_max_camera_px, 0.0, "GPU",
+                       "DLAA / DLSS (Session 24): no jitter on frames after the camera moved more than this many render "
+                       "pixels in a frame (estimated over the screen at view depths 300 and 2000): fast camera shots "
+@@ -5080,6 +5083,12 @@ void VulkanCommandProcessor::DlssRecord(VkImageView guest_output_view, uint32_t
+     f.out_width = out_width, f.out_height = out_height;
+     reset = pending.reset || angle > REXCVAR_GET(gpu_dlaa_reset_degrees) ||
+             dlss_last_eval_frame_ + 1 != pending.frame;
++    // wwe2k14 patch (Session 27): a camera cut is seen 2-3 frames before the picture changes (replay s21_lb, runs
++    // 1971-1975: the first frame of the new shot still blended the old one); keep resetting for
++    // gpu_dlss_reset_hold_frames frames after a cut so the frame that really cuts has no old history.
++    if (reset)
++      dlss_reset_hold_ = std::max(dlss_reset_hold_, std::clamp(REXCVAR_GET(gpu_dlss_reset_hold_frames), 1, 16));
++    if (dlss_reset_hold_ > 0) reset = true, --dlss_reset_hold_;
+     f.reset = reset;
+     cb.CmdHostCallback(&DlssEvaluateCallback, &f, sizeof(f));
+     current_external_compute_pipeline_ = VK_NULL_HANDLE;  // Streamline bound its own compute state
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+index 37b5ed0ced8b795c18d5c093e5cad87bc5ca82e7..027cb086b144379af528fab2458cdd9719f4c817 100644
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -106,12 +106,20 @@ GuestOutputPaintConfig::Effect ParsePresentEffect(const std::string& effect_name
+   if (lowered == "fsr") {
+     return GuestOutputPaintConfig::Effect::kFsr;
+   }
++#if defined(REX_HAS_FIDELITYFX_RUNTIME) && REX_HAS_FIDELITYFX_RUNTIME
+   if (lowered == "fsr2") {
+     return GuestOutputPaintConfig::Effect::kFsr2;
+   }
+   if (lowered == "fsr3") {
+     return GuestOutputPaintConfig::Effect::kFsr3;
+   }
++#else
++  // wwe2k14 patch (Session 27, review): without the FidelityFX runtime, FSR 2 / 3 would run as one spatial EASU pass
++  // (worse than the chained passes of "fsr"): use FSR 1.
++  if (lowered == "fsr2" || lowered == "fsr3") {
++    return GuestOutputPaintConfig::Effect::kFsr;
++  }
++#endif
+ #endif
+   return GuestOutputPaintConfig::Effect::kBilinear;
+ }

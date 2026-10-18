@@ -1,0 +1,10 @@
+# harness: realtime (load-time measurement (wall clock); Session 16: run_list fast-forwards other routes)
+# Session 12: boot-screen check, a screenshot EVERY frame from frame 70 to frame 250 (the legal / warning steps with
+# --wwe2k14_skip_boot_screens), to catch single-frame flashes. Untimed. Screenshots be_* are local only.
+on_fail quit
+wait_frames 70
+screenshot_every 1 be
+wait_frames 180
+screenshot_every 0
+wait_frames 30
+quit

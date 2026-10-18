@@ -1,0 +1,30 @@
+# Session 24 (DLSS): the s21_hash replay route cut down to Bryan's ramp pan for quick motion-vector checks: a
+# frame-locked clip only from Bryan's titantron +300 to +560 (guest frames ~5691..5951 in replay s21_lb), then quit.
+# Use with tools\dlss\s24_frames.ps1 -Route (PNG frames from --wwe2k14_clip_png). on_fail quit.
+on_fail quit
+log bench: start s24_pan (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 300
+clip_start h 60 1
+wait_frames 260
+clip_stop h
+wait_frames 60
+log bench: done
+quit

@@ -1,0 +1,28 @@
+# Session 11 (Jarrod's call, 18:40): trimmed arena check for the native-BPE verify sweep. Like
+# tools\sweep\scripts\arena_check.txt up to the first titantron + 240 frames, then quits: the arena loads (BGnn.PAC,
+# where the arena-specific decoding happens) and the first entrance starts, without playing both entrances out to
+# the match scene (the same two wrestlers' data in every arena; the roster sweep covers the wrestlers). No a_match600
+# screenshot and no M3.PAC: not a like-for-like Session 10 verdict. Use with run_sweep.ps1 -List arenas -Script
+# <this file>. on_fail quit. Screenshots a_* are local only.
+on_fail quit
+log sweep: start (arena check, trimmed)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log sweep: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log sweep: in-game sequence loading
+wait_file titantron 2400 optional
+log sweep: first titantron wait over
+wait_frames 240
+screenshot a_tron240
+wait_frames 60
+log sweep: end
+quit

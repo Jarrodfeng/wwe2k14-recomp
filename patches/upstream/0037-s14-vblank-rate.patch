@@ -1,0 +1,37 @@
+Subject: [ReXGlue] wwe2k14 Session 14 (S3 slow-motion experiment): gpu_vblank_rate_override_hz (default 0 = off) feeds the guest vblank at a chosen rate while vsync is on
+
+Class: 2K14 (generic mechanism)
+What: Feed the guest vblank at a chosen rate while vsync is on (slow motion for titles that step a fixed amount per frame).
+Evidence: Runs 1059 / 1060: match clock follows the rate exactly.
+On / off: gpu_vblank_rate_override_hz (0 = off).
+Commit: 32fae13 (diff against 32fae13^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index bbd3050..08b596c 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -66,6 +66,10 @@ REXCVAR_DEFINE_BOOL(
+     "Time the guest vblank with a high-resolution waitable timer and a short final spin "
+     "instead of Sleep(1) polling (Windows 10 1803+ and vsync on only; otherwise it keeps "
+     "the Sleep(1) polling)");
++REXCVAR_DEFINE_DOUBLE(
++    gpu_vblank_rate_override_hz, 0.0, "GPU",
++    "wwe2k14 (Session 14, S3 slow-motion experiment): feed the guest vblank at this rate (Hz) "
++    "instead of the video mode's (60); 0 = off. Read every vblank loop, only with vsync on");
+ REXCVAR_DEFINE_INT32(
+     gpu_vblank_precise_timer_spin_us, 1000, "GPU",
+     "gpu_vblank_precise_timer: how long before each vblank deadline the timer wakes the "
+@@ -304,6 +308,12 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
+           uint64_t interval_ticks =
+               REXCVAR_GET(vsync) ? vsync_interval_ticks : no_vsync_interval_ticks;
++          // wwe2k14 patch (Session 14, S3 slow-motion experiment): a guest vblank rate override
++          // (Hz, 0 = the video mode's rate), read every loop like vsync, only while vsync is on.
++          if (const double hz = REXCVAR_GET(gpu_vblank_rate_override_hz);
++              hz > 0.0 && REXCVAR_GET(vsync)) {
++            interval_ticks = std::max(uint64_t(1), uint64_t(double(guest_tick_frequency) / hz));
++          }
+           bool first_in_batch = true;
+           while (current_time - last_frame_time >= interval_ticks) {
+             // wwe2k14 patch (Session 6, O1): lateness = guest time from this vblank's deadline to

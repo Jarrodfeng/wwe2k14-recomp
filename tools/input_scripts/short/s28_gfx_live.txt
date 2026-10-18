@@ -1,0 +1,57 @@
+# harness: fast-forward ok (Session 28: the GRAPHICS screen with DLAA running: OFF live, then DLAA live again; no restart message either time; run with --wwe2k14_dlaa=true --wwe2k14_dlaa_dir=<streamline> --wwe2k14_gfx_menu=true --wwe2k14_settings_file=<file with upscale 1>; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 200
+screenshot live_0_open_dlaa
+log mark: LEFT (DLAA -> OFF)
+press LEFT
+wait_frames 40
+screenshot live_1_off
+log mark: ACCEPT
+press A
+wait_frames 150
+screenshot live_2_after_accept
+log mark: GRAPHICS again
+press DOWN
+wait_frames 10
+press UP
+wait_frames 30
+press A
+wait_frames 200
+screenshot live_3_reopen
+log mark: RIGHT (OFF -> DLAA)
+press RIGHT
+wait_frames 40
+screenshot live_4_dlaa
+log mark: ACCEPT 2
+press A
+wait_frames 150
+screenshot live_5_after_accept2
+quit

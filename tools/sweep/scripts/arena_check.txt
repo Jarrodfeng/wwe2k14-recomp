@@ -1,0 +1,33 @@
+# Session 10 A1 (M5 sweep): arena / entrance check for one launched scenario (unattended, on_fail quit).
+# Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=N (tools\sweep\run_sweep.ps1 -List arenas).
+# Boots to the main menu with the title presses of Jarrod's recording 056 (as short\launch_boot_check.txt), lets the
+# launcher fire, then: first titantron (optional: some arenas / match types skip entrances) -> 240 frames ->
+# screenshot; match scene (M3.PAC, optional: ~7,950 frames after INGAMELUA.PAC on lesnar_bryan at Quick pace,
+# run 485) -> 600 frames -> screenshot; quit. Everything else (BGnn.PAC, ENTRANCEnn, CHnnn, NNN.bik2, crashes) is
+# read from the log by tools\sweep\results.py. Screenshots a_* are local only.
+on_fail quit
+log sweep: start (arena check)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log sweep: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log sweep: in-game sequence loading
+wait_file titantron 2400 optional
+log sweep: first titantron wait over
+wait_frames 240
+screenshot a_tron240
+wait_file M3.PAC 12000 optional
+log sweep: match scene wait over
+wait_frames 600
+screenshot a_match600
+wait_frames 60
+log sweep: end
+quit

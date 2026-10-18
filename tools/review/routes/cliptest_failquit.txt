@@ -1,0 +1,15 @@
+# In-game clip self-test (src/clip_capture.h), fixer pass: a script failure (on_fail quit, the default) while a clip
+# records. The failure must stop the clip and hold the quit until the clip's json is written (before the fix the
+# process exited with an mp4 but no json). The run's line shows "script FAILED" (expected).
+# Needs --wwe2k14_clip_dir=<folder>. Untimed: shared run-lock mode is fine.
+# Run: pwsh -NoProfile -Command "& tools\bench\run_list.ps1 -Scripts @('..\..\..\tools\review\routes\cliptest_failquit.txt') -Extra '--wwe2k14_clip_dir=C:\Users\Jarrod\wwe2k14-recomp\out\harness\clips\selftest'"
+# Expect: NNN_clip_fq.json with ffmpeg_rc 0, about 2 s of video.
+log cliptest_failquit: start
+wait_file SaveData.Dat 3600
+wait_frames 60
+clip_start fq 60 1
+wait_frames 60
+log cliptest_failquit: a wait_file that cannot match (fails after 60 frames)
+wait_file this_file_never_opens.xyz 60
+log cliptest_failquit: NOT REACHED
+quit

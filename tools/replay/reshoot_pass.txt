@@ -1,0 +1,9 @@
+# Session 16 item 2: one re-shoot pass. Run with --wwe2k14_reshoot=NAME --wwe2k14_reshoot_shot=FILE (tools\replay\
+# reshoot.ps1 adds them). The replay supplies every input and the game quits by itself once the shot's clip is
+# written (src/reshoot.h); this script only logs and, as a safety net, quits after 40,000 frames. Fast-forward OK:
+# the clip is frame-locked (one video frame per guest frame), so the footage plays at real speed anyway.
+on_fail quit
+log reshoot: pass start
+wait_frames 40000
+log reshoot: safety quit (the re-shoot did not end the run)
+quit

@@ -1,0 +1,24 @@
+# Licence files appended to THIRD_PARTY_NOTICES.md by tools\release\make_release.ps1 (Session 25 inventory).
+# name | path (relative to the repo); a missing file fails the release.
+ReXGlue SDK | thirdparty/rexglue-sdk-src/LICENSE
+SDL 3 | thirdparty/rexglue-sdk-src/thirdparty/sdl3/LICENSE.txt
+FFmpeg (LGPL 2.1) | thirdparty/rexglue-sdk-src/thirdparty/FFmpeg/COPYING.LGPLv2.1
+libmspack (LGPL 2.1) | thirdparty/rexglue-sdk-src/thirdparty/libmspack/libmspack/COPYING.LIB
+Dear ImGui | thirdparty/rexglue-sdk-src/thirdparty/imgui/LICENSE.txt
+{fmt} | thirdparty/rexglue-sdk-src/thirdparty/fmt/LICENSE
+spdlog | thirdparty/rexglue-sdk-src/thirdparty/spdlog/LICENSE
+xxHash | thirdparty/rexglue-sdk-src/thirdparty/xxHash/LICENSE
+glslang | thirdparty/rexglue-sdk-src/thirdparty/glslang/LICENSE.txt
+Vulkan Memory Allocator | thirdparty/rexglue-sdk-src/thirdparty/vulkan-memory-allocator/LICENSE.txt
+Vulkan-Headers | thirdparty/rexglue-sdk-src/thirdparty/vulkan-headers/LICENSE.md
+SPIRV-Headers | thirdparty/rexglue-sdk-src/thirdparty/spirv-headers/LICENSE
+aes_128 | thirdparty/rexglue-sdk-src/thirdparty/aes_128/LICENSE
+o1heap | thirdparty/rexglue-sdk-src/thirdparty/o1heap/LICENSE
+toml++ | thirdparty/rexglue-sdk-src/thirdparty/tomlplusplus/LICENSE
+SIMDe | thirdparty/rexglue-sdk-src/thirdparty/simde/COPYING
+utfcpp | thirdparty/rexglue-sdk-src/thirdparty/utfcpp/LICENSE
+nlohmann/json | thirdparty/rexglue-sdk-src/thirdparty/inja/third_party/include/nlohmann/LICENSE.MIT
+NVIDIA Streamline | thirdparty/streamline/sdk/license.txt
+stb_image | thirdparty/rexglue-sdk-src/thirdparty/stb/stb_image.h#tail:40
+DXBCChecksum (RSA MD5 derived) | thirdparty/rexglue-sdk-src/thirdparty/dxbc/DXBCChecksum.cpp#head:48
+AMD FidelityFX FSR 1 / CAS (MIT) | docs/release/licenses/amd_fidelityfx_fsr1_cas.txt

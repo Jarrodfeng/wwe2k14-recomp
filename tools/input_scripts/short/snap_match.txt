@@ -1,0 +1,23 @@
+# Session 16 item 9: an in-match memory snapshot for string searches (the run-in logic lives in the game's Lua scripts,
+# loaded in the match). Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true
+# --wwe2k14_snapshot_trigger=PATH; this script writes nothing itself: create PATH (first line = the snapshot NAME) once
+# the log says "snap: in match". Waits 1,800 match frames for it, then quits. Snapshots: logs/snap_NNN_NAME_D.bin /
+# _H.bin (512 MB, game memory: stays under out\). on_fail quit.
+on_fail quit
+log snap: start
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+wait_file INGAMELUA.PAC 36000
+wait_state match_clock !=0 36000 2
+log snap: in match
+wait_frames 1800
+log snap: end
+quit

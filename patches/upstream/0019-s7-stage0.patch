@@ -1,0 +1,688 @@
+Subject: [ReXGlue] merge s7/stage0
+
+Class: DIAG
+What: Predicated-tiling counters and log.
+Evidence: Tool (PLAYBOOK Session 7).
+On / off: gpu_tiling_log_frames (0 = off).
+Commit: 24e1042 (diff against 24e1042^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 009ab92..cd14279 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -383,6 +383,51 @@ class CommandProcessor {
+   uint32_t anatomy_skip_reason_ = kAnatomySkipOther;
+   // A capture is running (changes only at frame boundaries).
+   bool anatomy_active_ = false;
++
++  // wwe2k14 patch (Session 7, TILING-STAGE0): predicated tiling counters, recorded with the other cpf* events
++  // (cpf_tile, cpf_bin; see RecordFrameCounters) and reset at each frame boundary, and the gpu_tiling_log_frames
++  // log. Measurement only (nothing here changes what is executed); command processor thread only.
++  static constexpr uint32_t kTilingSelectValuesMax = 16;
++  struct TilingFrameCounters {
++    uint32_t event_write_ext;      // EVENT_WRITE_EXT packets executed (not skipped by predication)
++    uint32_t predicated_skipped;   // predicated type-3 packets skipped by the bin test ((select & mask) == 0)
++    uint32_t predicated_draws;     // predicated DRAW_INDX / DRAW_INDX_2 packets executed
++    uint32_t bin_select_packets;   // SET_BIN_SELECT_LO / _HI / SET_BIN_SELECT packets executed
++    uint32_t bin_mask_packets;     // SET_BIN_MASK_LO / _HI / SET_BIN_MASK packets executed
++    // Distinct 64-bit bin_select_ values that executed predicated packets ran under; kTilingSelectValuesMax + 1
++    // means more than kTilingSelectValuesMax.
++    uint32_t bin_select_distinct;
++    uint64_t bin_select_values[kTilingSelectValuesMax];
++  };
++  TilingFrameCounters tiling_counters_ = {};
++  // bin_select_'s current value is already in tiling_counters_ (cleared by SET_BIN_SELECT* and each frame).
++  bool tiling_select_counted_ = false;
++  // A gpu_tiling_log_frames log is running (changes only at frame boundaries).
++  bool tiling_log_active_ = false;
++  void CountTilingSelect();
++  // After a SET_BIN_SELECT* / SET_BIN_MASK* packet changed bin_select_ / bin_mask_ (`kind` is the log row kind,
++  // a string literal).
++  void BinSelectWritten(const char* kind, uint64_t old_select) {
++    ++tiling_counters_.bin_select_packets;
++    tiling_select_counted_ = false;
++    if (tiling_log_active_) {
++      TilingLogBinSelect(kind, old_select);
++    }
++  }
++  void BinMaskWritten(const char* kind) {
++    ++tiling_counters_.bin_mask_packets;
++    if (tiling_log_active_) {
++      TilingLogBinMask(kind);
++    }
++  }
++  // gpu_tiling_log_frames (command_processor.cpp). TilingLogPacket notes where the type-3 packet being executed
++  // is and counts it; the others append rows.
++  void TilingLogPacket(const memory::RingBuffer* reader, uint32_t data_start_offset, uint32_t opcode,
++                       bool predicated, bool executed);
++  void TilingLogBinSelect(const char* kind, uint64_t old_select);
++  void TilingLogBinMask(const char* kind);
++  // A row at the current packet; value / info < 0: empty column.
++  void TilingLogEvent(const char* kind, int64_t value, int64_t info, bool timed);
+   // wwe2k14 patch (Session 6, CP10): per-register-write and per-resolve setting lookups, cached.
+   // Whether the GPU logger may log at debug level (true until the first refresh, which keeps the original
+   // full check).
+@@ -460,10 +505,22 @@ class CommandProcessor {
+   bool anatomy_frame_start_pending_ = false;
+   void AnatomyStartFrame();
+   void AnatomyBeginDraw();
+-  void AnatomyEndDraw(uint32_t vgt_draw_initiator, bool is_indexed, bool succeeded);
++  void AnatomyEndDraw(uint32_t vgt_draw_initiator, bool is_indexed, bool succeeded, bool predicated);
+   void AnatomyEndFrame();
+   void AnatomyFrameBoundary();
+   void AnatomyFinish(const char* why);
++
++  // wwe2k14 patch (Session 7, TILING-STAGE0): gpu_tiling_log_frames state (command_processor.cpp).
++  struct TilingLogCounts;
++  struct TilingLog;
++  std::unique_ptr<TilingLog> tiling_log_;
++  void TilingLogFrameBoundary();
++  void TilingLogEndSegment(uint64_t select);
++  // value / info < 0: empty column; counts nullptr: empty count columns.
++  void TilingLogRow(const char* kind, uint64_t select, int64_t value, int64_t info, bool timed,
++                    const TilingLogCounts* counts);
++  void TilingLogFlush();
++  void TilingLogFinish(const char* why);
+ };
+ 
+ }  // namespace rex::graphics
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 727a38b..e441aad 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -137,6 +137,13 @@ REXCVAR_DEFINE_INT32(gpu_anatomy_capture, 0, "GPU",
+ REXCVAR_DEFINE_STRING(gpu_anatomy_path, "", "GPU",
+                       "Frame anatomy output file; %d = capture index in this run (default "
+                       "<current dir>/logs/anatomy_%d.csv). Per-frame totals go to <name>_frames.csv");
++// wwe2k14 patch (Session 7, TILING-STAGE0): predicated tiling log, measurement only (no effect on emulation).
++REXCVAR_DEFINE_INT32(gpu_tiling_log_frames, 0, "GPU",
++                     "Tiling log: when set to N > 0, write every executed SET_BIN_SELECT*/SET_BIN_MASK* value, "
++                     "EVENT_WRITE_EXT, INTERRUPT and unpredicated SCREEN_EXT_INIT, per-bin-select segment counts "
++                     "and the frame boundaries of the next N command processor frames (starting at the next "
++                     "swap) to tiling_*.csv in gpu_anatomy_path's directory (anatomy_NNN_%d.csv -> "
++                     "tiling_NNN_%d.csv), then reset to 0");
+ 
+ namespace rex::graphics {
+ 
+@@ -273,6 +280,20 @@ struct CommandProcessor::AnatomyCapture {
+     uint32_t copy_dest;
+     uint32_t copy_info;
+     bool is_copy;
++    // wwe2k14 patch (Session 7, TILING-STAGE0): predication and the tile pass's window, scissor and viewport
++    // (raw register values at the draw).
++    bool predicated;  // the draw packet had the predicate bit
++    uint32_t bin_select_lo;
++    uint32_t bin_mask_lo;
++    uint32_t pa_sc_window_offset;
++    uint32_t pa_sc_window_scissor_tl;
++    uint32_t pa_sc_window_scissor_br;
++    uint32_t pa_sc_screen_scissor_tl;
++    uint32_t pa_sc_screen_scissor_br;
++    uint32_t pa_cl_vport_xscale;
++    uint32_t pa_cl_vport_xoffset;
++    uint32_t pa_cl_vport_yscale;
++    uint32_t pa_cl_vport_yoffset;
+   };
+ 
+   // A guard against unbounded memory if swaps stop coming.
+@@ -312,6 +333,65 @@ struct CommandProcessor::AnatomyCapture {
+   uint32_t pipeline_binds_before = 0;
+ };
+ 
++// wwe2k14 patch (Session 7, TILING-STAGE0): gpu_tiling_log_frames state (defined before the destructor, which
++// destroys it). See TilingLogFrameBoundary for the file layout.
++struct CommandProcessor::TilingLogCounts {
++  uint32_t pred_exec = 0;    // predicated type-3 packets executed
++  uint32_t pred_skip = 0;    // predicated type-3 packets skipped by the bin test
++  uint32_t draw_exec = 0;    // predicated DRAW_INDX / DRAW_INDX_2 executed
++  uint32_t draw_skip = 0;    // predicated DRAW_INDX / DRAW_INDX_2 skipped by the bin test
++  uint32_t draw_unpred = 0;  // DRAW_INDX / DRAW_INDX_2 without the predicate bit
++  uint32_t ext_exec = 0;     // EVENT_WRITE_EXT executed
++  uint32_t ext_skip = 0;     // EVENT_WRITE_EXT skipped by the bin test
++  bool any() const {
++    return pred_exec || pred_skip || draw_exec || draw_skip || draw_unpred || ext_exec || ext_skip;
++  }
++  void Add(const TilingLogCounts& other) {
++    pred_exec += other.pred_exec;
++    pred_skip += other.pred_skip;
++    draw_exec += other.draw_exec;
++    draw_skip += other.draw_skip;
++    draw_unpred += other.draw_unpred;
++    ext_exec += other.ext_exec;
++    ext_skip += other.ext_skip;
++  }
++};
++
++struct CommandProcessor::TilingLog {
++  // Rows are buffered and written at frame boundaries, or earlier past this size.
++  static constexpr size_t kFlushBytes = size_t(8) << 20;
++
++  ~TilingLog() { CloseFile(); }
++  void CloseFile() {
++    if (file) {
++      std::fclose(file);
++      file = nullptr;
++    }
++  }
++
++  // Logs started in this run (the %d in the file name).
++  uint32_t logs_started = 0;
++
++  // The running log.
++  std::FILE* file = nullptr;
++  std::string path;
++  int32_t requested = 0;  // gpu_tiling_log_frames when it started (frames)
++  uint32_t frame = 0;
++  uint32_t seq = 0;  // rows written in this frame
++  uint64_t rows_written = 0;
++  bool write_failed = false;
++  fmt::memory_buffer text;
++  int64_t frame_start_ns = 0;
++  TilingLogCounts segment;  // since the last bin select change (or the frame start)
++  TilingLogCounts frame_totals;
++
++  // The type-3 packet being executed (TilingLogPacket).
++  uint32_t packet_address = 0;  // guest physical address of its header
++  uint32_t packet_t3 = 0;       // its number among the frame's type-3 packets (1 = first)
++  uint32_t packet_draw = 0;     // IssueDraw calls before it in the frame (= the frame anatomy's next idx)
++  bool packet_predicated = false;
++};
++
+ CommandProcessor::CommandProcessor(GraphicsSystem* graphics_system,
+                                    system::KernelState* kernel_state)
+     : memory_(graphics_system->memory()),
+@@ -1350,10 +1430,28 @@ bool CommandProcessor::ExecutePacketType3(memory::RingBuffer* reader, uint32_t p
+   // We also skip predicated swaps, as they are never valid (probably?).
+   if (packet & 1) {
+     bool any_pass = (bin_select_ & bin_mask_) != 0;
++    // wwe2k14 patch (Session 7, TILING-STAGE0): predication counters (cpf_tile, cpf_bin) and the tiling log.
++    // Measurement only.
++    if (!any_pass) {
++      ++tiling_counters_.predicated_skipped;
++    } else if (opcode != PM4_XE_SWAP) {
++      if (opcode == PM4_DRAW_INDX || opcode == PM4_DRAW_INDX_2) {
++        ++tiling_counters_.predicated_draws;
++      }
++      if (!tiling_select_counted_) {
++        CountTilingSelect();
++      }
++    }
++    if (tiling_log_active_) {
++      TilingLogPacket(reader, uint32_t(data_start_offset), opcode, true, any_pass && opcode != PM4_XE_SWAP);
++    }
+     if (!any_pass || opcode == PM4_XE_SWAP) {
+       reader->AdvanceRead(count * sizeof(uint32_t));
+       return true;
+     }
++  } else if (tiling_log_active_) {
++    // wwe2k14 patch (Session 7, TILING-STAGE0): the tiling log.
++    TilingLogPacket(reader, uint32_t(data_start_offset), opcode, false, true);
+   }
+ 
+   bool result = false;
+@@ -1432,24 +1530,32 @@ bool CommandProcessor::ExecutePacketType3(memory::RingBuffer* reader, uint32_t p
+       result = ExecutePacketType3_VIZ_QUERY(reader, packet, count);
+       break;
+ 
++    // wwe2k14 patch (Session 7, TILING-STAGE0): Bin{Select,Mask}Written count the packets (cpf_bin) and log
++    // the new values (gpu_tiling_log_frames).
+     case PM4_SET_BIN_MASK_LO: {
+       uint32_t value = reader->ReadAndSwap<uint32_t>();
+       bin_mask_ = (bin_mask_ & 0xFFFFFFFF00000000ull) | value;
++      BinMaskWritten("mask_lo");
+       result = true;
+     } break;
+     case PM4_SET_BIN_MASK_HI: {
+       uint32_t value = reader->ReadAndSwap<uint32_t>();
+       bin_mask_ = (bin_mask_ & 0xFFFFFFFFull) | (static_cast<uint64_t>(value) << 32);
++      BinMaskWritten("mask_hi");
+       result = true;
+     } break;
+     case PM4_SET_BIN_SELECT_LO: {
+       uint32_t value = reader->ReadAndSwap<uint32_t>();
++      const uint64_t old_select = bin_select_;
+       bin_select_ = (bin_select_ & 0xFFFFFFFF00000000ull) | value;
++      BinSelectWritten("sel_lo", old_select);
+       result = true;
+     } break;
+     case PM4_SET_BIN_SELECT_HI: {
+       uint32_t value = reader->ReadAndSwap<uint32_t>();
++      const uint64_t old_select = bin_select_;
+       bin_select_ = (bin_select_ & 0xFFFFFFFFull) | (static_cast<uint64_t>(value) << 32);
++      BinSelectWritten("sel_hi", old_select);
+       result = true;
+     } break;
+     case PM4_SET_BIN_MASK: {
+@@ -1457,13 +1563,16 @@ bool CommandProcessor::ExecutePacketType3(memory::RingBuffer* reader, uint32_t p
+       uint64_t val_hi = reader->ReadAndSwap<uint32_t>();
+       uint64_t val_lo = reader->ReadAndSwap<uint32_t>();
+       bin_mask_ = (val_hi << 32) | val_lo;
++      BinMaskWritten("mask64");
+       result = true;
+     } break;
+     case PM4_SET_BIN_SELECT: {
+       assert_true(count == 2);
+       uint64_t val_hi = reader->ReadAndSwap<uint32_t>();
+       uint64_t val_lo = reader->ReadAndSwap<uint32_t>();
++      const uint64_t old_select = bin_select_;
+       bin_select_ = (val_hi << 32) | val_lo;
++      BinSelectWritten("sel64", old_select);
+       result = true;
+     } break;
+     case PM4_CONTEXT_UPDATE: {
+@@ -1520,6 +1629,12 @@ bool CommandProcessor::ExecutePacketType3_INTERRUPT(memory::RingBuffer* reader,
+ 
+   // generate interrupt from the command stream
+   uint32_t cpu_mask = reader->ReadAndSwap<uint32_t>();
++  // wwe2k14 patch (Session 7, TILING-STAGE0): the tiling log times the interrupt callbacks (with predicated
++  // tiling, the tile-0 interrupt is where the game turns the screen extents into tile masks).
++  const bool tiling_log = tiling_log_active_;
++  if (tiling_log) {
++    TilingLogEvent("interrupt", cpu_mask, -1, true);
++  }
+   for (int n = 0; n < 6; n++) {
+     if (cpu_mask & (1 << n)) {
+       if (graphics_system_) {
+@@ -1527,6 +1642,9 @@ bool CommandProcessor::ExecutePacketType3_INTERRUPT(memory::RingBuffer* reader,
+       }
+     }
+   }
++  if (tiling_log && tiling_log_active_) {
++    TilingLogEvent("interrupt_end", cpu_mask, -1, true);
++  }
+   return true;
+ }
+ 
+@@ -1587,6 +1705,10 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   if (anatomy_active_ || REXCVAR_GET(gpu_anatomy_capture) > 0) {
+     AnatomyFrameBoundary();
+   }
++  // wwe2k14 patch (Session 7, TILING-STAGE0): end a tiling log frame, and start or end a tiling log.
++  if (tiling_log_active_ || REXCVAR_GET(gpu_tiling_log_frames) > 0) {
++    TilingLogFrameBoundary();
++  }
+   return true;
+ }
+ 
+@@ -1864,6 +1986,11 @@ bool CommandProcessor::ExecutePacketType3_EVENT_WRITE(memory::RingBuffer* reader
+   uint32_t initiator = reader->ReadAndSwap<uint32_t>();
+   // Writeback initiator.
+   WriteRegister(XE_GPU_REG_VGT_EVENT_INITIATOR, initiator & 0x3F);
++  // wwe2k14 patch (Session 7, TILING-STAGE0): the tiling log shows the unpredicated SCREEN_EXT_INIT (with
++  // predicated tiling, the game emits one when a tiling bracket begins; the per-draw ones are predicated).
++  if (tiling_log_active_ && !(packet & 1) && (initiator & 0x3F) == SCREEN_EXT_INIT) {
++    TilingLogEvent("ext_init", -1, initiator, true);
++  }
+   if (count == 1) {
+     // Just an event flag? Where does this write?
+   } else {
+@@ -1908,6 +2035,11 @@ bool CommandProcessor::ExecutePacketType3_EVENT_WRITE_EXT(memory::RingBuffer* re
+   WriteRegister(XE_GPU_REG_VGT_EVENT_INITIATOR, initiator & 0x3F);
+   auto endianness = static_cast<xenos::Endian>(address & 0x3);
+   address &= ~0x3;
++  // wwe2k14 patch (Session 7, TILING-STAGE0): count it (cpf_tile) and log where the extents go.
++  ++tiling_counters_.event_write_ext;
++  if (tiling_log_active_) {
++    TilingLogEvent("ext", address, initiator, false);
++  }
+ 
+   // Let us hope we can fake this.
+   // This callback tells the driver the xy coordinates affected by a previous
+@@ -2069,7 +2201,7 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+       draw_succeeded = IssueDraw(vgt_draw_initiator.prim_type, vgt_draw_initiator.num_indices,
+                                  is_indexed ? &index_buffer_info : nullptr, major_mode_explicit);
+       if (anatomy) {
+-        AnatomyEndDraw(vgt_draw_initiator.value, is_indexed, draw_succeeded);
++        AnatomyEndDraw(vgt_draw_initiator.value, is_indexed, draw_succeeded, (packet & 1) != 0);
+       }
+       if (!draw_succeeded) {
+         auto vgt_output_path_cntl = register_file_->Get<reg::VGT_OUTPUT_PATH_CNTL>();
+@@ -2325,6 +2457,12 @@ void CommandProcessor::RecordFrameCounters() {
+     //            changed the bound pipeline
+     //   cpf_cpu  a = processor number of this thread now, b = next crash-checkpoint record id (0 if crash
+     //            diagnostics are off), c = submissions ended
++    //   cpf_tile a = EVENT_WRITE_EXT packets executed (not skipped by predication), b = predicated type-3
++    //            packets skipped by the bin test ((BIN_SELECT & BIN_MASK) == 0), c = predicated DRAW_INDX /
++    //            DRAW_INDX_2 packets executed (Session 7, TILING-STAGE0)
++    //   cpf_bin  a = SET_BIN_SELECT_LO/_HI/SET_BIN_SELECT packets executed, b = SET_BIN_MASK_LO/_HI/SET_BIN_MASK
++    //            packets executed, c = distinct 64-bit BIN_SELECT values that executed predicated packets ran
++    //            under (17 = more than 16; a count, not a sum: per frame only) (Session 7, TILING-STAGE0)
+     // Counts cover the command processor's work between two cp_swap events (the swap's own submission is
+     // counted in the next frame). The type-0 split and the fetch constant comparison only count while the
+     // timeline is on (latched at the previous swap).
+@@ -2341,9 +2479,37 @@ void CommandProcessor::RecordFrameCounters() {
+                            counters.pipeline_binds_changed);
+     perf::timeline::Record("cpf_cpu", counters.processor_number, counters.checkpoint_next_id,
+                            counters.submissions_ended);
++    // wwe2k14 patch (Session 7, TILING-STAGE0).
++    const TilingFrameCounters& tiling = tiling_counters_;
++    perf::timeline::Record("cpf_tile", tiling.event_write_ext, tiling.predicated_skipped,
++                           tiling.predicated_draws);
++    perf::timeline::Record("cpf_bin", tiling.bin_select_packets, tiling.bin_mask_packets,
++                           tiling.bin_select_distinct);
+   }
+   counters = FrameCounters();
+   frame_counters_enabled_ = perf::timeline::Enabled();
++  // wwe2k14 patch (Session 7, TILING-STAGE0).
++  tiling_counters_ = TilingFrameCounters();
++  tiling_select_counted_ = false;
++}
++
++// wwe2k14 patch (Session 7, TILING-STAGE0): cpf_bin c. Called for the first executed predicated packet after
++// bin_select_ may have changed (a SET_BIN_SELECT* packet or a frame boundary), so at most a few times per tile.
++void CommandProcessor::CountTilingSelect() {
++  tiling_select_counted_ = true;
++  TilingFrameCounters& tiling = tiling_counters_;
++  const uint32_t stored = std::min(tiling.bin_select_distinct, kTilingSelectValuesMax);
++  for (uint32_t i = 0; i < stored; ++i) {
++    if (tiling.bin_select_values[i] == bin_select_) {
++      return;
++    }
++  }
++  if (tiling.bin_select_distinct < kTilingSelectValuesMax) {
++    tiling.bin_select_values[tiling.bin_select_distinct++] = bin_select_;
++  } else {
++    // Full: any value not stored makes it "more than kTilingSelectValuesMax".
++    tiling.bin_select_distinct = kTilingSelectValuesMax + 1;
++  }
+ }
+ 
+ namespace {
+@@ -2410,7 +2576,7 @@ void CommandProcessor::AnatomyBeginDraw() {
+ }
+ 
+ void CommandProcessor::AnatomyEndDraw(uint32_t vgt_draw_initiator_value, bool is_indexed,
+-                                      bool succeeded) {
++                                      bool succeeded, bool predicated) {
+   const int64_t end_ns = AnatomyNowNs();
+   AnatomyCapture& capture = *anatomy_;
+   if (capture.rows.size() >= AnatomyCapture::kMaxRowsPerFrame) {
+@@ -2450,6 +2616,19 @@ void CommandProcessor::AnatomyEndDraw(uint32_t vgt_draw_initiator_value, bool is
+   row.rb_depthcontrol = regs[XE_GPU_REG_RB_DEPTHCONTROL];
+   row.rb_colorcontrol = regs[XE_GPU_REG_RB_COLORCONTROL];
+   row.rb_color_mask = regs[XE_GPU_REG_RB_COLOR_MASK];
++  // wwe2k14 patch (Session 7, TILING-STAGE0): predication and the tile pass's window, scissor and viewport.
++  row.predicated = predicated;
++  row.bin_select_lo = uint32_t(bin_select_);
++  row.bin_mask_lo = uint32_t(bin_mask_);
++  row.pa_sc_window_offset = regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET];
++  row.pa_sc_window_scissor_tl = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_TL];
++  row.pa_sc_window_scissor_br = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR];
++  row.pa_sc_screen_scissor_tl = regs[XE_GPU_REG_PA_SC_SCREEN_SCISSOR_TL];
++  row.pa_sc_screen_scissor_br = regs[XE_GPU_REG_PA_SC_SCREEN_SCISSOR_BR];
++  row.pa_cl_vport_xscale = regs[XE_GPU_REG_PA_CL_VPORT_XSCALE];
++  row.pa_cl_vport_xoffset = regs[XE_GPU_REG_PA_CL_VPORT_XOFFSET];
++  row.pa_cl_vport_yscale = regs[XE_GPU_REG_PA_CL_VPORT_YSCALE];
++  row.pa_cl_vport_yoffset = regs[XE_GPU_REG_PA_CL_VPORT_YOFFSET];
+   if (row.is_copy) {
+     // A resolve runs no guest shaders.
+     row.copy_dest = regs[XE_GPU_REG_RB_COPY_DEST_BASE];
+@@ -2489,11 +2668,19 @@ void CommandProcessor::AnatomyFrameBoundary() {
+                      row.rb_depth_info, row.rb_modecontrol, row.rb_depthcontrol, row.rb_colorcontrol,
+                      row.rb_color_mask, row.vs_textures, row.ps_textures, row.vs_float_constants,
+                      row.ps_float_constants, row.pipeline_changed, row.skipped);
++      // wwe2k14 patch (Session 7, TILING-STAGE0): the predication and window columns follow copy_info.
+       if (row.is_copy) {
+-        fmt::format_to(std::back_inserter(text), "0x{:08X},0x{:08X}\n", row.copy_dest, row.copy_info);
++        fmt::format_to(std::back_inserter(text), "0x{:08X},0x{:08X},", row.copy_dest, row.copy_info);
+       } else {
+-        fmt::format_to(std::back_inserter(text), ",\n");
++        fmt::format_to(std::back_inserter(text), ",,");
+       }
++      fmt::format_to(std::back_inserter(text),
++                     "0x{:08X},0x{:08X},{},0x{:08X},0x{:08X},0x{:08X},0x{:08X},0x{:08X},0x{:08X},0x{:08X},"
++                     "0x{:08X},0x{:08X}\n",
++                     row.bin_select_lo, row.bin_mask_lo, row.predicated ? 1 : 0, row.pa_sc_window_offset,
++                     row.pa_sc_window_scissor_tl, row.pa_sc_window_scissor_br, row.pa_sc_screen_scissor_tl,
++                     row.pa_sc_screen_scissor_br, row.pa_cl_vport_xscale, row.pa_cl_vport_xoffset,
++                     row.pa_cl_vport_yscale, row.pa_cl_vport_yoffset);
+     }
+     bool write_ok = true;
+     if (text.size()) {
+@@ -2572,7 +2759,11 @@ void CommandProcessor::AnatomyFrameBoundary() {
+       "frame,idx,kind,t_us,cp_us,vs_hash,ps_hash,prim,count,indexed,index_fmt,rb_surface_info,"
+       "rb_color_info0,rb_color_info1,rb_color_info2,rb_color_info3,rb_depth_info,rb_modecontrol,"
+       "rb_depthcontrol,rb_colorcontrol,rb_color_mask,vs_tex,ps_tex,vs_consts,ps_consts,pipeline_changed,"
+-      "skipped,copy_dest,copy_info\n",
++      "skipped,copy_dest,copy_info,"
++      // wwe2k14 patch (Session 7, TILING-STAGE0): appended at the end, so existing tools keep working.
++      "bin_select_lo,bin_mask_lo,predicated,pa_sc_window_offset,pa_sc_window_scissor_tl,"
++      "pa_sc_window_scissor_br,pa_sc_screen_scissor_tl,pa_sc_screen_scissor_br,pa_cl_vport_xscale,"
++      "pa_cl_vport_xoffset,pa_cl_vport_yscale,pa_cl_vport_yoffset\n",
+       capture.rows_file);
+   std::fputs("frame,draws,copies,cp_us_sum,span_us\n", capture.frames_file);
+   capture.requested = requested;
+@@ -2603,4 +2794,232 @@ void CommandProcessor::AnatomyFinish(const char* why) {
+   capture.rows = std::vector<AnatomyCapture::Row>();
+ }
+ 
++// wwe2k14 patch (Session 7, TILING-STAGE0): the predicated tiling log (gpu_tiling_log_frames). Measurement
++// only: nothing here changes what is emulated or drawn. One CSV row per event, in command processor order:
++//   frame       log frame (0 = the frame after the swap where the log started)
++//   seq         row number in the frame
++//   t3          the packet's number among the frame's type-3 packets (1 = first; cpf_t0x c counts them)
++//   draw        IssueDraw calls (draws and resolves) before the packet in the frame = the frame anatomy's idx of
++//               the next draw/copy row when a frame-anatomy capture covers the same frames
++//   pkt         guest physical address of the packet's header (the game's extents records hold "the address of
++//               the next packet")
++//   kind        sel_lo / sel_hi / sel64: SET_BIN_SELECT_LO / _HI / SET_BIN_SELECT (select = the new value)
++//               mask_lo / mask_hi / mask64: SET_BIN_MASK_LO / _HI / SET_BIN_MASK (mask = the new value)
++//               ext: EVENT_WRITE_EXT executed (value = the address the extents are written to, endian bits
++//                    cleared; info = the event initiator)
++//               ext_init: EVENT_WRITE SCREEN_EXT_INIT without the predicate bit (info = the initiator)
++//               interrupt / interrupt_end: INTERRUPT, before and after its callbacks (value = the CPU mask)
++//               seg: packet counts since the last bin select change (or the frame start), written before the
++//                    next sel_* row and at the frame end when not all zero (select = the select they ran under)
++//               frame: the frame boundary (value = cp_swap's b, the CP frame number; counts = the frame's totals)
++//   pred        the packet had the predicate bit
++//   select, mask  64-bit BIN_SELECT / BIN_MASK after the packet
++//   value, info   see kind (hex; empty when not used)
++//   t_us        microseconds since the frame started (the previous swap), for sel_*, ext_init, interrupt*, seg
++//               and frame rows only
++//   pred_exec, pred_skip    predicated type-3 packets executed / skipped by the bin test (seg and frame rows)
++//   draw_exec, draw_skip    predicated DRAW_INDX / DRAW_INDX_2 executed / skipped
++//   draw_unpred             DRAW_INDX / DRAW_INDX_2 without the predicate bit
++//   ext_exec, ext_skip      EVENT_WRITE_EXT executed / skipped
++// Rows are buffered and written at each frame boundary (or every 8 MiB).
++
++namespace {
++
++// gpu_anatomy_path's directory: anatomy_NNN_%d.csv -> tiling_NNN_<index>.csv; any other file name gets a
++// "tiling_" prefix (and, without %d, an "_<index>" suffix from the second log on, as the anatomy capture does).
++std::filesystem::path TilingLogPath(const std::string& anatomy_path, const std::string& index_string) {
++  if (anatomy_path.empty()) {
++    std::error_code current_path_error;
++    return std::filesystem::current_path(current_path_error) / "logs" / ("tiling_" + index_string + ".csv");
++  }
++  const std::filesystem::path anatomy(anatomy_path);
++  std::string name = anatomy.filename().string();
++  if (name.compare(0, 7, "anatomy") == 0) {
++    name.replace(0, 7, "tiling");
++  } else {
++    name.insert(0, "tiling_");
++  }
++  if (name.find("%d") != std::string::npos) {
++    for (size_t position = name.find("%d"); position != std::string::npos;
++         position = name.find("%d", position + index_string.size())) {
++      name.replace(position, 2, index_string);
++    }
++  } else if (index_string != "0") {
++    const std::filesystem::path name_path(name);
++    name = name_path.stem().string() + "_" + index_string + name_path.extension().string();
++  }
++  return anatomy.parent_path() / name;
++}
++
++}  // namespace
++
++void CommandProcessor::TilingLogPacket(const memory::RingBuffer* reader, uint32_t data_start_offset,
++                                       uint32_t opcode, bool predicated, bool executed) {
++  TilingLog& log = *tiling_log_;
++  // The header is the dword before the packet's data (the ring may wrap there). Command buffers are in guest
++  // physical memory (TranslatePhysical).
++  const uint32_t capacity = uint32_t(reader->capacity());
++  const uint32_t header_offset = (data_start_offset + capacity - uint32_t(sizeof(uint32_t))) % capacity;
++  log.packet_address = uint32_t((reader->buffer() + header_offset) - memory_->physical_membase());
++  log.packet_t3 = frame_counters_.type3_packets;
++  log.packet_draw = frame_counters_.issue_draw;
++  log.packet_predicated = predicated;
++  TilingLogCounts& segment = log.segment;
++  if (predicated) {
++    ++(executed ? segment.pred_exec : segment.pred_skip);
++  }
++  if (opcode == PM4_DRAW_INDX || opcode == PM4_DRAW_INDX_2) {
++    ++(!predicated ? segment.draw_unpred : executed ? segment.draw_exec : segment.draw_skip);
++  } else if (opcode == PM4_EVENT_WRITE_EXT) {
++    ++(executed ? segment.ext_exec : segment.ext_skip);
++  }
++}
++
++void CommandProcessor::TilingLogRow(const char* kind, uint64_t select, int64_t value, int64_t info,
++                                    bool timed, const TilingLogCounts* counts) {
++  TilingLog& log = *tiling_log_;
++  fmt::memory_buffer& text = log.text;
++  fmt::format_to(std::back_inserter(text), "{},{},{},{},0x{:08X},{},{},0x{:016X},0x{:016X},", log.frame,
++                 log.seq++, log.packet_t3, log.packet_draw, log.packet_address, kind,
++                 log.packet_predicated ? 1 : 0, select, bin_mask_);
++  if (value >= 0) {
++    fmt::format_to(std::back_inserter(text), "0x{:08X}", uint32_t(value));
++  }
++  text.push_back(',');
++  if (info >= 0) {
++    fmt::format_to(std::back_inserter(text), "0x{:08X}", uint32_t(info));
++  }
++  text.push_back(',');
++  if (timed) {
++    fmt::format_to(std::back_inserter(text), "{:.1f}", double(AnatomyNowNs() - log.frame_start_ns) / 1000.0);
++  }
++  if (counts) {
++    fmt::format_to(std::back_inserter(text), ",{},{},{},{},{},{},{}\n", counts->pred_exec, counts->pred_skip,
++                   counts->draw_exec, counts->draw_skip, counts->draw_unpred, counts->ext_exec,
++                   counts->ext_skip);
++  } else {
++    fmt::format_to(std::back_inserter(text), ",,,,,,,\n");
++  }
++  if (text.size() >= TilingLog::kFlushBytes) {
++    TilingLogFlush();
++  }
++}
++
++void CommandProcessor::TilingLogFlush() {
++  TilingLog& log = *tiling_log_;
++  if (log.text.size() && log.file &&
++      std::fwrite(log.text.data(), 1, log.text.size(), log.file) != log.text.size()) {
++    log.write_failed = true;
++  }
++  log.text.clear();
++}
++
++void CommandProcessor::TilingLogEndSegment(uint64_t select) {
++  TilingLog& log = *tiling_log_;
++  if (!log.segment.any()) {
++    return;
++  }
++  TilingLogRow("seg", select, -1, -1, true, &log.segment);
++  log.frame_totals.Add(log.segment);
++  log.segment = TilingLogCounts();
++}
++
++void CommandProcessor::TilingLogBinSelect(const char* kind, uint64_t old_select) {
++  TilingLogEndSegment(old_select);
++  TilingLogRow(kind, bin_select_, -1, -1, true, nullptr);
++}
++
++void CommandProcessor::TilingLogBinMask(const char* kind) {
++  TilingLogRow(kind, bin_select_, -1, -1, false, nullptr);
++}
++
++void CommandProcessor::TilingLogEvent(const char* kind, int64_t value, int64_t info, bool timed) {
++  TilingLogRow(kind, bin_select_, value, info, timed, nullptr);
++}
++
++void CommandProcessor::TilingLogFrameBoundary() {
++  if (tiling_log_active_) {
++    // Close the frame that just ended (called after the swap's ++counter_; the swap packet is the last one
++    // TilingLogPacket noted).
++    TilingLog& log = *tiling_log_;
++    TilingLogEndSegment(bin_select_);
++    TilingLogRow("frame", bin_select_, int64_t(uint32_t(counter_ - 1)), -1, true, &log.frame_totals);
++    TilingLogFlush();
++    // Ties the log's frames to the timeline's cp_swap events.
++    perf::timeline::Record("tiling_log", log.logs_started - 1, log.frame, log.seq);
++    log.rows_written += log.seq;
++    log.seq = 0;
++    log.frame_totals = TilingLogCounts();
++    ++log.frame;
++    if (log.write_failed) {
++      TilingLogFinish("write error");
++      return;
++    }
++    if (log.frame >= uint32_t(log.requested)) {
++      TilingLogFinish("done");
++      return;
++    }
++    log.frame_start_ns = AnatomyNowNs();
++    return;
++  }
++
++  // Start a log at this frame boundary.
++  const int32_t requested = REXCVAR_GET(gpu_tiling_log_frames);
++  if (requested <= 0) {
++    return;
++  }
++  if (!tiling_log_) {
++    tiling_log_ = std::make_unique<TilingLog>();
++  }
++  TilingLog& log = *tiling_log_;
++  const std::string index_string = std::to_string(log.logs_started++);
++  const std::filesystem::path path = TilingLogPath(REXCVAR_GET(gpu_anatomy_path), index_string);
++  if (path.has_parent_path()) {
++    std::error_code create_error;
++    std::filesystem::create_directories(path.parent_path(), create_error);
++  }
++  log.CloseFile();
++  log.file = AnatomyOpenFile(path);
++  log.path = path.string();
++  if (!log.file) {
++    REXGPU_WARN("[s7][TILING] Tiling log: can't open {}", log.path);
++    REXCVAR_SET(gpu_tiling_log_frames, 0);
++    return;
++  }
++  std::fputs(
++      "frame,seq,t3,draw,pkt,kind,pred,select,mask,value,info,t_us,pred_exec,pred_skip,draw_exec,draw_skip,"
++      "draw_unpred,ext_exec,ext_skip\n",
++      log.file);
++  log.requested = requested;
++  log.frame = 0;
++  log.seq = 0;
++  log.rows_written = 0;
++  log.write_failed = false;
++  log.text.clear();
++  log.segment = TilingLogCounts();
++  log.frame_totals = TilingLogCounts();
++  log.packet_address = 0;
++  log.packet_t3 = 0;
++  log.packet_draw = 0;
++  log.packet_predicated = false;
++  log.frame_start_ns = AnatomyNowNs();
++  tiling_log_active_ = true;
++  REXGPU_INFO("[s7][TILING] Tiling log {} started: {} frames to {}", index_string, requested, log.path);
++}
++
++void CommandProcessor::TilingLogFinish(const char* why) {
++  TilingLog& log = *tiling_log_;
++  TilingLogFlush();
++  log.CloseFile();
++  tiling_log_active_ = false;
++  // Back to 0 so the harness can see that the log is over. A different value set meanwhile is a new request and
++  // is kept (it starts at the next frame boundary).
++  if (REXCVAR_GET(gpu_tiling_log_frames) == log.requested) {
++    REXCVAR_SET(gpu_tiling_log_frames, 0);
++  }
++  REXGPU_INFO("[s7][TILING] Tiling log {}: {} frame(s), {} row(s) -> {}", why, log.frame, log.rows_written,
++              log.path);
++  log.text = fmt::memory_buffer();
++}
++
+ }  // namespace rex::graphics

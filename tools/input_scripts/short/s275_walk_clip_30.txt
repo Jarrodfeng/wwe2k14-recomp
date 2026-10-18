@@ -1,0 +1,26 @@
+# harness: fast-forward ok (Session 27.5 item A: frame-locked clip of Cena's walk-out with the title in the game's own 30 fps entrance (INGAMELUA + 700, 180 frames); use with --wwe2k14_entrance_60fps=false --wwe2k14_clip_frame_locked=true --wwe2k14_clip_dir=DIR)
+# Use with --wwe2k14_launch=hiac_cena_brodus --wwe2k14_replay_mode=true and --gpu_debug_draw_probe=<character VS
+# hashes> --gpu_debug_draw_probe_path=<csv>. Boot part as s27_cena_motion.txt (launch_boot_check.txt).
+on_fail quit
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log launch: in-game sequence loading
+wait_frames 700
+log walk clip: the same moment in the 30 fps entrance (frames ~2748-2928)
+clip_start walk 60 0.5
+wait_frames 180
+clip_stop
+wait_frames 60
+log short route: end
+quit

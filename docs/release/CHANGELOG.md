@@ -1,0 +1,107 @@
+# Changelog
+
+## {{VERSION}}
+
+- **A new look for the launcher**, in the style of the game's own menus: the red page band with PLAY, SETTINGS, MODS
+  and ABOUT, the game's own menu lettering (read from your game files), slanted buttons, and the logo.
+- **Quick Match has every match type from the game's PLAY menu** (58), laid out like the game: one on one (Extreme
+  Rules, Hell in a Cell, I Quit, Inferno, Iron Man, Ladder, Last Man Standing, Steel Cage, Submission, Table, TLC),
+  two on two (tag, tornado and elimination tag in every variant, mixed tag), triple threat and fatal 4-way variants,
+  6-man (battle royal, Elimination Chamber, Hell in a Cell, ladder, tag), handicap (incl. gauntlet) and backstage
+  brawls. The wrestlers are grouped by team. The Royal Rumble still needs "My saved setups".
+- **New settings:**
+  - **Language**: English, Deutsch, Français, Español or Italiano (the five on the disc); Automatic follows Windows.
+  - **Graphics card**: the game now uses your dedicated graphics card by itself (laptops used to start on the built-in
+    one); you can also pick one by name.
+  - **Display**: fullscreen or windowed.
+  - **Frame rate** is now 60 / 120 / Uncapped (Uncapped = your monitor's refresh rate), in the launcher and in the
+    game's Options -> GRAPHICS. 60 fps entrances are the default; the Xbox 360's 30 fps entrances are in "Original
+    look".
+- The first-run wizard lets you set language, graphics card, resolution and frame rate before your first game.
+- **About** page with the project's link, the credits and the licences.
+- Mods: the trons grid shows two columns at the default size, and the titles have a grid view too.
+
+Known issues:
+- The graphics-card choice is new: if a laptop still starts on its built-in GPU, please send a report.
+- Our own menu items in the game (QUIT TO DESKTOP, GRAPHICS) stay in English in every language.
+- FSR (upscaling on non-NVIDIA cards) is still not offered.
+
+## v0.1.4-playtest
+
+- **GRAPHICS settings in Options.** A new GRAPHICS item sits after GAMEPLAY in the game's own Options menu. It is the
+  same Upscaling, Frame rate and Resolution as in the launcher's Settings, changed from inside the game:
+  - DLAA on / off and Classic / 60 everywhere take effect at once.
+  - The DLSS modes, High refresh and the resolution take effect the next time you start the game (the game says so).
+  - Choices are saved to the launcher's settings, so the launcher and the game always agree.
+- **QUIT TO DESKTOP** at the bottom of the main menu (it asks first). Alt+F4 still works.
+- **Starting the game without the launcher** now uses the Resolution, Frame rate and Upscaling you set in the launcher.
+
+Known issues:
+- The "some changes apply the next time you start the game" message has Yes / No buttons; either one just closes it.
+- FSR (upscaling on non-NVIDIA cards) is still not offered.
+
+## v0.1.3-playtest
+
+- **Fixed: John Cena's title glitching around as he walks out** at 60 fps and higher frame rates. The swing in his
+  hand now looks like the original 30 fps entrance, only smoother; the classic frame rate is unchanged.
+- **Advanced (replays and slow-motion re-shoots above 60 fps):** the stage video screens no longer go black, and the
+  titantron plays in step with the scene, so in a slow-motion re-shoot it plays slowed down too (custom MP4 trons
+  as well).
+
+## v0.1.2-playtest
+
+- **Fixed: the rare crash a few seconds into starting the game** (in the sound start-up). "Try again" is no longer
+  needed for it.
+- **Quick Match without setting it up in the menus first:** Play Game -> Quick Match -> **Build a match**:
+  - pick the match type, the wrestlers (type to search; Random per slot) and the arena, or **Random everything**;
+  - match types: One on One, Triple Threat, Fatal 4-Way, Tag Team, 6-Pack Challenge, Elimination Chamber, Hell in a
+    Cell;
+  - you play wrestler 1 with controller 1, or tick **CPU vs CPU** to watch;
+  - your saved setups are still there ("My saved setups"); the Royal Rumble still needs one.
+- **Logos:** the import now checks every screen it passes and stops safely (the game closes without saving, the
+  launcher says where) if anything looks unexpected. It also works on a save that has never used Create-a-Logo.
+- **DLSS:** no smear from the previous shot right after a camera cut.
+
+Known issues:
+- John Cena's title can glitch around as he walks out when entrances run at 60 fps (Settings -> Frame rate -> classic
+  avoids it). Being looked at.
+- FSR (upscaling on non-NVIDIA cards) is still not offered.
+
+## v0.1.1-playtest
+- **Play from a disc image:** in the launcher, Settings -> **Disc image...** and pick an `.iso` of your own disc (a
+  full image or a trimmed one). Nothing needs unpacking. A folder copy still works as before.
+- The launcher's game-file check reads inside the disc image too, and says plainly when an image is incomplete or
+  damaged ("copy it again").
+- A title update file (`default.xexp`) next to your game files is ignored: the game plays the disc version.
+- If the game can't start (game files not found, a damaged or incomplete disc image), it now shows its message and
+  closes, instead of crashing. The launcher shows a short note instead of the crash dialog.
+
+Known issues:
+- Disc images were tested with images made from a copied disc; an image ripped straight from a disc drive hasn't been
+  tried yet.
+- Otherwise the same as v0.1.0 below.
+
+## v0.1.0-playtest (first playtest build)
+
+The first build for testers. What's in it:
+
+- **The game** runs natively on Windows (Vulkan):
+  - menus, Create-a-Wrestler, Create-a-Logo, exhibition matches with entrances, titantrons and music;
+  - WrestleMania arenas, the Royal Rumble, Hell in a Cell, Elimination Chamber.
+- **Looks and speed:**
+  - 1440p at 60 fps by default; 720p and 4K too.
+  - High-refresh matches (up to your monitor's rate).
+  - Fast loads.
+- **Upscaling:** DLAA and DLSS on NVIDIA RTX cards (NVIDIA's DLSS files included).
+- **Nothing to install:** the Visual C++ runtime files are included.
+- **The launcher:**
+  - Play, plus Quick Match (save a match setup once, start it in one click).
+  - Mods: your own trons, title reveals, and PNGs as real Create-a-Logo logos (save backed up first).
+  - Settings with a check of your game files.
+  - A first-run wizard and Report a problem.
+- **Extras:** CineCam (F8, free camera); run-ins (F9, experimental).
+
+Known issues:
+- A rare audio crash right at start-up: Try again fixes it.
+- FSR (upscaling on non-NVIDIA cards) is not in yet.
+- Keyboard play is untested; use a controller.

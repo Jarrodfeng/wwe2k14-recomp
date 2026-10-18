@@ -1,0 +1,41 @@
+# Scene tile-layout hooks (src/tiling_hooks.h). Session 7, task NOMSAA: docs/research/predicated_tiling.md option (e)
+# and section 4 "Track E". Log-only unless --wwe2k14_force_no_msaa=true.
+# Every address was checked with tools/analysis/list_function.py against the local generated code (Session 7). The
+# reasoning for each register is in src/tiling_hooks.h. No game code here, only addresses and plain descriptions.
+
+# sub_82C22AF8 (build a scene object's render targets), the instruction right after the call to the layout lookup
+# sub_82C222D0. The table, the 1-tile fallback and the custom-layout paths all meet here, and the 256-byte layout at
+# scene object + 12 is final; the next call (sub_82C22880) sizes the targets from it (1 tile: the layout's width and
+# height). r31 = scene object (copied from r3 at entry, non-volatile). r1 = this function's 192-byte frame;
+# its prologue saved the return address at entry r1 - 8 = r1 + 184 (identifies which of the four callers this is).
+# With the setting on, the layout is rewritten to 1 tile, MSAA type 0.
+[[midasm_hook]]
+address = 0x82C22BCC
+name = "wwe2k14_tiling_layout_chosen"
+registers = ["r1", "r31"]
+
+# sub_82C22AF8, the compare of the layout's MSAA type (r11, loaded from scene object + 20 by the previous instruction)
+# against zero: zero skips creating the scene colour and depth targets. For a build the hook above forced, r11 is
+# reported as non-zero so the targets are still created; the two creation calls read the type again (0x82C22C08,
+# 0x82C22C20) and get 0, i.e. no MSAA.
+[[midasm_hook]]
+address = 0x82C22BE4
+name = "wwe2k14_tiling_create_gate"
+registers = ["r11", "r31"]
+
+# sub_82C22AF8, loc_82C22C58: the join point after target creation (reached with and without targets), before the
+# requested type (r26) and layout flag (r25) are stored at scene object + 4 / + 8. Log only.
+[[midasm_hook]]
+address = 0x82C22C58
+name = "wwe2k14_tiling_scene_built"
+registers = ["r1", "r25", "r26", "r31"]
+
+# sub_82BA84E8, the game's own "MSAA settings changed?" compare: r11 = scene object + 4 (type the targets were last
+# built for, loaded by the previous instruction), r4 = render device + 320 (current setting), r3 = scene object
+# (render device + 316). When wwe2k14_force_no_msaa changed since that object's last build and its scene is not
+# open, r11 is made different from r4, so the game rebuilds through its own path (call at 0x82BA8694 with r3 and r4
+# unchanged). Otherwise nothing.
+[[midasm_hook]]
+address = 0x82BA8674
+name = "wwe2k14_tiling_rebuild_check"
+registers = ["r3", "r4", "r11"]

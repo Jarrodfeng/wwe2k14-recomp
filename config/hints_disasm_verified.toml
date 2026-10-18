@@ -1,0 +1,13 @@
+# Function-entry hints whose address comes from a regular code layout rather than a pointer or a crash,
+# each verified by ReXGlue's own disassembly before being added. Approved by Jarrod 2026-10-07 as consistent
+# with CLAUDE.md rule 5 (addresses backed by recompiler output), on the condition that the reasoning is logged.
+
+[functions]
+# The 0x823F1010-0x823F1CE0 block is 205 consecutive 16-byte slots, every one a 4-instruction vtable-call thunk
+# (load vtable from r3, load slot N, mtctr, bctr). 201 slots were registered from pointers (rounds 3-4), one more
+# by a live crash (0x823F16E0, hints_live.toml). These are the last 3. Throwaway codegen (thirdparty/exp-hints,
+# 2026-10-07) disassembled each as the identical thunk shape (only the vtable slot differs: 772, 448, 776),
+# 0 unsealed functions, no "not in any code region".
+0x823F1220 = {} # vcall thunk, vtable slot offset 772
+0x823F1390 = {} # vcall thunk, vtable slot offset 448
+0x823F1570 = {} # vcall thunk, vtable slot offset 776

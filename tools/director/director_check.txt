@@ -1,0 +1,26 @@
+# Session 17 Track 3: director script check. Run with --wwe2k14_director=NAME (the script sets the scenario, seed and
+# replay mode). Boots like seed_match.txt, waits for the match clock to pass 1:10 (4200 frames), a screenshot every 300
+# frames from the bell, quits. Use with --wwe2k14_det_hash=default,objects to compare two runs
+# (tools\determinism\det_compare.py). Fast-forward OK. on_fail quit.
+on_fail quit
+log dir: start
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+log dir: match launched
+wait_file M3.PAC 72000
+wait_state match_clock !=0 20000 2
+log dir: bell
+screenshot_every 300 dir
+wait_state match_clock >=4200 20000 2
+screenshot_every 0 dir
+wait_frames 30
+log dir: done
+quit

@@ -1,0 +1,7 @@
+# Session 15 (determinism): write watch on the random-table cursors 0x839456D4/D5 from the first frame, 300 frames, quit.
+# Compare two runs' out\harness\watch\<run>\hits.tsv. Use with --det_frames=true (run_list; no launch needed).
+on_fail quit
+log det: cursor watch
+watch 0x839456D4 2 any
+wait_frames 300
+quit

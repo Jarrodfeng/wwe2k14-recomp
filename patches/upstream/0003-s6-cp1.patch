@@ -1,0 +1,380 @@
+Subject: [ReXGlue] merge s6/cp1
+
+Class: RGO
+What: Type-0 register packets through a bulk range path; GPU debug-log check cached.
+Evidence: In-run A/B (CH103 heavy entrance): CP busy -4.8 +-1.3 ms/frame heavy, -1.73 +-0.26 match; _verify 0 mismatches (PLAYBOOK Session 6 table).
+On / off: gpu_type0_bulk_writes (+_verify), default off.
+Commit: 372a974 (diff against 372a974^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 4df550b..c401773 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -174,6 +174,23 @@ class CommandProcessor {
+   void ExecuteIndirectBuffer(uint32_t ptr, uint32_t length);
+   bool ExecutePacket(memory::RingBuffer* reader);
+   bool ExecutePacketType0(memory::RingBuffer* reader, uint32_t packet);
++  // wwe2k14 patch (Session 6, CP1): gpu_type0_bulk_writes_verify path of ExecutePacketType0.
++  void ExecutePacketType0BulkVerify(memory::RingBuffer* reader, uint32_t base_index,
++                                    uint32_t count);
++  // wwe2k14 patch (Session 6, CP1): the backend state that shader constant register writes invalidate
++  // (constant buffer, texture binding and vertex buffer "in sync" bits), so gpu_type0_bulk_writes_verify can
++  // check that a bulk range write leaves it exactly as per-register writes would. Returns false if the
++  // backend doesn't expose it.
++  struct RegisterWriteInvalidationState {
++    uint64_t bits[4] = {};
++    bool operator==(const RegisterWriteInvalidationState& other) const {
++      return std::memcmp(bits, other.bits, sizeof(bits)) == 0;
++    }
++    bool operator!=(const RegisterWriteInvalidationState& other) const { return !(*this == other); }
++  };
++  virtual bool GetRegisterWriteInvalidationState(RegisterWriteInvalidationState& state_out) const {
++    return false;
++  }
+   bool ExecutePacketType1(memory::RingBuffer* reader, uint32_t packet);
+   bool ExecutePacketType2(memory::RingBuffer* reader, uint32_t packet);
+   bool ExecutePacketType3(memory::RingBuffer* reader, uint32_t packet);
+@@ -227,6 +244,12 @@ class CommandProcessor {
+ 
+   // Shared readback resolve mode with backend legacy-flag alias support.
+   ReadbackResolveMode GetReadbackResolveMode(bool legacy_readback_resolve_enabled) const;
++  // wwe2k14 patch (Session 6, CP10): refreshes the cached parse of the readback_resolve setting that
++  // GetReadbackResolveMode uses (command processor thread, at context setup and once per guest swap).
++  void RefreshReadbackResolveModeCache();
++  // wwe2k14 patch (Session 6, CP10): refreshes gpu_debug_log_may_be_enabled_ (at the start of every
++  // ExecutePrimaryBuffer).
++  void RefreshGpuDebugLogCache();
+   // Shared memexport readback enable state with backend legacy-flag override support.
+   bool IsReadbackMemexportEnabled(bool legacy_backend_flag) const;
+ 
+@@ -346,6 +369,28 @@ class CommandProcessor {
+   uint32_t anatomy_skip_reason_ = kAnatomySkipOther;
+   // A capture is running (changes only at frame boundaries).
+   bool anatomy_active_ = false;
++  // wwe2k14 patch (Session 6, CP10): per-register-write and per-resolve setting lookups, cached.
++  // Whether the GPU logger may log at debug level (true until the first refresh, which keeps the original
++  // full check).
++  bool gpu_debug_log_may_be_enabled_ = true;
++  // Cached GetReadbackResolveMode inputs derived from readback_resolve (valid after the first refresh).
++  bool readback_resolve_cache_valid_ = false;
++  bool readback_resolve_cached_overrides_legacy_ = false;
++  ReadbackResolveMode readback_resolve_cached_shared_mode_ = ReadbackResolveMode::kDisabled;
++
++  // wwe2k14 patch (Session 6, CP1): gpu_type0_bulk_writes_verify statistics (command processor thread).
++  struct Type0BulkVerifyStats {
++    uint64_t packets_checked = 0;
++    uint64_t registers_checked = 0;
++    uint64_t packets_not_checked = 0;
++    uint64_t value_mismatches = 0;
++    uint64_t invalidation_mismatches = 0;
++    uint64_t read_offset_mismatches = 0;
++    uint64_t mismatches_logged = 0;
++    uint32_t last_summary_frame = 0;
++    bool summary_frame_valid = false;
++  };
++  Type0BulkVerifyStats type0_bulk_verify_stats_;
+ 
+  private:
+   reg::DC_LUT_30_COLOR gamma_ramp_256_entry_table_[256] = {};
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index d26cd4f..482b154 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -108,6 +108,8 @@ class TextureCache {
+     uint32_t mask = bit_count == 32 ? UINT32_MAX : ((UINT32_C(1) << bit_count) - 1) << first_index;
+     texture_bindings_in_sync_ &= ~mask;
+   }
++  // wwe2k14 patch (Session 6, CP1): for gpu_type0_bulk_writes_verify.
++  uint32_t texture_bindings_in_sync() const { return texture_bindings_in_sync_; }
+ 
+   virtual void RequestTextures(uint32_t used_texture_mask);
+ 
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 17a302a..35f3549 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -254,6 +254,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+ 
+   void WriteRegister(uint32_t index, uint32_t value) override;
+   void WriteRegistersFromMem(uint32_t start_index, uint32_t* base, uint32_t num_registers) override;
++  // wwe2k14 patch (Session 6, CP1): for gpu_type0_bulk_writes_verify.
++  bool GetRegisterWriteInvalidationState(RegisterWriteInvalidationState& state_out) const override;
+   bool ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* reader, uint32_t packet,
+                                           uint32_t count) override;
+ 
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 5a635b3..aa23033 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -54,6 +54,18 @@ REXCVAR_DEFINE_BOOL(gpu_wait_reg_mem_spin, false, "GPU",
+ REXCVAR_DEFINE_BOOL(gpu_wait_reg_mem_stats, false, "GPU",
+                     "Log WAIT_REG_MEM statistics (packets, waits, time slept, hottest address) every 5 s");
+ 
++// wwe2k14 patch (Session 6, CP1): type-0 packets carry most register writes in 2K14 (including shader
++// constants; SET_CONSTANT isn't used), and each register went through a virtual WriteRegister call.
++REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes, false, "GPU",
++                    "Type-0 packets that write consecutive registers go through the register-range path "
++                    "(WriteRegisterRangeFromRing, as SET_CONSTANT does): shader constant ranges become one "
++                    "copy plus one range invalidation, other ranges still use per-register writes. Same "
++                    "results; read per packet, so it can be toggled mid-run");
++REXCVAR_DEFINE_BOOL(gpu_type0_bulk_writes_verify, false, "GPU",
++                    "With gpu_type0_bulk_writes: replay every bulk-written shader constant range through "
++                    "per-register writes and compare register values, invalidation bits and ring offset; "
++                    "logs [s6][CP1] mismatches and a summary every 300 frames (slow, for checking only)");
++
+ REXCVAR_DEFINE_BOOL(clear_memory_page_state, true, "GPU",
+                     "Refresh page-valid state from GPU-written memory at frame end. "
+                     "Disable for minor CPU overhead reduction, but may break memory coherency.")
+@@ -124,6 +136,15 @@ ReadbackResolveMode ParseReadbackResolveMode(std::string_view value) {
+   return ReadbackResolveMode::kDisabled;
+ }
+ 
++// The readback_resolve part of GetReadbackResolveMode. The HasNonDefaultValue lookup takes the cvar
++// registry lock, allocates a std::string and does a map find.
++ReadbackResolveMode GetSharedReadbackResolveMode(bool& shared_mode_overrides_legacy_out) {
++  ReadbackResolveMode shared_mode = ParseReadbackResolveMode(REXCVAR_GET(readback_resolve));
++  shared_mode_overrides_legacy_out = shared_mode != ReadbackResolveMode::kDisabled ||
++                                     rex::cvar::HasNonDefaultValue("readback_resolve");
++  return shared_mode;
++}
++
+ }  // namespace
+ 
+ // wwe2k14 patch (Session 6, COUNTERS): frame-anatomy capture state (defined before the destructor, which
+@@ -263,9 +284,17 @@ void CommandProcessor::InvalidateGpuMemory() {}
+ 
+ ReadbackResolveMode CommandProcessor::GetReadbackResolveMode(
+     bool legacy_readback_resolve_enabled) const {
+-  ReadbackResolveMode shared_mode = ParseReadbackResolveMode(REXCVAR_GET(readback_resolve));
+-  bool shared_mode_overrides_legacy = shared_mode != ReadbackResolveMode::kDisabled ||
+-                                      rex::cvar::HasNonDefaultValue("readback_resolve");
++  // wwe2k14 patch (Session 6, CP10): IssueCopy calls this for every resolve; use the readback_resolve parse
++  // cached at context setup and at every guest swap (RefreshReadbackResolveModeCache), so a change of
++  // readback_resolve takes effect at the next swap. The legacy backend flag is still read on every call.
++  ReadbackResolveMode shared_mode;
++  bool shared_mode_overrides_legacy;
++  if (readback_resolve_cache_valid_) {
++    shared_mode = readback_resolve_cached_shared_mode_;
++    shared_mode_overrides_legacy = readback_resolve_cached_overrides_legacy_;
++  } else {
++    shared_mode = GetSharedReadbackResolveMode(shared_mode_overrides_legacy);
++  }
+   if (shared_mode_overrides_legacy) {
+     return shared_mode;
+   }
+@@ -273,6 +302,17 @@ ReadbackResolveMode CommandProcessor::GetReadbackResolveMode(
+                                          : ReadbackResolveMode::kDisabled;
+ }
+ 
++void CommandProcessor::RefreshReadbackResolveModeCache() {
++  readback_resolve_cached_shared_mode_ =
++      GetSharedReadbackResolveMode(readback_resolve_cached_overrides_legacy_);
++  readback_resolve_cache_valid_ = true;
++}
++
++void CommandProcessor::RefreshGpuDebugLogCache() {
++  auto* gpu_log = ::rex::GetLoggerRaw(::rex::log::gpu());
++  gpu_debug_log_may_be_enabled_ = gpu_log && gpu_log->should_log(spdlog::level::debug);
++}
++
+ bool CommandProcessor::IsReadbackMemexportEnabled(bool legacy_backend_flag) const {
+   if (legacy_readback_memexport_cvar_name_ &&
+       rex::cvar::HasNonDefaultValue(legacy_readback_memexport_cvar_name_)) {
+@@ -294,6 +334,9 @@ void CommandProcessor::WorkerThreadMain() {
+     rex::FatalError("Unable to setup command processor internal state");
+     return;
+   }
++  // wwe2k14 patch (Session 6, CP10): initial values of the cached setting lookups.
++  RefreshReadbackResolveModeCache();
++  RefreshGpuDebugLogCache();
+ 
+   while (worker_running_) {
+     while (!pending_fns_.empty()) {
+@@ -451,9 +494,15 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+   const_cast<volatile uint32_t&>(regs.values[index]) = value;
+   // wwe2k14 patch: the register table lookup (a large switch) only feeds a debug message; skip it unless GPU
+   // debug logging is on (this runs for every register write).
+-  if (auto* gpu_log = ::rex::GetLoggerRaw(::rex::log::gpu());
+-      gpu_log && gpu_log->should_log(spdlog::level::debug) && !regs.GetRegisterInfo(index)) {
+-    REXGPU_DEBUG("GPU: Write to unknown register ({:04X} = {:08X})", index, value);
++  // wwe2k14 patch (Session 6, CP10): the logger check itself (a guarded function-local static, a cross-DLL
++  // GetLoggerRaw call and should_log) is cached in gpu_debug_log_may_be_enabled_, refreshed at the start
++  // of every ExecutePrimaryBuffer. When it's set, the full original check still runs, so the output is the
++  // same, except that enabling GPU debug logging mid-buffer takes effect at the next primary buffer.
++  if (gpu_debug_log_may_be_enabled_) {
++    if (auto* gpu_log = ::rex::GetLoggerRaw(::rex::log::gpu());
++        gpu_log && gpu_log->should_log(spdlog::level::debug) && !regs.GetRegisterInfo(index)) {
++      REXGPU_DEBUG("GPU: Write to unknown register ({:04X} = {:08X})", index, value);
++    }
+   }
+ 
+   // Scratch register writeback.
+@@ -712,6 +761,9 @@ void CommandProcessor::ReturnFromWait() {}
+ uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t read_index, uint32_t write_index) {
+   SCOPE_profile_cpu_f("gpu");
+ 
++  // wwe2k14 patch (Session 6, CP10): see WriteRegister.
++  RefreshGpuDebugLogCache();
++
+   // Execute commands!
+   memory::RingBuffer reader(memory_->TranslatePhysical(primary_buffer_ptr_), primary_buffer_size_);
+   reader.set_read_offset(read_index * sizeof(uint32_t));
+@@ -807,6 +859,21 @@ bool CommandProcessor::ExecutePacketType0(memory::RingBuffer* reader, uint32_t p
+   if (frame_counters_enabled_) {
+     CountType0Packet(base_index, count, write_one_reg != 0);
+   }
++  // wwe2k14 patch (Session 6, CP1): consecutive registers go through the register-range path, as
++  // SET_CONSTANT does. The backends' WriteRegistersFromMem copies a range that lies entirely within the float,
++  // fetch or bool/loop constant block in one go and clears the same constant buffer, texture binding and
++  // vertex buffer "in sync" bits that the per-register writes would (for the whole range at once). Any other
++  // range (special registers, ranges spanning blocks or going past the register file) falls back to
++  // per-register virtual WriteRegister. BeginRead/EndRead handle the ring wrap. Both paths leave the same
++  // state after a packet, so the setting is read per packet and can be toggled between packets.
++  if (!write_one_reg && REXCVAR_GET(gpu_type0_bulk_writes)) {
++    if (REXCVAR_GET(gpu_type0_bulk_writes_verify)) {
++      ExecutePacketType0BulkVerify(reader, base_index, count);
++    } else {
++      WriteRegisterRangeFromRing(reader, base_index, count);
++    }
++    return true;
++  }
+   for (uint32_t m = 0; m < count; m++) {
+     uint32_t reg_data = reader->ReadAndSwap<uint32_t>();
+     uint32_t target_index = write_one_reg ? base_index : base_index + m;
+@@ -816,6 +883,103 @@ bool CommandProcessor::ExecutePacketType0(memory::RingBuffer* reader, uint32_t p
+   return true;
+ }
+ 
++void CommandProcessor::ExecutePacketType0BulkVerify(memory::RingBuffer* reader, uint32_t base_index,
++                                                    uint32_t count) {
++  // wwe2k14 patch (Session 6, CP1): gpu_type0_bulk_writes_verify. Does the bulk write, then replays the same
++  // packet through per-register WriteRegister from a copy of the reader and checks that the replay finds every
++  // register already holding its value, changes none of the backend's invalidation bits (so the bulk write
++  // cleared at least everything the per-register writes clear) and ends at the same ring read offset. The
++  // replay is only done for ranges within a single shader constant block (the only ranges the backends write
++  // in bulk): their per-register side effects are idempotent, so replaying them leaves the state as the
++  // per-register path alone would, even after a mismatch. Other ranges go through per-register writes in both
++  // paths and may have non-idempotent side effects (gamma ramp index increments), so they aren't replayed.
++  // Not detected: the bulk write clearing more bits than needed (only a cost; by code reading, the range
++  // checks clear exactly the union of the per-register ones).
++  Type0BulkVerifyStats& stats = type0_bulk_verify_stats_;
++  if (!stats.summary_frame_valid) {
++    stats.summary_frame_valid = true;
++    stats.last_summary_frame = counter_;
++  } else if (counter_ - stats.last_summary_frame >= 300) {
++    REXGPU_INFO(
++        "[s6][CP1] verify frames {}-{}: {} type-0 packets ({} registers) checked, {} not checked (not "
++        "within one shader constant block); mismatches: {} values, {} invalidation, {} ring offset",
++        stats.last_summary_frame, counter_, stats.packets_checked, stats.registers_checked,
++        stats.packets_not_checked, stats.value_mismatches, stats.invalidation_mismatches,
++        stats.read_offset_mismatches);
++    stats.packets_checked = 0;
++    stats.registers_checked = 0;
++    stats.packets_not_checked = 0;
++    stats.value_mismatches = 0;
++    stats.invalidation_mismatches = 0;
++    stats.read_offset_mismatches = 0;
++    stats.last_summary_frame = counter_;
++  }
++
++  // count >= 1 and base_index <= 0x7FFF, so this doesn't overflow.
++  uint32_t end_index = base_index + count - 1;
++  bool single_constant_block = (base_index >= XE_GPU_REG_SHADER_CONSTANT_000_X &&
++                                end_index <= XE_GPU_REG_SHADER_CONSTANT_511_W) ||
++                               (base_index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
++                                end_index <= XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5) ||
++                               (base_index >= XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031 &&
++                                end_index <= XE_GPU_REG_SHADER_CONSTANT_LOOP_31);
++  if (!single_constant_block) {
++    ++stats.packets_not_checked;
++    WriteRegisterRangeFromRing(reader, base_index, count);
++    return;
++  }
++
++  memory::RingBuffer replay_reader = *reader;
++  WriteRegisterRangeFromRing(reader, base_index, count);
++
++  RegisterWriteInvalidationState state_bulk;
++  bool have_state = GetRegisterWriteInvalidationState(state_bulk);
++  uint32_t value_mismatch_count = 0;
++  uint32_t first_mismatch_index = 0, first_mismatch_bulk = 0, first_mismatch_expected = 0;
++  for (uint32_t m = 0; m < count; ++m) {
++    uint32_t index = base_index + m;
++    uint32_t expected = replay_reader.ReadAndSwap<uint32_t>();
++    uint32_t bulk_value = register_file_->values[index];
++    if (bulk_value != expected) {
++      if (!value_mismatch_count) {
++        first_mismatch_index = index;
++        first_mismatch_bulk = bulk_value;
++        first_mismatch_expected = expected;
++      }
++      ++value_mismatch_count;
++    }
++    WriteRegister(index, expected);
++  }
++  RegisterWriteInvalidationState state_replayed;
++  bool invalidation_mismatch =
++      have_state && GetRegisterWriteInvalidationState(state_replayed) && state_replayed != state_bulk;
++  uint32_t bulk_read_offset = reader->read_offset();
++  bool read_offset_mismatch = replay_reader.read_offset() != bulk_read_offset;
++  if (read_offset_mismatch) {
++    // Continue from where the per-register path would.
++    reader->set_read_offset(replay_reader.read_offset());
++  }
++
++  ++stats.packets_checked;
++  stats.registers_checked += count;
++  stats.value_mismatches += value_mismatch_count;
++  stats.invalidation_mismatches += invalidation_mismatch ? 1 : 0;
++  stats.read_offset_mismatches += read_offset_mismatch ? 1 : 0;
++  if ((value_mismatch_count || invalidation_mismatch || read_offset_mismatch) &&
++      stats.mismatches_logged < 8) {
++    ++stats.mismatches_logged;
++    REXGPU_WARN(
++        "[s6][CP1] verify mismatch, type-0 write of {} registers at {:04X} (frame {}): {} value "
++        "mismatches (first {:04X}: bulk {:08X}, ring {:08X}); invalidation bits after bulk "
++        "{:08X} {:016X} {:016X} {:08X}, after per-register replay {:08X} {:016X} {:016X} {:08X}; ring "
++        "read offset bulk {:X}, per-register {:X}",
++        count, base_index, counter_, value_mismatch_count, first_mismatch_index, first_mismatch_bulk,
++        first_mismatch_expected, state_bulk.bits[0], state_bulk.bits[1], state_bulk.bits[2],
++        state_bulk.bits[3], state_replayed.bits[0], state_replayed.bits[1], state_replayed.bits[2],
++        state_replayed.bits[3], bulk_read_offset, replay_reader.read_offset());
++  }
++}
++
+ bool CommandProcessor::ExecutePacketType1(memory::RingBuffer* reader, uint32_t packet) {
+   // Type-1 packet.
+   // Contains two registers of data. Type-0 should be more common.
+@@ -1073,6 +1237,9 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   perf::timeline::Record("cp_swap", frontbuffer_ptr, counter_);
+   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
+ 
++  // wwe2k14 patch (Session 6, CP10): once per frame, see GetReadbackResolveMode.
++  RefreshReadbackResolveModeCache();
++
+   ++counter_;
+   // wwe2k14 patch (Session 6, COUNTERS): write a captured frame's rows (after the swap, outside the timed draws)
+   // and start or end a frame-anatomy capture.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 21a11f4..ef1a567 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2283,6 +2283,17 @@ void VulkanCommandProcessor::WriteRegistersFromMem(uint32_t start_index, uint32_
+   CommandProcessor::WriteRegistersFromMem(start_index, base, num_registers);
+ }
+ 
++bool VulkanCommandProcessor::GetRegisterWriteInvalidationState(
++    RegisterWriteInvalidationState& state_out) const {
++  // wwe2k14 patch (Session 6, CP1): everything WriteRegister / WriteRegistersFromMem invalidate for shader
++  // constant writes, for gpu_type0_bulk_writes_verify.
++  state_out.bits[0] = current_constant_buffers_up_to_date_;
++  state_out.bits[1] = vertex_buffers_in_sync_[0];
++  state_out.bits[2] = vertex_buffers_in_sync_[1];
++  state_out.bits[3] = texture_cache_ ? texture_cache_->texture_bindings_in_sync() : 0;
++  return true;
++}
++
+ void VulkanCommandProcessor::SparseBindBuffer(VkBuffer buffer, uint32_t bind_count,
+                                               const VkSparseMemoryBind* binds,
+                                               VkPipelineStageFlags wait_stage_mask) {

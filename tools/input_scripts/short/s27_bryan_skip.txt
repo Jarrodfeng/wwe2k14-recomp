@@ -1,0 +1,119 @@
+# Session 27 item 7: Bryan's ramp pan (replay s21_lb), titantron +400: screenshots with one candidate vertex shader skipped each (gpu_debug_skip_vertex_shader), for his entrance outfit's shaders. From s24_pan.txt:
+# frame-locked clip only from Bryan's titantron +300 to +560 (guest frames ~5691..5951 in replay s21_lb), then quit.
+# Use with tools\dlss\s24_frames.ps1 -Route (PNG frames from --wwe2k14_clip_png). on_fail quit.
+on_fail quit
+log bench: start s24_pan (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 300
+wait_frames 100
+screenshot sk_base
+cvar gpu_debug_skip_vertex_shader 080ACF65B1E3A6E1
+wait_frames 2
+screenshot sk_01_080ACF65B1E3A6E1
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader 0BBBF514D70CF0F4
+wait_frames 2
+screenshot sk_02_0BBBF514D70CF0F4
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader E8AC5C3074483B96
+wait_frames 2
+screenshot sk_03_E8AC5C3074483B96
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader 222898168D2A226A
+wait_frames 2
+screenshot sk_04_222898168D2A226A
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader A0C9935FB47C5A28
+wait_frames 2
+screenshot sk_05_A0C9935FB47C5A28
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader BDAF8155EBF110C2
+wait_frames 2
+screenshot sk_06_BDAF8155EBF110C2
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader A441E84E647C3D9F
+wait_frames 2
+screenshot sk_07_A441E84E647C3D9F
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader A878C3FD5E27FB35
+wait_frames 2
+screenshot sk_08_A878C3FD5E27FB35
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader 3834DE7318E253D5
+wait_frames 2
+screenshot sk_09_3834DE7318E253D5
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader 0E2A3DF5BAA2CA18
+wait_frames 2
+screenshot sk_10_0E2A3DF5BAA2CA18
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader CB5B16DA1312E5AB
+wait_frames 2
+screenshot sk_11_CB5B16DA1312E5AB
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader 7D652F24E7C76062
+wait_frames 2
+screenshot sk_12_7D652F24E7C76062
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader A96C8C4D28D28F80
+wait_frames 2
+screenshot sk_13_A96C8C4D28D28F80
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader CED7FD64EC433C69
+wait_frames 2
+screenshot sk_14_CED7FD64EC433C69
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader 63170EAB428C7EFA
+wait_frames 2
+screenshot sk_15_63170EAB428C7EFA
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader 0D7075D53FCA3F02
+wait_frames 2
+screenshot sk_16_0D7075D53FCA3F02
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader 3F63A55561994118
+wait_frames 2
+screenshot sk_17_3F63A55561994118
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+cvar gpu_debug_skip_vertex_shader FE6B770B3CC9FA15
+wait_frames 2
+screenshot sk_18_FE6B770B3CC9FA15
+cvar gpu_debug_skip_vertex_shader 0
+wait_frames 1
+wait_frames 60
+log bench: done
+quit

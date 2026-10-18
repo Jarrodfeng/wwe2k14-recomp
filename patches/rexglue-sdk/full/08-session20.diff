@@ -1,0 +1,344 @@
+# ReXGlue SDK changes for WWE 2K14 (session20): 2d9a84f0718e..a63272c9e3a9 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  a63272c Session 20 DUMPSPV: dump_shaders writes the Vulkan SPIR-V translations too (pixel shaders tagged vk_fsi / vk_fbo)
+#  4668ac5 Session 20 RECSTATS: gpu_record_stats (default 0) + gpu_record_stats_vs: recorded Vulkan commands per frame and per IssueDraw call for a vertex shader group vs the rest; measurement only
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index a8381facfe5cda51f0d55d51828dc11d4419e94d..375e7b23ea525d6ebd399f2dd734733fb824341e 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1175,6 +1175,27 @@ class VulkanCommandProcessor : public CommandProcessor {
+   uint32_t causes_log_frames_ = 0;
+   bool causes_log_timeline_ = true;  // the timeline was on at every frame boundary of the summary window
+ 
++  // wwe2k14 patch (Session 20, RECSTATS): gpu_record_stats. Measurement only: the deferred command buffer's command
++  // counts per frame, and per IssueDraw call (everything recorded inside it) for the draws whose vertex shader is in
++  // gpu_record_stats_vs (the group) and for the rest. Latched at each frame boundary.
++  using RecordStats = DeferredCommandBuffer::RecordStats;
++  void RecStatsFrameBoundary();
++  void RecStatsDrawBegin(uint64_t vertex_shader_hash);
++  void RecStatsDrawEnd();
++  int32_t recstats_frames_ = 0;  // the summary window (frames); 0 = off
++  uint32_t recstats_window_frames_ = 0;
++  uint64_t recstats_first_frame_ = 0;
++  RecordStats recstats_window_start_;
++  std::string recstats_vs_string_;
++  std::vector<uint64_t> recstats_vs_;
++  bool recstats_in_draw_ = false;
++  bool recstats_draw_group_ = false;
++  RecordStats recstats_draw_start_;
++  RecordStats recstats_group_;  // summed over the group's IssueDraw calls in the window
++  RecordStats recstats_rest_;   // the other IssueDraw calls (not copies, not skipped before the vertex shader check)
++  uint64_t recstats_group_draws_ = 0;
++  uint64_t recstats_rest_draws_ = 0;
++
+   std::vector<VkSparseMemoryBind> sparse_memory_binds_;
+   std::vector<SparseBufferBind> sparse_buffer_binds_;
+   // SparseBufferBind converted to VkSparseBufferMemoryBindInfo to this buffer
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 877d017ef70fd6526059ab44ec69ae0d130ba5d5..9f040106e4600b2273fd88ceeb0670d52bdced75 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -41,6 +41,17 @@ class DeferredCommandBuffer {
+   // differences, which wrap correctly), for the frame-anatomy cause columns and the cpf_sync events.
+   uint32_t dispatches_recorded() const { return dispatches_recorded_; }
+   uint32_t rendering_begins_recorded() const { return rendering_begins_recorded_; }
++  // wwe2k14 patch (Session 20, RECSTATS): measurement only. Running counts of recorded commands (never reset;
++  // readers take differences), read by gpu_record_stats.
++  struct RecordStats {
++    enum : uint32_t {
++      kBarrierBatches, kMemoryBarriers, kBufferBarriers, kImageBarriers, kRenderingBegins, kPipelineBinds,
++      kDescriptorBinds, kDescriptorSets, kPushConstants, kPushConstantBytes, kVertexIndexBinds, kViewportScissor,
++      kDraws, kDispatches, kCount
++    };
++    uint64_t c[kCount] = {};
++  };
++  const RecordStats& record_stats() const { return record_stats_; }
+   // gpu_anatomy_gpu_marks_mode 1: while set, the command processor's GpuMarksSparseBeforeEvent is called (once,
+   // the hook is cleared first) right before the next "event" command is written: a pipeline barrier, a render
+   // pass / dynamic rendering begin or end, a pipeline bind, a dispatch, a copy or a clear (not descriptor set,
+@@ -54,6 +65,7 @@ class DeferredCommandBuffer {
+     assert_null(render_pass_begin->pNext);
+     BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+     ++rendering_begins_recorded_;
++    ++record_stats_.c[RecordStats::kRenderingBegins];  // wwe2k14 patch (Session 20, RECSTATS)
+     size_t arguments_size = sizeof(ArgsVkBeginRenderPass);
+     uint32_t clear_value_count = render_pass_begin->clearValueCount;
+     size_t clear_values_offset = 0;
+@@ -80,6 +92,8 @@ class DeferredCommandBuffer {
+                                uint32_t first_set, uint32_t descriptor_set_count,
+                                const VkDescriptorSet* descriptor_sets,
+                                uint32_t dynamic_offset_count, const uint32_t* dynamic_offsets) {
++    ++record_stats_.c[RecordStats::kDescriptorBinds];  // wwe2k14 patch (Session 20, RECSTATS)
++    record_stats_.c[RecordStats::kDescriptorSets] += descriptor_set_count;
+     size_t arguments_size = rex::align(sizeof(ArgsVkBindDescriptorSets), alignof(VkDescriptorSet));
+     size_t descriptor_sets_offset = arguments_size;
+     arguments_size += sizeof(VkDescriptorSet) * descriptor_set_count;
+@@ -106,6 +120,7 @@ class DeferredCommandBuffer {
+   }
+ 
+   void CmdVkBindIndexBuffer(VkBuffer buffer, VkDeviceSize offset, VkIndexType index_type) {
++    ++record_stats_.c[RecordStats::kVertexIndexBinds];  // wwe2k14 patch (Session 20, RECSTATS)
+     auto& args = *reinterpret_cast<ArgsVkBindIndexBuffer*>(
+         WriteCommand(Command::kVkBindIndexBuffer, sizeof(ArgsVkBindIndexBuffer)));
+     args.buffer = buffer;
+@@ -115,6 +130,7 @@ class DeferredCommandBuffer {
+ 
+   void CmdVkBindPipeline(VkPipelineBindPoint pipeline_bind_point, VkPipeline pipeline) {
+     BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
++    ++record_stats_.c[RecordStats::kPipelineBinds];  // wwe2k14 patch (Session 20, RECSTATS)
+     auto& args = *reinterpret_cast<ArgsVkBindPipeline*>(
+         WriteCommand(Command::kVkBindPipeline, sizeof(ArgsVkBindPipeline)));
+     args.pipeline_bind_point = pipeline_bind_point;
+@@ -123,6 +139,7 @@ class DeferredCommandBuffer {
+ 
+   void CmdVkBindVertexBuffers(uint32_t first_binding, uint32_t binding_count,
+                               const VkBuffer* buffers, const VkDeviceSize* offsets) {
++    ++record_stats_.c[RecordStats::kVertexIndexBinds];  // wwe2k14 patch (Session 20, RECSTATS)
+     size_t arguments_size = rex::align(sizeof(ArgsVkBindVertexBuffers), alignof(VkBuffer));
+     size_t buffers_offset = arguments_size;
+     arguments_size =
+@@ -298,6 +315,7 @@ class DeferredCommandBuffer {
+   void CmdVkDispatch(uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z) {
+     BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+     ++dispatches_recorded_;
++    ++record_stats_.c[RecordStats::kDispatches];  // wwe2k14 patch (Session 20, RECSTATS)
+     auto& args = *reinterpret_cast<ArgsVkDispatch*>(
+         WriteCommand(Command::kVkDispatch, sizeof(ArgsVkDispatch)));
+     args.group_count_x = group_count_x;
+@@ -307,6 +325,7 @@ class DeferredCommandBuffer {
+ 
+   void CmdVkDraw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex,
+                  uint32_t first_instance) {
++    ++record_stats_.c[RecordStats::kDraws];  // wwe2k14 patch (Session 20, RECSTATS)
+     auto& args = *reinterpret_cast<ArgsVkDraw*>(WriteCommand(Command::kVkDraw, sizeof(ArgsVkDraw)));
+     args.vertex_count = vertex_count;
+     args.instance_count = instance_count;
+@@ -316,6 +335,7 @@ class DeferredCommandBuffer {
+ 
+   void CmdVkDrawIndexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index,
+                         int32_t vertex_offset, uint32_t first_instance) {
++    ++record_stats_.c[RecordStats::kDraws];  // wwe2k14 patch (Session 20, RECSTATS)
+     auto& args = *reinterpret_cast<ArgsVkDrawIndexed*>(
+         WriteCommand(Command::kVkDrawIndexed, sizeof(ArgsVkDrawIndexed)));
+     args.index_count = index_count;
+@@ -363,6 +383,8 @@ class DeferredCommandBuffer {
+ 
+   void CmdVkPushConstants(VkPipelineLayout layout, VkShaderStageFlags stage_flags, uint32_t offset,
+                           uint32_t size, const void* values) {
++    ++record_stats_.c[RecordStats::kPushConstants];  // wwe2k14 patch (Session 20, RECSTATS)
++    record_stats_.c[RecordStats::kPushConstantBytes] += size;
+     uint8_t* args_ptr = reinterpret_cast<uint8_t*>(
+         WriteCommand(Command::kVkPushConstants, sizeof(ArgsVkPushConstants) + size));
+     auto& args = *reinterpret_cast<ArgsVkPushConstants*>(args_ptr);
+@@ -389,6 +411,7 @@ class DeferredCommandBuffer {
+   }
+ 
+   void CmdVkSetScissor(uint32_t first_scissor, uint32_t scissor_count, const VkRect2D* scissors) {
++    ++record_stats_.c[RecordStats::kViewportScissor];  // wwe2k14 patch (Session 20, RECSTATS)
+     const size_t header_size = rex::align(sizeof(ArgsVkSetScissor), alignof(VkRect2D));
+     uint8_t* args_ptr = reinterpret_cast<uint8_t*>(
+         WriteCommand(Command::kVkSetScissor, header_size + sizeof(VkRect2D) * scissor_count));
+@@ -435,6 +458,7 @@ class DeferredCommandBuffer {
+ 
+   void CmdVkSetViewport(uint32_t first_viewport, uint32_t viewport_count,
+                         const VkViewport* viewports) {
++    ++record_stats_.c[RecordStats::kViewportScissor];  // wwe2k14 patch (Session 20, RECSTATS)
+     const size_t header_size = rex::align(sizeof(ArgsVkSetViewport), alignof(VkViewport));
+     uint8_t* args_ptr = reinterpret_cast<uint8_t*>(
+         WriteCommand(Command::kVkSetViewport, header_size + sizeof(VkViewport) * viewport_count));
+@@ -750,6 +774,7 @@ class DeferredCommandBuffer {
+   VulkanCommandProcessor* event_hook_ = nullptr;
+   uint32_t dispatches_recorded_ = 0;
+   uint32_t rendering_begins_recorded_ = 0;
++  RecordStats record_stats_;  // wwe2k14 patch (Session 20, RECSTATS)
+ 
+   const VulkanCommandProcessor& command_processor_;
+ 
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index b9fef20f793b031693b71edf639e7b8ea88142a3..dfb368e8d4c21992a23ba3d403f7c98b110946a6 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -70,6 +70,16 @@ REXCVAR_DEFINE_BOOL(vulkan_flight_gpu_records, false, "GPU/Vulkan",
+                     "Let the app's flight recorder read the newest GPU checkpoint records in its dumps");
+ 
+ // wwe2k14 patch (Session 16, MATTE): find and dump the game's depth resolves (for depth mattes). Both default off.
++// wwe2k14 patch (Session 20, RECSTATS)
++REXCVAR_DEFINE_INT32(gpu_record_stats, 0, "GPU",
++                     "wwe2k14 (Session 20): N > 0 = log [s20][RECSTATS] every N frames: Vulkan commands recorded per "
++                     "frame (barrier batches and the memory / buffer / image barriers in them, rendering begins, "
++                     "pipeline binds, descriptor-set binds, push constants, vertex / index buffer binds, viewport / "
++                     "scissor sets, draws, dispatches), and per IssueDraw call for gpu_record_stats_vs and the rest. "
++                     "Measurement only");
++REXCVAR_DEFINE_STRING(gpu_record_stats_vs, "", "GPU",
++                      "wwe2k14 (Session 20): comma-separated vertex shader hashes (hex) counted as the group by "
++                      "gpu_record_stats");
+ REXCVAR_DEFINE_INT32(gpu_resolve_log, 0, "GPU",
+                      "Log the next N resolves (source colour RT / depth, copy and EDRAM registers, written range), "
+                      "then reset to 0");
+@@ -6394,6 +6404,17 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     anatomy_skip_reason_ = kAnatomySkipOther;
+     return true;
+   }
++  // wwe2k14 patch (Session 20, RECSTATS): everything recorded from here to any return of this draw.
++  struct RecStatsScope {
++    VulkanCommandProcessor* cp;
++    ~RecStatsScope() {
++      if (cp) cp->RecStatsDrawEnd();
++    }
++  } recstats_scope{nullptr};
++  if (recstats_frames_ > 0) {
++    RecStatsDrawBegin(vertex_shader->ucode_data_hash());
++    recstats_scope.cp = this;
++  }
+ 
+   // Pixel shader analysis.
+   bool primitive_polygonal = draw_util::IsPrimitivePolygonal(regs);
+@@ -11918,6 +11939,7 @@ void VulkanCommandProcessor::CollectFrameCounters(FrameCounters& counters) {
+     texture_cache_->RecordDirectLoadFrameCounters(frame_current_);
+   }
+   CausesFrameBoundary();  // wwe2k14 patch (Session 7c, CAUSES): cpf_sync, cpf_sync2, [s7][CAUSES]
++  RecStatsFrameBoundary();  // wwe2k14 patch (Session 20, RECSTATS): [s20][RECSTATS]
+   // wwe2k14 patch (Session 7c, TEXLOAD): cpf_texload and the [s7][TEXLOAD] summary.
+   if (texture_cache_) {
+     texture_cache_->TexLoadFrameBoundary(frame_current_);
+@@ -12747,6 +12769,95 @@ void VulkanCommandProcessor::CausesFrameBoundary() {
+   causes_log_timeline_ = true;
+ }
+ 
++// wwe2k14 patch (Session 20, RECSTATS)
++void VulkanCommandProcessor::RecStatsDrawBegin(uint64_t vertex_shader_hash) {
++  recstats_in_draw_ = true;
++  recstats_draw_group_ =
++      std::find(recstats_vs_.begin(), recstats_vs_.end(), vertex_shader_hash) != recstats_vs_.end();
++  recstats_draw_start_ = deferred_command_buffer_.record_stats();
++}
++
++void VulkanCommandProcessor::RecStatsDrawEnd() {
++  if (!recstats_in_draw_) {
++    return;
++  }
++  recstats_in_draw_ = false;
++  const RecordStats& now = deferred_command_buffer_.record_stats();
++  RecordStats& sum = recstats_draw_group_ ? recstats_group_ : recstats_rest_;
++  for (uint32_t i = 0; i < RecordStats::kCount; ++i) {
++    sum.c[i] += now.c[i] - recstats_draw_start_.c[i];
++  }
++  ++(recstats_draw_group_ ? recstats_group_draws_ : recstats_rest_draws_);
++}
++
++void VulkanCommandProcessor::RecStatsFrameBoundary() {
++  const int32_t frames = REXCVAR_GET(gpu_record_stats);
++  const RecordStats& now = deferred_command_buffer_.record_stats();
++  if (frames != recstats_frames_) {
++    // Switched on, off or to another window: start a new window.
++    recstats_frames_ = frames;
++    recstats_window_frames_ = 0;
++  }
++  if (frames <= 0) {
++    return;
++  }
++  const std::string vs = REXCVAR_GET(gpu_record_stats_vs);
++  if (vs != recstats_vs_string_) {
++    recstats_vs_string_ = vs;
++    recstats_vs_.clear();
++    for (size_t pos = 0; pos < vs.size();) {
++      const size_t end = std::min(vs.find(',', pos), vs.size());
++      const uint64_t h = std::strtoull(vs.substr(pos, end - pos).c_str(), nullptr, 16);
++      if (h) recstats_vs_.push_back(h);
++      pos = end + 1;
++    }
++    recstats_window_frames_ = 0;
++  }
++  if (recstats_window_frames_ == 0) {
++    recstats_window_start_ = now;
++    recstats_first_frame_ = frame_current_;
++    recstats_group_ = {};
++    recstats_rest_ = {};
++    recstats_group_draws_ = 0;
++    recstats_rest_draws_ = 0;
++  }
++  if (++recstats_window_frames_ <= uint32_t(frames)) {
++    return;
++  }
++  const double n = double(recstats_window_frames_ - 1);
++  auto line = [](const RecordStats& s, double d) {
++    using R = RecordStats;
++    auto v = [&](uint32_t i) { return d > 0 ? double(s.c[i]) / d : 0.0; };
++    return fmt::format(
++        "barrier batches {:.3f} (memory {:.3f}, buffer {:.3f}, image {:.3f}), rendering begins {:.3f}, pipeline binds "
++        "{:.3f}, descriptor binds {:.3f} ({:.3f} sets), push constants {:.3f} ({:.1f} bytes), vertex / index binds "
++        "{:.3f}, viewport / scissor {:.3f}, draws {:.3f}, dispatches {:.3f}",
++        v(R::kBarrierBatches), v(R::kMemoryBarriers), v(R::kBufferBarriers), v(R::kImageBarriers),
++        v(R::kRenderingBegins), v(R::kPipelineBinds), v(R::kDescriptorBinds), v(R::kDescriptorSets),
++        v(R::kPushConstants), v(R::kPushConstantBytes), v(R::kVertexIndexBinds), v(R::kViewportScissor),
++        v(R::kDraws), v(R::kDispatches));
++  };
++  RecordStats frame;
++  for (uint32_t i = 0; i < RecordStats::kCount; ++i) {
++    frame.c[i] = now.c[i] - recstats_window_start_.c[i];
++  }
++  REXGPU_INFO("[s20][RECSTATS] frames {}-{}, per frame: IssueDraw calls {:.1f} (group {:.1f}); {}",
++              recstats_first_frame_, frame_current_, double(recstats_group_draws_ + recstats_rest_draws_) / n,
++              double(recstats_group_draws_) / n, line(frame, n));
++  REXGPU_INFO("[s20][RECSTATS] group ({} shaders), per IssueDraw call: {}", recstats_vs_.size(),
++              line(recstats_group_, double(recstats_group_draws_)));
++  REXGPU_INFO("[s20][RECSTATS] rest, per IssueDraw call: {}", line(recstats_rest_, double(recstats_rest_draws_)));
++  recstats_window_frames_ = 0;
++  // This boundary starts the next window.
++  recstats_window_start_ = now;
++  recstats_first_frame_ = frame_current_;
++  recstats_group_ = {};
++  recstats_rest_ = {};
++  recstats_group_draws_ = 0;
++  recstats_rest_draws_ = 0;
++  recstats_window_frames_ = 1;
++}
++
+ // wwe2k14 patch (Session 7c, TEXLOAD): marks inside a texture load, attributed to the anatomy row being prepared
+ // (anatomy_gpu_row_). They chain with the row's other marks like any mark: each one's interval is the time since
+ // the previous mark of the submission, so the draw's pre mark then measures only what is recorded after the load.
+diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
+index cd0dc9490ff5c52e53190694311b359f2245909d..7d5b0a6872c75bce40edbaf0456d9a127ee9ee03 100644
+--- a/src/graphics/vulkan/deferred_command_buffer.cpp
++++ b/src/graphics/vulkan/deferred_command_buffer.cpp
+@@ -491,6 +491,11 @@ void DeferredCommandBuffer::CmdVkPipelineBarrier(
+     const VkBufferMemoryBarrier* buffer_memory_barriers, uint32_t image_memory_barrier_count,
+     const VkImageMemoryBarrier* image_memory_barriers) {
+   BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
++  // wwe2k14 patch (Session 20, RECSTATS)
++  ++record_stats_.c[RecordStats::kBarrierBatches];
++  record_stats_.c[RecordStats::kMemoryBarriers] += memory_barrier_count;
++  record_stats_.c[RecordStats::kBufferBarriers] += buffer_memory_barrier_count;
++  record_stats_.c[RecordStats::kImageBarriers] += image_memory_barrier_count;
+   size_t arguments_size = sizeof(ArgsVkPipelineBarrier);
+   size_t memory_barriers_offset = 0;
+   if (memory_barrier_count) {
+@@ -538,6 +543,7 @@ void DeferredCommandBuffer::CmdVkBeginRendering(const VkRenderingInfo* rendering
+   // wwe2k14 patch (Session 7c, CAUSES)
+   BeforeEventCommand();
+   ++rendering_begins_recorded_;
++  ++record_stats_.c[RecordStats::kRenderingBegins];  // wwe2k14 patch (Session 20, RECSTATS)
+ 
+   size_t arguments_size =
+       rex::align(sizeof(ArgsVkBeginRendering), alignof(VkRenderingAttachmentInfo));
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index c3c593671e86e9f42c1f297c1f961a8e8249589c..f1ba190415f6b6f447a25d3162ae5228ab0e389f 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -1361,6 +1361,15 @@ bool VulkanPipelineCache::TranslateAnalyzedShader(SpirvShaderTranslator& transla
+   if (translation.GetOrCreateShaderModule() == VK_NULL_HANDLE) {
+     return false;
+   }
++  // wwe2k14 patch (Session 20, DUMPSPV): dump_shaders for Vulkan too (the SPIR-V binary, as the D3D12 path dumps
++  // DXBC; the ucode is dumped by the translator). Pixel shaders are tagged with the render-target path.
++  if (!REXCVAR_GET(dump_shaders).empty()) {
++    translation.Dump(REXCVAR_GET(dump_shaders),
++                     shader.type() == xenos::ShaderType::kPixel
++                         ? (render_target_cache_.GetPath() == RenderTargetCache::Path::kPixelShaderInterlock ? "vk_fsi"
++                                                                                                              : "vk_fbo")
++                         : "vk");
++  }
+ 
+   // TODO(Triang3l): Log that the shader has been successfully translated in
+   // common code.

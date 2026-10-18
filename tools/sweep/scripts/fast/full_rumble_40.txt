@@ -1,0 +1,43 @@
+# Session 14: FAST-FORWARDED copy of ../full_rumble_40.txt (Jarrod's request): vsync off from the in-game sequence until the
+# match is decided, then normal speed (one fixed game step per frame either way: S3 / S5; run 1068). Needs
+# --wwe2k14_load_turbo=false (its in-game windows switch vsync themselves). List: out/harness/sweep/lists/fullfast.json.
+on_fail quit
+log full: start (rumble_40)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log full: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log full: in-game sequence loading
+cvar vsync false
+log full: fast-forward on
+screenshot_every 18000 f
+wait_file M3.PAC 36000 optional
+log full: match scene wait over
+log_state seq
+wait_frames 600
+screenshot f_m600
+wait_state 0x8376ACCC !=0 540000 2 optional
+cvar vsync true
+log full: decided wait over (finish type G+472), normal speed again
+log_state 0x8376ACCC
+log_state 0x8376E3EC
+log_state 0x836F3928
+screenshot f_decided
+wait_frames 1800
+screenshot f_dec30
+wait_frames 1800
+screenshot f_dec60
+wait_frames 600
+log_state seq
+screenshot f_after
+wait_frames 60
+log full: end
+quit

@@ -1,0 +1,7 @@
+# nav: CREATIONS -> the Create a Logo grid. Session 30 navigation library; `include creations_to_logo_grid`.
+# Start: the CREATIONS list (menu 3), cursor 0, as menu_to_creations leaves it.
+# End:   the logo grid is ready (logo_phase 124, after the saved logos are read); grid cursor on slot 0.
+# LOGO = target 1522, the last CREATIONS item (cursor 8; DOWN stops there, no wrap).
+press_until_state DOWN target 1522 40 30 6
+press_until_file A CASTHUMB.PAC 3 120
+wait_state logo_phase 124 1800 2   # the grid is ready (after the saved logos are read)

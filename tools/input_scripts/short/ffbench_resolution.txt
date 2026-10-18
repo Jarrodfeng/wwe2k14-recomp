@@ -1,0 +1,28 @@
+# harness: realtime (sets vsync itself (fast-forward speed bench); Session 16: run_list fast-forwards other routes)
+# Session 14 (Jarrod's question): does the render resolution limit the fast-forward speed? Use with
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_load_turbo=false and --resolution_scale=1|2|3.
+# Once the match clock runs: vsync off, 600 frames settle, then 'ffbench: start' / 'ffbench: end' 3000 game frames
+# apart (game fps = 3000 / wall seconds between the two log stamps). Timed: run_list -Exclusive, one run per hold.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+wait_state match_clock !=0 3600 2
+cvar vsync false
+wait_frames 600
+log ffbench: start
+wait_frames 3000
+log ffbench: end
+cvar vsync true
+wait_frames 60
+quit

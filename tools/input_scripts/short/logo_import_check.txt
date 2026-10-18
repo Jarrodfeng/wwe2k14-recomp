@@ -1,0 +1,65 @@
+# Session 25 item 1: import a PNG as a real logo, through the game (runs 1731-1738). Main menu -> CREATIONS -> LOGO
+# grid (logo_probe.txt, Jarrod's recording) -> RIGHT x2 = slot 3 (free in the frozen save) -> A = SELECT CANVAS SIZE
+# (cursor starts on 128x128; DOWN = 256x256) -> A = editor -> `cvar wwe2k14_logo_import true` (the picture goes in)
+# -> LT (tools panel) -> left stick down x3 (pen, eraser, fill, ACCEPT; the d-pad does not move it) -> A = the game
+# saves 00PaintTool.pt (wait_file savedata.dat) and returns to the grid with the cursor on the slot. Then RB (no page
+# change) and RIGHT (next slot). Grid: RIGHT from column 5 goes to page 2 column 1. Check with
+# `py tools\logos\save_logos.py diff out\bench\userdata_frozen out\bench\userdata_work_s1` (slot 3 free -> used 256x256).
+# Run with --wwe2k14_logo_import_file=PNG on the frozen save mirror. Untimed.
+on_fail quit
+log lsp: start
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+press DOWN
+press DOWN
+press A
+wait_frames 80
+press DOWN 60
+wait_frames 30
+press A
+wait_file CASTHUMB.PAC 900
+wait_file SaveData.Dat 1800
+wait_frames 280
+log lsp: logo grid
+screenshot lsp_grid
+press RIGHT
+wait_frames 20
+press RIGHT
+wait_frames 30
+press A
+wait_frames 60
+press DOWN
+wait_frames 20
+screenshot lsp_size256
+press A
+wait_frames 90
+cvar wwe2k14_logo_import true
+wait_frames 20
+press LT 10
+wait_frames 30
+press L_DOWN 8 20
+press L_DOWN 8 20
+press L_DOWN 8 20
+wait_frames 10
+screenshot lsp_on_accept
+press A
+wait_file savedata.dat 1800
+log lsp: saved
+cvar wwe2k14_logo_import false
+wait_frames 400
+screenshot lsp_grid_after
+press RB
+wait_frames 40
+screenshot lsp_rb
+press RIGHT
+wait_frames 30
+screenshot lsp_rb_right
+log lsp: end
+wait_frames 30
+quit

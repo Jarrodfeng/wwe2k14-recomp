@@ -1,0 +1,5 @@
+# harness: realtime (Jarrod watches / plays; Session 16: run_list fast-forwards other routes)
+# Hands-on session under tools\bench\run_list.ps1 (frozen user data mirror, run lock, crash triage): logs one line
+# and ends at once, so the real controller is active from the start. Add your own flags with -Extra, e.g.
+# --wwe2k14_scenario_capture=NAME (Session 9 step 4) or --wwe2k14_input_record=<file>.
+log manual session: the controller is yours

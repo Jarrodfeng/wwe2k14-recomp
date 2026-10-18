@@ -1,0 +1,16 @@
+# Negative test for wait_state (Session 8 task 9a): at "Press Start" the sequence id is 3, so waiting for 75
+# (the main menu) without pressing anything must time out after 120 frames, log
+#   script FAILED at line N: wait_state seq 75 not reached within 120 frames (last: 0x00000003 (3))
+# save captures/NNN_state_fail_lN.bmp and quit the game cleanly (on_fail quit) once the BMP is written ("quitting
+# after the failure (N frames later; screenshots in flight: 0)"; run 252 checked this at the 4K preset, where the
+# BMP is 24.9 MB). "NOT REACHED" must not appear.
+# Also shows an unreadable state (menu: no SmartMenu at the title) being logged without failing.
+on_fail quit
+log negative: start
+wait_state seq 3 120
+wait_file SaveData.Dat 3600
+log_state menu
+log negative: the next line must time out
+wait_state seq 75 120
+log negative: NOT REACHED
+quit

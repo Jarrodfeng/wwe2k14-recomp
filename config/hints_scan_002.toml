@@ -1,0 +1,16 @@
+# Function-entry hints, round 2 of the runtime pointer-table scan (src/missing_function_scan.h).
+# Run: out/build/win-amd64-release/logs/wwe2k14_004.log (2026-10-07), 78 candidates -> 6 accepted.
+# All six are pointed to from vtable-like tables in 0x82093xxx next to registered functions; the region is a
+# run of 2-instruction C++ this-adjustor thunks (e.g. sub_82D28078 = adjust r3 by -4, then b to the method).
+# A vtable slot always holds a function entry, so IN_GAP targets here are accepted too.
+# 0x82D22E30 is additionally confirmed by a live crash: "[FATAL] Call to invalid or unregistered function
+# at guest address 0x82D22E30" (wwe2k14_004.log). Comment = data address where the pointer was found.
+# Still excluded: 0x822673A4/B4/C0 (pointers in the 0x821D47xx table, suspected exception-scope table).
+
+[functions]
+0x82D22E08 = {} # ptr@0x8209360C IN_GAP, thunk run
+0x82D22E10 = {} # ptr@0x82093618 IN_GAP, thunk run
+0x82D22E18 = {} # ptr@0x82093654 IN_GAP, thunk run
+0x82D22E30 = {} # ptr@0x82093674 IN_GAP, thunk run; live crash wwe2k14_004.log
+0x82D22E88 = {} # ptr@0x820938D8 IN_GAP, after 0x82D22E30's run
+0x82D28080 = {} # ptr@0x8209362C GAP_START after thunk sub_82D28078 (ends in unconditional b)

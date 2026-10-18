@@ -1,0 +1,42 @@
+# harness: fast-forward ok (Session 19 item 10 step-rate check; untimed)
+# Session 19 item 10: the step-rate check. profile_lesnar_bryan.txt with 3 screenshots 1 frame apart at match +600 and
+# 7,200 match frames in all (60 s of game time at --wwe2k14_step_hz=120). Use with --wwe2k14_launch=lesnar_bryan.
+# Compare scene lengths in frames (scene marks) and the s_* shots between step rates.
+#
+on_fail quit
+log bench: start profile_lesnar_bryan (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 100
+screenshot p_brock100
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+screenshot p_bryan440
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 600
+screenshot s_m600a
+wait_frames 1
+screenshot s_m600b
+wait_frames 1
+screenshot s_m600c
+wait_frames 6600
+screenshot s_m7200
+wait_frames 60
+log bench: done
+quit

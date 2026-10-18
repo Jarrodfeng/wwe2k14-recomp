@@ -1,0 +1,50 @@
+# harness: fast-forward ok (Session 28: probe the game's message box: VISUAL PRESENTATION from GAMEPLAY, change a value, B (the "keep these settings?" question), LEFT (NO default), A; run with --wwe2k14_gfxmenu_probe_mgr=true; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 60
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 200
+press RIGHT
+wait_frames 60
+log mark: B (question opens)
+press B
+wait_frames 120
+log mark: LEFT (NO default)
+wait_frames 1
+wait_frames 60
+screenshot mp_no
+log mark: A (answer YES)
+press A
+wait_frames 150
+screenshot mp_after_no
+log mark: end
+quit

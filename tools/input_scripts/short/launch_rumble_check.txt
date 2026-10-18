@@ -1,0 +1,32 @@
+# Session 13 (M5 close-out): a launched Royal Rumble with the fast-load defaults on. Use with --wwe2k14_launch=rumble_40.
+# Boots, lets the launcher fire, waits for the match scene (M3.PAC) and the match clock, then screenshots every 900
+# frames for 7,200 frames (~2 min: the first entrants coming in with their entrances), quits. Also the place to look at
+# Session 10's open item: a launched Rumble skips entrants #1 / #2's entrances (titantron opens are in the log).
+# Untimed (lanes OK). Needs the frozen user data. on_fail quit. Screenshots rr_* are local only.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log rr: in-game sequence loading
+wait_file M3.PAC 36000
+log rr: match scene
+wait_state match_clock !=0 3600 2 optional
+log rr: match running
+screenshot rr_start
+screenshot_every 900 rr
+wait_frames 7200
+screenshot_every 0
+screenshot rr_end
+wait_frames 60
+log rr: end
+quit

@@ -1,0 +1,448 @@
+Subject: [ReXGlue] merge s6/cp5
+
+Class: RGO
+What: Reuse texture / sampler descriptor sets across draws when unchanged.
+Evidence: A/B: -2.2 +-1.3 ms/frame (PLAYBOOK Session 6).
+On / off: vulkan_reuse_texture_bindings (+_verify), off.
+Commit: eabf7d4 (diff against eabf7d4^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 35f3549..01a9ba6 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -709,6 +709,10 @@ class VulkanCommandProcessor : public CommandProcessor {
+   std::unordered_map<TextureDescriptorSetLayoutKey, std::vector<VkDescriptorSet>,
+                      TextureDescriptorSetLayoutKey::Hasher>
+       texture_transient_descriptor_sets_free_;
++  // wwe2k14 patch (Session 6, CP5): vulkan_reuse_texture_bindings state (defined in
++  // command_processor.cpp, created when the setting is first used).
++  struct TextureBindingReuse;
++  std::unique_ptr<TextureBindingReuse> texture_binding_reuse_;
+ 
+   std::unique_ptr<VulkanSharedMemory> shared_memory_;
+ 
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 01fafb4..9489b5e 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -91,6 +91,18 @@ class VulkanTextureCache final : public TextureCache {
+ 
+   // wwe2k14 patch (Session 6, CP6): with vulkan_sampler_param_cache, the result comes from a cache keyed on
+   // the value of every input (see GetSamplerParametersCached).
++  // wwe2k14 patch (Session 6, CP5): incremented for a fetch constant every time its binding is updated
++  // (UpdateTextureBindingsImpl - the only place the binding state that GetActiveBindingOrNullImageView
++  // reads for it changes, also called before any texture is destroyed), so a texture descriptor written
++  // for it stays what would be written now while the generation is the same. Except for 3D textures
++  // sampled as 1D/2D (see GetTextureBindings3DMask), whose view is created lazily by
++  // GetActiveBindingOrNullImageView itself.
++  uint32_t GetTextureBindingGeneration(uint32_t fetch_constant_index) const {
++    return texture_binding_generations_[fetch_constant_index];
++  }
++  // wwe2k14 patch (Session 6, CP5): fetch constants currently bound to a 3D texture.
++  uint32_t GetTextureBindings3DMask() const { return texture_bindings_3d_mask_; }
++
+   SamplerParameters GetSamplerParameters(const VulkanShader::SamplerBinding& binding) const;
+ 
+   // Must be called for every used sampler at least once in a single submission,
+@@ -418,6 +430,9 @@ class VulkanTextureCache final : public TextureCache {
+   bool null_images_cleared_ = false;
+ 
+   std::array<VulkanTextureBinding, xenos::kTextureFetchConstantCount> vulkan_texture_bindings_;
++  // wwe2k14 patch (Session 6, CP5): see GetTextureBindingGeneration and GetTextureBindings3DMask.
++  std::array<uint32_t, xenos::kTextureFetchConstantCount> texture_binding_generations_{};
++  uint32_t texture_bindings_3d_mask_ = 0;
+ 
+   // Unsupported texture formats used during this frame (for research and
+   // testing).
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index f008a85..6da2bad 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -88,6 +88,16 @@ REXCVAR_DEFINE_BOOL(vulkan_deferred_descriptor_writes, false, "GPU/Vulkan",
+ REXCVAR_DEFINE_BOOL(vulkan_submit_on_wait, false, "GPU/Vulkan",
+                     "Submit the recorded commands when the command processor starts waiting (WAIT_REG_MEM, "
+                     "out of commands), so the replay overlaps the wait");
++// wwe2k14 patch (Session 6, CP5): the Xenia TODO in UpdateBindings - both texture descriptor sets were
++// allocated, written (vkUpdateDescriptorSets, on the submit thread with vulkan_deferred_descriptor_writes) and
++// bound again for every draw, even when the draw used the same textures and samplers as the previous one.
++REXCVAR_DEFINE_BOOL(vulkan_reuse_texture_bindings, false, "GPU/Vulkan",
++                    "Reuse a shader stage's texture/sampler descriptor set from an earlier draw in the same "
++                    "submission when the bound textures, samplers and set layout are unchanged");
++REXCVAR_DEFINE_BOOL(vulkan_reuse_texture_bindings_verify, false, "GPU/Vulkan",
++                    "With vulkan_reuse_texture_bindings: on every reuse, also compute the descriptors that "
++                    "would have been written, compare them with what the reused set holds, write a new set "
++                    "on a difference, and log mismatches ([s6][CP5])");
+ 
+ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+                     "Use VK_KHR_dynamic_rendering for Vulkan GPU emulation when supported by the "
+@@ -615,6 +625,172 @@ const VkDescriptorPoolSize VulkanCommandProcessor::kDescriptorPoolSizeTextures[2
+     {VK_DESCRIPTOR_TYPE_SAMPLER, kLinkedTypeDescriptorPoolSetCount},
+ };
+ 
++// wwe2k14 patch (Session 6, CP5): vulkan_reuse_texture_bindings state - for each guest shader stage, the
++// texture descriptor set written last with reuse on, and everything it was written from. A set may be reused
++// (bound again without being written) by a later draw only if all of these hold:
++// - It was written in the current submission (and frame). Transient texture sets are recycled when their
++//   frame is completed, and a sampler can only be destroyed (and its handle reused) once the last submission
++//   that used it has completed, so within a submission the sampler handles still name the same samplers.
++// - The descriptor set layout is the same (same stage, texture count and sampler count).
++// - The shader texture bindings are the same (fetch constant, fetch dimension, signedness), and for each of
++//   them the texture cache's binding generation of the fetch constant is the same. The generation changes in
++//   VulkanTextureCache::UpdateTextureBindingsImpl, the only place where the binding state that
++//   GetActiveBindingOrNullImageView reads changes (texture key, swizzle, signedness, the textures and their
++//   views); textures are only destroyed after ResetTextureBindings has updated all bindings, and a texture's
++//   views live as long as the texture. The exception, 3D textures sampled as 1D/2D (the view is created
++//   lazily by GetActiveBindingOrNullImageView, and depends on gpu_3d_to_2d_texture), is never reused.
++// - The sampler handles are the same.
++struct VulkanCommandProcessor::TextureBindingReuse {
++  enum Result : uint32_t {
++    kReused,
++    // No set written with reuse on in this submission for the stage (or the last one wasn't reusable).
++    kMissNoSet,
++    // Different descriptor set layout.
++    kMissLayout,
++    // Different shader texture bindings.
++    kMissBindings,
++    // A used fetch constant's texture binding has been updated by the texture cache.
++    kMissGeneration,
++    // Different samplers.
++    kMissSamplers,
++    // vulkan_reuse_texture_bindings_verify found a difference.
++    kMissVerify,
++    kResultCount,
++  };
++
++  struct TextureKey {
++    uint32_t fetch_constant;
++    uint32_t generation;
++    xenos::FetchOpDimension dimension;
++    bool is_signed;
++  };
++
++  struct Stage {
++    bool valid = false;
++    uint64_t submission = 0;
++    uint64_t frame = 0;
++    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
++    VkDescriptorSet set = VK_NULL_HANDLE;
++    std::vector<TextureKey> textures;
++    std::vector<VkSampler> samplers;
++    // Shadow copy of the image descriptors written to the set, for the _verify comparison.
++    std::vector<VkDescriptorImageInfo> written_images;
++    // The key of a set about to be written, taken before the descriptors are obtained, so that if anything
++    // changed in between, the stored key is the older one (the next check fails rather than passes).
++    std::vector<TextureKey> pending_textures;
++    bool pending_reusable = false;
++  };
++
++  using Samplers = std::vector<std::pair<VulkanTextureCache::SamplerParameters, VkSampler>>;
++
++  // [0] - vertex shader, [1] - pixel shader.
++  Stage stages[2];
++
++  // Pipeline layout of the last UpdateBindings that ran with reuse on, nullptr after one with reuse off. The
++  // texture sets bound in the command buffer are kept bound only while it stays the same: IssueDraw doesn't
++  // drop the bound bits of the texture sets when the pipeline layout changes, as without reuse they were
++  // bound again on every draw anyway.
++  const PipelineLayout* bound_pipeline_layout = nullptr;
++
++  // Statistics since stats_frame, logged every kStatsFrames frames.
++  static constexpr uint64_t kStatsFrames = 300;
++  uint64_t stats_frame = 0;
++  uint64_t results[kResultCount] = {};
++  uint64_t binds_kept = 0;
++  uint64_t not_reusable_3d_as_2d = 0;
++  uint64_t verify_checks = 0;
++  uint64_t verify_mismatches = 0;
++  uint64_t verify_mismatches_total = 0;
++  uint32_t verify_mismatches_logged = 0;
++  static constexpr uint32_t kVerifyMismatchesLogged = 16;
++
++  static bool Is3DAs2D(uint32_t bindings_3d_mask, const VulkanShader::TextureBinding& binding) {
++    // Same condition as force_special_view in GetActiveBindingOrNullImageView (1D and 2D fetches are
++    // compatible with 3D textures).
++    return ((bindings_3d_mask >> binding.fetch_constant) & 1) &&
++           (binding.dimension == xenos::FetchOpDimension::k1D ||
++            binding.dimension == xenos::FetchOpDimension::k2D);
++  }
++
++  static Result Check(const Stage& stage, uint64_t submission, uint64_t frame,
++                      VkDescriptorSetLayout layout,
++                      const std::vector<VulkanShader::TextureBinding>& textures,
++                      const Samplers& samplers, const VulkanTextureCache& texture_cache) {
++    if (!stage.valid || stage.submission != submission || stage.frame != frame) {
++      return kMissNoSet;
++    }
++    if (stage.layout != layout || stage.textures.size() != textures.size() ||
++        stage.samplers.size() != samplers.size()) {
++      return kMissLayout;
++    }
++    size_t texture_count = textures.size();
++    for (size_t i = 0; i < texture_count; ++i) {
++      const TextureKey& key = stage.textures[i];
++      const VulkanShader::TextureBinding& binding = textures[i];
++      if (key.fetch_constant != binding.fetch_constant || key.dimension != binding.dimension ||
++          key.is_signed != binding.is_signed) {
++        return kMissBindings;
++      }
++    }
++    // With the same generations, the 3D mask bits of these fetch constants are the same as when the set was
++    // written, so no 3D-as-2D binding can be among them (such sets aren't stored as reusable).
++    for (size_t i = 0; i < texture_count; ++i) {
++      const TextureKey& key = stage.textures[i];
++      if (key.generation != texture_cache.GetTextureBindingGeneration(key.fetch_constant)) {
++        return kMissGeneration;
++      }
++    }
++    for (size_t i = 0; i < samplers.size(); ++i) {
++      if (stage.samplers[i] != samplers[i].second) {
++        return kMissSamplers;
++      }
++    }
++    return kReused;
++  }
++
++  // Takes the key of the set about to be written for the stage, before its descriptors are obtained.
++  void PrepareWrite(Stage& stage, const std::vector<VulkanShader::TextureBinding>& textures,
++                    const VulkanTextureCache& texture_cache) {
++    uint32_t bindings_3d_mask = texture_cache.GetTextureBindings3DMask();
++    stage.pending_reusable = true;
++    stage.pending_textures.clear();
++    stage.pending_textures.reserve(textures.size());
++    for (const VulkanShader::TextureBinding& binding : textures) {
++      if (Is3DAs2D(bindings_3d_mask, binding)) {
++        stage.pending_reusable = false;
++      }
++      TextureKey& key = stage.pending_textures.emplace_back();
++      key.fetch_constant = binding.fetch_constant;
++      key.generation = texture_cache.GetTextureBindingGeneration(binding.fetch_constant);
++      key.dimension = binding.dimension;
++      key.is_signed = binding.is_signed;
++    }
++  }
++
++  // Stores the set once it has been written (or its write has been recorded before any bind of it).
++  void CommitWrite(Stage& stage, uint64_t submission, uint64_t frame, VkDescriptorSetLayout layout,
++                   VkDescriptorSet set, const Samplers& samplers, const VkDescriptorImageInfo* images,
++                   size_t image_count) {
++    if (!stage.pending_reusable) {
++      stage.valid = false;
++      ++not_reusable_3d_as_2d;
++      return;
++    }
++    stage.valid = true;
++    stage.submission = submission;
++    stage.frame = frame;
++    stage.layout = layout;
++    stage.set = set;
++    stage.textures.swap(stage.pending_textures);
++    stage.samplers.clear();
++    stage.samplers.reserve(samplers.size());
++    for (const auto& sampler_pair : samplers) {
++      stage.samplers.push_back(sampler_pair.second);
++    }
++    stage.written_images.assign(images, images + image_count);
++  }
++};
++
+ VulkanCommandProcessor::VulkanCommandProcessor(VulkanGraphicsSystem* graphics_system,
+                                                system::KernelState* kernel_state)
+     : CommandProcessor(graphics_system, kernel_state),
+@@ -2136,6 +2312,8 @@ void VulkanCommandProcessor::ShutdownContext() {
+   frame_completed_ = 0;
+   frame_current_ = 1;
+   frame_open_ = false;
++  // wwe2k14 patch (Session 6, CP5): the sets, layouts and submission/frame numbers it refers to are gone.
++  texture_binding_reuse_.reset();
+ 
+   for (const auto& semaphore : submissions_in_flight_semaphores_) {
+     dfn.vkDestroySemaphore(device, semaphore.second, nullptr);
+@@ -7286,6 +7464,136 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   current_graphics_descriptor_set_values_up_to_date_ &=
+       ~((UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesVertex) |
+         (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesPixel));
++  // wwe2k14 patch (Session 6, CP5): with vulkan_reuse_texture_bindings, mark a stage's texture set as up to
++  // date again if the set written for it earlier in this submission was written from the same textures,
++  // samplers and layout (see TextureBindingReuse for why that is sufficient). The setting is read once here
++  // and the rest of this call follows that value; the state stays consistent if it's flipped between draws.
++  TextureBindingReuse* texture_reuse = nullptr;
++  if (REXCVAR_GET(vulkan_reuse_texture_bindings)) {
++    if (!texture_binding_reuse_) {
++      texture_binding_reuse_ = std::make_unique<TextureBindingReuse>();
++      texture_binding_reuse_->stats_frame = frame_current_;
++    }
++    texture_reuse = texture_binding_reuse_.get();
++    if (frame_current_ - texture_reuse->stats_frame >= TextureBindingReuse::kStatsFrames) {
++      const uint64_t* results = texture_reuse->results;
++      uint64_t checks = 0;
++      for (uint32_t i = 0; i < TextureBindingReuse::kResultCount; ++i) {
++        checks += results[i];
++      }
++      REXGPU_INFO(
++          "[s6][CP5] frames {}-{}: texture sets reused {} of {} ({:.1f}%), binds kept {}; written: "
++          "no set {}, layout {}, bindings {}, generation {}, samplers {}, verify {}; 3D-as-2D not "
++          "reusable {}; verify {} checks, {} mismatches ({} total)",
++          texture_reuse->stats_frame, frame_current_ - 1, results[TextureBindingReuse::kReused],
++          checks,
++          checks ? 100.0 * double(results[TextureBindingReuse::kReused]) / double(checks) : 0.0,
++          texture_reuse->binds_kept, results[TextureBindingReuse::kMissNoSet],
++          results[TextureBindingReuse::kMissLayout], results[TextureBindingReuse::kMissBindings],
++          results[TextureBindingReuse::kMissGeneration],
++          results[TextureBindingReuse::kMissSamplers], results[TextureBindingReuse::kMissVerify],
++          texture_reuse->not_reusable_3d_as_2d, texture_reuse->verify_checks,
++          texture_reuse->verify_mismatches, texture_reuse->verify_mismatches_total);
++      std::memset(texture_reuse->results, 0, sizeof(texture_reuse->results));
++      texture_reuse->binds_kept = 0;
++      texture_reuse->not_reusable_3d_as_2d = 0;
++      texture_reuse->verify_checks = 0;
++      texture_reuse->verify_mismatches = 0;
++      texture_reuse->stats_frame = frame_current_;
++    }
++    // A texture set stays bound only if it was bound with the same pipeline layout (see
++    // TextureBindingReuse::bound_pipeline_layout). Sets 0 and 1 have the same layouts in every guest pipeline
++    // layout (and there are no push constants), so they're not affected.
++    if (texture_reuse->bound_pipeline_layout != current_guest_graphics_pipeline_layout_) {
++      current_graphics_descriptor_sets_bound_up_to_date_ &=
++          ~((UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesVertex) |
++            (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesPixel));
++      texture_reuse->bound_pipeline_layout = current_guest_graphics_pipeline_layout_;
++    }
++    bool texture_reuse_verify = REXCVAR_GET(vulkan_reuse_texture_bindings_verify);
++    uint64_t texture_reuse_submission = GetCurrentSubmission();
++    for (uint32_t stage_index = 0; stage_index < 2; ++stage_index) {
++      uint32_t stage_texture_count = stage_index ? texture_count_pixel : texture_count_vertex;
++      uint32_t stage_sampler_count = stage_index ? sampler_count_pixel : sampler_count_vertex;
++      if (!stage_texture_count && !stage_sampler_count) {
++        // No set needed (the bit stays cleared, as without reuse).
++        continue;
++      }
++      const std::vector<VulkanShader::TextureBinding>& stage_textures =
++          stage_index ? *textures_pixel : textures_vertex;
++      const TextureBindingReuse::Samplers& stage_samplers =
++          stage_index ? current_samplers_pixel_ : current_samplers_vertex_;
++      uint32_t set_index = stage_index ? uint32_t(SpirvShaderTranslator::kDescriptorSetTexturesPixel)
++                                       : uint32_t(SpirvShaderTranslator::kDescriptorSetTexturesVertex);
++      VkDescriptorSetLayout stage_layout =
++          stage_index
++              ? current_guest_graphics_pipeline_layout_->descriptor_set_layout_textures_pixel_ref()
++              : current_guest_graphics_pipeline_layout_->descriptor_set_layout_textures_vertex_ref();
++      TextureBindingReuse::Stage& stage = texture_reuse->stages[stage_index];
++      TextureBindingReuse::Result result =
++          TextureBindingReuse::Check(stage, texture_reuse_submission, frame_current_, stage_layout,
++                                     stage_textures, stage_samplers, *texture_cache_);
++      if (result == TextureBindingReuse::kReused && texture_reuse_verify) {
++        // Obtain the image descriptors that would be written now (no side effects for these bindings -
++        // 3D-as-2D ones are never reused) and compare them with the ones written to the set. The samplers
++        // are compared by Check already.
++        ++texture_reuse->verify_checks;
++        bool mismatch = false;
++        for (uint32_t i = 0; i < stage_texture_count; ++i) {
++          const VulkanShader::TextureBinding& texture_binding = stage_textures[i];
++          VkImageView image_view = texture_cache_->GetActiveBindingOrNullImageView(
++              texture_binding.fetch_constant, texture_binding.dimension,
++              bool(texture_binding.is_signed));
++          VkImageLayout image_layout = image_view != VK_NULL_HANDLE
++                                           ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
++                                           : VK_IMAGE_LAYOUT_UNDEFINED;
++          const VkDescriptorImageInfo& written = stage.written_images[i];
++          if (written.imageView == image_view && written.imageLayout == image_layout) {
++            continue;
++          }
++          mismatch = true;
++          if (texture_reuse->verify_mismatches_logged <
++              TextureBindingReuse::kVerifyMismatchesLogged) {
++            ++texture_reuse->verify_mismatches_logged;
++            auto handle_bits = [](VkImageView handle) {
++              uint64_t bits = 0;
++              std::memcpy(&bits, &handle, std::min(sizeof(handle), sizeof(bits)));
++              return bits;
++            };
++            REXGPU_WARN(
++                "[s6][CP5] verify mismatch at frame {}: {} shader texture binding {} (fetch "
++                "constant {}, dimension {}, {}signed, generation {}): reused set has view 0x{:X} "
++                "layout {}, would write view 0x{:X} layout {}",
++                frame_current_, stage_index ? "pixel" : "vertex", i, texture_binding.fetch_constant,
++                uint32_t(texture_binding.dimension), texture_binding.is_signed ? "" : "un",
++                stage.textures[i].generation, handle_bits(written.imageView),
++                uint32_t(written.imageLayout), handle_bits(image_view), uint32_t(image_layout));
++          }
++        }
++        if (mismatch) {
++          ++texture_reuse->verify_mismatches;
++          ++texture_reuse->verify_mismatches_total;
++          result = TextureBindingReuse::kMissVerify;
++        }
++      }
++      ++texture_reuse->results[result];
++      if (result == TextureBindingReuse::kReused) {
++        if (current_graphics_descriptor_sets_[set_index] != stage.set) {
++          current_graphics_descriptor_sets_[set_index] = stage.set;
++          current_graphics_descriptor_sets_bound_up_to_date_ &= ~(UINT32_C(1) << set_index);
++        } else if (current_graphics_descriptor_sets_bound_up_to_date_ & (UINT32_C(1) << set_index)) {
++          ++texture_reuse->binds_kept;
++        }
++        current_graphics_descriptor_set_values_up_to_date_ |= UINT32_C(1) << set_index;
++      } else {
++        // Will be written below - take the key now, before the descriptors are obtained.
++        texture_reuse->PrepareWrite(stage, stage_textures, *texture_cache_);
++      }
++    }
++  } else if (texture_binding_reuse_) {
++    // Texture sets are bound again on every draw with reuse off - drop the knowledge of what's bound.
++    texture_binding_reuse_->bound_pipeline_layout = nullptr;
++  }
+ 
+   // Make sure new descriptor sets are bound to the command buffer.
+ 
+@@ -7448,6 +7756,29 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       ((write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetTexturesPixel) & 1);
+   frame_counters_.constants_sets_written +=
+       (write_descriptor_set_bits >> SpirvShaderTranslator::kDescriptorSetConstants) & 1;
++  // wwe2k14 patch (Session 6, CP5): store the texture sets written by this draw for reuse - only now that
++  // their writes have been done or recorded (in the deferred command buffer, before any bind of them), so a
++  // set is still written exactly once, before it's bound.
++  if (texture_reuse) {
++    uint64_t texture_reuse_submission = GetCurrentSubmission();
++    if (write_vertex_textures) {
++      texture_reuse->CommitWrite(
++          texture_reuse->stages[0], texture_reuse_submission, frame_current_,
++          current_guest_graphics_pipeline_layout_->descriptor_set_layout_textures_vertex_ref(),
++          current_graphics_descriptor_sets_[SpirvShaderTranslator::kDescriptorSetTexturesVertex],
++          current_samplers_vertex_,
++          descriptor_write_image_info_.data() + vertex_texture_image_info_offset,
++          texture_count_vertex);
++    }
++    if (write_pixel_textures) {
++      texture_reuse->CommitWrite(
++          texture_reuse->stages[1], texture_reuse_submission, frame_current_,
++          current_guest_graphics_pipeline_layout_->descriptor_set_layout_textures_pixel_ref(),
++          current_graphics_descriptor_sets_[SpirvShaderTranslator::kDescriptorSetTexturesPixel],
++          current_samplers_pixel_, descriptor_write_image_info_.data() + pixel_texture_image_info_offset,
++          texture_count_pixel);
++    }
++  }
+ 
+   // Bind the new descriptor sets.
+   uint32_t descriptor_sets_needed = (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetCount) - 1;
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 159a82d..e931588 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2068,10 +2068,16 @@ void VulkanTextureCache::UpdateTextureBindingsImpl(uint32_t fetch_constant_mask)
+     bindings_remaining &= ~(UINT32_C(1) << binding_index);
+     VulkanTextureBinding& vulkan_binding = vulkan_texture_bindings_[binding_index];
+     vulkan_binding.Reset();
++    // wwe2k14 patch (Session 6, CP5): descriptors written for this fetch constant are outdated now.
++    ++texture_binding_generations_[binding_index];
++    texture_bindings_3d_mask_ &= ~(UINT32_C(1) << binding_index);
+     const TextureBinding* binding = GetValidTextureBinding(binding_index);
+     if (!binding) {
+       continue;
+     }
++    if (binding->key.dimension == xenos::DataDimension::k3D) {
++      texture_bindings_3d_mask_ |= UINT32_C(1) << binding_index;
++    }
+     const HostFormatPair& host_format_pair = GetHostFormatPair(binding->key);
+     bool uses_unsigned = texture_util::IsAnySignNotSigned(binding->swizzled_signs);
+     bool uses_signed = texture_util::IsAnySignSigned(binding->swizzled_signs);

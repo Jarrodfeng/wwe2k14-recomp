@@ -1,0 +1,566 @@
+Subject: [ReXGlue] merge s6/cp3
+
+Class: RGO
+What: Float-constant runs gathered; inline bit helpers.
+Evidence: No separate A/B found (unconfirmed gain).
+On / off: vulkan_float_constant_runs (+_verify), off.
+Commit: 40047c0 (diff against 40047c0^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/util/bit_inline.h b/include/rex/graphics/util/bit_inline.h
+new file mode 100644
+index 0000000..aef531c
+--- /dev/null
++++ b/include/rex/graphics/util/bit_inline.h
+@@ -0,0 +1,106 @@
++#pragma once
++/**
++ * wwe2k14 patch (Session 6, CP4/C5): header-inline equivalents of rex::lzcnt, rex::tzcnt and
++ * rex::bit_scan_forward for the GPU plugin.
++ *
++ * The rex:: versions are declared out of line in include/rex/math.h and defined in rexruntime.dll
++ * (src/core/math_msvc.cpp on Windows), so every call from rexgpu-xenos.dll is a cross-DLL call
++ * through an import thunk - paid once per set bit in the command processor's per-draw bit loops
++ * (UpdateBindings, UpdateSystemConstantValues, IssueDraw, RequestTextures...). include/rex/math.h is
++ * also included by the game executable, so it is not changed; GPU code that wants the inline
++ * versions calls bit_inline:: instead of rex::.
++ *
++ * Same overload set, return types and results as the rex:: functions, including zero input (checked
++ * against the disassembly of the Release math_msvc.cpp.obj):
++ * - lzcnt / tzcnt return the operand width (8, 16, 32 or 64) for 0, otherwise the number of leading
++ *   / trailing zero bits.
++ * - bit_scan_forward returns false for 0 and does not write *out_first_set_index (clang's
++ *   _BitScanForward only stores for nonzero input; math.h documents the index as invalid then).
++ *   Otherwise it stores the index of the lowest set bit and returns true. Note: the non-Windows
++ *   rex::bit_scan_forward (math_gcc.cpp) stores 0xFFFFFFFF for 0 instead; no caller may rely on
++ *   the index after a false return.
++ */
++
++#include <bit>
++#include <cstdint>
++
++namespace rex::graphics::bit_inline {
++
++// lzcnt - count leading zeros. Returns the size of the input operand if value is zero.
++inline uint8_t lzcnt(uint8_t v) {
++  return static_cast<uint8_t>(std::countl_zero(v));
++}
++inline uint8_t lzcnt(uint16_t v) {
++  return static_cast<uint8_t>(std::countl_zero(v));
++}
++inline uint8_t lzcnt(uint32_t v) {
++  return static_cast<uint8_t>(std::countl_zero(v));
++}
++inline uint8_t lzcnt(uint64_t v) {
++  return static_cast<uint8_t>(std::countl_zero(v));
++}
++inline uint8_t lzcnt(int8_t v) {
++  return lzcnt(static_cast<uint8_t>(v));
++}
++inline uint8_t lzcnt(int16_t v) {
++  return lzcnt(static_cast<uint16_t>(v));
++}
++inline uint8_t lzcnt(int32_t v) {
++  return lzcnt(static_cast<uint32_t>(v));
++}
++inline uint8_t lzcnt(int64_t v) {
++  return lzcnt(static_cast<uint64_t>(v));
++}
++
++// tzcnt - count trailing zeros. Returns the size of the input operand if value is zero.
++inline uint8_t tzcnt(uint8_t v) {
++  return static_cast<uint8_t>(std::countr_zero(v));
++}
++inline uint8_t tzcnt(uint16_t v) {
++  return static_cast<uint8_t>(std::countr_zero(v));
++}
++inline uint8_t tzcnt(uint32_t v) {
++  return static_cast<uint8_t>(std::countr_zero(v));
++}
++inline uint8_t tzcnt(uint64_t v) {
++  return static_cast<uint8_t>(std::countr_zero(v));
++}
++inline uint8_t tzcnt(int8_t v) {
++  return tzcnt(static_cast<uint8_t>(v));
++}
++inline uint8_t tzcnt(int16_t v) {
++  return tzcnt(static_cast<uint16_t>(v));
++}
++inline uint8_t tzcnt(int32_t v) {
++  return tzcnt(static_cast<uint32_t>(v));
++}
++inline uint8_t tzcnt(int64_t v) {
++  return tzcnt(static_cast<uint64_t>(v));
++}
++
++// BitScanForward (bsf).
++// Search the value from least significant bit (LSB) to the most significant bit
++// (MSB) for a set bit (1).
++// Returns false if no bits are set (the output index is not written then).
++inline bool bit_scan_forward(uint32_t v, uint32_t* out_first_set_index) {
++  if (!v) {
++    return false;
++  }
++  *out_first_set_index = static_cast<uint32_t>(std::countr_zero(v));
++  return true;
++}
++inline bool bit_scan_forward(uint64_t v, uint32_t* out_first_set_index) {
++  if (!v) {
++    return false;
++  }
++  *out_first_set_index = static_cast<uint32_t>(std::countr_zero(v));
++  return true;
++}
++inline bool bit_scan_forward(int32_t v, uint32_t* out_first_set_index) {
++  return bit_scan_forward(static_cast<uint32_t>(v), out_first_set_index);
++}
++inline bool bit_scan_forward(int64_t v, uint32_t* out_first_set_index) {
++  return bit_scan_forward(static_cast<uint64_t>(v), out_first_set_index);
++}
++
++}  // namespace rex::graphics::bit_inline
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 953c5fd..04ce6a0 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -23,6 +23,7 @@
+ #include <rex/graphics/pipeline/render_target/cache.h>
+ #include <rex/graphics/register_file.h>
+ #include <rex/graphics/registers.h>
++#include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/util/draw.h>
+ #include <rex/graphics/xenos.h>
+ #include <rex/logging.h>
+@@ -518,13 +519,13 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+   // Direct3D 10, where if the shader declares an output, it's assumed to be
+   // always written (or with an undefined value otherwise).
+   rts_remaining = depth_and_color_rts_used_bits & ~(uint32_t(1));
+-  while (rex::bit_scan_forward(rts_remaining, &rt_index)) {
++  while (bit_inline::bit_scan_forward(rts_remaining, &rt_index)) {
+     rts_remaining &= ~(uint32_t(1) << rt_index);
+     uint32_t edram_base = edram_bases[rt_index];
+     uint32_t rts_other_remaining =
+         depth_and_color_rts_used_bits & (~((uint32_t(1) << (rt_index + 1)) - 1) | uint32_t(1));
+     uint32_t rt_other_index;
+-    while (rex::bit_scan_forward(rts_other_remaining, &rt_other_index)) {
++    while (bit_inline::bit_scan_forward(rts_other_remaining, &rt_other_index)) {
+       rts_other_remaining &= ~(uint32_t(1) << rt_other_index);
+       if (edram_bases[rt_other_index] == edram_base) {
+         depth_and_color_rts_used_bits &= ~(uint32_t(1) << rt_other_index);
+@@ -588,7 +589,7 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+   std::pair<uint32_t, uint32_t> edram_bases_sorted[1 + xenos::kMaxColorRenderTargets];
+   uint32_t edram_bases_sorted_count = 0;
+   rts_remaining = depth_and_color_rts_used_bits;
+-  while (rex::bit_scan_forward(rts_remaining, &rt_index)) {
++  while (bit_inline::bit_scan_forward(rts_remaining, &rt_index)) {
+     rts_remaining &= ~(uint32_t(1) << rt_index);
+     edram_bases_sorted[edram_bases_sorted_count++] =
+         std::make_pair(edram_bases[rt_index], rt_index);
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 76f5600..563c76c 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -22,6 +22,7 @@
+ #include <rex/graphics/pipeline/texture/info.h>
+ #include <rex/graphics/pipeline/texture/util.h>
+ #include <rex/graphics/register_file.h>
++#include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/xenos.h>
+ #include <rex/logging.h>
+ #include <rex/math.h>
+@@ -486,7 +487,7 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+   };
+   uint32_t textures_remaining = used_texture_mask & ~texture_bindings_in_sync_;
+   uint32_t index = 0;
+-  while (rex::bit_scan_forward(textures_remaining, &index)) {
++  while (bit_inline::bit_scan_forward(textures_remaining, &index)) {
+     uint32_t index_bit = UINT32_C(1) << index;
+     textures_remaining &= ~index_bit;
+     TextureBinding& binding = texture_bindings_[index];
+diff --git a/src/graphics/util/draw.cpp b/src/graphics/util/draw.cpp
+index 305380e..830a18d 100644
+--- a/src/graphics/util/draw.cpp
++++ b/src/graphics/util/draw.cpp
+@@ -19,6 +19,7 @@
+ #include <rex/graphics/pipeline/texture/info.h>
+ #include <rex/graphics/pipeline/texture/util.h>
+ #include <rex/graphics/registers.h>
++#include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/util/draw.h>
+ #include <rex/graphics/xenos.h>
+ #include <rex/logging.h>
+@@ -147,7 +148,7 @@ bool IsPixelShaderNeededWithRasterization(const Shader& shader, const RegisterFi
+   uint32_t rb_color_mask = regs[XE_GPU_REG_RB_COLOR_MASK];
+   uint32_t rts_remaining = shader.writes_color_targets();
+   uint32_t rt_index;
+-  while (rex::bit_scan_forward(rts_remaining, &rt_index)) {
++  while (bit_inline::bit_scan_forward(rts_remaining, &rt_index)) {
+     rts_remaining &= ~(uint32_t(1) << rt_index);
+     uint32_t format_component_count = GetColorRenderTargetFormatComponentCount(
+         regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[rt_index])
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index ef1a567..f008a85 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <bit>
+ #include <cstdint>
+ #include <cstring>
+ #include <iterator>
+@@ -30,6 +31,7 @@
+ #include <rex/perf/processor.h>
+ #include <rex/perf/timeline.h>
+ #include <rex/math.h>
++#include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/util/draw.h>
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/pipeline/shader/shader.h>
+@@ -96,6 +98,15 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+ REXCVAR_DEFINE_BOOL(vulkan_gpu_timestamps, false, "GPU/Vulkan",
+                     "With the timeline on: GPU time of each submission from timestamp queries (gpu_ts events), "
+                     "read back without waiting once the submission has completed");
++// wwe2k14 patch (Session 6, CP3): UpdateBindings gathered the used float constants one at a time
++// (a bit scan plus a 16-byte memcpy per constant). Both are read per constant buffer write, so they
++// can be flipped at any time.
++REXCVAR_DEFINE_BOOL(vulkan_float_constant_runs, false, "GPU/Vulkan",
++                    "Copy the used float constants into the constant buffers as contiguous runs "
++                    "(one memcpy per run of consecutive used constants, not one per constant)");
++REXCVAR_DEFINE_BOOL(vulkan_float_constant_runs_verify, false, "GPU/Vulkan",
++                    "With vulkan_float_constant_runs: also gather the float constants one at a "
++                    "time, compare and log mismatches ([s6][CP3])");
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -4159,7 +4170,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   for (uint32_t i = 0; i < rex::countof(constant_map_vertex.vertex_fetch_bitmap); ++i) {
+     uint32_t vfetch_bits_remaining = constant_map_vertex.vertex_fetch_bitmap[i];
+     uint32_t j;
+-    while (rex::bit_scan_forward(vfetch_bits_remaining, &j)) {
++    while (bit_inline::bit_scan_forward(vfetch_bits_remaining, &j)) {
+       vfetch_bits_remaining &= ~(uint32_t(1) << j);
+       uint32_t vfetch_index = i * 32 + j;
+       uint64_t vfetch_bit = uint64_t(1) << (vfetch_index & 63);
+@@ -6653,7 +6664,7 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+     float* user_clip_plane_write_ptr = system_constants_.user_clip_planes[0];
+     uint32_t user_clip_planes_remaining = pa_cl_clip_cntl.ucp_ena;
+     uint32_t user_clip_plane_index;
+-    while (rex::bit_scan_forward(user_clip_planes_remaining, &user_clip_plane_index)) {
++    while (bit_inline::bit_scan_forward(user_clip_planes_remaining, &user_clip_plane_index)) {
+       user_clip_planes_remaining &= ~(UINT32_C(1) << user_clip_plane_index);
+       const void* user_clip_plane_regs =
+           &regs[XE_GPU_REG_PA_CL_UCP_0_X + user_clip_plane_index * 4];
+@@ -6722,7 +6733,7 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+   {
+     uint32_t textures_remaining = used_texture_mask;
+     uint32_t texture_index;
+-    while (rex::bit_scan_forward(textures_remaining, &texture_index)) {
++    while (bit_inline::bit_scan_forward(textures_remaining, &texture_index)) {
+       textures_remaining &= ~(UINT32_C(1) << texture_index);
+       uint32_t& texture_signs_uint = system_constants_.texture_swizzled_signs[texture_index >> 2];
+       uint32_t texture_signs_shift = 8 * (texture_index & 3);
+@@ -6742,7 +6753,7 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+   if (!GetVulkanDevice()->properties().imageViewFormatSwizzle) {
+     uint32_t textures_remaining = used_texture_mask;
+     uint32_t texture_index;
+-    while (rex::bit_scan_forward(textures_remaining, &texture_index)) {
++    while (bit_inline::bit_scan_forward(textures_remaining, &texture_index)) {
+       textures_remaining &= ~(UINT32_C(1) << texture_index);
+       uint32_t& texture_swizzles_uint = system_constants_.texture_swizzles[texture_index >> 1];
+       uint32_t texture_swizzle_shift = 12 * (texture_index & 1);
+@@ -6911,6 +6922,144 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+   }
+ }
+ 
++namespace {
++
++// wwe2k14 patch (Session 6, CP3): gathers the float constants marked in a shader's usage bitmap
++// (Shader::ConstantRegisterMap::float_bitmap: 4 x 64 bits, bit n = constant n of the stage's 256)
++// from the register file into a constant buffer, in the same order and packing as the per-constant
++// loops in UpdateBindings (constant n is at constant_regs[n * 4], 16 bytes), but with one memcpy
++// per run of consecutive used constants within each 64-bit word. Returns the number of bytes
++// written.
++// Micro-benchmark (clang -O3, 5950X, ns per gather; old = the loop with a noinline bsf call per
++// constant, inline = the loop with bit_inline::bit_scan_forward, runs = this):
++//   c0-c31: old 51, inline 23, runs 8. c0-c199: old 255, inline 155, runs 29.
++//   20 isolated constants: old 32, inline 11, runs 15. 10 pairs: old 35, inline 12, runs 24.
++// So runs win for contiguous maps and lose to the inline loop for scattered ones; the verify
++// summary reports the game's run statistics.
++size_t GatherFloatConstantRuns(uint8_t* out, const uint32_t* constant_regs,
++                               const uint64_t* bitmap) {
++  uint8_t* const out_start = out;
++  for (uint32_t i = 0; i < 4; ++i) {
++    uint64_t bits = bitmap[i];
++    const uint32_t* word_regs = constant_regs + (i << 8);
++    while (bits) {
++      uint32_t run_first = uint32_t(std::countr_zero(bits));
++      const uint32_t* run_regs = word_regs + (run_first << 2);
++      if (!(bits & (UINT64_C(2) << run_first))) {
++        // A run of one constant: a fixed-size copy, and clearing the lowest set bit keeps the loop
++        // as short as the one-at-a-time loop. (For run_first == 63, 2 << 63 wraps to 0.)
++        std::memcpy(out, run_regs, sizeof(float) * 4);
++        out += sizeof(float) * 4;
++        bits &= bits - 1;
++        continue;
++      }
++      uint32_t run_count = uint32_t(std::countr_one(bits >> run_first));
++      size_t run_size = sizeof(float) * 4 * run_count;
++      std::memcpy(out, run_regs, run_size);
++      out += run_size;
++      // Clear the run: adding its lowest bit carries through the whole run (and wraps to 0 if the
++      // run reaches bit 63).
++      bits &= bits + (UINT64_C(1) << run_first);
++    }
++  }
++  return size_t(out - out_start);
++}
++
++// The pre-Session 6 gather (one rex::bit_scan_forward and one 16-byte memcpy per used constant),
++// kept verbatim as the reference for vulkan_float_constant_runs_verify.
++size_t GatherFloatConstantsReference(uint8_t* out, const uint32_t* constant_regs,
++                                     const uint64_t* bitmap) {
++  uint8_t* const out_start = out;
++  for (uint32_t i = 0; i < 4; ++i) {
++    uint64_t float_constant_map_entry = bitmap[i];
++    uint32_t float_constant_index;
++    while (rex::bit_scan_forward(float_constant_map_entry, &float_constant_index)) {
++      float_constant_map_entry &= ~(1ull << float_constant_index);
++      std::memcpy(out, constant_regs + (i << 8) + (float_constant_index << 2), sizeof(float) * 4);
++      out += sizeof(float) * 4;
++    }
++  }
++  return size_t(out - out_start);
++}
++
++// vulkan_float_constant_runs_verify statistics. Only touched by the command processor thread
++// (UpdateBindings). The constant and run counts (since the last summary) show how contiguous the
++// game's constant maps are, which decides whether the runs pay off (see GatherFloatConstantRuns).
++struct FloatConstantRunsVerifyStats {
++  uint64_t buffers_checked = 0;
++  uint64_t buffers_mismatched = 0;
++  uint64_t buffers_checked_at_summary = 0;
++  uint64_t buffers_mismatched_at_summary = 0;
++  uint64_t constants = 0;
++  uint64_t runs = 0;
++  uint64_t single_constant_runs = 0;
++  uint64_t summary_frame = UINT64_MAX;
++  uint32_t mismatches_logged = 0;
++};
++FloatConstantRunsVerifyStats float_constant_runs_verify_stats;
++
++// Compares the run gather with the reference gather for one constant buffer. The constant buffer
++// is upload memory (possibly write-combined) and is not read back: the run gather is deterministic
++// and the register file and the bitmap are only written by this thread, so gathering the runs again
++// into scratch memory reproduces exactly the bytes written to the buffer. Not inlined, to keep the
++// 8 KB of scratch out of UpdateBindings' stack frame.
++[[gnu::noinline]] void VerifyFloatConstantRuns(const uint32_t* constant_regs,
++                                               const uint64_t* bitmap, size_t written_size,
++                                               bool is_pixel, uint64_t frame) {
++  alignas(16) uint8_t runs[sizeof(float) * 4 * 256];
++  alignas(16) uint8_t reference[sizeof(float) * 4 * 256];
++  size_t runs_size = GatherFloatConstantRuns(runs, constant_regs, bitmap);
++  size_t reference_size = GatherFloatConstantsReference(reference, constant_regs, bitmap);
++  FloatConstantRunsVerifyStats& stats = float_constant_runs_verify_stats;
++  ++stats.buffers_checked;
++  for (uint32_t i = 0; i < 4; ++i) {
++    uint64_t run_starts = bitmap[i] & ~(bitmap[i] << 1);
++    stats.constants += uint64_t(std::popcount(bitmap[i]));
++    stats.runs += uint64_t(std::popcount(run_starts));
++    stats.single_constant_runs += uint64_t(std::popcount(run_starts & ~(bitmap[i] >> 1)));
++  }
++  bool sizes_match = runs_size == reference_size && written_size == reference_size;
++  if (!sizes_match || std::memcmp(runs, reference, reference_size)) {
++    ++stats.buffers_mismatched;
++    if (stats.mismatches_logged < 8) {
++      ++stats.mismatches_logged;
++      size_t first_difference = 0;
++      size_t common_size = std::min(runs_size, reference_size);
++      while (first_difference < common_size &&
++             runs[first_difference] == reference[first_difference]) {
++        ++first_difference;
++      }
++      REXGPU_WARN(
++          "[s6][CP3] float constant runs mismatch ({} shader, frame {}): written {} / runs {} / "
++          "reference {} bytes, first difference at byte {} (packed constant {}), bitmap "
++          "{:016X} {:016X} {:016X} {:016X}",
++          is_pixel ? "pixel" : "vertex", frame, written_size, runs_size, reference_size,
++          first_difference, first_difference / (sizeof(float) * 4), bitmap[0], bitmap[1],
++          bitmap[2], bitmap[3]);
++    }
++  }
++  if (stats.summary_frame == UINT64_MAX) {
++    stats.summary_frame = frame;
++  } else if (frame >= stats.summary_frame + 300) {
++    REXGPU_INFO(
++        "[s6][CP3] float constant runs verify, frame {}: {} buffers checked, {} mismatched; since "
++        "the last summary: {} buffers, {} mismatched, {} constants in {} runs ({} of one "
++        "constant)",
++        frame, stats.buffers_checked, stats.buffers_mismatched,
++        stats.buffers_checked - stats.buffers_checked_at_summary,
++        stats.buffers_mismatched - stats.buffers_mismatched_at_summary, stats.constants,
++        stats.runs, stats.single_constant_runs);
++    stats.summary_frame = frame;
++    stats.buffers_checked_at_summary = stats.buffers_checked;
++    stats.buffers_mismatched_at_summary = stats.buffers_mismatched;
++    stats.constants = 0;
++    stats.runs = 0;
++    stats.single_constant_runs = 0;
++  }
++}
++
++}  // namespace
++
+ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+                                             const VulkanShader* pixel_shader) {
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+@@ -7010,16 +7159,27 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = VkDeviceSize(float_constants_size);
+-      for (uint32_t i = 0; i < 4; ++i) {
+-        uint64_t float_constant_map_entry = current_float_constant_map_vertex_[i];
+-        uint32_t float_constant_index;
+-        while (rex::bit_scan_forward(float_constant_map_entry, &float_constant_index)) {
+-          float_constant_map_entry &= ~(1ull << float_constant_index);
+-          std::memcpy(
+-              mapping,
+-              &regs[XE_GPU_REG_SHADER_CONSTANT_000_X + (i << 8) + (float_constant_index << 2)],
+-              sizeof(float) * 4);
+-          mapping += sizeof(float) * 4;
++      // wwe2k14 patch (Session 6, CP3): one memcpy per run of consecutive used constants.
++      if (REXCVAR_GET(vulkan_float_constant_runs)) {
++        const uint32_t* float_constant_regs = &regs[XE_GPU_REG_SHADER_CONSTANT_000_X];
++        size_t float_constants_written = GatherFloatConstantRuns(
++            mapping, float_constant_regs, current_float_constant_map_vertex_);
++        if (REXCVAR_GET(vulkan_float_constant_runs_verify)) {
++          VerifyFloatConstantRuns(float_constant_regs, current_float_constant_map_vertex_,
++                                  float_constants_written, false, frame_current_);
++        }
++      } else {
++        for (uint32_t i = 0; i < 4; ++i) {
++          uint64_t float_constant_map_entry = current_float_constant_map_vertex_[i];
++          uint32_t float_constant_index;
++          while (bit_inline::bit_scan_forward(float_constant_map_entry, &float_constant_index)) {
++            float_constant_map_entry &= ~(1ull << float_constant_index);
++            std::memcpy(
++                mapping,
++                &regs[XE_GPU_REG_SHADER_CONSTANT_000_X + (i << 8) + (float_constant_index << 2)],
++                sizeof(float) * 4);
++            mapping += sizeof(float) * 4;
++          }
+         }
+       }
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+@@ -7039,16 +7199,27 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = VkDeviceSize(float_constants_size);
+-      for (uint32_t i = 0; i < 4; ++i) {
+-        uint64_t float_constant_map_entry = current_float_constant_map_pixel_[i];
+-        uint32_t float_constant_index;
+-        while (rex::bit_scan_forward(float_constant_map_entry, &float_constant_index)) {
+-          float_constant_map_entry &= ~(1ull << float_constant_index);
+-          std::memcpy(
+-              mapping,
+-              &regs[XE_GPU_REG_SHADER_CONSTANT_256_X + (i << 8) + (float_constant_index << 2)],
+-              sizeof(float) * 4);
+-          mapping += sizeof(float) * 4;
++      // wwe2k14 patch (Session 6, CP3): one memcpy per run of consecutive used constants.
++      if (REXCVAR_GET(vulkan_float_constant_runs)) {
++        const uint32_t* float_constant_regs = &regs[XE_GPU_REG_SHADER_CONSTANT_256_X];
++        size_t float_constants_written = GatherFloatConstantRuns(
++            mapping, float_constant_regs, current_float_constant_map_pixel_);
++        if (REXCVAR_GET(vulkan_float_constant_runs_verify)) {
++          VerifyFloatConstantRuns(float_constant_regs, current_float_constant_map_pixel_,
++                                  float_constants_written, true, frame_current_);
++        }
++      } else {
++        for (uint32_t i = 0; i < 4; ++i) {
++          uint64_t float_constant_map_entry = current_float_constant_map_pixel_[i];
++          uint32_t float_constant_index;
++          while (bit_inline::bit_scan_forward(float_constant_map_entry, &float_constant_index)) {
++            float_constant_map_entry &= ~(1ull << float_constant_index);
++            std::memcpy(
++                mapping,
++                &regs[XE_GPU_REG_SHADER_CONSTANT_256_X + (i << 8) + (float_constant_index << 2)],
++                sizeof(float) * 4);
++            mapping += sizeof(float) * 4;
++          }
+         }
+       }
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+@@ -7289,9 +7460,10 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   uint32_t descriptor_sets_remaining =
+       descriptor_sets_needed & ~current_graphics_descriptor_sets_bound_up_to_date_;
+   uint32_t descriptor_set_index;
+-  while (rex::bit_scan_forward(descriptor_sets_remaining, &descriptor_set_index)) {
++  while (bit_inline::bit_scan_forward(descriptor_sets_remaining, &descriptor_set_index)) {
+     uint32_t descriptor_set_mask_tzcnt =
+-        rex::tzcnt(~(descriptor_sets_remaining | ((UINT32_C(1) << descriptor_set_index) - 1)));
++        bit_inline::tzcnt(~(descriptor_sets_remaining |
++                            ((UINT32_C(1) << descriptor_set_index) - 1)));
+     deferred_command_buffer_.CmdVkBindDescriptorSets(
+         VK_PIPELINE_BIND_POINT_GRAPHICS,
+         current_guest_graphics_pipeline_layout_->GetPipelineLayout(), descriptor_set_index,
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 91ac08f..e7cdacd 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -31,6 +31,7 @@
+ #include <rex/math.h>
+ #include <rex/thread.h>
+ #include <rex/memory.h>
++#include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/util/draw.h>
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/pipeline_util.h>
+@@ -1556,7 +1557,7 @@ bool VulkanPipelineCache::GetCurrentStateDescription(
+     assert_true(device_properties.independentBlend);
+     uint32_t render_pass_color_rts_remaining = render_pass_color_rts;
+     uint32_t color_rt_index;
+-    while (rex::bit_scan_forward(render_pass_color_rts_remaining, &color_rt_index)) {
++    while (bit_inline::bit_scan_forward(render_pass_color_rts_remaining, &color_rt_index)) {
+       render_pass_color_rts_remaining &= ~(uint32_t(1) << color_rt_index);
+       WritePipelineRenderTargetDescription(
+           regs.Get<reg::RB_BLENDCONTROL>(reg::RB_BLENDCONTROL::rt_register_indices[color_rt_index]),
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index ecbd940..60147e9 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -24,6 +24,7 @@
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/pipeline/texture/info.h>
+ #include <rex/graphics/pipeline/texture/util.h>
++#include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include <rex/graphics/vulkan/deferred_command_buffer.h>
+ #include <rex/graphics/vulkan/texture_cache.h>
+@@ -561,7 +562,7 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+   if (REXCVAR_GET(gpu_3d_to_2d_texture)) {
+     uint32_t textures_3d = used_texture_mask;
+     uint32_t index_3d;
+-    while (rex::bit_scan_forward(textures_3d, &index_3d)) {
++    while (bit_inline::bit_scan_forward(textures_3d, &index_3d)) {
+       textures_3d &= ~(uint32_t(1) << index_3d);
+       const TextureBinding* binding = GetValidTextureBinding(index_3d);
+       if (!binding || binding->key.dimension != xenos::DataDimension::k3D) {
+@@ -586,7 +587,7 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+                        new_layout);
+   uint32_t textures_remaining = used_texture_mask;
+   uint32_t index;
+-  while (rex::bit_scan_forward(textures_remaining, &index)) {
++  while (bit_inline::bit_scan_forward(textures_remaining, &index)) {
+     textures_remaining &= ~(uint32_t(1) << index);
+     const TextureBinding* binding = GetValidTextureBinding(index);
+     if (!binding) {
+@@ -1789,7 +1790,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+ void VulkanTextureCache::UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) {
+   uint32_t bindings_remaining = fetch_constant_mask;
+   uint32_t binding_index;
+-  while (rex::bit_scan_forward(bindings_remaining, &binding_index)) {
++  while (bit_inline::bit_scan_forward(bindings_remaining, &binding_index)) {
+     bindings_remaining &= ~(UINT32_C(1) << binding_index);
+     VulkanTextureBinding& vulkan_binding = vulkan_texture_bindings_[binding_index];
+     vulkan_binding.Reset();

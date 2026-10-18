@@ -1,0 +1,562 @@
+Subject: [ReXGlue] merge s6/cp8
+
+Class: RGO
+What: Render-target cache: skip the FSI ownership update on a repeated no-op key.
+Evidence: A/B -0.8 +-0.4 ms/frame (PLAYBOOK Session 6).
+On / off: gpu_rt_cache_skip_unchanged (+_verify), off.
+Commit: 04de2f6 (diff against 04de2f6^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
+index 3bbd52e..ace5d4d 100644
+--- a/include/rex/graphics/pipeline/render_target/cache.h
++++ b/include/rex/graphics/pipeline/render_target/cache.h
+@@ -548,6 +548,11 @@ class RenderTargetCache {
+   // EDRAM memory are committed with a memory barrier.
+   void PixelShaderInterlockFullEdramBarrierPlaced();
+ 
++  // wwe2k14 patch (Session 6, CP8): the frame number used to print the gpu_rt_cache_skip_unchanged
++  // statistics every few hundred frames (0 = no statistics). Only called while the setting or its _verify
++  // is on.
++  virtual uint64_t GetUpdateSkipStatsFrame() const { return 0; }
++
+  private:
+   const RegisterFile& register_file_;
+   uint32_t draw_resolution_scale_x_;
+@@ -684,6 +689,74 @@ class RenderTargetCache {
+   // render targets. They are reordered so for one source, all transfers are
+   // consecutive in the array.
+   std::vector<Transfer> last_update_transfers_[1 + xenos::kMaxColorRenderTargets];
++
++  // wwe2k14 patch (Session 6, CP8): gpu_rt_cache_skip_unchanged (see cache.cpp).
++  // Incremented on every modification of ownership_ranges_ - InitializeCommon, DestroyAllRenderTargets,
++  // ChangeOwnership (when it splits or claims a range), PixelShaderInterlockFullEdramBarrierPlaced - and in
++  // ClearCache (which doesn't modify it, conservative). Maintained whatever the settings are, never reset, so
++  // an equal value means ownership_ranges_ hasn't been modified since.
++  uint64_t ownership_generation_ = 0;
++  // Everything the ownership part of Update (sorting, range lengths, WouldOwnershipChangeRequireTransfers,
++  // ChangeOwnership) depends on, apart from ownership_ranges_ itself. Plain uint32_t fields (no padding),
++  // zeroed for unused render target slots, compared with memcmp.
++  struct UpdateSkipKey {
++    uint32_t msaa_samples;
++    uint32_t pitch_tiles_at_32bpp;
++    uint32_t depth_and_color_rts_used_bits;
++    uint32_t rts_are_64bpp;
++    uint32_t height_used;
++    uint32_t mrt_edram_used_range_clamp_to_min;
++    uint32_t edram_bases[1 + xenos::kMaxColorRenderTargets];
++    uint32_t resource_formats[1 + xenos::kMaxColorRenderTargets];
++  };
++  // One ChangeOwnership call of an update, in call order (for the _verify comparison and logs).
++  struct UpdateSkipRange {
++    uint32_t rt_bit_index;
++    uint32_t rt_key;
++    uint32_t length_tiles;
++  };
++  struct UpdateSkipEntry {
++    UpdateSkipKey key;
++    uint32_t range_count;
++    UpdateSkipRange ranges[1 + xenos::kMaxColorRenderTargets];
++  };
++  static constexpr uint32_t kUpdateSkipEntryCount = 4;
++  struct UpdateSkipStats {
++    // Since the last summary.
++    uint64_t updates = 0;
++    uint64_t skipped = 0;
++    uint64_t verified = 0;
++    uint64_t miss_state = 0;
++    uint64_t miss_key = 0;
++    uint64_t full_noop = 0;
++    uint64_t full_changed = 0;
++    uint64_t full_barrier = 0;
++    uint64_t mismatches = 0;
++    // Since the start.
++    uint64_t mismatches_total = 0;
++    uint32_t mismatches_logged = 0;
++    uint64_t frame_start = 0;
++  };
++  struct UpdateSkipState {
++    // Keys of updates whose full run was observed to be a no-op (no interlock barrier requested,
++    // ownership_ranges_ not modified), all at ownership_generation_ == generation.
++    uint32_t entry_count = 0;
++    uint32_t entry_next = 0;
++    uint64_t generation = 0;
++    UpdateSkipEntry entries[kUpdateSkipEntryCount];
++    // _verify only: HashOwnershipRanges() when the entries were started for this generation.
++    bool map_hash_valid = false;
++    uint64_t map_hash = 0;
++    UpdateSkipStats stats;
++  };
++  UpdateSkipState update_skip_;
++  // After the full ownership part of a pixel shader interlock update: counts the outcome, verifies a would-be
++  // skip (hit_entry != UINT32_MAX) and remembers the key if the run had no effect.
++  void UpdateSkipAfterFullRun(const UpdateSkipKey& key, const UpdateSkipRange* ranges,
++                              uint32_t range_count, bool barrier_requested, uint64_t generation_before,
++                              uint32_t hit_entry, uint64_t map_hash_before, bool verify);
++  uint64_t HashOwnershipRanges() const;
++  void ReportUpdateSkipStats();
+ };
+ 
+ }  // namespace rex::graphics
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 34f7033..9c5a4b3 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -176,6 +176,9 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+ 
+   void RequestPixelShaderInterlockBarrier() override;
+ 
++  // wwe2k14 patch (Session 6, CP8): frame number for the gpu_rt_cache_skip_unchanged statistics.
++  uint64_t GetUpdateSkipStatsFrame() const override;
++
+  private:
+   enum class EdramBufferUsage {
+     // There's no need for combined fragment and compute usages.
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 04ce6a0..65704a3 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -13,6 +13,7 @@
+ #include <cmath>
+ #include <cstring>
+ #include <iterator>
++#include <string>
+ #include <tuple>
+ #include <unordered_set>
+ #include <utility>
+@@ -42,8 +43,86 @@ REXCVAR_DEFINE_BOOL(direct_host_resolve, true, "GPU",
+                     "Resolve from host render targets directly to shared memory when possible")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// wwe2k14 patch (Session 6, CP8): with pixel shader interlock (render_target_path_vulkan=fsi), Update still
++// sorted the EDRAM bases, computed the range lengths and ran WouldOwnershipChangeRequireTransfers and
++// ChangeOwnership for every draw (about 2% of the command processor thread in heavy entrance shots,
++// stacks_067), although consecutive draws mostly use render targets that already own their ranges. That part
++// depends only on UpdateSkipKey (derived from the registers, the shaders' depth / color usage, the estimated
++// height and mrt_edram_used_range_clamp_to_min, all still computed as before) and on ownership_ranges_, and its
++// only effects are the interlock barrier request and changes to ownership_ranges_. So once a full run for a key
++// has been seen to have no effect (no barrier requested, ownership_ranges_ not modified), a later update with
++// the same key while ownership_ranges_ is still unmodified (ownership_generation_) would have no effect either,
++// and is skipped. Host render targets keep the original path. Read per update; the entries stay correct while
++// the settings are off (ownership_generation_ is always maintained), so both can be flipped at any time.
++REXCVAR_DEFINE_BOOL(gpu_rt_cache_skip_unchanged, false, "GPU",
++                    "Pixel shader interlock path: skip the EDRAM ownership part of the render target cache "
++                    "update when the render targets, their estimated extent and the ownership state are those "
++                    "of an earlier update that changed nothing");
++REXCVAR_DEFINE_BOOL(gpu_rt_cache_skip_unchanged_verify, false, "GPU",
++                    "Shadow-check gpu_rt_cache_skip_unchanged (works with it on or off): on every would-be "
++                    "skip, run the full update anyway, check that it changed nothing, and count and log "
++                    "mismatches ([s6][CP8])");
++
+ namespace rex::graphics {
+ 
++// wwe2k14 patch (Session 6, CP8): gpu_rt_cache_skip_unchanged statistics and logs.
++namespace {
++
++constexpr uint64_t kUpdateSkipStatsFrames = 300;
++constexpr uint32_t kUpdateSkipMismatchLogLimit = 8;
++
++enum : uint32_t {
++  // ownership_ranges_ differs from when the entries were confirmed, without an ownership_generation_ change.
++  kUpdateSkipMismatchStaleOwnership = 1 << 0,
++  // The full run made different ownership calls than the run that confirmed the key.
++  kUpdateSkipMismatchRanges = 1 << 1,
++  // The full run requested an interlock barrier.
++  kUpdateSkipMismatchBarrier = 1 << 2,
++  // The full run modified ownership_ranges_.
++  kUpdateSkipMismatchOwnershipChanged = 1 << 3,
++};
++
++std::string DescribeUpdateSkipMismatch(uint32_t flags) {
++  std::string description;
++  auto append = [&description](const char* text) {
++    if (!description.empty()) {
++      description += ", ";
++    }
++    description += text;
++  };
++  if (flags & kUpdateSkipMismatchStaleOwnership) {
++    append("ownership map modified without a generation change");
++  }
++  if (flags & kUpdateSkipMismatchRanges) {
++    append("different ownership calls");
++  }
++  if (flags & kUpdateSkipMismatchBarrier) {
++    append("interlock barrier requested");
++  }
++  if (flags & kUpdateSkipMismatchOwnershipChanged) {
++    append("ownership map modified");
++  }
++  return description;
++}
++
++std::string DescribeUpdateSkipValues(const uint32_t* values, uint32_t count) {
++  std::string description = "[";
++  for (uint32_t i = 0; i < count; ++i) {
++    if (i) {
++      description += " ";
++    }
++    description += std::to_string(values[i]);
++  }
++  description += "]";
++  return description;
++}
++
++double GetUpdateSkipPercentage(uint64_t part, uint64_t total) {
++  return total ? double(part) * 100.0 / double(total) : 0.0;
++}
++
++}  // namespace
++
+ void RenderTargetCache::GetPSIColorFormatInfo(xenos::ColorRenderTargetFormat format,
+                                               uint32_t write_mask, float& clamp_rgb_low,
+                                               float& clamp_alpha_low, float& clamp_rgb_high,
+@@ -336,12 +415,14 @@ RenderTargetCache::~RenderTargetCache() {
+ 
+ void RenderTargetCache::InitializeCommon() {
+   assert_true(ownership_ranges_.empty());
++  ++ownership_generation_;  // wwe2k14 patch (Session 6, CP8)
+   ownership_ranges_.emplace(std::piecewise_construct, std::forward_as_tuple(uint32_t(0)),
+                             std::forward_as_tuple(xenos::kEdramTileCount, RenderTargetKey(),
+                                                   RenderTargetKey(), RenderTargetKey()));
+ }
+ 
+ void RenderTargetCache::DestroyAllRenderTargets(bool shutting_down) {
++  ++ownership_generation_;  // wwe2k14 patch (Session 6, CP8)
+   ownership_ranges_.clear();
+   if (!shutting_down) {
+     ownership_ranges_.emplace(std::piecewise_construct, std::forward_as_tuple(uint32_t(0)),
+@@ -362,6 +443,9 @@ void RenderTargetCache::ShutdownCommon() {
+ }
+ 
+ void RenderTargetCache::ClearCache() {
++  // wwe2k14 patch (Session 6, CP8): ownership_ranges_ isn't modified here, but cache clears are rare, so drop
++  // the gpu_rt_cache_skip_unchanged entries anyway (conservative).
++  ++ownership_generation_;
+   // Keep only render targets currently owning any EDRAM data.
+   if (!render_targets_.empty()) {
+     std::unordered_set<RenderTargetKey, RenderTargetKey::Hasher> used_render_targets;
+@@ -575,6 +659,67 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+                        : true,
+                    vertex_shader));
+ 
++  // wwe2k14 patch (Session 6, CP8): gpu_rt_cache_skip_unchanged, see the comment at the setting. Everything
++  // above still runs as before (including EstimateMaxY, whose result may depend on guest memory with
++  // execute_unclipped_draw_vs_on_cpu); skip_unchanged_key holds everything the code below depends on, apart
++  // from ownership_ranges_ (the sort, the lengths and the keys are computed from these values only). Pixel
++  // shader interlock only: with host render targets, the rest also creates render targets, gathers transfers
++  // and updates the bindings.
++  bool skip_unchanged_verify = false;
++  bool skip_unchanged_active = false;
++  // While a would-be skip is being verified, the matching entry, otherwise UINT32_MAX.
++  uint32_t skip_unchanged_hit_entry = UINT32_MAX;
++  UpdateSkipKey skip_unchanged_key;
++  uint64_t skip_unchanged_generation_before = 0;
++  uint64_t skip_unchanged_map_hash_before = 0;
++  if (interlock_barrier_only) {
++    skip_unchanged_verify = REXCVAR_GET(gpu_rt_cache_skip_unchanged_verify);
++    skip_unchanged_active = skip_unchanged_verify || REXCVAR_GET(gpu_rt_cache_skip_unchanged);
++  }
++  if (skip_unchanged_active) {
++    std::memset(&skip_unchanged_key, 0, sizeof(skip_unchanged_key));
++    skip_unchanged_key.msaa_samples = uint32_t(msaa_samples);
++    skip_unchanged_key.pitch_tiles_at_32bpp = pitch_tiles_at_32bpp;
++    skip_unchanged_key.depth_and_color_rts_used_bits = depth_and_color_rts_used_bits;
++    // Only the bits of the used render targets are read below.
++    skip_unchanged_key.rts_are_64bpp = rts_are_64bpp & depth_and_color_rts_used_bits;
++    skip_unchanged_key.height_used = height_used;
++    skip_unchanged_key.mrt_edram_used_range_clamp_to_min =
++        uint32_t(REXCVAR_GET(mrt_edram_used_range_clamp_to_min));
++    rts_remaining = depth_and_color_rts_used_bits;
++    while (bit_inline::bit_scan_forward(rts_remaining, &rt_index)) {
++      rts_remaining &= ~(uint32_t(1) << rt_index);
++      skip_unchanged_key.edram_bases[rt_index] = edram_bases[rt_index];
++      skip_unchanged_key.resource_formats[rt_index] = resource_formats[rt_index];
++    }
++    UpdateSkipState& skip_unchanged = update_skip_;
++    ++skip_unchanged.stats.updates;
++    skip_unchanged_generation_before = ownership_generation_;
++    if (!skip_unchanged.entry_count || skip_unchanged.generation != ownership_generation_) {
++      // Nothing confirmed for the current ownership state.
++      ++skip_unchanged.stats.miss_state;
++    } else {
++      for (uint32_t i = 0; i < skip_unchanged.entry_count; ++i) {
++        if (!std::memcmp(&skip_unchanged.entries[i].key, &skip_unchanged_key,
++                         sizeof(skip_unchanged_key))) {
++          skip_unchanged_hit_entry = i;
++          break;
++        }
++      }
++      if (skip_unchanged_hit_entry == UINT32_MAX) {
++        ++skip_unchanged.stats.miss_key;
++      } else if (!skip_unchanged_verify) {
++        // The full run would request no barrier and leave ownership_ranges_ as it is - nothing else below
++        // has effects with pixel shader interlock.
++        ++skip_unchanged.stats.skipped;
++        ReportUpdateSkipStats();
++        return true;
++      } else {
++        skip_unchanged_map_hash_before = HashOwnershipRanges();
++      }
++    }
++  }
++
+   // Sorted by EDRAM base and then by index in the pipeline - for simplicity,
+   // treat render targets placed closer to the end of the EDRAM as truncating
+   // the previous one (and in case multiple render targets are placed at the
+@@ -659,13 +804,14 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+                                        rt_base);
+   }
+ 
++  // wwe2k14 patch (Session 6, CP8): declared outside the block for gpu_rt_cache_skip_unchanged.
++  bool interlock_barrier_needed = false;
+   if (interlock_barrier_only) {
+     // Because a full pixel shader interlock barrier may clear the ownership map
+     // (since it flushes all previous writes, and there's no need for another
+     // barrier if an overlap is encountered later between pre-barrier and
+     // post-barrier usages), check if any overlap requiring a barrier happens,
+     // and then insert the barrier if needed.
+-    bool interlock_barrier_needed = false;
+     for (uint32_t i = 0; i < edram_bases_sorted_count; ++i) {
+       const std::pair<uint32_t, uint32_t>& rt_base_index = edram_bases_sorted[i];
+       if (WouldOwnershipChangeRequireTransfers(rt_keys[rt_base_index.second], 0,
+@@ -692,6 +838,22 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+   }
+ 
+   if (interlock_barrier_only) {
++    // wwe2k14 patch (Session 6, CP8): gpu_rt_cache_skip_unchanged - remember the key if this run had no
++    // effect, and check a would-be skip.
++    if (skip_unchanged_active) {
++      UpdateSkipRange skip_unchanged_ranges[1 + xenos::kMaxColorRenderTargets];
++      for (uint32_t i = 0; i < edram_bases_sorted_count; ++i) {
++        UpdateSkipRange& skip_unchanged_range = skip_unchanged_ranges[i];
++        skip_unchanged_range.rt_bit_index = edram_bases_sorted[i].second;
++        skip_unchanged_range.rt_key = rt_keys[edram_bases_sorted[i].second].key;
++        skip_unchanged_range.length_tiles = rt_lengths_tiles[i];
++      }
++      UpdateSkipAfterFullRun(skip_unchanged_key, skip_unchanged_ranges, edram_bases_sorted_count,
++                             interlock_barrier_needed, skip_unchanged_generation_before,
++                             skip_unchanged_hit_entry, skip_unchanged_map_hash_before,
++                             skip_unchanged_verify);
++      ReportUpdateSkipStats();
++    }
+     // No copying transfers or render target bindings - only needed the barrier.
+     return true;
+   }
+@@ -762,6 +924,174 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+   return true;
+ }
+ 
++void RenderTargetCache::UpdateSkipAfterFullRun(const UpdateSkipKey& key,
++                                               const UpdateSkipRange* ranges, uint32_t range_count,
++                                               bool barrier_requested, uint64_t generation_before,
++                                               uint32_t hit_entry, uint64_t map_hash_before,
++                                               bool verify) {
++  // wwe2k14 patch (Session 6, CP8): see the comment at gpu_rt_cache_skip_unchanged.
++  UpdateSkipState& skip = update_skip_;
++  UpdateSkipStats& stats = skip.stats;
++  // Every modification of ownership_ranges_ increments ownership_generation_ (including the ones done by the
++  // barrier request through PixelShaderInterlockFullEdramBarrierPlaced).
++  bool ownership_changed = ownership_generation_ != generation_before;
++  if (barrier_requested) {
++    ++stats.full_barrier;
++  } else if (ownership_changed) {
++    ++stats.full_changed;
++  } else {
++    ++stats.full_noop;
++  }
++
++  if (hit_entry != UINT32_MAX) {
++    // Verification of a would-be skip. The entries were for generation_before (checked by the caller).
++    ++stats.verified;
++    const UpdateSkipEntry& entry = skip.entries[hit_entry];
++    uint64_t map_hash_after = HashOwnershipRanges();
++    uint32_t mismatch_flags = 0;
++    if (skip.map_hash_valid && skip.map_hash != map_hash_before) {
++      mismatch_flags |= kUpdateSkipMismatchStaleOwnership;
++    }
++    if (entry.range_count != range_count ||
++        std::memcmp(entry.ranges, ranges, sizeof(UpdateSkipRange) * range_count)) {
++      mismatch_flags |= kUpdateSkipMismatchRanges;
++    }
++    if (barrier_requested) {
++      mismatch_flags |= kUpdateSkipMismatchBarrier;
++    }
++    if (ownership_changed || map_hash_after != map_hash_before) {
++      mismatch_flags |= kUpdateSkipMismatchOwnershipChanged;
++    }
++    if (mismatch_flags) {
++      ++stats.mismatches;
++      ++stats.mismatches_total;
++      if (stats.mismatches_logged < kUpdateSkipMismatchLogLimit) {
++        ++stats.mismatches_logged;
++        auto describe_ranges = [](const UpdateSkipRange* described_ranges, uint32_t count) {
++          std::string description = "[";
++          for (uint32_t i = 0; i < count; ++i) {
++            const UpdateSkipRange& range = described_ranges[i];
++            RenderTargetKey range_key;
++            range_key.key = range.rt_key;
++            description += fmt::format("{}{}: {} +{}t", i ? "; " : "", range.rt_bit_index,
++                                       range_key.GetDebugName(), range.length_tiles);
++          }
++          description += "]";
++          return description;
++        };
++        REXGPU_WARN(
++            "[s6][CP8] Update skip mismatch {}: {} - msaa {} pitch {}t render targets 0x{:X} 64bpp 0x{:X} "
++            "height {} clamp {} bases {} formats {}; ownership calls confirmed {}, now {}; barrier {}; "
++            "ownership generation {} -> {}; ownership map hash confirmed {} {:016X}, before {:016X}, "
++            "after {:016X} ({} ranges)",
++            stats.mismatches_total, DescribeUpdateSkipMismatch(mismatch_flags), key.msaa_samples,
++            key.pitch_tiles_at_32bpp, key.depth_and_color_rts_used_bits, key.rts_are_64bpp,
++            key.height_used, key.mrt_edram_used_range_clamp_to_min,
++            DescribeUpdateSkipValues(key.edram_bases, 1 + xenos::kMaxColorRenderTargets),
++            DescribeUpdateSkipValues(key.resource_formats, 1 + xenos::kMaxColorRenderTargets),
++            describe_ranges(entry.ranges, entry.range_count), describe_ranges(ranges, range_count),
++            barrier_requested, generation_before, ownership_generation_,
++            skip.map_hash_valid ? "valid" : "not recorded", skip.map_hash, map_hash_before,
++            map_hash_after, ownership_ranges_.size());
++      }
++      // The original results have been used. Start over.
++      skip.entry_count = 0;
++      skip.entry_next = 0;
++      return;
++    }
++  }
++
++  if (barrier_requested || ownership_changed) {
++    // Not a confirmation. If ownership_ranges_ was modified, the entries are for an older state and won't
++    // match (generation); if not, they're still valid.
++    return;
++  }
++  // Not if the setting in the key was changed (from another thread) during the update - the full run might
++  // have used the other value.
++  if (key.mrt_edram_used_range_clamp_to_min != uint32_t(REXCVAR_GET(mrt_edram_used_range_clamp_to_min))) {
++    return;
++  }
++  if (!skip.entry_count || skip.generation != ownership_generation_) {
++    // The first confirmation for this ownership state - the older entries were for an earlier one.
++    skip.entry_count = 0;
++    skip.entry_next = 0;
++    skip.generation = ownership_generation_;
++    skip.map_hash_valid = verify;
++    skip.map_hash = verify ? HashOwnershipRanges() : 0;
++  } else {
++    for (uint32_t i = 0; i < skip.entry_count; ++i) {
++      if (!std::memcmp(&skip.entries[i].key, &key, sizeof(key))) {
++        // Already there (a verified would-be skip).
++        return;
++      }
++    }
++  }
++  uint32_t entry_index;
++  if (skip.entry_count < kUpdateSkipEntryCount) {
++    entry_index = skip.entry_count++;
++  } else {
++    entry_index = skip.entry_next;
++    skip.entry_next = (skip.entry_next + 1) % kUpdateSkipEntryCount;
++  }
++  UpdateSkipEntry& entry = skip.entries[entry_index];
++  entry.key = key;
++  entry.range_count = range_count;
++  std::memcpy(entry.ranges, ranges, sizeof(UpdateSkipRange) * range_count);
++}
++
++uint64_t RenderTargetCache::HashOwnershipRanges() const {
++  // wwe2k14 patch (Session 6, CP8): gpu_rt_cache_skip_unchanged_verify only.
++  uint64_t hash = UINT64_C(0xCBF29CE484222325) ^ uint64_t(ownership_ranges_.size());
++  auto mix = [&hash](uint64_t value) {
++    hash = (hash ^ value) * UINT64_C(0x9E3779B97F4A7C15);
++    hash ^= hash >> 31;
++  };
++  for (const auto& ownership_range_pair : ownership_ranges_) {
++    const OwnershipRange& ownership_range = ownership_range_pair.second;
++    mix(uint64_t(ownership_range_pair.first) | (uint64_t(ownership_range.end_tiles) << 32));
++    mix(uint64_t(ownership_range.render_target.key) |
++        (uint64_t(ownership_range.host_depth_render_target_unorm24.key) << 32));
++    mix(uint64_t(ownership_range.host_depth_render_target_float24.key));
++  }
++  return hash;
++}
++
++void RenderTargetCache::ReportUpdateSkipStats() {
++  // wwe2k14 patch (Session 6, CP8): gpu_rt_cache_skip_unchanged summary every kUpdateSkipStatsFrames frames.
++  UpdateSkipStats& stats = update_skip_.stats;
++  uint64_t frame = GetUpdateSkipStatsFrame();
++  if (!frame) {
++    return;
++  }
++  if (!stats.frame_start || frame < stats.frame_start) {
++    stats.frame_start = frame;
++    return;
++  }
++  if (frame - stats.frame_start < kUpdateSkipStatsFrames) {
++    return;
++  }
++  REXGPU_INFO(
++      "[s6][CP8] Render target update skip (skip {}, verify {}), frames {}-{}: {} interlock updates with "
++      "render targets, {} skipped ({:.1f}%), {} would-be skips verified, {} mismatches; misses: {} nothing "
++      "confirmed for the ownership state, {} different key; full runs: {} no effect, {} ownership changed, "
++      "{} barrier; ownership generation {}; mismatches since start {}",
++      REXCVAR_GET(gpu_rt_cache_skip_unchanged), REXCVAR_GET(gpu_rt_cache_skip_unchanged_verify),
++      stats.frame_start, frame - 1, stats.updates, stats.skipped,
++      GetUpdateSkipPercentage(stats.skipped, stats.updates), stats.verified, stats.mismatches,
++      stats.miss_state, stats.miss_key, stats.full_noop, stats.full_changed, stats.full_barrier,
++      ownership_generation_, stats.mismatches_total);
++  stats.updates = 0;
++  stats.skipped = 0;
++  stats.verified = 0;
++  stats.miss_state = 0;
++  stats.miss_key = 0;
++  stats.full_noop = 0;
++  stats.full_changed = 0;
++  stats.full_barrier = 0;
++  stats.mismatches = 0;
++  stats.frame_start = frame;
++}
++
+ uint32_t RenderTargetCache::GetLastUpdateBoundRenderTargets(
+     uint32_t* depth_and_color_formats_out) const {
+   if (GetPath() != Path::kHostRenderTargets) {
+@@ -1127,6 +1457,7 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
+ 
+ void RenderTargetCache::PixelShaderInterlockFullEdramBarrierPlaced() {
+   assert_true(GetPath() == Path::kPixelShaderInterlock);
++  ++ownership_generation_;  // wwe2k14 patch (Session 6, CP8)
+   // Clear ownership - any overlap of data written before the barrier is safe.
+   OwnershipRange empty_range(xenos::kEdramTileCount, RenderTargetKey(), RenderTargetKey(),
+                              RenderTargetKey());
+@@ -1265,6 +1596,7 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
+       if (it_pre->second.end_tiles > extent_start &&
+           !it_pre->second.IsOwnedBy(dest, host_depth_encoding_different)) {
+         // Different render target overlapping the range - split the head.
++        ++ownership_generation_;  // wwe2k14 patch (Session 6, CP8)
+         ownership_ranges_.emplace(extent_start, it_pre->second);
+         it_pre->second.end_tiles = extent_start;
+         // Let the next loop do the transfer and needed merging and splitting
+@@ -1283,6 +1615,9 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
+         ++it;
+         continue;
+       }
++      // wwe2k14 patch (Session 6, CP8): everything from here to the end of the
++      // iteration modifies ownership_ranges_ (the claim always assigns).
++      ++ownership_generation_;
+       // Take over the current range. Handle the tail - may be outside the range
+       // (split in this case) or within it.
+       if (it->second.end_tiles > extent_end) {
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 0298f06..01db486 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -2098,6 +2098,11 @@ void VulkanRenderTargetCache::RequestPixelShaderInterlockBarrier() {
+   CommitEdramBufferShaderWrites();
+ }
+ 
++uint64_t VulkanRenderTargetCache::GetUpdateSkipStatsFrame() const {
++  // wwe2k14 patch (Session 6, CP8)
++  return command_processor_.GetCurrentFrame();
++}
++
+ void VulkanRenderTargetCache::GetEdramBufferUsageMasks(EdramBufferUsage usage,
+                                                        VkPipelineStageFlags& stage_mask_out,
+                                                        VkAccessFlags& access_mask_out) {

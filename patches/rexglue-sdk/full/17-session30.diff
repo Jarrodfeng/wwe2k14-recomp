@@ -1,0 +1,99 @@
+# ReXGlue SDK changes for WWE 2K14 (session30): e5ebb5bbbb41..0750a5bd1b4a on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  0750a5b Session 30: window_activate_when_shown / window_position / window_show_behind (test windows that never take the focus)
+
+diff --git a/include/rex/ui/flags.h b/include/rex/ui/flags.h
+index fa2ef60581b70f8648a5f5bd0aa09c03e5842aa3..7250549e865cecf17262c4e793facc5236d70613 100644
+--- a/include/rex/ui/flags.h
++++ b/include/rex/ui/flags.h
+@@ -30,6 +30,9 @@ REXCVAR_DECLARE(int32_t, window_width);
+ REXCVAR_DECLARE(int32_t, window_height);
+ REXCVAR_DECLARE(bool, fullscreen);
+ REXCVAR_DECLARE(int32_t, monitor);
++REXCVAR_DECLARE(bool, window_activate_when_shown);
++REXCVAR_DECLARE(std::string, window_position);
++REXCVAR_DECLARE(bool, window_show_behind);
+ REXCVAR_DECLARE(std::string, video_driver);
+ 
+ // Display (guest video mode; defined in src/ui/window.cpp)
+diff --git a/src/ui/window.cpp b/src/ui/window.cpp
+index b4e045f3fe58a6647c467957470e567fd1c92a64..fa9f6b7c7268b98324f008ee98696a5cf51e16ff 100644
+--- a/src/ui/window.cpp
++++ b/src/ui/window.cpp
+@@ -42,6 +42,22 @@ REXCVAR_DEFINE_INT32(monitor, 0, "UI/Window",
+     .range(0, 16)
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++// wwe2k14 Session 30: test windows that do not take the focus or cover the desktop.
++REXCVAR_DEFINE_BOOL(window_activate_when_shown, true, "UI/Window",
++                    "Activate (focus) the window when it is first shown. false shows it without "
++                    "taking the keyboard focus from the active program (test runs)")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
++REXCVAR_DEFINE_STRING(window_position, "", "UI/Window",
++                      "Windowed position \"X,Y\" of the window's client area in physical pixels "
++                      "(desktop coordinates, so a second monitor works). Empty = system default")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
++REXCVAR_DEFINE_BOOL(window_show_behind, false, "UI/Window",
++                    "Windows: place the window behind all other windows when it is first shown "
++                    "(it keeps presenting; click its taskbar button to see it). Test runs")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ REXCVAR_DEFINE_STRING(video_driver, "", "UI/Window",
+                       "SDL video driver to use, such as \"wayland\" or \"x11\". Empty picks "
+                       "SDL's default for the session")
+diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
+index 2251429b7f5c0791262a6d3a866bf039c952b1d0..c422236c9688bc9bec9e873858c8d4be9572f803 100644
+--- a/src/ui/window_sdl.cpp
++++ b/src/ui/window_sdl.cpp
+@@ -15,6 +15,7 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <cstdio>
+ #include <cstring>
+ #include <filesystem>
+ 
+@@ -170,6 +171,17 @@ bool WindowSDL::OpenImpl() {
+     }
+   }
+ 
++  // wwe2k14 Session 30: an explicit windowed position wins over the monitor centering above.
++  if (const std::string& pos = REXCVAR_GET(window_position); !pos.empty() && !IsFullscreen()) {
++    int x = 0, y = 0;
++    char extra = 0;
++    if (std::sscanf(pos.c_str(), "%d,%d%c", &x, &y, &extra) == 2) {
++      SDL_SetWindowPosition(sdl_window_, x, y);
++    } else {
++      REXLOG_WARN("window_position '{}' is not X,Y; using the default position", pos);
++    }
++  }
++
+   if (IsFullscreen()) {
+     // Borderless desktop fullscreen (a NULL display mode is SDL3's default).
+     SDL_SetWindowFullscreen(sdl_window_, true);
+@@ -183,7 +195,23 @@ bool WindowSDL::OpenImpl() {
+   // desired state so a reopened window comes back with the state it had.
+   ApplyTextInputActiveNow();
+   ApplyCursorVisibilityNow();
++  // wwe2k14 Session 30: test runs show the window without activating it (Windows: SWP_NOACTIVATE), and optionally
++  // behind every other window, so a run started in the background never takes the keyboard or covers the desktop.
++  const bool activate = REXCVAR_GET(window_activate_when_shown);
++  SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, activate ? "1" : "0");
+   SDL_ShowWindow(sdl_window_);
++#if REX_PLATFORM_WIN32
++  if (REXCVAR_GET(window_show_behind)) {
++    if (HWND hwnd = static_cast<HWND>(GetNativeWindowHandle())) {
++      SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
++    }
++  }
++#endif
++  if (!activate || REXCVAR_GET(window_show_behind) || !REXCVAR_GET(window_position).empty()) {
++    REXLOG_INFO("Window shown: {}{}{}", activate ? "activated" : "not activated",
++                REXCVAR_GET(window_show_behind) ? ", behind other windows" : "",
++                REXCVAR_GET(window_position).empty() ? "" : ", position " + REXCVAR_GET(window_position));
++  }
+ 
+   // Actualize state for the common Window code. Listener dispatch is handled
+   // by Window::Open after OpenImpl returns; these only record initial state.

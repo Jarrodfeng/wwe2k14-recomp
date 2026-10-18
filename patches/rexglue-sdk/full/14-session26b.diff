@@ -1,0 +1,87 @@
+# ReXGlue SDK changes for WWE 2K14 (session26b): 2aaec24b364c..7412a803920f on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  7412a80 Session 26 follow-up: a failed start exits cleanly (no teardown crash after the error box)
+
+diff --git a/include/rex/runtime.h b/include/rex/runtime.h
+index 34f226c2719d7670778bddb88a3c36750e16d1ae..ed494afdc248ef89bae5a2d9a1061922d46a975b 100644
+--- a/include/rex/runtime.h
++++ b/include/rex/runtime.h
+@@ -152,6 +152,8 @@ class Runtime {
+ 
+   // Setup the runtime environment
+   // config.tool_mode: If true, skips GPU initialization (for analysis tools)
++  // On failure the runtime keeps what was set up (config.graphics included) until it is destroyed or Shutdown() is
++  // called, so the owner can first detach whatever of its own uses the graphics system (wwe2k14).
+   X_STATUS Setup(RuntimeConfig config = {});
+ 
+   // rexglue - initializes per-module function dispatch table
+diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
+index 6179b907e2d6bcb48e34b924f645974a689d7fd4..b3b17dc5da83e823c408037f7e73c6770cdc670e 100644
+--- a/src/system/runtime.cpp
++++ b/src/system/runtime.cpp
+@@ -96,9 +96,14 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
+   }
+   instance_ = this;
+ 
+-  auto fail = [this](X_STATUS status, std::string_view reason) {
++  // wwe2k14 (Session 26 follow-up): a failed Setup leaves the runtime as far as it got; the owner destroys it
++  // (~Runtime -> Shutdown, which handles a partial setup). Tearing down here destroyed the app's graphics system (its
++  // presenter and Vulkan device) while the app's window and UI drawers still used them: the app's later teardown then
++  // called Vulkan on a destroyed device (0xC0000005). The graphics system is adopted first so a failure before the
++  // GPU step can't destroy it with `config` either.
++  graphics_system_ = std::move(config.graphics);
++  auto fail = [](X_STATUS status, std::string_view reason) {
+     REXSYS_ERROR("Runtime::Setup failed: {}", reason);
+-    Shutdown();
+     return status;
+   };
+ 
+@@ -179,9 +184,8 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
+     return X_STATUS_SUCCESS;
+   }
+ 
+-  // Initialize GPU from injected config
+-  if (config.graphics) {
+-    graphics_system_ = std::move(config.graphics);
++  // Initialize GPU from injected config (adopted at the top)
++  if (graphics_system_) {
+     bool with_presentation = (app_context_ != nullptr);
+     X_STATUS gpu_status = graphics_system_->Setup(function_dispatcher_.get(), kernel_state_.get(),
+                                                   app_context_, with_presentation);
+@@ -210,8 +214,7 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
+                                                      image_info.image_base, image_info.image_size,
+                                                      /*is_entrypoint=*/true)) {
+     REXSYS_ERROR("Failed to initialize function table");
+-    Shutdown();
+-    return X_STATUS_UNSUCCESSFUL;
++    return X_STATUS_UNSUCCESSFUL;  // the owner destroys the runtime (see Setup)
+   }
+ 
+   if (image_info.func_mappings) {
+@@ -238,8 +241,7 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
+                  duplicates, rejected);
+     if (rejected > 0) {
+       REXSYS_ERROR("PPCImageInfo registration: {} func_mappings entries rejected", rejected);
+-      Shutdown();
+-      return X_STATUS_UNSUCCESSFUL;
++      return X_STATUS_UNSUCCESSFUL;  // the owner destroys the runtime (see Setup)
+     }
+   }
+ 
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+index d648bf0906783e3e944c0baa2fe3650e61565718..83ff493956a2d46d73e4d32a62b21c0c9d8d1b62 100644
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -598,8 +598,11 @@ void ReXApp::OnDestroy() {
+     window_->RemoveInputListener(this);
+     window_->RemoveListener(this);
+   }
+-  window_.reset();
++  // wwe2k14 (Session 26 follow-up): the runtime before the window. Its input drivers are attached to the window
++  // (MnkInputDriver detaches in its destructor) and ~Window doesn't tell its listeners, so the window going first left
++  // them a dangling pointer: heap corruption (0xC0000374) whenever a start failed after Runtime::Setup.
+   runtime_.reset();
++  window_.reset();
+ }
+ 
+ void ReXApp::SetGuestFrameStats(ui::DebugOverlayDialog::FrameStatsProvider provider) {

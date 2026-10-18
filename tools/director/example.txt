@@ -1,0 +1,8 @@
+# Example director script (Session 17). Copy it to out\director\NAME.txt and run it with --wwe2k14_director=NAME
+# (or pick it in the launcher's Play tab, preset Director). '#' starts a comment. Format: src\director.h.
+scenario lesnar_bryan                      # the match (out\scenarios\lesnar_bryan.*)
+seed 13                                    # the seed: same seed + same script = the same match every time
+set wwe2k14_launch_skip_entrances true     # any setting
+at clock 0:00  hype 2                      # at the bell: crowd excitement 2 (0..5)
+at clock 0:20  runin target=1 char=102     # 20 s in: Triple H (102) runs in on slot 1 (Bryan)
+at clock 0:40  hype 5                      # 40 s in: the crowd goes wild

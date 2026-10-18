@@ -1,0 +1,551 @@
+# ReXGlue SDK changes for WWE 2K14 (session19): 4057aa9912c8..2d9a84f0718e on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  2d9a84f Session 19 LATENCY: timeline events gorefresh (guest output refresh seq), hpresent (presented image seq after vkQueuePresentKHR), gocapture (captured image seq)
+#  0aff0c2 Session 19 PARHASH: gpu_upload_skip_parallel_hash (default 0): the upload-skip page hashes of a request on worker threads + the CP (>= gpu_upload_skip_parallel_min_pages), same result; [s19][PARHASH] summary
+#  ba0bfee Session 19 VMCACHE: kernel_video_mode_cache (default off): VdQueryVideoMode's configured width/height cached for up to 1 s instead of 4 by-name cvar lookups per call (4.5% of the CP, run 1437)
+#  787857a Session 19 DRAWRUNS: anatomy rows get state_hash (regs 0x2000-0x3FFF + bound shaders) and fetch_hash (fetch constants), to count draws that differ only in constants (capture only)
+
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index 950ca666c098fe8bfbdfadde657dc603184cf6ac..787a705749d00ad21dd668d84bb7f23973188501 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -284,6 +284,27 @@ class SharedMemory {
+   void CaptureUploadClearOnly();
+   // Hashes the hashed pages of upload_ranges_ and fills upload_ranges_after_skip_ with what still needs a copy.
+   void SkipUnchangedUploadPages();
++  // wwe2k14 patch (Session 19, PARHASH): gpu_upload_skip_parallel_hash. The same result as SkipUnchangedUploadPages
++  // (no verify): every hashed run is made valid first (as before, each page before its hash), the hashes of the
++  // request are computed on worker threads plus this thread when there are at least min_pages of them, then the
++  // pages left are appended in the original order.
++  void SkipUnchangedUploadPagesParallel(uint32_t workers, uint32_t min_pages);
++  struct ParhashSegment {
++    uint32_t first;
++    uint32_t count;
++    bool hashed;
++  };
++  std::vector<ParhashSegment> parhash_segments_;
++  std::vector<uint32_t> parhash_pages_;
++  std::vector<uint8_t> parhash_match_;
++  struct ParhashWindow {
++    uint64_t requests = 0;           // requests that went through the parallel scan
++    uint64_t parallel_requests = 0;  // of those, hashed on the workers (>= min_pages)
++    uint64_t pages = 0;
++    uint64_t parallel_pages = 0;
++    uint64_t hash_ns = 0;            // wall time of the hashing (all requests of the scan)
++  };
++  ParhashWindow parhash_window_;
+   // UploadRanges failed (no upload buffer space): makes the pages of upload_ranges_after_skip_ not valid again,
+   // since SkipUnchangedUploadPages made the hashed ones among them valid before UploadRanges could copy them.
+   void InvalidateFailedUploadPages();
+diff --git a/include/rex/ui/presenter.h b/include/rex/ui/presenter.h
+index afb4a30b2619b9823c394171047b74db7031b124..9dc72482bd7b7a843c02b5f4b07ad499349cfd31 100644
+--- a/include/rex/ui/presenter.h
++++ b/include/rex/ui/presenter.h
+@@ -407,6 +407,9 @@ class Presenter {
+     uint32_t display_aspect_ratio_x;
+     uint32_t display_aspect_ratio_y;
+     bool is_8bpc;
++    // wwe2k14 patch (Session 19, LATENCY): which refresh produced the image (1, 2, ...; 0 = none), for the
++    // timeline events gorefresh / hpresent / gocapture that tie a guest frame to its host present.
++    uint64_t refresh_seq = 0;
+ 
+     GuestOutputProperties() { SetToInactive(); }
+ 
+@@ -954,6 +957,8 @@ class Presenter {
+   // The "writable" image is different than both "acquired" and "ready" and is
+   // accessible only by the guest output refreshing - it's the image that the
+   // refresher may write to.
++  // wwe2k14 patch (Session 19, LATENCY): refreshes so far (the producer thread only).
++  uint64_t guest_output_refresh_seq_ = 0;
+   uint32_t guest_output_mailbox_writable_ = 1;
+   // The guest output images may be consumed by two operations - painting, and
+   // capturing to a CPU-side buffer. These two usually never happen in parallel
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index eb6039a6b283c98a35f837f3321a5baed323785d..60edc7e772e7766f69f1ee02eeb4746a4c139122 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -28,6 +28,7 @@
+ #include <rex/det.h>  // wwe2k14 patch (Session 15): det_frames
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
++#include <rex/hash.h>  // wwe2k14 patch (Session 19, DRAWRUNS): XXH3 for the anatomy state hashes
+ #include <rex/perf/counter.h>
+ #include <rex/perf/processor.h>
+ #include <rex/perf/timeline.h>
+@@ -284,6 +285,12 @@ struct CommandProcessor::AnatomyCapture {
+     uint32_t ps_float_constants;
+     uint32_t pipeline_changed;
+     uint32_t skipped;  // AnatomySkipReason
++    // wwe2k14 patch (Session 19, DRAWRUNS): what a draw has in common with the previous one, to count runs of draws
++    // that differ only in shader constants. state_hash = registers 0x2000-0x3FFF (render state, render targets,
++    // index buffer, draw initiator, viewport) + the bound shader objects; fetch_hash = the fetch constants
++    // 0x4800-0x48BF (textures, vertex buffers). Float / bool / loop constants are left out.
++    uint64_t state_hash;
++    uint64_t fetch_hash;
+     // wwe2k14 patch (Session 7, EXTENTS-SHADOW): the draw's computed screen extents (gpu_extents_mode).
+     bool ext_attempted;  // an estimate ran for this draw (ext_* columns empty otherwise)
+     bool ext_ok;
+@@ -2832,6 +2839,17 @@ void CommandProcessor::AnatomyEndDraw(uint32_t vgt_draw_initiator_value, bool is
+     AnatomyShaderInfo(active_vertex_shader_, row.vs_hash, row.vs_textures, row.vs_float_constants);
+     AnatomyShaderInfo(active_pixel_shader_, row.ps_hash, row.ps_textures, row.ps_float_constants);
+   }
++  // wwe2k14 patch (Session 19, DRAWRUNS).
++  {
++    const void* shaders[2] = {active_vertex_shader_, active_pixel_shader_};
++    XXH3_state_t* state = XXH3_createState();
++    XXH3_64bits_reset(state);
++    XXH3_64bits_update(state, &regs.values[0x2000], sizeof(uint32_t) * 0x2000);
++    XXH3_64bits_update(state, shaders, sizeof(shaders));
++    row.state_hash = XXH3_64bits_digest(state);
++    XXH3_freeState(state);
++    row.fetch_hash = XXH3_64bits(&regs.values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], sizeof(uint32_t) * 0xC0);
++  }
+ }
+ 
+ void CommandProcessor::AnatomyEndFrame() { anatomy_->frame_end_ns = AnatomyNowNs(); }
+@@ -2888,14 +2906,16 @@ void CommandProcessor::AnatomyFrameBoundary() {
+       // wwe2k14 patch (Session 7c, CAUSES): the cause columns (AnatomyCauses, in order) end the row.
+       if (row.causes_valid) {
+         const AnatomyCauses& causes = row.causes;
+-        fmt::format_to(std::back_inserter(text), ",{},{},{},{},{},{},{},0x{:08X},0x{:08X},{},{},{},{},{}\n",
++        fmt::format_to(std::back_inserter(text), ",{},{},{},{},{},{},{},0x{:08X},0x{:08X},{},{},{},{},{}",
+                        causes.up_calls, causes.up_pages, causes.tex_loads, causes.tex_loads_scaled,
+                        causes.tex_load_kib, causes.dispatches, causes.barrier_batches, causes.barrier_src_stages,
+                        causes.barrier_dst_stages, causes.rendering_restarts, causes.fsi_edram_barriers,
+                        causes.desc_writes, causes.pipeline_created, causes.pipeline_pending);
+       } else {
+-        fmt::format_to(std::back_inserter(text), ",,,,,,,,,,,,,,\n");
++        fmt::format_to(std::back_inserter(text), ",,,,,,,,,,,,,,");
+       }
++      // wwe2k14 patch (Session 19, DRAWRUNS): state_hash,fetch_hash end the row.
++      fmt::format_to(std::back_inserter(text), ",{:016X},{:016X}\n", row.state_hash, row.fetch_hash);
+     }
+     bool write_ok = true;
+     if (text.size()) {
+@@ -2990,7 +3010,9 @@ void CommandProcessor::AnatomyFrameBoundary() {
+       "ext_minx,ext_maxx,ext_miny,ext_maxy,ext_ok,ext_why,ext_us,"
+       // wwe2k14 patch (Session 7c, CAUSES): after the EXTENTS-SHADOW columns (AnatomyCauses).
+       "up_calls,up_pages,tex_loads,tex_loads_scaled,tex_load_kib,dispatches,barrier_batches,barrier_src_stages,"
+-      "barrier_dst_stages,rendering_restarts,fsi_edram_barriers,desc_writes,pipeline_created,pipeline_pending\n",
++      "barrier_dst_stages,rendering_restarts,fsi_edram_barriers,desc_writes,pipeline_created,pipeline_pending,"
++      // wwe2k14 patch (Session 19, DRAWRUNS): after the CAUSES columns.
++      "state_hash,fetch_hash\n",
+       capture.rows_file);
+   std::fputs("frame,draws,copies,cp_us_sum,span_us\n", capture.frames_file);
+   capture.requested = requested;
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index 00c90e92543f4bf18d797f48044346b2433860e0..99d4e93c9f79a02364429a91df320bc8cd188f65 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -14,6 +14,10 @@
+ #include <chrono>
+ #include <cstring>
+ #include <utility>
++#include <mutex>  // wwe2k14 patch (Session 19, PARHASH)
++#include <thread>  // wwe2k14 patch (Session 19, PARHASH)
++#include <functional>  // wwe2k14 patch (Session 19, PARHASH)
++#include <condition_variable>  // wwe2k14 patch (Session 19, PARHASH)
+ 
+ #include <rex/assert.h>
+ #include <rex/bit.h>
+@@ -22,6 +26,7 @@
+ #include <rex/graphics/shared_memory.h>
+ #include <rex/hash.h>
+ #include <rex/logging.h>
++#include <rex/thread.h>  // wwe2k14 patch (Session 19, PARHASH)
+ #include <rex/math.h>
+ #include <rex/memory.h>
+ 
+@@ -59,6 +64,15 @@ REXCVAR_DEFINE_BOOL(gpu_upload_skip_unchanged_stats, false, "GPU",
+                     "count (cpf_up c) uploaded pages whose bytes changed while only the frame-end clear "
+                     "(clear_memory_page_state) had invalidated them - the pages clear_memory_page_state=false "
+                     "would have left stale. Read per request (toggle-safe)");
++// wwe2k14 patch (Session 19, PARHASH): the skip check's page hashing (XXH3 per 4 KB page, ~1,400 pages / ~0.4 ms of
++// the command processor per frame at the 1440p preset, run 1435) on worker threads.
++REXCVAR_DEFINE_INT32(gpu_upload_skip_parallel_hash, 0, "GPU",
++                     "wwe2k14 (Session 19): with gpu_upload_skip_unchanged (not _verify), N > 0 = hash a request's "
++                     "skip-check pages on N worker threads plus the command processor when it has at least "
++                     "gpu_upload_skip_parallel_min_pages of them; 0 = off. Same result; logs [s19][PARHASH]");
++REXCVAR_DEFINE_INT32(gpu_upload_skip_parallel_min_pages, 64, "GPU",
++                     "wwe2k14 (Session 19): smallest request (pages to hash) that gpu_upload_skip_parallel_hash "
++                     "spreads over its workers (smaller ones are hashed on the command processor)");
+ REXCVAR_DEFINE_BOOL(gpu_upload_skip_unchanged_verify, false, "GPU",
+                     "With gpu_upload_skip_unchanged: upload the pages it would skip anyway (rendering as with it "
+                     "off), and for up to 256 of them per frame (round robin) first copy the page out of the GPU "
+@@ -738,7 +752,238 @@ void SharedMemory::CaptureUploadClearOnly() {
+   }
+ }
+ 
++namespace {
++// wwe2k14 patch (Session 19, PARHASH): a small pool for one job at a time from one caller (the command processor).
++// The job word holds the generation (high 32 bits) and the next index (low 32; 0xFFFFFFFF = closed). A worker counts
++// itself busy before reading the job word, so the caller, which closes the job and then waits for busy == 0, never
++// returns (and never rewrites fn_ / count_) while a worker might still read them. Workers spin ~50 us for the next
++// job before sleeping, since a frame makes dozens of requests.
++class ParhashPool {
++ public:
++  ~ParhashPool() {
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      stop_ = true;
++    }
++    cv_.notify_all();
++    for (std::thread& t : threads_) {
++      t.join();
++    }
++  }
++  void Run(uint32_t workers, uint32_t count, const std::function<void(uint32_t)>& fn) {
++    while (threads_.size() < workers) {
++      const uint32_t id = uint32_t(threads_.size());
++      threads_.emplace_back([this, id] { WorkerMain(id); });
++    }
++    fn_ = &fn;
++    count_ = count;
++    done_.store(0, std::memory_order_relaxed);
++    const uint64_t gen = ++gen_;
++    job_.store(gen << 32);
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      wake_gen_ = gen;
++    }
++    cv_.notify_all();
++    Work(gen);
++    while (done_.load(std::memory_order_acquire) < count) {
++      std::this_thread::yield();
++    }
++    job_.store((gen << 32) | 0xFFFFFFFFull);
++    while (busy_.load()) {
++      std::this_thread::yield();
++    }
++  }
++
++ private:
++  static constexpr uint32_t kChunk = 16;  // pages per claim (64 KB)
++  void Work(uint64_t gen) {
++    for (;;) {
++      uint64_t job = job_.load();
++      if ((job >> 32) != gen) {
++        return;
++      }
++      const uint32_t index = uint32_t(job);
++      if (index == 0xFFFFFFFFu || index >= count_) {
++        return;
++      }
++      const uint32_t end = std::min(index + kChunk, count_);
++      if (!job_.compare_exchange_weak(job, (gen << 32) | end)) {
++        continue;
++      }
++      for (uint32_t i = index; i < end; ++i) {
++        (*fn_)(i);
++      }
++      done_.fetch_add(end - index, std::memory_order_release);
++    }
++  }
++  void WorkerMain(uint32_t id) {
++    rex::thread::set_current_thread_name(fmt::format("GPU Upload Hash {}", id));
++    uint64_t seen = 0;
++    for (;;) {
++      uint64_t gen = 0;
++      const auto spin_start = std::chrono::steady_clock::now();
++      for (uint32_t spin = 0;; ++spin) {
++        const uint64_t job_gen = job_.load(std::memory_order_relaxed) >> 32;
++        if (job_gen != seen) {
++          gen = job_gen;
++          break;
++        }
++        if ((spin & 63) == 63 &&
++            std::chrono::steady_clock::now() - spin_start > std::chrono::microseconds(50)) {
++          break;
++        }
++        std::this_thread::yield();
++      }
++      if (!gen) {
++        std::unique_lock<std::mutex> lock(mutex_);
++        cv_.wait(lock, [&] { return stop_ || wake_gen_ != seen; });
++        if (stop_) {
++          return;
++        }
++        gen = wake_gen_;
++      }
++      seen = gen;
++      busy_.fetch_add(1);
++      Work(gen);
++      busy_.fetch_sub(1);
++    }
++  }
++  std::vector<std::thread> threads_;
++  std::mutex mutex_;
++  std::condition_variable cv_;
++  bool stop_ = false;
++  uint64_t wake_gen_ = 0;
++  uint64_t gen_ = 0;
++  std::atomic<uint64_t> job_{0};
++  std::atomic<uint32_t> done_{0};
++  std::atomic<uint32_t> busy_{0};
++  const std::function<void(uint32_t)>* fn_ = nullptr;
++  uint32_t count_ = 0;
++};
++
++ParhashPool& GetParhashPool() {
++  static ParhashPool pool;
++  return pool;
++}
++}  // namespace
++
++void SharedMemory::SkipUnchangedUploadPagesParallel(uint32_t workers, uint32_t min_pages) {
++  // wwe2k14 patch (Session 19, PARHASH): see the declaration. Mirrors SkipUnchangedUploadPages without verify.
++  upload_ranges_after_skip_.clear();
++  auto append = [this](uint32_t page_start, uint32_t page_count) {
++    if (!page_count) {
++      return;
++    }
++    if (!upload_ranges_after_skip_.empty()) {
++      std::pair<uint32_t, uint32_t>& last_range = upload_ranges_after_skip_.back();
++      if (last_range.first + last_range.second == page_start) {
++        last_range.second += page_count;
++        return;
++      }
++    }
++    upload_ranges_after_skip_.emplace_back(page_start, page_count);
++  };
++  const uint32_t page_size = uint32_t(1) << page_size_log2_;
++  const uint64_t* hash_valid = upload_hash_valid_.data();
++  auto has_hash = [hash_valid](uint32_t page) -> bool {
++    return (hash_valid[page >> 6] >> (page & 63)) & 1;
++  };
++  UploadSkipStats& stats = upload_skip_frame_stats_;
++  UploadSkipWindow& window = upload_skip_window_;
++  // Pass 1: the runs, in order; hashed runs made valid now (before their pages are hashed, as in the serial scan).
++  parhash_segments_.clear();
++  parhash_pages_.clear();
++  uint32_t processed_end = 0;
++  for (const std::pair<uint32_t, uint32_t>& upload_range : upload_ranges_) {
++    const uint32_t range_end = upload_range.first + upload_range.second;
++    uint32_t page = std::max(upload_range.first, processed_end);
++    processed_end = std::max(processed_end, range_end);
++    while (page < range_end) {
++      uint32_t hashed_first = page;
++      while (hashed_first < range_end && !has_hash(hashed_first)) {
++        ++hashed_first;
++      }
++      if (hashed_first > page) {
++        parhash_segments_.push_back({page, hashed_first - page, false});
++      }
++      if (hashed_first >= range_end) {
++        break;
++      }
++      uint32_t hashed_end = hashed_first + 1;
++      while (hashed_end < range_end && has_hash(hashed_end)) {
++        ++hashed_end;
++      }
++      MakeRangeValid(hashed_first << page_size_log2_, (hashed_end - hashed_first) << page_size_log2_,
++                     false);
++      ++window.skip_make_valid_calls;
++      parhash_segments_.push_back({hashed_first, hashed_end - hashed_first, true});
++      for (uint32_t hashed_page = hashed_first; hashed_page < hashed_end; ++hashed_page) {
++        parhash_pages_.push_back(hashed_page);
++      }
++      page = hashed_end;
++    }
++  }
++  // Pass 2: the hashes.
++  const uint32_t count = uint32_t(parhash_pages_.size());
++  parhash_match_.resize(count);
++  const auto hash_start = std::chrono::steady_clock::now();
++  if (count) {
++    const uint32_t* pages = parhash_pages_.data();
++    uint8_t* match = parhash_match_.data();
++    const uint64_t* hashes = upload_hashes_.data();
++    memory::Memory& mem = memory();
++    const uint32_t log2 = page_size_log2_;
++    std::function<void(uint32_t)> hash_one = [pages, match, hashes, &mem, log2, page_size](uint32_t i) {
++      const uint32_t p = pages[i];
++      match[i] = XXH3_64bits(mem.TranslatePhysical(p << log2), page_size) == hashes[p];
++    };
++    ParhashWindow& pw = parhash_window_;
++    ++pw.requests;
++    pw.pages += count;
++    if (count >= min_pages) {
++      GetParhashPool().Run(workers, count, hash_one);
++      ++pw.parallel_requests;
++      pw.parallel_pages += count;
++    } else {
++      for (uint32_t i = 0; i < count; ++i) {
++        hash_one(i);
++      }
++    }
++  }
++  const uint64_t hash_ns = uint64_t(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - hash_start).count());
++  stats.hash_ns += hash_ns;
++  parhash_window_.hash_ns += hash_ns;
++  stats.bytes_hashed += uint64_t(count) << page_size_log2_;
++  window.pages_hash_checked += count;
++  // Pass 3: what still needs a copy, in the original order.
++  uint32_t index = 0;
++  for (const ParhashSegment& segment : parhash_segments_) {
++    if (!segment.hashed) {
++      append(segment.first, segment.count);
++      continue;
++    }
++    for (uint32_t k = 0; k < segment.count; ++k, ++index) {
++      if (parhash_match_[index]) {
++        ++stats.pages_skipped;
++      } else {
++        append(segment.first + k, 1);
++      }
++    }
++  }
++}
++
+ void SharedMemory::SkipUnchangedUploadPages() {
++  // wwe2k14 patch (Session 19, PARHASH): gpu_upload_skip_parallel_hash (never with verify).
++  if (!upload_skip_verify_) {
++    const int32_t parallel = REXCVAR_GET(gpu_upload_skip_parallel_hash);
++    if (parallel > 0) {
++      SkipUnchangedUploadPagesParallel(uint32_t(std::min(parallel, 31)),
++                                       uint32_t(std::max(REXCVAR_GET(gpu_upload_skip_parallel_min_pages), 1)));
++      return;
++    }
++  }
+   // wwe2k14 patch (Session 7b, UPSKIP): gpu_upload_skip_unchanged. For each page of upload_ranges_ (not valid,
+   // about to be uploaded) whose upload hash is valid - the GPU buffer holds exactly the bytes last uploaded to it,
+   // nothing else has written it since - do what UploadRanges does to the page before its copy (MakeRangeValid:
+@@ -972,6 +1217,19 @@ SharedMemory::UploadSkipStats SharedMemory::TakeUploadSkipStats(uint64_t frame)
+         verify_now.dropped - verify_start.dropped, verify_now.checked - verify_start.checked,
+         verify_now.mismatches - verify_start.mismatches, verify_now.mismatches);
+   }
++  // wwe2k14 patch (Session 19, PARHASH): one line per window while the parallel scan ran.
++  if (parhash_window_.requests) {
++    const ParhashWindow& pw = parhash_window_;
++    uint64_t frames = std::max(frame - window.window_first_frame, uint64_t(1));
++    REXGPU_INFO(
++        "[s19][PARHASH] frames {}-{} (workers {}, min pages {}): {} requests ({:.1f}/frame), {} on the workers; "
++        "{} pages hashed ({:.1f}/frame), {} of them on the workers; hashing {:.3f} ms/frame",
++        window.window_first_frame, frame, REXCVAR_GET(gpu_upload_skip_parallel_hash),
++        REXCVAR_GET(gpu_upload_skip_parallel_min_pages), pw.requests, double(pw.requests) / double(frames),
++        pw.parallel_requests, pw.pages, double(pw.pages) / double(frames), pw.parallel_pages,
++        double(pw.hash_ns) / 1.0e6 / double(frames));
++    parhash_window_ = ParhashWindow();
++  }
+   UploadSkipWindow next_window;
+   next_window.window_first_frame = frame;
+   next_window.c1_stale_total = window.c1_stale_total;
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_video.cpp b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+index 1254710a1c427c384bebc0a8e89bc0406cfe88ea..d078e0abab8b03bf396e8899a39e264acb3f3dbb 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_video.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+@@ -17,6 +17,7 @@
+ #include <string>
+ 
+ #include <rex/cvar.h>
++#include <chrono>  // wwe2k14 patch (Session 19, VMCACHE)
+ #include <rex/graphics/pipeline/texture/info.h>
+ #include <rex/graphics/register_file.h>
+ #include <rex/graphics/video_mode_util.h>
+@@ -33,6 +34,14 @@
+ #include <rex/system/xtypes.h>
+ #include <rex/ui/flags.h>
+ 
++// wwe2k14 patch (Session 19, VMCACHE): VdQueryVideoMode runs every frame (IssueSwap on the command processor, and
++// the guest) and each call made four by-name setting lookups (HasNonDefaultValue: a mutex, a string allocation and
++// the value formatted to a string): 4.5% of the command processor's samples in run 1437. With this on, the configured
++// width / height are computed at most once per second (a changed setting still takes effect within a second).
++REXCVAR_DEFINE_BOOL(kernel_video_mode_cache, false, "Kernel",
++                    "wwe2k14 (Session 19): cache VdQueryVideoMode's configured width / height for up to 1 s instead "
++                    "of looking the settings up by name on every call (every frame)");
++
+ namespace {
+ // Display gamma type: 0 - linear, 1 - sRGB (CRT), 2 - BT.709 (HDTV), 3 - power
+ constexpr uint32_t kDisplayGammaType = 2;
+@@ -230,8 +239,27 @@ void VdGetCurrentDisplayInformation_entry(ppc_ptr_t<X_DISPLAY_INFO> display_info
+ 
+ void VdQueryVideoMode(X_VIDEO_MODE* video_mode) {
+   // Exposed as CVARs so the guest can observe custom display settings.
+-  uint32_t display_width = GetConfiguredVideoModeWidth();
+-  uint32_t display_height = GetConfiguredVideoModeHeight();
++  uint32_t display_width, display_height;
++  if (REXCVAR_GET(kernel_video_mode_cache)) {
++    // wwe2k14 patch (Session 19, VMCACHE): width and height packed in one word, refreshed at most once per second.
++    static std::atomic<uint64_t> cached_size{0};
++    static std::atomic<int64_t> cached_at_ms{0};
++    const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                               std::chrono::steady_clock::now().time_since_epoch())
++                               .count();
++    uint64_t size = cached_size.load(std::memory_order_acquire);
++    if (!size || now_ms - cached_at_ms.load(std::memory_order_relaxed) >= 1000) {
++      // 0 = nothing cached yet (a real size is never 0: width >= 640, height >= 480).
++      size = (uint64_t(GetConfiguredVideoModeWidth()) << 32) | GetConfiguredVideoModeHeight();
++      cached_at_ms.store(now_ms, std::memory_order_relaxed);
++      cached_size.store(size, std::memory_order_release);
++    }
++    display_width = uint32_t(size >> 32);
++    display_height = uint32_t(size);
++  } else {
++    display_width = GetConfiguredVideoModeWidth();
++    display_height = GetConfiguredVideoModeHeight();
++  }
+   float refresh_rate_hz = GetConfiguredVideoModeRefreshRate();
+ 
+   std::memset(video_mode, 0, sizeof(X_VIDEO_MODE));
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+index 7360ed98ba3fa923789f4035c1e7a7c10bfdb2c1..7ce29cb13f5475b008b2f576f27968c57a2d128c 100644
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -17,6 +17,7 @@
+ #include <rex/assert.h>
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
++#include <rex/perf/timeline.h>  // wwe2k14 patch (Session 19, LATENCY)
+ #include <rex/platform.h>
+ #include <rex/ui/presenter.h>
+ #include <rex/ui/window.h>
+@@ -567,6 +568,9 @@ bool Presenter::RefreshGuestOutput(
+       return false;
+     }
+     guest_output_active_last_refresh_ = true;
++    // wwe2k14 patch (Session 19, LATENCY): a = refresh sequence number of the image now becoming ready.
++    writable_properties.refresh_seq = ++guest_output_refresh_seq_;
++    perf::timeline::Record("gorefresh", uint32_t(writable_properties.refresh_seq));
+   } else {
+     // Request presenting a blank image if there was a true image previously,
+     // but not now.
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 3ee69fe45db2f6e733fa0bd0d2cfe3635c76afca..80993446ae1aac792b1a536af88bdcf8683c776e 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -19,6 +19,7 @@
+ #include <utility>
+ #include <vector>
+ 
++#include <rex/perf/timeline.h>  // wwe2k14 patch (Session 19, LATENCY)
+ #include <rex/assert.h>
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
+@@ -458,13 +459,16 @@ Surface::TypeFlags VulkanPresenter::GetSupportedSurfaceTypes() const {
+ 
+ bool VulkanPresenter::CaptureGuestOutput(RawImage& image_out) {
+   std::shared_ptr<GuestOutputImage> guest_output_image;
++  GuestOutputProperties capture_properties;  // wwe2k14 patch (Session 19, LATENCY)
+   // wwe2k14 patch (Session 6, DRAIN): see GuestOutputImageInstance::deferred_submission_order.
+   std::shared_ptr<VulkanQueueSubmitOrder> guest_output_deferred_submission_order;
+   uint64_t guest_output_deferred_submission_ticket = 0;
+   {
+     uint32_t guest_output_mailbox_index;
+     std::unique_lock<std::mutex> guest_output_consumer_lock(
+-        ConsumeGuestOutput(guest_output_mailbox_index, nullptr, nullptr));
++        ConsumeGuestOutput(guest_output_mailbox_index, &capture_properties, nullptr));
++    // wwe2k14 patch (Session 19, LATENCY): a = refresh sequence number of the image captured.
++    perf::timeline::Record("gocapture", uint32_t(capture_properties.refresh_seq));
+     if (guest_output_mailbox_index != UINT32_MAX) {
+       assert_true(guest_output_images_[guest_output_mailbox_index].ever_successfully_refreshed);
+       guest_output_image = guest_output_images_[guest_output_mailbox_index].image;
+@@ -2279,6 +2283,8 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(bool execute_ui_draw
+         vulkan_device_->AcquireQueue(paint_context_.present_queue_family, 0);
+     present_result = dfn.vkQueuePresentKHR(queue_acquisition.queue(), &present_info);
+   }
++  // wwe2k14 patch (Session 19, LATENCY): a = refresh sequence number of the guest image presented, b = result.
++  perf::timeline::Record("hpresent", uint32_t(guest_output_properties.refresh_seq), uint32_t(present_result));
+   switch (present_result) {
+     case VK_SUCCESS:
+       return PaintResult::kPresented;

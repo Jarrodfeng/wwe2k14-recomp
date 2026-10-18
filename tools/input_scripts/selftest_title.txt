@@ -1,0 +1,29 @@
+# harness: realtime (starts at normal speed; Session 29: the route fast-forwards itself outside its screenshot windows)
+# Harness self-test: boot to "Press Start", Start, accept the storage notice with A, wait for the main menu,
+# screenshot each step, quit.
+# Run (from the repo root):
+#   pwsh -File tools\run_and_triage.ps1 -WaitSeconds 180 -ExtraArgs '--wwe2k14_input_script=..\..\..\tools\input_scripts\selftest_title.txt'
+# Boot order from the file-open log (wwe2k14_029/032/035): legal screen (MNLAYHD.PAC already loads here) ->
+# menu archives -> title_logo.bik2 (title video) -> SaveData.Dat read = "Press Start" is up. Start opens an
+# "ATTENTION" storage notice (no file load; seen by Jarrod) that needs A. Then the main-menu UI (MNUIHD.PAC)
+# loads. Left alone, the title goes to the attract demo (MOT*.PAC) instead.
+# Session 29 (Jarrod: no fixed waits): the boot and the menu load run fast-forwarded (`cvar vsync false`); each
+# screenshot window runs at normal speed (`cvar vsync true` from the screen's own event to its screenshot, the same
+# frames as before): the references were recorded at normal speed and the menus animate on real time (Session 16,
+# runs 1302 / 1303). The quit waits for screenshots being written by itself (Session 18), so no wait before it.
+log selftest: start
+cvar vsync false
+wait_file SaveData.Dat 3600
+cvar vsync true
+wait_frames 180
+screenshot title
+press START
+wait_frames 120
+screenshot storage_notice
+press A
+cvar vsync false
+wait_file MNUIHD.PAC 1800
+cvar vsync true
+wait_frames 300
+screenshot main_menu
+quit

@@ -1,0 +1,95 @@
+# harness: realtime (Session 19 item 9: latency, frame times matter)
+# Session 19 item 9, MAPPING run: launch (--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true), then
+# in the match press START 10 times (pause / unpause), with a screenshot every frame from 4 frames before each press
+# to 24 after it. tools\perf\latency.py RUN finds the first capture showing the response and how many guest output
+# refreshes after the game's read (timeline "inread") it came. Needs the timeline (run_list default) and SDK
+# LATENCY events (gorefresh / hpresent / gocapture). Screenshots l_* are local only. on_fail quit.
+on_fail quit
+log latency_map: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+wait_file M3.PAC 36000
+log scene=match
+wait_frames 900
+screenshot_every 1 l_p1
+wait_frames 4
+log latency: press 1
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p2
+wait_frames 4
+log latency: press 2
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p3
+wait_frames 4
+log latency: press 3
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p4
+wait_frames 4
+log latency: press 4
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p5
+wait_frames 4
+log latency: press 5
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p6
+wait_frames 4
+log latency: press 6
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p7
+wait_frames 4
+log latency: press 7
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p8
+wait_frames 4
+log latency: press 8
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p9
+wait_frames 4
+log latency: press 9
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+screenshot_every 1 l_p10
+wait_frames 4
+log latency: press 10
+press START
+wait_frames 24
+screenshot_every 0
+wait_frames 120
+log latency_map: end
+wait_frames 60
+quit

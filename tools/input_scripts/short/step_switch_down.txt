@@ -1,0 +1,35 @@
+# harness: fast-forward ok (Session 19 item 10: step-rate switch inside the match; untimed)
+# Launch (--wwe2k14_launch=lesnar_bryan, add --wwe2k14_launch_skip_entrances=true), then inside the match switch
+# --wwe2k14_step_hz 120 -> 0 -> 120 (start with --wwe2k14_step_hz=120), with screenshots before and after each
+# switch. Question: is the black arena at step 120 (run 1414) per-frame logic or something set up at match load?
+# Start one lane with --wwe2k14_step_hz=0 (switches to 120) and one with =120 (switches to 0). on_fail quit.
+on_fail quit
+log step_switch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+wait_file M3.PAC 36000
+log scene=match
+wait_frames 900
+screenshot w_a_before
+log step_switch: switching
+cvar wwe2k14_step_hz 0
+wait_frames 120
+screenshot w_b_after120
+wait_frames 1200
+screenshot w_c_after1320
+log step_switch: switching back
+cvar wwe2k14_step_hz 120
+wait_frames 240
+screenshot w_d_back240
+wait_frames 60
+log step_switch: end
+quit

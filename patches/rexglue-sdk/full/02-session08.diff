@@ -1,0 +1,199 @@
+# ReXGlue SDK changes for WWE 2K14 (session08): d2512163c84b..728667b8531b on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  728667b merge s8/flight
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 1e1d696f332a5ae30f64fb55f1e539fd6abf1af4..48dd7414bddfb3139a78be06c180390bb8a3c4cc 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -582,6 +582,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+   CrashCheckpointRecord* BeginCrashCheckpointRecord();
+   void InsertCrashCheckpoint(CrashCheckpointRecord& record, CrashCheckpointPhase phase);
+   void ReportGpuCrashDiagnostics();
++  // wwe2k14 patch (Session 8, FLIGHT): rex::perf::flight GPU provider (vulkan_flight_gpu_records).
++  static std::string FlightGpuRecords(void* user, uint32_t max_records);
+   bool IssueDraw_MemexportReadbackFullPath(uint32_t total_size);
+   bool IssueDraw_MemexportReadbackFastPath(uint32_t total_size);
+ 
+diff --git a/include/rex/perf/flight.h b/include/rex/perf/flight.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..60e310630837e0cd3cca9accfa19e77962fd1844
+--- /dev/null
++++ b/include/rex/perf/flight.h
+@@ -0,0 +1,26 @@
++/**
++ * @file        perf/flight.h
++ * @brief       Flight-recorder access to the GPU plugin's recent-work ring (wwe2k14 patch, Session 8)
++ *
++ * The Vulkan command processor keeps a ring of checkpoint records (draws / copies / submission starts) for
++ * vulkan_gpu_crash_diagnostics. It registers a provider here at SetupContext; the app's flight recorder calls
++ * GpuRecords() from any thread when it writes a dump (hang / crash / abort). The provider answers only while the
++ * setting vulkan_flight_gpu_records is true (default false); otherwise it returns a one-line note.
++ * Exported from rexruntime, like perf/timeline.h, so the GPU plugin and the app share it.
++ */
++#pragma once
++
++#include <cstdint>
++#include <string>
++
++namespace rex::perf::flight {
++
++// Writes up to `max_records` newest records, newest first, one text line each ("  ...\n").
++using GpuRecordsFn = std::string (*)(void* user, uint32_t max_records);
++
++// nullptr unregisters (only if `user` matches the registered one).
++void SetGpuRecordsProvider(GpuRecordsFn fn, void* user);
++// The provider's text, or a one-line note if none is registered.
++std::string GpuRecords(uint32_t max_records);
++
++}  // namespace rex::perf::flight
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 2fa8cc8312139c45fc4f41883571ec4658090e99..878e5971fb2fa388f3c708c58c62b7940a0e580f 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -16,6 +16,7 @@ add_library(rexcore OBJECT
+     memory.cpp
+     mutex.cpp
+     perf/timeline.cpp
++    perf/flight.cpp
+     ring_buffer.cpp
+     string_buffer.cpp
+     threading.cpp
+diff --git a/src/core/perf/flight.cpp b/src/core/perf/flight.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..5f14222af6cbc842b936988ea3c7717e542ce130
+--- /dev/null
++++ b/src/core/perf/flight.cpp
+@@ -0,0 +1,39 @@
++/**
++ * @file        perf/flight.cpp
++ * @brief       Flight-recorder GPU provider registry (wwe2k14 patch, Session 8). See perf/flight.h.
++ */
++#include <rex/perf/flight.h>
++
++#include <mutex>
++
++namespace rex::perf::flight {
++
++namespace {
++std::mutex& Mutex() {
++  static std::mutex mutex;
++  return mutex;
++}
++GpuRecordsFn g_fn = nullptr;
++void* g_user = nullptr;
++}  // namespace
++
++void SetGpuRecordsProvider(GpuRecordsFn fn, void* user) {
++  std::lock_guard<std::mutex> lock(Mutex());
++  if (fn) {
++    g_fn = fn;
++    g_user = user;
++  } else if (g_user == user) {
++    g_fn = nullptr;
++    g_user = nullptr;
++  }
++}
++
++std::string GpuRecords(uint32_t max_records) {
++  // A dump can happen while the GPU thread itself is stuck: never wait long for the registry lock.
++  std::unique_lock<std::mutex> lock(Mutex(), std::try_to_lock);
++  if (!lock.owns_lock()) return "  (GPU provider registry busy)\n";
++  if (!g_fn) return "  (no GPU provider registered: not the Vulkan backend, or it is not set up)\n";
++  return g_fn(g_user, max_records);
++}
++
++}  // namespace rex::perf::flight
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index a47a187e94ac9cd3b4a4524112051d59b7e1eb85..1e3feb22bacbbfa74de35d2031864e55c094be7b 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -40,6 +40,7 @@
+ #include <rex/logging.h>
+ #include <rex/perf/processor.h>
+ #include <rex/perf/timeline.h>
++#include <rex/perf/flight.h>  // wwe2k14 patch (Session 8, FLIGHT)
+ #include <rex/math.h>
+ #include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/util/draw.h>
+@@ -61,6 +62,11 @@
+ #include <rex/ui/vulkan/presenter.h>
+ #include <rex/ui/vulkan/util.h>
+ 
++// wwe2k14 patch (Session 8, FLIGHT): the app's flight recorder (src/flight_recorder.h) reads the newest crash
++// checkpoint records (needs vulkan_gpu_crash_diagnostics) into its hang / crash dumps via rex/perf/flight.h.
++REXCVAR_DEFINE_BOOL(vulkan_flight_gpu_records, false, "GPU/Vulkan",
++                    "Let the app's flight recorder read the newest GPU checkpoint records in its dumps");
++
+ // Legacy backend compatibility aliases for shared readback controls.
+ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                     "Read render-to-texture results on the CPU")
+@@ -2268,6 +2274,9 @@ bool VulkanCommandProcessor::SetupContext() {
+     return false;
+   }
+   InvalidateAllVertexBufferResidency();
++  // wwe2k14 patch (Session 8, FLIGHT): passive registration; the provider answers only with
++  // vulkan_flight_gpu_records on.
++  perf::flight::SetGpuRecordsProvider(&VulkanCommandProcessor::FlightGpuRecords, this);
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -3444,6 +3453,7 @@ bool VulkanCommandProcessor::SetupContext() {
+ }
+ 
+ void VulkanCommandProcessor::ShutdownContext() {
++  perf::flight::SetGpuRecordsProvider(nullptr, this);  // wwe2k14 patch (Session 8, FLIGHT)
+   AwaitAllQueueOperationsCompletion();
+   AsyncSubmitStop();
+   GpuTimestampsShutdown();  // wwe2k14 patch (Session 6, COUNTERS)
+@@ -7376,6 +7386,50 @@ void VulkanCommandProcessor::ReportGpuCrashDiagnostics() {
+   rex::FlushLogging();
+ }
+ 
++// wwe2k14 patch (Session 8, FLIGHT): the newest crash checkpoint records for the app's flight recorder, newest
++// first. Called from any thread (a dump), while this thread may keep recording: racy by design, so each record
++// is copied and shown only if its id is still the expected one after the copy. Nothing is locked or allocated on
++// the command processor side.
++std::string VulkanCommandProcessor::FlightGpuRecords(void* user, uint32_t max_records) {
++  if (!REXCVAR_GET(vulkan_flight_gpu_records)) {
++    return "  (off: vulkan_flight_gpu_records=false)\n";
++  }
++  auto* self = static_cast<VulkanCommandProcessor*>(user);
++  if (!self || !self->crash_checkpoints_enabled()) {
++    return "  (none: needs vulkan_gpu_crash_diagnostics=true and VK_NV_device_diagnostic_checkpoints)\n";
++  }
++  const CrashCheckpointRecord* ring = self->crash_checkpoint_ring_.data();
++  const size_t ring_size = self->crash_checkpoint_ring_.size();
++  const uint64_t next = *reinterpret_cast<const volatile uint64_t*>(&self->crash_checkpoint_next_id_);
++  const uint64_t completed = *reinterpret_cast<const volatile uint64_t*>(&self->submission_completed_);
++  std::string out = fmt::format(
++      "  next record id {}, current submission {}, completed submission {}, CP frame {}; {} slots\n", next,
++      self->GetCurrentSubmission(), completed, self->frame_current_, ring_size);
++  if (!ring || ring_size != kCrashCheckpointRingSize || next <= 1) {
++    return out + "  (no records yet)\n";
++  }
++  const uint64_t count = std::min<uint64_t>({uint64_t(max_records), next - 1, uint64_t(ring_size) / 2});
++  for (uint64_t k = 0; k < count; ++k) {
++    const uint64_t id = next - 1 - k;
++    const CrashCheckpointRecord* slot = &ring[id % kCrashCheckpointRingSize];
++    CrashCheckpointRecord r;
++    std::memcpy(static_cast<void*>(&r), static_cast<const void*>(slot), sizeof(r));
++    std::atomic_thread_fence(std::memory_order_acquire);
++    if (r.id != id || *reinterpret_cast<const volatile uint64_t*>(&slot->id) != id) {
++      continue;
++    }
++    out += fmt::format(
++        "  #{} {} sub={}{} frame={} vs={:016X} ps={:016X} prim={}/{} guest_count={} host_count={} ib_type={} "
++        "ib_base=0x{:X} edram_mode={} memexport={}/{} surface=0x{:08X} color0=0x{:08X} depth=0x{:08X}\n",
++        r.id, CrashCheckpointPhaseName(uint32_t(r.last_phase)), r.submission,
++        r.submission > completed ? " (not completed)" : "", r.frame, r.vertex_shader_hash, r.pixel_shader_hash,
++        r.guest_primitive_type, r.host_primitive_type, r.guest_index_count, r.host_vertex_count,
++        r.index_buffer_type, r.guest_index_base, r.edram_mode, r.memexport_vertex, r.memexport_pixel,
++        r.rb_surface_info, r.rb_color_info, r.rb_depth_info);
++  }
++  return out;
++}
++
+ bool VulkanCommandProcessor::IssueCopy() {
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");

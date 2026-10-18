@@ -1,0 +1,49 @@
+# harness: fast-forward ok (Session 28: QUIT TO DESKTOP from the main menu: the item, NO (the game goes on), then YES (the game closes itself, exit code 0); run with --wwe2k14_quit_item=true; the script's own quit is only the fallback; frozen user data copy)
+on_fail quit
+wait_file SaveData.Dat 3600
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+screenshot q_0_main_menu
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+log_state cursor
+log_state target
+screenshot q_1_on_quit
+log mark: A on QUIT TO DESKTOP
+press A
+wait_frames 100
+screenshot q_2_question
+log mark: A on NO (default)
+press A
+wait_frames 120
+screenshot q_3_after_no
+log_state menu
+log_state cursor
+log mark: A again, then LEFT (YES), A
+press A
+wait_frames 100
+press LEFT
+wait_frames 40
+screenshot q_4_yes
+press A
+wait_frames 300
+log mark: still running after YES (fallback quit)
+quit

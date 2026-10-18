@@ -1,0 +1,709 @@
+Subject: [ReXGlue] merge s6/cp7
+
+Class: RGO
+What: Constants as dynamic UBO offsets into one persistent descriptor set per pool page.
+Evidence: A/B -0.4 +-0.3 ms/frame CP, -1.0 submit thread (PLAYBOOK Session 6).
+On / off: vulkan_constants_dynamic_offsets, _per_draw_sets (+_verify), off; needs a restart.
+Commit: 3cf2fbf (diff against 3cf2fbf^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index ea998d2..0cefc55 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -802,6 +802,13 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // command_processor.cpp, created when the setting is first used).
+   struct TextureBindingReuse;
+   std::unique_ptr<TextureBindingReuse> texture_binding_reuse_;
++  // wwe2k14 patch (Session 6, CP7): vulkan_constants_dynamic_offsets state (defined in
++  // command_processor.cpp). Created in SetupContext only if the setting is on at startup - the
++  // constants descriptor set layout, and with it every guest pipeline layout and pipeline, depends on
++  // it, so it's latched there; null means the original transient constants sets.
++  struct ConstantsDynamicOffsets;
++  std::unique_ptr<ConstantsDynamicOffsets> constants_dynamic_offsets_;
++  bool constants_dynamic_offsets_restart_warned_ = false;
+ 
+   std::unique_ptr<VulkanSharedMemory> shared_memory_;
+ 
+diff --git a/include/rex/ui/graphics_upload_buffer_pool.h b/include/rex/ui/graphics_upload_buffer_pool.h
+index 517513c..0d180ab 100644
+--- a/include/rex/ui/graphics_upload_buffer_pool.h
++++ b/include/rex/ui/graphics_upload_buffer_pool.h
+@@ -39,6 +39,11 @@ class GraphicsUploadBufferPool {
+   // implementation doesn't require explicit flushing.
+   void FlushWrites();
+ 
++  // wwe2k14 patch (Session 6, CP7): the size of every page (its buffer) - what
++  // Request places allocations within. Final once a Request has succeeded (the
++  // implementation may grow it when creating the first page).
++  size_t page_size() const { return page_size_; }
++
+  protected:
+   // Extended by the implementation.
+   struct Page {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index cf19d39..fdbaa3e 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -20,6 +20,7 @@
+ #include <string>
+ #include <string_view>
+ #include <tuple>
++#include <unordered_map>
+ #include <utility>
+ #include <vector>
+ 
+@@ -155,6 +156,26 @@ REXCVAR_DEFINE_BOOL(vulkan_viewport_info_cache_verify, false, "GPU/Vulkan",
+                     "With vulkan_viewport_info_cache: on every reuse, also compute the viewport info, "
+                     "compare all of it, use the computed one on a difference, and log mismatches "
+                     "([s6][VIEWPORT])");
++// wwe2k14 patch (Session 6, CP7): whenever a constant buffer changed (in practice on every draw), UpdateBindings
++// took a new transient constants descriptor set and wrote all 5 of its uniform buffer descriptors
++// (vkUpdateDescriptorSets, on the submit thread with vulkan_deferred_descriptor_writes) before binding it. The
++// descriptor type is part of the descriptor set layout, and so of every guest pipeline layout and pipeline, so
++// the setting is read once, when the command processor is set up.
++REXCVAR_DEFINE_BOOL(vulkan_constants_dynamic_offsets, false, "GPU/Vulkan",
++                    "Bind the guest draw constant buffers as dynamic uniform buffers: one descriptor set per "
++                    "uniform buffer pool page, written once, bound with per-draw dynamic offsets instead of "
++                    "a new descriptor set written for every draw (takes effect after a restart)")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++// For an in-run A/B (the main setting can't be flipped while running): the per-draw cost of the original path,
++// on the same dynamic layout. Read on every draw that needs a new constants set, so it can be flipped any time.
++REXCVAR_DEFINE_BOOL(vulkan_constants_dynamic_offsets_per_draw_sets, false, "GPU/Vulkan",
++                    "With vulkan_constants_dynamic_offsets: still allocate and write a new constants descriptor "
++                    "set for every draw (as without it, with dynamic offsets 0) - the baseline for an in-run "
++                    "A/B, as the main setting needs a restart");
++REXCVAR_DEFINE_BOOL(vulkan_constants_dynamic_offsets_verify, false, "GPU/Vulkan",
++                    "With vulkan_constants_dynamic_offsets: on every constants set bind, check that each "
++                    "binding's buffer, offset and range cover what a transient set would have been written "
++                    "with (and that repacked constant data matches its source), log mismatches ([s6][CP7])");
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -1041,6 +1062,363 @@ struct VulkanCommandProcessor::VertexResidencyCheck {
+   }
+ };
+ 
++// wwe2k14 patch (Session 6, CP7): vulkan_constants_dynamic_offsets state. The constants descriptor set layout has
++// VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC bindings, and each uniform buffer pool page (VkBuffer) gets one
++// descriptor set, written once when the page is first used, with binding i covering (page, offset 0,
++// GetRange(i)), GetRange(i) being the largest size constant buffer i is ever written with. A draw binds the set
++// of the page that holds its constant buffers, with the buffers' offsets in the page as the dynamic offsets, so
++// the effective descriptor of binding i is (page, offset, GetRange(i)): the buffer and offset a transient set
++// would have been written with, and a range that contains the one it would have had (the translated shaders
++// declare no larger blocks: float constants are float_count <= 256 vec4s, all the others are fixed-size, and
++// for those GetRange(i) is exactly the written size).
++// Two conditions the transient sets don't have are restored by repacking - copying the five current constant
++// buffers, byte for byte, into one new block allocated from the pool, which meets both by construction:
++// - All five buffers must be in one page. A buffer that this draw doesn't change may still be in the previous
++//   page when another one has just been allocated in a new page.
++// - Each binding's range must end within the page: offset + GetRange(i) <= page size (Vulkan requires the
++//   effective offset plus the descriptor range to be within the buffer). A small buffer allocated near the end
++//   of a page fits with its own size, but not always with GetRange(i).
++// Pages are destroyed only by uniform_buffer_pool_->ClearCache (cache clear, shutdown), and their sets with them
++// (ClearPageSets). The sets are never written again after their creation, so binding one in any number of
++// submissions in flight is fine.
++// With vulkan_constants_dynamic_offsets_per_draw_sets, a transient set is written per draw instead, with exactly
++// the original buffer infos and dynamic offsets 0 - the original path's per-draw cost on the same layout, the
++// baseline of an in-run A/B.
++struct VulkanCommandProcessor::ConstantsDynamicOffsets {
++  static constexpr uint32_t kBufferCount = SpirvShaderTranslator::kConstantBufferCount;
++
++  // The fixed descriptor range of each binding - the largest size UpdateBindings writes each constant buffer
++  // with (see the uploads there).
++  static constexpr uint32_t GetRange(uint32_t buffer) {
++    switch (buffer) {
++      case SpirvShaderTranslator::kConstantBufferSystem:
++        return uint32_t(sizeof(SpirvShaderTranslator::SystemConstants));
++      case SpirvShaderTranslator::kConstantBufferFloatVertex:
++      case SpirvShaderTranslator::kConstantBufferFloatPixel:
++        // Shader::ConstantRegisterMap::float_count is at most 256 per stage.
++        return uint32_t(sizeof(float) * 4 * 256);
++      case SpirvShaderTranslator::kConstantBufferBoolLoop:
++        return uint32_t(sizeof(uint32_t) * (8 + 32));
++      case SpirvShaderTranslator::kConstantBufferFetch:
++        return uint32_t(sizeof(uint32_t) * 6 * 32);
++      default:
++        return 0;
++    }
++  }
++  static constexpr uint32_t kSetsPerPool = 64;
++  static constexpr VkDescriptorPoolSize kSetPoolSize = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
++                                                        kBufferCount * kSetsPerPool};
++  // vulkan_constants_dynamic_offsets_per_draw_sets: as many sets per pool as the original transient constants
++  // sets (kLinkedTypeDescriptorPoolSetCount).
++  static constexpr uint32_t kTransientSetsPerPool = 32768;
++  static constexpr VkDescriptorPoolSize kTransientSetPoolSize = {
++      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, kBufferCount * kTransientSetsPerPool};
++
++  ConstantsDynamicOffsets(const ui::vulkan::VulkanDevice* vulkan_device, size_t alignment_in,
++                          uint64_t frame)
++      : set_allocator(vulkan_device, &kSetPoolSize, 1, kSetsPerPool),
++        transient_set_allocator(vulkan_device, &kTransientSetPoolSize, 1, kTransientSetsPerPool),
++        alignment(alignment_in),
++        stats_frame(frame) {
++    // 16384 is the minimum maxUniformBufferRange. (In a member function body, where GetRange is defined.)
++    static_assert(GetRange(SpirvShaderTranslator::kConstantBufferSystem) <= 16384 &&
++                      GetRange(SpirvShaderTranslator::kConstantBufferFloatVertex) <= 16384 &&
++                      GetRange(SpirvShaderTranslator::kConstantBufferFloatPixel) <= 16384 &&
++                      GetRange(SpirvShaderTranslator::kConstantBufferBoolLoop) <= 16384 &&
++                      GetRange(SpirvShaderTranslator::kConstantBufferFetch) <= 16384,
++                  "Dynamic constant buffer ranges must be within the minimum maxUniformBufferRange");
++    uint32_t block_offset = 0;
++    for (uint32_t i = 0; i < kBufferCount; ++i) {
++      block_offsets[i] = block_offset;
++      block_size = block_offset + GetRange(i);
++      block_offset = uint32_t(rex::align(size_t(block_size), alignment));
++    }
++  }
++
++  ui::vulkan::LinkedTypeDescriptorSetAllocator set_allocator;
++  // vulkan_constants_dynamic_offsets_per_draw_sets: transient sets, recycled per frame like the original
++  // constants_transient_descriptors_used_ / _free_ (<usage frame, set>).
++  ui::vulkan::LinkedTypeDescriptorSetAllocator transient_set_allocator;
++  std::deque<std::pair<uint64_t, VkDescriptorSet>> transient_sets_used;
++  std::vector<VkDescriptorSet> transient_sets_free;
++  // minUniformBufferOffsetAlignment - every pool allocation and every dynamic offset is aligned to it.
++  size_t alignment;
++  // Layout of a repacked block: where each buffer goes in it (aligned), and the block size.
++  uint32_t block_offsets[kBufferCount];
++  uint32_t block_size = 0;
++
++  // The set of each pool page, and the last one looked up.
++  std::unordered_map<VkBuffer, VkDescriptorSet> page_sets;
++  VkBuffer last_page = VK_NULL_HANDLE;
++  VkDescriptorSet last_page_set = VK_NULL_HANDLE;
++
++  // Where the data of current_constant_buffer_infos_[i] is mapped, recorded with every upload, for repacking.
++  // Readable for the rest of the frame: every buffer is uploaded again in each frame (BeginSubmission clears
++  // current_constant_buffers_up_to_date_ when opening one), and a pool page is reused only after the frame
++  // that used it has been completed.
++  const uint8_t* mappings[kBufferCount] = {};
++  // Dynamic offsets for current_graphics_descriptor_sets_[kDescriptorSetConstants], in binding order.
++  uint32_t dynamic_offsets[kBufferCount] = {};
++
++  // Statistics since stats_frame, logged every kStatsFrames frames.
++  static constexpr uint64_t kStatsFrames = 300;
++  uint64_t stats_frame = 0;
++  // Times a new constants set was needed: each one a transient set allocated and written with kBufferCount
++  // descriptors in the original path.
++  uint64_t sets_needed = 0;
++  // Of sets_needed, written per draw with vulkan_constants_dynamic_offsets_per_draw_sets.
++  uint64_t per_draw_sets = 0;
++  uint64_t page_sets_created = 0;
++  uint64_t repacks_split = 0;
++  uint64_t repacks_page_end = 0;
++  uint64_t binds = 0;
++  uint64_t verify_checks = 0;
++  uint64_t verify_mismatches = 0;
++  uint64_t verify_mismatches_total = 0;
++  uint32_t verify_mismatches_logged = 0;
++  static constexpr uint32_t kVerifyMismatchesLogged = 16;
++
++  // The pages are being destroyed (or have been) - so are their sets.
++  void ClearPageSets() {
++    page_sets.clear();
++    last_page = VK_NULL_HANDLE;
++    last_page_set = VK_NULL_HANDLE;
++    set_allocator.Reset();
++    std::memset(mappings, 0, sizeof(mappings));
++  }
++
++  // vulkan_constants_dynamic_offsets_per_draw_sets: sets whose frame has been completed can be used again.
++  void RecycleTransientSets(uint64_t frame_completed) {
++    while (!transient_sets_used.empty() && transient_sets_used.front().first <= frame_completed) {
++      transient_sets_free.push_back(transient_sets_used.front().second);
++      transient_sets_used.pop_front();
++    }
++  }
++
++  // With the original transient descriptor pools (ClearTransientDescriptorPools).
++  void ClearTransientSets() {
++    transient_sets_free.clear();
++    transient_sets_used.clear();
++    transient_set_allocator.Reset();
++  }
++
++  // vulkan_constants_dynamic_offsets_per_draw_sets: a set to write this draw's constant buffers to, as the
++  // original path takes one.
++  VkDescriptorSet AcquireTransientSet(VkDescriptorSetLayout layout, uint64_t frame) {
++    VkDescriptorSet set;
++    if (!transient_sets_free.empty()) {
++      set = transient_sets_free.back();
++      transient_sets_free.pop_back();
++    } else {
++      VkDescriptorPoolSize descriptor_count;
++      descriptor_count.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
++      descriptor_count.descriptorCount = kBufferCount;
++      set = transient_set_allocator.Allocate(layout, &descriptor_count, 1);
++      if (set == VK_NULL_HANDLE) {
++        return VK_NULL_HANDLE;
++      }
++    }
++    transient_sets_used.emplace_back(frame, set);
++    ++sets_needed;
++    ++per_draw_sets;
++    return set;
++  }
++
++  void MaybeLogStats(uint64_t frame, size_t page_size) {
++    if (frame - stats_frame < kStatsFrames) {
++      return;
++    }
++    double frames = double(frame - stats_frame);
++    uint64_t sets_avoided = sets_needed - std::min(sets_needed, per_draw_sets + page_sets_created);
++    REXGPU_INFO(
++        "[s6][CP7] frames {}-{}: constants sets needed {} ({:.1f}/frame), written per draw (A/B "
++        "baseline) {}; transient sets avoided {} ({:.1f}/frame) and descriptor writes avoided {} "
++        "({:.1f}/frame); page sets created {} ({} live, page size {}); repacked {} (split across pages {}, "
++        "page end {}); binds with dynamic offsets {} ({:.1f}/frame); verify {} checks, {} mismatches ({} "
++        "total)",
++        stats_frame, frame - 1, sets_needed, double(sets_needed) / frames, per_draw_sets, sets_avoided,
++        double(sets_avoided) / frames, sets_avoided * kBufferCount,
++        double(sets_avoided * kBufferCount) / frames, page_sets_created, page_sets.size(), page_size,
++        repacks_split + repacks_page_end, repacks_split, repacks_page_end, binds,
++        double(binds) / frames, verify_checks, verify_mismatches, verify_mismatches_total);
++    sets_needed = 0;
++    per_draw_sets = 0;
++    page_sets_created = 0;
++    repacks_split = 0;
++    repacks_page_end = 0;
++    binds = 0;
++    verify_checks = 0;
++    verify_mismatches = 0;
++    stats_frame = frame;
++  }
++
++  // Allocates and writes the set of a pool page.
++  VkDescriptorSet CreatePageSet(VulkanCommandProcessor& cp, VkBuffer page) {
++    VkDescriptorPoolSize descriptor_count;
++    descriptor_count.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
++    descriptor_count.descriptorCount = kBufferCount;
++    VkDescriptorSet set = set_allocator.Allocate(cp.descriptor_set_layout_constants_, &descriptor_count, 1);
++    if (set == VK_NULL_HANDLE) {
++      REXGPU_ERROR("[s6][CP7] Failed to allocate a constants descriptor set for a uniform buffer pool page");
++      return VK_NULL_HANDLE;
++    }
++    VkDescriptorBufferInfo buffer_infos[kBufferCount];
++    // Consecutive bindings updated via a single VkWriteDescriptorSet must have identical stage flags, but for
++    // the constants they vary.
++    VkWriteDescriptorSet writes[kBufferCount];
++    for (uint32_t i = 0; i < kBufferCount; ++i) {
++      VkDescriptorBufferInfo& buffer_info = buffer_infos[i];
++      buffer_info.buffer = page;
++      buffer_info.offset = 0;
++      buffer_info.range = GetRange(i);
++      VkWriteDescriptorSet& write = writes[i];
++      write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++      write.pNext = nullptr;
++      write.dstSet = set;
++      write.dstBinding = i;
++      write.dstArrayElement = 0;
++      write.descriptorCount = 1;
++      write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
++      write.pImageInfo = nullptr;
++      write.pBufferInfo = &buffer_info;
++      write.pTexelBufferView = nullptr;
++    }
++    // Written here on the command processor thread, once, before anything that binds the set is recorded (a
++    // new set, so nothing else accesses it).
++    const ui::vulkan::VulkanDevice* const vulkan_device = cp.GetVulkanDevice();
++    vulkan_device->functions().vkUpdateDescriptorSets(vulkan_device->device(), kBufferCount, writes, 0,
++                                                      nullptr);
++    ++page_sets_created;
++    ++cp.frame_counters_.constants_sets_written;  // Session 6, COUNTERS: a constants set written
++    return set;
++  }
++
++  // For the five up-to-date constant buffers in cp.current_constant_buffer_infos_, makes the constants set
++  // (current_graphics_descriptor_sets_[kDescriptorSetConstants]) and its dynamic offsets, repacking the buffers
++  // first if needed. Returns false if a pool or descriptor allocation fails (the draw is then skipped, as when
++  // an upload fails, and this is tried again by the next draw).
++  bool PrepareSet(VulkanCommandProcessor& cp, bool verify) {
++    VkDescriptorBufferInfo* const infos = cp.current_constant_buffer_infos_;
++    assert_true(cp.current_constant_buffers_up_to_date_ == (UINT32_C(1) << kBufferCount) - 1);
++    ++sets_needed;
++    size_t page_size = cp.uniform_buffer_pool_->page_size();
++    VkBuffer page = infos[0].buffer;
++    bool same_page = true;
++    bool ends_in_page = true;
++    for (uint32_t i = 0; i < kBufferCount; ++i) {
++      same_page &= infos[i].buffer == page;
++      ends_in_page &= infos[i].offset + GetRange(i) <= page_size;
++    }
++    // Kept for vulkan_constants_dynamic_offsets_verify: the buffers before a repack - what a transient set
++    // would have been written with.
++    VkDescriptorBufferInfo original_infos[kBufferCount];
++    const uint8_t* original_mappings[kBufferCount];
++    bool repacked = false;
++    if (!same_page || !ends_in_page) {
++      ++(same_page ? repacks_page_end : repacks_split);
++      std::memcpy(original_infos, infos, sizeof(original_infos));
++      std::memcpy(original_mappings, mappings, sizeof(original_mappings));
++      VkBuffer block_buffer;
++      VkDeviceSize block_offset;
++      uint8_t* block_mapping = cp.uniform_buffer_pool_->Request(cp.frame_current_, block_size, alignment,
++                                                                block_buffer, block_offset);
++      if (!block_mapping) {
++        return false;
++      }
++      for (uint32_t i = 0; i < kBufferCount; ++i) {
++        assert_not_null(mappings[i]);
++        assert_true(infos[i].range <= GetRange(i));
++        uint8_t* buffer_mapping = block_mapping + block_offsets[i];
++        std::memcpy(buffer_mapping, mappings[i], size_t(infos[i].range));
++        infos[i].buffer = block_buffer;
++        infos[i].offset = block_offset + block_offsets[i];
++        mappings[i] = buffer_mapping;
++      }
++      page = block_buffer;
++      repacked = true;
++    }
++    VkDescriptorSet set;
++    if (page == last_page) {
++      set = last_page_set;
++    } else {
++      auto it = page_sets.find(page);
++      if (it != page_sets.end()) {
++        set = it->second;
++      } else {
++        set = CreatePageSet(cp, page);
++        if (set == VK_NULL_HANDLE) {
++          return false;
++        }
++        page_sets.emplace(page, set);
++      }
++      last_page = page;
++      last_page_set = set;
++    }
++    for (uint32_t i = 0; i < kBufferCount; ++i) {
++      // Offsets are within a page (2 MB by default).
++      assert_true(infos[i].offset <= UINT32_MAX);
++      dynamic_offsets[i] = uint32_t(infos[i].offset);
++    }
++    cp.current_graphics_descriptor_sets_[SpirvShaderTranslator::kDescriptorSetConstants] = set;
++    if (verify) {
++      Verify(cp, page, set, page_size, repacked ? original_infos : nullptr, original_mappings);
++    }
++    return true;
++  }
++
++  // vulkan_constants_dynamic_offsets_verify: checks that the effective descriptor of each binding (the page,
++  // offset 0 + the dynamic offset, GetRange(i)) has the buffer and offset that a transient set would have been
++  // written with, a range containing that one's, and is valid for the page; that the set is the page's; and
++  // after a repack, that the copied bytes equal the ones a transient set would have pointed to.
++  void Verify(VulkanCommandProcessor& cp, VkBuffer page, VkDescriptorSet set, size_t page_size,
++              const VkDescriptorBufferInfo* original_infos, const uint8_t* const* original_mappings) {
++    const VkDescriptorBufferInfo* const infos = cp.current_constant_buffer_infos_;
++    ++verify_checks;
++    auto page_set_it = page_sets.find(page);
++    bool set_mismatch = page_set_it == page_sets.end() || page_set_it->second != set;
++    bool mismatch = set_mismatch;
++    for (uint32_t i = 0; i < kBufferCount; ++i) {
++      const VkDescriptorBufferInfo& info = infos[i];
++      VkDeviceSize dynamic_offset = dynamic_offsets[i];
++      bool binding_mismatch = set_mismatch || info.buffer != page || dynamic_offset != info.offset ||
++                              !info.range || info.range > GetRange(i) ||
++                              dynamic_offset + GetRange(i) > page_size || (dynamic_offset % alignment);
++      bool data_mismatch = false;
++      if (original_infos) {
++        data_mismatch = original_infos[i].range != info.range ||
++                        std::memcmp(mappings[i], original_mappings[i], size_t(info.range)) != 0;
++      }
++      if (!binding_mismatch && !data_mismatch) {
++        continue;
++      }
++      mismatch = true;
++      if (verify_mismatches_logged < kVerifyMismatchesLogged) {
++        ++verify_mismatches_logged;
++        auto handle_bits = [](auto handle) {
++          uint64_t bits = 0;
++          std::memcpy(&bits, &handle, std::min(sizeof(handle), sizeof(bits)));
++          return bits;
++        };
++        REXGPU_WARN(
++            "[s6][CP7] verify mismatch at frame {}: binding {}: bound page 0x{:X} (set 0x{:X}{}) + dynamic "
++            "offset {} range {} (page size {}); buffer info 0x{:X} offset {} range {}{}{}",
++            cp.frame_current_, i, handle_bits(page), handle_bits(set),
++            set_mismatch ? ", not the page's set" : "", dynamic_offset, GetRange(i), page_size,
++            handle_bits(info.buffer), info.offset, info.range,
++            original_infos ? fmt::format("; repacked from 0x{:X} offset {} range {}",
++                                         handle_bits(original_infos[i].buffer),
++                                         original_infos[i].offset, original_infos[i].range)
++                           : std::string(),
++            data_mismatch ? ", repacked data differs" : "");
++      }
++    }
++    if (mismatch) {
++      ++verify_mismatches;
++      ++verify_mismatches_total;
++    }
++  }
++};
++
+ VulkanCommandProcessor::VulkanCommandProcessor(VulkanGraphicsSystem* graphics_system,
+                                                system::KernelState* kernel_state)
+     : CommandProcessor(graphics_system, kernel_state),
+@@ -1422,12 +1800,17 @@ bool VulkanCommandProcessor::SetupContext() {
+     return false;
+   }
+   // Guest draw constants.
++  // wwe2k14 patch (Session 6, CP7): vulkan_constants_dynamic_offsets is latched here - the descriptor type is
++  // part of this layout, and so of every guest pipeline layout and pipeline.
++  bool constants_dynamic_offsets = REXCVAR_GET(vulkan_constants_dynamic_offsets);
+   VkDescriptorSetLayoutBinding
+       descriptor_set_layout_bindings_constants[SpirvShaderTranslator::kConstantBufferCount] = {};
+   for (uint32_t i = 0; i < SpirvShaderTranslator::kConstantBufferCount; ++i) {
+     VkDescriptorSetLayoutBinding& constants_binding = descriptor_set_layout_bindings_constants[i];
+     constants_binding.binding = i;
+-    constants_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++    constants_binding.descriptorType = constants_dynamic_offsets
++                                           ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
++                                           : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+     constants_binding.descriptorCount = 1;
+     constants_binding.pImmutableSamplers = nullptr;
+   }
+@@ -1454,6 +1837,24 @@ bool VulkanCommandProcessor::SetupContext() {
+         "constant buffers");
+     return false;
+   }
++  // wwe2k14 patch (Session 6, CP7): 5 dynamic uniform buffers are within the minimum
++  // maxDescriptorSetUniformBuffersDynamic (8), and the ranges within the minimum maxUniformBufferRange
++  // (see ConstantsDynamicOffsets), so this works on any device.
++  constants_dynamic_offsets_restart_warned_ = false;
++  if (constants_dynamic_offsets) {
++    constants_dynamic_offsets_ = std::make_unique<ConstantsDynamicOffsets>(
++        vulkan_device, size_t(device_properties.minUniformBufferOffsetAlignment), frame_current_);
++    REXGPU_INFO(
++        "[s6][CP7] vulkan_constants_dynamic_offsets on: constants bound as dynamic uniform buffers, one "
++        "descriptor set per uniform buffer pool page; ranges {} / {} / {} / {} / {} bytes, alignment {}, "
++        "repack block {} bytes",
++        ConstantsDynamicOffsets::GetRange(0), ConstantsDynamicOffsets::GetRange(1),
++        ConstantsDynamicOffsets::GetRange(2), ConstantsDynamicOffsets::GetRange(3),
++        ConstantsDynamicOffsets::GetRange(4), device_properties.minUniformBufferOffsetAlignment,
++        constants_dynamic_offsets_->block_size);
++  } else {
++    constants_dynamic_offsets_.reset();
++  }
+   // Transient: storage buffer for compute shaders.
+   VkDescriptorSetLayoutBinding descriptor_set_layout_binding_transient;
+   descriptor_set_layout_binding_transient.binding = 0;
+@@ -2695,6 +3096,9 @@ void VulkanCommandProcessor::ShutdownContext() {
+   frame_open_ = false;
+   // wwe2k14 patch (Session 6, CP5): the sets, layouts and submission/frame numbers it refers to are gone.
+   texture_binding_reuse_.reset();
++  // wwe2k14 patch (Session 6, CP7): the pool pages are gone; destroys the descriptor pools of their sets
++  // (the GPU is idle, awaited above).
++  constants_dynamic_offsets_.reset();
+ 
+   for (const auto& semaphore : submissions_in_flight_semaphores_) {
+     dfn.vkDestroySemaphore(device, semaphore.second, nullptr);
+@@ -6582,6 +6986,17 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+     current_graphics_descriptor_set_values_up_to_date_ =
+         UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetSharedMemoryAndEdram;
+ 
++    // wwe2k14 patch (Session 6, CP7): vulkan_constants_dynamic_offsets is latched in SetupContext - say so
++    // once if it's changed while running (an A/B toggle of it would measure nothing).
++    if (REXCVAR_GET(vulkan_constants_dynamic_offsets) != bool(constants_dynamic_offsets_) &&
++        !constants_dynamic_offsets_restart_warned_) {
++      constants_dynamic_offsets_restart_warned_ = true;
++      REXGPU_WARN(
++          "[s6][CP7] vulkan_constants_dynamic_offsets changed to {} while running; it only takes effect "
++          "after a restart (still {} in this run)",
++          REXCVAR_GET(vulkan_constants_dynamic_offsets), bool(constants_dynamic_offsets_));
++    }
++
+     // Reclaim pool pages - no need to do this every small submission since some
+     // may be reused.
+     // FIXME(Triang3l): This will result in a memory leak if the guest is not
+@@ -6606,6 +7021,9 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+       constants_transient_descriptors_free_.push_back(used_transient_descriptor.second);
+       constants_transient_descriptors_used_.pop_front();
+     }
++    if (constants_dynamic_offsets_) {  // wwe2k14 patch (Session 6, CP7)
++      constants_dynamic_offsets_->RecycleTransientSets(frame_completed_);
++    }
+     while (!texture_transient_descriptor_sets_used_.empty()) {
+       const UsedTextureTransientDescriptorSet& used_transient_descriptor_set =
+           texture_transient_descriptor_sets_used_.front();
+@@ -6969,6 +7387,12 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       ClearTransientDescriptorPools();
+ 
+       uniform_buffer_pool_->ClearCache();
++      // wwe2k14 patch (Session 6, CP7): the pages' sets go with them (a new page may get a destroyed one's
++      // VkBuffer handle). Nothing is bound or used before the next frame is opened, which writes all the
++      // constant buffers and the constants set again.
++      if (constants_dynamic_offsets_) {
++        constants_dynamic_offsets_->ClearPageSets();
++      }
+ 
+       texture_cache_->ClearCache();
+ 
+@@ -6993,6 +7417,9 @@ void VulkanCommandProcessor::ClearTransientDescriptorPools() {
+ 
+   constants_transient_descriptors_free_.clear();
+   constants_transient_descriptors_used_.clear();
++  if (constants_dynamic_offsets_) {  // wwe2k14 patch (Session 6, CP7)
++    constants_dynamic_offsets_->ClearTransientSets();
++  }
+   for (std::vector<VkDescriptorSet>& transient_descriptors_free :
+        single_transient_descriptors_free_) {
+     transient_descriptors_free.clear();
+@@ -8050,6 +8477,12 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     std::memset(current_float_constant_map_pixel_, 0, sizeof(current_float_constant_map_pixel_));
+   }
+ 
++  // wwe2k14 patch (Session 6, CP7): vulkan_constants_dynamic_offsets state, null if off (latched at setup).
++  ConstantsDynamicOffsets* const constants_dynamic = constants_dynamic_offsets_.get();
++  if (constants_dynamic) {
++    constants_dynamic->MaybeLogStats(frame_current_, uniform_buffer_pool_->page_size());
++  }
++
+   // Write the new constant buffers.
+   constexpr uint32_t kAllConstantBuffersMask =
+       (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferCount) - 1;
+@@ -8070,6 +8503,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       if (!mapping) {
+         return false;
+       }
++      if (constants_dynamic) {  // wwe2k14 patch (Session 6, CP7)
++        constants_dynamic->mappings[SpirvShaderTranslator::kConstantBufferSystem] = mapping;
++      }
+       buffer_info.range = sizeof(SpirvShaderTranslator::SystemConstants);
+       std::memcpy(mapping, &system_constants_, sizeof(SpirvShaderTranslator::SystemConstants));
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+@@ -8093,6 +8529,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       if (!mapping) {
+         return false;
+       }
++      if (constants_dynamic) {  // wwe2k14 patch (Session 6, CP7)
++        constants_dynamic->mappings[SpirvShaderTranslator::kConstantBufferFloatVertex] = mapping;
++      }
+       buffer_info.range = VkDeviceSize(float_constants_size);
+       // wwe2k14 patch (Session 6, CP3): one memcpy per run of consecutive used constants.
+       if (REXCVAR_GET(vulkan_float_constant_runs)) {
+@@ -8133,6 +8572,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       if (!mapping) {
+         return false;
+       }
++      if (constants_dynamic) {  // wwe2k14 patch (Session 6, CP7)
++        constants_dynamic->mappings[SpirvShaderTranslator::kConstantBufferFloatPixel] = mapping;
++      }
+       buffer_info.range = VkDeviceSize(float_constants_size);
+       // wwe2k14 patch (Session 6, CP3): one memcpy per run of consecutive used constants.
+       if (REXCVAR_GET(vulkan_float_constant_runs)) {
+@@ -8166,12 +8608,18 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       VkDescriptorBufferInfo& buffer_info =
+           current_constant_buffer_infos_[SpirvShaderTranslator::kConstantBufferBoolLoop];
+       constexpr size_t kBoolLoopConstantsSize = sizeof(uint32_t) * (8 + 32);
++      static_assert(kBoolLoopConstantsSize ==
++                        ConstantsDynamicOffsets::GetRange(SpirvShaderTranslator::kConstantBufferBoolLoop),
++                    "wwe2k14 patch (Session 6, CP7): the dynamic range must be this size");
+       uint8_t* mapping = uniform_buffer_pool_->Request(frame_current_, kBoolLoopConstantsSize,
+                                                        uniform_buffer_alignment, buffer_info.buffer,
+                                                        buffer_info.offset);
+       if (!mapping) {
+         return false;
+       }
++      if (constants_dynamic) {  // wwe2k14 patch (Session 6, CP7)
++        constants_dynamic->mappings[SpirvShaderTranslator::kConstantBufferBoolLoop] = mapping;
++      }
+       buffer_info.range = VkDeviceSize(kBoolLoopConstantsSize);
+       std::memcpy(mapping, &regs[XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031], kBoolLoopConstantsSize);
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+@@ -8183,12 +8631,18 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       VkDescriptorBufferInfo& buffer_info =
+           current_constant_buffer_infos_[SpirvShaderTranslator::kConstantBufferFetch];
+       constexpr size_t kFetchConstantsSize = sizeof(uint32_t) * 6 * 32;
++      static_assert(kFetchConstantsSize ==
++                        ConstantsDynamicOffsets::GetRange(SpirvShaderTranslator::kConstantBufferFetch),
++                    "wwe2k14 patch (Session 6, CP7): the dynamic range must be this size");
+       uint8_t* mapping = uniform_buffer_pool_->Request(frame_current_, kFetchConstantsSize,
+                                                        uniform_buffer_alignment, buffer_info.buffer,
+                                                        buffer_info.offset);
+       if (!mapping) {
+         return false;
+       }
++      if (constants_dynamic) {  // wwe2k14 patch (Session 6, CP7)
++        constants_dynamic->mappings[SpirvShaderTranslator::kConstantBufferFetch] = mapping;
++      }
+       buffer_info.range = VkDeviceSize(kFetchConstantsSize);
+       std::memcpy(mapping, &regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], kFetchConstantsSize);
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+@@ -8423,9 +8877,48 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   uint32_t write_descriptor_set_bits = 0;
+   assert_not_zero(current_graphics_descriptor_set_values_up_to_date_ &
+                   (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetSharedMemoryAndEdram));
++  // wwe2k14 patch (Session 6, CP7): with vulkan_constants_dynamic_offsets, this replaces the transient set path
++  // below. Normally the constants set is the persistent set of the pool page holding the constant buffers (all
++  // up to date here), bound below with their offsets as dynamic offsets - nothing to allocate or write (except a
++  // page's first set, written at once in PrepareSet), and complete, so its values are up to date right away.
++  // With vulkan_constants_dynamic_offsets_per_draw_sets (the in-run A/B baseline), a new transient set is
++  // written as below instead, with dynamic descriptors and dynamic offsets 0.
++  if (constants_dynamic && !(current_graphics_descriptor_set_values_up_to_date_ &
++                             (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetConstants))) {
++    if (REXCVAR_GET(vulkan_constants_dynamic_offsets_per_draw_sets)) {
++      VkDescriptorSet constants_descriptor_set =
++          constants_dynamic->AcquireTransientSet(descriptor_set_layout_constants_, frame_current_);
++      if (constants_descriptor_set == VK_NULL_HANDLE) {
++        return false;
++      }
++      for (uint32_t i = 0; i < SpirvShaderTranslator::kConstantBufferCount; ++i) {
++        VkWriteDescriptorSet& write_constants = write_descriptor_sets[write_descriptor_set_count++];
++        write_constants.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++        write_constants.pNext = nullptr;
++        write_constants.dstSet = constants_descriptor_set;
++        write_constants.dstBinding = i;
++        write_constants.dstArrayElement = 0;
++        write_constants.descriptorCount = 1;
++        write_constants.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
++        write_constants.pImageInfo = nullptr;
++        write_constants.pBufferInfo = &current_constant_buffer_infos_[i];
++        write_constants.pTexelBufferView = nullptr;
++        constants_dynamic->dynamic_offsets[i] = 0;
++      }
++      write_descriptor_set_bits |= UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetConstants;
++      current_graphics_descriptor_sets_[SpirvShaderTranslator::kDescriptorSetConstants] =
++          constants_descriptor_set;
++    } else {
++      if (!constants_dynamic->PrepareSet(*this, REXCVAR_GET(vulkan_constants_dynamic_offsets_verify))) {
++        return false;
++      }
++      current_graphics_descriptor_set_values_up_to_date_ |=
++          UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetConstants;
++    }
++  }
+   // Constant buffers.
+-  if (!(current_graphics_descriptor_set_values_up_to_date_ &
+-        (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetConstants))) {
++  if (!constants_dynamic && !(current_graphics_descriptor_set_values_up_to_date_ &
++                              (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetConstants))) {
+     VkDescriptorSet constants_descriptor_set;
+     if (!constants_transient_descriptors_free_.empty()) {
+       constants_descriptor_set = constants_transient_descriptors_free_.back();
+@@ -8552,11 +9045,24 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     uint32_t descriptor_set_mask_tzcnt =
+         bit_inline::tzcnt(~(descriptor_sets_remaining |
+                             ((UINT32_C(1) << descriptor_set_index) - 1)));
++    // wwe2k14 patch (Session 6, CP7): with vulkan_constants_dynamic_offsets, a bind that includes the
++    // constants set passes its dynamic offsets (the only dynamic descriptors in the guest pipeline layouts,
++    // one per binding, in binding order) - also when the same set is bound again.
++    uint32_t dynamic_offset_count = 0;
++    const uint32_t* dynamic_offsets = nullptr;
++    if (constants_dynamic &&
++        descriptor_set_index <= uint32_t(SpirvShaderTranslator::kDescriptorSetConstants) &&
++        descriptor_set_mask_tzcnt > uint32_t(SpirvShaderTranslator::kDescriptorSetConstants)) {
++      dynamic_offset_count = ConstantsDynamicOffsets::kBufferCount;
++      dynamic_offsets = constants_dynamic->dynamic_offsets;
++      ++constants_dynamic->binds;
++    }
+     deferred_command_buffer_.CmdVkBindDescriptorSets(
+         VK_PIPELINE_BIND_POINT_GRAPHICS,
+         current_guest_graphics_pipeline_layout_->GetPipelineLayout(), descriptor_set_index,
+         descriptor_set_mask_tzcnt - descriptor_set_index,
+-        current_graphics_descriptor_sets_ + descriptor_set_index, 0, nullptr);
++        current_graphics_descriptor_sets_ + descriptor_set_index, dynamic_offset_count,
++        dynamic_offsets);
+     if (descriptor_set_mask_tzcnt >= 32) {
+       break;
+     }

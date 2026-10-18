@@ -1,0 +1,86 @@
+# harness: fast-forward ok (Session 27.5 item A: skip each of Cena's meshes in turn at INGAMELUA + 1100)
+# Use with --wwe2k14_launch=hiac_cena_brodus --wwe2k14_replay_mode=true and --gpu_debug_draw_probe=<character VS
+# hashes> --gpu_debug_draw_probe_path=<csv>. Boot part as s27_cena_motion.txt (launch_boot_check.txt).
+on_fail quit
+log launch: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log launch: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log launch: in-game sequence loading
+wait_frames 1100
+screenshot pb_base
+cvar gpu_debug_skip_index_base 1C3AB000
+wait_frames 2
+screenshot pb_00_1C3AB000
+cvar gpu_debug_skip_index_base 1C3A6000
+wait_frames 2
+screenshot pb_01_1C3A6000
+cvar gpu_debug_skip_index_base 1C385000
+wait_frames 2
+screenshot pb_02_1C385000
+cvar gpu_debug_skip_index_base 1C381000
+wait_frames 2
+screenshot pb_03_1C381000
+cvar gpu_debug_skip_index_base 1C370000
+wait_frames 2
+screenshot pb_04_1C370000
+cvar gpu_debug_skip_index_base 1C367000
+wait_frames 2
+screenshot pb_05_1C367000
+cvar gpu_debug_skip_index_base 1C35F000
+wait_frames 2
+screenshot pb_06_1C35F000
+cvar gpu_debug_skip_index_base 1C35B000
+wait_frames 2
+screenshot pb_07_1C35B000
+cvar gpu_debug_skip_index_base 1C359000
+wait_frames 2
+screenshot pb_08_1C359000
+cvar gpu_debug_skip_index_base 1C350000
+wait_frames 2
+screenshot pb_09_1C350000
+cvar gpu_debug_skip_index_base 1C34D000
+wait_frames 2
+screenshot pb_10_1C34D000
+cvar gpu_debug_skip_index_base 1C349000
+wait_frames 2
+screenshot pb_11_1C349000
+cvar gpu_debug_skip_index_base 1C347000
+wait_frames 2
+screenshot pb_12_1C347000
+cvar gpu_debug_skip_index_base 1C33B000
+wait_frames 2
+screenshot pb_13_1C33B000
+cvar gpu_debug_skip_index_base 1C32F000
+wait_frames 2
+screenshot pb_14_1C32F000
+cvar gpu_debug_skip_index_base 1C32C000
+wait_frames 2
+screenshot pb_15_1C32C000
+cvar gpu_debug_skip_index_base 1C329000
+wait_frames 2
+screenshot pb_16_1C329000
+cvar gpu_debug_skip_index_base 1C326000
+wait_frames 2
+screenshot pb_17_1C326000
+cvar gpu_debug_skip_index_base 1C323000
+wait_frames 2
+screenshot pb_18_1C323000
+cvar gpu_debug_skip_index_base 1C31E000
+wait_frames 2
+screenshot pb_19_1C31E000
+cvar gpu_debug_skip_index_base 0
+wait_frames 2
+screenshot pb_after
+wait_frames 30
+log short route: end
+quit

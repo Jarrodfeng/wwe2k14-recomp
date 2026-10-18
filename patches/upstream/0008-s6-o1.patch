@@ -1,0 +1,285 @@
+Subject: [ReXGlue] merge s6/o1
+
+Class: RGO
+What: Precise guest vblank timer (high-resolution waitable timer + short spin) instead of Sleep(1).
+Evidence: A/B ~0 on this PC (vblanks were ~1 ms late; PLAYBOOK Session 6).
+On / off: gpu_vblank_precise_timer, gpu_vblank_precise_timer_spin_us, off.
+Commit: f4e9218 (diff against f4e9218^1)
+Prepared by the WWE 2K14 recomp project (Session 15, prep only, not sent). Measured on one PC (Ryzen 9 5950X, RTX 4090), Vulkan backend, one title.
+
+diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
+index ac6b056..e932574 100644
+--- a/include/rex/graphics/graphics_system.h
++++ b/include/rex/graphics/graphics_system.h
+@@ -106,7 +106,10 @@ class GraphicsSystem : public system::IGraphicsSystem {
+   uint32_t ReadRegister(uint32_t addr);
+   void WriteRegister(uint32_t addr, uint32_t value);
+ 
+-  void MarkVblank();
++  // wwe2k14 patch (Session 6, O1): the arguments only go into the timeline's "vblank" event: a =
++  // microseconds after its deadline the vblank fired, b = 1 if the precise timer did the wait
++  // before it (0 = Sleep(1) polling), c = microseconds of the precise timer's final spin before it.
++  void MarkVblank(uint32_t late_us = 0, uint32_t precise_timer = 0, uint32_t spin_us = 0);
+ 
+   memory::Memory* memory_ = nullptr;
+   runtime::FunctionDispatcher* function_dispatcher_ = nullptr;
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index f46cb2e..bbd3050 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -32,6 +32,20 @@
+ #include <rex/ui/window.h>
+ #include <rex/ui/windowed_app_context.h>
+ 
++#if REX_PLATFORM_WIN32
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++// Windows 10 1803+; older SDK headers lack the define.
++#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
++#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
++#endif
++#endif  // REX_PLATFORM_WIN32
++
+ REXCVAR_DEFINE_STRING(swap_post_effect, "none", "GPU", "Swap post effect: none, fxaa, fxaa_extreme")
+     .allowed({"none", "fxaa", "fxaa_extreme"})
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+@@ -40,6 +54,24 @@ REXCVAR_DEFINE_BOOL(store_shaders, true, "GPU",
+                     "Store shaders persistently and load them when loading games to avoid "
+                     "runtime spikes and freezes when playing the game not for the first time.");
+ 
++// wwe2k14 patch (Session 6, O1): the guest vblank comes from a Sleep(1) polling loop, so each one
++// fires 0-2 ms after its deadline (timelines 071/073/074: p99 ~2.5 ms late, single intervals
++// p1 14.8 / p99 18.6 ms). The command processor's WAIT_REG_MEM is released by the vblank, so that
++// jitter moves its per-frame budget. With this on, the GPU VSync thread sleeps on a high-resolution
++// waitable timer until shortly before the deadline and spins the rest. Same deadlines (fixed grid
++// from the thread's start), same catch-up of missed vblanks. Read every loop iteration, so it can
++// be flipped at any time.
++REXCVAR_DEFINE_BOOL(
++    gpu_vblank_precise_timer, false, "GPU",
++    "Time the guest vblank with a high-resolution waitable timer and a short final spin "
++    "instead of Sleep(1) polling (Windows 10 1803+ and vsync on only; otherwise it keeps "
++    "the Sleep(1) polling)");
++REXCVAR_DEFINE_INT32(
++    gpu_vblank_precise_timer_spin_us, 1000, "GPU",
++    "gpu_vblank_precise_timer: how long before each vblank deadline the timer wakes the "
++    "thread to spin the rest, in microseconds (more = more CPU, fewer late vblanks)")
++    .range(0, 16000);
++
+ namespace {
+ 
+ rex::graphics::CommandProcessor::SwapPostEffect ParseSwapPostEffect(
+@@ -73,6 +105,104 @@ __declspec(dllexport) uint32_t AmdPowerXpressRequestHighPerformance = 1;
+ }  // extern "C"
+ #endif  // REX_PLATFORM_WIN32
+ 
++#if REX_PLATFORM_WIN32
++namespace {
++
++// wwe2k14 patch (Session 6, O1): waits for a guest vblank deadline on a high-resolution waitable
++// timer until spin_us before it, then spins on the host performance counter. The timer does not
++// depend on the process timer resolution (raised to 1 ms by SDL's timeBeginPeriod, which Windows 11
++// may ignore for occluded windows). The spin reads the host counter, not the guest clock:
++// Clock::QueryGuestTickCount takes the tick mutex that the game's mftb reads also take.
++class PreciseVblankWaiter {
++ public:
++  PreciseVblankWaiter() = default;
++  PreciseVblankWaiter(const PreciseVblankWaiter&) = delete;
++  PreciseVblankWaiter& operator=(const PreciseVblankWaiter&) = delete;
++  ~PreciseVblankWaiter() {
++    if (timer_) {
++      CloseHandle(timer_);
++    }
++  }
++
++  // Creates the timer on first use. False if the OS has no high-resolution waitable timers (before
++  // Windows 10 1803); the caller then keeps the Sleep(1) polling.
++  bool Available() {
++    if (!timer_ && !unavailable_) {
++      timer_ = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
++                                      TIMER_ALL_ACCESS);
++      if (!timer_) {
++        unavailable_ = true;
++        REXGPU_WARN(
++            "[s6][O1] No high-resolution waitable timer (error {}), the guest vblank keeps "
++            "Sleep(1) polling",
++            GetLastError());
++      }
++    }
++    return timer_ != nullptr;
++  }
++
++  // Returns once the guest tick count has reached guest_deadline, right away if it already has.
++  // spun_us gets the length of the final spin (0 if the timer woke at or after the deadline). False
++  // if the timer could not be armed: nothing was waited for and the caller falls back to Sleep(1)
++  // this time.
++  bool WaitUntil(uint64_t guest_deadline, int32_t spin_us, uint32_t& spun_us) {
++    spun_us = 0;
++    // The guest clock is the host performance counter times guest_tick_ratio (core/clock.cpp). The
++    // guest clock is sampled first, so the host time it stands for is <= host_now and host_deadline
++    // is never early.
++    uint64_t guest_now = chrono::Clock::QueryGuestTickCount();
++    uint64_t host_now = chrono::Clock::QueryHostTickCount();
++    if (int64_t(guest_deadline - guest_now) <= 0) {
++      return true;
++    }
++    // Guest ticks per host tick = first / second. Normally at most one vblank interval remains; the
++    // caps only keep the arithmetic in range and the thread responsive under odd clock settings
++    // (the caller re-checks).
++    std::pair<uint64_t, uint64_t> ratio = chrono::Clock::guest_tick_ratio();
++    uint64_t host_frequency = chrono::Clock::QueryHostTickFrequency();
++    uint64_t remaining_guest = std::min(guest_deadline - guest_now, uint64_t(1) << 32);
++    uint64_t remaining_host = (remaining_guest * ratio.second + ratio.first - 1) / ratio.first;
++    remaining_host = std::min(remaining_host, host_frequency / 10);
++    uint64_t host_deadline = host_now + remaining_host;
++    uint64_t spin_ticks = uint64_t(std::max(spin_us, int32_t(0))) * host_frequency / 1000000;
++    if (remaining_host > spin_ticks) {
++      // Relative due time, in 100 ns units, negative.
++      int64_t sleep_100ns = int64_t((remaining_host - spin_ticks) * 10000000 / host_frequency);
++      if (sleep_100ns > 0) {
++        LARGE_INTEGER due_time;
++        due_time.QuadPart = -sleep_100ns;
++        if (!SetWaitableTimer(timer_, &due_time, 0, nullptr, nullptr, FALSE)) {
++          // Not expected; give up on the timer for good rather than flip between the two waits.
++          REXGPU_WARN(
++              "[s6][O1] SetWaitableTimer failed (error {}), the guest vblank goes back to Sleep(1) "
++              "polling",
++              GetLastError());
++          CloseHandle(timer_);
++          timer_ = nullptr;
++          unavailable_ = true;
++          return false;
++        }
++        WaitForSingleObject(timer_, INFINITE);
++      }
++    }
++    uint64_t spin_start = chrono::Clock::QueryHostTickCount();
++    uint64_t host_time = spin_start;
++    while (host_time < host_deadline) {
++      YieldProcessor();
++      host_time = chrono::Clock::QueryHostTickCount();
++    }
++    spun_us = uint32_t((host_time - spin_start) * 1000000 / host_frequency);
++    return true;
++  }
++
++ private:
++  HANDLE timer_ = nullptr;
++  bool unavailable_ = false;
++};
++
++}  // namespace
++#endif  // REX_PLATFORM_WIN32
++
+ GraphicsSystem::GraphicsSystem() : vsync_worker_running_(false) {}
+ 
+ GraphicsSystem::~GraphicsSystem() = default;
+@@ -159,15 +289,83 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+             std::max(uint64_t(1), uint64_t(double(guest_tick_frequency) / refresh_rate_hz));
+         uint64_t no_vsync_interval_ticks = std::max(uint64_t(1), guest_tick_frequency / 1000);
+         uint64_t last_frame_time = chrono::Clock::QueryGuestTickCount();
++        // wwe2k14 patch (Session 6, O1): how the wait before the next vblank went (timeline b/c),
++        // and stats of the precise timer (logged only while it is in use).
++        uint32_t wait_precise = 0;
++        uint32_t wait_spun_us = 0;
++        bool precise_active = false;
++        uint32_t stats_vblanks = 0, stats_catch_up = 0, stats_late_500us = 0;
++        uint64_t stats_late_sum_us = 0, stats_spin_sum_us = 0;
++        uint32_t stats_late_max_us = 0;
++#if REX_PLATFORM_WIN32
++        PreciseVblankWaiter precise_waiter;
++#endif
+         while (vsync_worker_running_) {
+           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
+           uint64_t interval_ticks =
+               REXCVAR_GET(vsync) ? vsync_interval_ticks : no_vsync_interval_ticks;
++          bool first_in_batch = true;
+           while (current_time - last_frame_time >= interval_ticks) {
+-            MarkVblank();
++            // wwe2k14 patch (Session 6, O1): lateness = guest time from this vblank's deadline to
++            // now. The first vblank of a batch uses current_time, read just above; catch-up ones
++            // re-read the clock, but only while the timeline records (the value is unused
++            // otherwise).
++            uint64_t deadline = last_frame_time + interval_ticks;
++            uint64_t fired_time = current_time;
++            if (!first_in_batch && perf::timeline::Enabled()) {
++              fired_time = chrono::Clock::QueryGuestTickCount();
++            }
++            uint32_t late_us =
++                uint32_t(std::min(fired_time - deadline, guest_tick_frequency * 4000) * 1000000 /
++                         guest_tick_frequency);
++            if (wait_precise) {
++              if (first_in_batch) {
++                ++stats_vblanks;
++                stats_late_sum_us += late_us;
++                stats_late_max_us = std::max(stats_late_max_us, late_us);
++                stats_late_500us += late_us >= 500 ? 1 : 0;
++                stats_spin_sum_us += wait_spun_us;
++              } else {
++                ++stats_catch_up;
++              }
++            }
++            MarkVblank(late_us, wait_precise, first_in_batch ? wait_spun_us : 0);
++            first_in_batch = false;
+             last_frame_time += interval_ticks;
+           }
+-          rex::thread::Sleep(std::chrono::milliseconds(1));
++          if (stats_vblanks >= 1800) {
++            REXGPU_INFO(
++                "[s6][O1] precise vblank timer, last {} vblanks: late mean {} us, max {} us, {} at "
++                ">=500 us late, {} catch-up vblanks, spin mean {} us",
++                stats_vblanks, stats_late_sum_us / stats_vblanks, stats_late_max_us,
++                stats_late_500us, stats_catch_up, stats_spin_sum_us / stats_vblanks);
++            stats_vblanks = stats_catch_up = stats_late_500us = stats_late_max_us = 0;
++            stats_late_sum_us = stats_spin_sum_us = 0;
++          }
++          // wwe2k14 patch (Session 6, O1): wait for the next deadline on the precise timer when
++          // enabled. Only for the vsync interval: with vsync off the "vblank" runs at 1 kHz and the
++          // spin would take a whole core. Both waits leave last_frame_time alone, so switching
++          // between them keeps the same grid.
++          bool waited = false;
++#if REX_PLATFORM_WIN32
++          if (REXCVAR_GET(gpu_vblank_precise_timer) && REXCVAR_GET(vsync) &&
++              precise_waiter.Available()) {
++            waited = precise_waiter.WaitUntil(last_frame_time + interval_ticks,
++                                              REXCVAR_GET(gpu_vblank_precise_timer_spin_us),
++                                              wait_spun_us);
++          }
++#endif
++          if (waited != precise_active) {
++            precise_active = waited;
++            REXGPU_INFO(
++                "[s6][O1] Guest vblank timer: {}",
++                waited ? "precise (high-resolution waitable timer + spin)" : "Sleep(1) polling");
++          }
++          wait_precise = waited ? 1 : 0;
++          if (!waited) {
++            wait_spun_us = 0;
++            rex::thread::Sleep(std::chrono::milliseconds(1));
++          }
+         }
+         return 0;
+       }));
+@@ -318,7 +516,7 @@ void GraphicsSystem::DispatchInterruptCallback(uint32_t source, uint32_t cpu) {
+                                          rex::countof(args));
+ }
+ 
+-void GraphicsSystem::MarkVblank() {
++void GraphicsSystem::MarkVblank(uint32_t late_us, uint32_t precise_timer, uint32_t spin_us) {
+   // TODO: Enable profiling once ported
+   // SCOPE_profile_cpu_f("gpu");
+ 
+@@ -326,7 +524,8 @@ void GraphicsSystem::MarkVblank() {
+   if (command_processor_) {
+     command_processor_->increment_counter();
+   }
+-  perf::timeline::Record("vblank");
++  // wwe2k14 patch (Session 6, O1): a/b/c as documented in graphics_system.h (were all 0 before).
++  perf::timeline::Record("vblank", late_us, precise_timer, spin_us);
+ 
+   // TODO(benvanik): we shouldn't need to do the dispatch here, but there's
+   //     something wrong and the CP will block waiting for code that

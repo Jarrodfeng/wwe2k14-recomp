@@ -1,0 +1,37 @@
+# Session 14 (S5, report only): what the game renders in the post-match freeze frame. Use with
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_cinecam=true --wwe2k14_timeline=true
+# --wwe2k14_cinecam_path_record=s5_freeze.txt --wwe2k14_cinecam_path_anchor=clock (the path log is switched on at the finish).
+# The match runs unthrottled (vsync off) until the finish type G+472 is set, then normal speed: the free camera moves
+# on a scripted path (test_move) and a screenshot is taken every 30 frames for ~12 s. on_fail quit.
+on_fail quit
+log rr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rr: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+wait_state match_clock !=0 3600 2
+cvar wwe2k14_cinecam_on true
+cvar wwe2k14_cinecam_test_pose -1,-268,-1294,-90,1.3,44.7
+wait_frames 30
+log s5: fast-forward to the finish
+cvar vsync false
+wait_state 0x8376ACCC !=0 216000 1
+cvar vsync true
+log s5: finish
+cvar wwe2k14_cinecam_path_log true
+log_state 0x8376ACCC
+cvar wwe2k14_cinecam_test_move 0,0,0,20
+screenshot_every 30 fz
+wait_frames 720
+screenshot_every 0
+log s5: end
+wait_frames 60
+quit

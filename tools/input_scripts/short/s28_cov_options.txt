@@ -1,0 +1,85 @@
+# harness: fast-forward ok (Session 28: coverage route, main menu -> OPTIONS -> GAMEPLAY -> VISUAL PRESENTATION; run with the coverage exe and --wwe2k14_coverage=true; nothing is saved back)
+on_fail quit
+wait_file SaveData.Dat 3600
+mark 1 boot
+wait_frames 170
+press START
+wait_frames 70
+press A
+wait_file MNUIHD.PAC 1800
+wait_frames 150
+mark 2 mm.idle
+wait_frames 90
+mark 3 to_options
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+mark 4 options.idle
+wait_frames 90
+mark 5 options.move
+press DOWN
+wait_frames 40
+press UP
+wait_frames 40
+mark 6 to_gameplay
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 60
+mark 7 gameplay.idle
+wait_frames 90
+mark 8 to_vp
+press DOWN
+wait_frames 20
+press DOWN
+wait_frames 40
+press A
+wait_frames 120
+mark 9 vp.idle
+wait_frames 90
+mark 10 vp.move
+press DOWN
+wait_frames 40
+press DOWN
+wait_frames 40
+press UP
+wait_frames 40
+mark 11 vp.change
+press RIGHT
+wait_frames 40
+press LEFT
+wait_frames 40
+mark 12 vp.slider
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 40
+press RIGHT
+wait_frames 40
+press LEFT
+wait_frames 40
+mark 13 to_back
+press B
+wait_frames 90
+mark 14 gameplay.after
+wait_frames 60
+quit

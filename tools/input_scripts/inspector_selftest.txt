@@ -1,0 +1,24 @@
+# Inspector self-test (Session 8 task 15, src/inspector.h): boot to "Press Start", open the inspector from the script,
+# hide and show it again, keep it up long enough for a desktop capture, quit.
+# Run (from the repo root; flags as ONE string):
+#   pwsh -NoProfile -Command "& C:\Users\Jarrod\wwe2k14-recomp\tools\bench\run_list.ps1 -Scripts @('..\..\..\tools\input_scripts\inspector_selftest.txt') -Extra '--wwe2k14_inspector=true --wwe2k14_inspector_addr=0x8392DC38'"
+# 0x8392DC38 = video_timing_block (db/frame_pacing.json); its +8 word 0x8392DC40 is frame_rate_word (60 in menus).
+# Check: the log has "[wwe2k14][inspector] installed", "shown", "window shown (first draw)", one "panel memory drawn"
+# and one "panel settings drawn" line (plus "panel coverage drawn" in the coverage build), then "hidden" / "shown".
+# The in-app screenshot only holds the guest image (no overlay); the inspector itself needs a desktop capture.
+# Label sources without a capture: add --wwe2k14_inspector_dump_labels=../../harness/inspector/labels.tsv (TSV of
+# every label and chain, chain values read when the labels load; e.g. current_sequence_id = 3 at the title, run 294).
+log inspector: start
+wait_file SaveData.Dat 3600
+wait_frames 60
+cvar wwe2k14_inspector_show true
+wait_frames 240
+mark 1 inspector_open
+cvar wwe2k14_inspector_show false
+wait_frames 30
+cvar wwe2k14_inspector_show true
+# Time for a desktop capture of the window.
+wait_frames 900
+screenshot title_inspector
+wait_frames 60
+quit

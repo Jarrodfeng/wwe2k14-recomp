@@ -1,0 +1,79 @@
+# Session 24 (DLSS rung 1, the HUD step): straight into the match (entrances skipped), DLSS at the match camera, then
+# the pause menu (a 2D menu over the scene) in several views (`cvar gpu_dlss_view`: 0 = DLSS + HUD step, 3 = DLSS
+# without it, 4 = the HUD difference mask, 2 = bicubic; in the match also 5 / 6 / 7 = motion / depth / character mask), then two menu moves (down) with a shot right after each in
+# views 0 and 3 (a smearing menu highlight would show in 3). Needs --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true --wwe2k14_dlss=true (+ --wwe2k14_dlaa_dir=FOLDER). Untimed. on_fail quit.
+on_fail quit
+log dh: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log dh: main menu reached
+wait_file INGAMELUA.PAC 1800
+log dh: in-game sequence loading
+press_until_file START m3.pac 30 300
+log dh: match scene
+wait_frames 400
+screenshot dh_match
+cvar gpu_dlss_view 4
+wait_frames 2
+screenshot dh_match_mask
+wait_frames 10
+cvar gpu_dlss_view 5
+wait_frames 2
+screenshot dh_match_mv
+wait_frames 10
+cvar gpu_dlss_view 6
+wait_frames 2
+screenshot dh_match_depth
+wait_frames 10
+cvar gpu_dlss_view 7
+wait_frames 2
+screenshot dh_match_objmask
+wait_frames 10
+cvar gpu_dlss_view 0
+wait_frames 30
+set 0x0010 0 0 0 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 90
+log dh: paused
+screenshot dh_pause
+cvar gpu_dlss_view 4
+wait_frames 2
+screenshot dh_pause_mask
+wait_frames 10
+cvar gpu_dlss_view 3
+wait_frames 2
+screenshot dh_pause_nohud
+wait_frames 10
+cvar gpu_dlss_view 2
+wait_frames 2
+screenshot dh_pause_bicubic
+wait_frames 10
+cvar gpu_dlss_view 0
+wait_frames 30
+set 0x0002 0 0 0 0 0 0
+wait_frames 4
+set 0x0000 0 0 0 0 0 0
+wait_frames 1
+screenshot dh_move1
+wait_frames 30
+cvar gpu_dlss_view 3
+wait_frames 30
+set 0x0002 0 0 0 0 0 0
+wait_frames 4
+set 0x0000 0 0 0 0 0 0
+wait_frames 1
+screenshot dh_move1_nohud
+cvar gpu_dlss_view 0
+wait_frames 30
+log dh: end
+quit

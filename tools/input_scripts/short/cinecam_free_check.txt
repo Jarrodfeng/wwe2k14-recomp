@@ -1,0 +1,36 @@
+# Session 13 step 3 (CineCam free camera) self-check: needs --wwe2k14_cinecam=true --wwe2k14_launch=lesnar_bryan. START
+# through the entrances to the match, wait for the game camera, then screenshots: off / free camera on via
+# `cvar wwe2k14_cinecam_on` (seeded from the game's view: no jump; the CineCam panel shows) 1 and 60 frames later / off
+# again (the game's view). Keys and mouse can't be scripted: that part is Jarrod's live test. Untimed (lanes OK).
+# Needs the frozen user data (run_list.ps1). on_fail quit. Screenshots cc_* are local only.
+on_fail quit
+log cc: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log cc: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log cc: in-game sequence loading
+press_until_file START m3.pac 30 300
+log cc: match scene
+wait_frames 300
+wait_state 0x836F3AA8>1392>0 0x8201D820 1800 30
+screenshot cc_free_off1
+cvar wwe2k14_cinecam_on true
+wait_frames 2
+screenshot cc_free_on1
+wait_frames 60
+screenshot cc_free_on60
+cvar wwe2k14_cinecam_on false
+wait_frames 2
+screenshot cc_free_off2
+wait_frames 60
+log cc: end
+quit
