@@ -88,6 +88,9 @@ off applies at once; the DLSS modes, the frame rate and the resolution apply the
   - To use a newer DLSS, point Settings -> Graphics at a folder with NVIDIA's Streamline runtime.
   - On other cards: FSR support is coming soon.
 - **Original look** (Settings -> Graphics): the Xbox 360 picture, 720p with 30 fps entrances.
+- **Check for updates** (Settings -> Game, on by default): when the launcher starts it asks GitHub whether a newer full
+  release is out, and shows an UPDATE button if so (it opens the release page; nothing is downloaded by itself).
+  Nothing else is sent.
 
 ## Mods
 

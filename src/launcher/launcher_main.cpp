@@ -23,6 +23,8 @@
 //   --quick-type N (Quick Match: build match type N)   --page about|quick|advanced (Session 31)
 //   --settings-section N (Settings: 0 game, 1 display, 2 graphics, 3 advanced; Session 31)
 //   --show-crash CODE | --show-report (open that popup, for a look; Session 31)   --titles-view list|grid
+//   --update-check (check for updates even in a +dev build)   --update-file JSON (a release from a file, not GitHub)
+//   --update-version VER (pretend this version)   --show-update (open the update details, if one was found)
 //   --kill-game CODE (end the game with this exit code: a test of the crash dialog)
 //   --tab trons|titles|play --select TRON          --assign TRON FILE     --revert TRON
 //   --assign-alpha TRON FILE (stacked alpha)       --banner TRON original|video|none|FILE   --title ID
@@ -44,6 +46,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <random>
+#include <mutex>
 #include <thread>
 #include <cstdarg>
 #include <deque>
@@ -61,6 +64,7 @@
 
 #include "game_font.h"
 #include "launcher_system.h"
+#include "update_check.h"
 #include "launcher_theme.h"
 #include "logo_save.h"
 
@@ -709,6 +713,89 @@ class App {
     if (hw_.refresh_hz > 0) g_monitor_hz = hw_.refresh_hz;
     g_perf_report_default = IsPlaytest();
     Reload();
+    StartUpdateCheck(update_force_);
+  }
+
+  // ---------------- Session 31: update check (update_check.h). In the background at start, unless switched off in
+  // Settings; development builds (+dev) skip it unless --update-check. --update-file JSON reads a release from a file
+  // instead of GitHub and --update-version VER pretends this version (tests).
+  struct UpdateState {
+    std::mutex m;
+    UpdateInfo info;
+  };
+  std::shared_ptr<UpdateState> update_ = std::make_shared<UpdateState>();
+  bool update_force_ = false, update_dismissed_ = false, want_update_popup_ = false;
+  std::string update_file_, update_version_;
+
+  std::string MyVersion() const { return update_version_.empty() ? std::string(Version()) : update_version_; }
+  UpdateInfo Update() {
+    std::lock_guard<std::mutex> lock(update_->m);
+    return update_->info;
+  }
+  void StartUpdateCheck(bool force) {
+    const bool dev = MyVersion().find("+dev") != std::string::npos;
+    if (!force && (!s.check_updates || dev)) return;
+    {
+      std::lock_guard<std::mutex> lock(update_->m);
+      if (update_->info.state == UpdateInfo::kChecking) return;
+      update_->info = {}, update_->info.state = UpdateInfo::kChecking;
+    }
+    std::thread([st = update_, ver = MyVersion(), file = update_file_] {
+      UpdateInfo u;
+      if (file.empty()) {
+        u = CheckForUpdate(ver);
+      } else {
+        std::ifstream f(fs::path(Widen(file)), std::ios::binary);
+        u = ReadRelease(std::string((std::istreambuf_iterator<char>(f)), {}), ver);
+      }
+      {
+        std::lock_guard<std::mutex> lock(st->m);
+        st->info = u;
+      }
+      WakeUi();
+    }).detach();  // owns its state (shared_ptr): never joined, so closing the launcher never waits for GitHub
+  }
+  void LogUpdateOnce() {
+    static UpdateInfo::State logged = UpdateInfo::kNone;
+    const UpdateInfo u = Update();
+    if (u.state == logged || u.state == UpdateInfo::kChecking) return;
+    logged = u.state;
+    Log("update check: " + std::string(u.state == UpdateInfo::kAvailable ? "available " + u.tag + " " + u.url
+                                       : u.state == UpdateInfo::kLatest  ? "up to date (" + MyVersion() + ")"
+                                       : u.state == UpdateInfo::kFailed  ? "failed: " + u.error
+                                                                         : "not run"));
+  }
+
+  // The notice at the band's foot (above Report a problem) when a newer release exists; a click opens the details.
+  float UpdateNotice(ImVec2 pos, float width) {
+    const UpdateInfo u = Update();
+    if (u.state != UpdateInfo::kAvailable || update_dismissed_) return 0;
+    const float d = Dpi(), h = 46 * d;
+    const std::string label = "UPDATE " + u.tag.substr(0, u.tag.find('-'));
+    if (SlantButton(label.c_str(), pos, ImVec2(width, h), true, 17 * d)) want_update_popup_ = true;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A newer version is out: see what's new");
+    return h;
+  }
+  void UpdatePopup() {
+    if (want_update_popup_) ImGui::OpenPopup("update"), want_update_popup_ = false;
+    if (!BeginGameModal("update", "UPDATE AVAILABLE", 660 * Dpi())) return;
+    const UpdateInfo u = Update();
+    ImGui::TextWrapped("%s is out (you have %s).", u.name.empty() ? u.tag.c_str() : u.name.c_str(), MyVersion().c_str());
+    ImGui::TextDisabled("Download it from its GitHub page; your saves, settings and mods stay where they are.");
+    if (!u.notes.empty()) {
+      ImGui::Spacing();
+      ImGui::BeginChild("notes", ImVec2(0, 240 * Dpi()), ImGuiChildFlags_Borders);
+      ImGui::TextWrapped("%s", u.notes.c_str());
+      ImGui::EndChild();
+    }
+    ImGui::Dummy(ImVec2(0, 10 * Dpi()));
+    if (ModalMainButton("OPEN THE RELEASE PAGE")) {
+      if (u.url.rfind("https://github.com/", 0) == 0) ShellExecuteW(hwnd_, L"open", Widen(u.url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+      ImGui::CloseCurrentPopup();
+    }
+    if (ModalButton("Later")) update_dismissed_ = true, ImGui::CloseCurrentPopup();
+    ImGui::NewLine();
+    ImGui::EndPopup();
   }
 
   // The first-run wizard (unless automation said otherwise: it would cover every screenshot).
@@ -811,6 +898,7 @@ class App {
     else if (st.op == "show_crash") crash_code_ = DWORD(std::strtoul(st.a.c_str(), nullptr, 0)), want_crash_popup_ = true;
     else if (st.op == "show_report") want_report_popup_ = true;
     else if (st.op == "titles_view") s.titles_view = st.a == "grid" ? 1 : 0;
+    else if (st.op == "show_update") want_update_popup_ = Update().state == UpdateInfo::kAvailable;
     else if (st.op == "capture") LaunchCapture(st.a);
     else if (st.op == "wait_game_start") return game_proc_ == nullptr || WaitForInputIdle(game_proc_, 0) != WAIT_TIMEOUT;
     else if (st.op == "kill_game") {  // a test of the crash dialog: end the game with this exit code
@@ -869,6 +957,8 @@ class App {
     ImGui::EndChild();
     Wizard();
     CrashPopup();
+    UpdatePopup();
+    LogUpdateOnce();
     ImGui::End();
     if (hover_video_.empty()) player_.Close();  // nothing hovered: stop playing
   }
@@ -996,6 +1086,10 @@ class App {
     if (ImGui::Button("Report a problem", ImVec2(fw, 0)) || want_report_popup_)
       ImGui::OpenPopup("report"), want_report_popup_ = false;
     ReportPopup();
+    {  // Session 31: the update notice, when there is one
+      const float uh = 46 * d;
+      if (UpdateNotice(ImVec2(p.x0 + margin, y - gap - uh), fw) > 0) y -= uh + gap;
+    }
     if (game_proc_) {
       const float px = 17 * d;
       MenuText(dl, ImVec2(p.x0 + margin, y - px - gap), px, IM_COL32_WHITE, "GAME RUNNING");
@@ -2347,6 +2441,24 @@ class App {
     if (OptionToggle("PERFORMANCE REPORT", pr, true,
                      "Frame and load times per scene when the game closes; it goes into Report a problem."))
       s.perf_report = pr ? 1 : 0;
+    ImGui::Dummy(ImVec2(0, 8 * Dpi()));
+    SubHeading("UPDATES");
+    OptionToggle("CHECK FOR UPDATES", s.check_updates, true,
+                 "When the launcher starts it asks GitHub whether a newer full release is out (nothing else is sent).");
+    if (ImGui::Button("Check now")) StartUpdateCheck(true);
+    ImGui::SameLine();
+    const UpdateInfo u = Update();
+    switch (u.state) {
+      case UpdateInfo::kChecking: ImGui::TextDisabled("Checking..."); break;
+      case UpdateInfo::kLatest: ImGui::TextColored(kGood, "You have the latest version (%s).", MyVersion().c_str()); break;
+      case UpdateInfo::kAvailable:
+        ImGui::TextColored(kWarn, "%s is out.", u.tag.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Details")) want_update_popup_ = true, update_dismissed_ = false;
+        break;
+      case UpdateInfo::kFailed: ImGui::TextColored(kBad, "Couldn't check: %s.", u.error.c_str()); break;
+      default: ImGui::TextDisabled("Not checked yet (%s).", MyVersion().c_str()); break;
+    }
   }
 
   void SettingsDisplay() {
@@ -3732,6 +3844,11 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--show-crash") out.push_back({"show_crash", next()});  // the crash popup with this code (a look)
     else if (a == "--show-report") out.push_back({"show_report"});
     else if (a == "--titles-view") out.push_back({"titles_view", next()});
+    // Session 31: update check tests.
+    else if (a == "--update-check") app.update_force_ = true;          // check even in a +dev build
+    else if (a == "--update-file") app.update_file_ = next(), app.update_force_ = true;  // GitHub's answer from a file
+    else if (a == "--update-version") app.update_version_ = next();   // pretend this version
+    else if (a == "--show-update") out.push_back({"show_update"});
     else if (a == "--capture") out.push_back({"capture", next()});
     else if (a == "--kill-game") out.push_back({"kill_game", next()});
     else if (a == "--wizard-step") out.push_back({"wizard_step", next()});

@@ -131,6 +131,7 @@ struct Settings {
   std::string gpu;
   bool windowed = false;
   int titles_view = 0;         // Mods -> Titles: 0 list, 1 grid (Session 31)
+  bool check_updates = true;   // ask GitHub for a newer full release at start (Session 31, update_check.h)
 };
 
 inline void to_json(json& j, const Settings& s) {
@@ -148,7 +149,7 @@ inline void to_json(json& j, const Settings& s) {
            {"resolution", s.resolution}, {"frame_rate", s.frame_rate}, {"refresh_hz", s.refresh_hz},
            {"perf_report", s.perf_report}, {"original_look", s.original_look}, {"page", s.page},
            {"mods_tab", s.mods_tab}, {"runin", s.runin}, {"keyboard", s.keyboard},
-           {"language", s.language}, {"gpu", s.gpu}, {"windowed", s.windowed}, {"titles_view", s.titles_view}};
+           {"language", s.language}, {"gpu", s.gpu}, {"windowed", s.windowed}, {"titles_view", s.titles_view}, {"check_updates", s.check_updates}};
 }
 template <class T>
 inline void Get(const json& j, const char* k, T& v) {
@@ -173,7 +174,7 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "first_run_done", s.first_run_done), Get(j, "resolution", s.resolution), Get(j, "frame_rate", s.frame_rate);
   Get(j, "refresh_hz", s.refresh_hz), Get(j, "perf_report", s.perf_report), Get(j, "original_look", s.original_look);
   Get(j, "page", s.page), Get(j, "mods_tab", s.mods_tab), Get(j, "runin", s.runin), Get(j, "keyboard", s.keyboard);
-  Get(j, "language", s.language), Get(j, "gpu", s.gpu), Get(j, "windowed", s.windowed), Get(j, "titles_view", s.titles_view);
+  Get(j, "language", s.language), Get(j, "gpu", s.gpu), Get(j, "windowed", s.windowed), Get(j, "titles_view", s.titles_view), Get(j, "check_updates", s.check_updates);
   if (!j.contains("resolution") && j.contains("look")) {  // the Session 17-24 Play tab's "Look"
     if (s.look == 1) s.original_look = true;
     if (s.look == 2) s.resolution = 2;

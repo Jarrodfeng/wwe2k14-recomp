@@ -20,6 +20,9 @@
 - The first-run wizard lets you set language, graphics card, resolution and frame rate before your first game.
 - **About** page with the project's link, the credits and the licences.
 - Mods: the trons grid shows two columns at the default size, and the titles have a grid view too.
+- **The launcher checks for updates**: when a newer full release is out on GitHub, an UPDATE button appears at the
+  bottom of the red band; it shows what's new and opens the release page. Settings -> Game -> Check for updates turns
+  it off.
 
 Known issues:
 - The graphics-card choice is new: if a laptop still starts on its built-in GPU, please send a report.
