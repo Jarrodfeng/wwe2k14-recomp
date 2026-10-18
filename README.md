@@ -71,4 +71,4 @@ A non-commercial fan preservation project: no donations, no paid builds. Not aff
 Take-Two Interactive, Yuke's or Visual Concepts. WWE 2K14 and all related names, logos and characters belong to their
 owners. This repository contains no game code or data: you need your own copy of the game.
 
-Developed with the assistance of [Claude](https://www.anthropic.com/claude), Anthropic's AI model.
+Developed with the assistance of [Claude](https://claude.com/), Anthropic's AI model.
