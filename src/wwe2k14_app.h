@@ -53,6 +53,9 @@
 #include "live_control.h"   // --wwe2k14_live (Session 29: live control channel, default off)
 #include "check_prompt.h"   // input-script `check TEXT` (Session 29: on-screen question, harness runs only)
 #include "gpu_pick.h"       // Session 31: the dedicated GPU by default, --wwe2k14_gpu=NAME (the launcher's chooser)
+#include "photo_mode.h"     // --wwe2k14_photo_mode (Session 33 item 4, default off)
+#include "ultrawide.h"      // --wwe2k14_aspect (Session 33 item 6, default 16:9 = off)
+#include "wm30_jump.h"      // --wwe2k14_wm30 (Session 34: jump into a 30 Years of WrestleMania match, default off)
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
 // (used to read jump tables and pointer tables that live inside the encrypted XEX).
@@ -340,6 +343,11 @@ class Wwe2k14App : public rex::ReXApp {
     if (REXCVAR_GET(wwe2k14_gpu_backend) != "d3d12") wwe2k14::gpu_pick::Choose();
     wwe2k14::SlowFrameOnPreSetup();  // Session 8 task 12: nothing unless --wwe2k14_slowframe_ms > 0
     wwe2k14::dlaa::Configure();      // Session 18: DLAA phase 1 (all off unless a --wwe2k14_dlaa_* flag is set)
+    wwe2k14::gfx_menu::ConfigureTextureFilter();  // Session 33: --wwe2k14_texture_filter (0 = unchanged)
+    wwe2k14::ultrawide::Configure();  // Session 33: --wwe2k14_aspect (16:9 = unchanged)
+    // Session 33: photo mode is built on the CineCam free camera.
+    if (REXCVAR_GET(wwe2k14_photo_mode) && rex::cvar::GetFlagSource("wwe2k14_cinecam") == rex::cvar::Source::kDefault)
+      rex::cvar::SetFlagByName("wwe2k14_cinecam", "true");
     wwe2k14::gfx_menu::CaptureRunning();  // Session 28: what this run does, for the in-game GRAPHICS menu
   }
 
@@ -435,6 +443,8 @@ class Wwe2k14App : public rex::ReXApp {
                                 [this](std::function<void()> f) { app_context().CallInUIThreadDeferred(std::move(f)); });
     wwe2k14::runin::InstallBind();  // Session 16: F9 = run-in (no-op unless --wwe2k14_runin)
     wwe2k14::cinecam::Install(window(), drawer);  // Session 13 CineCam free camera; no-op unless --wwe2k14_cinecam
+    wwe2k14::photo::Install();  // Session 33 photo mode; no-op unless --wwe2k14_photo_mode
+    wwe2k14::wm30::Install();   // Session 34; no-op unless --wwe2k14_wm30
     // Session 29: `check TEXT` banner + F1 / F2 / F5, only in harness runs (an input script or the live channel).
     const bool harness = !REXCVAR_GET(wwe2k14_input_script).empty() || !REXCVAR_GET(wwe2k14_live).empty();
     wwe2k14::check::Install(

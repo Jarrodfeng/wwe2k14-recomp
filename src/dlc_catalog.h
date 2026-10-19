@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -65,6 +66,8 @@ struct Pack {
   size_t files_listed = 0;
   std::vector<std::string> missing;
   uint64_t bytes = 0;
+  std::vector<int> char_ids;  // the wrestlers it adds: its catalog's pac\ch\chNNN_dlcPP.pac files (Session 32)
+  std::string string_pack;    // its string file (pac\string_dlcPP.pac): the names, src\launcher\dlc_names.h
 
   // The pack's own names: its bundle entries (type 21), else every entry; UTF-8.
   std::string DisplayName() const {
@@ -435,6 +438,8 @@ inline bool IEquals(const std::string& a, const char* b) {
 
 // Every pack under `dir`, sorted by pack id (then folder). check_files: test that every file the catalog lists is
 // there (a few hundred file checks); bytes: add up each pack's size.
+inline void NoteCatalogFiles(const std::vector<std::string>& files, Pack& pk);  // below
+
 inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool bytes = true) {
   std::vector<Pack> packs;
   std::error_code ec;
@@ -475,6 +480,7 @@ inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool
       pk.pack_id = c.pack_id;
       pk.entries = std::move(c.entries);
       pk.files_listed = c.files.size();
+      NoteCatalogFiles(c.files, pk);
       if (check_files) {
         for (std::string f : c.files) {
           std::replace(f.begin(), f.end(), '\\', '/');
@@ -543,6 +549,7 @@ inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool
       pk.pack_id = c.pack_id;
       pk.entries = std::move(c.entries);
       pk.files_listed = c.files.size();
+      NoteCatalogFiles(c.files, pk);
       if (check_files)
         for (const auto& f : c.files)
           if (!pkg.Find(f)) pk.missing.push_back(f);
@@ -577,6 +584,25 @@ inline fs::path DefaultDir(const fs::path& game_data_root, const fs::path& exe_d
     if (fs::is_directory(p, ec)) return p;
   }
   return c.empty() ? fs::path() : c.front();
+}
+
+// From a catalog's file list: the character ids (pac\ch\chNNN_dlcPP.pac) and the string file (pac\string_dlcPP.pac).
+inline void NoteCatalogFiles(const std::vector<std::string>& files, Pack& pk) {
+  for (std::string f : files) {
+    std::replace(f.begin(), f.end(), '/', '\\');
+    std::string low = f;
+    for (char& c : low) c = char(std::tolower(static_cast<unsigned char>(c)));
+    if (low.rfind("pac\\ch\\ch", 0) == 0 && low.size() > 9 && std::isdigit(static_cast<unsigned char>(low[9]))) {
+      int id = 0;
+      size_t i = 9;
+      while (i < low.size() && std::isdigit(static_cast<unsigned char>(low[i])) && id < 100000) id = id * 10 + (low[i++] - '0');
+      if (low.compare(i, 4, "_dlc") == 0 && std::find(pk.char_ids.begin(), pk.char_ids.end(), id) == pk.char_ids.end())
+        pk.char_ids.push_back(id);
+    } else if (low.rfind("pac\\string_dlc", 0) == 0 && low.size() > 4 && low.compare(low.size() - 4, 4, ".pac") == 0) {
+      pk.string_pack = f;
+    }
+  }
+  std::sort(pk.char_ids.begin(), pk.char_ids.end());
 }
 
 // "3,5" -> {3, 5}: the pack ids the player switched off.

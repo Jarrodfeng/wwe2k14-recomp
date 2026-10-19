@@ -1,0 +1,13 @@
+# Session 33 (item 6): ultrawide, T1 check. A launched match (entrances skipped), 10 s in: wd_match (the frame before
+# the presenter's stretch: the scene squeezed by the Hor+ factor, the HUD squeezed into the centre), 4 s later
+# wd_match2. Run with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_aspect=21:9
+# (or auto + --fullscreen=false --window_width=2520 --window_height=1080). Untimed. on_fail quit.
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+wait_frames 600
+screenshot wd_match
+wait_frames 240
+screenshot wd_match2
+quit

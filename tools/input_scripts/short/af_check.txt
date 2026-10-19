@@ -1,0 +1,30 @@
+# Session 33 (item 2): anisotropic filtering, T1 check. Launched match, entrances skipped, the free camera held at the DLSS check's
+# stage pose (the far ramp and stage floor at a grazing angle; 300 frames to settle, then the game step at 1000 Hz so the scene stands nearly still), depth of field off; anisotropic_override switched
+# live: af_off (0 = none), af_4x (3, the SDK's default), af_16x (5). Needs --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true --wwe2k14_cinecam=true. Untimed. on_fail quit.
+on_fail quit
+log af: start
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+log af: match scene
+wait_frames 120
+cvar wwe2k14_cinecam_on true
+wait_frames 5
+cvar wwe2k14_cinecam_test_dof 1
+cvar wwe2k14_cinecam_test_pose -1,-268,-1294,-90,1.3,44.7
+wait_frames 300
+log af: game step 1000 Hz (1 ms of game time per frame) so the scene stands nearly still
+cvar wwe2k14_step_hz 1000
+wait_frames 30
+cvar anisotropic_override 0
+wait_frames 10
+screenshot af_off
+cvar anisotropic_override 3
+wait_frames 10
+screenshot af_4x
+cvar anisotropic_override 5
+wait_frames 10
+screenshot af_16x
+log af: end
+quit

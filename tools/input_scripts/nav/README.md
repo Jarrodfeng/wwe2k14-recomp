@@ -15,6 +15,7 @@ cursor there). Snippets never change the speed (`cvar vsync`) or take screenshot
 | `menu_to_play` | main menu, any cursor | PLAY list (menu 2, cursor 0 ONE ON ONE) |
 | `menu_to_creations` | main menu, any cursor | CREATIONS (menu 3, cursor 0) |
 | `menu_to_options` | main menu, any cursor | OPTIONS (menu 4, cursor 0 IN-GAME MANUAL) |
+| `menu_to_wm30` | main menu, any cursor (waits for menu 1 first) | 30 YEARS OF WRESTLEMANIA era cards (Session 34) |
 | `back_to_menu` | a list opened from the main menu | main menu (menu 1, cursor kept) |
 | `creations_to_logo_grid` | CREATIONS, cursor 0 | Create a Logo grid ready (logo_phase 124) |
 | `logo_grid_to_editor` | logo grid ready, slot 1 empty | editor, new 256x256 logo (logo_screen 3) |

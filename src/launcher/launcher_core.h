@@ -73,10 +73,15 @@ inline std::string Lower(std::string s) {
 // ---------------------------------------------------------------------------------------------------------------
 // Settings (per user, %APPDATA%\wwe2k14-launcher\settings.json)
 
+// Session 33: the Discord application the game's status is shown under (made by Jarrod on Discord's developer site;
+// its name is what Discord shows as the game). Empty until he sets it: Settings -> Game can take one too.
+inline constexpr const char* kDiscordAppId = "";
+
 struct Settings {
   std::string game_exe;        // empty = wwe2k14.exe next to the launcher
   std::string mods_dir;        // empty = the game's default (mods next to the game data folder)
   std::string scenario;        // Play tab
+  int wm30 = -1;               // Session 34: a 30 Years of WrestleMania match to jump into (this launch only)
   int preset = 0;              // Preset enum
   bool mods = true;
   bool skip_entrances = false;
@@ -87,9 +92,15 @@ struct Settings {
   bool quick_cpu_only = false;  // false: wrestler 1 on controller 1 (the player); true: everyone CPU
   bool cinecam = false;
   int look = 0;                // 0 = default (1440p 60), 1 = original (720p), 2 = 4K
+  // Session 33: 5 FSR native, 6 FSR quality (1440p -> 4K), 7 FSR performance (720p -> 1440p), any card.
   // Session 24: 0 off, 1 DLAA, 2 DLSS performance (720p -> 1440p), 3 quality (1440p -> 4K), 4 ultra performance
   // (720p -> 4K); the NVIDIA runtime folder (empty = the files bundled with a release).
   int upscale = 0;
+  int texture_filter = 0;      // Session 33: 0 standard (4x), 1 8x, 2 16x anisotropic filtering
+  bool discord = false;        // Session 33: Discord status (off by default)
+  int aspect = 0;              // Session 33: 0 = 16:9 (the game's own), 1 = auto (the monitor's: ultrawide Hor+)
+  bool photo_mode = false;     // Session 33: photo mode (F10 / L3 + R3 in a match)
+  std::string discord_app_id;  // the Discord application id (empty = kDiscordAppId below)
   std::string dlss_dir;
   bool arena_override = false;
   int arena = 0;
@@ -144,7 +155,9 @@ struct Settings {
 inline void to_json(json& j, const Settings& s) {
   j = json{{"game_exe", s.game_exe}, {"mods_dir", s.mods_dir}, {"scenario", s.scenario}, {"preset", s.preset},
            {"mods", s.mods}, {"skip_entrances", s.skip_entrances}, {"logo_legacy_route", s.logo_legacy_route}, {"quick_mode", s.quick_mode}, {"quick_type", s.quick_type}, {"quick_arena", s.quick_arena}, {"quick_ids", s.quick_ids}, {"quick_cpu_only", s.quick_cpu_only}, {"cinecam", s.cinecam}, {"look", s.look},
-           {"upscale", s.upscale}, {"dlss_dir", s.dlss_dir},
+           {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"dlss_dir", s.dlss_dir},
+           {"discord", s.discord}, {"discord_app_id", s.discord_app_id}, {"aspect", s.aspect},
+           {"photo_mode", s.photo_mode},
            {"arena_override", s.arena_override}, {"arena", s.arena}, {"participants", s.participants},
            {"replay_name", s.replay_name}, {"replay_record", s.replay_record}, {"replay_play", s.replay_play},
            {"reshoot_shots", s.reshoot_shots}, {"reshoot_anchor", s.reshoot_anchor}, {"seed", s.seed},
@@ -170,7 +183,9 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "quick_mode", s.quick_mode), Get(j, "quick_type", s.quick_type), Get(j, "quick_arena", s.quick_arena);
   Get(j, "quick_ids", s.quick_ids), Get(j, "quick_cpu_only", s.quick_cpu_only);
   Get(j, "cinecam", s.cinecam), Get(j, "look", s.look), Get(j, "arena_override", s.arena_override);
-  Get(j, "upscale", s.upscale), Get(j, "dlss_dir", s.dlss_dir);
+  Get(j, "upscale", s.upscale), Get(j, "texture_filter", s.texture_filter), Get(j, "dlss_dir", s.dlss_dir);
+  Get(j, "discord", s.discord), Get(j, "discord_app_id", s.discord_app_id), Get(j, "aspect", s.aspect);
+  Get(j, "photo_mode", s.photo_mode);
   Get(j, "arena", s.arena), Get(j, "participants", s.participants), Get(j, "replay_name", s.replay_name);
   Get(j, "replay_record", s.replay_record), Get(j, "replay_play", s.replay_play);
   Get(j, "reshoot_shots", s.reshoot_shots), Get(j, "reshoot_anchor", s.reshoot_anchor), Get(j, "seed", s.seed);
@@ -326,6 +341,7 @@ struct Character {
   std::string name, kind;
   int tron = -1;      // the titantron file number this character's entrance plays
   std::string note;   // team / era note
+  int dlc_pack = -1;  // Session 32: a DLC wrestler's pack id (-1 = on the disc); listed only while that pack is on
 };
 
 struct Arena {
@@ -669,6 +685,49 @@ inline std::string AssignTron(const Paths& p, int tron, const fs::path& src, boo
   return "";
 }
 
+// Session 33: custom entrance music, <mods>\music\ID.ext (ID = the wrestler's character id; src\entrance_music.h).
+inline constexpr const char* kMusicExts[] = {".mp3", ".m4a", ".wav", ".flac", ".wma", ".aac"};
+inline fs::path MusicFor(const Paths& p, int id) {
+  std::error_code ec;
+  for (const char* ext : kMusicExts) {
+    auto f = p.mods / "music" / (std::to_string(id) + ext);
+    if (fs::is_regular_file(f, ec)) return f;
+  }
+  return {};
+}
+inline bool HasAnyMusic(const Paths& p) {
+  std::error_code ec;
+  for (const auto& e : fs::directory_iterator(p.mods / "music", ec))
+    for (const char* ext : kMusicExts)
+      if (e.is_regular_file(ec) && Lower(PathStr(e.path().extension())) == ext) return true;
+  return false;
+}
+inline std::string AssignMusic(const Paths& p, int id, const fs::path& src) {
+  std::error_code ec;
+  if (id < 0) return "no wrestler";
+  if (!fs::is_regular_file(src, ec)) return "file not found: " + PathStr(src);
+  const std::string ext = Lower(PathStr(src.extension()));
+  if (std::find(std::begin(kMusicExts), std::end(kMusicExts), ext) == std::end(kMusicExts))
+    return "use a .mp3, .m4a, .wav, .flac, .wma or .aac file";
+  const fs::path dir = p.mods / "music";
+  fs::create_directories(dir, ec);
+  const fs::path dst = dir / (std::to_string(id) + ext), tmp = dir / (std::to_string(id) + ext + ".part");
+  fs::copy_file(src, tmp, fs::copy_options::overwrite_existing, ec);
+  if (ec) return "copy failed: " + ec.message();
+  for (const char* e : kMusicExts)
+    if (ext != e) fs::remove(dir / (std::to_string(id) + e), ec);
+  fs::rename(tmp, dst, ec);
+  if (ec) {
+    fs::remove(tmp, ec);
+    return "rename failed: " + ec.message();
+  }
+  return "";
+}
+inline void RevertMusic(const Paths& p, int id) {
+  std::error_code ec;
+  for (const char* e : kMusicExts) fs::remove(p.mods / "music" / (std::to_string(id) + e), ec);
+}
+
 inline int RevertTron(const Paths& p, int tron) {
   int n = 0;
   std::error_code ec;
@@ -847,6 +906,9 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     f.push_back("--wwe2k14_launch_participants=" + ids);
     if (s.quick_arena >= 0) f.push_back("--wwe2k14_launch_arena=" + std::to_string(s.quick_arena));
     if (s.skip_entrances) f.push_back("--wwe2k14_launch_skip_entrances=true");
+  } else if (s.wm30 >= 0) {
+    // Session 34: the game drives its menus to the 30 Years match (src\wm30_jump.h); no scenario at the same time.
+    f.push_back("--wwe2k14_wm30=" + std::to_string(s.wm30));
   } else if (!s.scenario.empty()) {
     f.push_back("--wwe2k14_launch=" + s.scenario);
     if (s.arena_override) f.push_back("--wwe2k14_launch_arena=" + std::to_string(s.arena));
@@ -856,6 +918,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
   if (s.mods) {
     f.push_back("--wwe2k14_mods=true");
     if (!s.mods_dir.empty() || !p.repo_found) f.push_back("--wwe2k14_mods_dir=" + Quote(PathStr(p.mods)));
+    if (HasAnyMusic(p)) f.push_back("--wwe2k14_entrance_music=true");  // Session 33: only once a track is assigned
   }
   if (s.dlc) {  // Session 32: the player's DLC packs (the switched-off ones by pack id)
     f.push_back("--wwe2k14_dlc=true");
@@ -865,12 +928,20 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     if (!off.empty()) f.push_back("--wwe2k14_dlc_off=" + off);
   }
   if (s.cinecam) f.push_back("--wwe2k14_cinecam=true");
+  if (s.photo_mode) f.push_back("--wwe2k14_photo_mode=true");  // Session 33
+  // Session 33: Discord status (the project's application id, or one the player set in Settings -> Game).
+  if (s.discord) {
+    const std::string id = s.discord_app_id.empty() ? std::string(kDiscordAppId) : s.discord_app_id;
+    f.push_back("--wwe2k14_discord=true");
+    if (!id.empty()) f.push_back("--wwe2k14_discord_app_id=" + id);
+  }
   if (s.runin) f.push_back("--wwe2k14_runin=true");
   if (s.keyboard) f.push_back("--mnk_mode=true");
   // Session 31: language, graphics card, window.
   f.push_back("--user_language=" + std::to_string(s.language > 0 ? s.language : AutoLanguage()));
   if (!s.gpu.empty()) f.push_back("--wwe2k14_gpu=" + Quote(s.gpu));
   if (s.windowed) f.push_back("--fullscreen=false");
+  if (s.aspect == 1) f.push_back("--wwe2k14_aspect=auto");  // Session 33: ultrawide (Hor+)
   // Session 28: Settings -> Resolution / Frame rate / Upscaling go through the mapping the game shares with its
   // in-game GRAPHICS menu (src\gfx_settings.h), so the two cannot drift apart. DLSS picks its own render and output
   // size (its mode), so the resolution choice only applies without it; wrestler motion vectors are always on with
@@ -879,6 +950,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     wwe2k14::gfxs::Choice c;
     c.upscale = s.upscale, c.resolution = s.resolution, c.frame_rate = s.frame_rate, c.refresh_hz = s.refresh_hz;
     c.original_look = s.original_look;
+    c.texture_filter = s.texture_filter;  // Session 33
     // The player's own NVIDIA folder, else the files bundled with a release (Session 25, Jarrod: ship them). Session
     // 31: a folder of their own that has no NVIDIA files (moved, deleted) falls back to the bundled ones too.
     const std::string dir = HasStreamline(s.dlss_dir) || p.nvidia.empty() ? s.dlss_dir : PathStr(p.nvidia);

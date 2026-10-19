@@ -1,5 +1,28 @@
 # Changelog
 
+## {{VERSION}}
+
+- **AMD FSR 3 upscaling, on any graphics card.** Settings -> Graphics -> Upscaling (and the game's own GRAPHICS
+  screen) now offer FSR NATIVE (anti-aliasing at your resolution), FSR QUALITY (1440p drawn, shown as 4K) and FSR
+  PERFORMANCE (720p drawn, shown as 1440p), with the HUD kept sharp as with DLSS. AMD's runtime ships with the game.
+- **Texture filtering.** Settings -> Graphics -> Texture filtering (and the game's own GRAPHICS screen): STANDARD (as
+  before), 8X or 16X anisotropic filtering for sharper floors, mats and ramps seen at an angle. Changes at once.
+- **Photo mode** (Settings -> Game -> Photo mode; off by default). In a match pick PHOTO MODE in the pause menu, press
+  F10, or click and hold both sticks:
+  the scene nearly stops, the camera is yours (left stick move, right stick look, triggers up / down, bumpers zoom;
+  W/A/S/D, Q/E and the right mouse button on the keyboard), the HUD is hidden and depth of field is on (X on / off,
+  D-pad up / down focus, left / right the sharp zone, Y automatic focus). A or Enter saves a PNG to
+  Pictures\WWE 2K14. B or F10 again to leave.
+- **Your own entrance music.** Mods -> pick a wrestler -> Assign music (MP3, M4A, WAV, FLAC, WMA or AAC). In normal
+  play their theme is replaced by your track (replays keep the original). Needs USE MY VIDEOS on.
+- **Discord status** (Settings -> Game; off by default): shows the match (the wrestlers, the match type, the time) or
+  "In the menus" in your Discord status. Needs the Discord app running and an application id.
+- **Ultrawide** (Settings -> Display -> Aspect: AUTO; off by default): on a 21:9 or 32:9 screen you see more of the
+  arena at the sides; the HUD and menus stay a centred 16:9.
+- **DLC wrestlers in Quick Match.** With your DLC on, the wrestler pickers (and Random) include the wrestlers of every
+  pack that is switched on, named from your own DLC files. A match with a wrestler whose pack is off doesn't start
+  (the launcher says which pack to switch on).
+
 ## v0.1.6
 
 - **Your own DLC ("bring your own packs").** Put the DLC from your console in a folder called `dlc` next to your game

@@ -22,3 +22,4 @@ NVIDIA Streamline | thirdparty/streamline/sdk/license.txt
 stb_image | thirdparty/rexglue-sdk-src/thirdparty/stb/stb_image.h#tail:40
 DXBCChecksum (RSA MD5 derived) | thirdparty/rexglue-sdk-src/thirdparty/dxbc/DXBCChecksum.cpp#head:48
 AMD FidelityFX FSR 1 / CAS (MIT) | docs/release/licenses/amd_fidelityfx_fsr1_cas.txt
+AMD FidelityFX SDK 1.1.4 (FSR 3, MIT) | thirdparty/FidelityFX-SDK/LICENSE.txt

@@ -43,6 +43,7 @@ STEPS = [
     ('session27_5', 'e5ebb5bbbb41c2b970f378ad60a72ce37f1fcefc'),
     ('session30', '0750a5bd1b4a53b37b4f06a17ae6bfbc1a1985cd'),
     ('session32', 'b82208db3eaf6fd068298a57c1a6fc9f7e22efe6'),
+    ('session33', '5cdb5475bb5c2c71b122b0752e9a93a4a654e5b9'),
 ]
 
 

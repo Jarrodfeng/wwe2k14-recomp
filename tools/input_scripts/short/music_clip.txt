@@ -1,0 +1,23 @@
+# Session 33 (item 5): custom entrance music, T1 check with sound. A launched match with entrances; when the
+# titantron opens (entrance step 5), a 10 s clip (mu_clip, 30 fps, half size) while the custom theme should play; then
+# START until the match scene (the theme stops), 3 s, quit. The sound comes from tools\audio\loopback_rec.cpp running
+# alongside (it hears the custom track, which Media Foundation plays outside the game's mixer), muxed afterwards.
+# Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_mods=true --wwe2k14_mods_dir=<folder with music\343.*>
+# --wwe2k14_entrance_music=true --wwe2k14_clip_dir=<folder>. Normal speed.
+# harness: realtime (sound check)
+on_fail quit
+log mc: start
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log mc: in-game loading
+wait_state entrance_step_0 >=5 2400 2 optional
+log mc: entrance step 5, clip start
+clip_start mu_clip 30 0.5
+wait_frames 600
+clip_stop mu_clip
+log mc: clip stop
+press_until_file START m3.pac 30 300
+log mc: match scene
+wait_frames 180
+log mc: end
+quit

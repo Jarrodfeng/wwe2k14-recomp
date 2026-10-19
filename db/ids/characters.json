@@ -1333,23 +1333,23 @@
     },
     {
       "id": 354,
-      "name": "Naomi",
-      "kind": "valet",
-      "evidence": [
-        "CH354.PAC and CH355.PAC load only around Brodus Clay's entrance (hiac_cena_brodus, runs 486, 490)",
-        "seen: Jarrod saw the two Funkadactyls come out with Brodus",
-        "wiki (which of 354 / 355 is Naomi: this source only)"
-      ],
-      "confidence": "medium"
-    },
-    {
-      "id": 355,
       "name": "Cameron",
       "kind": "valet",
       "evidence": [
         "CH354.PAC and CH355.PAC load only around Brodus Clay's entrance (hiac_cena_brodus, runs 486, 490)",
         "seen: Jarrod saw the two Funkadactyls come out with Brodus",
-        "wiki (which of 354 / 355 is Cameron: this source only)"
+        "game_strings: text 60354 'DANCER 1 CAMERON' (Session 32, tools/ids/names_from_strings.py; the wiki, the only earlier source for which is which, had 354 / 355 swapped)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": 355,
+      "name": "Naomi",
+      "kind": "valet",
+      "evidence": [
+        "CH354.PAC and CH355.PAC load only around Brodus Clay's entrance (hiac_cena_brodus, runs 486, 490)",
+        "seen: Jarrod saw the two Funkadactyls come out with Brodus",
+        "game_strings: text 60355 'DANCER 2 NAOMI' (Session 32, tools/ids/names_from_strings.py; the wiki, the only earlier source for which is which, had 354 / 355 swapped)"
       ],
       "confidence": "medium"
     },

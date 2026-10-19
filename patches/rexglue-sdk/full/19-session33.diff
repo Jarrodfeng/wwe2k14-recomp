@@ -1,0 +1,555 @@
+# ReXGlue SDK changes for WWE 2K14 (session33): b82208db3eaf..5cdb5475bb5c on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  5cdb547 Session 33: ultrawide, anamorphic Hor+ (gpu_wide_factor, gpu_wide_all): clip x / factor for scene draws (not screen-space ones) and HUD draws; every draw on menu frames
+#  716a920 Session 33: gpu_hide_hud (photo mode): skip every draw after the post chain's last pass (gpu_dlss_hud_after_vs) until the swap
+#  79c9ba9 Session 33: FSR 3 at the swap (gpu_dlss_fsr): the DLSS frame through AMD's ffx-api upscaler (amd_fidelityfx_vk.dll loaded at run time); gpu_dlss_mode 6 = native; gpu_fsr_sharpness, gpu_fsr_jitter_sign
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index f60f3cc5340fe96f2b809a7021a41131f59bd3cf..1ba0a85beaff42dc26f1f93f313f42a839b5e3bb 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1263,6 +1263,14 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // gpu_dlss on and our resources ready: the output size for a render-size guest output, else false.
+   bool DlssOutputSize(uint32_t width, uint32_t height, uint32_t& out_width, uint32_t& out_height);
+   bool DlssEnsureComposite();
++  // wwe2k14 patch (Session 33, FSR): the swap's upscaler can run: AMD FSR 3 with gpu_dlss_fsr (any card; loads the
++  // runtime on first use), else DLSS through Streamline.
++  bool DlssUpscalerReady();
++  // wwe2k14 patch (Session 33, HIDEHUD): gpu_hide_hud: the post chain's last pass has been drawn this frame.
++  bool hide_hud_after_pass_ = false;
++  bool wide_menu_frame_ = false;  // Session 33 (WIDE): the previous frame had no scene depth resolve (a menu)
++  uint64_t hide_hud_vs_ = 0;
++  std::string hide_hud_vs_text_;
+   // Inside the swap's refresh callback, after the gamma pass wrote dlss_in_: DLSS (if this frame has its inputs) and
+   // the composite into `guest_output_view` (GENERAL).
+   void DlssRecord(VkImageView guest_output_view, uint32_t width, uint32_t height, uint32_t out_width,
+diff --git a/include/rex/ui/vulkan/fsr.h b/include/rex/ui/vulkan/fsr.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..966c10d99b4522d526989adf667a65adb743419c
+--- /dev/null
++++ b/include/rex/ui/vulkan/fsr.h
+@@ -0,0 +1,33 @@
++/**
++ * @file        ui/vulkan/fsr.h
++ * @brief       AMD FSR 3 upscaling for the Vulkan backend (wwe2k14 patch, Session 33)
++ *
++ * Optional, default off (gpu_dlss_fsr). The same frame DLSS gets at the swap (streamline::DlaaFrame: colour without
++ * the HUD, depth, camera + character motion vectors, jitter) goes through AMD's FSR 3 upscaler instead, on any
++ * graphics card. AMD's runtime (amd_fidelityfx_vk.dll, built from the MIT-licensed FidelityFX SDK's ffx-api) is
++ * loaded at run time from the exe's folder; without it (or if anything fails) FSR reports itself unavailable and the
++ * swap falls back to the plain upscale. Built without the ffx-api headers (thirdparty/FidelityFX-SDK next to the SDK
++ * source), everything here is a stub that reports "not built". Upscaling only: no frame generation.
++ */
++#pragma once
++
++#include <cstdint>
++#include <string>
++
++#include <rex/ui/vulkan/api.h>
++#include <rex/ui/vulkan/streamline.h>  // DlaaFrame, Image
++
++namespace rex::ui::vulkan::fsr {
++
++// Once, on the command processor's thread: loads the runtime and remembers the device. True if FSR can run.
++bool Initialize(VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc_addr, VkPhysicalDevice physical_device,
++                VkDevice device);
++// Initialize succeeded (cached).
++bool Available();
++// Records the FSR dispatch into `command_buffer` (a real one, at execution time, on the submission thread). The
++// inputs (colour, depth, motion) must be in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, the output in GENERAL; FSR
++// leaves them so. frame.mode / out size as for DLSS (out = in for native). False + `reason` on failure.
++bool Evaluate(VkCommandBuffer command_buffer, const streamline::DlaaFrame& frame, float sharpness,
++              std::string* reason);
++
++}  // namespace rex::ui::vulkan::fsr
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index d3b15960a18325c710a301ecd81bbb81612fd58a..2593bc01ad302c76f873a0f3cfcd11833a728a43 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -43,6 +43,7 @@
+ #include <rex/perf/flight.h>  // wwe2k14 patch (Session 8, FLIGHT)
+ #include <rex/perf/dlaa.h>    // wwe2k14 patch (Session 18, DLAA)
+ #include <rex/ui/vulkan/streamline.h>  // wwe2k14 patch (Session 18, DLAA step 3)
++#include <rex/ui/vulkan/fsr.h>         // wwe2k14 patch (Session 33, FSR)
+ #include <rex/math.h>
+ #include <rex/graphics/util/bit_inline.h>
+ #include <rex/graphics/util/draw.h>
+@@ -199,6 +200,28 @@ REXCVAR_DEFINE_DOUBLE(gpu_dlss_lod_bias, 0.0, "GPU",
+                       "Steps of 0.25, -3.75..0");
+ REXCVAR_DEFINE_INT32(gpu_dlss_preset, 0, "GPU",
+                      "DLSS preset (Streamline DLSSPreset: 0 default, 10 J, 11 K, 12 L, 13 M) for every mode");
++// wwe2k14 patch (Session 33, FSR): AMD FSR 3 in DLSS's place at the swap (same inputs; any graphics card).
++REXCVAR_DEFINE_BOOL(gpu_dlss_fsr, false, "GPU",
++                    "With gpu_dlss: upscale with AMD FSR 3 instead of DLSS (amd_fidelityfx_vk.dll next to the exe; no "
++                    "Streamline needed). gpu_dlss_mode 6 = native (no upscale, anti-aliasing only); default off");
++REXCVAR_DEFINE_DOUBLE(gpu_fsr_sharpness, 0.3, "GPU", "FSR 3: its sharpening pass (RCAS), 0 = off .. 1 = strongest");
++// wwe2k14 patch (Session 33, HIDEHUD): photo mode's clean picture.
++REXCVAR_DEFINE_BOOL(gpu_hide_hud, false, "GPU",
++                    "Skip every draw after the post chain's last full-screen pass (gpu_dlss_hud_after_vs, the split the "
++                    "DLSS HUD step uses) until the swap: the picture without the HUD and 2D overlays. Live; default off");
++// wwe2k14 patch (Session 33, WIDE): ultrawide, anamorphic Hor+.
++REXCVAR_DEFINE_DOUBLE(gpu_wide_factor, 1.0, "GPU",
++                      "Ultrawide (anamorphic Hor+): the scene draws (the jitter's: viewports at least "
++                      "gpu_dlaa_jitter_min_width guest pixels wide, before the scene depth resolve) and the HUD draws "
++                      "(after the post chain's last pass, gpu_dlss_hud_after_vs) get clip-space x / this factor: the "
++                      "scene shows this much more horizontally and the HUD is squeezed by as much; the presenter's "
++                      "stretch (present_letterbox=false) brings both back to their shape. Window aspect / (16/9); "
++                      "1 = off");
++REXCVAR_DEFINE_BOOL(gpu_wide_all, false, "GPU",
++                    "With gpu_wide_factor: squeeze every draw (menus and other 2D screens: a centred 16:9); the app "
++                    "sets it outside matches");
++REXCVAR_DEFINE_STRING(gpu_fsr_jitter_sign, "1,1", "GPU", "FSR 3 (debug): \"X,Y\" multipliers for the jitter FSR is given");
++
+ 
+ // Legacy backend compatibility aliases for shared readback controls.
+ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+@@ -4540,8 +4563,7 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+   const uint32_t debug = uint32_t(std::clamp(REXCVAR_GET(gpu_dlaa_debug), 0, 2));
+   // DLAA (step 3): needs Streamline + DLSS on this device; debug views take precedence.
+   // Session 24 (DLSS Super Resolution at the swap): depth + motion only, the colour comes at the swap.
+-  const bool sr = !debug && REXCVAR_GET(gpu_dlss) && ui::vulkan::streamline::Active() &&
+-                  ui::vulkan::streamline::DlssAvailable();
++  const bool sr = !debug && REXCVAR_GET(gpu_dlss) && DlssUpscalerReady();  // Session 33: or FSR
+   const bool dlss = !debug && !sr && REXCVAR_GET(gpu_dlaa) && ui::vulkan::streamline::Active() &&
+                     ui::vulkan::streamline::DlssAvailable();
+   if ((debug || dlss) && !dlaa_color_valid_) return;
+@@ -4833,6 +4855,7 @@ static double DlssFactor(int mode) {
+     case 3: return 1.5;         // quality
+     case 4: return 3.0;         // ultra performance
+     case 5: return 1.0 / 0.77;  // ultra quality
++    case 6: return 1.0;         // native (Session 33: FSR native / DLAA at the swap)
+     default: return 2.0;        // performance
+   }
+ }
+@@ -4840,10 +4863,10 @@ static double DlssFactor(int mode) {
+ bool VulkanCommandProcessor::DlssOutputSize(uint32_t width, uint32_t height, uint32_t& out_width,
+                                             uint32_t& out_height) {
+   if (!REXCVAR_GET(gpu_dlss) || dlss_failed_ || !width || !height) return false;
+-  const double factor = DlssFactor(std::clamp(REXCVAR_GET(gpu_dlss_mode), 1, 5));
++  const double factor = DlssFactor(std::clamp(REXCVAR_GET(gpu_dlss_mode), 1, 6));
+   out_width = std::min(16384u, uint32_t(std::lround(double(width) * factor)));
+   out_height = std::min(16384u, uint32_t(std::lround(double(height) * factor)));
+-  const bool dlss = ui::vulkan::streamline::Active() && ui::vulkan::streamline::DlssAvailable();
++  const bool dlss = DlssUpscalerReady();
+   if (!DlssEnsureComposite() ||
+       !DlaaEnsureImage(dlss_in_, ui::vulkan::VulkanPresenter::kGuestOutputFormat, false, width, height) ||
+       (dlss && !DlaaEnsureImage(dlss_out_, ui::vulkan::VulkanPresenter::kGuestOutputFormat, false, out_width,
+@@ -4855,6 +4878,21 @@ bool VulkanCommandProcessor::DlssOutputSize(uint32_t width, uint32_t height, uin
+   return true;
+ }
+ 
++bool VulkanCommandProcessor::DlssUpscalerReady() {
++  if (!REXCVAR_GET(gpu_dlss_fsr)) return ui::vulkan::streamline::Active() && ui::vulkan::streamline::DlssAvailable();
++  if (!ui::vulkan::fsr::Available()) {
++    static bool tried = false;
++    if (tried) return false;
++    tried = true;
++    const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++    const ui::vulkan::VulkanInstance* const instance = vulkan_device->vulkan_instance();
++    if (!ui::vulkan::fsr::Initialize(instance->instance(), instance->functions().vkGetInstanceProcAddr,
++                                     vulkan_device->physical_device(), vulkan_device->device()))
++      return false;
++  }
++  return true;
++}
++
+ bool VulkanCommandProcessor::DlssEnsureComposite() {
+   if (dlss_composite_pipeline_ != VK_NULL_HANDLE) return true;
+   if (dlss_failed_) return false;
+@@ -4934,6 +4972,25 @@ static void DlssEvaluateCallback(VkCommandBuffer command_buffer, const void* dat
+   }
+ }
+ 
++// wwe2k14 patch (Session 33, FSR): the same frame through AMD FSR 3 (submission thread).
++struct FsrCallbackData {
++  ui::vulkan::streamline::DlaaFrame frame;
++  float sharpness = 0.0f;
++};
++static void FsrEvaluateCallback(VkCommandBuffer command_buffer, const void* data) {
++  static std::atomic<uint32_t> failures_logged{0}, evaluations{0};
++  const auto& d = *static_cast<const FsrCallbackData*>(data);
++  const auto& frame = d.frame;
++  std::string reason;
++  if (!ui::vulkan::fsr::Evaluate(command_buffer, frame, d.sharpness, &reason)) {
++    if (failures_logged.fetch_add(1) < 5) REXGPU_WARN("[fsr] FSR evaluate failed: {}", reason);
++  } else if (evaluations.fetch_add(1) < 3) {
++    REXGPU_INFO("[fsr] FSR evaluated (mode {}, {}x{} -> {}x{}, frame index {}, jitter {:+.3f} {:+.3f}{})", frame.mode,
++                frame.width, frame.height, frame.out_width, frame.out_height, frame.frame_index, frame.jitter[0],
++                frame.jitter[1], frame.reset ? ", reset" : "");
++  }
++}
++
+ void VulkanCommandProcessor::DlssMaybeSnapshot(const Shader& vertex_shader) {
+   if (!REXCVAR_GET(gpu_dlss_hud) || !dlaa_scene_done_ || !dlss_pending_.valid || dlss_pending_.frame != dlaa_frame_ ||
+       dlss_snap_frame_ == dlaa_frame_) {
+@@ -5045,8 +5102,7 @@ void VulkanCommandProcessor::DlssRecord(VkImageView guest_output_view, uint32_t
+   const bool can_dlss = pending.valid && pending.frame + 1 == dlaa_frame_ && pending.width == width &&
+                         pending.height == height && mv.width == width && dz.width == width &&
+                         dlss_out_.image != VK_NULL_HANDLE && dlss_out_.width == out_width &&
+-                        dlss_out_.height == out_height && ui::vulkan::streamline::Active() &&
+-                        ui::vulkan::streamline::DlssAvailable();
++                        dlss_out_.height == out_height && DlssUpscalerReady();
+   const bool run_dlss = can_dlss && (view == 0 || view == 3);
+   uint32_t mode = view == 2 ? 1u : view >= 4 ? uint32_t(view) : 0u;
+   if (view >= 5 && !(mv.image != VK_NULL_HANDLE && mv.width == width && dz.width == width)) mode = 0;
+@@ -5078,7 +5134,7 @@ void VulkanCommandProcessor::DlssRecord(VkImageView guest_output_view, uint32_t
+     }
+     const double angle = DlaaFillFrame(f, width, height, pending.rep, pending.view_now, pending.fov_degrees,
+                                        pending.near_z, pending.far_z, pending.jitter);
+-    f.mode = std::clamp(REXCVAR_GET(gpu_dlss_mode), 1, 5);
++    f.mode = std::clamp(REXCVAR_GET(gpu_dlss_mode), 1, 6);
+     f.preset = REXCVAR_GET(gpu_dlss_preset);
+     f.out_width = out_width, f.out_height = out_height;
+     reset = pending.reset || angle > REXCVAR_GET(gpu_dlaa_reset_degrees) ||
+@@ -5090,7 +5146,29 @@ void VulkanCommandProcessor::DlssRecord(VkImageView guest_output_view, uint32_t
+       dlss_reset_hold_ = std::max(dlss_reset_hold_, std::clamp(REXCVAR_GET(gpu_dlss_reset_hold_frames), 1, 16));
+     if (dlss_reset_hold_ > 0) reset = true, --dlss_reset_hold_;
+     f.reset = reset;
+-    cb.CmdHostCallback(&DlssEvaluateCallback, &f, sizeof(f));
++    if (REXCVAR_GET(gpu_dlss_fsr)) {
++      // Session 33: AMD FSR 3. Its inputs in SHADER_READ_ONLY_OPTIMAL (what its descriptors say; it leaves them so),
++      // then back to GENERAL; the output stays GENERAL.
++      const VkImage inputs[3] = {f.color_in.image, f.depth.image, f.motion.image};
++      for (VkImage image : inputs)
++        PushImageMemoryBarrier(image, range, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                               VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
++                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++      SubmitBarriers(true);
++      FsrCallbackData data;
++      data.frame = f;
++      data.sharpness = float(REXCVAR_GET(gpu_fsr_sharpness));
++      float jsx = 1.0f, jsy = 1.0f;
++      if (std::sscanf(REXCVAR_GET(gpu_fsr_jitter_sign).c_str(), "%f,%f", &jsx, &jsy) == 2)
++        data.frame.jitter[0] *= jsx, data.frame.jitter[1] *= jsy;
++      cb.CmdHostCallback(&FsrEvaluateCallback, &data, sizeof(data));
++      for (VkImage image : inputs)
++        PushImageMemoryBarrier(image, range, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                               VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
++                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
++    } else {
++      cb.CmdHostCallback(&DlssEvaluateCallback, &f, sizeof(f));
++    }
+     current_external_compute_pipeline_ = VK_NULL_HANDLE;  // Streamline bound its own compute state
+     dlss_last_eval_frame_ = pending.frame;
+     PushImageMemoryBarrier(dlss_out_.image, range, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+@@ -5484,7 +5562,9 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+                                        uint32_t frontbuffer_height) {
+   MatteOnSwap(matte_resolve_index_, matte_dumped_, matte_depth_dumped_);  // wwe2k14 patch (Session 16, MATTE)
+   ChainProbeSwap();  // wwe2k14 patch (Session 23, CHAINPROBE)
++  wide_menu_frame_ = !dlaa_scene_done_;  // wwe2k14 patch (Session 33, WIDE): this frame drew no 3D scene
+   DlaaOnSwap();  // wwe2k14 patch (Session 18, DLAA)
++  hide_hud_after_pass_ = false;  // wwe2k14 patch (Session 33, HIDEHUD): a new frame draws its HUD again
+   SCOPE_profile_cpu_f("gpu");
+   perf::timeline::Scope timeline_scope("vswap_b", "vswap_e", frontbuffer_ptr);
+   // wwe2k14 patch (Session 7b, GPUMARKS): after a capture, write its last marked frames once their submissions
+@@ -7350,6 +7430,11 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     repeat_prev_.valid = false;  // wwe2k14 patch (Session 23, REPEAT)
+     return draw_fail("missing_vertex_shader");
+   }
++  // wwe2k14 patch (Session 33, HIDEHUD): after the post chain's last pass this frame, the rest is the HUD: skipped.
++  if (hide_hud_after_pass_ && REXCVAR_GET(gpu_hide_hud)) {
++    repeat_prev_.valid = false;
++    return true;
++  }
+   // wwe2k14 patch (Session 23, REPEAT): what changed since the draw recorded just before this one. The memory
+   // epoch is read before anything of this draw is requested, so an invalidation from here on ends a repeat at
+   // the next draw. repeat_prev_ only stays valid if this draw is recorded (RepeatNoteRecorded).
+@@ -7816,6 +7901,21 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         normalized_depth_control, viewport_convert_z_to_float24, host_render_targets_used,
+         viewport_pixel_shader_writes_depth, viewport_info, tiling_viewport_fix_);
+   }
++  // wwe2k14 patch (Session 33, WIDE): anamorphic Hor+ (gpu_wide_factor): scene and HUD draws see clip x / factor.
++  if (const float wide = float(REXCVAR_GET(gpu_wide_factor)); wide > 1.001f && wide < 8.0f) {
++    const bool scene = !dlaa_scene_done_ && viewport_info.xy_extent[0] &&
++                       viewport_info.xy_extent[0] >=
++                           uint32_t(std::max(0, REXCVAR_GET(gpu_dlaa_jitter_min_width))) * draw_resolution_scale_x;
++    // Screen-space draws (rectangle lists: full-screen passes; no viewport transform: vertices already in pixels)
++    // are left alone (attempt 2, run 2527: squeezing them left the sides stale).
++    const auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
++    const bool screen_space = prim_type == xenos::PrimitiveType::kRectangleList || !vte.vport_x_scale_ena;
++    // A frame after one without a scene depth resolve is a menu (2D only): all of it is squeezed (a centred 16:9).
++    if ((scene && !screen_space) || hide_hud_after_pass_ || wide_menu_frame_ || REXCVAR_GET(gpu_wide_all)) {
++      viewport_info.ndc_scale[0] /= wide;
++      viewport_info.ndc_offset[0] /= wide;
++    }
++  }
+   // wwe2k14 patch (Session 7, SEAMS): measurement only; one branch per draw while off.
+   if (REXCVAR_GET(gpu_tiling_viewport_fix_stats)) {
+     TilingViewportFixStatsDraw(regs, draw_resolution_scale_x, draw_resolution_scale_y,
+@@ -8180,6 +8280,15 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   if (REXCVAR_GET(gpu_dlss)) {  // wwe2k14 patch (Session 24, DLSS): the picture before the HUD
+     DlssMaybeSnapshot(*vertex_shader);
+   }
++  // wwe2k14 patch (Session 33, HIDEHUD / WIDE): this was the post chain's last pass? (the HUD follows)
++  if (REXCVAR_GET(gpu_hide_hud) || REXCVAR_GET(gpu_wide_factor) > 1.001) {
++    const std::string vs_text = REXCVAR_GET(gpu_dlss_hud_after_vs);
++    if (vs_text != hide_hud_vs_text_) {
++      hide_hud_vs_text_ = vs_text;
++      hide_hud_vs_ = std::strtoull(vs_text.c_str(), nullptr, 16);
++    }
++    if (vertex_shader->ucode_data_hash() == hide_hud_vs_) hide_hud_after_pass_ = true;
++  }
+   // wwe2k14 patch (Session 7b, GPUMARKS).
+   if (gpu_marks_active_) {
+     // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1: the mark GpuMarksSparseDrawPre chose.
+diff --git a/src/ui/CMakeLists.txt b/src/ui/CMakeLists.txt
+index e834c39b1ba0008032ea4d8f1b02928dd9e89bf1..d5f8e0026a5aa6981712a23cae93cd8c7186a27f 100644
+--- a/src/ui/CMakeLists.txt
++++ b/src/ui/CMakeLists.txt
+@@ -42,6 +42,7 @@ set(REXUI_VULKAN_SOURCES
+     vulkan/vulkan_immediate_drawer.cpp
+     vulkan/vulkan_instance.cpp
+     vulkan/streamline.cpp
++    vulkan/fsr.cpp
+     vulkan/vulkan_mem_alloc.cpp
+     vulkan/vulkan_presenter.cpp
+     vulkan/vulkan_provider.cpp
+@@ -135,6 +136,16 @@ if(EXISTS "${REXUI_STREAMLINE_DIR}/include/sl.h")
+     message(STATUS "rexui: Streamline headers found at ${REXUI_STREAMLINE_DIR}/include (DLAA support)")
+ endif()
+ 
++# wwe2k14 patch (Session 33, FSR): AMD FidelityFX ffx-api headers (MIT) from thirdparty/FidelityFX-SDK next to the
++# SDK source; the runtime (amd_fidelityfx_vk.dll, built from the same SDK) is loaded at run time from the exe folder.
++# Without the headers, fsr.cpp builds as stubs.
++set(REXUI_FFX_API_DIR "${REXGLUE_ROOT}/../FidelityFX-SDK/ffx-api" CACHE PATH "AMD FidelityFX ffx-api (headers only)")
++if(WIN32 AND EXISTS "${REXUI_FFX_API_DIR}/include/ffx_api/ffx_api.h")
++    target_include_directories(rexui PRIVATE "${REXUI_FFX_API_DIR}/include")
++    target_compile_definitions(rexui PRIVATE REX_HAS_FFX_API=1)
++    message(STATUS "rexui: FidelityFX ffx-api headers found at ${REXUI_FFX_API_DIR}/include (FSR 3 support)")
++endif()
++
+ set(REXUI_HAS_FIDELITYFX_RUNTIME OFF)
+ if(TARGET amd_fidelityfx_vk)
+     target_link_libraries(rexui PRIVATE amd_fidelityfx_vk)
+diff --git a/src/ui/vulkan/fsr.cpp b/src/ui/vulkan/fsr.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..c674202be7e14d38f87cc47c8992531a863d6331
+--- /dev/null
++++ b/src/ui/vulkan/fsr.cpp
+@@ -0,0 +1,226 @@
++/**
++ * @file        ui/vulkan/fsr.cpp
++ * @brief       AMD FSR 3 upscaling for the Vulkan backend (wwe2k14 patch, Session 33); see fsr.h
++ */
++
++#include <rex/ui/vulkan/fsr.h>
++
++#include <rex/logging.h>
++
++#if defined(REX_HAS_FFX_API) && REX_HAS_FFX_API
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cstring>
++#include <filesystem>
++#include <vector>
++
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#include <windows.h>
++
++#include <ffx_api/ffx_api.h>
++#include <ffx_api/ffx_upscale.h>
++#include <ffx_api/vk/ffx_api_vk.h>
++
++namespace rex::ui::vulkan::fsr {
++namespace {
++
++PfnFfxCreateContext p_create = nullptr;
++PfnFfxDestroyContext p_destroy = nullptr;
++PfnFfxQuery p_query = nullptr;
++PfnFfxDispatch p_dispatch = nullptr;
++
++std::atomic<bool> g_available{false};
++bool g_initialized = false;
++VkDevice g_device = VK_NULL_HANDLE;
++VkPhysicalDevice g_physical_device = VK_NULL_HANDLE;
++PFN_vkGetDeviceProcAddr g_get_device_proc_addr = nullptr;
++
++// The context (submission thread only). Recreated when the sizes change; the old one is destroyed a few evaluations
++// later, when the GPU is done with it.
++ffxContext g_context = nullptr;
++uint32_t g_render_w = 0, g_render_h = 0, g_out_w = 0, g_out_h = 0;
++struct Retired {
++  ffxContext context;
++  uint32_t evaluations_left;
++};
++std::vector<Retired> g_retired;
++std::chrono::steady_clock::time_point g_last_time{};
++uint32_t g_evaluations = 0;
++
++// Some drivers expose Vulkan 1.1+ core entry points but not the KHR aliases parts of the FidelityFX backend ask for
++// (the same shim as the presenter's).
++VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddrCompat(VkDevice device, const char* name) {
++  if (!name || !g_get_device_proc_addr) return nullptr;
++  if (PFN_vkVoidFunction f = g_get_device_proc_addr(device, name)) return f;
++  static const char* const kAliases[][2] = {{"vkGetBufferMemoryRequirements2KHR", "vkGetBufferMemoryRequirements2"},
++                                            {"vkGetImageMemoryRequirements2KHR", "vkGetImageMemoryRequirements2"},
++                                            {"vkBindBufferMemory2KHR", "vkBindBufferMemory2"},
++                                            {"vkBindImageMemory2KHR", "vkBindImageMemory2"}};
++  for (const auto& a : kAliases)
++    if (!std::strcmp(name, a[0])) return g_get_device_proc_addr(device, a[1]);
++  return nullptr;
++}
++
++FfxApiResource ToResource(const streamline::Image& i, uint32_t width, uint32_t height, uint32_t usage,
++                          uint32_t state) {
++  VkImageCreateInfo info = {};
++  info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
++  info.flags = i.flags;
++  info.imageType = VK_IMAGE_TYPE_2D;
++  info.format = i.format;
++  info.extent = {width, height, 1};
++  info.mipLevels = 1;
++  info.arrayLayers = 1;
++  info.samples = VK_SAMPLE_COUNT_1_BIT;
++  info.tiling = VK_IMAGE_TILING_OPTIMAL;
++  info.usage = i.usage;
++  return ffxApiGetResourceVK(reinterpret_cast<void*>(i.image), ffxApiGetImageResourceDescriptionVK(i.image, info, usage),
++                             state);
++}
++
++void TickRetired() {
++  for (auto it = g_retired.begin(); it != g_retired.end();) {
++    if (it->evaluations_left-- == 0) {
++      p_destroy(&it->context, nullptr);
++      it = g_retired.erase(it);
++    } else {
++      ++it;
++    }
++  }
++}
++
++bool EnsureContext(uint32_t rw, uint32_t rh, uint32_t ow, uint32_t oh, std::string* reason) {
++  if (g_context && g_render_w == rw && g_render_h == rh && g_out_w == ow && g_out_h == oh) return true;
++  if (g_context) g_retired.push_back({g_context, 8}), g_context = nullptr;
++  ffxCreateContextDescUpscale desc = {};
++  desc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
++  desc.flags = FFX_UPSCALE_ENABLE_DEPTH_INVERTED;  // the game's colour is 8-bit gamma (LDR); reversed depth
++  desc.maxRenderSize = {rw, rh};
++  desc.maxUpscaleSize = {ow, oh};
++  ffxCreateBackendVKDesc backend = {};
++  backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK;
++  backend.vkDevice = g_device;
++  backend.vkPhysicalDevice = g_physical_device;
++  backend.vkDeviceProcAddr = GetDeviceProcAddrCompat;
++  desc.header.pNext = &backend.header;
++  ffxContext context = nullptr;
++  const ffxReturnCode_t r = p_create(&context, &desc.header, nullptr);
++  if (r != FFX_API_RETURN_OK || !context) {
++    if (reason) *reason = "ffxCreateContext failed (" + std::to_string(r) + ")";
++    return false;
++  }
++  g_context = context;
++  g_render_w = rw, g_render_h = rh, g_out_w = ow, g_out_h = oh;
++  ffxQueryGetProviderVersion version = {};
++  version.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
++  const bool named = p_query(&g_context, &version.header) == FFX_API_RETURN_OK && version.versionName;
++  REXLOG_INFO("[fsr] context for {}x{} -> {}x{} ({})", rw, rh, ow, oh,
++              named ? version.versionName : "provider version unknown");
++  return true;
++}
++
++}  // namespace
++
++bool Initialize(VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc_addr, VkPhysicalDevice physical_device,
++                VkDevice device) {
++  if (g_initialized) return g_available.load();
++  g_initialized = true;
++  wchar_t exe[MAX_PATH] = {};
++  GetModuleFileNameW(nullptr, exe, MAX_PATH);
++  const std::filesystem::path dll = std::filesystem::path(exe).parent_path() / L"amd_fidelityfx_vk.dll";
++  HMODULE module = LoadLibraryExW(dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
++  if (!module) {
++    REXLOG_WARN("[fsr] {} not found or not loadable (error {}): FSR not available", dll.string(), GetLastError());
++    return false;
++  }
++  p_create = reinterpret_cast<PfnFfxCreateContext>(GetProcAddress(module, "ffxCreateContext"));
++  p_destroy = reinterpret_cast<PfnFfxDestroyContext>(GetProcAddress(module, "ffxDestroyContext"));
++  p_query = reinterpret_cast<PfnFfxQuery>(GetProcAddress(module, "ffxQuery"));
++  p_dispatch = reinterpret_cast<PfnFfxDispatch>(GetProcAddress(module, "ffxDispatch"));
++  g_get_device_proc_addr = get_instance_proc_addr
++                               ? reinterpret_cast<PFN_vkGetDeviceProcAddr>(
++                                     get_instance_proc_addr(instance, "vkGetDeviceProcAddr"))
++                               : nullptr;
++  if (!p_create || !p_destroy || !p_query || !p_dispatch || !g_get_device_proc_addr || !device || !physical_device) {
++    REXLOG_WARN("[fsr] amd_fidelityfx_vk.dll lacks the ffx-api entry points (or no device): FSR not available");
++    return false;
++  }
++  g_device = device, g_physical_device = physical_device;
++  g_available = true;
++  REXLOG_INFO("[fsr] AMD FidelityFX runtime loaded ({})", dll.string());
++  return true;
++}
++
++bool Available() { return g_available.load(); }
++
++bool Evaluate(VkCommandBuffer command_buffer, const streamline::DlaaFrame& f, float sharpness, std::string* reason) {
++  if (!g_available) {
++    if (reason) *reason = "FSR not available";
++    return false;
++  }
++  const bool upscale = f.out_width && f.out_height;
++  const uint32_t ow = upscale ? f.out_width : f.width, oh = upscale ? f.out_height : f.height;
++  TickRetired();
++  if (!EnsureContext(f.width, f.height, ow, oh, reason)) return false;
++  const auto now = std::chrono::steady_clock::now();
++  float dt_ms = g_evaluations ? std::chrono::duration<float, std::milli>(now - g_last_time).count() : 16.667f;
++  dt_ms = std::clamp(dt_ms, 1.0f, 100.0f);
++  g_last_time = now;
++  ++g_evaluations;
++  ffxDispatchDescUpscale d = {};
++  d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
++  d.commandList = command_buffer;
++  d.color = ToResource(f.color_in, f.width, f.height, FFX_API_RESOURCE_USAGE_READ_ONLY,
++                       FFX_API_RESOURCE_STATE_COMPUTE_READ);
++  d.depth = ToResource(f.depth, f.width, f.height, FFX_API_RESOURCE_USAGE_READ_ONLY,
++                       FFX_API_RESOURCE_STATE_COMPUTE_READ);
++  d.motionVectors = ToResource(f.motion, f.width, f.height, FFX_API_RESOURCE_USAGE_READ_ONLY,
++                               FFX_API_RESOURCE_STATE_COMPUTE_READ);
++  d.output = ToResource(f.color_out, ow, oh, FFX_API_RESOURCE_USAGE_UAV, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
++  d.exposure = {};
++  d.reactive = {};
++  d.transparencyAndComposition = {};
++  d.jitterOffset = {f.jitter[0], f.jitter[1]};
++  // Our vectors are host pixels (current -> previous); mvec_scale turns them into the normalized units FSR wants too.
++  d.motionVectorScale = {f.mvec_scale[0], f.mvec_scale[1]};
++  d.renderSize = {f.width, f.height};
++  d.upscaleSize = {ow, oh};
++  d.enableSharpening = sharpness > 0.0f;
++  d.sharpness = std::clamp(sharpness, 0.0f, 1.0f);
++  d.frameTimeDelta = dt_ms;
++  d.preExposure = 1.0f;
++  d.reset = f.reset;
++  d.cameraNear = f.near_z;
++  d.cameraFar = f.far_z;
++  d.cameraFovAngleVertical = f.vertical_fov_radians;
++  d.viewSpaceToMetersFactor = 0.01f;  // the game's units are centimetres (unconfirmed; only affects FSR's heuristics)
++  d.flags = 0;
++  const ffxReturnCode_t r = p_dispatch(&g_context, &d.header);
++  if (r != FFX_API_RETURN_OK) {
++    if (reason) *reason = "ffxDispatch failed (" + std::to_string(r) + ")";
++    return false;
++  }
++  return true;
++}
++
++}  // namespace rex::ui::vulkan::fsr
++
++#else  // built without the ffx-api headers
++
++namespace rex::ui::vulkan::fsr {
++bool Initialize(VkInstance, PFN_vkGetInstanceProcAddr, VkPhysicalDevice, VkDevice) {
++  REXLOG_WARN("[fsr] built without the FidelityFX ffx-api headers: FSR not available");
++  return false;
++}
++bool Available() { return false; }
++bool Evaluate(VkCommandBuffer, const streamline::DlaaFrame&, float, std::string* reason) {
++  if (reason) *reason = "built without FidelityFX";
++  return false;
++}
++}  // namespace rex::ui::vulkan::fsr
++
++#endif

@@ -1,0 +1,26 @@
+# harness: realtime (menu presses on fixed waits)
+# Session 33 (item 2): open the GRAPHICS screen (OPTIONS item 3), screenshot the rows (gr_open), go down to row 3
+# (TEXTURE FILTERING), RIGHT twice (16X), screenshot (gr_row3), ACCEPT with START? no: B leaves with the game's own
+# "keep these settings?" question, so the route quits from the screen. For the text-id log add
+# --wwe2k14_gfxmenu_probe=true --wwe2k14_gfxmenu_probe_text=true. Run with --wwe2k14_gfx_menu=true
+# --wwe2k14_settings_file=<test file under out\>. Untimed. on_fail quit.
+on_fail quit
+include boot_to_menu
+include menu_to_options
+press_until_state DOWN cursor 3 24 30 5
+log gfxrows: A on GRAPHICS
+press A
+wait_frames 240
+screenshot gr_open
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press RIGHT
+wait_frames 30
+press RIGHT
+wait_frames 60
+screenshot gr_row3
+quit

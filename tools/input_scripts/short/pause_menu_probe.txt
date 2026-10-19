@@ -1,0 +1,24 @@
+# Session 33 (item 4, photo mode in the pause menu): pause a launched match and log the SmartMenu's menu id / cursor
+# and the pause items' text ids (--wwe2k14_gfxmenu_probe=true; probe_text is switched on here). Needs
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true. Untimed. on_fail quit.
+# harness: realtime (menu presses)
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+wait_frames 600
+log pp: pausing
+cvar wwe2k14_gfxmenu_probe_text true
+press START 4 0
+wait_frames 90
+log_state smart_menu
+log_state menu
+log_state cursor
+screenshot pp_pause
+press DOWN
+wait_frames 30
+log_state cursor
+press DOWN
+wait_frames 30
+log_state cursor
+quit

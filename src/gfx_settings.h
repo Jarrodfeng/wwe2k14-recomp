@@ -5,11 +5,13 @@
 // this header only touches the keys below, by text, so it works in the game exe (which has no JSON library) and leaves
 // everything else in the file as it was.
 //
-//   upscale      0 off, 1 DLAA, 2 DLSS performance, 3 DLSS quality, 4 DLSS ultra performance
+//   upscale      0 off, 1 DLAA, 2 DLSS performance, 3 DLSS quality, 4 DLSS ultra performance,
+//                5 FSR native, 6 FSR quality, 7 FSR performance (Session 33: AMD FSR 3, any graphics card)
 //   resolution   0 720p, 1 1440p (the default), 2 4K
 //   frame_rate   0 classic (30 fps entrances, 60 in matches), 1 60 everywhere (default), 2 high refresh
 //   refresh_hz   high refresh: game steps per second (0 = the monitor's)
 //   original_look  the original 720p / 4x MSAA / 30 fps entrance look (Advanced)
+//   texture_filter 0 standard (the forced 4x anisotropic filtering every run had), 1 8x, 2 16x (Session 33)
 //   dlss_dir     the player's own NVIDIA folder (empty = the files next to the game)
 //
 // GraphicsFlags() is the mapping from those values to the game's own settings; the launcher puts the result on the
@@ -46,9 +48,11 @@ struct Choice {
   int frame_rate = 1;
   int refresh_hz = 0;
   bool original_look = false;
+  int texture_filter = 0;  // Session 33
   std::string dlss_dir;
   bool operator==(const Choice& o) const {
-    return upscale == o.upscale && resolution == o.resolution && frame_rate == o.frame_rate;
+    return upscale == o.upscale && resolution == o.resolution && frame_rate == o.frame_rate &&
+           texture_filter == o.texture_filter;
   }
 };
 
@@ -105,6 +109,7 @@ inline bool GetString(const std::string& json, const char* key, std::string& out
 // Which of the keys the file has (a key that is absent says nothing: the caller keeps what the game is running).
 struct Present {
   bool upscale = false, resolution = false, frame_rate = false, refresh_hz = false, original_look = false;
+  bool texture_filter = false;
 };
 
 inline Present Parse(const std::string& json, Choice& c) {
@@ -114,10 +119,12 @@ inline Present Parse(const std::string& json, Choice& c) {
   p.frame_rate = GetInt(json, "frame_rate", c.frame_rate);
   p.refresh_hz = GetInt(json, "refresh_hz", c.refresh_hz);
   p.original_look = GetBool(json, "original_look", c.original_look);
+  p.texture_filter = GetInt(json, "texture_filter", c.texture_filter);
   GetString(json, "dlss_dir", c.dlss_dir);
-  c.upscale = std::clamp(c.upscale, 0, 4);
+  c.upscale = std::clamp(c.upscale, 0, 7);
   c.resolution = std::clamp(c.resolution, 0, 2);
   c.frame_rate = std::clamp(c.frame_rate, 0, 2);
+  c.texture_filter = std::clamp(c.texture_filter, 0, 2);
   return p;
 }
 
@@ -169,6 +176,7 @@ inline bool Save(const fs::path& path, const Choice& c, bool* cleared = nullptr)
   json = SetInt(json, "resolution", c.resolution);
   json = SetInt(json, "frame_rate", c.frame_rate);
   json = SetInt(json, "refresh_hz", c.refresh_hz);  // Session 31: 120 vs UNCAPPED (the monitor's rate, 0)
+  json = SetInt(json, "texture_filter", c.texture_filter);  // Session 33
   fs::path tmp = path;
   tmp += L".tmp";
   {
@@ -238,6 +246,16 @@ inline int MonitorHz() {
   return 60;
 }
 
+// Session 33: the upscale value is one of the FSR modes / one of the NVIDIA ones (DLAA or DLSS).
+inline bool IsFsr(int upscale) { return upscale >= 5 && upscale <= 7; }
+inline bool IsNvidia(int upscale) { return upscale >= 1 && upscale <= 4; }
+inline fs::path ExeFolder();
+// AMD's FSR runtime next to the game (shipped with a release; copied by the build).
+inline bool HasFsrRuntime() {
+  std::error_code ec;
+  return fs::is_regular_file(ExeFolder() / "amd_fidelityfx_vk.dll", ec);
+}
+
 inline fs::path ExeFolder() {
   wchar_t buf[MAX_PATH * 2];
   GetModuleFileNameW(nullptr, buf, DWORD(std::size(buf)));
@@ -263,10 +281,14 @@ inline std::string StreamlineDir(const std::string& explicit_dir, const std::str
 inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choice& c, const std::string& dlss_dir,
                                                                       int monitor_hz) {
   std::vector<std::pair<std::string, std::string>> f;
+  // An upscaler that picks the render and output size itself (DLSS, FSR quality / performance); DLAA and FSR native
+  // anti-alias at the chosen resolution.
+  // (Review fix: `dlss` is DLSS only; the FSR modes have their own block below.)
   const bool dlss = c.upscale >= 2 && c.upscale <= 4;
+  const bool own_size = dlss || c.upscale == 6 || c.upscale == 7;
   if (c.original_look) f.push_back({"wwe2k14_preset_1440p60", "false"});
-  else if (!dlss && c.resolution == 0) f.push_back({"resolution_scale", "1"});
-  else if (!dlss && c.resolution == 2) f.push_back({"wwe2k14_preset_4k60", "true"});
+  else if (!own_size && c.resolution == 0) f.push_back({"resolution_scale", "1"});
+  else if (!own_size && c.resolution == 2) f.push_back({"wwe2k14_preset_4k60", "true"});
   if (c.frame_rate == 0 && !c.original_look) f.push_back({"wwe2k14_entrance_60fps", "false"});
   const int hz = c.refresh_hz > 0 ? c.refresh_hz : monitor_hz;
   if (c.frame_rate == 2 && hz > 60) {  // game steps per second = the refresh rate; entrances at most 120
@@ -281,8 +303,15 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
     f.push_back({"wwe2k14_dlss", "true"});
     f.push_back({"wwe2k14_dlss_mode", modes[c.upscale - 2]});
   }
-  // Wrestler motion vectors are always on with DLAA / DLSS (Session 28: the game's own default, no flag needed).
-  if (c.upscale >= 1 && c.upscale <= 4 && !dlss_dir.empty()) f.push_back({"wwe2k14_dlaa_dir", dlss_dir});
+  if (c.texture_filter == 1 || c.texture_filter == 2)  // Session 33: anisotropic filtering 8x / 16x
+    f.push_back({"wwe2k14_texture_filter", c.texture_filter == 2 ? "16" : "8"});
+  if (IsFsr(c.upscale)) {  // Session 33
+    static const char* modes[] = {"native", "quality", "performance"};
+    f.push_back({"wwe2k14_fsr", "true"});
+    f.push_back({"wwe2k14_fsr_mode", modes[c.upscale - 5]});
+  }
+  // Wrestler motion vectors are always on with DLAA / DLSS / FSR (Session 28: the game's own default, no flag needed).
+  if (IsNvidia(c.upscale) && !dlss_dir.empty()) f.push_back({"wwe2k14_dlaa_dir", dlss_dir});
   return f;
 }
 

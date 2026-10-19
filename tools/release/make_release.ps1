@@ -205,6 +205,8 @@ $redist = [ordered]@{}
 foreach ($d in 'msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') { $redist[$d] = Join-Path $crt.FullName $d }
 foreach ($d in 'sl.interposer.dll', 'sl.common.dll', 'sl.dlss.dll', 'nvngx_dlss.dll', 'nvngx_dlss.license.txt') { $redist["nvidia\$d"] = Join-Path $nv $d }
 $redist['nvidia\streamline.license.txt'] = Join-Path $R 'thirdparty\streamline\sdk\license.txt'
+# Session 33: AMD FidelityFX (FSR 3; MIT), built from AMD's own SDK source by tools\fsr\build_ffx.ps1.
+$redist['amd_fidelityfx_vk.dll'] = Join-Path $R 'thirdparty\FidelityFX-SDK\ffx-api\bin\amd_fidelityfx_vk.dll'
 "redistributables: VC++ runtime from $($crt.FullName); NVIDIA from $nv"
 foreach ($k in $redist.Keys) { $files[$k] = $redist[$k] }
 foreach ($k in $files.Keys) {

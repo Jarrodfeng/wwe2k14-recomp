@@ -32,6 +32,9 @@
 #include "boot_skip.h"   // --wwe2k14_skip_boot_screens (Session 12, default off)
 #include "mods.h"        // --wwe2k14_mods (Session 17 item 1A, default off)
 #include "step_rate.h"   // --wwe2k14_step_hz (Session 19 item 10, default off)
+#include "discord_status.h"  // --wwe2k14_discord (Session 33 item 3, default off)
+#include "entrance_music.h"  // --wwe2k14_entrance_music (Session 33 item 5, default off)
+#include "ultrawide.h"       // --wwe2k14_aspect (Session 33 item 6, default off)
 #include "perf_report.h"  // --wwe2k14_perf_report (Session 20 item 9, default off)
 
 namespace rex::kernel::xboxkrnl {
@@ -257,6 +260,11 @@ inline void VdSwapOverride(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped
   BootSkipOnFrame(g_guest_frame);       // no-op unless --wwe2k14_skip_boot_screens
   FrameHashOnFrame(g_guest_frame);  // no-op unless --wwe2k14_det_hash
   step_rate::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0), g_guest_frame);  // --wwe2k14_step_hz
+  discord::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0), g_guest_frame);  // no-op unless --wwe2k14_discord
+  if (g_photo_frame_hook) g_photo_frame_hook(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0));  // --wwe2k14_photo_mode
+  if (g_wm30_frame_hook) g_wm30_frame_hook(g_guest_frame);  // --wwe2k14_wm30 (Session 34)
+  entrance_music::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0));  // no-op unless a custom theme plays
+  ultrawide::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0), g_guest_frame);  // no-op at 16:9
   perf_report::OnFrame();  // no-op unless --wwe2k14_perf_report (after step_rate: its scene flags)
   ProfilerOnSwap();
   rex::kernel::xboxkrnl::VdSwap_entry(buffer_ptr, fetch_ptr, unk2, unk3, unk4, frontbuffer_ptr,

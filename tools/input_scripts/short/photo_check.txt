@@ -1,0 +1,25 @@
+# Session 33 (item 4): photo mode, T1 check. Launched match (entrances skipped), 10 s in: ph_match (HUD on), photo
+# mode on (`cvar wwe2k14_photo_mode_on true`), a free-camera angle low at ringside, 2 s later ph_inside (the HUD
+# should be gone, the wrestlers nearly still), a photo saved (`cvar wwe2k14_photo_save 1`), photo mode off, ph_after
+# (HUD back, the match moving). Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true
+# --wwe2k14_photo_mode=true --wwe2k14_photo_dir=<a folder under out\>. Untimed. on_fail quit.
+on_fail quit
+log ph: start
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+log ph: match scene
+wait_frames 600
+screenshot ph_match
+cvar wwe2k14_photo_mode_on true
+wait_frames 10
+cvar wwe2k14_cinecam_test_pose -650,-140,-250,21,6,35
+wait_frames 120
+screenshot ph_inside
+cvar wwe2k14_photo_save 1
+wait_frames 90
+cvar wwe2k14_photo_mode_on false
+wait_frames 120
+screenshot ph_after
+log ph: end
+quit

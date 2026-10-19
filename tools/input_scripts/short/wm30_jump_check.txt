@@ -1,0 +1,14 @@
+# Session 34: a 30 Years of WrestleMania jump, end to end, quitting by itself (launcher tests: the launcher's settings
+# `extra` passes this route with --wwe2k14_wm30_auto=false; game runs: --wwe2k14_wm30=N --wwe2k14_wm30_auto=false).
+# Boots to the main menu, opens 30 YEARS, picks the first era and its first match (src/wm30_jump.h swaps in match N),
+# waits for the mode's record id at A+0x0C to be the expected one (default 407 = match 43; change RECORD below, the
+# record ids are in `py tools\wm30\list.py --full`), takes a screenshot of the match card and quits.
+# Pass: the log's "[wwe2k14][wm30] jump to match" line and "state ... reached" for the record.
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4   # the era card, then its first match: picking one opens EVTDSC<era>.PAC
+wait_state 0x839295F0>8>12 407 9000 2
+wait_frames 600
+screenshot wm30_jump
+quit

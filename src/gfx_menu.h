@@ -80,6 +80,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe, false, "wwe2k14",
                     "methods, SmartMenu fields). Log only. See src/gfx_menu.h");
 REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe_text_all, false, "wwe2k14",
                     "Debug (Session 28): with probe_text on, log every call (not only new ids) with its caller");
+// Session 33 (item 2): TEXTURE FILTERING. The SDK forces 4x anisotropic filtering on every eligible texture by default
+// (anisotropic_override 3); 8 / 16 raise it (anisotropic_override 4 / 5; it can change while the game runs).
+REXCVAR_DEFINE_INT32(wwe2k14_texture_filter, 0, "wwe2k14",
+                     "Session 33: anisotropic texture filtering: 0 = unchanged (the SDK's forced 4x), 8 = 8x, 16 = 16x "
+                     "(sharper floors, ramps and mats at an angle). Sets anisotropic_override if left at default");
 REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe_text, false, "wwe2k14",
                     "Debug (Session 28): with the probe on, log every new text id the text manager is asked for "
                     "(set from a script with `cvar` right before the screen of interest)");
@@ -194,6 +199,16 @@ inline bool FlagIsTrue(const char* name) {
 }
 inline int FlagInt(const char* name) { return std::atoi(rex::cvar::GetFlagByName(name).c_str()); }
 
+// Session 33: --wwe2k14_texture_filter -> the SDK's anisotropic_override (only if left at default).
+inline const char* AnisoForFilter(int f) { return f >= 16 ? "5" : f >= 8 ? "4" : nullptr; }
+inline void ConfigureTextureFilter() {
+  const char* v = AnisoForFilter(REXCVAR_GET(wwe2k14_texture_filter));
+  if (v && rex::cvar::GetFlagSource("anisotropic_override") == rex::cvar::Source::kDefault)
+    rex::cvar::SetFlagByName("anisotropic_override", v);
+  if (v) REXLOG_INFO("[wwe2k14][gfx] texture filtering {}x (anisotropic_override {})",
+                     REXCVAR_GET(wwe2k14_texture_filter), rex::cvar::GetFlagByName("anisotropic_override"));
+}
+
 inline gfxs::Choice g_running;       // what this run does now (after the startup apply and live changes)
 inline bool g_streamline_running = false;  // the NVIDIA runtime was loaded at start (DLAA can switch on and off live)
 inline std::string g_dlss_dir;       // the runtime folder (found at start)
@@ -212,7 +227,12 @@ inline void ApplyLauncherSettings() {
   gfxs::Choice c;
   gfxs::Parse(json, c);
   const std::string dir = gfxs::StreamlineDir(rex::cvar::GetFlagByName("wwe2k14_dlaa_dir"), c.dlss_dir);
-  if (c.upscale >= 1 && (dir.empty() || REXCVAR_GET(wwe2k14_gfxmenu_no_rtx) || !gfxs::HasRtxCard())) {
+  if (gfxs::IsFsr(c.upscale) && !gfxs::HasFsrRuntime()) {  // Session 33
+    REXLOG_WARN("[wwe2k14][gfxmenu] settings ask for FSR ({}) but amd_fidelityfx_vk.dll is not next to the game: "
+                "upscaling off", c.upscale);
+    c.upscale = 0;
+  }
+  if (gfxs::IsNvidia(c.upscale) && (dir.empty() || REXCVAR_GET(wwe2k14_gfxmenu_no_rtx) || !gfxs::HasRtxCard())) {
     REXLOG_WARN("[wwe2k14][gfxmenu] settings ask for upscaling {} but there is no RTX card or no NVIDIA runtime "
                 "(folder '{}'): upscaling off",
                 c.upscale, dir);
@@ -222,7 +242,7 @@ inline void ApplyLauncherSettings() {
   // the file's 4K or 720p would otherwise be applied over the command line's own choice).
   auto cmdline = [](const char* n) { return rex::cvar::GetFlagSource(n) != rex::cvar::Source::kDefault; };
   const bool own_size = cmdline("wwe2k14_preset_1440p60") || cmdline("wwe2k14_preset_4k60") || cmdline("wwe2k14_dlss") ||
-                        cmdline("wwe2k14_dlaa") || cmdline("resolution_scale");
+                        cmdline("wwe2k14_dlaa") || cmdline("wwe2k14_fsr") || cmdline("resolution_scale");
   std::string applied;
   for (const auto& [name, value] : gfxs::GraphicsFlags(c, dir, gfxs::MonitorHz())) {
     if (rex::cvar::GetFlagSource(name) != rex::cvar::Source::kDefault) continue;  // the command line wins
@@ -248,10 +268,13 @@ inline void CaptureRunning() {
     rex::cvar::SetFlagByName("resolution_scale", "1");  // 720p from the settings file (see ApplyLauncherSettings)
   gfxs::Choice r;
   const std::string mode = rex::cvar::GetFlagByName("wwe2k14_dlss_mode");
-  if (FlagIsTrue("wwe2k14_dlss")) r.upscale = mode == "quality" ? 3 : mode == "ultra_performance" ? 4 : 2;
+  const std::string fsr_mode = rex::cvar::GetFlagByName("wwe2k14_fsr_mode");
+  if (FlagIsTrue("wwe2k14_fsr")) r.upscale = fsr_mode == "native" ? 5 : fsr_mode == "performance" ? 7 : 6;
+  else if (FlagIsTrue("wwe2k14_dlss")) r.upscale = mode == "quality" ? 3 : mode == "ultra_performance" ? 4 : 2;
   else if (FlagIsTrue("wwe2k14_dlaa")) r.upscale = 1;
   const std::string scale = rex::cvar::GetFlagByName("resolution_scale");
   r.resolution = scale == "1" ? 0 : scale == "3" ? 2 : 1;
+  r.texture_filter = REXCVAR_GET(wwe2k14_texture_filter) >= 16 ? 2 : REXCVAR_GET(wwe2k14_texture_filter) >= 8 ? 1 : 0;
   if (FlagInt("wwe2k14_step_hz") > 60) r.frame_rate = 2, r.refresh_hz = int(FlagInt("wwe2k14_step_hz"));
   else if (!FlagIsTrue("wwe2k14_entrance_60fps")) r.frame_rate = 0;
   else r.frame_rate = 1;
@@ -261,7 +284,9 @@ inline void CaptureRunning() {
   REXLOG_INFO("[wwe2k14][gfxmenu] running: upscale {}, resolution {}, frame rate {}, NVIDIA runtime '{}' ({})",
               r.upscale, r.resolution, r.frame_rate, g_dlss_dir, g_streamline_running ? "loaded" : "not loaded");
   // The RTX / runtime question once now (DXGI takes a moment), not the first time the GRAPHICS screen opens.
-  if (REXCVAR_GET(wwe2k14_gfx_menu)) REXLOG_INFO("[wwe2k14][gfxmenu] upscaling offered in the menu: {}", DlssPossible() ? "yes" : "no (off only)");
+  if (REXCVAR_GET(wwe2k14_gfx_menu))
+    REXLOG_INFO("[wwe2k14][gfxmenu] upscaling offered in the menu: NVIDIA {}, FSR {}", DlssPossible() ? "yes" : "no",
+                gfxs::HasFsrRuntime() ? "yes" : "no (amd_fidelityfx_vk.dll missing)");
 }
 
 // DLAA / DLSS can be offered: an RTX card and the NVIDIA runtime (the one this run loaded, or one found next to the
@@ -281,16 +306,29 @@ inline bool DlssPossible() {
 // FrameRateRow): 60 = frame_rate 1, 120 = high refresh (2) at 120 steps, UNCAPPED = high refresh at the monitor's rate
 // (refresh_hz 0). The row has the game's three value slots, so CLASSIC (frame_rate 0, the launcher can still keep it)
 // has none: the row shows 60 and the file keeps CLASSIC unless the row is changed.
-constexpr int kUpscaleOrder[5] = {0, 1, 4, 2, 3};  // menu index -> the settings file's upscale
-inline int g_vals[3] = {0, 1, 1};                  // the screen's current value index per row
-inline int g_counts[3] = {1, 3, 3};                // how many values each row offers
+// Session 33: FSR NATIVE / QUALITY / PERFORMANCE after the NVIDIA modes, on every card with AMD's runtime next to the
+// game: g_up_order = menu index -> the settings file's upscale (RTX: OFF, DLAA, DLSS x3, FSR x3; else OFF, FSR x3).
+inline int g_up_order[8] = {0, 1, 4, 2, 3, 5, 6, 7};
+inline int g_up_count = 1;
+// Session 33: a fourth row, TEXTURE FILTERING (STANDARD / 8X / 16X), in the stock screen's row 3 slot.
+constexpr int kRows = 4;
+inline int g_vals[kRows] = {0, 1, 1, 0};           // the screen's current value index per row
+inline int g_counts[kRows] = {1, 3, 3, 3};         // how many values each row offers
 inline int g_frame_loaded = 0;                     // FRAME RATE's index when the screen opened
 inline gfxs::Choice g_frame_file;                  // and the frame_rate / refresh_hz it stood for
 
 inline int UpscaleToIndex(int upscale) {
-  for (int i = 0; i < 5; ++i)
-    if (kUpscaleOrder[i] == upscale) return i;
+  for (int i = 0; i < g_up_count; ++i)
+    if (g_up_order[i] == upscale) return i;
   return 0;
+}
+inline void BuildUpscaleOrder(bool nvidia, bool fsr) {
+  g_up_count = 0;
+  g_up_order[g_up_count++] = 0;
+  if (nvidia)
+    for (int v : {1, 4, 2, 3}) g_up_order[g_up_count++] = v;
+  if (fsr)
+    for (int v : {5, 6, 7}) g_up_order[g_up_count++] = v;
 }
 inline int FrameRateIndex(const gfxs::Choice& c) { return c.frame_rate == 2 ? (c.refresh_hz == 120 ? 1 : 2) : 0; }
 
@@ -305,11 +343,14 @@ inline void LoadScreenValues() {
     if (p.resolution) c.resolution = f.resolution;
     if (p.frame_rate) c.frame_rate = f.frame_rate;
     if (p.refresh_hz) c.refresh_hz = f.refresh_hz;
+    if (p.texture_filter) c.texture_filter = f.texture_filter;
   }
-  const bool dlss = DlssPossible();
-  if (!dlss) c.upscale = 0;
-  g_counts[0] = dlss ? 5 : 1, g_counts[1] = 3, g_counts[2] = 3;
+  const bool dlss = DlssPossible(), fsr = gfxs::HasFsrRuntime();
+  BuildUpscaleOrder(dlss, fsr);
+  if ((!dlss && gfxs::IsNvidia(c.upscale)) || (!fsr && gfxs::IsFsr(c.upscale))) c.upscale = 0;
+  g_counts[0] = g_up_count, g_counts[1] = 3, g_counts[2] = 3, g_counts[3] = 3;
   g_vals[0] = UpscaleToIndex(c.upscale), g_vals[1] = FrameRateIndex(c), g_vals[2] = c.resolution;
+  g_vals[3] = std::clamp(c.texture_filter, 0, 2);
   g_frame_loaded = g_vals[1], g_frame_file = c;
 }
 
@@ -318,7 +359,7 @@ inline void LoadScreenValues() {
 // as it is used). Everything else (a DLSS mode, the render resolution, high refresh) is read at start.
 inline bool CommitScreenValues() {
   gfxs::Choice n = g_running;
-  n.upscale = kUpscaleOrder[std::clamp(g_vals[0], 0, 4)];
+  n.upscale = g_up_order[std::clamp(g_vals[0], 0, g_up_count - 1)];
   if (g_vals[1] == g_frame_loaded) {  // untouched: keep exactly what the file had (CLASSIC included)
     n.frame_rate = g_frame_file.frame_rate, n.refresh_hz = g_frame_file.refresh_hz;
   } else {
@@ -326,6 +367,7 @@ inline bool CommitScreenValues() {
     n.frame_rate = fi == 0 ? 1 : 2, n.refresh_hz = fi == 1 ? 120 : 0;
   }
   n.resolution = std::clamp(g_vals[2], 0, 2);
+  n.texture_filter = std::clamp(g_vals[3], 0, 2);
   const std::filesystem::path path = SettingsFile();
   bool cleared_original_look = false;
   const bool saved = gfxs::Save(path, n, &cleared_original_look);
@@ -345,7 +387,14 @@ inline bool CommitScreenValues() {
     rex::cvar::SetFlagByName("wwe2k14_entrance_60fps", eff.frame_rate == 1 ? "true" : "false");
     g_running.frame_rate = eff.frame_rate;
   }
-  const bool dlss_running = g_running.upscale >= 2;
+  // DLSS and FSR quality / performance pick the render size themselves (the resolution row does not matter then).
+  // Session 33: texture filtering applies at once (the SDK's anisotropic_override is read per sampler).
+  if (eff.texture_filter != g_running.texture_filter) {
+    const char* v = AnisoForFilter(eff.texture_filter == 2 ? 16 : eff.texture_filter == 1 ? 8 : 0);
+    rex::cvar::SetFlagByName("anisotropic_override", v ? v : "3");
+    g_running.texture_filter = eff.texture_filter;
+  }
+  const bool dlss_running = (g_running.upscale >= 2 && g_running.upscale <= 4) || g_running.upscale >= 6;
   // Session 31: 120 <-> UNCAPPED (both high refresh) differ in the step rate, read at start.
   const bool step_changed = eff.frame_rate == 2 && g_running.frame_rate == 2 && hz != g_running.refresh_hz;
   const bool restart = saved && (eff.upscale != g_running.upscale || eff.frame_rate != g_running.frame_rate ||
@@ -398,11 +447,14 @@ inline bool PostMessageBox(PPCContext& ctx, uint8_t* base, uint32_t type, uint32
 constexpr uint32_t kTextBase = 0x7C000000u;
 constexpr uint32_t kTextGraphics = kTextBase + 1;   // the OPTIONS list label and the screen's title
 constexpr uint32_t kTextPcSettings = kTextBase + 2;  // the screen's sub-title
-constexpr uint32_t kTextLabel[3] = {kTextBase + 3, kTextBase + 4, kTextBase + 5};
+constexpr uint32_t kTextLabel[4] = {kTextBase + 3, kTextBase + 4, kTextBase + 5, kTextBase + 7};
 constexpr uint32_t kTextVal0 = kTextBase + 0x10, kTextVal1 = kTextBase + 0x20, kTextVal2 = kTextBase + 0x30;
+constexpr uint32_t kTextVal3 = kTextBase + 0x50;  // Session 33: TEXTURE FILTERING's values
 constexpr uint32_t kTextRestart = kTextBase + 0x40;
 constexpr uint32_t kTextQuit = kTextBase + 6;        // the main menu list label
 constexpr uint32_t kTextQuitAsk = kTextBase + 0x41;  // its confirmation question
+constexpr uint32_t kTextPhoto = kTextBase + 0x60;    // Session 33: PHOTO MODE in the pause menu (src/photo_mode.h)
+inline bool g_photo_pause_item = false;              // set by photo_mode.h when that row is in use
 
 struct TextEntry {
   uint32_t id;
@@ -416,13 +468,20 @@ inline TextEntry g_texts[] = {
     {kTextLabel[0], "UPSCALING", 0},
     {kTextLabel[1], "FRAME RATE", 0},
     {kTextLabel[2], "RESOLUTION", 0},
+    {kTextLabel[3], "TEXTURE FILTERING", 0},
+    {kTextVal3 + 0, "STANDARD", 0},
+    {kTextVal3 + 1, "8X", 0},
+    {kTextVal3 + 2, "16X", 0},
     // Session 31 (Jarrod: the launcher and this menu match): UPSCALING in the launcher's order, FRAME RATE 60 / 120 /
-    // UNCAPPED (kUpscaleOrder, FrameRateIndex below).
+    // UNCAPPED (g_up_order, FrameRateIndex below). Session 33: UPSCALING's texts by the settings file's value.
     {kTextVal0 + 0, "OFF", 0},
     {kTextVal0 + 1, "DLAA", 0},
-    {kTextVal0 + 2, "DLSS ULTRA PERF", 0},
-    {kTextVal0 + 3, "DLSS PERFORMANCE", 0},
-    {kTextVal0 + 4, "DLSS QUALITY", 0},
+    {kTextVal0 + 2, "DLSS PERFORMANCE", 0},
+    {kTextVal0 + 3, "DLSS QUALITY", 0},
+    {kTextVal0 + 4, "DLSS ULTRA PERF", 0},
+    {kTextVal0 + 5, "FSR NATIVE", 0},
+    {kTextVal0 + 6, "FSR QUALITY", 0},
+    {kTextVal0 + 7, "FSR PERFORMANCE", 0},
     {kTextVal1 + 0, "60", 0},
     {kTextVal1 + 1, "120", 0},
     {kTextVal1 + 2, "UNCAPPED", 0},
@@ -432,6 +491,7 @@ inline TextEntry g_texts[] = {
     {kTextRestart, "Some changes apply the next time you start the game.", 0},
     {kTextQuit, "QUIT TO DESKTOP", 0},
     {kTextQuitAsk, "Quit to desktop?", 0},
+    {kTextPhoto, "PHOTO MODE", 0},
 };
 
 inline uint32_t TextFor(uint32_t id) {
@@ -715,7 +775,9 @@ struct TableGuard {
   }
 };
 
-inline uint32_t RowValueTextBase(int row) { return row == 0 ? kTextVal0 : row == 1 ? kTextVal1 : kTextVal2; }
+inline uint32_t RowValueTextBase(int row) {
+  return row == 0 ? kTextVal0 : row == 1 ? kTextVal1 : row == 3 ? kTextVal3 : kTextVal2;
+}
 
 // Sprite names the screen's rows use (the layout's name table, run 2104: font000_Name%02d / font000_Item%02d the
 // label and value texts, corsor_set%02d the arrows, gauge_set%02d the slider, beta_line1.. the row stripes).
@@ -738,7 +800,7 @@ inline void HideSprite(PPCContext& ctx, uint8_t* base, uint32_t self, const std:
 
 inline void HideUnusedRows(PPCContext& ctx, uint8_t* base, uint32_t self) {
   char buf[40];
-  for (int row = 3; row < 7; ++row) {
+  for (int row = kRows; row < 7; ++row) {
     std::snprintf(buf, sizeof(buf), "font000_Name%02d", row), HideSprite(ctx, base, self, buf);
     std::snprintf(buf, sizeof(buf), "font000_Item%02d", row), HideSprite(ctx, base, self, buf);
     std::snprintf(buf, sizeof(buf), "corsor_set%02d", row), HideSprite(ctx, base, self, buf);
@@ -749,17 +811,17 @@ inline void HideUnusedRows(PPCContext& ctx, uint8_t* base, uint32_t self) {
   HideSprite(ctx, base, self, "font001_R");
 }
 
-// The frame's seven 16-byte row records: {value, original, default, enabled}. Ours: rows 0..2 live, 3..6 disabled.
+// The frame's seven 16-byte row records: {value, original, default, enabled}. Ours: rows 0..3 live, 4..6 disabled.
 inline void ApplyRows(uint8_t* base, uint32_t self) {
   (void)base;
-  for (int r = 0; r < 3; ++r) {
+  for (int r = 0; r < kRows; ++r) {
     const uint32_t rec = self + 48 + 16 * r;
     Put32(rec + 0, uint32_t(g_vals[r]));
     Put32(rec + 4, uint32_t(g_vals[r]));
     Put32(rec + 8, 0);
     Put32(rec + 12, 1);
   }
-  for (int r = 3; r < 7; ++r) Put32(self + 48 + 16 * r + 12, 0);
+  for (int r = kRows; r < 7; ++r) Put32(self + 48 + 16 * r + 12, 0);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -819,14 +881,14 @@ inline void QuitPoll(uint8_t* base) {
 REX_HOOK_RAW(sub_822563F8) {
   using namespace wwe2k14::gfx_menu;
   const uint32_t id = ctx.r4.u32, lr = uint32_t(ctx.lr);
-  if (REXCVAR_GET(wwe2k14_gfx_menu) || REXCVAR_GET(wwe2k14_quit_item)) {
+  if (REXCVAR_GET(wwe2k14_gfx_menu) || REXCVAR_GET(wwe2k14_quit_item) || g_photo_pause_item) {
     uint32_t want = id;
     if (id >= kTextBase && id < kTextBase + 0x100) {
       want = id;
-    } else if (id == 0xA04D || id == 0xA0A0 || id == 0xA100 || id == 0xA101 || id == 0x906) {
-      if (InGraphicsFlow(base)) {
+    } else if (id == 0xA04D || id == 0xA0A0 || id == 0xA100 || id == 0xA101 || id == 0x906 || id == 0xA102) {
+      if (InGraphicsFlow(base)) {  // Session 33: 0xA102 (DISPLAY COUNTS, the stock row 3) -> TEXTURE FILTERING
         want = id == 0xA04D ? kTextGraphics : id == 0xA0A0 ? kTextPcSettings : id == 0xA100 ? kTextLabel[0]
-               : id == 0xA101 ? kTextLabel[1] : kTextLabel[2];
+               : id == 0xA101 ? kTextLabel[1] : id == 0xA102 ? kTextLabel[3] : kTextLabel[2];
       }
     }
     if (want != id || (id >= kTextBase && id < kTextBase + 0x100)) {
@@ -881,7 +943,7 @@ REX_HOOK_RAW(sub_82B1AF78) {
   if (IsGfx(self)) {
     ApplyRows(base, self);
     if (build)
-      for (uint32_t r = 0; r < 3; ++r) CallGuest(ctx, base, sub_82B1ADF8, self, r, 2);
+      for (uint32_t r = 0; r < uint32_t(kRows); ++r) CallGuest(ctx, base, sub_82B1ADF8, self, r, 2);
     HideUnusedRows(ctx, base, self);
   }
   if (!REXCVAR_GET(wwe2k14_gfxmenu_probe)) return;
@@ -911,6 +973,10 @@ REX_HOOK_RAW(sub_82B1ADF8) {
         TableGuard guard(base, kRow1TextTable, 3);
         for (uint32_t i = 0; i < 3; ++i) Put32(kRow1TextTable + 4 * i, kTextVal1 + i);
         __imp__sub_82B1ADF8(ctx, base);
+      } else if (row == 0) {  // Session 33: up to 8 values (the words after the table are put back after the call)
+        TableGuard guard(base, kValueTextTable, 8);
+        for (int i = 0; i < g_up_count; ++i) Put32(kValueTextTable + 4 * i, kTextVal0 + uint32_t(g_up_order[i]));
+        __imp__sub_82B1ADF8(ctx, base);
       } else {
         TableGuard guard(base, kValueTextTable, 5);
         const uint32_t tb = RowValueTextBase(int(row));
@@ -937,9 +1003,9 @@ REX_HOOK_RAW(sub_82B1B460) {
     for (uint32_t i = 0; i < 7; ++i) before[i] = W(base, self + 48 + 16 * i);
   if (IsGfx(self)) {
     TableGuard guard(base, kCountsTable, 7);
-    for (int r = 0; r < 3; ++r) Put32(kCountsTable + 4 * r, uint32_t(g_counts[r]));
+    for (int r = 0; r < kRows; ++r) Put32(kCountsTable + 4 * r, uint32_t(g_counts[r]));
     __imp__sub_82B1B460(ctx, base);
-    for (int r = 0; r < 3; ++r) g_vals[r] = int(W(base, self + 48 + 16 * r));
+    for (int r = 0; r < kRows; ++r) g_vals[r] = int(W(base, self + 48 + 16 * r));
   } else {
     __imp__sub_82B1B460(ctx, base);
   }
@@ -956,9 +1022,9 @@ REX_HOOK_RAW(sub_82B1B2B8) {
   using namespace wwe2k14::gfx_menu;
   const uint32_t self = ctx.r3.u32;
   if (IsGfx(self)) {
-    for (int r = 0; r < 3; ++r) g_vals[r] = int(W(base, self + 48 + 16 * r));
+    for (int r = 0; r < kRows; ++r) g_vals[r] = int(W(base, self + 48 + 16 * r));
     const bool restart = CommitScreenValues();
-    for (int r = 0; r < 3; ++r) Put32(self + 52 + 16 * r, uint32_t(g_vals[r]));  // saved: nothing left to confirm
+    for (int r = 0; r < kRows; ++r) Put32(self + 52 + 16 * r, uint32_t(g_vals[r]));  // saved: nothing left to confirm
     if (restart) g_restart_message_pending = true;  // shown when the screen has closed (manager hook)
     ctx.r3.u64 = 1;
     if (REXCVAR_GET(wwe2k14_gfxmenu_probe))

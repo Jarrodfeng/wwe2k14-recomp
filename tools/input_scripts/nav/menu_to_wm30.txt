@@ -1,0 +1,10 @@
+# nav: main menu -> 30 YEARS OF WRESTLEMANIA (the era cards). Session 34; `include menu_to_wm30`.
+# Start: main menu (menu 1), any cursor. End: the era cards (menu word 1500 right after A; the `menu` state reads
+# "unreadable" once the era screen is up, run 026), cursor on the first era. Fast-forward safe.
+# Main menu items (docs/systems/menus.md): 0 PLAY, 1 30 YEARS OF WRESTLEMANIA, 2 UNIVERSE, 3 CREATIONS, ...
+# After B from the era cards the menu word reads 0 for a moment (run 028): wait for the main menu first.
+wait_state menu 1 1200 10
+press_until_state DOWN cursor >=1 24 30 5 if_needed
+press_until_state UP cursor 1 24 30 5 if_needed
+press_until_state A menu !=1 24 30 5
+wait_frames 120

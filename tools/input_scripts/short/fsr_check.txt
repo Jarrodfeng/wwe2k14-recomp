@@ -1,0 +1,23 @@
+# Session 33 (item 1, FSR 3): T1 check. Straight into a launched match (entrances skipped), 10 s in (the wrestlers
+# fighting, the match camera following them), a screenshot with FSR (fs_fsr), the same moment as the plain bilinear
+# upscale of the same render (gpu_dlss_view 1: fs_bilinear), FSR again (fs_fsr2). Needs --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true --wwe2k14_fsr=true [--wwe2k14_fsr_mode=native|quality|performance].
+# Untimed (lanes OK). on_fail quit.
+on_fail quit
+log fs: start
+include boot_to_menu
+log fs: main menu reached
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+log fs: match scene
+wait_frames 600
+screenshot fs_fsr
+cvar gpu_dlss_view 1
+wait_frames 2
+screenshot fs_bilinear
+cvar gpu_dlss_view 0
+wait_frames 30
+screenshot fs_fsr2
+wait_frames 30
+log fs: end
+quit

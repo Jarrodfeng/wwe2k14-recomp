@@ -363,6 +363,9 @@ struct FreeCam {
   bool reset_hard = false;
   bool full_arena = true;     // panel: show the full arena (the hard cam's key 0 -> 10 while on)
   int dof_mode = 0;           // panel: 0 = as the game, 1 = off, 2 = on
+  // Session 33 (photo mode): the controller's sticks / triggers / bumpers (-1..1 after the dead zone; set by
+  // src\photo_mode.h while it owns the pad): left stick move, right stick look, triggers up / down, bumpers zoom.
+  float pad_move_x = 0, pad_move_y = 0, pad_look_x = 0, pad_look_y = 0, pad_up = 0, pad_zoom = 0;
   // "on": the post-effect settings' DOF values, starting from a director shot's (run 961 dumps: 100 / 500 / 180 /
   // 4500 / 0.0009; the hard cam has 0 / 800 / 700 / 3800 / 0.0003). Applied after the game's update (sub_827F14C0).
   float dof_dist[4] = {kDofDefaultDist[0], kDofDefaultDist[1], kDofDefaultDist[2], kDofDefaultDist[3]};
@@ -843,6 +846,9 @@ inline void ApplyFreeCam(PPCContext& ctx, uint8_t* base, uint32_t mgr, uint32_t 
     const float look_scale = f.sensitivity * (fine ? 0.25f : 1.0f);
     f.look_yaw += f.mouse_dx * look_scale;
     f.look_pitch -= f.mouse_dy * look_scale;
+    // Session 33: the right stick looks at up to 90 degrees per second (Ctrl / fine: a quarter).
+    f.look_yaw += f.pad_look_x * 90.0f * dt * (fine ? 0.25f : 1.0f);
+    f.look_pitch += f.pad_look_y * 90.0f * dt * (fine ? 0.25f : 1.0f);
     f.mouse_dx = f.mouse_dy = 0;
     {
       const float a = sm > 0 ? 1.0f - std::exp(-dt / (0.1f * sm)) : 1.0f;
@@ -859,21 +865,25 @@ inline void ApplyFreeCam(PPCContext& ctx, uint8_t* base, uint32_t mgr, uint32_t 
     if (fine) speed *= 0.25f;
     // Zoom: each wheel notch scales the FOV by 10%, with Ctrl by 2% (wheel away = zoom in).
     if (f.wheel) f.fov_target = std::clamp(f.fov_target * std::pow(fine ? 0.98f : 0.9f, float(f.wheel)), 2.0f, 120.0f);
+    // Session 33: the bumpers zoom (RB in, LB out) by half / double the FOV per second.
+    if (f.pad_zoom != 0) f.fov_target = std::clamp(f.fov_target * std::pow(0.5f, f.pad_zoom * dt), 2.0f, 120.0f);
     f.wheel = 0;
     f.fov = Ease(f.fov, f.fov_target, dt, 0.15f * sm);
     // Move: W/S along the view, A/D left / right (level), E/Q world up / down (world Y is down).
     float fw[3], r[3], d[3];
     Axes(f.yaw, f.pitch, fw, r, d);
-    const float mf = float(KeyDown(f, VK::kW)) - float(KeyDown(f, VK::kS));
-    const float mr = float(KeyDown(f, VK::kD)) - float(KeyDown(f, VK::kA));
-    const float mu = float(KeyDown(f, VK::kE)) - float(KeyDown(f, VK::kQ));
+    const bool key_move = KeyDown(f, VK::kW) || KeyDown(f, VK::kS) || KeyDown(f, VK::kA) || KeyDown(f, VK::kD) ||
+                          KeyDown(f, VK::kE) || KeyDown(f, VK::kQ);
+    const float mf = float(KeyDown(f, VK::kW)) - float(KeyDown(f, VK::kS)) + f.pad_move_y;
+    const float mr = float(KeyDown(f, VK::kD)) - float(KeyDown(f, VK::kA)) + f.pad_move_x;
+    const float mu = float(KeyDown(f, VK::kE)) - float(KeyDown(f, VK::kQ)) + f.pad_up;
     float dir[3];
     for (int i = 0; i < 3; ++i) dir[i] = mf * fw[i] + mr * r[i];
     dir[1] -= mu;
-    // One speed in every direction (a diagonal was 1.4x before).
+    // One speed in every direction (a diagonal was 1.4x before); a stick pushed part way moves slower (Session 33).
     const float len = std::sqrt(Dot3(dir, dir));
     for (int i = 0; i < 3; ++i) {
-      const float target = len > 0 ? dir[i] / len * speed : 0.0f;
+      const float target = (len > 1.0f || key_move) && len > 0 ? dir[i] / len * speed : dir[i] * speed;
       f.vel[i] = Ease(f.vel[i], target, dt, 0.3f * sm);
       f.pos[i] += f.vel[i] * dt;
     }

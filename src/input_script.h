@@ -1964,10 +1964,22 @@ class InputScript {
 
 inline InputScript g_input_script;
 
+// Session 33 (photo mode, src\photo_mode.h): sees player 1's pad after everything above and may change it (an idle
+// pad for the game while the pad drives the camera). Null = nothing.
+inline void (*g_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
+// Session 33: photo mode's per-frame step (VdSwap, kernel_overrides.h). Null = nothing.
+inline void (*g_photo_frame_hook)(uint8_t* base) = nullptr;
+// Session 34: the 30 Years of WrestleMania jump's per-frame step (src/wm30_jump.h, VdSwap). Null = nothing.
+inline void (*g_wm30_frame_hook)(uint64_t frame) = nullptr;
+
 inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
                                          ppc_ptr_t<rex::input::X_INPUT_STATE> state) {
-  return replay::g_replay.State(user_index, flags, state,
-                                [&] { return g_input_script.GetState(user_index, flags, state); });
+  const uint32_t result = replay::g_replay.State(user_index, flags, state,
+                                                 [&] { return g_input_script.GetState(user_index, flags, state); });
+  if (g_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
+      (!(flags & 0xFF) || (flags & 0x01)))
+    g_pad_filter(&*state);
+  return result;
 }
 
 inline uint32_t XamInputGetCapabilitiesOverride(uint32_t user_index, uint32_t flags,

@@ -1,0 +1,19 @@
+# Session 33 (item 5, entrance music): a launched match with the first entrance playing, for traces / file traces of
+# how the theme starts and stops. Boot, the launch, the titantron opens (entrance step 5), 20 s of entrance, START
+# until the match scene (stops the theme), 5 s, quit. Needs --wwe2k14_launch=lesnar_bryan (entrances on).
+# Untimed. on_fail quit.
+on_fail quit
+log mu: start
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log mu: in-game loading
+wait_state entrance_step_0 >=5 2400 2 optional
+log mu: entrance step 5
+wait_frames 1200
+screenshot mu_entrance
+log mu: START until the match scene
+press_until_file START m3.pac 30 300
+log mu: match scene
+wait_frames 300
+log mu: end
+quit

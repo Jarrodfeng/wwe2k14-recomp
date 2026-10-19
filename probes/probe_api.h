@@ -16,7 +16,7 @@
 
 #include <stdint.h>
 
-#define WWE2K14_PROBE_API_VERSION 1
+#define WWE2K14_PROBE_API_VERSION 2
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +40,11 @@ typedef struct Wwe2k14ProbeHost {
   void (*log)(const char* text);  // one run-log line: "[wwe2k14][probe] text"
   uint64_t (*frame)(void);        // the guest frame (VdSwap count)
   uint32_t (*thread_id)(void);    // the host thread id
+  // Version 2 (Session 34): guest memory writes (host order in, stored big-endian). 1 = ok, 0 = the address is not
+  // readable (then nothing is written) or not aligned. For experiments: a write the game does not expect can crash it.
+  int (*write8)(uint32_t guest, uint8_t value);
+  int (*write16)(uint32_t guest, uint16_t value);
+  int (*write32)(uint32_t guest, uint32_t value);
 } Wwe2k14ProbeHost;
 
 // Exports a plugin provides (extern "C" __declspec(dllexport)):

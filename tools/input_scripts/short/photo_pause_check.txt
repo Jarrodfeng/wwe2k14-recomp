@@ -1,0 +1,31 @@
+# Session 33 follow-up: PHOTO MODE in the pause menu, T1 check. A launched match (entrances skipped), 10 s in, START
+# (pause): pp_list (8 rows, PHOTO MODE before QUIT MATCH); UP twice (row 0 wraps to QUIT MATCH, then PHOTO MODE):
+# pp_on_row; A: the game resumes and photo mode starts 40 frames later; pp_photo (no HUD, the free camera); a photo
+# saved; photo mode off; pp_after. Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true
+# --wwe2k14_photo_mode=true --wwe2k14_photo_dir=<a folder under out\>.
+# harness: realtime (menu presses)
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+wait_frames 600
+log ppc: pause
+press START 4 0
+wait_frames 60
+screenshot pp_list
+press UP
+wait_frames 30
+press UP
+wait_frames 30
+screenshot pp_on_row
+log ppc: A on PHOTO MODE
+press A
+wait_frames 120
+screenshot pp_photo
+cvar wwe2k14_photo_save 1
+wait_frames 60
+cvar wwe2k14_photo_mode_on false
+wait_frames 60
+screenshot pp_after
+log ppc: end
+quit

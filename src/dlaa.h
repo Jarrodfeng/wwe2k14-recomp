@@ -82,7 +82,18 @@ REXCVAR_DEFINE_STRING(wwe2k14_dlss_mode, "performance", "wwe2k14",
                       "balanced (720p -> 2207x1241), ultra_quality (1440p -> 3328x1872); sets resolution_scale (if left "
                       "at default) and the jitter length");
 
+// Session 33: AMD FSR 3 at the same spot as DLSS (same inputs: the picture without the HUD, depth, camera + wrestler
+// motion, jitter), on any graphics card (amd_fidelityfx_vk.dll next to the exe; no Streamline). Upscaling only.
+REXCVAR_DEFINE_BOOL(wwe2k14_fsr, false, "wwe2k14",
+                    "AMD FSR 3 upscaling (Session 33): like --wwe2k14_dlss but with AMD's FSR 3 on any graphics card "
+                    "(amd_fidelityfx_vk.dll next to the exe); --wwe2k14_fsr_mode picks the sizes. Wins over --wwe2k14_dlss");
+REXCVAR_DEFINE_STRING(wwe2k14_fsr_mode, "quality", "wwe2k14",
+                      "FSR mode: native (1440p, anti-aliasing only), quality (1440p -> 4K), performance (720p -> 1440p)");
+
 namespace wwe2k14::dlaa {
+
+// Session 33: the swap's upscaler is on (DLSS or FSR).
+inline bool UpscaleOn() { return REXCVAR_GET(wwe2k14_dlss) || REXCVAR_GET(wwe2k14_fsr); }
 
 inline bool g_on = false;  // any DLAA feature on: the hand-off feeds the camera
 inline std::atomic<uint32_t> g_logged{0};
@@ -97,6 +108,12 @@ struct DlssModeInfo {
   const char* lod_bias;
 };
 inline DlssModeInfo DlssMode() {
+  if (REXCVAR_GET(wwe2k14_fsr)) {  // Session 33: FSR 3 (AMD: 8 x ratio^2 jitter phases, LOD bias log2(ratio) - 1)
+    const std::string f = REXCVAR_GET(wwe2k14_fsr_mode);
+    if (f == "native") return {6, "", "8", "0"};  // the render size stays the chosen resolution
+    if (f == "performance") return {1, "1", "32", "-1.5"};
+    return {3, "2", "18", "-1"};  // quality
+  }
   const std::string m = REXCVAR_GET(wwe2k14_dlss_mode);
   if (m == "quality") return {3, "2", "18", "-1"};
   if (m == "ultra_performance") return {4, "1", "72", "-1.75"};
@@ -107,7 +124,7 @@ inline DlssModeInfo DlssMode() {
 
 // Before the presets (OnPreSetup): DLSS picks the render scale (only if resolution_scale was left at default).
 inline void ConfigureScale() {
-  if (REXCVAR_GET(wwe2k14_dlss) && rex::cvar::GetFlagSource("resolution_scale") == rex::cvar::Source::kDefault)
+  if (UpscaleOn() && *DlssMode().scale && rex::cvar::GetFlagSource("resolution_scale") == rex::cvar::Source::kDefault)
     rex::cvar::SetFlagByName("resolution_scale", DlssMode().scale);
 }
 
@@ -118,9 +135,10 @@ inline void Configure() {
   auto set = [](const char* name, const std::string& value) {
     if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
   };
-  if (REXCVAR_GET(wwe2k14_dlss)) {  // Session 24
+  if (UpscaleOn()) {  // Session 24 (Session 33: or FSR)
     const DlssModeInfo mode = DlssMode();
     set("gpu_dlss", "true");
+    if (REXCVAR_GET(wwe2k14_fsr)) set("gpu_dlss_fsr", "true");
     set("gpu_dlss_mode", std::to_string(mode.sdk_mode));
     set("gpu_dlaa_jitter", "true");
     set("gpu_dlaa_jitter_phases", mode.phases);
@@ -141,14 +159,15 @@ inline void Configure() {
   // Session 28 (Jarrod): the wrestlers' own motion vectors are always on with DLAA or DLSS (Session 24 measured them:
   // they keep a moving wrestler sharp, docs/research/dlss_s24.md); off without either (no cost when the picture is
   // not upscaled or anti-aliased by DLSS).
-  const bool objmv = REXCVAR_GET(wwe2k14_dlss_objmv) && (REXCVAR_GET(wwe2k14_dlaa) || REXCVAR_GET(wwe2k14_dlss));
+  const bool objmv = REXCVAR_GET(wwe2k14_dlss_objmv) && (REXCVAR_GET(wwe2k14_dlaa) || UpscaleOn());
   if (objmv || REXCVAR_GET(wwe2k14_dlss_bias)) {  // Session 24 rung 2
     set("vulkan_transform_feedback", "true");
     set("gpu_dlss_objmv", "true");
     if (!objmv) set("gpu_dlss_objmv_vectors", "false");  // the mask only
     if (REXCVAR_GET(wwe2k14_dlss_bias)) set("gpu_dlss_bias_mask", "true");
   }
-  if (REXCVAR_GET(wwe2k14_dlaa) || REXCVAR_GET(wwe2k14_dlss)) {
+  if (REXCVAR_GET(wwe2k14_fsr)) set("gpu_dlaa_jitter", "true");  // Session 33: FSR needs no Streamline folder
+  if (REXCVAR_GET(wwe2k14_dlaa) || (REXCVAR_GET(wwe2k14_dlss) && !REXCVAR_GET(wwe2k14_fsr))) {
     if (REXCVAR_GET(wwe2k14_dlaa)) set("gpu_dlaa", "true");
     set("gpu_dlaa_jitter", "true");  // DLAA needs the jitter
     std::string dir = REXCVAR_GET(wwe2k14_dlaa_dir);
@@ -168,15 +187,16 @@ inline void Configure() {
   if (REXCVAR_GET(wwe2k14_dlaa_jitter)) set("gpu_dlaa_jitter", "true");
   if (REXCVAR_GET(wwe2k14_dlaa_motion)) set("gpu_dlaa_motion", "true");
   if (debug_mode) set("gpu_dlaa_debug", std::to_string(debug_mode));
-  g_on = REXCVAR_GET(wwe2k14_dlaa) || REXCVAR_GET(wwe2k14_dlss) || REXCVAR_GET(wwe2k14_dlaa_jitter) ||
+  g_on = REXCVAR_GET(wwe2k14_dlaa) || UpscaleOn() || REXCVAR_GET(wwe2k14_dlaa_jitter) ||
          REXCVAR_GET(wwe2k14_dlaa_motion) || debug_mode != 0;
-  if (REXCVAR_GET(wwe2k14_dlaa) || REXCVAR_GET(wwe2k14_dlss) || REXCVAR_GET(wwe2k14_dlaa_motion) || debug_mode)
+  if (REXCVAR_GET(wwe2k14_dlaa) || UpscaleOn() || REXCVAR_GET(wwe2k14_dlaa_motion) || debug_mode)
     set("vulkan_texture_load_direct", "true");  // storage views
   if (g_on)
-    REXLOG_INFO("[wwe2k14][dlaa] dlaa {}, dlss {} (mode {} = gpu_dlss_mode {}, resolution_scale {}, jitter phases {}) "
+    REXLOG_INFO("[wwe2k14][dlaa] dlaa {}, dlss {}, fsr {} {} (mode {} = gpu_dlss_mode {}, resolution_scale {}, jitter phases {}) "
                 "object motion {}, bias mask {} "
                 "(runtime '{}'), jitter {}, motion {}, debug '{}' (near {}, far {})",
-                REXCVAR_GET(wwe2k14_dlaa), REXCVAR_GET(wwe2k14_dlss), REXCVAR_GET(wwe2k14_dlss_mode),
+                REXCVAR_GET(wwe2k14_dlaa), REXCVAR_GET(wwe2k14_dlss), REXCVAR_GET(wwe2k14_fsr),
+                REXCVAR_GET(wwe2k14_fsr_mode), REXCVAR_GET(wwe2k14_dlss_mode),
                 rex::cvar::GetFlagByName("gpu_dlss_mode"), rex::cvar::GetFlagByName("resolution_scale"),
                 rex::cvar::GetFlagByName("gpu_dlaa_jitter_phases"), objmv,
                 REXCVAR_GET(wwe2k14_dlss_bias), rex::cvar::GetFlagByName("vulkan_streamline_dir"),

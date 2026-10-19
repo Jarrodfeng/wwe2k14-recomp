@@ -21,6 +21,7 @@
 //   --backup  --restore N (0 = newest backup)  --report  --no-open (don't open folders)
 //   --settings FILE (another settings file: a fresh profile)   --play  --quick-match  --capture NAME
 //   --quick-type N (Quick Match: build match type N)   --page about|quick|advanced (Session 31)
+//   --page wm30 (Play -> 30 Years of WrestleMania)   --wm30-era N (its era tab)   --wm30-play N (start match N; Session 34)
 //   --settings-section N (Settings: 0 game, 1 display, 2 graphics, 3 advanced; Session 31)
 //   --show-crash CODE | --show-report (open that popup, for a look; Session 31)   --titles-view list|grid
 //   --update-check (check for updates even in a +dev build)   --update-file JSON (a release from a file, not GitHub)
@@ -67,6 +68,8 @@
 #include "update_check.h"
 #include "launcher_theme.h"
 #include "logo_save.h"
+#include "dlc_names.h"  // Session 32: DLC wrestlers' names from the player's DLC files (needs stb_image above)
+#include "wm30_list.h"  // Session 34: the 30 Years of WrestleMania matches from the player's game files
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -254,6 +257,27 @@ std::optional<fs::path> PickFile(HWND owner) {
                                {L"All files", L"*.*"}};
   dlg->SetFileTypes(2, types);
   dlg->SetTitle(L"Pick a video for this tron");
+  std::optional<fs::path> out;
+  if (SUCCEEDED(dlg->Show(owner))) {
+    IShellItem* item = nullptr;
+    if (SUCCEEDED(dlg->GetResult(&item))) {
+      PWSTR p = nullptr;
+      if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) out = fs::path(p), CoTaskMemFree(p);
+      item->Release();
+    }
+  }
+  dlg->Release();
+  return out;
+}
+
+// Session 33: an audio file for a wrestler's entrance music.
+std::optional<fs::path> PickAudio(HWND owner) {
+  IFileOpenDialog* dlg = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&dlg)))) return std::nullopt;
+  COMDLG_FILTERSPEC types[] = {{L"Music (*.mp3, *.m4a, *.wav, *.flac, *.wma, *.aac)", L"*.mp3;*.m4a;*.wav;*.flac;*.wma;*.aac"},
+                               {L"All files", L"*.*"}};
+  dlg->SetFileTypes(2, types);
+  dlg->SetTitle(L"Pick this wrestler's entrance music");
   std::optional<fs::path> out;
   if (SUCCEEDED(dlg->Show(owner))) {
     IShellItem* item = nullptr;
@@ -873,7 +897,7 @@ class App {
       else s.page = 1, want_mods_tab_ = st.a == "titles" ? 1 : st.a == "logos" ? 2 : 0;
     } else if (st.op == "page") {  // Session 31: + about, quick (Play -> Quick Match), advanced (Play -> Advanced)
       GoPage(st.a == "mods" ? 1 : st.a == "settings" ? 2 : st.a == "about" ? 3 : 0);
-      play_view_ = st.a == "quick" ? 1 : st.a == "advanced" ? 2 : 0;
+      play_view_ = st.a == "quick" ? 1 : st.a == "advanced" ? 2 : st.a == "wm30" ? 3 : 0;
     }
     else if (st.op == "mods_tab") s.page = 1, want_mods_tab_ = st.a == "titles" ? 1 : st.a == "logos" ? 2 : 0;
     else if (st.op == "logo_add") {  // PNG or PNG@SLOT (a test: that slot, 1-20, instead of the first free one)
@@ -894,6 +918,13 @@ class App {
     else if (st.op == "no_rtx") hw_.rtx = false, force_rtx_ = false;
     else if (st.op == "quick_match") LaunchQuickMatch();
     else if (st.op == "quick_type") s.quick_mode = 0, s.quick_type = std::atoi(st.a.c_str());  // Session 31
+    else if (st.op == "wm30_era") wm30_era_ = std::clamp(std::atoi(st.a.c_str()), 0, 4), wm30_sel_ = -1;  // Session 34
+    else if (st.op == "wm30_play") {  // Session 34: what PLAY MATCH does for match N (the list read first)
+      if (!wm30_.loaded && gd_.ok) wm30_ = wwe2k14::wm30list::Load(GameFilesAt(paths_.game_data));
+      const int n = std::atoi(st.a.c_str());
+      for (const auto& m : wm30_.matches)
+        if (m.index == n) LaunchWm30(m);
+    }
     else if (st.op == "settings_section") s.page = 2, settings_section_ = std::atoi(st.a.c_str());
     else if (st.op == "show_crash") crash_code_ = DWORD(std::strtoul(st.a.c_str(), nullptr, 0)), want_crash_popup_ = true;
     else if (st.op == "show_report") want_report_popup_ = true;
@@ -1240,6 +1271,11 @@ class App {
       QuickMatch();
       return;
     }
+    if (play_view_ == 3) {
+      if (TitleWithBack("30 YEARS OF WRESTLEMANIA")) play_view_ = 0;
+      Wm30Page();
+      return;
+    }
     if (play_view_ == 2) {
       if (TitleWithBack("ADVANCED")) play_view_ = 0;
       ImGui::TextDisabled("Replays, re-shoots, seeds, director scripts and the exact command line.");
@@ -1289,6 +1325,7 @@ class App {
     const float bx = o.x + (avail.x - 2 * bw - gap) / 2;
     if (SlantButton("PLAY GAME", ImVec2(bx, y), ImVec2(bw, bh), gd_.ok && !game_proc_, 36 * d)) LaunchPlain();
     if (SlantButton("QUICK MATCH", ImVec2(bx + bw + gap, y), ImVec2(bw, bh), true, 36 * d)) play_view_ = 1;
+    const float buttons_bottom = y + bh;  // Session 34: the 30 YEARS button continues these two's outer slanted edges
     y += bh + 8 * d;
     auto caption = [&](float x, const char* text) {
       const ImVec2 ts = ImGui::CalcTextSize(text);
@@ -1296,6 +1333,20 @@ class App {
       ImGui::TextDisabled("%s", text);
     };
     caption(bx + bw + gap, "pick the match, wrestlers and arena");
+    // Session 34: every 30 Years of WrestleMania match, one click away (Play -> 30 YEARS). Its left and right edges
+    // lie on the lines of PLAY GAME's left and QUICK MATCH's right edge (SlantButton slants 0.22 x its height, the
+    // same slope at any height): shifted left by the slant over the gap below them, narrower by the slant they have
+    // and it hasn't (Jarrod: "it otherwise looks uncentered").
+    y += ImGui::GetTextLineHeightWithSpacing() + 12 * d;
+    const float wh = 64 * d, wx = bx - 0.22f * (y + wh - buttons_bottom), ww = 2 * bw + gap - 0.22f * (bh - wh);
+    if (SlantButton("30 YEARS OF WRESTLEMANIA", ImVec2(wx, y), ImVec2(ww, wh), true, 30 * d)) play_view_ = 3;
+    y += wh + 8 * d;
+    {
+      const char* text = "any of the mode's 46 matches, straight from the main menu";
+      const ImVec2 ts = ImGui::CalcTextSize(text);
+      ImGui::SetCursorScreenPos(ImVec2(wx + (ww - 0.22f * wh - ts.x) / 2, y));
+      ImGui::TextDisabled("%s", text);
+    }
 
     // Bottom: what Play uses, the keys, and the Advanced tools.
     const float line = ImGui::GetTextLineHeightWithSpacing();
@@ -1420,6 +1471,8 @@ class App {
     std::vector<const Character*> w;
     for (const auto& c : chars_)
       if (c.kind == "wrestler") w.push_back(&c);
+    for (const auto& c : dlc_chars_)  // Session 32: the DLC wrestlers whose pack is on
+      if (DlcWrestlerOn(c)) w.push_back(&c);
     return w;
   }
 
@@ -1654,6 +1707,7 @@ class App {
 
   void QuickMatch() {
     const float dpi = Dpi(), label_w = 170 * dpi;
+    RefreshDlc(30);  // Session 32: the DLC wrestlers for the pickers
     ImGui::RadioButton("Build a match", &s.quick_mode, 0);
     ImGui::SameLine();
     ImGui::RadioButton("My saved setups", &s.quick_mode, 1);
@@ -1747,10 +1801,107 @@ class App {
     return p;
   }
   void LaunchPlain() { StartGame(BuildCommand(PlainSettings(), paths_), "Started the game"); }
+
+  // ---------------- Play -> 30 Years of WrestleMania (Session 34; src\launcher\wm30_list.h, src\wm30_jump.h)
+  wwe2k14::wm30list::Catalogue wm30_;
+  int wm30_era_ = 0, wm30_sel_ = -1;
+
+  void Wm30Page() {
+    const float d = Dpi();
+    if (!wm30_.loaded && gd_.ok) wm30_ = wwe2k14::wm30list::Load(GameFilesAt(paths_.game_data));
+    if (!gd_.ok) {
+      ImGui::TextColored(kBad, "Your game files aren't set up yet.");
+      if (ImGui::SmallButton("Go to Settings")) GoPage(2);
+      return;
+    }
+    if (!wm30_.ok) {
+      ImGui::TextColored(kBad, "Couldn't read the 30 Years of WrestleMania matches from your game files.");
+      ImGui::TextDisabled("%s", wm30_.error.c_str());
+      if (ImGui::SmallButton("Try again")) wm30_ = {};
+      return;
+    }
+    ImGui::TextDisabled("The game starts at its main menu and goes to the match by itself (its own videos, story card, "
+                        "objectives). Locked matches work too.");
+    ImGui::Spacing();
+    std::string upper[5];
+    const char* names[5];
+    for (int e = 0; e < 5; ++e) {
+      upper[e] = wm30_.era_names[e];
+      for (char& ch : upper[e]) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+      // Short tab labels so all five fit: HULKAMANIA, NEW GENERATION, ATTITUDE, RUTHLESS AGGRESSION, UNIVERSE.
+      if (upper[e].rfind("THE ", 0) == 0) upper[e].erase(0, 4);
+      for (const char* tail : {" RUNS WILD", " ERA"})
+        if (upper[e].size() > std::strlen(tail) && upper[e].ends_with(tail)) upper[e].resize(upper[e].size() - std::strlen(tail));
+      names[e] = upper[e].c_str();
+    }
+    if (GameTabs(names, 5, wm30_era_)) wm30_sel_ = -1;
+    ImGui::Spacing();
+    const float list_w = std::min(ImGui::GetContentRegionAvail().x * 0.48f, 520 * d);
+    const float h = ImGui::GetContentRegionAvail().y - 90 * d;
+    ImGui::BeginChild("wm30_list", ImVec2(list_w, std::max(h, 120 * d)), ImGuiChildFlags_Borders);
+    for (const auto& m : wm30_.matches) {
+      if (m.era != wm30_era_) continue;
+      if (wm30_sel_ < 0) wm30_sel_ = m.index;
+      const std::string label = m.title + "##" + std::to_string(m.index);
+      if (ImGui::Selectable(label.c_str(), wm30_sel_ == m.index)) wm30_sel_ = m.index;
+      ImGui::TextDisabled("   %s, %s", m.show.c_str(), m.date.c_str());
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    ImGui::BeginChild("wm30_detail", ImVec2(0, std::max(h, 120 * d)), ImGuiChildFlags_Borders);
+    const wwe2k14::wm30list::Match* sel = nullptr;
+    for (const auto& m : wm30_.matches)
+      if (m.index == wm30_sel_) sel = &m;
+    if (sel) {
+      SubHeading(sel->title.c_str());
+      ImGui::Text("%s, %s, %s", sel->show.c_str(), sel->venue.c_str(), sel->date.c_str());
+      if (!sel->championship.empty()) ImGui::Text("Title match: %s", sel->championship.c_str());
+      if (!sel->type_name.empty()) ImGui::Text("Match type: %s", sel->type_name.c_str());
+      std::string arena;
+      for (const auto& a : arenas_)
+        if (a.id == sel->arena) arena = a.name;
+      if (!arena.empty()) ImGui::Text("Arena: %s", arena.c_str());
+      std::string people;
+      for (const auto& p : sel->people) people += (people.empty() ? "" : ", ") + p;
+      ImGui::TextWrapped("In the match: %s", people.c_str());
+      ImGui::Spacing();
+      for (const auto& t : sel->stipulations) ImGui::BulletText("%s", t.c_str());
+      if (!sel->historical.empty()) ImGui::TextDisabled("Historical objectives:");
+      for (const auto& t : sel->historical) ImGui::BulletText("%s", t.c_str());
+    }
+    ImGui::EndChild();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    if (SlantButton("PLAY MATCH", ImVec2(at.x, at.y + 8 * d), ImVec2(250 * d, 64 * d), sel && !game_proc_, 28 * d))
+      LaunchWm30(*sel);
+  }
+
+  void LaunchWm30(const wwe2k14::wm30list::Match& m) {
+    Settings q = PlainSettings();
+    q.scenario.clear();
+    q.wm30 = m.index;
+    StartGame(BuildCommand(q, paths_), "Started 30 Years of WrestleMania: " + m.title);
+  }
   void LaunchQuickMatch() {
     Settings q = s;
     q.preset = kPlay, q.harness = false;
     if (s.quick_mode == 0) {  // Session 27 item 8: built from our numbers
+      // Session 32: a DLC wrestler needs the pack on (the game has no such character otherwise), and an id the
+      // launcher doesn't know at all (a DLC wrestler from a folder that has gone) is not sent either.
+      for (int id : ParseIds(s.quick_ids)) {
+        if (id < 0) continue;
+        const bool on_disc = std::any_of(chars_.begin(), chars_.end(), [&](const Character& c) { return c.id == id; });
+        const auto dlc = std::find_if(dlc_chars_.begin(), dlc_chars_.end(), [&](const Character& c) { return c.id == id; });
+        if (dlc != dlc_chars_.end() && !DlcWrestlerOn(*dlc)) {
+          Status(dlc->name + " needs DLC pack " + std::to_string(dlc->dlc_pack) +
+                 ": switch it on in Settings -> Game -> Downloadable content, or pick another wrestler");
+          return;
+        }
+        if (!on_disc && dlc == dlc_chars_.end()) {
+          Status("Wrestler #" + std::to_string(id) + " isn't available (a DLC wrestler whose pack is missing?): pick "
+                 "another wrestler");
+          return;
+        }
+      }
       q.scenario = "@quick";
       StartGame(BuildCommand(q, paths_), "Started a Quick Match");
       return;
@@ -1784,6 +1935,7 @@ class App {
     if (cmd.exe == paths_.game_exe.wstring()) {  // what the in-game GRAPHICS screen may change (ReloadGraphicsSettings)
       launch_graphics_.upscale = s.upscale, launch_graphics_.resolution = s.resolution;
       launch_graphics_.frame_rate = s.frame_rate, launch_graphics_.original_look = s.original_look;
+      launch_graphics_.texture_filter = s.texture_filter;
       launch_graphics_set_ = true;
     }
   }
@@ -1800,6 +1952,7 @@ class App {
     if (p.resolution && c.resolution != launch_graphics_.resolution) s.resolution = c.resolution;
     if (p.frame_rate && c.frame_rate != launch_graphics_.frame_rate) s.frame_rate = c.frame_rate;
     if (p.original_look && c.original_look != launch_graphics_.original_look) s.original_look = c.original_look;
+    if (p.texture_filter && c.texture_filter != launch_graphics_.texture_filter) s.texture_filter = c.texture_filter;
     launch_graphics_set_ = false;
   }
   wwe2k14::gfxs::Choice launch_graphics_;  // the graphics choices as the game was started with them
@@ -2444,7 +2597,52 @@ class App {
     } catch (...) {  // review: never let an odd folder take the launcher down
       dlc_packs_.clear();
     }
+    RebuildDlcWrestlers();
   }
+
+  // Session 32 (Jarrod: DLC wrestlers in Quick Match): every ready pack's wrestlers (its catalog's character files),
+  // named from the packs' own string files (dlc_names.h; read once per pack and kept). Whether a pack is on is checked
+  // where the list is used (Wrestlers()), so a switch takes effect at once.
+  std::vector<Character> dlc_chars_;
+  std::map<std::string, std::map<int, std::string>> dlc_names_;  // pack root | string file -> names
+
+  void RebuildDlcWrestlers() {
+    dlc_chars_.clear();
+    std::map<int, std::string> names;  // the string files are cumulative: any pack's list will do
+    for (const auto& p : dlc_packs_) {
+      if (p.status != wwe2k14::dlc::Status::kReady || p.string_pack.empty()) continue;
+      const std::string key = wwe2k14::dlc::PathUtf8(p.root) + "|" + p.string_pack;
+      auto it = dlc_names_.find(key);
+      if (it == dlc_names_.end()) {
+        std::map<int, std::string> got;
+        try {
+          got = wwe2k14::dlc::NamesFromPack(p);
+        } catch (...) {
+        }
+        it = dlc_names_.emplace(key, std::move(got)).first;
+      }
+      for (const auto& [id, n] : it->second) names.emplace(id, n);
+    }
+    for (const auto& p : dlc_packs_) {
+      if (p.status != wwe2k14::dlc::Status::kReady) continue;
+      for (int id : p.char_ids) {
+        const bool known = std::any_of(chars_.begin(), chars_.end(), [&](const Character& c) { return c.id == id; }) ||
+                           std::any_of(dlc_chars_.begin(), dlc_chars_.end(), [&](const Character& c) { return c.id == id; });
+        if (known) continue;
+        Character c;
+        c.id = id, c.kind = "wrestler", c.dlc_pack = p.pack_id;
+        const auto n = names.find(id);
+        c.name = n != names.end() && !n->second.empty() ? wwe2k14::dlc::ReadableName(n->second)
+                                                         : "DLC wrestler #" + std::to_string(id);
+        c.note = "DLC pack " + std::to_string(p.pack_id);
+        dlc_chars_.push_back(std::move(c));
+      }
+    }
+    std::sort(dlc_chars_.begin(), dlc_chars_.end(),
+              [](const Character& a, const Character& b) { return Lower(a.name) < Lower(b.name); });
+  }
+  // A DLC wrestler the game has right now (USE MY DLC on, the pack not switched off).
+  bool DlcWrestlerOn(const Character& c) const { return s.dlc && c.dlc_pack >= 0 && !DlcIsOff(c.dlc_pack); }
   bool DlcIsOff(int id) const {
     const auto off = wwe2k14::dlc::ParseIdList(s.dlc_off);
     return std::find(off.begin(), off.end(), id) != off.end();
@@ -2574,6 +2772,22 @@ class App {
     SubHeading("IN THE GAME");
     OptionToggle("CINECAM", s.cinecam, true, "Free camera: F8 in a match.");
     OptionToggle("RUN-INS", s.runin, true, "F9 in a match: another wrestler interferes (experimental).");
+    OptionToggle("PHOTO MODE", s.photo_mode, true,
+                 "F10 (or both sticks clicked, held) in a match: the scene nearly stops, a free camera, no HUD, depth "
+                 "of field; A / Enter saves a PNG to Pictures\\WWE 2K14.");
+    // Session 33: Discord status (the Discord app on this PC; only the wrestlers, the match type and the time).
+    OptionToggle("DISCORD STATUS", s.discord, true,
+                 "Your Discord status shows the match: the wrestlers, the match type and the time (\"In the menus\" "
+                 "otherwise). Needs the Discord app running on this PC. Nothing else is sent.");
+    if (s.discord && !*kDiscordAppId) {
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14 * Dpi());
+      ImGui::SetNextItemWidth(320 * Dpi());
+      ImGui::InputTextWithHint("##discord_app", "Discord application id", &s.discord_app_id);
+      if (s.discord_app_id.empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored(kWarn, "No application id yet: nothing is sent.");
+      }
+    }
     bool pr = s.perf_report < 0 ? g_perf_report_default : s.perf_report == 1;
     if (OptionToggle("PERFORMANCE REPORT", pr, true,
                      "Frame and load times per scene when the game closes; it goes into Report a problem."))
@@ -2619,13 +2833,26 @@ class App {
     int mode = s.windowed ? 1 : 0;
     if (OptionRow("DISPLAY", mode, kMode, 2)) s.windowed = mode == 1;
 
-    const bool dlss = s.upscale >= 2 && s.upscale <= 4;
+    // Session 33: ultrawide. AUTO = the monitor's shape: wider than 16:9 shows more of the scene at the sides; the
+    // HUD and menus stay a centred 16:9.
+    static constexpr const char* kAspect[] = {"16:9", "AUTO"};
+    const double mon = hw_.screen_h ? double(hw_.screen_w) / double(hw_.screen_h) : 16.0 / 9.0;
+    char anote[200];
+    std::snprintf(anote, sizeof(anote), "%s Your monitor: %dx%d (%.2f:1).",
+                  s.aspect == 1 ? "The monitor's shape: more of the arena at the sides on an ultrawide; HUD and menus "
+                                  "stay 16:9."
+                                : "The game's own 16:9.",
+                  hw_.screen_w, hw_.screen_h, mon);
+    s.aspect = std::clamp(s.aspect, 0, 1);
+    OptionRow("ASPECT", s.aspect, kAspect, 2, true, anote);
+
+    const bool dlss = (s.upscale >= 2 && s.upscale <= 4) || s.upscale == 6 || s.upscale == 7;  // S33: or FSR Q / P
     static constexpr const char* kRes[] = {"720P", "1440P", "4K"};
     const int sug = SuggestResolution(hw_);
     char rnote[200];
     std::snprintf(rnote, sizeof(rnote), "%sYour monitor: %dx%d at %d Hz; suggested %s.",
                   s.original_look ? "Original look is on (Graphics): 720p. "
-                  : dlss          ? "DLSS picks the size itself (Graphics). "
+                  : dlss          ? "The upscaler picks the size itself (Graphics). "
                                   : "",
                   hw_.screen_w, hw_.screen_h, hw_.refresh_hz, kRes[sug]);
     OptionRow("RESOLUTION", s.resolution, kRes, 3, !dlss && !s.original_look, rnote);
@@ -2659,26 +2886,42 @@ class App {
 
   void SettingsGraphics() {
     const float d = Dpi();
-    // Shown in Jarrod's order (Session 31): DLAA, then DLSS from the fastest to the sharpest. kUpValue = the stored
-    // s.upscale (0 off, 1 DLAA, 2 DLSS performance, 3 quality, 4 ultra performance; launcher_core.h).
-    static constexpr int kUpValue[] = {0, 1, 4, 2, 3};
-    static constexpr const char* kUp[] = {"OFF", "DLAA", "DLSS ULTRA PERFORMANCE", "DLSS PERFORMANCE", "DLSS QUALITY"};
+    // Shown in Jarrod's order (Session 31): DLAA, then DLSS from the fastest to the sharpest. Session 33: then AMD FSR 3
+    // (native, quality, performance) on every card (AMD's runtime ships next to the game). kUpValue = the stored
+    // s.upscale (0 off, 1 DLAA, 2 DLSS performance, 3 quality, 4 ultra performance, 5 FSR native, 6 FSR quality, 7 FSR
+    // performance; launcher_core.h).
+    static constexpr int kUpValue[] = {0, 1, 4, 2, 3, 5, 6, 7};
+    static constexpr const char* kUp[] = {"OFF",          "DLAA",        "DLSS ULTRA PERFORMANCE", "DLSS PERFORMANCE",
+                                          "DLSS QUALITY", "FSR NATIVE",  "FSR QUALITY",            "FSR PERFORMANCE"};
     static constexpr const char* kUpNote[] = {"No upscaling.", "NVIDIA anti-aliasing at your resolution.",
                                               "720p drawn, shown as 4K.", "720p drawn, shown as 1440p.",
-                                              "1440p drawn, shown as 4K."};
+                                              "1440p drawn, shown as 4K.", "AMD anti-aliasing at your resolution.",
+                                              "AMD FSR 3: 1440p drawn, shown as 4K.",
+                                              "AMD FSR 3: 720p drawn, shown as 1440p."};
     const bool rtx = hw_.rtx || force_rtx_;
-    if (rtx) {
-      int ui = 0;
-      for (int i = 0; i < 5; ++i)
-        if (kUpValue[i] == s.upscale) ui = i;
-      if (OptionRow("UPSCALING", ui, kUp, 5, true, kUpNote[ui])) s.upscale = kUpValue[ui];
+    const bool fsr = wwe2k14::gfxs::HasFsrRuntime();
+    std::vector<int> idx{0};
+    if (rtx) idx.insert(idx.end(), {1, 2, 3, 4});
+    if (fsr) idx.insert(idx.end(), {5, 6, 7});
+    std::vector<const char*> names;
+    int ui = 0;
+    for (size_t i = 0; i < idx.size(); ++i) {
+      names.push_back(kUp[idx[i]]);
+      if (kUpValue[idx[i]] == s.upscale) ui = int(i);
+    }
+    if (idx.size() > 1) {
+      std::string note = kUpNote[idx[size_t(ui)]];
+      if (!rtx && ui == 0)
+        note += " DLSS needs an NVIDIA RTX card (found: " + (hw_.gpu.empty() ? std::string("unknown") : hw_.gpu) + ").";
+      if (OptionRow("UPSCALING", ui, names.data(), int(names.size()), true, note.c_str()))
+        s.upscale = kUpValue[idx[size_t(ui)]];
     } else {
       int off = 0;
       const std::string why = "DLSS needs an NVIDIA RTX card (found: " + (hw_.gpu.empty() ? std::string("unknown") : hw_.gpu) +
-                              "). FSR support is coming soon.";
-      OptionRow("UPSCALING", off, kUp, 1, false, why.c_str());
+                              "); FSR needs amd_fidelityfx_vk.dll next to the game (missing).";
+      OptionRow("UPSCALING", off, names.data(), 1, false, why.c_str());
     }
-    if (rtx && s.upscale) {
+    if (rtx && wwe2k14::gfxs::IsNvidia(s.upscale)) {
       // Session 31 (Jarrod: the bundled files should just work): with NVIDIA's files next to the launcher (a release)
       // or in the project's Streamline SDK (a development build), nothing to set up; another folder is optional.
       const bool own = HasStreamline(s.dlss_dir), included = !paths_.nvidia.empty();
@@ -2707,6 +2950,14 @@ class App {
       }
       ImGui::Dummy(ImVec2(0, 6 * d));
     }
+    // Session 33: anisotropic filtering (the game always had 4x forced by the runtime; 8x / 16x sharpen floors,
+    // ramps and mats seen at an angle). Changes at once from the game's own GRAPHICS screen too.
+    static constexpr const char* kTf[] = {"STANDARD", "8X", "16X"};
+    static constexpr const char* kTfNote[] = {"4x anisotropic filtering, as before.",
+                                              "8x anisotropic filtering: sharper floors and ramps at an angle.",
+                                              "16x anisotropic filtering: the sharpest floors and ramps at an angle."};
+    s.texture_filter = std::clamp(s.texture_filter, 0, 2);
+    OptionRow("TEXTURE FILTERING", s.texture_filter, kTf, 3, true, kTfNote[s.texture_filter]);
     OptionToggle("ORIGINAL LOOK", s.original_look, true,
                  "The Xbox 360 picture: 720p, the game's 4x MSAA, 30 fps entrances.");
   }
@@ -2729,6 +2980,7 @@ class App {
       {"stb_image", "pictures (Sean Barrett)", "https://github.com/nothings/stb"},
       {"nlohmann/json", "settings files (Niels Lohmann)", "https://github.com/nlohmann/json"},
       {"NVIDIA DLSS", "upscaling (NVIDIA Streamline)", "https://developer.nvidia.com/rtx/streamline"},
+      {"AMD FidelityFX", "FSR 3 upscaling (AMD FidelityFX SDK)", "https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK"},
       {"SteamGridDB", "the fan-made icon art", "https://www.steamgriddb.com"},
   };
 
@@ -2783,6 +3035,7 @@ class App {
     }
     ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
     Note("NVIDIA, the NVIDIA logo, DLSS and RTX are trademarks and/or registered trademarks of NVIDIA Corporation. "
+         "AMD, FidelityFX and FSR are trademarks of Advanced Micro Devices, Inc. "
          "The full list of libraries and their licences is in THIRD_PARTY_NOTICES.md next to the launcher.");
     ImGui::PopTextWrapPos();
   }
@@ -2898,8 +3151,8 @@ class App {
       static constexpr const char* kRes[] = {"720P", "1440P", "4K"};
       OptionRow("RESOLUTION", wiz_.resolution, kRes, 3);
       FrameRateRow(wiz_);
-      ImGui::TextDisabled("%s", hw_.rtx ? "Upscaling (DLSS / DLAA) is in Settings -> Graphics."
-                                        : "Upscaling: FSR support is coming soon.");
+      ImGui::TextDisabled("%s", hw_.rtx ? "Upscaling (DLSS / DLAA / FSR) is in Settings -> Graphics."
+                                        : "Upscaling (AMD FSR) is in Settings -> Graphics.");
     }
     ImGui::Dummy(ImVec2(0, 12 * d));
     if (wizard_step_ == 0) {
@@ -3426,6 +3679,26 @@ class App {
       ImGui::TextWrapped("MP4 / MOV / MKV: any size (shown up to 1024 wide), looped, no sound. "
                          ".bik2: played by the game's own Bink decoder.");
       ImGui::PopStyleColor();
+      // Session 33: this wrestler's entrance music (the game's theme is muted while yours plays).
+      if (c) {
+        ImGui::Separator();
+        const fs::path mu = MusicFor(paths_, c->id);
+        if (mu.empty()) ImGui::TextUnformatted("Entrance music: the original");
+        else ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "Entrance music: %s", PathStr(mu.filename()).c_str());
+        if (ImGui::Button("Assign music...", ImVec2(-1, 0))) {
+          if (auto f = PickAudio(hwnd_)) {
+            const std::string err = AssignMusic(paths_, c->id, *f);
+            Status(err.empty() ? "Entrance music assigned: " + PathStr(f->filename()) : "Music not assigned: " + err);
+          }
+        }
+        ImGui::BeginDisabled(mu.empty());
+        if (ImGui::Button("Original music", ImVec2(-1, 0))) RevertMusic(paths_, c->id), Status("Original entrance music");
+        ImGui::EndDisabled();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("MP3 / M4A / WAV / FLAC / WMA / AAC. Plays in normal play (not in replays); copied into "
+                           "the mods folder as music\\%d. Needs USE MY VIDEOS on.", c->id);
+        ImGui::PopStyleColor();
+      }
     }
     ImGui::EndChild();
 
@@ -3712,6 +3985,8 @@ class App {
   std::string CharName(int id) const {
     for (const auto& c : chars_)
       if (c.id == id) return c.name;
+    for (const auto& c : dlc_chars_)  // Session 32
+      if (c.id == id) return c.name + (DlcWrestlerOn(c) ? "" : " (DLC pack off)");
     return "#" + std::to_string(id);
   }
 
@@ -3988,6 +4263,8 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--play") out.push_back({"play"});
     else if (a == "--quick-match") out.push_back({"quick_match"});
     else if (a == "--quick-type") out.push_back({"quick_type", next()});
+    else if (a == "--wm30-era") out.push_back({"wm30_era", next()});  // Session 34
+    else if (a == "--wm30-play") out.push_back({"wm30_play", next()});  // Session 34
     else if (a == "--settings-section") out.push_back({"settings_section", next()});
     else if (a == "--show-crash") out.push_back({"show_crash", next()});  // the crash popup with this code (a look)
     else if (a == "--show-report") out.push_back({"show_report"});

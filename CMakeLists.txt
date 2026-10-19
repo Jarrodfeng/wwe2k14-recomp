@@ -62,6 +62,15 @@ if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/game_logo.ico")
     target_compile_definitions(wwe2k14 PRIVATE WWE2K14_HAS_ICON=1)
 endif()
 
+# Session 33 (FSR 3): AMD's FidelityFX runtime (MIT; built from thirdparty/FidelityFX-SDK, ffx-api, by
+# tools/fsr/build_ffx.ps1) next to the exe; the SDK loads it at run time when FSR is picked. Missing = no FSR.
+set(WWE2K14_FFX_DLL "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/FidelityFX-SDK/ffx-api/bin/amd_fidelityfx_vk.dll")
+if(WIN32 AND EXISTS "${WWE2K14_FFX_DLL}")
+    add_custom_command(TARGET wwe2k14 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WWE2K14_FFX_DLL}" "$<TARGET_FILE_DIR:wwe2k14>"
+        VERBATIM)
+endif()
+
 # Linker map (symbol -> address) next to the exe, so native crash offsets from the
 # Windows event log (e.g. "Fault offset: 0x...") can be traced to a recompiled sub_XXXXXXXX.
 if(WIN32)

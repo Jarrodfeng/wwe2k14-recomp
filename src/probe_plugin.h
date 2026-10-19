@@ -159,13 +159,32 @@ inline void HostSetFpr(void* ctx, int n, double v) {
 }
 inline uint32_t HostGetLr(void* ctx) { return ctx ? uint32_t(static_cast<PPCContext*>(ctx)->lr) : 0; }
 inline void HostLog(const char* text) { REXLOG_INFO("[wwe2k14][probe] {}", text ? text : ""); }
+// Version 2 (Session 34): writes, checked like the reads (aligned, readable first), stored big-endian.
+inline int HostWrite(uint32_t g, uint32_t size, uint32_t v) {
+  uint32_t old = 0;
+  if (!ReadGuestBytes(g, size, &old)) return 0;
+  auto* host = REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(g);
+  if (!host) return 0;
+  if (size == 4) {
+    *reinterpret_cast<volatile uint32_t*>(host) = std::byteswap(v);
+  } else if (size == 2) {
+    *reinterpret_cast<volatile uint16_t*>(host) = std::byteswap(uint16_t(v));
+  } else {
+    *host = uint8_t(v);
+  }
+  return 1;
+}
+inline int HostWrite8(uint32_t g, uint8_t v) { return HostWrite(g, 1, v); }
+inline int HostWrite16(uint32_t g, uint16_t v) { return HostWrite(g, 2, v); }
+inline int HostWrite32(uint32_t g, uint32_t v) { return HostWrite(g, 4, v); }
 inline uint64_t HostFrame() { return g_guest_frame.load(std::memory_order_relaxed); }
 inline uint32_t HostThreadId() { return GetCurrentThreadId(); }
 
 inline const Wwe2k14ProbeHost* Host() {
   static const Wwe2k14ProbeHost host = {WWE2K14_PROBE_API_VERSION, HostRead8, HostRead16, HostRead32, HostReadBytes,
                                         HostReadString, HostGetGpr, HostSetGpr, HostGetFpr, HostSetFpr, HostGetLr,
-                                        HostLog, HostFrame, HostThreadId};
+                                        HostLog, HostFrame, HostThreadId, HostWrite8, HostWrite16,
+                                        HostWrite32};
   return &host;
 }
 

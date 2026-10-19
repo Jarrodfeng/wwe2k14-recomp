@@ -51,6 +51,10 @@ The GNU Lesser General Public License 2.1 text follows below.
   - `nvngx_dlss.dll` is under NVIDIA's RTX SDK licence (`nvidia\nvngx_dlss.license.txt`). End users may use it only
     with this program, and may not reverse engineer, decompile or disassemble it, or distribute it on its own.
   - NVIDIA, the NVIDIA logo, DLSS and RTX are trademarks and/or registered trademarks of NVIDIA Corporation.
+- **AMD FidelityFX** (`amd_fidelityfx_vk.dll`, FSR 3 upscaling): built unmodified from AMD's FidelityFX SDK 1.1.4
+  source (https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, its ffx-api with the Vulkan backend), MIT
+  licence, Copyright (C) 2024 Advanced Micro Devices, Inc. (licence text below). AMD, FidelityFX and FSR are
+  trademarks of Advanced Micro Devices, Inc.
 - **The Microsoft Visual C++ runtime** (`msvcp140.dll`, `msvcp140_atomic_wait.dll`, `vcruntime140.dll`,
   `vcruntime140_1.dll`): Microsoft's redistributable files from Visual Studio 2022, distributed unmodified under the
   Visual Studio licence's Distributable Code terms.
