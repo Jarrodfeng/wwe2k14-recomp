@@ -45,3 +45,19 @@ size_cursor = "+1428 u32 | SELECT CANVAS SIZE cursor: 0 = 128x128, 1 = 256x256 |
 category_cursor = "+1432 u32 | LOGO CATEGORIES cursor (0 the first ... 3 LETTERING); keeps its value inside a category | states.toml logo_category_cursor (Session 29 scan, run 2213)"
 grid_cursor = "+1448 u32 | logo grid slot 0-19 (row 1 = 0-4, row 2 = 5-9 on page 1) | states.toml logo_grid_cursor (run 1904)"
 phase = "+3204 u32 | 124 grid ready, 13 the 'create Custom Logo save data?' prompt, 8 editor | states.toml logo_phase (runs 1904 / 1921)"
+
+[CharPos0]
+base = "0x836F38D0>176"
+meaning = "character slot 0's position vector (char+176 points to it; bone 2's translation of its skeleton). Session 35 step 0 checks whether it is in the camera's world coordinates"
+evidence = "docs/systems/determinism.md Result 5 item 1 (sub_82C327C8 x/z distance of slot[+176] vectors) and Result 6 item 3 (bone 2 of the skeleton)"
+x = "+0 f32 | x | sub_82C327C8 reads +0 (determinism.md Result 5)"
+y = "+4 f32 | y (meaning unconfirmed) | between x and z of the same vector"
+z = "+8 f32 | z | sub_82C327C8 reads +8 (determinism.md Result 5)"
+
+[CharPos1]
+base = "0x836F38D4>176"
+meaning = "character slot 1's position vector (as CharPos0)"
+evidence = "as CharPos0"
+x = "+0 f32 | x | as CharPos0"
+y = "+4 f32 | y (meaning unconfirmed) | as CharPos0"
+z = "+8 f32 | z | as CharPos0"

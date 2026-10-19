@@ -1,0 +1,35 @@
+# Session 35: a release exe's CineCam keyframed shots check. Use with --wwe2k14_launch=@quick --wwe2k14_quick_type=0
+# --wwe2k14_launch_participants=343,324 --wwe2k14_launch_skip_entrances=true --wwe2k14_cinecam=true
+# (and --game_data_root for an exe outside the build tree). In the match: CineCam on, two keys 2 s apart, a preview,
+# save as s35_release_check (a release exe: Documents\WWE 2K14\CineCam\shots\; +dev: out\harness\cinecam\shots\),
+# screenshot, quit. on_fail quit.
+on_fail quit
+log rc: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log rc: main menu reached (the launcher fires after its idle frames)
+wait_state match_clock !=0 3600 2
+wait_frames 60
+cvar wwe2k14_cinecam_on true
+wait_frames 10
+cvar wwe2k14_cinecam_test_pose -1500,-400,0,0,-8,40
+wait_frames 5
+cvar wwe2k14_cinecam_timeline_cmd time 0;key
+wait_frames 5
+cvar wwe2k14_cinecam_test_pose -500,-250,700,-50,-12,25
+wait_frames 5
+cvar wwe2k14_cinecam_timeline_cmd time 2;key;length 2;time 0;preview start
+wait_frames 150
+screenshot rc_end
+cvar wwe2k14_cinecam_timeline_cmd save s35_release_check
+wait_frames 30
+log rc: done
+quit

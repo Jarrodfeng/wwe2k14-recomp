@@ -78,7 +78,7 @@ The game plays as it did on the Xbox 360, with a controller. On PC:
 
 | Key | What it does |
 |---|---|
-| **F8** | CineCam: a free camera (turn it on in Settings -> Game). Hold the right mouse button to look, W/A/S/D to move. |
+| **F8** | CineCam: a free camera (turn it on in Settings -> Game). Hold the right mouse button to look, W/A/S/D to move. Its timeline along the bottom makes keyframed shots: K sets a key at the playhead, Space plays the move (shots are saved in Documents\WWE 2K14\CineCam). |
 | **F9** | A run-in: another wrestler interferes (turn it on in Settings -> Game; experimental). |
 | **F3** | Shows the frame rate. |
 | **Alt+F4** | Quit. The main menu also has QUIT TO DESKTOP at the bottom. |

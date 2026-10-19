@@ -81,7 +81,9 @@ inline void OnFrame(uint64_t frame) {
   const auto& p = cinecam::P();
   switch (s.stage) {
     case 0:
-      if (p.anchor >= 0 && int64_t(frame) > p.anchor) {
+      // Session 35: + 1 more: the picture of guest frame anchor + 2 still shows the game's camera (the first frame
+      // of every earlier re-shoot clip did: runs 1397 / 2562), so the clip starts with the shot's first pose.
+      if (p.anchor >= 0 && int64_t(frame) > p.anchor + 1) {
         const int fps = std::clamp(int(REXCVAR_GET(wwe2k14_reshoot_fps)), 1, 240);
         if (clip::g_manager.Start(s.label, double(fps), 1.0, frame)) {
           s.clip_start = frame;
@@ -99,7 +101,8 @@ inline void OnFrame(uint64_t frame) {
       }
       break;
     case 1:
-      if (p.play_ended || p.play.empty()) {
+      // Session 35: a keyframed shot (NAME.shot) ends when it has played to its length.
+      if (cinecam::ShotPathActive() ? cinecam::ShotPathEnded() : (p.play_ended || p.play.empty())) {
         clip::g_manager.Stop(frame, "reshoot: shot ended");
         s.clip_stop = frame;
         s.stage = 2;

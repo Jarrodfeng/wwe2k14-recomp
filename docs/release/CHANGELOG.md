@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.1.8
+
+- **CineCam keyframed shots.** With CINECAM on (Settings -> Game), press F8 in a match: besides the free camera there
+  is now a timeline along the bottom of the screen. Set the camera somewhere, press K, move the playhead, set it
+  somewhere else, press K again, and CineCam makes a smooth move between them.
+  - Five separate tracks, each with its own keys: Move, Aim, Roll, Lens and Focus, so a long dolly, a zoom and a focus
+    pull can each have their own timing. The lens is shown as a focal length in mm (35 mm equivalent).
+  - Moves ease in and out (per key: smooth, linear or hold, and how much it slows into the key); a constant-speed
+    option gives an even dolly glide. Zooms and focus pulls change at an even-looking rate, without overshoot.
+  - Targets: look at a wrestler (with the subject placed anywhere in the frame, e.g. on a third), orbit around them
+    (a 270-degree orbit stays centred on them while they move), or keep the focus on them. A "pin" is a fixed point
+    instead, e.g. the titantron.
+  - Freeze scene nearly stops the game while you design the move; Play previews it (also at half or quarter speed);
+    Take plays it from the start in step with the game, for recording. Drag keys in time, click one to edit it.
+  - Keys: K key all tracks, Space play / pause, [ ] previous / next key, , and . one frame (Shift: one second),
+    Backspace delete the selected key.
+  - Shots are saved in Documents\WWE 2K14\CineCam\shots. A saved shot can be used for a re-shoot of a recorded match.
+- **Re-shoots:** the first frame of every re-shoot clip used to show the game's own camera; clips now start on the
+  shot's first frame.
+
 ## v0.1.7
 
 - **30 Years of WrestleMania, any match.** Play -> 30 YEARS OF WRESTLEMANIA lists all 46 matches of the mode by era,

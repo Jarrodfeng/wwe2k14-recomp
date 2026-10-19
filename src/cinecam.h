@@ -79,6 +79,7 @@
 #include "frame_stats.h"  // CurrentLogNumber
 #include "matte.h"  // Session 16: g_last_dof_view
 #include "dlaa.h"   // Session 18: the camera for the motion vectors
+#include "cinecam_keys.h"  // Session 35: keyframed shots
 
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
@@ -182,6 +183,20 @@ REXCVAR_DEFINE_STRING(wwe2k14_cinecam_test_move, "", "wwe2k14",
                       "CineCam test (S2): VX,VY,VZ,VYAW per second (world units, degrees) added to the free camera "
                       "every frame, for a scripted move without the keyboard. Empty = none");
 
+// Keyframed shots (Session 35; the "Keyframed shots" section below). Default: nothing happens until a shot is used.
+REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_timeline, true, "wwe2k14",
+                    "CineCam: show the keyframe timeline panel while the free camera is on");
+REXCVAR_DEFINE_STRING(wwe2k14_cinecam_timeline_cmd, "", "wwe2k14",
+                      "CineCam keyframed shots from a script: commands separated by ';' (key [TRACK], time S, preview "
+                      "[start], take, stop, rate R, loop 0|1, length S, constant 0|1, follow S, target aim|move|focus "
+                      "none|slot N|pin X Y Z|here, ease TRACK I E, curve TRACK I smooth|linear|hold, set|add TRACK I "
+                      "DIM VALUE, clear, save NAME, "
+                      "load NAME, freeze 0|1). Set it with `cvar wwe2k14_cinecam_timeline_cmd ...`");
+
+REXCVAR_DEFINE_STRING(wwe2k14_cinecam_dir, "", "wwe2k14",
+                      "CineCam: the folder for shots (shots\\*.shot) and recorded paths (paths\\shot_NN.txt). Empty = "
+                      "out/harness/cinecam in a +dev build, Documents\\WWE 2K14\\CineCam in a release");
+
 REX_EXTERN(sub_82280108);  // view block matrix setter (view block, matrix)
 
 namespace wwe2k14::cinecam {
@@ -218,6 +233,24 @@ inline std::filesystem::path DumpDir() {
       std::filesystem::path(std::wstring(buf, n)).parent_path() / ".." / ".." / "harness" / "cinecam", ec);
   std::filesystem::create_directories(dir, ec);
   return dir;
+}
+
+// Session 35: where shots (*.shot) and recorded paths (shot_NN.txt) live. A +dev build: out/harness/cinecam (DumpDir).
+// A release build (no "+dev" in the version): Documents\WWE 2K14\CineCam, beside photo mode's Pictures\WWE 2K14 (the
+// exe-relative ../../harness would land outside the unzipped game folder). --wwe2k14_cinecam_dir overrides both.
+inline std::filesystem::path UserDir() {
+  const std::string d = REXCVAR_GET(wwe2k14_cinecam_dir);
+  if (!d.empty()) return std::filesystem::path(d);
+#ifdef WWE2K14_VERSION
+  if (std::string_view(WWE2K14_VERSION).find("+dev") == std::string_view::npos) {
+    PWSTR docs = nullptr;
+    std::filesystem::path dir;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &docs))) dir = docs;
+    CoTaskMemFree(docs);
+    if (!dir.empty()) return dir / "WWE 2K14" / "CineCam";
+  }
+#endif
+  return DumpDir();
 }
 
 inline void DumpBytes(const uint8_t* base, uint32_t address, uint32_t size, int32_t label, const char* what) {
@@ -396,6 +429,7 @@ struct FreeCam {
   rex::ui::Window* window = nullptr;
   rex::ui::ImGuiDrawer* drawer = nullptr;
   rex::ui::ImGuiDialog* panel = nullptr;
+  rex::ui::ImGuiDialog* timeline = nullptr;  // Session 35: the keyframe timeline
 };
 
 inline FreeCam& F() {
@@ -556,7 +590,7 @@ inline int8_t SlotStep(const uint8_t* base, int i) {
 
 inline std::filesystem::path PathFile(const std::string& name) {
   std::filesystem::path p(name);
-  if (p.is_relative()) p = DumpDir() / "paths" / p;
+  if (p.is_relative()) p = UserDir() / "paths" / p;
   return p.lexically_normal();
 }
 
@@ -580,6 +614,10 @@ inline bool LoadPathFile(const std::filesystem::path& p, std::vector<PathPose>& 
   std::fclose(f);
   return true;
 }
+
+// Session 35 (defined with the keyframed shots below): --wwe2k14_cinecam_path_play=NAME.shot.
+inline bool ShotPathInit(const std::string& file);
+inline void ShotPathAnchor(FreeCam& f);
 
 inline void PathInit() {
   PathState& s = P();
@@ -612,7 +650,12 @@ inline void PathInit() {
     REXLOG_INFO("[wwe2k14][cinecam][path] recording to {} (anchor {}){}", p.string(), s.anchor_spec,
                 s.rec ? "" : ": OPEN FAILED");
   }
-  if (PathPlaying()) {
+  if (PathPlaying() && std::filesystem::path(REXCVAR_GET(wwe2k14_cinecam_path_play)).extension() == ".shot") {
+    // Session 35: a keyframed shot (relative = out/harness/cinecam/shots/), played as a take from the anchor.
+    const bool ok = ShotPathInit(REXCVAR_GET(wwe2k14_cinecam_path_play));
+    REXLOG_INFO("[wwe2k14][cinecam][path] keyframed shot {}: {}, anchor {}", REXCVAR_GET(wwe2k14_cinecam_path_play),
+                ok ? "loaded" : "NOT LOADED", s.anchor_spec);
+  } else if (PathPlaying()) {
     const std::filesystem::path p = PathFile(REXCVAR_GET(wwe2k14_cinecam_path_play));
     LoadPathFile(p, s.play);
     s.playing = !s.play.empty();
@@ -652,6 +695,7 @@ inline void PathTick(const uint8_t* base, FreeCam& f) {
       }
     }
   }
+  if (s.anchor >= 0) ShotPathAnchor(f);  // Session 35: a keyframed shot starts at the anchor
   if (s.playing && s.anchor >= 0 && !f.active && !s.play.empty() && !s.play_ended) {
     f.active = true;
     f.seeded = true;  // the path sets the pose; never seed from the game's view
@@ -713,7 +757,7 @@ inline int64_t PathFrame(FreeCam& f) {
 inline void ScanShots(PathState& s) {
   s.shots.clear();
   std::error_code ec;
-  const std::filesystem::path dir = DumpDir() / "paths";
+  const std::filesystem::path dir = UserDir() / "paths";
   for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
     const std::string n = e.path().filename().string();
     if (n.rfind("shot_", 0) == 0 && e.path().extension() == ".txt") s.shots.push_back(e.path().stem().string());
@@ -736,7 +780,7 @@ inline void UiStartRecord(PathState& s) {
   if (s.rec) return;
   s.playing = false;
   std::error_code ec;
-  const std::filesystem::path dir = DumpDir() / "paths";
+  const std::filesystem::path dir = UserDir() / "paths";
   std::filesystem::create_directories(dir, ec);
   std::filesystem::path p;
   for (int k = 1; k < 1000; ++k) {
@@ -762,7 +806,7 @@ inline void UiStartRecord(PathState& s) {
 
 inline void UiPlayShot(PathState& s, FreeCam& f, const std::string& shot) {
   UiStopRecord(s);
-  const std::filesystem::path p = DumpDir() / "paths" / (shot + ".txt");
+  const std::filesystem::path p = UserDir() / "paths" / (shot + ".txt");
   if (!LoadPathFile(p, s.play) || s.play.empty()) {
     s.playing = false;
     s.status = "could not read " + shot;
@@ -781,6 +825,414 @@ inline void UiPlayShot(PathState& s, FreeCam& f, const std::string& shot) {
   s.status = "playing " + shot + " (" + std::to_string(s.play.size()) + " frames)";
   REXLOG_INFO("[wwe2k14][cinecam][path] panel: playing {} ({} frames) from frame {}", p.string(), s.play.size(),
               s.anchor);
+}
+
+// ---- Keyframed shots (Session 35, SESSION35_PLAN.md; the engine is src\cinecam_keys.h) ---------------------------
+// One shot is open at a time (the timeline panel edits it). The playhead moves in one of three ways:
+//   preview  the host clock x rate (0.25 / 0.5 / 1): designing over a frozen or running scene;
+//   take     guest frames from the moment Play (take) is pressed, 1 / [0x8392DC40] s per frame (the frame-rate word,
+//            60 in the match: run 2558);
+//   re-shoot --wwe2k14_cinecam_path_play=NAME.shot: as a take, from the path anchor (frame-exact against a replay).
+// While a shot plays, and once after every playhead jump (scrub, go to key, a script's `time S`), the free camera
+// takes the shot's pose for every keyed track; otherwise it flies by hand as before, so a pose can be set up and keyed
+// (K). Targets: a character slot's position vector [[0x836F38D0 + 4 * slot] + 176] (x, y, z: world space at about
+// pelvis height, run 2558: two look-at shots landed on the wrestlers; docs\systems\determinism.md Result 5 for the
+// pointer) or a pin, smoothed with a critically damped follow of time constant shot.follow (per guest frame in takes,
+// so re-shoots stay exact). Guest thread (the hand-off) and UI thread (panel, keys, script commands), under
+// FreeCam::mutex.
+namespace k = wwe2k14::cinecam::keys;
+
+constexpr uint32_t kFrameRateWord = 0x8392DC40;  // states.toml frame_rate (60 / 30)
+constexpr uint32_t kSlotTablePtr = 0x836F38D0;   // docs\systems\match_state.md: 9 character pointers
+
+enum class ShotPlay { kStopped, kPreview, kTake };
+
+struct ShotFollow {
+  bool valid = false;
+  float x[3] = {}, v[3] = {};
+};
+
+struct ShotState {
+  k::Shot shot;
+  std::string name = "untitled";
+  bool dirty = false;  // changed since the last save / load
+  double playhead = 0;
+  ShotPlay play = ShotPlay::kStopped;
+  bool loop = false;
+  float rate = 1.0f;
+  bool apply = false;          // take the pose at the playhead once (a jump)
+  bool from_path = false;      // played by --wwe2k14_cinecam_path_play=NAME.shot
+  bool path_pending = false;   // ... waiting for the path anchor
+  uint64_t last_frame = ~0ull;
+  int sel_track = -1, sel_key = -1;
+  ShotFollow follow[3];        // aim, move, focus targets
+  float tgt[3][3] = {};        // the last resolved (smoothed) target positions
+  bool tgt_ok[3] = {};
+  float aspect = 16.0f / 9.0f; // from the panel's display size
+  bool freeze = false;
+  std::string saved_step_hz;
+  std::string status;
+  bool text_active = false;        // a panel text field is being typed in (no hotkeys)
+  bool record_take = false;        // a take also records the per-frame path (shot_NN.txt: the "bake")
+  int take_rec = 0;                // 0 none, 1 recording the take, 2 close the file at the next frame
+  std::vector<std::string> files;  // *.shot in the shots folder (panel list)
+  std::chrono::steady_clock::time_point files_scanned;
+  uint64_t evals = 0;
+};
+
+inline ShotState& Sh() {
+  static ShotState s;
+  return s;
+}
+
+inline std::filesystem::path ShotDir() { return UserDir() / "shots"; }
+inline std::filesystem::path ShotFile(const std::string& name) {
+  std::filesystem::path p(name);
+  if (p.extension() != ".shot") p += ".shot";
+  if (p.is_relative()) p = ShotDir() / p;
+  return p.lexically_normal();
+}
+
+inline const k::Target& RoleTarget(const k::Shot& s, int role) { return role == 0 ? s.aim : role == 1 ? s.move : s.focus; }
+
+// A target's raw world position now (guest thread; fault-safe reads). False when it cannot be read.
+inline bool ReadTarget(const uint8_t* base, const k::Target& t, float out[3]) {
+  if (t.kind == k::TargetKind::kPin) {
+    std::memcpy(out, t.pin, sizeof(t.pin));
+    return true;
+  }
+  if (t.kind != k::TargetKind::kSlot) return false;
+  uint32_t c = 0, v = 0;
+  if (!PathRead(base, kSlotTablePtr + 4 * uint32_t(t.slot), 4, &c) || !PathRead(base, c + 176, 4, &v)) return false;
+  uint32_t w[3];
+  for (int i = 0; i < 3; ++i) {
+    if (!PathRead(base, v + 4 * i, 4, &w[i])) return false;
+    out[i] = std::bit_cast<float>(w[i]);
+    if (!std::isfinite(out[i]) || std::abs(out[i]) > 1e6f) return false;
+  }
+  return true;
+}
+
+// Critically damped follow (a camera operator's lag), time constant tau; tau <= 0 = exact.
+inline void Follow(ShotFollow& fo, const float target[3], float dt, float tau) {
+  if (!fo.valid || tau <= 0 || dt <= 0 || dt > 0.25f) {
+    std::memcpy(fo.x, target, sizeof(fo.x));
+    std::memset(fo.v, 0, sizeof(fo.v));
+    fo.valid = true;
+    return;
+  }
+  const float w = 2.0f / tau;
+  const int steps = std::max(1, int(std::ceil(dt / 0.004f)));  // small steps: stable at any frame time
+  const float h = dt / float(steps);
+  for (int n = 0; n < steps; ++n) {
+    for (int i = 0; i < 3; ++i) {
+      fo.v[i] += h * (w * w * (target[i] - fo.x[i]) - 2 * w * fo.v[i]);
+      fo.x[i] += h * fo.v[i];
+    }
+  }
+}
+
+// The free camera's state as an engine pose (caller holds the mutex).
+inline k::Pose CamPose(const FreeCam& f) {
+  k::Pose p;
+  std::memcpy(p.pos, f.pos, sizeof(p.pos));
+  p.yaw = f.yaw, p.pitch = f.pitch, p.roll = f.roll, p.fov = f.fov;
+  p.focus_cm = f.dof_manual ? f.dof_focus : (f.dof_auto_focus > 0 ? f.dof_auto_focus : f.dof_focus);
+  p.aperture = f.dof_dist[0] / kDofDefaultDist[0];
+  return p;
+}
+
+inline void SetCamPose(FreeCam& f, const k::Pose& p) {
+  if (p.has[k::kMove]) std::memcpy(f.pos, p.pos, sizeof(f.pos));
+  if (p.has[k::kAim]) f.yaw = p.yaw, f.pitch = p.pitch;
+  if (p.has[k::kRoll]) f.roll = p.roll;
+  if (p.has[k::kLens]) f.fov = f.fov_target = p.fov;
+  if (p.has[k::kFocus]) {
+    f.dof_mode = 2;
+    f.dof_manual = true;
+    f.dof_focus = p.focus_cm;
+    for (int i = 0; i < 4; ++i) f.dof_dist[i] = kDofDefaultDist[i] * p.aperture;
+  }
+  std::memset(f.vel, 0, sizeof(f.vel));
+  f.roll_rate = f.look_yaw = f.look_pitch = 0;
+}
+
+inline const float* TargetOrNull(const ShotState& s, int role) { return s.tgt_ok[role] ? s.tgt[role] : nullptr; }
+
+// Every hand-off while the free camera is on (guest thread, mutex held), after the manual input step.
+inline void ShotTick(const uint8_t* base, FreeCam& f, float host_dt) {
+  ShotState& s = Sh();
+  const uint64_t frame = g_guest_frame.load(std::memory_order_relaxed);
+  const bool new_frame = frame != s.last_frame;
+  s.last_frame = frame;
+  const bool timed_by_frames = s.play == ShotPlay::kTake;
+  float frame_dt = 1.0f / 60;
+  if (uint32_t rate = 0; PathRead(base, kFrameRateWord, 4, &rate) && (rate == 30 || rate == 60)) frame_dt = 1.0f / float(rate);
+  // Targets (always, so the panel can key against them).
+  for (int r = 0; r < 3; ++r) {
+    const k::Target& t = RoleTarget(s.shot, r);
+    float raw[3];
+    if (!t.on() || !ReadTarget(base, t, raw)) {
+      s.tgt_ok[r] = false;
+      s.follow[r].valid = false;
+      continue;
+    }
+    const float dt = timed_by_frames ? (new_frame ? frame_dt : 0.0f) : host_dt;
+    Follow(s.follow[r], raw, dt, t.kind == k::TargetKind::kSlot ? s.shot.follow : 0.0f);
+    std::memcpy(s.tgt[r], s.follow[r].x, sizeof(s.tgt[r]));
+    s.tgt_ok[r] = true;
+  }
+  if (s.take_rec == 1 && s.play != ShotPlay::kTake) s.take_rec = 2;  // paused or stopped by hand
+  if (s.take_rec == 2 && new_frame) {
+    UiStopRecord(P());
+    s.take_rec = 0;
+    s.status = "take recorded: " + P().status;
+  }
+  if (s.play == ShotPlay::kStopped && !s.apply) return;
+  if (s.play == ShotPlay::kPreview && s.evals > 0) {  // the first pose is the start
+    s.playhead += double(host_dt) * s.rate;
+  } else if (s.play == ShotPlay::kTake && new_frame && s.evals > 0) {
+    s.playhead += frame_dt;
+  }
+  const double end = std::max(s.shot.length, k::LastKeyTime(s.shot));
+  if (s.play != ShotPlay::kStopped && s.playhead >= end) {
+    if (s.loop && s.play == ShotPlay::kPreview && end > 0) {
+      s.playhead = std::fmod(s.playhead, end);
+    } else {
+      s.playhead = end;
+      REXLOG_INFO("[wwe2k14][cinecam][shot] '{}' ended at {:.3f} s (frame {}, {} poses)", s.name, end, frame, s.evals);
+      if (s.take_rec == 1) s.take_rec = 2;  // this frame's PathFrame writes the last pose
+      s.play = ShotPlay::kStopped;
+      s.status = "shot ended: you have the camera";
+      s.apply = true;  // the last pose once more
+    }
+  }
+  const k::Pose p = k::Evaluate(s.shot, s.playhead, CamPose(f), TargetOrNull(s, 0), TargetOrNull(s, 1),
+                                TargetOrNull(s, 2), s.aspect);
+  SetCamPose(f, p);
+  ++s.evals;
+  s.apply = false;
+  if (REXCVAR_GET(wwe2k14_cinecam_path_log)) {
+    REXLOG_INFO("[wwe2k14][cinecam][shot] t={:.4f} frame={} pos=({:.2f}, {:.2f}, {:.2f}) yaw={:.3f} pitch={:.3f} "
+                "roll={:.3f} fov={:.3f} focus={:.1f} ap={:.3f} aim_target={}",
+                s.playhead, frame, p.pos[0], p.pos[1], p.pos[2], p.yaw, p.pitch, p.roll, p.fov, p.focus_cm, p.aperture,
+                s.tgt_ok[0] ? fmt::format("({:.2f}, {:.2f}, {:.2f})", s.tgt[0][0], s.tgt[0][1], s.tgt[0][2])
+                            : std::string("none"));
+  }
+}
+
+// Starts playing (UI thread or the path anchor; mutex held).
+inline void ShotStart(ShotState& s, ShotPlay how, bool from_start) {
+  if (from_start || s.playhead >= std::max(s.shot.length, k::LastKeyTime(s.shot))) s.playhead = 0;
+  s.play = how;
+  s.evals = 0;
+  for (auto& fo : s.follow) fo.valid = false;  // targets start exactly where they are
+  s.status = how == ShotPlay::kTake ? "take: timed in game frames" : "preview";
+  if (how == ShotPlay::kTake && s.record_take && !s.from_path && !P().rec) {
+    UiStartRecord(P());  // the per-frame path of this take (Session 14 format) as the next shot_NN.txt
+    s.take_rec = P().rec ? 1 : 0;
+  }
+  REXLOG_INFO("[wwe2k14][cinecam][shot] '{}' {} from {:.3f} s at frame {}", s.name,
+              how == ShotPlay::kTake ? "take" : "preview", s.playhead, g_guest_frame.load(std::memory_order_relaxed));
+}
+
+// Keys `track` (or every track, -1) at the playhead from the free camera (mutex held).
+inline void ShotKey(ShotState& s, FreeCam& f, int track) {
+  const k::Pose c = CamPose(f);
+  int keyed = 0;
+  for (int tr = 0; tr < k::kTrackCount; ++tr) {
+    if (track >= 0 && tr != track) continue;
+    // "Key all" skips the focus while the depth of field is not on (nothing to key).
+    if (track < 0 && tr == k::kFocus && f.dof_mode != 2) continue;
+    float v[3];
+    k::CaptureValues(s.shot, tr, s.playhead, c, TargetOrNull(s, 0), TargetOrNull(s, 1), TargetOrNull(s, 2), s.aspect, v);
+    const size_t i = k::SetKey(s.shot, tr, s.playhead, v);
+    s.sel_track = tr, s.sel_key = int(i);
+    ++keyed;
+  }
+  s.shot.length = std::max(s.shot.length, s.playhead);
+  s.dirty = true;
+  s.status = fmt::format("keyed {} at {:.2f} s", track < 0 ? std::string("all") : k::kTrackNames[track], s.playhead);
+  REXLOG_INFO("[wwe2k14][cinecam][shot] key {} ({} track(s)) at {:.3f} s: pos ({:.1f}, {:.1f}, {:.1f}) yaw {:.2f} "
+              "pitch {:.2f} roll {:.2f} fov {:.2f}",
+              track < 0 ? "all" : k::kTrackNames[track], keyed, s.playhead, c.pos[0], c.pos[1], c.pos[2], c.yaw,
+              c.pitch, c.roll, c.fov);
+}
+
+inline void ShotSave(ShotState& s, const std::string& name) {
+  std::error_code ec;
+  std::filesystem::create_directories(ShotDir(), ec);
+  const auto p = ShotFile(name);
+  if (k::SaveShot(s.shot, p.string())) {
+    s.name = p.stem().string();
+    s.dirty = false;
+    s.status = "saved " + s.name;
+  } else {
+    s.status = "could not save " + p.string();
+  }
+  s.files_scanned = {};
+  REXLOG_INFO("[wwe2k14][cinecam][shot] {}", s.status);
+}
+
+inline bool ShotLoad(ShotState& s, const std::string& name) {
+  const auto p = ShotFile(name);
+  std::string err;
+  k::Shot shot;
+  if (!k::LoadShot(p.string(), shot, err)) {
+    s.status = err;
+    REXLOG_WARN("[wwe2k14][cinecam][shot] {}", err);
+    return false;
+  }
+  s.shot = std::move(shot);
+  s.name = p.stem().string();
+  s.dirty = false;
+  s.playhead = 0;
+  s.play = ShotPlay::kStopped;
+  s.sel_track = s.sel_key = -1;
+  for (auto& fo : s.follow) fo.valid = false;
+  size_t n = 0;
+  for (const auto& kk : s.shot.keys) n += kk.size();
+  s.status = fmt::format("loaded {} ({} keys, {:.2f} s)", s.name, n, s.shot.length);
+  REXLOG_INFO("[wwe2k14][cinecam][shot] {}", s.status);
+  return true;
+}
+
+// Freeze the scene for designing: the game's step at 1000 Hz (as photo mode, src\photo_mode.h; nearly stopped).
+inline void ShotFreeze(ShotState& s, bool on) {
+  if (on == s.freeze) return;
+  s.freeze = on;
+  if (on) {
+    s.saved_step_hz = rex::cvar::GetFlagByName("wwe2k14_step_hz");
+    rex::cvar::SetFlagByName("wwe2k14_step_hz", "1000");
+  } else {
+    rex::cvar::SetFlagByName("wwe2k14_step_hz", s.saved_step_hz.empty() ? "0" : s.saved_step_hz);
+  }
+  REXLOG_INFO("[wwe2k14][cinecam][shot] scene {}", on ? "frozen (step 1000 Hz)" : "running again");
+}
+
+inline void ShotSetTarget(ShotState& s, int role, const k::Target& t);  // with the timeline panel, below
+
+// Script / test commands (`cvar wwe2k14_cinecam_timeline_cmd "..."`, UI thread, mutex held); several separated by ';'.
+inline void ShotCommand(ShotState& s, FreeCam& f, const std::string& text) {
+  size_t pos = 0;
+  while (pos <= text.size()) {
+    size_t semi = text.find(';', pos);
+    if (semi == std::string::npos) semi = text.size();
+    std::string cmd = text.substr(pos, semi - pos);
+    pos = semi + 1;
+    while (!cmd.empty() && cmd.front() == ' ') cmd.erase(cmd.begin());
+    if (cmd.empty()) continue;
+    char w[5][64] = {};
+    const int n = std::sscanf(cmd.c_str(), "%63s %63s %63s %63s %63s", w[0], w[1], w[2], w[3], w[4]);
+    const std::string c = w[0];
+    auto track_of = [](const char* name) { return k::TrackByName(name); };
+    if (c == "key") {
+      ShotKey(s, f, n >= 2 ? track_of(w[1]) : -1);
+    } else if (c == "time" && n >= 2) {
+      s.playhead = std::max(0.0, std::atof(w[1]));
+      s.apply = true;
+    } else if (c == "preview" || c == "play") {
+      ShotStart(s, ShotPlay::kPreview, n >= 2 && std::string(w[1]) == "start");
+    } else if (c == "take") {
+      ShotStart(s, ShotPlay::kTake, true);
+    } else if (c == "stop") {
+      s.play = ShotPlay::kStopped;
+    } else if (c == "rate" && n >= 2) {
+      s.rate = std::clamp(float(std::atof(w[1])), 0.05f, 4.0f);
+    } else if (c == "loop" && n >= 2) {
+      s.loop = std::atoi(w[1]) != 0;
+    } else if (c == "length" && n >= 2) {
+      s.shot.length = std::max(0.1, std::atof(w[1]));
+    } else if (c == "constant" && n >= 2) {
+      s.shot.constant_speed = std::atoi(w[1]) != 0;
+      s.shot.Touch();
+    } else if (c == "follow" && n >= 2) {
+      s.shot.follow = std::max(0.0f, float(std::atof(w[1])));
+    } else if (c == "target" && n >= 3) {
+      k::Target t;
+      const std::string kind = w[2];
+      if (kind == "slot" && n >= 4) {
+        t.kind = k::TargetKind::kSlot, t.slot = std::clamp(std::atoi(w[3]), 0, 8);
+      } else if (kind == "here") {  // a pin at the focus distance straight ahead
+        float fw[3], r[3], d[3];
+        Axes(f.yaw, f.pitch, fw, r, d);
+        const float dist = CamPose(f).focus_cm;
+        t.kind = k::TargetKind::kPin;
+        for (int i = 0; i < 3; ++i) t.pin[i] = f.pos[i] + fw[i] * dist;
+      } else if (kind == "pin") {
+        float v[3] = {};
+        std::sscanf(cmd.c_str(), "%*s %*s %*s %f %f %f", &v[0], &v[1], &v[2]);
+        t.kind = k::TargetKind::kPin;
+        std::memcpy(t.pin, v, sizeof(v));
+      }
+      const std::string role = w[1];
+      ShotSetTarget(s, role == "aim" ? 0 : role == "move" ? 1 : 2, t);
+    } else if (c == "ease" && n >= 4) {
+      const int tr = track_of(w[1]), i = std::atoi(w[2]);
+      if (tr >= 0 && i >= 0 && size_t(i) < s.shot.keys[tr].size()) s.shot.keys[tr][i].ease = float(std::atof(w[3]));
+      s.shot.Touch();
+    } else if (c == "curve" && n >= 4) {
+      const int tr = track_of(w[1]), i = std::atoi(w[2]);
+      for (int cv = 0; cv < 3 && tr >= 0 && i >= 0 && size_t(i) < s.shot.keys[tr].size(); ++cv) {
+        if (std::string(w[3]) == k::kCurveNames[cv]) s.shot.keys[tr][i].curve = k::Curve(cv);
+      }
+      s.shot.Touch();
+    } else if ((c == "set" || c == "add") && n >= 5) {  // set|add TRACK I DIM VALUE
+      const int tr = track_of(w[1]), i = std::atoi(w[2]), dim = std::atoi(w[3]);
+      if (tr >= 0 && i >= 0 && size_t(i) < s.shot.keys[tr].size() && dim >= 0 && dim < k::kTrackDims[tr]) {
+        float& v = s.shot.keys[tr][size_t(i)].v[dim];
+        v = (c == "add" ? v : 0.0f) + float(std::atof(w[4]));
+        s.shot.Touch();
+        s.apply = s.play == ShotPlay::kStopped;
+      }
+    } else if (c == "clear") {
+      s.shot = k::Shot{};
+      s.name = "untitled";
+      s.playhead = 0;
+      s.play = ShotPlay::kStopped;
+      s.sel_track = s.sel_key = -1;
+    } else if (c == "save") {
+      ShotSave(s, n >= 2 ? w[1] : s.name);
+    } else if (c == "load" && n >= 2) {
+      ShotLoad(s, w[1]);
+    } else if (c == "freeze" && n >= 2) {
+      ShotFreeze(s, std::atoi(w[1]) != 0);
+    } else {
+      REXLOG_WARN("[wwe2k14][cinecam][shot] unknown command '{}'", cmd);
+      continue;
+    }
+    s.dirty = s.dirty || c == "key" || c == "length" || c == "constant" || c == "target" || c == "ease" ||
+              c == "curve" || c == "set" || c == "add";
+    REXLOG_INFO("[wwe2k14][cinecam][shot] command '{}' (playhead {:.3f} s)", cmd, s.playhead);
+  }
+}
+
+// --wwe2k14_cinecam_path_play=NAME.shot (PathInit / PathTick; guest thread, mutex held).
+inline bool ShotPathInit(const std::string& file) {
+  ShotState& s = Sh();
+  s.from_path = true;
+  s.path_pending = ShotLoad(s, file);
+  return s.path_pending;
+}
+inline void ShotPathAnchor(FreeCam& f) {
+  ShotState& s = Sh();
+  if (!s.path_pending) return;
+  s.path_pending = false;
+  f.active = true;
+  f.seeded = false;  // seed from the game's view first: tracks without keys keep it
+  f.last = std::chrono::steady_clock::now();
+  ShotStart(s, ShotPlay::kTake, true);
+}
+
+// Re-shoots (src\reshoot.h, any thread): the path play is a keyframed shot, and it has played to its end.
+inline bool ShotPathActive() {
+  std::lock_guard lock(F().mutex);
+  return Sh().from_path;
+}
+inline bool ShotPathEnded() {
+  std::lock_guard lock(F().mutex);
+  const ShotState& s = Sh();
+  return s.from_path && !s.path_pending && s.evals > 0 && s.play == ShotPlay::kStopped;
 }
 
 // --wwe2k14_cinecam_test_move: VX,VY,VZ,VYAW per second (host time step dt). Caller holds the mutex.
@@ -895,6 +1347,7 @@ inline void ApplyFreeCam(PPCContext& ctx, uint8_t* base, uint32_t mgr, uint32_t 
       f.roll_rate = 0;
     }
     TestMove(f, dt);
+    ShotTick(base, f, dt);  // Session 35: a keyframed shot sets the keyed tracks
     path_rel = PathActive() ? PathFrame(f) : INT64_MIN;
     ++f.frames;
     BuildMatrix(f, m);
@@ -984,11 +1437,16 @@ inline void UpdateFullArena(uint8_t* base, uint32_t mgr) {
   REXLOG_INFO("[wwe2k14][cinecam] full arena on: hard cam {:08X} key 0 -> 10", shown);
 }
 
+inline void ShotHotkey(rex::ui::VirtualKey vk, bool shift);  // Session 35: the timeline's keys (defined below)
+
 // Window input (UI thread). Sits above the ImGui drawer (z 64) and never marks events handled (the game ignores the
 // keyboard with ReXGlue's default mnk_mode=false; inspector.h).
 class Listener final : public rex::ui::WindowInputListener, public rex::ui::WindowListener {
  public:
-  void OnKeyDown(rex::ui::KeyEvent& e) override { SetKey(e, true); }
+  void OnKeyDown(rex::ui::KeyEvent& e) override {
+    if (!e.prev_state()) ShotHotkey(e.virtual_key(), e.is_shift_pressed());  // Session 35: timeline keys
+    SetKey(e, true);
+  }
   void OnKeyUp(rex::ui::KeyEvent& e) override { SetKey(e, false); }
   void OnMouseDown(rex::ui::MouseEvent& e) override {
     if (e.button() != rex::ui::MouseEvent::Button::kRight) return;
@@ -1233,6 +1691,472 @@ class Panel final : public rex::ui::ImGuiDialog {
   bool logged_ = false;
 };
 
+// ---- The timeline panel (Session 35 step 3) ----------------------------------------------------------------------
+// A strip along the bottom of the screen while the free camera is on (--wwe2k14_cinecam_timeline, with the CineCam
+// panel): transport, one lane per track (click a key to select it, drag it in time, double-click to go to it; click or
+// drag the ruler or an empty spot to move the playhead), the selected key's values and curve, and the targets. Times
+// snap to game frames (1/60 s). UI thread, FreeCam::mutex held while drawing.
+
+// Focal length (35 mm full-frame equivalent, 24 mm tall) of a vertical FOV, and back (the game's FOV is vertical:
+// PLAYBOOK Session 18, run 1395).
+inline float FovToMm(float fov) { return 12.0f / std::tan(std::clamp(fov, 0.5f, 170.0f) * kDegToRad * 0.5f); }
+inline float MmToFov(float mm) { return 2.0f * std::atan(12.0f / std::max(mm, 0.5f)) / kDegToRad; }
+inline double SnapFrame(double t) { return std::max(0.0, std::round(t * 60.0) / 60.0); }
+
+// Changes a target and keeps the shot looking the same at its keys: the pose at each key time of the track the target
+// changes the meaning of (aim: yaw / pitch <-> framing; move: x y z <-> orbit; focus: distance <-> offset) is
+// evaluated with the old target, then captured again with the new one (exact for pins; for a wrestler, against where
+// they are now).
+inline void ShotSetTarget(ShotState& s, int role, const k::Target& t) {
+  const uint8_t* base = REX_KERNEL_MEMORY()->virtual_membase();
+  const int track = role == 0 ? k::kAim : role == 1 ? k::kMove : k::kFocus;
+  std::vector<k::Pose> poses;
+  for (const k::Key& key : s.shot.keys[track]) {
+    poses.push_back(k::Evaluate(s.shot, key.t, k::Pose{}, TargetOrNull(s, 0), TargetOrNull(s, 1), TargetOrNull(s, 2),
+                                s.aspect));
+  }
+  (role == 0 ? s.shot.aim : role == 1 ? s.shot.move : s.shot.focus) = t;
+  s.follow[role].valid = false;
+  s.tgt_ok[role] = t.on() && ReadTarget(base, t, s.tgt[role]);
+  for (size_t i = 0; i < poses.size(); ++i) {
+    float v[3];
+    k::CaptureValues(s.shot, track, s.shot.keys[track][i].t, poses[i], TargetOrNull(s, 0), TargetOrNull(s, 1),
+                     TargetOrNull(s, 2), s.aspect, v);
+    std::memcpy(s.shot.keys[track][i].v, v, sizeof(v));
+  }
+  s.shot.Touch();
+  s.dirty = true;
+  s.apply = true;
+  s.status = "target: " + std::string(role == 0 ? "look at " : role == 1 ? "orbit around " : "focus on ") +
+             (t.kind == k::TargetKind::kSlot ? "wrestler slot " + std::to_string(t.slot)
+              : t.kind == k::TargetKind::kPin ? std::string("a pin") : std::string("nothing"));
+  REXLOG_INFO("[wwe2k14][cinecam][shot] {} ({} key(s) converted)", s.status, poses.size());
+}
+
+// A pin straight ahead of the camera at its focus distance.
+inline k::Target PinHere(const FreeCam& f) {
+  float fw[3], r[3], d[3];
+  Axes(f.yaw, f.pitch, fw, r, d);
+  const float dist = CamPose(f).focus_cm;
+  k::Target t;
+  t.kind = k::TargetKind::kPin;
+  for (int i = 0; i < 3; ++i) t.pin[i] = f.pos[i] + fw[i] * dist;
+  return t;
+}
+
+inline std::string TargetLabel(const k::Target& t) {
+  if (t.kind == k::TargetKind::kSlot) return "wrestler slot " + std::to_string(t.slot);
+  if (t.kind == k::TargetKind::kPin) return fmt::format("pin ({:.0f}, {:.0f}, {:.0f})", t.pin[0], t.pin[1], t.pin[2]);
+  return "nothing";
+}
+
+// Keyboard (UI thread, from the listener): K key all, Space play / pause, [ / ] previous / next key, , / . one frame
+// (Shift: one second), Backspace delete the selected key. Only while the timeline is shown and no text field is
+// being typed in.
+inline void ShotHotkey(rex::ui::VirtualKey vk, bool shift) {
+  using VK = rex::ui::VirtualKey;
+  FreeCam& f = F();
+  std::lock_guard lock(f.mutex);
+  ShotState& s = Sh();
+  if (!f.active || !f.timeline || s.text_active) return;
+  auto jump = [&](double t) {
+    s.play = ShotPlay::kStopped;
+    s.playhead = SnapFrame(t);
+    s.apply = true;
+  };
+  switch (vk) {
+    case VK::kK: ShotKey(s, f, -1); break;
+    case VK::kSpace:
+      if (s.play != ShotPlay::kStopped) s.play = ShotPlay::kStopped;
+      else ShotStart(s, ShotPlay::kPreview, false);
+      break;
+    case VK::kOem4:
+    case VK::kOem6: {
+      const bool next = vk == VK::kOem6;
+      double best = next ? 1e18 : -1e18;
+      for (const auto& kk : s.shot.keys) {
+        for (const k::Key& key : kk) {
+          if (next && key.t > s.playhead + 1e-6) best = std::min(best, key.t);
+          if (!next && key.t < s.playhead - 1e-6) best = std::max(best, key.t);
+        }
+      }
+      if (std::abs(best) < 1e17) jump(best);
+      break;
+    }
+    case VK::kOemComma: jump(s.playhead - (shift ? 1.0 : 1.0 / 60)); break;
+    case VK::kOemPeriod: jump(s.playhead + (shift ? 1.0 : 1.0 / 60)); break;
+    case VK::kBack:
+      if (s.sel_track >= 0 && s.sel_key >= 0 && size_t(s.sel_key) < s.shot.keys[s.sel_track].size()) {
+        k::DeleteKey(s.shot, s.sel_track, size_t(s.sel_key));
+        s.status = fmt::format("deleted a {} key", k::kTrackNames[s.sel_track]);
+        s.sel_track = s.sel_key = -1;
+        s.dirty = true;
+        s.apply = true;
+      }
+      break;
+    default: break;
+  }
+}
+
+class Timeline final : public rex::ui::ImGuiDialog {
+ public:
+  explicit Timeline(rex::ui::ImGuiDrawer* drawer) : rex::ui::ImGuiDialog(drawer) {}
+
+ protected:
+  void OnDraw(ImGuiIO& io) override {
+    FreeCam& f = F();
+    const float W = io.DisplaySize.x, H = io.DisplaySize.y;
+    ImGui::SetNextWindowPos(ImVec2(8, std::max(8.0f, H - 348)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(std::min(W - 16, 1500.0f), 340), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("CineCam timeline")) {
+      ImGui::End();
+      return;
+    }
+    std::lock_guard lock(f.mutex);
+    ShotState& s = Sh();
+    if (W > 0 && H > 0) s.aspect = W / H;
+    s.text_active = io.WantTextInput;
+    Transport(s, f);
+    Lanes(s, f);
+    if (ImGui::BeginTable("##below", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV)) {
+      ImGui::TableNextColumn();
+      Inspector(s, f);
+      ImGui::TableNextColumn();
+      Targets(s, f);
+      ImGui::EndTable();
+    }
+    ImGui::End();
+  }
+
+ private:
+  void Transport(ShotState& s, FreeCam& f) {
+    const bool playing = s.play != ShotPlay::kStopped;
+    if (ImGui::Button(playing ? "Pause" : "Play")) {
+      if (playing) s.play = ShotPlay::kStopped;
+      else ShotStart(s, ShotPlay::kPreview, false);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview the move on the real clock (Space)");
+    ImGui::SameLine();
+    if (ImGui::Button("Take")) ShotStart(s, ShotPlay::kTake, true);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play from the start timed in game frames, for recording");
+    ImGui::SameLine();
+    ImGui::Checkbox("record path", &s.record_take);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A take also saves the camera's frame-by-frame path (shot_NN)");
+    ImGui::SameLine();
+    if (ImGui::Button("|<")) {
+      s.play = ShotPlay::kStopped;
+      s.playhead = 0;
+      s.apply = true;
+    }
+    for (float r : {1.0f, 0.5f, 0.25f}) {
+      ImGui::SameLine();
+      if (ImGui::RadioButton(r == 1.0f ? "1x" : r == 0.5f ? "0.5x" : "0.25x", s.rate == r)) s.rate = r;
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("loop", &s.loop);
+    ImGui::SameLine();
+    bool freeze = s.freeze;
+    if (ImGui::Checkbox("freeze scene", &freeze)) ShotFreeze(s, freeze);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Nearly stops the game (as photo mode) while you design the move");
+    ImGui::SameLine();
+    ImGui::Text("   %.2f s  (frame %d)%s", s.playhead, int(std::lround(s.playhead * 60)),
+                s.play == ShotPlay::kTake ? "  TAKE" : "");
+    ImGui::SameLine();
+    float len = float(s.shot.length);
+    ImGui::SetNextItemWidth(110);
+    if (ImGui::DragFloat("length", &len, 0.05f, 0.5f, 600.0f, "%.2f s")) {
+      s.shot.length = std::max(double(len), k::LastKeyTime(s.shot));
+      s.dirty = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("   lens %.0f mm (FOV %.1f)   focus %.1f m", FovToMm(f.fov), f.fov, CamPose(f).focus_cm / 100);
+    // File row.
+    if (last_name_ != s.name) {
+      last_name_ = s.name;
+      std::snprintf(name_, sizeof(name_), "%s", s.name.c_str());
+    }
+    ImGui::SetNextItemWidth(180);
+    ImGui::InputText("##name", name_, sizeof(name_));
+    ImGui::SameLine();
+    if (ImGui::Button("Save")) ShotSave(s, name_);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(160);
+    if (ImGui::BeginCombo("##load", "Load...")) {
+      if (s.files_scanned == std::chrono::steady_clock::time_point{} ||
+          std::chrono::steady_clock::now() - s.files_scanned > std::chrono::seconds(2)) {
+        s.files.clear();
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(ShotDir(), ec)) {
+          if (e.path().extension() == ".shot") s.files.push_back(e.path().stem().string());
+        }
+        std::sort(s.files.begin(), s.files.end());
+        s.files_scanned = std::chrono::steady_clock::now();
+      }
+      for (const std::string& n : s.files) {
+        if (ImGui::Selectable(n.c_str())) ShotLoad(s, n);
+      }
+      if (s.files.empty()) ImGui::TextDisabled("no saved shots yet");
+      ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("New")) ShotCommand(s, f, "clear");
+    ImGui::SameLine();
+    if (ImGui::Button("Key all (K)")) ShotKey(s, f, -1);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s%s", s.dirty ? "(not saved)  " : "", s.status.c_str());
+  }
+
+  void Lanes(ShotState& s, FreeCam& f) {
+    constexpr float kLabelW = 150, kRulerH = 18, kLaneH = 24;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float lane_x0 = origin.x + kLabelW;
+    const float lane_w = std::max(200.0f, ImGui::GetContentRegionAvail().x - kLabelW - 8);
+    const double end = std::max({s.shot.length, k::LastKeyTime(s.shot), 1.0});
+    auto tx = [&](double t) { return lane_x0 + float(t / end) * lane_w; };
+    auto xt = [&](float x) { return SnapFrame(std::clamp(double(x - lane_x0) / lane_w, 0.0, 1.0) * end); };
+    auto scrub = [&](float x) {
+      s.play = ShotPlay::kStopped;
+      s.playhead = xt(x);
+      s.apply = true;
+    };
+    // Ruler.
+    ImGui::SetCursorScreenPos(ImVec2(lane_x0, origin.y));
+    ImGui::InvisibleButton("##ruler", ImVec2(lane_w, kRulerH));
+    if (ImGui::IsItemActive()) scrub(ImGui::GetIO().MousePos.x);
+    const double step = end <= 12 ? 1 : end <= 40 ? 5 : end <= 120 ? 10 : 30;
+    for (double t = 0; t <= end + 1e-9; t += step) {
+      const float x = tx(t);
+      dl->AddLine(ImVec2(x, origin.y + kRulerH - 6), ImVec2(x, origin.y + kRulerH), IM_COL32(180, 180, 180, 200));
+      dl->AddText(ImVec2(x + 2, origin.y), IM_COL32(180, 180, 180, 220), fmt::format("{}s", int(t)).c_str());
+    }
+    // Lanes.
+    static const char* kLabels[k::kTrackCount] = {"Move", "Aim", "Roll", "Lens", "Focus"};
+    float y = origin.y + kRulerH + 2;
+    for (int tr = 0; tr < k::kTrackCount; ++tr) {
+      ImGui::PushID(tr);
+      std::string label = kLabels[tr];
+      if (tr == k::kMove && s.shot.move.on()) label += " (orbit)";
+      if (tr == k::kAim && s.shot.aim.on()) label += " (look at)";
+      if (tr == k::kFocus && s.shot.focus.on()) label += " (follow)";
+      ImGui::SetCursorScreenPos(ImVec2(origin.x, y + 3));
+      if (ImGui::SmallButton("key")) ShotKey(s, f, tr);
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("Key only %s at the playhead", k::kTrackNames[tr]);
+      ImGui::SameLine();
+      ImGui::TextUnformatted(label.c_str());
+      ImGui::SetCursorScreenPos(ImVec2(lane_x0, y));
+      ImGui::InvisibleButton("##lane", ImVec2(lane_w, kLaneH));
+      const bool hovered = ImGui::IsItemHovered(), active = ImGui::IsItemActive();
+      const ImVec2 mouse = ImGui::GetIO().MousePos;
+      dl->AddRectFilled(ImVec2(lane_x0, y), ImVec2(lane_x0 + lane_w, y + kLaneH),
+                        ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), 3.0f);
+      auto& keys = s.shot.keys[tr];
+      const float cy = y + kLaneH * 0.5f;
+      for (size_t i = 0; i + 1 < keys.size(); ++i) {
+        const ImU32 col = keys[i].curve == k::Curve::kHold ? IM_COL32(200, 120, 80, 200) : IM_COL32(120, 200, 255, 160);
+        dl->AddLine(ImVec2(tx(keys[i].t), cy), ImVec2(tx(keys[i + 1].t), cy), col,
+                    keys[i].curve == k::Curve::kLinear ? 1.0f : 2.5f);
+      }
+      int under = -1;
+      for (size_t i = 0; i < keys.size(); ++i) {
+        if (std::abs(mouse.x - tx(keys[i].t)) <= 7 && mouse.y >= y && mouse.y <= y + kLaneH) under = int(i);
+      }
+      if (ImGui::IsItemActivated()) {
+        if (under >= 0) {
+          s.sel_track = tr, s.sel_key = under;
+          drag_track_ = tr, drag_key_ = under;
+          if (ImGui::IsMouseDoubleClicked(0)) {
+            s.play = ShotPlay::kStopped;
+            s.playhead = keys[size_t(under)].t;
+            s.apply = true;
+            drag_track_ = -1;
+          }
+        } else {
+          drag_track_ = -1;
+          scrub(mouse.x);
+        }
+      } else if (active && drag_track_ == tr && drag_key_ >= 0 && size_t(drag_key_) < keys.size()) {
+        const double t = xt(mouse.x);
+        if (std::abs(t - keys[size_t(drag_key_)].t) > 1e-9) {
+          drag_key_ = int(k::MoveKey(s.shot, tr, size_t(drag_key_), t));
+          s.sel_track = tr, s.sel_key = drag_key_;
+          s.shot.length = std::max(s.shot.length, k::LastKeyTime(s.shot));
+          s.dirty = true;
+        }
+      } else if (active && drag_track_ < 0) {
+        scrub(mouse.x);
+      }
+      for (size_t i = 0; i < keys.size(); ++i) {
+        const float x = tx(keys[i].t), r = 6.0f;
+        const bool sel = s.sel_track == tr && s.sel_key == int(i);
+        const ImVec2 q[4] = {ImVec2(x, cy - r), ImVec2(x + r, cy), ImVec2(x, cy + r), ImVec2(x - r, cy)};
+        dl->AddQuadFilled(q[0], q[1], q[2], q[3], sel ? IM_COL32(255, 210, 90, 255) : IM_COL32(230, 230, 240, 255));
+        dl->AddQuad(q[0], q[1], q[2], q[3], IM_COL32(20, 20, 30, 255), 1.5f);
+      }
+      if (under >= 0 && hovered) {
+        ImGui::SetTooltip("%s key at %.2f s (%s)", k::kTrackNames[tr], keys[size_t(under)].t,
+                          k::kCurveNames[int(keys[size_t(under)].curve)]);
+      }
+      ImGui::PopID();
+      y += kLaneH + 3;
+    }
+    // The playhead across the ruler and the lanes, and the shot's end when keys run past it.
+    const float px = tx(std::min(s.playhead, end));
+    dl->AddLine(ImVec2(px, origin.y), ImVec2(px, y), IM_COL32(255, 80, 80, 255), 2.0f);
+    if (s.shot.length < end) {
+      dl->AddLine(ImVec2(tx(s.shot.length), origin.y), ImVec2(tx(s.shot.length), y), IM_COL32(255, 255, 255, 80));
+    }
+    ImGui::SetCursorScreenPos(ImVec2(origin.x, y + 4));
+  }
+
+  void Inspector(ShotState& s, FreeCam& f) {
+    if (s.sel_track < 0 || s.sel_key < 0 || size_t(s.sel_key) >= s.shot.keys[s.sel_track].size()) {
+      ImGui::TextDisabled("Click a key to edit it.");
+      ImGui::TextDisabled("K key all   Space play / pause   [ ] previous / next key");
+      ImGui::TextDisabled(", . one frame (Shift: one second)   Backspace delete key");
+      return;
+    }
+    const int tr = s.sel_track;
+    auto& keys = s.shot.keys[tr];
+    k::Key& key = keys[size_t(s.sel_key)];
+    bool changed = false;
+    ImGui::Text("%s key %d of %d", k::kTrackNames[tr], s.sel_key + 1, int(keys.size()));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("go to")) {
+      s.play = ShotPlay::kStopped;
+      s.playhead = key.t;
+      s.apply = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("update from camera")) {
+      float v[3];
+      k::CaptureValues(s.shot, tr, key.t, CamPose(f), TargetOrNull(s, 0), TargetOrNull(s, 1), TargetOrNull(s, 2),
+                       s.aspect, v);
+      std::memcpy(key.v, v, sizeof(v));
+      changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("delete")) {
+      k::DeleteKey(s.shot, tr, size_t(s.sel_key));
+      s.sel_track = s.sel_key = -1;
+      s.dirty = true;
+      s.apply = true;
+      return;
+    }
+    float t = float(key.t);
+    ImGui::SetNextItemWidth(120);
+    if (ImGui::DragFloat("time", &t, 1.0f / 60, 0.0f, 600.0f, "%.3f s")) {
+      s.sel_key = int(k::MoveKey(s.shot, tr, size_t(s.sel_key), SnapFrame(t)));
+      s.shot.length = std::max(s.shot.length, k::LastKeyTime(s.shot));
+      s.dirty = true;
+      return;  // the key may have moved in the list
+    }
+    ImGui::SameLine();
+    int curve = int(key.curve);
+    ImGui::SetNextItemWidth(100);
+    if (ImGui::Combo("curve", &curve, "smooth\0linear\0hold\0")) {
+      key.curve = k::Curve(curve);
+      changed = true;
+    }
+    ImGui::SameLine();
+    bool auto_ease = key.ease < 0;
+    if (ImGui::Checkbox("auto ease", &auto_ease)) {
+      key.ease = auto_ease ? -1.0f : k::EaseOf(keys, size_t(s.sel_key));
+      changed = true;
+    }
+    if (!auto_ease) {
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(120);
+      changed |= ImGui::SliderFloat("ease", &key.ease, 0.0f, 1.0f, "%.2f");
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("1 = slows to a stop at this key, 0 = passes through at speed");
+    }
+    ImGui::SetNextItemWidth(320);
+    switch (tr) {
+      case k::kMove:
+        if (s.shot.move.on()) {
+          changed |= ImGui::DragFloat3("distance / angle / height", key.v, 1.0f, 0, 0, "%.1f");
+        } else {
+          changed |= ImGui::DragFloat3("x y z (cm, Y down)", key.v, 1.0f, 0, 0, "%.1f");
+        }
+        break;
+      case k::kAim:
+        if (s.shot.aim.on()) {
+          changed |= ImGui::DragFloat2("framing x / y", key.v, 0.002f, -1.0f, 1.0f, "%.3f");
+          if (ImGui::SmallButton("centre")) key.v[0] = key.v[1] = 0, changed = true;
+          ImGui::SameLine();
+          if (ImGui::SmallButton("left third")) key.v[0] = -1.0f / 3, changed = true;
+          ImGui::SameLine();
+          if (ImGui::SmallButton("right third")) key.v[0] = 1.0f / 3, changed = true;
+        } else {
+          changed |= ImGui::DragFloat2("yaw / pitch", key.v, 0.1f, 0, 0, "%.2f");
+        }
+        break;
+      case k::kRoll: changed |= ImGui::DragFloat("roll (degrees)", &key.v[0], 0.1f, -180.0f, 180.0f, "%.2f"); break;
+      case k::kLens: {
+        float mm = FovToMm(key.v[0]);
+        if (ImGui::DragFloat("focal length", &mm, 0.2f, 5.0f, 800.0f, "%.1f mm", ImGuiSliderFlags_Logarithmic)) {
+          key.v[0] = MmToFov(mm);
+          changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("FOV %.2f", key.v[0]);
+        break;
+      }
+      case k::kFocus:
+        changed |= ImGui::DragFloat2(s.shot.focus.on() ? "offset cm / aperture" : "distance cm / aperture", key.v, 1.0f,
+                                     0, 0, "%.2f");
+        break;
+    }
+    if (changed) {
+      s.shot.Touch();
+      s.dirty = true;
+      if (s.play == ShotPlay::kStopped) s.apply = true;
+    }
+  }
+
+  void TargetRow(ShotState& s, FreeCam& f, int role, const char* what) {
+    ImGui::PushID(role);
+    const k::Target cur = RoleTarget(s.shot, role);
+    ImGui::SetNextItemWidth(200);
+    if (ImGui::BeginCombo(what, TargetLabel(cur).c_str())) {
+      if (ImGui::Selectable("nothing", !cur.on())) ShotSetTarget(s, role, k::Target{});
+      for (int slot = 0; slot < 6; ++slot) {
+        k::Target t;
+        t.kind = k::TargetKind::kSlot, t.slot = slot;
+        if (ImGui::Selectable(TargetLabel(t).c_str(), cur.kind == t.kind && cur.slot == slot)) ShotSetTarget(s, role, t);
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("pin here")) ShotSetTarget(s, role, PinHere(f));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A fixed point straight ahead at the focus distance");
+    if (cur.on() && !s.tgt_ok[role]) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("(not found)");
+    }
+    ImGui::PopID();
+  }
+
+  void Targets(ShotState& s, FreeCam& f) {
+    TargetRow(s, f, 0, "look at");
+    TargetRow(s, f, 1, "orbit around");
+    TargetRow(s, f, 2, "focus on");
+    ImGui::SetNextItemWidth(160);
+    ImGui::SliderFloat("follow lag", &s.shot.follow, 0.0f, 1.0f, "%.2f s");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("How loosely the camera follows a wrestler (0 = locked on)");
+    if (ImGui::Checkbox("constant speed (move)", &s.shot.constant_speed)) {
+      s.shot.Touch();
+      s.dirty = true;
+      s.apply = true;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("An even dolly speed between the first and last key, easing at the ends");
+  }
+
+  char name_[64] = {};
+  std::string last_name_;
+  int drag_track_ = -1, drag_key_ = -1;
+};
+
 // F8 (UI thread).
 inline void Toggle() {
   FreeCam& f = F();
@@ -1243,7 +2167,11 @@ inline void Toggle() {
     f.seeded = false;
     f.mouse_dx = f.mouse_dy = 0;
     f.wheel = 0;
-    if (!f.active) StopLooking(f);
+    if (!f.active) {
+      StopLooking(f);
+      Sh().play = ShotPlay::kStopped;  // Session 35: a shot stops, and a frozen scene runs again
+      ShotFreeze(Sh(), false);
+    }
     show_panel = f.active && REXCVAR_GET(wwe2k14_cinecam_panel);
     REXLOG_INFO("[wwe2k14][cinecam] free camera {} (guest frames driven so far: {})", f.active ? "on" : "off",
                 f.frames);
@@ -1252,6 +2180,21 @@ inline void Toggle() {
   if (!show_panel && f.panel) {
     delete f.panel;  // removes it from the drawer
     f.panel = nullptr;
+  }
+  const bool show_timeline = show_panel && REXCVAR_GET(wwe2k14_cinecam_timeline);
+  if (show_timeline && !f.timeline && f.drawer) {
+    auto* t = new Timeline(f.drawer);
+    std::lock_guard lock(f.mutex);  // the hotkeys read f.timeline under the mutex
+    f.timeline = t;
+  }
+  if (!show_timeline && f.timeline) {
+    rex::ui::ImGuiDialog* t;
+    {
+      std::lock_guard lock(f.mutex);
+      t = f.timeline;
+      f.timeline = nullptr;
+    }
+    delete t;
   }
 }
 
@@ -1300,6 +2243,18 @@ inline void Install(rex::ui::Window* window, rex::ui::ImGuiDrawer* drawer) {
       }
     });
   });
+  // Session 35: keyframed shot commands from a script (the same actions as the timeline panel).
+  rex::cvar::RegisterChangeCallback("wwe2k14_cinecam_timeline_cmd", [window](std::string_view, std::string_view value) {
+    const std::string v(value);
+    if (v.empty()) return;
+    window->app_context().CallInUIThreadDeferred([v] {
+      {
+        std::lock_guard lock(F().mutex);
+        ShotCommand(Sh(), F(), v);
+      }
+      rex::cvar::SetFlagByName("wwe2k14_cinecam_timeline_cmd", "");  // so the same command can be sent again
+    });
+  });
   REXLOG_INFO("[wwe2k14][cinecam] installed: F8 (bind_wwe2k14_cinecam) toggles the free camera");
   InstallFreeze();  // Session 16: --wwe2k14_cinecam_freeze (defined at the end of this file)
   if (REXCVAR_GET(wwe2k14_cinecam_on)) Toggle();
@@ -1312,9 +2267,14 @@ inline void Shutdown() {
   rex::ui::UnregisterBind("bind_wwe2k14_cinecam");
   rex::cvar::UnregisterChangeCallbacks("wwe2k14_cinecam_on");
   rex::cvar::UnregisterChangeCallbacks("wwe2k14_cinecam_shot");
+  rex::cvar::UnregisterChangeCallbacks("wwe2k14_cinecam_timeline_cmd");
   if (f.panel) {
     delete f.panel;
     f.panel = nullptr;
+  }
+  if (f.timeline) {
+    delete f.timeline;
+    f.timeline = nullptr;
   }
   if (f.window) {
     f.window->RemoveInputListener(&L());
