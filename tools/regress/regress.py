@@ -109,8 +109,9 @@ ROUTES['taker4k'] = dict(
     checks=['flags', 'hard_fails', 'clean_exit', 'screenshots', 'scenes', 'perf', 'bar60'])
 # Command-line flags run_list.ps1 adds to every run (not part of a route's identity).
 # Session 30: the test window flags (fullscreen behind other windows without the focus; -Windowed adds the last two).
+# Session 32: the background throttling opt-out run_list adds with them (src/background_speed.h).
 RUNLIST_FLAGS = {'user_data_root', 'cache_root', 'wwe2k14_timeline', 'window_activate_when_shown',
-                 'window_show_behind', 'fullscreen', 'window_position'}
+                 'window_show_behind', 'fullscreen', 'window_position', 'wwe2k14_background_full_speed'}
 
 SCENES = ['brock', 'second', 'match']
 SCENE_LABEL = {'brock': 'Brock', 'second': '2nd', 'match': 'match'}

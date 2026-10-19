@@ -1765,6 +1765,34 @@
           "size": 11351040
         }
       ]
+    },
+    {
+      "id": "pin-b82208d-1019-1122",
+      "sdk_commit": "b82208db3eaf6fd068298a57c1a6fc9f7e22efe6",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-19",
+      "built": "build_sdk.ps1 -Run s32, 2026-10-19T11:22:39 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s32.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 32: STFS reads locked (DLC packages)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "1ec4085b83360d086853a5d08f0cae69a43e738fa52ebc47c8fe1a851bb564df",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "ce97d3c76125280d992d1db1eb27ab3be34ce308e270752afd9aba1d39e0183e",
+          "size": 7596032
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "5fb154cb5d77814476307ac255c899881156dff6bd881282d1e8e3b8fa214809",
+          "size": 11351552
+        }
+      ]
     }
   ]
 }

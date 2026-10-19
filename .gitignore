@@ -13,6 +13,13 @@ out/
 *.iso
 *.xdbf
 *.stfs
+# Session 32: DLC packs (the player's own game content) wherever they are copied in the repo: a dlc folder at the top
+# (tools/dlc/ is our code and stays tracked), the packs' sound banks and catalogs.
+/dlc*/
+*.pck
+catalog.dlc
+catalog_hd.arc
+catalog_sd.arc
 
 # ---- Build / tooling output ----
 build/

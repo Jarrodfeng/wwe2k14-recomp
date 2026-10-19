@@ -1,0 +1,13 @@
+# Session 32 (Jarrod: unfocused windows run slower): the A/B for --wwe2k14_background_full_speed. Use with
+# --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=343,324 --wwe2k14_launch_skip_entrances=true
+# and the flag =true / =false, two lanes at once behind other windows (fast-forwarded). The log's "bgab:" lines time
+# 1800 frames of match: compare their wall-clock times.
+on_fail quit
+log bgab: start
+include boot_to_menu
+wait_file m3.pac 3600
+wait_frames 120
+log bgab: match timing start
+wait_frames 1800
+log bgab: match timing end
+quit

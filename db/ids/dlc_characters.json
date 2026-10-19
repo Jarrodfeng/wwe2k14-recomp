@@ -1,0 +1,32 @@
+{
+  "about": "WWE 2K14 DLC character ids (Session 32, 2026-10-19). Kept apart from characters.json on purpose: the launcher's Quick Match and tools/monkey read characters.json, and these ids only exist when their pack is on (--wwe2k14_dlc). The id is the archive pac\\ch\\chNNN_dlcPP.pac in pack PP (folder listing of Jarrod's packs, game_data\\dlc (dlc_2 until 2026-10-19 11:20)). Every id loaded and played 30 s of a one-on-one Quick Match against Daniel Bryan (324) with its entrance on (runs 2446-2465, tools/input_scripts/short/dlc_pair.txt) and in the six-pack sweep (runs 2438-2441). Names only where the game or the pack's catalog shows them (CLAUDE.md: unknown is an acceptable answer); the match HUD shows no names.",
+  "evidence_key": {
+    "catalog": "the pack's info\\catalog.dlc entry names this character id (tools/dlc/scan.py)",
+    "name_plate": "the name plate on screen in the entrance (shot-checker on the run's dp_entrance.png)",
+    "tron_text": "the name written in the titantron graphics (screenshot)",
+    "pair_run": "the one-on-one Quick Match run: archive from its pack, entrance, 30 s of match",
+    "six_run": "the six-pack sweep run"
+  },
+  "entries": [
+    {"id": 377, "pack": 3, "name": null, "evidence": ["pair_run 2451", "six_run 2438", "own titantron 377"], "note": "long hair, goatee, black nWo tank (shot-checker)"},
+    {"id": 378, "pack": 3, "name": "Scott Hall", "confidence": "medium", "evidence": ["name_plate run 2453", "pair_run 2453", "six_run 2438"]},
+    {"id": 379, "pack": 3, "name": null, "evidence": ["pair_run 2452", "six_run 2438"], "note": "shirt reads MADNESS (not a name plate)"},
+    {"id": 380, "pack": 3, "name": null, "evidence": ["pair_run 2454", "six_run 2438"], "note": "bandana, nWo shirt"},
+    {"id": 381, "pack": 3, "name": null, "evidence": ["pair_run 2455", "six_run 2438"], "note": "blond, black singlet"},
+    {"id": 382, "pack": 3, "name": null, "evidence": ["pair_run 2456", "six_run 2438"]},
+    {"id": 383, "pack": 3, "name": "The Giant (nWo alternate attire)", "confidence": "high", "evidence": ["catalog entry 5 (char 383)", "pair_run 2457", "six_run 2440"]},
+    {"id": 384, "pack": 4, "name": "Big E Langston", "confidence": "medium", "evidence": ["tron_text LANGSTON, run 2440 s6_2", "pair_run 2446"]},
+    {"id": 385, "pack": 4, "name": null, "evidence": ["pair_run 2448 (also loads ch394)"], "note": "a man in black flame-pattern pants; his entrance shows a woman in a purple dress, who is ch394 (loaded with him)"},
+    {"id": 386, "pack": 4, "name": "Brie Bella", "confidence": "medium", "evidence": ["name_plate run 2447", "pair_run 2447"]},
+    {"id": 387, "pack": 4, "name": null, "evidence": ["pair_run 2449 (uses titantron 386)"], "note": "the tron reads Bella; the other twin is likely, not confirmed"},
+    {"id": 388, "pack": 5, "name": null, "evidence": ["pair_run 2458", "six_run 2441"]},
+    {"id": 389, "pack": 4, "name": "Summer Rae", "confidence": "high", "evidence": ["catalog entry 9 'Summer Rae (Free)' (char 389)", "pair_run 2459", "six_run 2439"]},
+    {"id": 390, "pack": 5, "name": "Bruno Sammartino", "confidence": "medium", "evidence": ["tron_text, run 2439 s6_2", "pair_run 2460"]},
+    {"id": 391, "pack": 5, "name": null, "evidence": ["pair_run 2461", "six_run 2439"]},
+    {"id": 392, "pack": 5, "name": null, "evidence": ["pair_run 2462", "six_run 2439"]},
+    {"id": 393, "pack": 5, "name": "Virgil", "confidence": "high", "evidence": ["catalog entry 11 'Virgil (Free)' (char 393)", "pair_run 2463", "six_run 2439"]},
+    {"id": 394, "pack": 4, "name": null, "evidence": ["pair_run 2450"], "note": "no titantron and no entrance of her own (a woman in a purple dress; appears in 385's entrance): a valet, unconfirmed"},
+    {"id": 395, "pack": 3, "name": "Kevin Nash (The Outsiders alternate attire)", "confidence": "high", "evidence": ["catalog entry 7 (char 395)", "pair_run 2464", "six_run 2441"]},
+    {"id": 396, "pack": 3, "name": "Scott Hall (The Outsiders alternate attire)", "confidence": "high", "evidence": ["catalog entry 8 (char 396)", "pair_run 2465", "six_run 2441"]}
+  ]
+}

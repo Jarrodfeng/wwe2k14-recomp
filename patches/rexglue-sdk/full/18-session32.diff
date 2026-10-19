@@ -1,0 +1,36 @@
+# ReXGlue SDK changes for WWE 2K14 (session32): 0750a5bd1b4a..b82208db3eaf on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  b82208d Session 32: StfsContainerFile::ReadSync takes a lock around seek + fread (one shared FILE* per package: concurrent reads of two files could interleave)
+
+diff --git a/src/filesystem/devices/stfs_container_file.cpp b/src/filesystem/devices/stfs_container_file.cpp
+index 0dd13f30275033a6501991d4cd40add72f68bb8c..3f220e8d7eaf2ae33d937f60b433e5adf799500c 100644
+--- a/src/filesystem/devices/stfs_container_file.cpp
++++ b/src/filesystem/devices/stfs_container_file.cpp
+@@ -14,11 +14,19 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <mutex>
+ 
+ #include <rex/math.h>
+ 
+ namespace rex::filesystem {
+ 
++namespace {
++// wwe2k14 patch (Session 32): every file of a package reads through the device's shared FILE* with a seek and then a
++// fread; two threads reading two files of one package at once (a titantron streaming while a .pac loads, as in a DLC
++// entrance) could interleave and get each other's bytes. One lock for the seek + read pair (reads are a few blocks).
++std::mutex g_stfs_read_mutex;
++}  // namespace
++
+ StfsContainerFile::StfsContainerFile(uint32_t file_access, StfsContainerEntry* entry)
+     : File(file_access, entry), entry_(entry) {}
+ 
+@@ -39,6 +47,7 @@ X_STATUS StfsContainerFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offs
+   size_t remaining_length = std::min(buffer.size(), entry_->size() - byte_offset);
+ 
+   *out_bytes_read = 0;
++  std::lock_guard<std::mutex> lock(g_stfs_read_mutex);  // wwe2k14 patch (Session 32): see above
+   for (size_t i = 0; i < entry_->block_list().size(); i++) {
+     auto& record = entry_->block_list()[i];
+     if (src_offset + record.length <= byte_offset) {

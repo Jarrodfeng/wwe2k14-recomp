@@ -1,0 +1,12 @@
+# Session 32 (DLC saves): a live start script (live.py start --script ...) for a save made with DLC packs on, booted
+# with them off: the title presses, then wait for the game's "missing downloadable content" notice and stop there
+# (no quit: the live channel takes over). With the packs on (no notice) it stops after a 900-frame wait.
+on_fail continue
+log dnotice: start
+wait_file SaveData.Dat 3600
+wait_state boot_step 3 1800 2
+press_until_state START boot_step 4 10 30
+press_until_state A boot_step >=5 10 30
+wait_text downloadable 900
+log_text
+log dnotice: at the notice (or no notice)

@@ -209,7 +209,7 @@ def bookmark(name='main', width=1280):
 
 
 def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=7200, boot_wait=180, exe='',
-          window='behind', coverage=False):
+          window='behind', coverage=False, data=''):
     """Starts a game with the live channel through run_list (background). -> text."""
     try:
         fields, _ = parse(request(name, '!status', connect_wait=0.3))
@@ -248,6 +248,8 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
     cmd = "& %s -Scripts @(%s) -Extra %s -WaitSeconds %d%s%s%s" % (q(RUN_LIST), q(path), q(flags), wait_s,
                                                                   '' if fast else ' -RealTime',
                                                                   (' -Exe %s' % q(exe)) if exe else '', win)
+    if data:  # Session 32: another frozen save copy under out\bench (run_list -Data, e.g. userdata_unlocked)
+        cmd += ' -Data %s' % q(data)
     log_path = os.path.join(OUT, 'start_%s.log' % name)
     # A hidden console, not DETACHED_PROCESS: pwsh without a console exits at once without running anything (Session
     # 29, first try). Break away from the caller's job when allowed, so the game outlives the command that started it.
@@ -394,6 +396,8 @@ def main():
     ap.add_argument('--exe', default='', help='another wwe2k14.exe, or "coverage" (the trace build)')
     ap.add_argument('--window', default='behind', choices=['behind', 'visible', 'windowed', 'foreground'])
     ap.add_argument('--coverage', action='store_true', help='start: the coverage build with recording on')
+    ap.add_argument('--data', default='', help='start: another frozen save copy under out\\bench (run_list -Data, '
+                    'e.g. userdata_unlocked; Session 32)')
     ap.add_argument('--top', type=int, default=40, help='diffcov: how many functions to list')
     ap.add_argument('--run', type=int)
     ap.add_argument('--from', dest='first', type=int)
@@ -418,7 +422,8 @@ def main():
         return code
     try:
         if a.cmd == 'start':
-            text = start(a.name, a.script, a.launch, a.fast, a.extra, exe=a.exe, window=a.window, coverage=a.coverage)
+            text = start(a.name, a.script, a.launch, a.fast, a.extra, exe=a.exe, window=a.window, coverage=a.coverage,
+                         data=a.data)
             print(text)
             return 0 if text.startswith(('started', 'already')) else 1
         if a.cmd == 'text':  # Session 30

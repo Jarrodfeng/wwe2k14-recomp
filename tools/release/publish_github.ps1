@@ -8,8 +8,9 @@
 #   - refused: game files by extension (.pac .bik .bik2 .xex .xexp .iso .cac), symbols (.pdb .map), anything under
 #     game_data\ or out\, generated\ other than generated\rexglue.cmake, and any file whose bytes equal a file under
 #     game_data\ (same-size files hashed, as make_release.ps1 does);
-#   - the commit is authored by the git identity configured here (Jarrod), message as given, no co-author line
-#     (Jarrod: GitHub history is his alone).
+#   - the commit is authored by the git identity configured here (Jarrod), message as given, ending with the Claude
+#     co-author line ($CoAuthor). Jarrod, 2026-10-18: "for transparency ... list yourself as a contributor" from now
+#     on; the first three published commits (aa45b3f, 1e7b4c2, 03023d0) were made without it and stay as they are.
 #
 #   pwsh -NoProfile -File tools\release\publish_github.ps1                  dry run: build + check the tree, list it
 #   pwsh -NoProfile -File tools\release\publish_github.ps1 -Commit -Message "..."           + commit on `public`
@@ -17,13 +18,19 @@
 #   ... -Push                              push `public` to origin main (with -Fresh: --force, replacing GitHub's
 #                                          history). Only with Jarrod's OK (CLAUDE.md Safety).
 param([switch]$Commit, [switch]$Fresh, [switch]$Push, [string]$Message = '', [string]$Remote = 'origin',
-      [string]$Branch = 'main', [string]$ListFile = '')
+      [string]$Branch = 'main', [string]$ListFile = '', [string[]]$Only = @(),
+      [string]$CoAuthor = 'Claude Opus 5.5 <noreply@anthropic.com>')
+# -Only PATH[,PATH] (Session 31): publish just these files from main on top of what GitHub has (the `public` branch),
+# leaving everything else as last published (e.g. a README fix while other changes wait for the next version).
 $ErrorActionPreference = 'Stop'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 Set-Location $R
 function Fail([string]$m) { Write-Host "publish_github: FAIL: $m"; exit 1 }
 
 if (git status --porcelain --untracked-files=no) { Fail 'uncommitted changes to tracked files: commit first' }
+# Jarrod (Session 31): GitHub only ever gets `main`, after a session's branch is merged; never a session branch.
+$current = (git branch --show-current).Trim()
+if ($current -ne 'main') { Fail "on branch '$current': publish from main (merge the session branch first)" }
 $head = (git rev-parse HEAD).Trim()
 
 # Which files stay out (regexes on the repo path, forward slashes).
@@ -40,11 +47,25 @@ New-Item -ItemType Directory -Force $tmp | Out-Null
 $index = Join-Path $tmp 'index'
 $env:GIT_INDEX_FILE = $index
 try {
-  git read-tree $head
-  if ($drop.Count) {
-    $listPath = Join-Path $tmp 'drop.txt'
-    [IO.File]::WriteAllLines($listPath, [string[]]$drop)
-    git rm --cached -q --pathspec-from-file=$listPath | Out-Null
+  if ($Only.Count) {
+    if ($Fresh) { Fail '-Only adds to the published history: not with -Fresh' }
+    $base = git rev-parse --verify --quiet refs/heads/public
+    if (-not $base) { Fail 'no `public` branch yet: publish everything first' }
+    git read-tree $base.Trim()
+    foreach ($o in ($Only -split ',')) {
+      $o = $o.Trim().Replace('\', '/')
+      if ($drop -contains $o -or $all -notcontains $o) { Fail "$o is not a publishable file in main" }
+      $entry = git ls-tree $head -- $o
+      $meta = ($entry -split "`t")[0] -split '\s+'
+      git update-index --add --cacheinfo "$($meta[0]),$($meta[2]),$o"
+    }
+  } else {
+    git read-tree $head
+    if ($drop.Count) {
+      $listPath = Join-Path $tmp 'drop.txt'
+      [IO.File]::WriteAllLines($listPath, [string[]]$drop)
+      git rm --cached -q --pathspec-from-file=$listPath | Out-Null
+    }
   }
   $tree = (git write-tree).Trim()
 } finally {
@@ -58,7 +79,7 @@ $files = git ls-tree -r -l $tree | ForEach-Object {
   [pscustomobject]@{ Path = $f[1]; Blob = $meta[2]; Size = [int64]$meta[3] }
 }
 $bad = @($files | Where-Object {
-  $_.Path -match '\.(pac|bik|bik2|xex|xexp|iso|cac|pdb|map)$' -or $_.Path -match '^(game_data|out)/' -or
+  $_.Path -match '\.(pac|bik|bik2|xex|xexp|iso|cac|pdb|map|pck|dlc|arc)$' -or $_.Path -match '^(game_data|out|dlc[^/]*)/' -or
   ($_.Path -match '^generated/' -and $_.Path -ne 'generated/rexglue.cmake') })
 if ($bad.Count) { Fail ("forbidden paths: " + (($bad | Select-Object -First 10).Path -join ', ')) }
 $gameFiles = @(Get-ChildItem -Recurse -File -Path (Join-Path $R 'game_data') -ErrorAction SilentlyContinue)
@@ -89,10 +110,21 @@ $parent = ''
 if (-not $Fresh) {
   $parent = (git rev-parse --verify --quiet refs/heads/public)
   if (-not $parent) { Fail 'no `public` branch yet: the first publish needs -Fresh' }
+  # Session 31: GitHub can change too (Jarrod edited the README there): never build over commits we don't have.
+  git fetch -q $Remote $Branch
+  $remoteTip = (git rev-parse FETCH_HEAD).Trim()
+  if ($remoteTip -ne $parent.Trim()) {
+    Fail ("GitHub's $Branch ($($remoteTip.Substring(0, 7))) differs from ``public`` ($($parent.Trim().Substring(0, 7))): " +
+          "bring GitHub's changes into main and move ``public`` to it first (git update-ref refs/heads/public FETCH_HEAD)")
+  }
 }
-$commitArgs = @('commit-tree', $tree, '-m', $Message)
+$msgFile = Join-Path $env:TEMP "wwe2k14_publish_msg_$PID.txt"
+$text = $Message.TrimEnd() + $(if ($CoAuthor) { "`n`nCo-Authored-By: $CoAuthor" } else { '' }) + "`n"
+[IO.File]::WriteAllText($msgFile, $text, (New-Object Text.UTF8Encoding $false))
+$commitArgs = @('commit-tree', $tree, '-F', $msgFile)
 if ($parent) { $commitArgs += @('-p', $parent.Trim()) }
 $c = (& git @commitArgs).Trim()
+Remove-Item $msgFile
 git update-ref refs/heads/public $c
 Write-Host "publish_github: commit $($c.Substring(0, 12)) on branch public$(if ($Fresh) { ' (new history)' } else { '' })"
 

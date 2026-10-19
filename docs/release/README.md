@@ -43,6 +43,22 @@ to `default.xex` is ignored: the game plays the disc version.
 
 If the launcher says your disc image is **incomplete**, the copy was cut short: copy it again.
 
+## Your DLC
+
+The DLC you bought for WWE 2K14 on your Xbox 360 works too: the extra wrestlers (under DOWNLOADED SUPERSTARS on the
+select screen), their entrances and titantrons, and the Accelerator (it unlocks the whole roster).
+
+1. With the same FATX tool, copy the DLC from your Xbox drive: the files in
+   `Content\0000000000000000\545408B2\00000002\` (one file per pack). If you have already extracted your packs, use
+   those instead: one folder per pack, each with `info\catalog.dlc` in it.
+2. Put them in a folder called **`dlc`** next to your game folder (or disc image), or pick any folder in
+   **Settings -> Game -> Downloadable content**.
+3. Settings lists each pack by name with an ON / OFF switch. The packs are read where they are; nothing is copied or
+   changed.
+
+A save made with DLC on needs those packs: with one switched off, the game says the save can't be used. Switch it
+back on and everything is there again.
+
 ## First run
 
 1. Unzip this folder anywhere, e.g. `C:\Games\WWE2K14`.

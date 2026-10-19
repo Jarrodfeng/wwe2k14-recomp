@@ -1,0 +1,23 @@
+# Session 32 (DLC, plan item 4): one DLC wrestler in a Quick Match. Use with --wwe2k14_launch=@quick
+# --wwe2k14_quick_type=0 --wwe2k14_launch_participants=ID,324 (Daniel Bryan) --wwe2k14_dlc=true --wwe2k14_dlc_dir=DIR.
+# For the DLC ids the six-pack route (dlc_six.txt) could not finish: an entrance START does not skip at some steps
+# (384), or no titantron (394). Wrestler 1's entrance: step 5 (optional), 5 s, screenshot; START until the match scene
+# loads (M3.PAC); 30 s of match with screenshots at 10 s and 30 s. Untimed.
+on_fail quit
+log pair: start
+include boot_to_menu
+log pair: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+wait_file titantron 2400 optional
+wait_state entrance_step_0 >=5 2400 2 optional
+wait_frames 300
+screenshot dp_entrance
+log pair: START until the match scene loads
+press_until_file START m3.pac 30 300
+log pair: match scene
+wait_frames 600
+screenshot dp_match10
+wait_frames 1200
+screenshot dp_match30
+log pair: 30 s of match
+quit

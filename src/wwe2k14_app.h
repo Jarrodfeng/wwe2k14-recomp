@@ -48,6 +48,8 @@
 #include "tron_export.h"    // --wwe2k14_tron_export (Session 17 launcher previews, default off)      // MP4 / MOV / MKV titantrons via Media Foundation (Session 17 item 1B; needs --wwe2k14_mods)
 #include "motion_fix.h"     // --wwe2k14_fix_secondary_motion (Session 27.5: Cena's title at 60 fps, default off)
 #include "gfx_menu.h"       // GRAPHICS menu in the Options (Session 28)
+#include "dlc.h"            // --wwe2k14_dlc: the player's DLC packs (Session 32, default off)
+#include "background_speed.h"  // --wwe2k14_background_full_speed (Session 32, default off; run_list turns it on)
 #include "live_control.h"   // --wwe2k14_live (Session 29: live control channel, default off)
 #include "check_prompt.h"   // input-script `check TEXT` (Session 29: on-screen question, harness runs only)
 #include "gpu_pick.h"       // Session 31: the dedicated GPU by default, --wwe2k14_gpu=NAME (the launcher's chooser)
@@ -141,6 +143,8 @@ class Wwe2k14App : public rex::ReXApp {
   void OnPreSetup(rex::RuntimeConfig& config) override {
     // Session 16 item 1: replay mode preset and a playback file's seed / settings, before anything reads them.
     wwe2k14::gfx_menu::ApplyLauncherSettings();  // Session 28: graphics settings from the launcher's file (release builds)
+    if (REXCVAR_GET(wwe2k14_use_launcher_settings))  // Session 32: the DLC switches too
+      wwe2k14::dlc::ApplyLauncherSettings(wwe2k14::gfx_menu::SettingsFile());
     wwe2k14::reshoot::PreSetup();  // sets --wwe2k14_replay_play etc. first (no-op unless --wwe2k14_reshoot)
     wwe2k14::director::PreSetup();  // Session 17: scenario / seed / replay mode from a director script (if any)
     wwe2k14::replay::g_replay.PreSetup();
@@ -341,6 +345,7 @@ class Wwe2k14App : public rex::ReXApp {
 
   void OnPostInitLogging() override {
     wwe2k14::InstallCrashHandlers();
+    wwe2k14::ApplyBackgroundFullSpeed();  // Session 32: test lanes behind other windows at full speed
     // Session 8 task 0: pin this run's log number now, inside run_and_triage's launch window (frame_stats.h).
 #ifdef _WIN32
     const unsigned long pid = GetCurrentProcessId();
@@ -372,6 +377,7 @@ class Wwe2k14App : public rex::ReXApp {
 
     if (REXCVAR_GET(wwe2k14_mount_cache)) MountCachePartition();
     wwe2k14::mods::Install(runtime()->file_system(), game_data_root());  // no-op unless --wwe2k14_mods (Session 17)
+    wwe2k14::dlc::Install(runtime()->file_system(), game_data_root());   // no-op unless --wwe2k14_dlc (Session 32)
     wwe2k14::StartTimelineIfRequested();
     wwe2k14::StartThreadPlacement();  // logs the CPU topology; watcher only with --wwe2k14_thread_placement
     wwe2k14::StartFlightRecorder();   // no-op unless --wwe2k14_flight_recorder (Session 8 task 11)
@@ -385,6 +391,15 @@ class Wwe2k14App : public rex::ReXApp {
       });
     };
     wwe2k14::replay::g_replay.Init();  // no-op unless --wwe2k14_replay_* (Session 16)
+    if (!wwe2k14::replay::g_replay.StopReason().empty()) {
+      // Session 32: a replay whose DLC packs are not on: say so (a box when the launcher asks for one; every other run
+      // only logs it, so an unattended run never waits on a click: review), close.
+      if (REXCVAR_GET(wwe2k14_replay_dlc_box)) {
+        const std::string& why = wwe2k14::replay::g_replay.StopReason();
+        MessageBoxW(nullptr, std::wstring(why.begin(), why.end()).c_str(), L"WWE 2K14: replay", MB_OK | MB_ICONWARNING);
+      }
+      wwe2k14::g_request_quit();
+    }
     wwe2k14::reshoot::Install();       // no-op unless --wwe2k14_reshoot (Session 16)
     wwe2k14::matte::Install();         // no-op unless --wwe2k14_matte (Session 16)
     wwe2k14::runin::Install();         // no-op unless --wwe2k14_runin (Session 16)

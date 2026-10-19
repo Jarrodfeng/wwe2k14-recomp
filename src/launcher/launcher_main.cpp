@@ -1302,12 +1302,15 @@ class App {
     float by = o.y + avail.y - line * 2 - ImGui::GetFrameHeight() - 6 * d;
     by = std::max(by, y + line * 2);
     ImGui::SetCursorScreenPos(ImVec2(o.x, by));
-    ImGui::TextDisabled("%s%s%s.  F8 CineCam (when on in Settings), Alt+F4 quits.",
+    RefreshDlc(30);  // Session 32: "DLC: N packs on"
+    const int dlc_on = DlcPacksOn();
+    const std::string dlc_text = dlc_on ? ", DLC: " + std::to_string(dlc_on) + (dlc_on == 1 ? " pack on" : " packs on") : "";
+    ImGui::TextDisabled("%s%s%s%s.  F8 CineCam (when on in Settings), Alt+F4 quits.",
                         kResolutionNames[s.original_look ? 0 : s.resolution],
                         s.frame_rate == 2   ? (s.refresh_hz == 120 ? ", 120 fps" : ", uncapped")
                         : s.frame_rate == 0 ? ", classic frame rate"
                                             : ", 60 fps",
-                        s.upscale ? ", upscaling on" : "");
+                        s.upscale ? ", upscaling on" : "", dlc_text.c_str());
     if (ImGui::Button("Advanced: replays, re-shoots, seeds, director...")) play_view_ = 2;
   }
 
@@ -1987,6 +1990,7 @@ class App {
     const fs::path perf = Newest(paths_.logs, "perf_report_", ".txt");
     about += "Game log: " + (log.empty() ? std::string("(none)") : PathStr(log.filename())) +
              "\nPerformance report: " + (perf.empty() ? std::string("(none: turn it on in Settings)") : PathStr(perf.filename())) + "\n";
+    about += DlcReportText();  // Session 32: pack names and states, never their files
     z.Add("about.txt", Redact(about));
     if (!log.empty()) z.Add(PathStr(log.filename()), Redact(ReadTail(log, 24u << 20)));
     if (!perf.empty()) z.Add(PathStr(perf.filename()), Redact(ReadTail(perf, 4u << 20)));
@@ -2419,9 +2423,142 @@ class App {
   static constexpr const char* kLanguageNames[] = {"AUTOMATIC", "ENGLISH",  "DEUTSCH", "FRAN\xC3\x87" "AIS",
                                                    "ESPA\xC3\x91" "OL", "ITALIANO"};
 
+  // ---------------- DLC (Session 32; Jarrod: in Settings -> GAME, beside the game files)
+  // The packs in the DLC folder (dlc_catalog.h Scan), refreshed at most every `max_age_s` seconds or when the folder
+  // changes. Scanning reads each pack's catalog and checks its listed files: a few hundred file checks.
+  std::vector<wwe2k14::dlc::Pack> dlc_packs_;
+  fs::path dlc_scanned_;
+  std::chrono::steady_clock::time_point dlc_checked_{};
+  bool dlc_folder_exists_ = false;
+
+  void RefreshDlc(int max_age_s) {
+    const auto now = std::chrono::steady_clock::now();
+    if (dlc_scanned_ == paths_.dlc && dlc_checked_.time_since_epoch().count() &&
+        now - dlc_checked_ < std::chrono::seconds(max_age_s))
+      return;
+    dlc_checked_ = now, dlc_scanned_ = paths_.dlc;
+    std::error_code ec;
+    dlc_folder_exists_ = fs::is_directory(paths_.dlc, ec);
+    try {
+      dlc_packs_ = dlc_folder_exists_ ? wwe2k14::dlc::Scan(paths_.dlc) : std::vector<wwe2k14::dlc::Pack>{};
+    } catch (...) {  // review: never let an odd folder take the launcher down
+      dlc_packs_.clear();
+    }
+  }
+  bool DlcIsOff(int id) const {
+    const auto off = wwe2k14::dlc::ParseIdList(s.dlc_off);
+    return std::find(off.begin(), off.end(), id) != off.end();
+  }
+  void SetDlcOff(int id, bool off) {
+    auto ids = wwe2k14::dlc::ParseIdList(s.dlc_off);
+    ids.erase(std::remove(ids.begin(), ids.end(), id), ids.end());
+    if (off) ids.push_back(id);
+    std::sort(ids.begin(), ids.end());
+    s.dlc_off.clear();
+    for (int v : ids) s.dlc_off += (s.dlc_off.empty() ? "" : ",") + std::to_string(v);
+  }
+  // Ready packs the game gets (USE MY DLC on, not switched off).
+  int DlcPacksOn() const {
+    if (!s.dlc) return 0;
+    int n = 0;
+    for (const auto& p : dlc_packs_) n += p.status == wwe2k14::dlc::Status::kReady && !DlcIsOff(p.pack_id);
+    return n;
+  }
+  static std::string DlcStatusText(const wwe2k14::dlc::Pack& p) {
+    using wwe2k14::dlc::Status;
+    switch (p.status) {
+      case Status::kReady: return "Ready";
+      case Status::kIncomplete: return "Incomplete: " + p.reason;
+      case Status::kDamaged: return "Damaged: " + p.reason;
+      case Status::kDuplicate: return "Duplicate: " + p.reason;
+      case Status::kOtherContent: return "Not WWE 2K14 DLC: " + p.reason;
+    }
+    return "?";
+  }
+  static std::string SizeText(uint64_t bytes) {
+    char b[32];
+    if (bytes >= (1u << 20)) std::snprintf(b, sizeof(b), "%.1f MB", double(bytes) / (1024.0 * 1024.0));
+    else if (bytes >= 1024) std::snprintf(b, sizeof(b), "%.0f KB", double(bytes) / 1024.0);
+    else std::snprintf(b, sizeof(b), "%u bytes", unsigned(bytes));
+    return b;
+  }
+  // The text for Report a problem: pack names and states only (never files).
+  std::string DlcReportText() {
+    RefreshDlc(0);
+    std::string t = std::string("DLC: ") + (s.dlc ? "on" : "off") + ", folder " + PathStr(paths_.dlc) +
+                    (dlc_folder_exists_ ? "" : " (not there)") + ", " + std::to_string(dlc_packs_.size()) + " pack(s)\n";
+    for (const auto& p : dlc_packs_)
+      t += "  pack " + std::to_string(p.pack_id) + " '" + p.folder + "' (" + p.AllNames() + "): " + DlcStatusText(p) +
+           (p.status == wwe2k14::dlc::Status::kReady ? (DlcIsOff(p.pack_id) ? ", switched off" : ", on") : "") + "\n";
+    return t;
+  }
+
+  void DlcSection() {
+    const float d = Dpi();
+    RefreshDlc(10);  // and at once on Look again / a new folder
+    OptionToggle("USE MY DLC", s.dlc, true,
+                 "Your own downloadable content, read straight from your files (nothing is copied or changed): the "
+                 "packages as copied from your console's drive, or packs you extracted (one folder each, with "
+                 "info\\catalog.dlc in it).");
+    std::string shown = s.dlc_dir.empty() ? PathStr(paths_.dlc) : s.dlc_dir;
+    ImGui::SetNextItemWidth(-230 * d);
+    if (ImGui::InputTextWithHint("##dlc", "e.g. D:\\Games\\WWE2K14\\dlc", &shown, ImGuiInputTextFlags_EnterReturnsTrue))
+      s.dlc_dir = shown, Reload(), RefreshDlc(0);
+    ImGui::SameLine();
+    if (ImGui::Button("Folder...##dlc", ImVec2(110 * d, 0)))
+      if (auto f = PickFolder(hwnd_, L"Pick the folder with your DLC packs")) s.dlc_dir = PathStr(*f), Reload(), RefreshDlc(0);
+    ImGui::SameLine();
+    if (ImGui::Button("Look again", ImVec2(-1, 0))) RefreshDlc(0);
+    if (!s.dlc_dir.empty()) {
+      if (ImGui::SmallButton("Use the usual folder")) s.dlc_dir.clear(), Reload(), RefreshDlc(0);
+      ImGui::SameLine();
+      ImGui::TextDisabled("(dlc next to your game files)");
+    }
+    if (!dlc_folder_exists_) {
+      ImGui::TextColored(kWarn, "No DLC folder here. To add DLC, make it and copy your packs in, or pick another folder.");
+      return;
+    }
+    int ready = 0;
+    for (const auto& p : dlc_packs_) ready += p.status == wwe2k14::dlc::Status::kReady;
+    if (dlc_packs_.empty()) {
+      ImGui::TextColored(kWarn, "No packs in this folder (a pack is a package from the console's drive, or a folder "
+                                "with info\\catalog.dlc in it).");
+      return;
+    }
+    ImGui::TextColored(ready ? kGood : kWarn, "%d pack(s) found, %d on. Changes apply the next time the game starts.",
+                       int(dlc_packs_.size()), DlcPacksOn());
+    // Session 32 (runs 2443-2477, copies of a save): a save made with packs on keeps needing them; with one off the
+    // game says the save can't be used, but the unlocks stayed, even after saving, and came back with the packs on.
+    Note("Your save remembers the packs it was made with: with one of them off, the game warns that the save needs "
+         "it. Switch the pack back on and everything is there again.");
+    // One row per pack: its own name (the pack's main entry), ON / OFF; the grey line has every item, size, state.
+    const float w = ImGui::GetContentRegionAvail().x, label_room = w - std::min(300 * d, w * 0.5f) - 30 * d;
+    for (const auto& p : dlc_packs_) {
+      std::string label = Upper(p.ShortName());
+      while (label.size() > 4 && MenuTextSize(20 * d, label.c_str()).x > label_room) label.resize(label.size() - 4), label += "...";
+      const std::string names = p.entries.size() > 1 || p.package ? p.AllNames() : "";
+      std::string note = (names.empty() ? "" : names + ". ") + SizeText(p.bytes) + (p.package ? " package. " : ". ") +
+                         DlcStatusText(p) + ".";
+      if (p.folder != ".") note += "  (" + p.folder + ")";
+      ImGui::PushID(p.folder.c_str());
+      if (p.status == wwe2k14::dlc::Status::kReady) {
+        bool on = !DlcIsOff(p.pack_id);
+        if (OptionToggle(label.c_str(), on, s.dlc, note.c_str())) SetDlcOff(p.pack_id, !on);
+      } else {
+        static constexpr const char* kNotReady[] = {"NOT USED"};
+        int zero = 0;
+        OptionRow(label.c_str(), zero, kNotReady, 1, false, note.c_str());
+      }
+      ImGui::PopID();
+    }
+  }
+
   void SettingsGame() {
     SubHeading("GAME FILES");
     GameDataSection(false);
+    ImGui::Dummy(ImVec2(0, 8 * Dpi()));
+    SubHeading("DOWNLOADABLE CONTENT");
+    DlcSection();
     ImGui::Dummy(ImVec2(0, 8 * Dpi()));
     int li = 0;
     for (int i = 0; i < int(std::size(kLanguageIds)); ++i)
@@ -2542,21 +2679,31 @@ class App {
       OptionRow("UPSCALING", off, kUp, 1, false, why.c_str());
     }
     if (rtx && s.upscale) {
-      ImGui::SetNextItemWidth(-110 * d);
-      ImGui::InputTextWithHint("##sl", paths_.nvidia.empty() ? "folder with sl.interposer.dll"
-                                                            : "empty = the NVIDIA files included with this build",
-                               &s.dlss_dir);
-      ImGui::SameLine();
-      if (ImGui::Button("Browse...##sl", ImVec2(-1, 0)))
-        if (auto f = PickFolder(hwnd_, L"Pick the folder with sl.interposer.dll")) s.dlss_dir = PathStr(*f);
-      std::error_code ec;
-      const bool have = !s.dlss_dir.empty() && fs::exists(fs::path(Widen(s.dlss_dir)) / "sl.interposer.dll", ec);
-      if (s.dlss_dir.empty() && !paths_.nvidia.empty()) {
-        ImGui::TextColored(kGood, "Using the NVIDIA DLSS files included with this build.");
+      // Session 31 (Jarrod: the bundled files should just work): with NVIDIA's files next to the launcher (a release)
+      // or in the project's Streamline SDK (a development build), nothing to set up; another folder is optional.
+      const bool own = HasStreamline(s.dlss_dir), included = !paths_.nvidia.empty();
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14 * d);
+      if (included && !own && !nv_other_) {
+        if (paths_.nvidia_bundled) ImGui::TextColored(kGood, "Using the NVIDIA DLSS files included with this build.");
+        else ImGui::TextColored(kGood, "Using NVIDIA's DLSS files from the project's Streamline SDK (development build).");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Use other files...")) nv_other_ = true;
+        if (!s.dlss_dir.empty())
+          ImGui::TextDisabled("    Your folder %s has no NVIDIA files, so these are used.", s.dlss_dir.c_str());
       } else {
-        ImGui::TextColored(have ? kGood : kWarn, have ? "NVIDIA runtime found." : "NVIDIA runtime folder not set.");
-        Note("Where to get these files: DLSS needs NVIDIA's Streamline runtime, a free download from NVIDIA's "
-             "developer site (the Streamline SDK; use its bin\\x64 folder).");
+        ImGui::SetNextItemWidth(-110 * d);
+        ImGui::InputTextWithHint("##sl", "folder with sl.interposer.dll (NVIDIA's Streamline runtime)", &s.dlss_dir);
+        ImGui::SameLine();
+        if (ImGui::Button("Browse...##sl", ImVec2(-1, 0)))
+          if (auto f = PickFolder(hwnd_, L"Pick the folder with sl.interposer.dll")) s.dlss_dir = PathStr(*f);
+        if (HasStreamline(s.dlss_dir)) ImGui::TextColored(kGood, "Using the NVIDIA files in this folder.");
+        else if (included) ImGui::TextColored(kWarn, "No NVIDIA files in this folder: the included ones are used.");
+        else {
+          ImGui::TextColored(kWarn, "NVIDIA runtime folder not set.");
+          Note("Where to get these files: DLSS needs NVIDIA's Streamline runtime, a free download from NVIDIA's "
+               "developer site (the Streamline SDK; use its bin\\x64 folder).");
+        }
+        if (included && ImGui::SmallButton("Back to the included files")) s.dlss_dir.clear(), nv_other_ = false;
       }
       ImGui::Dummy(ImVec2(0, 6 * d));
     }
@@ -3760,6 +3907,7 @@ class App {
   int logo_srv_w_[3] = {};
   GameFont gfont_;
   std::vector<Gpu> gpus_;  // Settings -> Display: the graphics cards (ListGpus)
+  bool nv_other_ = false;  // Settings -> Graphics: the player opened "Use other files..." (Session 31)
   ID3D11ShaderResourceView* gfont_srv_ = nullptr;
   fs::path gfont_root_;
   bool gfont_tried_ = false;

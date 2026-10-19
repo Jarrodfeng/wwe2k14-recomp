@@ -41,7 +41,20 @@ Set-Location $R
 
 function Fail([string]$why) { "make_release: FAILED: $why"; exit 1 }
 
-$badExt = '.pac', '.bik', '.bik2', '.xex', '.iso', '.cac', '.pdb', '.map'
+$badExt = '.pac', '.bik', '.bik2', '.xex', '.iso', '.cac', '.pdb', '.map', '.pck', '.dlc', '.arc'  # Session 32: + DLC files
+# Session 32: DLC is the player's own game content too. Xbox 360 content packages (STFS: CON / LIVE / PIRS) and DLC
+# catalogs (DLCC) are refused by their first four bytes, whatever their name, and so is any file in a folder named dlc
+# (or dlc_*, dlc2, ...) on either the published or the source path.
+$badMagic = 'CON ', 'LIVE', 'PIRS', 'DLCC'
+function Test-DlcPath([string]$p) { return ($p -replace '/', '\') -match '(^|\\)dlc[^\\]*\\' }
+function Get-Magic([string]$path) {
+    try {
+        $fs = [System.IO.File]::OpenRead($path)
+        try { $b = New-Object byte[] 4; $n = $fs.Read($b, 0, 4) } finally { $fs.Dispose() }
+        if ($n -lt 4) { return '' }
+        return [System.Text.Encoding]::ASCII.GetString($b)
+    } catch { return '(unreadable)' }  # review: fail closed, an unreadable file is a hit
+}
 
 # The forbidden-content scan of $stage. $files: published path -> source; $buildOutputs: the published paths that
 # may come from $build. Returns the hits (empty = clean).
@@ -52,6 +65,9 @@ function Get-ForbiddenHits([string]$stage, $files, [string[]]$buildOutputs, [str
     foreach ($f in $staged) {
         $rel = $f.FullName.Substring($stage.Length + 1)
         if ($badExt -contains $f.Extension.ToLowerInvariant()) { $hits.Add("forbidden extension: $rel") }
+        $magic = Get-Magic $f.FullName
+        if ($badMagic -ccontains $magic -or $magic -eq '(unreadable)') { $hits.Add("Xbox content package or DLC catalog (magic '$magic'): $rel") }
+        if (Test-DlcPath $rel) { $hits.Add("in a DLC folder: $rel") }
         if ($redist.Contains($rel)) {
             # A third-party redistributable: allowed only as an unmodified copy of its source.
             if ((Get-FileHash -LiteralPath $f.FullName).Hash -ne (Get-FileHash -LiteralPath $redist[$rel]).Hash) {
@@ -66,6 +82,7 @@ function Get-ForbiddenHits([string]$stage, $files, [string[]]$buildOutputs, [str
         if ($redist.Contains($k)) { continue }  # checked above (byte for byte against its source)
         $src = [System.IO.Path]::GetFullPath($files[$k]).ToLowerInvariant()
         $isBuild = $buildOutputs -contains $k -and $src.StartsWith(([System.IO.Path]::GetFullPath($build)).ToLowerInvariant() + '\')
+        if (Test-DlcPath $src) { $hits.Add("from a DLC folder: $k <- $src") }
         foreach ($forbidden in 'game_data', 'generated', 'out') {
             $root = (Join-Path $R $forbidden).ToLowerInvariant() + '\'
             if ($src.StartsWith($root) -and -not $isBuild) { $hits.Add("from $forbidden\: $k <- $src") }
@@ -103,13 +120,19 @@ if ($SelfTest) {
     # An allowed redistributable whose bytes differ from its source (a tampered or wrong file).
     $null = New-Item -ItemType Directory -Force -Path (Join-Path $st 'nvidia')
     Set-Content -LiteralPath (Join-Path $st 'nvidia\sl.dlss.dll') -Value 'not the real sl.dlss.dll'
+    # Session 32: a fake Xbox package under a harmless name (our own bytes: LIVE + zeros), and a file in a dlc folder.
+    [System.IO.File]::WriteAllBytes((Join-Path $st 'readme2.txt'), [byte[]](@(0x4C, 0x49, 0x56, 0x45) + (,0 * 60)))
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $st 'dlc')
+    Set-Content -LiteralPath (Join-Path $st 'dlc\pack.txt') -Value 'not a real pack'
     $planted = [ordered]@{ 'notes.txt' = Join-Path $R 'README.md'; 'nvngx_dlss.dll' = Join-Path $R 'README.md'; 'intro.bik2' = Join-Path $R 'README.md'
-                           'nvidia\sl.dlss.dll' = Join-Path $R 'thirdparty\streamline\sdk\bin\x64\sl.dlss.dll' }
+                           'nvidia\sl.dlss.dll' = Join-Path $R 'thirdparty\streamline\sdk\bin\x64\sl.dlss.dll'
+                           'readme2.txt' = Join-Path $R 'README.md'; 'dlc\pack.txt' = Join-Path $R 'README.md' }
     $red = @{ 'nvidia\sl.dlss.dll' = Join-Path $R 'thirdparty\streamline\sdk\bin\x64\sl.dlss.dll' }
     $h = Get-ForbiddenHits $st $planted @() $st $red
     $h | ForEach-Object { "  hit: $_" }
     $want = @('same bytes as a game file: notes.txt', 'NVIDIA file: nvngx_dlss.dll', 'forbidden extension: intro.bik2',
-              'redistributable differs from its source: nvidia\sl.dlss.dll')
+              'redistributable differs from its source: nvidia\sl.dlss.dll',
+              "Xbox content package or DLC catalog (magic 'LIVE'): readme2.txt", 'in a DLC folder: dlc\pack.txt')
     $missed = @($want | Where-Object { $w = $_; -not ($h | Where-Object { $_.StartsWith($w) }) })
     Remove-Item -Recurse -Force $st
     if ($missed.Count) { "make_release -SelfTest: FAILED, missed: $($missed -join '; ')"; exit 1 }
@@ -230,7 +253,7 @@ foreach ($e in $entries) {
     $ext = [System.IO.Path]::GetExtension($e).ToLowerInvariant()
     $leaf = Split-Path $e -Leaf
     if ($allowedRedist -contains $e.Replace('\', '/')) { continue }  # checked byte for byte in the scan
-    if ($badExt -contains $ext -or $leaf -match '^(nvngx_|sl\.)') { Remove-Item -Force $zip; Fail "the zip holds $e" }
+    if ($badExt -contains $ext -or $leaf -match '^(nvngx_|sl\.)' -or (Test-DlcPath $e)) { Remove-Item -Force $zip; Fail "the zip holds $e" }
 }
 $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
 "$sha  $name.zip" | Set-Content -LiteralPath "$zip.sha256"

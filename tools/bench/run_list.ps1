@@ -101,6 +101,9 @@ function Get-RunListWindowFlags([string]$Path, [string]$Flags, [int]$Slot) {
     if ($Foreground) { return @('', 'fullscreen, activated (-Foreground)') }
     if ($Exclusive) { return @('', 'fullscreen, activated (-Exclusive: timed run)') }
     $want = [ordered]@{ window_activate_when_shown = 'false' }
+    # Session 32 (Jarrod: unfocused windows ran slower): out of Windows' background throttling (src\background_speed.h;
+    # older exes ignore the unknown flag).
+    $want['wwe2k14_background_full_speed'] = 'true'
     if ($Windowed) {
         $want['fullscreen'] = 'false'
         if ($Slot -gt 0) { $want['window_position'] = "$(40 + 60 * ($Slot - 1)),$(60 + 60 * ($Slot - 1))" }

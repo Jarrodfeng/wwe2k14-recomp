@@ -73,6 +73,9 @@ REXCVAR_DEFINE_STRING(wwe2k14_replay_play, "", "wwe2k14",
                       "Replay mode + play <replay dir>/NAME.rec back (its seed and settings, then its inputs)");
 REXCVAR_DEFINE_STRING(wwe2k14_replay_dir, "", "wwe2k14",
                       "Folder for .rec files (default: <repo>/out/replays next to out/build)");
+REXCVAR_DEFINE_BOOL(wwe2k14_replay_dlc_box, false, "wwe2k14",
+                    "Session 32: when a playback stops because its DLC packs are not on, also say so in a message box "
+                    "(the launcher sets it; harness runs only log it, so nothing waits on a click)");
 
 namespace wwe2k14::replay {
 
@@ -115,6 +118,21 @@ inline std::filesystem::path ReplayDir() {
   const auto up2 = exe.parent_path().parent_path();
   if (exe.parent_path().filename() == "build" && up2.filename() == "out") return up2 / "replays";
   return exe / "replays";
+}
+
+// Session 32: the DLC pack ids the game was given this run ("2,3,5"; empty = none), set by src/dlc.h before Init. A
+// recording keeps them (a "dlc" line); playing it back without one of them stops with a message (a DLC wrestler or
+// arena would be missing).
+inline std::string g_dlc_offered;
+
+inline std::vector<int> IdList(const std::string& s) {
+  std::vector<int> ids;
+  std::stringstream ss(s);
+  std::string item;
+  while (std::getline(ss, item, ','))  // up to 5 digits: std::stoi cannot throw (review: a corrupt .rec line)
+    if (!item.empty() && item.size() <= 5 && item.find_first_not_of("0123456789") == std::string::npos)
+      ids.push_back(std::stoi(item));
+  return ids;
 }
 
 // Session 16 item 2 (src/reshoot.h): called once per guest frame after the replay's own step (null = nothing).
@@ -194,6 +212,9 @@ class Replay {
       else
         REXLOG_INFO("[wwe2k14][replay] {}", n);
     }
+    if (!play_name_.empty() && !DlcMatches()) {
+      play_name_.clear();  // stopped: DlcMatches() said why and asked the game to close
+    }
     if (!play_name_.empty()) {
       playing_ = true;
       REXLOG_INFO("[wwe2k14][replay] playing {} ({} lines, {} keys, frames up to {}); the script's pad and the real "
@@ -204,6 +225,32 @@ class Replay {
   }
 
   bool Playing() const { return playing_; }
+  // Session 32: a playback that cannot run (its DLC packs are not on): the reason; the app shows it and closes.
+  const std::string& StopReason() const { return stop_reason_; }
+
+  // Session 32: the recording's DLC packs against this run's. A pack it had that is not on now stops the playback (a
+  // DLC wrestler, arena or move would be missing); a pack on now that it did not have is only a warning.
+  bool DlcMatches() {
+    const std::vector<int> now = IdList(g_dlc_offered);
+    const std::vector<int> then = has_dlc_line_ && file_dlc_ != "none" ? IdList(file_dlc_) : std::vector<int>{};
+    std::string missing, extra;
+    for (int id : then)
+      if (std::find(now.begin(), now.end(), id) == now.end()) missing += (missing.empty() ? "" : ", ") + std::to_string(id);
+    for (int id : now)
+      if (std::find(then.begin(), then.end(), id) == then.end()) extra += (extra.empty() ? "" : ", ") + std::to_string(id);
+    if (!missing.empty()) {
+      stop_reason_ = "This replay was recorded with DLC pack(s) " + missing +
+                     " on, and they are not on now. Switch them on (launcher: Settings -> GAME -> DOWNLOADABLE "
+                     "CONTENT) and play it again.";
+      REXLOG_ERROR("[wwe2k14][replay] playback stopped: recorded with DLC packs {}, on now: {}; missing {}", file_dlc_,
+                   g_dlc_offered.empty() ? "none" : g_dlc_offered, missing);
+      return false;
+    }
+    if (!extra.empty())
+      REXLOG_WARN("[wwe2k14][replay] DLC pack(s) {} are on now but were not when this was recorded{}: playback may "
+                  "differ", extra, has_dlc_line_ ? "" : " (a recording from before Session 32: no DLC line)");
+    return true;
+  }
 
   // Once per guest frame (VdSwap), after the input script's step.
   void OnFrame(uint64_t frame) {
@@ -396,6 +443,7 @@ class Replay {
     std::fprintf(record_, "# wwe2k14 replay v1 (src/replay.h): controller calls per guest frame (VdSwap count)\n");
     std::fprintf(record_, "name %s\n", record_name_.c_str());
     std::fprintf(record_, "seed %s\n", rex::cvar::GetFlagByName("wwe2k14_fixed_seed").c_str());
+    std::fprintf(record_, "dlc %s\n", g_dlc_offered.empty() ? "none" : g_dlc_offered.c_str());  // Session 32
     for (const std::string& name : rex::cvar::ListModifiedFlags()) {
       const std::string value = rex::cvar::GetFlagByName(name);
       if (CarriedSetting(name)) std::fprintf(record_, "flag %s %s\n", name.c_str(), value.c_str());
@@ -416,6 +464,9 @@ class Replay {
       ss >> tag;
       if (tag == "seed") {
         ss >> file_seed_;
+      } else if (tag == "dlc") {  // Session 32: the packs the recording was made with ("none" or "2,3,5")
+        ss >> file_dlc_;
+        has_dlc_line_ = true;
       } else if (tag == "flag") {
         std::string n, v;
         ss >> n;
@@ -462,6 +513,9 @@ class Replay {
   std::vector<std::string> notes_, applied_;
   std::vector<std::pair<std::string, std::string>> file_flags_;
   int64_t file_seed_ = -1;
+  std::string file_dlc_;      // Session 32: the recording's "dlc" line
+  std::string stop_reason_;   // Session 32: why playback could not start (empty = it could)
+  bool has_dlc_line_ = false;  // recordings before Session 32 have none
   FILE* record_ = nullptr;
   std::map<Key, std::pair<uint64_t, uint32_t>> counters_;
   std::map<Key, std::pair<Entry, bool>> last_;

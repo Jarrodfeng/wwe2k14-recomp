@@ -1,6 +1,7 @@
 """Session 30 (#7): monkey soak test: seeded random episodes on live games, crash triage, a summary.
 
   py tools/monkey/monkey.py --seed 1 --minutes 20 [--name monkey1] [--episode-s 240] [--kinds menus,match]
+        [--extra "FLAGS"] [--dlc-ids 377,378,...]   (Session 32: flags for every episode; a DLC wrestler per match)
 
 Each episode starts a fresh fast-forwarded live game (tools/live/live.py: frozen user data, run lock shared slot, the
 window behind other windows, auto-bookmarks on hitches) and plays one of:
@@ -56,6 +57,8 @@ class Monkey:
         self.logf = open(os.path.join(out_dir, 'monkey.log'), 'w', encoding='utf-8')
         self.summary = {'seed': a.seed, 'name': a.name, 'episodes': [], 'crashes': [], 'screens': {}}
         self.chars = characters()
+        # Session 32: DLC wrestlers (with --extra '--wwe2k14_dlc=true --wwe2k14_dlc_dir=...'): one in every match.
+        self.dlc = [int(x) for x in a.dlc_ids.split(',') if x.strip().isdigit()]
 
     def say(self, text):
         line = '%s %s' % (time.strftime('%H:%M:%S'), text)
@@ -137,9 +140,13 @@ class Monkey:
         if kind == 'match':
             t = self.rng.choice(sorted(QUICK_TYPES))
             ids = self.rng.sample(self.chars, QUICK_TYPES[t])
+            if self.dlc:  # Session 32: slot 0 is a DLC wrestler
+                ids[0] = self.rng.choice(self.dlc)
             extra = ('--wwe2k14_launch=@quick --wwe2k14_quick_type=%d --wwe2k14_launch_participants=%s '
                      '--wwe2k14_launch_skip_entrances=true' % (t, ','.join(map(str, ids))))
             info.update({'type': t, 'participants': ids})
+        if self.a.extra:  # Session 32: flags for every episode
+            extra = (extra + ' ' + self.a.extra).strip()
         # Menu episodes at normal speed: fast-forwarded menus drop short presses (they read input on real time), so a
         # fast menu monkey mostly stood still on the main menu (Jarrod, soak 20:47). Match episodes stay fast-forwarded.
         text = live.start(self.a.name, fast=(kind == 'match'), extra=extra)
@@ -193,6 +200,8 @@ def main():
     ap.add_argument('--name', default='')
     ap.add_argument('--episode-s', type=float, default=240)
     ap.add_argument('--kinds', default='menus,match')
+    ap.add_argument('--extra', default='', help='game flags for every episode (Session 32: the DLC flags)')
+    ap.add_argument('--dlc-ids', default='', help='comma list: every match gets one of these in slot 0 (Session 32)')
     a = ap.parse_args()
     a.name = a.name or 'monkey%d' % a.seed
     stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')

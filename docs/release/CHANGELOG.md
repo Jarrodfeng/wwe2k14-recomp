@@ -1,6 +1,30 @@
 # Changelog
 
-## {{VERSION}}
+## v0.1.6
+
+- **Your own DLC ("bring your own packs").** Put the DLC from your console in a folder called `dlc` next to your game
+  files, or pick a folder in Settings -> Game -> Downloadable content. Both kinds work: the packages exactly as they
+  sit on the console's drive (e.g. copied with FATXplorer from `Content\0000000000000000\545408B2\00000002\`), or packs
+  you have extracted (one folder per pack). They are read in place: nothing is copied or changed.
+  - Settings shows each pack by its own name, with its size and an ON / OFF switch; the Play page says how many are on.
+  - The DLC wrestlers are under DOWNLOADED SUPERSTARS on the wrestler select screen, with their entrances and
+    titantrons; the Accelerator unlocks the whole roster.
+  - A save made with DLC on needs those packs: with one switched off, the game says the save can't be used. Switch
+    the pack back on and everything is there again.
+  - Replays remember which packs were on, and say so instead of playing when one is missing.
+  - Damaged files, packs for other games and duplicates are listed with the reason and left out; they can't stop the
+    game from starting.
+- **NVIDIA DLSS / DLAA need no setting up:** Settings -> Graphics simply uses the NVIDIA files included with the game
+  (a "Use other files..." button picks another folder), and a folder chosen earlier that no longer has the files
+  falls back to the included ones.
+- Fixed: a folder typed with a `\` at the end in Settings could garble the game's start-up options.
+
+Known issues:
+- DLC: tested with extracted packs and with packages made from them; a package straight off a console has not been
+  tried yet. Please send a report (Report a problem lists your packs, never their files) if one doesn't show up.
+- DLC wrestlers are not in Quick Match yet (use PLAY GAME and the game's own menus).
+
+## v0.1.5-playtest
 
 - **A new look for the launcher**, in the style of the game's own menus: the red page band with PLAY, SETTINGS, MODS
   and ABOUT, the game's own menu lettering (read from your game files), slanted buttons, and the logo.

@@ -1,0 +1,29 @@
+# Session 32 (DLC, plan item 4, saves): what the game shows after the title when the save was written with DLC packs
+# on and the packs are now off (run 2443: no main menu within 1800 frames). The boot_to_menu steps up to the storage
+# notice, then a screenshot every few seconds, A presses in between, screen text, and the menu state. Untimed.
+on_fail continue
+log dsave: start
+wait_file SaveData.Dat 3600
+wait_state boot_step 3 1800 2
+press_until_state START boot_step 4 10 30
+press_until_state A boot_step >=5 10 30
+wait_frames 300
+log_state boot_step
+log_state menu
+log_text
+screenshot dsave_1
+press A
+wait_frames 240
+log_state menu
+log_text
+screenshot dsave_2
+press A
+wait_frames 240
+log_state menu
+log_text
+screenshot dsave_3
+wait_file MNUIHD.PAC 600 optional
+wait_frames 200
+log_state menu
+screenshot dsave_4
+quit

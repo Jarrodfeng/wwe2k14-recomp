@@ -1,0 +1,14 @@
+# Session 32 (DLC, plan item 4): boot, PLAY -> ONE ON ONE -> NORMAL, the wrestler select screen, two screenshots
+# (the grid, then the DOWNLOADED SUPERSTARS list after A / DOWN x4 / A: Jarrod's path, 2026-10-19 ~10:20), quit. For
+# comparing a save with packs on and off (run_list -Data userdata_unlocked). State-driven presses (fast-forward safe):
+# menu 7 = the ONE ON ONE list, menu 2000 = the setup / select screen of match type 0.
+on_fail quit
+log dsel: start
+include boot_to_menu
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+screenshot dsel_grid
+log dsel: select screen
+quit

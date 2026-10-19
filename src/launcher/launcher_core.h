@@ -37,6 +37,7 @@
 
 #include "disc_image.h"
 #include "../gfx_settings.h"  // Session 28: the graphics settings mapping the game shares
+#include "../dlc_catalog.h"   // Session 32: DLC packs (finding them, reading their catalogs), shared with the game
 
 namespace launcher {
 
@@ -132,6 +133,12 @@ struct Settings {
   bool windowed = false;
   int titles_view = 0;         // Mods -> Titles: 0 list, 1 grid (Session 31)
   bool check_updates = true;   // ask GitHub for a newer full release at start (Session 31, update_check.h)
+  // Session 32: the player's DLC packs (src\dlc.h, src\dlc_catalog.h): on / off, the folder (empty = `dlc` next to the
+  // game data folder, else next to the launcher) and the pack ids switched off ("3,5"). The game reads the same three
+  // keys from this file when it is started without the launcher.
+  bool dlc = true;
+  std::string dlc_dir;
+  std::string dlc_off;
 };
 
 inline void to_json(json& j, const Settings& s) {
@@ -149,7 +156,8 @@ inline void to_json(json& j, const Settings& s) {
            {"resolution", s.resolution}, {"frame_rate", s.frame_rate}, {"refresh_hz", s.refresh_hz},
            {"perf_report", s.perf_report}, {"original_look", s.original_look}, {"page", s.page},
            {"mods_tab", s.mods_tab}, {"runin", s.runin}, {"keyboard", s.keyboard},
-           {"language", s.language}, {"gpu", s.gpu}, {"windowed", s.windowed}, {"titles_view", s.titles_view}, {"check_updates", s.check_updates}};
+           {"language", s.language}, {"gpu", s.gpu}, {"windowed", s.windowed}, {"titles_view", s.titles_view}, {"check_updates", s.check_updates},
+           {"dlc", s.dlc}, {"dlc_dir", s.dlc_dir}, {"dlc_off", s.dlc_off}};
 }
 template <class T>
 inline void Get(const json& j, const char* k, T& v) {
@@ -175,6 +183,7 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "refresh_hz", s.refresh_hz), Get(j, "perf_report", s.perf_report), Get(j, "original_look", s.original_look);
   Get(j, "page", s.page), Get(j, "mods_tab", s.mods_tab), Get(j, "runin", s.runin), Get(j, "keyboard", s.keyboard);
   Get(j, "language", s.language), Get(j, "gpu", s.gpu), Get(j, "windowed", s.windowed), Get(j, "titles_view", s.titles_view), Get(j, "check_updates", s.check_updates);
+  Get(j, "dlc", s.dlc), Get(j, "dlc_dir", s.dlc_dir), Get(j, "dlc_off", s.dlc_off);
   if (!j.contains("resolution") && j.contains("look")) {  // the Session 17-24 Play tab's "Look"
     if (s.look == 1) s.original_look = true;
     if (s.look == 2) s.resolution = 2;
@@ -236,9 +245,11 @@ inline void SaveSettings(const fs::path& p, const Settings& s) {
 
 struct Paths {
   fs::path launcher_dir, repo, game_exe, game_data, mods, ids, scenarios, replays, director, seeds, shots, routes;
+  fs::path dlc;        // Session 32: the DLC folder (it may not exist)
   fs::path user_data;  // the game's save folder
   fs::path logs;       // the game's logs (next to the game exe)
   fs::path nvidia;     // a release's bundled NVIDIA DLSS files (nvidia\sl.interposer.dll next to the launcher), or empty
+  bool nvidia_bundled = false;  // Session 31: nvidia is the release's folder (else the repo's Streamline SDK, dev builds)
   bool repo_found = false;
 };
 
@@ -246,6 +257,12 @@ struct Paths {
 inline int g_monitor_hz = 60;
 // The performance report's default when the player hasn't chosen (playtest builds: on; the App sets it).
 inline bool g_perf_report_default = false;
+
+// A folder with NVIDIA's Streamline runtime (sl.interposer.dll) in it.
+inline bool HasStreamline(const std::string& dir) {
+  std::error_code ec;
+  return !dir.empty() && fs::is_regular_file(fs::path(Widen(dir)) / "sl.interposer.dll", ec);
+}
 
 inline Paths FindPaths(const Settings& s) {
   Paths p;
@@ -265,11 +282,19 @@ inline Paths FindPaths(const Settings& s) {
   p.logs = p.game_exe.parent_path() / "logs";
   {
     std::error_code ec;
-    if (fs::is_regular_file(p.launcher_dir / "nvidia" / "sl.interposer.dll", ec)) p.nvidia = p.launcher_dir / "nvidia";
+    if (fs::is_regular_file(p.launcher_dir / "nvidia" / "sl.interposer.dll", ec)) {
+      p.nvidia = p.launcher_dir / "nvidia", p.nvidia_bundled = true;
+    } else if (p.repo_found) {
+      // Session 31: a development build uses the Streamline SDK the release bundles its files from.
+      const fs::path sdk = p.repo / "thirdparty" / "streamline" / "sdk" / "bin" / "x64";
+      if (fs::is_regular_file(sdk / "sl.interposer.dll", ec)) p.nvidia = sdk;
+    }
   }
   if (!s.game_data_dir.empty()) p.game_data = fs::path(Widen(s.game_data_dir));
   else if (p.repo_found) p.game_data = p.repo / "game_data" / "extracted";
   p.user_data = s.user_data_dir.empty() ? DefaultUserRoot() : fs::path(Widen(s.user_data_dir));
+  // Session 32: the game's own rule (dlc_catalog.h), so a game started without the launcher finds the same folder.
+  p.dlc = s.dlc_dir.empty() ? wwe2k14::dlc::DefaultDir(p.game_data, p.game_exe.parent_path()) : fs::path(Widen(s.dlc_dir));
   if (p.repo_found) {
     p.mods = s.mods_dir.empty() ? p.game_data.parent_path() / "mods" : fs::path(Widen(s.mods_dir));
     p.ids = p.repo / "db" / "ids";
@@ -781,7 +806,12 @@ struct Command {
 };
 
 inline std::string Quote(const std::string& s) {
-  return (s.find_first_of(" \t\"'") == std::string::npos && !s.empty()) ? s : "\"" + s + "\"";
+  if (s.find_first_of(" \t\"'") == std::string::npos && !s.empty()) return s;
+  // Session 32 review: backslashes right before the closing quote must be doubled, or `"D:\My Games\dlc\"` reads the
+  // last \" as a literal quote and swallows the rest of the command line (Windows argument rules).
+  size_t trailing = 0;
+  while (trailing < s.size() && s[s.size() - 1 - trailing] == '\\') ++trailing;
+  return "\"" + s + std::string(trailing, '\\') + "\"";
 }
 
 // The game's flags for the Play tab's settings (everything else is left at the game's defaults).
@@ -827,6 +857,13 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     f.push_back("--wwe2k14_mods=true");
     if (!s.mods_dir.empty() || !p.repo_found) f.push_back("--wwe2k14_mods_dir=" + Quote(PathStr(p.mods)));
   }
+  if (s.dlc) {  // Session 32: the player's DLC packs (the switched-off ones by pack id)
+    f.push_back("--wwe2k14_dlc=true");
+    f.push_back("--wwe2k14_dlc_dir=" + Quote(PathStr(p.dlc)));
+    std::string off;  // rebuilt from the ids: a hand-edited settings file cannot add other flags (review)
+    for (int id : wwe2k14::dlc::ParseIdList(s.dlc_off)) off += (off.empty() ? "" : ",") + std::to_string(id);
+    if (!off.empty()) f.push_back("--wwe2k14_dlc_off=" + off);
+  }
   if (s.cinecam) f.push_back("--wwe2k14_cinecam=true");
   if (s.runin) f.push_back("--wwe2k14_runin=true");
   if (s.keyboard) f.push_back("--mnk_mode=true");
@@ -842,8 +879,9 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     wwe2k14::gfxs::Choice c;
     c.upscale = s.upscale, c.resolution = s.resolution, c.frame_rate = s.frame_rate, c.refresh_hz = s.refresh_hz;
     c.original_look = s.original_look;
-    // The player's own NVIDIA folder, else the files bundled with a release (Session 25, Jarrod: ship them).
-    const std::string dir = !s.dlss_dir.empty() ? s.dlss_dir : (!p.nvidia.empty() ? PathStr(p.nvidia) : std::string());
+    // The player's own NVIDIA folder, else the files bundled with a release (Session 25, Jarrod: ship them). Session
+    // 31: a folder of their own that has no NVIDIA files (moved, deleted) falls back to the bundled ones too.
+    const std::string dir = HasStreamline(s.dlss_dir) || p.nvidia.empty() ? s.dlss_dir : PathStr(p.nvidia);
     for (const auto& [name, value] : wwe2k14::gfxs::GraphicsFlags(c, dir, g_monitor_hz))
       f.push_back("--" + name + "=" + (name == "wwe2k14_dlaa_dir" ? Quote(value) : value));
     // The flags above are the whole picture (a choice that is the game's default has none): the game must not apply
@@ -854,7 +892,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
   switch (s.preset) {
     case kReplay:
       if (s.replay_record) f.push_back("--wwe2k14_replay_record=" + s.replay_name);
-      else f.push_back("--wwe2k14_replay_play=" + s.replay_play);
+      else f.push_back("--wwe2k14_replay_play=" + s.replay_play), f.push_back("--wwe2k14_replay_dlc_box=true");
       break;
     case kSeed:
       f.push_back("--wwe2k14_replay_mode=true");

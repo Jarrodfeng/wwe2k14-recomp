@@ -1,0 +1,62 @@
+# Session 32: the DLC wrestler sweep (plan item 4). launch_six_skip_fast.txt with the Session 30 boot (include
+# boot_to_menu: state-driven, fast-forward safe) instead of its fixed title presses, and 30 s of match (screenshots
+# at 10 s and 30 s) instead of 5 s. Use with --wwe2k14_launch=sixpack --wwe2k14_launch_participants=A,...,F and
+# --wwe2k14_dlc=true --wwe2k14_dlc_dir=DIR. Each wrestler: entrance step 5, 5 s, screenshot s6_K, START. Untimed.
+on_fail quit
+log six: start
+include boot_to_menu
+log six: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log six: in-game sequence loading
+wait_file titantron 2400
+wait_state entrance_step_0 >=5 2400 2 optional
+log six: wrestler 1 segment (step 5)
+wait_frames 300
+screenshot s6_1
+log six: wrestler 1, START until the next titantron opens
+press_until_state START entrance_step_0 <5 40 30 5 unreadable
+wait_file titantron 900
+wait_state entrance_step_1 >=5 2400 2 optional
+log six: wrestler 2 segment (step 5)
+wait_frames 300
+screenshot s6_2
+log six: wrestler 2, START until the next titantron opens
+press_until_state START entrance_step_1 <5 40 30 5 unreadable
+wait_file titantron 900
+wait_state entrance_step_2 >=5 2400 2 optional
+log six: wrestler 3 segment (step 5)
+wait_frames 300
+screenshot s6_3
+log six: wrestler 3, START until the next titantron opens
+press_until_state START entrance_step_2 <5 40 30 5 unreadable
+wait_file titantron 900
+wait_state entrance_step_3 >=5 2400 2 optional
+log six: wrestler 4 segment (step 5)
+wait_frames 300
+screenshot s6_4
+log six: wrestler 4, START until the next titantron opens
+press_until_state START entrance_step_3 <5 40 30 5 unreadable
+wait_file titantron 900
+wait_state entrance_step_4 >=5 2400 2 optional
+log six: wrestler 5 segment (step 5)
+wait_frames 300
+screenshot s6_5
+log six: wrestler 5, START until the next titantron opens
+press_until_state START entrance_step_4 <5 40 30 5 unreadable
+wait_file titantron 900
+wait_state entrance_step_5 >=5 2400 2 optional
+log six: wrestler 6 segment (step 5)
+wait_frames 300
+screenshot s6_6
+log six: wrestler 6, START until the match scene loads
+press_until_state START entrance_step_5 <5 40 30 5 unreadable
+wait_file m3.pac 1200
+log six: match scene
+wait_frames 600
+screenshot s6_match10
+wait_frames 1200
+screenshot s6_match30
+log six: 30 s of match
+wait_frames 60
+log six: end
+quit
