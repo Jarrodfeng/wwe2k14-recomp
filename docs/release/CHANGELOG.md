@@ -1,7 +1,12 @@
 # Changelog
 
-## {{VERSION}}
+## v0.1.7
 
+- **30 Years of WrestleMania, any match.** Play -> 30 YEARS OF WRESTLEMANIA lists all 46 matches of the mode by era,
+  with the show, date, venue, title, match type, arena, who is in it and the objectives (read from your own game
+  files). PLAY MATCH starts the game and it goes to that match by itself after the title screen, the mode's own way:
+  its videos, story card, objectives and the match. Locked matches work too. From a command line:
+  `wwe2k14.exe --wwe2k14_wm30=N` (N from the list, 0-45).
 - **AMD FSR 3 upscaling, on any graphics card.** Settings -> Graphics -> Upscaling (and the game's own GRAPHICS
   screen) now offer FSR NATIVE (anti-aliasing at your resolution), FSR QUALITY (1440p drawn, shown as 4K) and FSR
   PERFORMANCE (720p drawn, shown as 1440p), with the HUD kept sharp as with DLSS. AMD's runtime ships with the game.
