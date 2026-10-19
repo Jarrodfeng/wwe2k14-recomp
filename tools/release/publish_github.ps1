@@ -4,7 +4,7 @@
 # before. This script builds a clean copy of main's committed tree in a temporary index (the working folder is never
 # touched), checks it, and commits it on the local branch `public`, which is what GitHub's `main` gets:
 #   - left out: CLAUDE.md, PLAYBOOK.md, MORNING_REPORT.md, SESSION*.md, docs\ (except docs\release\), .claude\,
-#     .mcp.json, db\ (except db\ids\), tools\labelling\prompts\;
+#     .mcp.json, db\ (except db\ids\), tools\labelling\prompts\, tools\release\release.ps1 (local only, Session 35);
 #   - refused: game files by extension (.pac .bik .bik2 .xex .xexp .iso .cac), symbols (.pdb .map), anything under
 #     game_data\ or out\, generated\ other than generated\rexglue.cmake, and any file whose bytes equal a file under
 #     game_data\ (same-size files hashed, as make_release.ps1 does);
@@ -36,7 +36,8 @@ $head = (git rev-parse HEAD).Trim()
 # Which files stay out (regexes on the repo path, forward slashes).
 $exclude = @('^CLAUDE\.md$', '^PLAYBOOK\.md$', '^MORNING_REPORT\.md$', '^SESSION[^/]*\.md$', '^docs/(?!release/)',
              '^\.claude/', '^\.mcp\.json$', '^db/(?!ids/)',
-             '^tools/labelling/prompts/')  # the AI labelling prompts: notes, not code (Jarrod, Session 31)
+             '^tools/labelling/prompts/',  # the AI labelling prompts: notes, not code (Jarrod, Session 31)
+             '^tools/release/release\.ps1$')  # local release tooling (Jarrod, Session 35: "very explicitly a local only script")
 $all = git ls-tree -r --name-only $head
 $drop = @($all | Where-Object { $p = $_; $exclude | Where-Object { $p -match $_ } })
 $keep = @($all | Where-Object { $drop -notcontains $_ })

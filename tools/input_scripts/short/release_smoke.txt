@@ -1,0 +1,34 @@
+# Session 35: the release exe's smoke test (tools\release\release.ps1). Use with --game_data_root=... and
+# --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=343,324
+# --wwe2k14_launch_skip_entrances=true --wwe2k14_cinecam=true. Boots through the title to the main menu, the launcher
+# starts the Quick Match, then in the match: CineCam on, two keys 2 s apart, a preview (the newest feature path), one
+# screenshot, quit. Nothing is saved (no shot file: the release folder for shots is the player's Documents).
+# on_fail quit.
+on_fail quit
+log smoke: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log smoke: main menu reached (the launcher fires after its idle frames)
+wait_state match_clock !=0 3600 2
+wait_frames 60
+cvar wwe2k14_cinecam_on true
+wait_frames 10
+cvar wwe2k14_cinecam_test_pose -1500,-400,0,0,-8,40
+wait_frames 5
+cvar wwe2k14_cinecam_timeline_cmd time 0;key
+wait_frames 5
+cvar wwe2k14_cinecam_test_pose -500,-250,700,-50,-12,25
+wait_frames 5
+cvar wwe2k14_cinecam_timeline_cmd time 2;key;length 2;time 0;preview start
+wait_frames 150
+screenshot smoke_match
+log smoke: done
+quit

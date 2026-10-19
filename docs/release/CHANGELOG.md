@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.9
+
+- **Fixed: the game crashing at start on PCs with Overwolf** (an access violation, error 0xC0000005, before the title
+  screen). Overwolf's in-game overlay hooks into the game's graphics start-up and crashed there. The game now keeps
+  Overwolf's overlay out by itself; OBS game capture works as before. Thanks to the player who reported it on GitHub
+  with a problem report. (Advanced: `--wwe2k14_vulkan_disable_layers=` with nothing after it lets Overwolf back in.)
+- **Launcher:** the update check understands four-number versions such as v0.1.9.1, so small fixes can be offered as
+  updates too.
+
 ## v0.1.8
 
 - **CineCam keyframed shots.** With CINECAM on (Settings -> Game), press F8 in a match: besides the free camera there

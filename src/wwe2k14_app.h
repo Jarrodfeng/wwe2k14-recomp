@@ -52,6 +52,7 @@
 #include "background_speed.h"  // --wwe2k14_background_full_speed (Session 32, default off; run_list turns it on)
 #include "live_control.h"   // --wwe2k14_live (Session 29: live control channel, default off)
 #include "check_prompt.h"   // input-script `check TEXT` (Session 29: on-screen question, harness runs only)
+#include "vulkan_layers.h"  // Session 36 (GitHub issue 1): Overwolf's Vulkan layers kept out (they crashed the game)
 #include "gpu_pick.h"       // Session 31: the dedicated GPU by default, --wwe2k14_gpu=NAME (the launcher's chooser)
 #include "photo_mode.h"     // --wwe2k14_photo_mode (Session 33 item 4, default off)
 #include "ultrawide.h"      // --wwe2k14_aspect (Session 33 item 6, default 16:9 = off)
@@ -144,6 +145,7 @@ class Wwe2k14App : public rex::ReXApp {
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {
+    wwe2k14::vulkan_layers::Apply();  // Session 36: before anything starts Vulkan (GitHub issue 1)
     // Session 16 item 1: replay mode preset and a playback file's seed / settings, before anything reads them.
     wwe2k14::gfx_menu::ApplyLauncherSettings();  // Session 28: graphics settings from the launcher's file (release builds)
     if (REXCVAR_GET(wwe2k14_use_launcher_settings))  // Session 32: the DLC switches too

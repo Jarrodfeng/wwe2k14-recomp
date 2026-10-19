@@ -29,8 +29,10 @@ struct UpdateInfo {
   std::string tag, name, url, notes, error;
 };
 
+// Session 36 (Jarrod): three or four numbers, so a hotfix such as v0.1.9.1 counts as newer than v0.1.9 (a missing
+// fourth number is 0). Launchers up to v0.1.8 read only the first three: a four-number version is invisible to them.
 struct VersionParts {
-  std::array<int, 3> n{};
+  std::array<int, 4> n{};
   bool suffix = false;  // "-playtest" and the like: a pre-release of that number
   bool ok = false;
 };
@@ -42,7 +44,7 @@ inline VersionParts ParseVersion(std::string v) {
   const size_t dash = v.find('-');
   p.suffix = dash != std::string::npos;
   if (p.suffix) v.resize(dash);
-  p.ok = std::sscanf(v.c_str(), "%d.%d.%d", &p.n[0], &p.n[1], &p.n[2]) == 3;
+  p.ok = std::sscanf(v.c_str(), "%d.%d.%d.%d", &p.n[0], &p.n[1], &p.n[2], &p.n[3]) >= 3;
   return p;
 }
 inline bool IsNewer(const std::string& remote, const std::string& local) {
