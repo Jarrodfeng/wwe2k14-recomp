@@ -412,6 +412,10 @@ foreach ($s in @($Scripts)) {
         "ABORT: input script not found: $s (several scripts through pwsh -File arrive as one string: call run_list.ps1 with & from PowerShell, or one script per call)"; exit 2
     }
 }
+# Session 37 (runs 2588 / 2589): 'tools\input_scripts\short\X.txt' passed the check above from the repo folder, but the
+# game opens a relative path from the exe folder ("can't open script") and played the attract demo. Hand the game the
+# absolute path of the file the check found.
+$Scripts = @(foreach ($s in @($Scripts)) { (Resolve-Path -LiteralPath (Resolve-RunListScript "$s")).Path })
 # Session 14 (load_times runs 1024-1027 without a launch flag sat at the main menu): a route whose header says
 # "Use with --wwe2k14_launch" needs a --wwe2k14_launch= flag in -Extra or its -ScriptExtras entry.
 for ($i = 0; $i -lt @($Scripts).Count; $i++) {

@@ -2,9 +2,10 @@
 //
 // In a match: F10 on the keyboard, or L3 + R3 (both sticks clicked) held for half a second on the controller, enters
 // and leaves it (B leaves too; neither key was used: F1-F9 and F11 are ours or the SDK's). Inside:
-//   - the scene nearly stops: the game's step runs at 1000 Hz (--wwe2k14_step_hz, src\step_rate.h: 1 ms of game time
-//     per frame, about 17x slower than normal; 1000 is the highest rate whose whole-millisecond field stays above 0).
-//     The game's own pause cannot be used: it shows a blurred, tinted copy of the scene (run 2516, Session 33);
+//   - the scene freezes (Session 36, src\scene_freeze.h: nothing moves, sound paused, and leaving carries on from the
+//     same moment; the freeze is shared with CineCam's "freeze scene"). Session 33 ran the game's step at 1000 Hz
+//     instead (about 17x slower; --wwe2k14_freeze_true=false brings that back). The game's own pause cannot be used: it
+//     shows a blurred, tinted copy of the scene (run 2516, Session 33);
 //   - the free camera (CineCam, src\cinecam.h): left stick move, right stick look, triggers up / down, bumpers zoom;
 //     keyboard W/A/S/D + Q/E, right mouse button to look, wheel to zoom (CineCam's own keys; Shift fast, Ctrl fine);
 //   - the HUD is hidden (SDK gpu_hide_hud: every draw after the post chain's last pass; CineCam's panel is hidden);
@@ -62,13 +63,14 @@
 #include <rex/ppc/context.h>
 
 #include "cinecam.h"
+#include "scene_freeze.h"  // Session 36: the shared true freeze
 #include "gfx_menu.h"  // text ids, guest word helpers (the pause menu row)
 #include "guest_read.h"
 #include "input_script.h"  // SavePngWic, g_pad_filter
 
 REXCVAR_DEFINE_BOOL(wwe2k14_photo_mode, false, "wwe2k14",
-                    "Session 33: photo mode in a match (F10, or L3 + R3 held on the controller): the scene nearly "
-                    "stops, a free camera, no HUD, depth of field, A / Enter saves a PNG to Pictures\\WWE 2K14. Turns "
+                    "Session 33: photo mode in a match (F10, or L3 + R3 held on the controller): the scene "
+                    "freezes, a free camera, no HUD, depth of field, A / Enter saves a PNG to Pictures\\WWE 2K14. Turns "
                     "the CineCam on. Default off. See src/photo_mode.h");
 REXCVAR_DEFINE_STRING(wwe2k14_photo_dir, "", "wwe2k14",
                       "Session 33: where photo mode saves its pictures; empty = Pictures\\WWE 2K14");
@@ -90,7 +92,7 @@ namespace wwe2k14::photo {
 inline std::atomic<bool> g_active{false};
 inline std::atomic<bool> g_toggle_request{false};
 inline std::atomic<bool> g_save_request{false};
-inline std::string g_saved_step_hz, g_saved_panel, g_saved_step_vblank;
+inline std::string g_saved_panel;
 inline int g_saved_dof_mode = 0;
 inline float g_aperture = 1.0f;  // scales CineCam's in-focus distances (smaller = a narrower sharp zone)
 inline std::atomic<uint64_t> g_enter_at{0};  // PHOTO MODE picked in the pause menu: enter at this guest frame
@@ -228,12 +230,8 @@ inline bool InMatch(uint8_t* base) {
 }
 
 inline void Enter() {
-  g_saved_step_hz = rex::cvar::GetFlagByName("wwe2k14_step_hz");
   g_saved_panel = rex::cvar::GetFlagByName("wwe2k14_cinecam_panel");
-  // High refresh (--wwe2k14_step_vblank) would make the vblank follow the 1000 Hz step: off while in photo mode.
-  g_saved_step_vblank = rex::cvar::GetFlagByName("wwe2k14_step_vblank");
-  rex::cvar::SetFlagByName("wwe2k14_step_vblank", "false");
-  rex::cvar::SetFlagByName("wwe2k14_step_hz", "1000");
+  freeze::Request(freeze::kPhoto, true);  // Session 36 (the slow fallback also turns high refresh off)
   rex::cvar::SetFlagByName("wwe2k14_cinecam_panel", "false");
   rex::cvar::SetFlagByName("gpu_hide_hud", "true");
   {
@@ -244,15 +242,14 @@ inline void Enter() {
   }
   rex::cvar::SetFlagByName("wwe2k14_cinecam_on", "true");
   g_active = true;
-  REXLOG_INFO("[wwe2k14][photo] photo mode on (step 1000 Hz, free camera, HUD hidden, depth of field on)");
+  REXLOG_INFO("[wwe2k14][photo] photo mode on (scene frozen, free camera, HUD hidden, depth of field on)");
 }
 
 inline void Leave() {
   g_active = false;
   rex::cvar::SetFlagByName("wwe2k14_cinecam_on", "false");
   rex::cvar::SetFlagByName("gpu_hide_hud", "false");
-  rex::cvar::SetFlagByName("wwe2k14_step_hz", g_saved_step_hz.empty() ? "0" : g_saved_step_hz);
-  rex::cvar::SetFlagByName("wwe2k14_step_vblank", g_saved_step_vblank.empty() ? "false" : g_saved_step_vblank);
+  freeze::Request(freeze::kPhoto, false);
   rex::cvar::SetFlagByName("wwe2k14_cinecam_panel", g_saved_panel.empty() ? "true" : g_saved_panel);
   {
     cinecam::FreeCam& f = cinecam::F();

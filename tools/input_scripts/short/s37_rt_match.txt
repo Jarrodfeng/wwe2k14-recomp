@@ -1,0 +1,29 @@
+# Session 37 (low-end renderer): T1 picture check of the render target path in a match. Straight into a launched
+# match (entrances skipped), eight screenshots 2 s apart (m37_0 .. m37_7), quit. Needs --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true and the path under test (--render_target_path_vulkan=fbo|fsi plus any options).
+# Session 22 saw every match shot black on the fbo path. Untimed (lanes OK). on_fail quit.
+on_fail quit
+log rt: start
+include boot_to_menu
+log rt: main menu reached
+wait_state match_clock !=0 3600 2
+log rt: match clock running
+wait_frames 120
+screenshot m37_0
+wait_frames 120
+screenshot m37_1
+wait_frames 120
+screenshot m37_2
+wait_frames 120
+screenshot m37_3
+wait_frames 120
+screenshot m37_4
+wait_frames 120
+screenshot m37_5
+wait_frames 120
+screenshot m37_6
+wait_frames 120
+screenshot m37_7
+wait_frames 30
+log rt: end
+quit

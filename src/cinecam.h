@@ -80,6 +80,7 @@
 #include "matte.h"  // Session 16: g_last_dof_view
 #include "dlaa.h"   // Session 18: the camera for the motion vectors
 #include "cinecam_keys.h"  // Session 35: keyframed shots
+#include "scene_freeze.h"  // Session 36: "freeze scene" = the true freeze shared with photo mode
 
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
@@ -430,6 +431,7 @@ struct FreeCam {
   rex::ui::ImGuiDrawer* drawer = nullptr;
   rex::ui::ImGuiDialog* panel = nullptr;
   rex::ui::ImGuiDialog* timeline = nullptr;  // Session 35: the keyframe timeline
+  rex::ui::ImGuiDialog* setup = nullptr;     // Session 36: F8 outside a match (settings only)
 };
 
 inline FreeCam& F() {
@@ -869,8 +871,8 @@ struct ShotState {
   float tgt[3][3] = {};        // the last resolved (smoothed) target positions
   bool tgt_ok[3] = {};
   float aspect = 16.0f / 9.0f; // from the panel's display size
-  bool freeze = false;
-  std::string saved_step_hz;
+  bool freeze = false;             // CineCam asks for the scene freeze (src\scene_freeze.h)
+  bool take_on_release = false;    // "Release + take": the take starts on the first frame that runs again
   std::string status;
   bool text_active = false;        // a panel text field is being typed in (no hotkeys)
   bool record_take = false;        // a take also records the per-frame path (shot_NN.txt: the "bake")
@@ -959,10 +961,18 @@ inline void SetCamPose(FreeCam& f, const k::Pose& p) {
 
 inline const float* TargetOrNull(const ShotState& s, int role) { return s.tgt_ok[role] ? s.tgt[role] : nullptr; }
 
+inline void ShotStart(ShotState& s, ShotPlay how, bool from_start);
+
 // Every hand-off while the free camera is on (guest thread, mutex held), after the manual input step.
 inline void ShotTick(const uint8_t* base, FreeCam& f, float host_dt) {
   ShotState& s = Sh();
   const uint64_t frame = g_guest_frame.load(std::memory_order_relaxed);
+  // Session 36: "Release + take" starts the take in the first hand-off of a running frame (the release applies at
+  // the start of that frame's owner update, before the scene manager's hand-off), so it lines up with the scene.
+  if (s.take_on_release && !freeze::Active()) {
+    s.take_on_release = false;
+    ShotStart(s, ShotPlay::kTake, true);
+  }
   const bool new_frame = frame != s.last_frame;
   s.last_frame = frame;
   const bool timed_by_frames = s.play == ShotPlay::kTake;
@@ -1097,17 +1107,33 @@ inline bool ShotLoad(ShotState& s, const std::string& name) {
   return true;
 }
 
-// Freeze the scene for designing: the game's step at 1000 Hz (as photo mode, src\photo_mode.h; nearly stopped).
+// Freeze the scene for designing (Session 36: the true freeze, shared with photo mode; src\scene_freeze.h).
 inline void ShotFreeze(ShotState& s, bool on) {
   if (on == s.freeze) return;
   s.freeze = on;
-  if (on) {
-    s.saved_step_hz = rex::cvar::GetFlagByName("wwe2k14_step_hz");
-    rex::cvar::SetFlagByName("wwe2k14_step_hz", "1000");
-  } else {
-    rex::cvar::SetFlagByName("wwe2k14_step_hz", s.saved_step_hz.empty() ? "0" : s.saved_step_hz);
-  }
-  REXLOG_INFO("[wwe2k14][cinecam][shot] scene {}", on ? "frozen (step 1000 Hz)" : "running again");
+  freeze::Request(freeze::kCineCam, on);
+  REXLOG_INFO("[wwe2k14][cinecam][shot] freeze scene {}", on ? "on" : "off");
+}
+
+// Session 36: let the scene run again (the auto freeze and CineCam's own); `take` = the open shot's take starts on the
+// first frame that runs (ShotTick). Mutex held.
+inline void ShotRelease(ShotState& s, bool take) {
+  s.take_on_release = take;
+  if (take) s.play = ShotPlay::kStopped, s.playhead = 0, s.apply = true;  // sits on its first frame until then
+  ShotFreeze(s, false);
+  freeze::ReleaseAuto();
+  REXLOG_INFO("[wwe2k14][cinecam][shot] release{} at frame {}", take ? " + take" : "",
+              g_guest_frame.load(std::memory_order_relaxed));
+}
+
+// Session 36: the auto freeze setting as a checkbox (both panels and the setup panel).
+inline void AutoFreezeCheckbox() {
+  bool on = REXCVAR_GET(wwe2k14_cinecam_auto_freeze);
+  if (ImGui::Checkbox("Freeze at the start of each entrance", &on))
+    rex::cvar::SetFlagByName("wwe2k14_cinecam_auto_freeze", on ? "true" : "false");
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("The scene (trons and sound too) stops on each wrestler's first entrance frame, the same moment "
+                      "every time. Release, or Release + take to start your shot with it.");
 }
 
 inline void ShotSetTarget(ShotState& s, int role, const k::Target& t);  // with the timeline panel, below
@@ -1197,6 +1223,8 @@ inline void ShotCommand(ShotState& s, FreeCam& f, const std::string& text) {
       ShotLoad(s, w[1]);
     } else if (c == "freeze" && n >= 2) {
       ShotFreeze(s, std::atoi(w[1]) != 0);
+    } else if (c == "release") {  // Session 36: release [take]
+      ShotRelease(s, n >= 2 && std::string(w[1]) == "take");
     } else {
       REXLOG_WARN("[wwe2k14][cinecam][shot] unknown command '{}'", cmd);
       continue;
@@ -1605,6 +1633,7 @@ class Panel final : public rex::ui::ImGuiDialog {
     ImGui::SliderFloat("mouse", &f.sensitivity, 0.02f, 0.5f, "%.2f deg/px");
     ImGui::SliderFloat("smoothing", &f.smoothing, 0.0f, 1.0f, "%.2f");
     ImGui::Checkbox("Full arena (removes culling)", &f.full_arena);
+    AutoFreezeCheckbox();  // Session 36
     ImGui::Text("Depth of field:");
     ImGui::SameLine();
     ImGui::RadioButton("game", &f.dof_mode, 0);
@@ -1857,7 +1886,7 @@ class Timeline final : public rex::ui::ImGuiDialog {
     ImGui::SameLine();
     bool freeze = s.freeze;
     if (ImGui::Checkbox("freeze scene", &freeze)) ShotFreeze(s, freeze);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Nearly stops the game (as photo mode) while you design the move");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Freezes the scene while you design the move (trons and sound keep playing; photo mode holds those too)");
     ImGui::SameLine();
     ImGui::Text("   %.2f s  (frame %d)%s", s.playhead, int(std::lround(s.playhead * 60)),
                 s.play == ShotPlay::kTake ? "  TAKE" : "");
@@ -1870,6 +1899,25 @@ class Timeline final : public rex::ui::ImGuiDialog {
     }
     ImGui::SameLine();
     ImGui::TextDisabled("   lens %.0f mm (FOV %.1f)   focus %.1f m", FovToMm(f.fov), f.fov, CamPose(f).focus_cm / 100);
+    // Session 36: the auto freeze at entrance starts, and releasing a frozen scene (optionally with the take).
+    AutoFreezeCheckbox();
+    if (freeze::Active()) {
+      ImGui::SameLine();
+      if (freeze::AutoFrozen())
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "   FROZEN at the start of slot %d's entrance",
+                           freeze::g_auto_slot.load());
+      else
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "   FROZEN");
+      ImGui::SameLine();
+      if (ImGui::Button("Release")) ShotRelease(s, false);
+      ImGui::SameLine();
+      if (ImGui::Button("Release + take")) ShotRelease(s, true);
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The scene runs again and this shot's take starts on that same frame");
+    } else if (s.take_on_release) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("   take starts when the scene runs");
+    }
     // File row.
     if (last_name_ != s.name) {
       last_name_ = s.name;
@@ -2157,10 +2205,52 @@ class Timeline final : public rex::ui::ImGuiDialog {
   int drag_track_ = -1, drag_key_ = -1;
 };
 
-// F8 (UI thread).
-inline void Toggle() {
+// Session 36: F8 outside a match (menus, match setup) opens this instead of the free camera, which has nothing to
+// drive there: the settings that matter before the match starts. Hidden once the match runs; F8 there closes it and
+// turns the free camera on as before.
+class Setup final : public rex::ui::ImGuiDialog {
+ public:
+  explicit Setup(rex::ui::ImGuiDrawer* drawer) : rex::ui::ImGuiDialog(drawer) {}
+
+ protected:
+  void OnDraw(ImGuiIO&) override {
+    if (step_rate::g_in_game.load(std::memory_order_relaxed)) return;
+    ImGui::SetNextWindowPos(ImVec2(8, 8), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("CineCam setup")) {
+      ImGui::End();
+      return;
+    }
+    ImGui::TextDisabled("The free camera starts in a match (F8 there). F8 closes this.");
+    AutoFreezeCheckbox();
+    ImGui::End();
+  }
+};
+
+// F8 (UI thread; key = the F8 key itself, not the cvar or startup).
+inline void Toggle(bool key = false) {
   FreeCam& f = F();
   bool show_panel = false;
+  if (key) {  // Session 36: outside a match the F8 key opens / closes the setup panel instead
+    const bool in_game = step_rate::g_in_game.load(std::memory_order_relaxed);
+    bool active;
+    {
+      std::lock_guard lock(f.mutex);
+      active = f.active;
+    }
+    if (f.setup) {
+      delete f.setup;
+      f.setup = nullptr;
+      if (!in_game) {
+        REXLOG_INFO("[wwe2k14][cinecam] setup panel closed");
+        return;
+      }
+    } else if (!in_game && !active) {
+      if (f.drawer) f.setup = new Setup(f.drawer);
+      REXLOG_INFO("[wwe2k14][cinecam] setup panel open (outside a match)");
+      return;
+    }
+  }
   {
     std::lock_guard lock(f.mutex);
     f.active = !f.active;
@@ -2212,7 +2302,7 @@ inline void Install(rex::ui::Window* window, rex::ui::ImGuiDrawer* drawer) {
   }
   window->AddInputListener(&L(), 100);
   window->AddListener(&L());
-  rex::ui::RegisterBind("bind_wwe2k14_cinecam", "F8", "Toggle the CineCam free camera", [] { Toggle(); });
+  rex::ui::RegisterBind("bind_wwe2k14_cinecam", "F8", "Toggle the CineCam free camera", [] { Toggle(true); });
   // In-run toggle for input scripts / the settings panel: `cvar wwe2k14_cinecam_on true|false` (posted to the UI
   // thread; the callback runs under the cvar registry lock).
   rex::cvar::RegisterChangeCallback("wwe2k14_cinecam_on", [window](std::string_view, std::string_view value) {
@@ -2275,6 +2365,10 @@ inline void Shutdown() {
   if (f.timeline) {
     delete f.timeline;
     f.timeline = nullptr;
+  }
+  if (f.setup) {
+    delete f.setup;
+    f.setup = nullptr;
   }
   if (f.window) {
     f.window->RemoveInputListener(&L());

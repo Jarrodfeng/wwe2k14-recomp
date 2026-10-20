@@ -54,9 +54,11 @@
 #include "check_prompt.h"   // input-script `check TEXT` (Session 29: on-screen question, harness runs only)
 #include "vulkan_layers.h"  // Session 36 (GitHub issue 1): Overwolf's Vulkan layers kept out (they crashed the game)
 #include "gpu_pick.h"       // Session 31: the dedicated GPU by default, --wwe2k14_gpu=NAME (the launcher's chooser)
+#include "light_renderer.h" // Session 37: --wwe2k14_light_renderer (weak GPUs), --wwe2k14_fbo_fallback_fix (default off)
 #include "photo_mode.h"     // --wwe2k14_photo_mode (Session 33 item 4, default off)
 #include "ultrawide.h"      // --wwe2k14_aspect (Session 33 item 6, default 16:9 = off)
 #include "wm30_jump.h"      // --wwe2k14_wm30 (Session 34: jump into a 30 Years of WrestleMania match, default off)
+#include "upscale_guard.h"  // Session 37: a failed FSR turns itself off with a notice (with --wwe2k14_fsr)
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
 // (used to read jump tables and pointer tables that live inside the encrypted XEX).
@@ -200,6 +202,8 @@ class Wwe2k14App : public rex::ReXApp {
     // thread. Variant X: 37 -> 9 (070 vs 074, CP busy -4.4%); variant Y: 78 -> 1 with everything (068 vs 073).
     // GPU-thread work per frame in his ramp pan (073): 27.5 ms average, 31.2 max (was 37-41 ms at the start of
     // Session 5). Jarrod: "almost flawless".
+    // Session 37: --wwe2k14_light_renderer (default off) sets the host render target path and its fixes first.
+    wwe2k14::light::Configure();
     for (auto [name, value] : {std::pair{"render_target_path_vulkan", "fsi"},
                                std::pair{"vulkan_gpu_crash_diagnostics", "true"},
                                std::pair{"gpu_wait_reg_mem_spin", "true"},
@@ -343,6 +347,8 @@ class Wwe2k14App : public rex::ReXApp {
     }
     // Session 31: vulkan_device = the dedicated GPU (or --wwe2k14_gpu), if not set (after the plugin registered it).
     if (REXCVAR_GET(wwe2k14_gpu_backend) != "d3d12") wwe2k14::gpu_pick::Choose();
+    wwe2k14::light::ConfigureFallback();  // Session 37: the card's render path in the log (+ --wwe2k14_fbo_fallback_fix)
+    wwe2k14::low_power::Configure();      // Session 37: --wwe2k14_low_power (default off)
     wwe2k14::SlowFrameOnPreSetup();  // Session 8 task 12: nothing unless --wwe2k14_slowframe_ms > 0
     wwe2k14::dlaa::Configure();      // Session 18: DLAA phase 1 (all off unless a --wwe2k14_dlaa_* flag is set)
     wwe2k14::gfx_menu::ConfigureTextureFilter();  // Session 33: --wwe2k14_texture_filter (0 = unchanged)
@@ -359,6 +365,10 @@ class Wwe2k14App : public rex::ReXApp {
     // Session 8 task 0: pin this run's log number now, inside run_and_triage's launch window (frame_stats.h).
 #ifdef _WIN32
     const unsigned long pid = GetCurrentProcessId();
+    // Session 37: the process's main (UI) thread had no name: thread_busy.ps1 showed it as "tid N" at ~99% of a core
+    // in a match (run 2622; start address wWinMainCRTStartup, tools\perf\thread_starts.ps1). Named for the profilers.
+    SetThreadDescription(GetCurrentThread(), L"wwe2k14 UI");
+    REXLOG_INFO("[wwe2k14] UI thread {} named \"wwe2k14 UI\"", GetCurrentThreadId());
 #else
     const unsigned long pid = 0;
 #endif
@@ -447,6 +457,9 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::cinecam::Install(window(), drawer);  // Session 13 CineCam free camera; no-op unless --wwe2k14_cinecam
     wwe2k14::photo::Install();  // Session 33 photo mode; no-op unless --wwe2k14_photo_mode
     wwe2k14::wm30::Install();   // Session 34; no-op unless --wwe2k14_wm30
+    // Session 37: a failed FSR is turned off with a notice (no-op unless --wwe2k14_fsr).
+    wwe2k14::upscale_guard::Install(
+        drawer, [this](std::function<void()> f) { app_context().CallInUIThreadDeferred(std::move(f)); });
     // Session 29: `check TEXT` banner + F1 / F2 / F5, only in harness runs (an input script or the live channel).
     const bool harness = !REXCVAR_GET(wwe2k14_input_script).empty() || !REXCVAR_GET(wwe2k14_live).empty();
     wwe2k14::check::Install(

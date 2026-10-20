@@ -1,0 +1,445 @@
+# ReXGlue SDK changes for WWE 2K14 (session37): 5cdb5475bb5c..48c1e6cc7ff2 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  48c1e6c Session 37: FSR never breaks a game (fsr::Failed / Fail / FailReason: a failed runtime, context or dispatch turns FSR off for the run, no retries; the scene jitter only while the upscaler can run; gpu_fsr_failed status, gpu_fsr_test_fail); laptops: present_ui_idle_wait (the UI thread spun between guest frames with present_guest_frames_once), gpu_wait_reg_mem_sleep_us + rex::thread::PreciseSleep (all default off)
+#  da5c0f9 Session 37: gpu_rt_update_log (what each render target update claims of the EDRAM) and [resolve_stats] (resolve contents with readback_resolve=full); found the fbo path's black frames (execute_unclipped_draw_vs_on_cpu off)
+
+diff --git a/include/rex/thread.h b/include/rex/thread.h
+index 30b207ddefd214155b2e610cbeadf3b4e232ab6d..465c31b9ea2c2522821c7b1baa65a334a56a8899 100644
+--- a/include/rex/thread.h
++++ b/include/rex/thread.h
+@@ -118,6 +118,10 @@ void Sleep(std::chrono::duration<Rep, Period> duration) {
+   Sleep(std::chrono::duration_cast<std::chrono::microseconds>(duration));
+ }
+ 
++// wwe2k14 patch (Session 37): sleeps about `duration` (sub-millisecond: a high-resolution waitable timer on Windows,
++// nanosleep elsewhere); Sleep above rounds down to whole milliseconds. For short waits that must not busy-spin.
++void PreciseSleep(std::chrono::microseconds duration);
++
+ enum class SleepResult {
+   kSuccess,
+   kAlerted,
+diff --git a/include/rex/ui/vulkan/fsr.h b/include/rex/ui/vulkan/fsr.h
+index 966c10d99b4522d526989adf667a65adb743419c..72a2cb5033103bd6c3f23d54510ca3e678e67e3e 100644
+--- a/include/rex/ui/vulkan/fsr.h
++++ b/include/rex/ui/vulkan/fsr.h
+@@ -22,8 +22,15 @@ namespace rex::ui::vulkan::fsr {
+ // Once, on the command processor's thread: loads the runtime and remembers the device. True if FSR can run.
+ bool Initialize(VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc_addr, VkPhysicalDevice physical_device,
+                 VkDevice device);
+-// Initialize succeeded (cached).
++// Initialize succeeded (cached) and FSR has not failed since.
+ bool Available();
++// Session 37: FSR is off for the rest of the run: the runtime could not load, or its context or a dispatch failed
++// (a playtester's Intel UHD 620 shook and hung at a loading screen with FSR on). Nothing is retried after that, and
++// FailReason() says why. Any thread.
++bool Failed();
++std::string FailReason();
++// Turns FSR off for the rest of the run, as a failure would (gpu_fsr_test_fail: the fallback without a weak GPU).
++void Fail(const std::string& reason);
+ // Records the FSR dispatch into `command_buffer` (a real one, at execution time, on the submission thread). The
+ // inputs (colour, depth, motion) must be in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, the output in GENERAL; FSR
+ // leaves them so. frame.mode / out size as for DLSS (out = in for native). False + `reason` on failure.
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+index 9ac8d15f97755399a7fe9e0e1c3ec62c61f0b504..9a8d71f3fdff6ae827327d0aa44d16672aa0b7af 100644
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -192,6 +192,9 @@ void SyncMemory() {
+   __sync_synchronize();
+ }
+ 
++// wwe2k14 patch (Session 37): see thread.h (nanosleep is already sub-millisecond here).
++void PreciseSleep(std::chrono::microseconds duration) { Sleep(duration); }
++
+ void Sleep(std::chrono::microseconds duration) {
+   timespec rqtp = DurationToTimeSpec(duration);
+   timespec rmtp = {};
+diff --git a/src/core/threading_win.cpp b/src/core/threading_win.cpp
+index 896dfec4b7c0d7122f6bd26d02883bded63cc379..a376d7b7f0d4942700d50f93af1aca9705b69b69 100644
+--- a/src/core/threading_win.cpp
++++ b/src/core/threading_win.cpp
+@@ -101,6 +101,21 @@ void Sleep(std::chrono::microseconds duration) {
+   }
+ }
+ 
++// wwe2k14 patch (Session 37): see thread.h.
++void PreciseSleep(std::chrono::microseconds duration) {
++  thread_local HANDLE timer = [] {
++    HANDLE t = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
++    return t ? t : CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);  // before Windows 10 1803
++  }();
++  LARGE_INTEGER due;
++  due.QuadPart = -int64_t(duration.count() > 0 ? duration.count() : 1) * 10;  // relative, 100 ns units
++  if (timer && SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
++    WaitForSingleObject(timer, INFINITE);
++  } else {
++    MaybeYield();
++  }
++}
++
+ SleepResult AlertableSleep(std::chrono::microseconds duration) {
+   if (SleepEx(static_cast<DWORD>(duration.count() / 1000), TRUE) == WAIT_IO_COMPLETION) {
+     return SleepResult::kAlerted;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 17745063bc0814bcaed80180f6ddf7d4627b9e88..e644ebd185be8a8e3eee46d5adf73a65e886a8da 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -54,6 +54,12 @@ REXCVAR_DEFINE_BOOL(vsync, true, "GPU", "Enable vertical sync");
+ REXCVAR_DEFINE_BOOL(gpu_wait_reg_mem_spin, false, "GPU",
+                     "WAIT_REG_MEM: yield-spin while the condition is unmet instead of sleeping "
+                     "wait/256 ms per poll (sleeping can overshoot by up to a timer tick)");
++// wwe2k14 patch (Session 37): the spin above keeps the GPU command thread at ~95% of a core in a match (run 2622);
++// on a laptop that core's power is the integrated GPU's too.
++REXCVAR_DEFINE_INT32(gpu_wait_reg_mem_sleep_us, 0, "GPU",
++                     "With gpu_wait_reg_mem_spin (and vsync on): sleep this many microseconds per poll on a "
++                     "high-resolution timer instead of yielding (0 = yield-spin as before)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_wait_reg_mem_stats, false, "GPU",
+                     "Log WAIT_REG_MEM statistics (packets, waits, time slept, hottest address) every 5 s");
+ 
+@@ -2128,7 +2134,13 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+         }
+         if (!REXCVAR_GET(vsync) || REXCVAR_GET(gpu_wait_reg_mem_spin)) {
+           // User wants it fast and dangerous.
+-          rex::thread::MaybeYield();
++          // wwe2k14 patch (Session 37): gpu_wait_reg_mem_sleep_us > 0 = a short precise sleep per poll instead (laptops).
++          const int32_t sleep_us = REXCVAR_GET(gpu_wait_reg_mem_sleep_us);
++          if (sleep_us > 0 && REXCVAR_GET(vsync)) {
++            rex::thread::PreciseSleep(std::chrono::microseconds(sleep_us));
++          } else {
++            rex::thread::MaybeYield();
++          }
+         } else {
+           rex::thread::Sleep(std::chrono::milliseconds(wait / 0x100));
+         }
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 65704a35324d1dffdbaa141c713135938b734141..e1cb49449cd3a6a1f615eea822ab1e0a9680c5d5 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -63,6 +63,13 @@ REXCVAR_DEFINE_BOOL(gpu_rt_cache_skip_unchanged_verify, false, "GPU",
+                     "skip, run the full update anyway, check that it changed nothing, and count and log "
+                     "mismatches ([s6][CP8])");
+ 
++// wwe2k14 patch (Session 37): log what the next N render target updates claim of the EDRAM (the fbo path's black
++// frames: a depth-only draw's estimated height let its render target take the frame's colour tiles). Counts down.
++REXCVAR_DEFINE_INT32(gpu_rt_update_log, 0, "GPU",
++                     "Log the next N render target cache updates: pitch, MSAA, estimated height, and each bound "
++                     "render target's EDRAM base and claimed length ([rt_update] lines)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::graphics {
+ 
+ // wwe2k14 patch (Session 6, CP8): gpu_rt_cache_skip_unchanged statistics and logs.
+@@ -804,6 +811,20 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+                                        rt_base);
+   }
+ 
++  // wwe2k14 patch (Session 37): gpu_rt_update_log.
++  if (const int32_t n = REXCVAR_GET(gpu_rt_update_log); n > 0) {
++    rex::cvar::SetFlagByName("gpu_rt_update_log", std::to_string(n - 1));
++    std::string rts_text;
++    for (uint32_t i = 0; i < edram_bases_sorted_count; ++i) {
++      const uint32_t bit = edram_bases_sorted[i].second;
++      rts_text += fmt::format(" {}{}@{}+{}", bit ? "c" : "d", bit ? bit - 1 : 0, edram_bases_sorted[i].first,
++                              rt_lengths_tiles[i]);
++    }
++    REXGPU_INFO("[rt_update] {} pitch {} tiles, msaa {}, height used {} (max {}), rts{}",
++                interlock_barrier_only ? "fsi" : "fbo", pitch_tiles_at_32bpp, uint32_t(msaa_samples), height_used,
++                GetRenderTargetHeight(pitch_tiles_at_32bpp, msaa_samples), rts_text);
++  }
++
+   // wwe2k14 patch (Session 6, CP8): declared outside the block for gpu_rt_cache_skip_unchanged.
+   bool interlock_barrier_needed = false;
+   if (interlock_barrier_only) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 2593bc01ad302c76f873a0f3cfcd11833a728a43..0efdae8bae16a7b0edb1028a0c25c87704bcc1a8 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -205,6 +205,19 @@ REXCVAR_DEFINE_BOOL(gpu_dlss_fsr, false, "GPU",
+                     "With gpu_dlss: upscale with AMD FSR 3 instead of DLSS (amd_fidelityfx_vk.dll next to the exe; no "
+                     "Streamline needed). gpu_dlss_mode 6 = native (no upscale, anti-aliasing only); default off");
+ REXCVAR_DEFINE_DOUBLE(gpu_fsr_sharpness, 0.3, "GPU", "FSR 3: its sharpening pass (RCAS), 0 = off .. 1 = strongest");
++// wwe2k14 patch (Session 37): FSR never breaks a game. Once FSR fails (runtime, context or dispatch), it stays off for
++// the run, the scene jitter stops and the swap shows the plain upscale; the reason lands here for the app (its notice).
++REXCVAR_DEFINE_STRING(gpu_fsr_failed, "", "GPU",
++                      "Set by the renderer: why FSR was turned off for this run (empty while it works). Read-only "
++                      "status for the app");
++REXCVAR_DEFINE_BOOL(gpu_fsr_test_fail, false, "GPU",
++                    "Test: turn FSR off as if it had failed on this graphics card (the fallback and the notice)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++// wwe2k14 patch (Session 37): the scene jitter only while the upscaler that removes it can run.
++static bool DlaaJitterOn() {
++  return REXCVAR_GET(gpu_dlaa_jitter) && !(REXCVAR_GET(gpu_dlss_fsr) && rex::ui::vulkan::fsr::Failed());
++}
+ // wwe2k14 patch (Session 33, HIDEHUD): photo mode's clean picture.
+ REXCVAR_DEFINE_BOOL(gpu_hide_hud, false, "GPU",
+                     "Skip every draw after the post chain's last full-screen pass (gpu_dlss_hud_after_vs, the split the "
+@@ -228,6 +241,9 @@ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                     "Read render-to-texture results on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// wwe2k14 patch (Session 37): resolves left to describe in a [resolve_stats] line (set with gpu_resolve_log).
++static int32_t g_resolve_stats_remaining = 0;
++
+ REXCVAR_DEFINE_BOOL(vulkan_readback_memexport, false, "GPU/Vulkan",
+                     "Read data written by memory export in shaders on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -4529,8 +4545,8 @@ void VulkanCommandProcessor::DlaaRunDlss(const VulkanTextureCache::DlaaStorage&
+   f.motion.format = VK_FORMAT_R16G16_SFLOAT, f.motion.layout = VK_IMAGE_LAYOUT_GENERAL;
+   f.motion.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+   const float sign = float(REXCVAR_GET(gpu_dlaa_jitter_sign));
+-  const float jitter[2] = {REXCVAR_GET(gpu_dlaa_jitter) ? sign * dlaa_jitter_[0] : 0.0f,
+-                           REXCVAR_GET(gpu_dlaa_jitter) ? sign * dlaa_jitter_[1] : 0.0f};
++  const float jitter[2] = {DlaaJitterOn() ? sign * dlaa_jitter_[0] : 0.0f,
++                           DlaaJitterOn() ? sign * dlaa_jitter_[1] : 0.0f};
+   const double angle = DlaaFillFrame(f, width, height, rep, view_now, fov_degrees, near_z, far_z, jitter);
+   f.reset = reset || angle > REXCVAR_GET(gpu_dlaa_reset_degrees);
+   cb.CmdHostCallback(&DlaaEvaluateCallback, &f, sizeof(f));
+@@ -4685,8 +4701,8 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+     pc.tan_half_fov[0] = float(t), pc.tan_half_fov[1] = float(t / aspect);
+   }
+   pc.near_far[0] = now.near_z, pc.near_far[1] = now.far_z;
+-  pc.jitter[0] = REXCVAR_GET(gpu_dlaa_jitter) ? dlaa_jitter_[0] : 0.0f;
+-  pc.jitter[1] = REXCVAR_GET(gpu_dlaa_jitter) ? dlaa_jitter_[1] : 0.0f;
++  pc.jitter[0] = DlaaJitterOn() ? dlaa_jitter_[0] : 0.0f;
++  pc.jitter[1] = DlaaJitterOn() ? dlaa_jitter_[1] : 0.0f;
+   pc.size = depth.width | (depth.height << 16);
+   // Session 24: how fast the camera moves on screen (render pixels per frame), for the jitter suspension.
+   {
+@@ -4775,8 +4791,8 @@ void VulkanCommandProcessor::DlaaMotionPass() {
+     std::memcpy(p.view_now, now.view, sizeof(p.view_now));
+     p.fov_degrees = now.fov_degrees, p.near_z = now.near_z, p.far_z = now.far_z;
+     const float sign = float(REXCVAR_GET(gpu_dlaa_jitter_sign));
+-    p.jitter[0] = REXCVAR_GET(gpu_dlaa_jitter) ? sign * dlaa_jitter_[0] : 0.0f;
+-    p.jitter[1] = REXCVAR_GET(gpu_dlaa_jitter) ? sign * dlaa_jitter_[1] : 0.0f;
++    p.jitter[0] = DlaaJitterOn() ? sign * dlaa_jitter_[0] : 0.0f;
++    p.jitter[1] = DlaaJitterOn() ? sign * dlaa_jitter_[1] : 0.0f;
+     p.reset = !have_prev;
+     p.width = depth.width, p.height = depth.height;
+     // Copies of this frame's depth and motion for the swap (by frame parity).
+@@ -4880,17 +4896,25 @@ bool VulkanCommandProcessor::DlssOutputSize(uint32_t width, uint32_t height, uin
+ 
+ bool VulkanCommandProcessor::DlssUpscalerReady() {
+   if (!REXCVAR_GET(gpu_dlss_fsr)) return ui::vulkan::streamline::Active() && ui::vulkan::streamline::DlssAvailable();
+-  if (!ui::vulkan::fsr::Available()) {
+-    static bool tried = false;
+-    if (tried) return false;
++  if (REXCVAR_GET(gpu_fsr_test_fail)) ui::vulkan::fsr::Fail("test (gpu_fsr_test_fail)");  // Session 37
++  static bool tried = false;
++  if (!tried && !ui::vulkan::fsr::Failed()) {
+     tried = true;
+     const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+     const ui::vulkan::VulkanInstance* const instance = vulkan_device->vulkan_instance();
+-    if (!ui::vulkan::fsr::Initialize(instance->instance(), instance->functions().vkGetInstanceProcAddr,
+-                                     vulkan_device->physical_device(), vulkan_device->device()))
+-      return false;
++    ui::vulkan::fsr::Initialize(instance->instance(), instance->functions().vkGetInstanceProcAddr,
++                                vulkan_device->physical_device(), vulkan_device->device());
+   }
+-  return true;
++  // wwe2k14 patch (Session 37): a failure (here or on the submission thread) is reported once, for the app.
++  if (ui::vulkan::fsr::Failed()) {
++    static bool reported = false;
++    if (!reported) {
++      reported = true;
++      rex::cvar::SetFlagByName("gpu_fsr_failed", ui::vulkan::fsr::FailReason());
++    }
++    return false;
++  }
++  return ui::vulkan::fsr::Available();
+ }
+ 
+ bool VulkanCommandProcessor::DlssEnsureComposite() {
+@@ -5528,7 +5552,7 @@ void VulkanCommandProcessor::DlaaOnSwap() {
+   dlaa_last_.frame = dlaa_frame_;
+   dlaa_last_.x = dlaa_jitter_[0], dlaa_last_.y = dlaa_jitter_[1];
+   dlaa_last_.jittered = dlaa_jittered_draws_;
+-  if (REXCVAR_GET(gpu_dlaa_jitter) && dlaa_log_left_ && dlaa_frame_ > 0) {
++  if (DlaaJitterOn() && dlaa_log_left_ && dlaa_frame_ > 0) {
+     --dlaa_log_left_;
+     REXGPU_INFO("[dlaa] frame {}: jitter {:+.4f} {:+.4f} host px on {} scene draw(s)", dlaa_frame_, dlaa_jitter_[0],
+                 dlaa_jitter_[1], dlaa_jittered_draws_);
+@@ -9727,6 +9751,7 @@ bool VulkanCommandProcessor::IssueCopy() {
+     matte_regs_[7] = mregs[XE_GPU_REG_RB_COPY_DEST_INFO];
+     if (const int32_t n = REXCVAR_GET(gpu_resolve_log); n > 0) {
+       matte_log_remaining_ = n;
++      g_resolve_stats_remaining = n;  // wwe2k14 patch (Session 37): and their contents (with readback_resolve=full)
+       rex::cvar::SetFlagByName("gpu_resolve_log", "0");
+     }
+     if (matte_log_remaining_ > 0) {
+@@ -10107,6 +10132,26 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     dfn.vkInvalidateMappedMemoryRanges(device, 1, &readback_memory_range);
+ 
+     uint8_t* destination = memory_->TranslatePhysical(written_address);
++    // wwe2k14 patch (Session 37): what the resolve wrote, for the resolves gpu_resolve_log names (needs
++    // readback_resolve=full): the share of non-zero bytes and 32-bit words, to compare render target paths resolve by
++    // resolve (the fbo path's black frames).
++    if (g_resolve_stats_remaining > 0) {
++      --g_resolve_stats_remaining;
++      const auto* p = static_cast<const uint8_t*>(readback.mapped_data[read_index]);
++      uint64_t nonzero_bytes = 0, nonzero_words = 0, sum = 0;
++      for (uint32_t i = 0; i < written_length; ++i) nonzero_bytes += p[i] != 0, sum += p[i];
++      for (uint32_t i = 0; i + 4 <= written_length; i += 4) {
++        uint32_t w;
++        std::memcpy(&w, p + i, 4);
++        nonzero_words += w != 0;
++      }
++      REXGPU_INFO("[resolve_stats] resolve {} dest 0x{:08X} {} bytes: non-zero bytes {:.2f}%, words {:.2f}%, mean byte "
++                  "{:.2f}, color_info 0x{:08X} surface_info 0x{:08X}",
++                  matte_resolve_index_ - 1, written_address, written_length,
++                  written_length ? 100.0 * double(nonzero_bytes) / written_length : 0.0,
++                  written_length >= 4 ? 100.0 * double(nonzero_words) / (written_length / 4) : 0.0,
++                  written_length ? double(sum) / written_length : 0.0, matte_regs_[6], matte_regs_[4]);
++    }
+     if (matte_dump) {
+       // wwe2k14 patch (Session 16, MATTE): to a file only; guest memory stays as it was (readback off).
+       if (std::FILE* f = std::fopen(matte_dump_file_.c_str(), "wb")) {
+@@ -11423,7 +11468,7 @@ void VulkanCommandProcessor::UpdateDynamicState(const draw_util::ViewportInfo& v
+   objmv_viewport_[0] = viewport.x, objmv_viewport_[1] = viewport.y;
+   objmv_viewport_[2] = viewport.width, objmv_viewport_[3] = viewport.height;
+   // wwe2k14 patch (Session 18, DLAA): sub-pixel jitter of the scene draws (gpu_dlaa_jitter).
+-  if (REXCVAR_GET(gpu_dlaa_jitter) && !dlaa_scene_done_ && viewport_info.xy_extent[0] &&
++  if (DlaaJitterOn() && !dlaa_scene_done_ && viewport_info.xy_extent[0] &&
+       viewport_info.xy_extent[0] >= uint32_t(std::max(0, REXCVAR_GET(gpu_dlaa_jitter_min_width))) *
+                                         draw_resolution_scale_x) {
+     viewport.x += dlaa_jitter_[0];
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+index 027cb086b144379af528fab2458cdd9719f4c817..6e68471a0c19cd36092ae330a586a3e924a004e0 100644
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -35,6 +35,13 @@ REXCVAR_DEFINE_BOOL(present_guest_frames_once, false, "UI/Presenter",
+                     "wwe2k14 (Session 21): when the UI thread presents (an overlay is registered), present only "
+                     "when a new guest frame is ready (no repeats at UI ticks) and right away (a new frame wakes the "
+                     "UI tick wait) - one present per guest frame. [s21][ONCE] log about every 5 s");
++// wwe2k14 patch (Session 37): with present_guest_frames_once, a UI paint with no new guest frame re-requested the
++// next paint at once, without the UI tick wait the present path has: the UI thread looped flat out between guest
++// frames (~99% of a core in a match, run 2622; profile run 2626: SDL_PeepEvents / PumpEvents / PaintFromUIThread).
++REXCVAR_DEFINE_BOOL(present_ui_idle_wait, false, "UI/Presenter",
++                    "wwe2k14 (Session 37): with present_guest_frames_once, a UI paint that has no new guest frame "
++                    "waits for the next UI tick (a new guest frame still wakes it at once) instead of re-requesting "
++                    "the next paint immediately (the UI thread spun between guest frames)");
+ 
+ REXCVAR_DEFINE_BOOL(present_letterbox, true, "UI/Presenter",
+                     "Enable letterboxing for non-native aspect ratios");
+@@ -519,6 +526,21 @@ void Presenter::PaintFromUIThread(bool force_paint) {
+ 
+         paint_result = PaintAndPresent(draw_ui);
+       } else if (draw_ui) {
++        // wwe2k14 patch (Session 37): wait here until a new guest frame is ready (ForceUIThreadPaintTick sets the
++        // force flag and notifies) or 2 ms pass. The UI tick wait itself returned at once here (run 2628: still 5.8
++        // million UI paints per 5 s for 300 presents), so this waits on its condition with a timeout instead.
++        if (REXCVAR_GET(present_ui_idle_wait)) {
++#if REX_PLATFORM_WIN32
++          std::unique_lock<std::mutex> idle_lock(dxgi_ui_tick_mutex_);
++          if (!dxgi_ui_tick_force_requested_) {
++            dxgi_ui_tick_signal_condition_.wait_for(idle_lock, std::chrono::milliseconds(2),
++                                                    [this] { return dxgi_ui_tick_force_requested_; });
++          }
++          dxgi_ui_tick_force_requested_ = false;
++#else
++          std::this_thread::sleep_for(std::chrono::milliseconds(1));
++#endif
++        }
+         // Keep the UI ticking (the next tick checks for a new guest frame again).
+         request_ui_paint_after_current_ui_thread_paint_ = true;
+       }
+diff --git a/src/ui/vulkan/fsr.cpp b/src/ui/vulkan/fsr.cpp
+index c674202be7e14d38f87cc47c8992531a863d6331..b0aa1596d4e83e35ddfa9409707390308e1ddf84 100644
+--- a/src/ui/vulkan/fsr.cpp
++++ b/src/ui/vulkan/fsr.cpp
+@@ -12,6 +12,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
++#include <cstdio>
+ #include <cstring>
+ #include <filesystem>
+ #include <vector>
+@@ -35,6 +36,18 @@ PfnFfxDispatch p_dispatch = nullptr;
+ 
+ std::atomic<bool> g_available{false};
+ bool g_initialized = false;
++// Session 37: set once (any thread may read it after g_failed is seen true).
++std::atomic<bool> g_failed{false};
++std::atomic<bool> g_fail_reason_set{false};
++char g_fail_reason[256] = {};
++
++void MarkFailed(const std::string& reason) {
++  bool expected = false;
++  if (!g_fail_reason_set.compare_exchange_strong(expected, true)) return;
++  std::snprintf(g_fail_reason, sizeof(g_fail_reason), "%s", reason.c_str());
++  g_failed.store(true, std::memory_order_release);
++  REXLOG_WARN("[fsr] FSR turned off for this run: {} (the picture falls back to the plain upscale, no jitter)", reason);
++}
+ VkDevice g_device = VK_NULL_HANDLE;
+ VkPhysicalDevice g_physical_device = VK_NULL_HANDLE;
+ PFN_vkGetDeviceProcAddr g_get_device_proc_addr = nullptr;
+@@ -134,7 +147,9 @@ bool Initialize(VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc
+   const std::filesystem::path dll = std::filesystem::path(exe).parent_path() / L"amd_fidelityfx_vk.dll";
+   HMODULE module = LoadLibraryExW(dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+   if (!module) {
+-    REXLOG_WARN("[fsr] {} not found or not loadable (error {}): FSR not available", dll.string(), GetLastError());
++    const DWORD error = GetLastError();
++    REXLOG_WARN("[fsr] {} not found or not loadable (error {}): FSR not available", dll.string(), error);
++    MarkFailed("amd_fidelityfx_vk.dll could not be loaded (error " + std::to_string(error) + ")");
+     return false;
+   }
+   p_create = reinterpret_cast<PfnFfxCreateContext>(GetProcAddress(module, "ffxCreateContext"));
+@@ -147,6 +162,7 @@ bool Initialize(VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc
+                                : nullptr;
+   if (!p_create || !p_destroy || !p_query || !p_dispatch || !g_get_device_proc_addr || !device || !physical_device) {
+     REXLOG_WARN("[fsr] amd_fidelityfx_vk.dll lacks the ffx-api entry points (or no device): FSR not available");
++    MarkFailed("amd_fidelityfx_vk.dll lacks the ffx-api entry points");
+     return false;
+   }
+   g_device = device, g_physical_device = physical_device;
+@@ -155,17 +171,27 @@ bool Initialize(VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc
+   return true;
+ }
+ 
+-bool Available() { return g_available.load(); }
++bool Available() { return g_available.load() && !g_failed.load(std::memory_order_acquire); }
++
++bool Failed() { return g_failed.load(std::memory_order_acquire); }
++
++void Fail(const std::string& reason) { MarkFailed(reason); }
++
++std::string FailReason() { return Failed() ? std::string(g_fail_reason) : std::string(); }
+ 
+ bool Evaluate(VkCommandBuffer command_buffer, const streamline::DlaaFrame& f, float sharpness, std::string* reason) {
+-  if (!g_available) {
+-    if (reason) *reason = "FSR not available";
++  if (!Available()) {
++    if (reason) *reason = Failed() ? "FSR turned off: " + FailReason() : std::string("FSR not available");
+     return false;
+   }
+   const bool upscale = f.out_width && f.out_height;
+   const uint32_t ow = upscale ? f.out_width : f.width, oh = upscale ? f.out_height : f.height;
+   TickRetired();
+-  if (!EnsureContext(f.width, f.height, ow, oh, reason)) return false;
++  // Session 37: a failed context is not retried every frame (each attempt can take long on a weak GPU).
++  if (!EnsureContext(f.width, f.height, ow, oh, reason)) {
++    MarkFailed(reason ? *reason : std::string("ffxCreateContext failed"));
++    return false;
++  }
+   const auto now = std::chrono::steady_clock::now();
+   float dt_ms = g_evaluations ? std::chrono::duration<float, std::milli>(now - g_last_time).count() : 16.667f;
+   dt_ms = std::clamp(dt_ms, 1.0f, 100.0f);
+@@ -202,6 +228,7 @@ bool Evaluate(VkCommandBuffer command_buffer, const streamline::DlaaFrame& f, fl
+   const ffxReturnCode_t r = p_dispatch(&g_context, &d.header);
+   if (r != FFX_API_RETURN_OK) {
+     if (reason) *reason = "ffxDispatch failed (" + std::to_string(r) + ")";
++    MarkFailed(reason ? *reason : std::string("ffxDispatch failed"));
+     return false;
+   }
+   return true;
+@@ -217,6 +244,9 @@ bool Initialize(VkInstance, PFN_vkGetInstanceProcAddr, VkPhysicalDevice, VkDevic
+   return false;
+ }
+ bool Available() { return false; }
++bool Failed() { return true; }
++void Fail(const std::string&) {}
++std::string FailReason() { return "built without FidelityFX"; }
+ bool Evaluate(VkCommandBuffer, const streamline::DlaaFrame&, float, std::string* reason) {
+   if (reason) *reason = "built without FidelityFX";
+   return false;

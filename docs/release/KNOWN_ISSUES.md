@@ -8,3 +8,7 @@
   one doesn't show up, please send a report (launcher: Report a problem lists your packs, never their files).
 - Discord status needs an application id (Settings -> Game) until the project has its own.
 - Our own menu items in the game (QUIT TO DESKTOP, GRAPHICS, PHOTO MODE) stay in English in every language.
+- The LIGHT renderer, FRAME RATE 30 and the AMD fix are new and have not been tested on integrated graphics or AMD
+  cards by us yet. With FRAME RATE 30 the match timer (and anything else the game counts in frames) runs at half speed.
+- The in-game GRAPHICS screen has no RENDERER choice yet (the launcher only).
+- CineCam's setup panel (F8 outside a match) and the automatic entrance freeze are new and lightly tested.

@@ -112,6 +112,13 @@ inline std::atomic<bool>& g_load_turbo_ingame_window() {
   return open;
 }
 
+// Session 36 (src\scene_freeze.h): true while the scene is frozen. The 2D layout animation step sub_82BBEC18 (below)
+// then does nothing, so overlays such as an entrance's nameplate hold their pose and carry on from it on release.
+inline std::atomic<bool>& g_ui_anim_hold() {
+  static std::atomic<bool> hold{false};
+  return hold;
+}
+
 class LoadTurbo {
  public:
   void OnFrame(uint64_t frame) {
@@ -308,6 +315,7 @@ inline UiAnimThrottle g_ui_anim_throttle;
 REX_EXTERN(__imp__sub_82BBEC18);
 REX_HOOK_RAW(sub_82BBEC18) {
   using namespace wwe2k14;
+  if (g_ui_anim_hold().load(std::memory_order_relaxed)) return;  // Session 36: frozen scene, hold the pose
   if (!g_load_turbo_active_flag().load(std::memory_order_relaxed) || !REXCVAR_GET(wwe2k14_load_turbo_ui_real_time)) {
     if (g_ui_anim_throttle.dirty.exchange(false, std::memory_order_relaxed)) {
       std::lock_guard<std::mutex> lock(g_ui_anim_throttle.mutex);

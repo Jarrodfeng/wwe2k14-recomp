@@ -1,0 +1,23 @@
+# Session 37 (FSR never breaks a game): T1 check of the FSR guard. Straight into a launched match with FSR on, 3 s of
+# FSR (fs_on), then `cvar gpu_fsr_test_fail true` (FSR turned off as if it had failed on this card): the log must show
+# "[fsr] FSR turned off for this run" and "[wwe2k14][fsr] FSR turned off", the notice is up for 12 s (game screenshots
+# leave ImGui out: the run's log says it was created; a desktop shot shows it), the jitter stops, the plain upscale
+# shows (fs_off_*), and the test settings file gets "upscale": 0 and "fsr_note". Needs --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true --wwe2k14_fsr=true --wwe2k14_settings_file=<test file with "upscale": 6>.
+# Untimed (lanes OK). on_fail quit.
+on_fail quit
+log fsrfail: start
+include boot_to_menu
+log fsrfail: main menu reached
+wait_state match_clock !=0 3600 2
+log fsrfail: match clock running
+wait_frames 180
+screenshot fs_on
+cvar gpu_fsr_test_fail true
+wait_frames 90
+screenshot fs_off_0
+wait_frames 6
+screenshot fs_off_1
+wait_frames 240
+log fsrfail: end
+quit

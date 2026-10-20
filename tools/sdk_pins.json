@@ -1905,6 +1905,34 @@
           "size": 11365888
         }
       ]
+    },
+    {
+      "id": "pin-48c1e6c-1020-0955",
+      "sdk_commit": "48c1e6cc7ff26a3f1bd688011b431a9529eaf26a",
+      "sdk_branch": "s37-low-end",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s37g, 2026-10-20T09:55:30 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s37g.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 37: FSR guard, low power, rt diagnostics (branch s37-low-end)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "4bd47d0786286c11c630b4c5085a278bb6c72db88a244a8b8787cf43301254ce",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "287888f548c14342a93f96aa0b02362bfb0580a8cc50e2ef88d035bfbc6d195a",
+          "size": 7638016
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "91e4f745a3ff6eee476b331148e3d1402a8889feb867e0479a29dc8f0b3c922c",
+          "size": 11375616
+        }
+      ]
     }
   ]
 }

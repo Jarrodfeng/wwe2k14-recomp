@@ -1,0 +1,19 @@
+# Session 37 (low-end renderer): frame anatomy of the same match moment on two render target paths. Like
+# s37_rt_match.txt: straight into a launched match, 4 s in, a 2-frame anatomy capture (logs\anatomy_NNN_K.csv;
+# py tools\bench\anatomy_report.py) and screenshots right before and after it, quit. Needs
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true and --render_target_path_vulkan=fbo|fsi.
+# Untimed (lanes OK). on_fail quit.
+on_fail quit
+log rt: start
+include boot_to_menu
+log rt: main menu reached
+wait_state match_clock !=0 3600 2
+log rt: match clock running
+wait_frames 240
+screenshot a37_0
+cvar gpu_anatomy_capture 2
+wait_frames 6
+screenshot a37_1
+wait_frames 30
+log rt: end
+quit

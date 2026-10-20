@@ -36,6 +36,7 @@
 #include <filesystem>
 
 #include "frame_stats.h"
+#include "low_power.h"  // Session 37: --wwe2k14_low_power (the poll step below)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_timeline, false, "wwe2k14",
                     "Write a per-event CPU/GPU timeline to logs/timeline_NNN.csv (frame-pacing analysis)");
@@ -89,6 +90,7 @@ void wwe2k14_gpu_wait_begin(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5) {
   (void)r3;
   // Session 15 (determinism): det_frames counts the thread as blocked while it spins in a GPU wait loop.
   rex::det::EnterWait();
+  wwe2k14::low_power::Begin();  // Session 37: a new wait (its first --wwe2k14_low_power_spin_us spin, then sleeps)
   if (!rex::perf::timeline::Enabled()) return;
   const uint32_t device = r4.u32;
   rex::perf::timeline::Record("gwait_b", r5.u32, wwe2k14::FenceCompleted(device),
@@ -122,4 +124,6 @@ REX_EXTERN(__imp__sub_82CB1F50);
 REX_HOOK_RAW(sub_82CB1F50) {
   DetSerialGpuPoll();
   __imp__sub_82CB1F50(ctx, base);
+  // Session 37 (--wwe2k14_low_power, default off): "keep waiting" gives the core back instead of busy-spinning.
+  if (REXCVAR_GET(wwe2k14_low_power) && ctx.r3.u32 == 1) wwe2k14::low_power::Between();
 }

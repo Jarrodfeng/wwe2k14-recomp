@@ -96,6 +96,10 @@ struct Settings {
   // Session 24: 0 off, 1 DLAA, 2 DLSS performance (720p -> 1440p), 3 quality (1440p -> 4K), 4 ultra performance
   // (720p -> 4K); the NVIDIA runtime folder (empty = the files bundled with a release).
   int upscale = 0;
+  // Session 37: why the game turned FSR off on this PC (src\upscale_guard.h writes it; shown under Graphics until the
+  // player picks an upscaler again).
+  std::string fsr_note;
+  int renderer = 0;            // Session 37: 0 accurate, 1 light (weak / integrated GPUs; src\light_renderer.h)
   int texture_filter = 0;      // Session 33: 0 standard (4x), 1 8x, 2 16x anisotropic filtering
   bool discord = false;        // Session 33: Discord status (off by default)
   int aspect = 0;              // Session 33: 0 = 16:9 (the game's own), 1 = auto (the monitor's: ultrawide Hor+)
@@ -156,6 +160,7 @@ inline void to_json(json& j, const Settings& s) {
   j = json{{"game_exe", s.game_exe}, {"mods_dir", s.mods_dir}, {"scenario", s.scenario}, {"preset", s.preset},
            {"mods", s.mods}, {"skip_entrances", s.skip_entrances}, {"logo_legacy_route", s.logo_legacy_route}, {"quick_mode", s.quick_mode}, {"quick_type", s.quick_type}, {"quick_arena", s.quick_arena}, {"quick_ids", s.quick_ids}, {"quick_cpu_only", s.quick_cpu_only}, {"cinecam", s.cinecam}, {"look", s.look},
            {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"dlss_dir", s.dlss_dir},
+           {"fsr_note", s.fsr_note}, {"renderer", s.renderer},
            {"discord", s.discord}, {"discord_app_id", s.discord_app_id}, {"aspect", s.aspect},
            {"photo_mode", s.photo_mode},
            {"arena_override", s.arena_override}, {"arena", s.arena}, {"participants", s.participants},
@@ -184,6 +189,7 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "quick_ids", s.quick_ids), Get(j, "quick_cpu_only", s.quick_cpu_only);
   Get(j, "cinecam", s.cinecam), Get(j, "look", s.look), Get(j, "arena_override", s.arena_override);
   Get(j, "upscale", s.upscale), Get(j, "texture_filter", s.texture_filter), Get(j, "dlss_dir", s.dlss_dir);
+  Get(j, "fsr_note", s.fsr_note), Get(j, "renderer", s.renderer);
   Get(j, "discord", s.discord), Get(j, "discord_app_id", s.discord_app_id), Get(j, "aspect", s.aspect);
   Get(j, "photo_mode", s.photo_mode);
   Get(j, "arena", s.arena), Get(j, "participants", s.participants), Get(j, "replay_name", s.replay_name);
@@ -951,6 +957,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     c.upscale = s.upscale, c.resolution = s.resolution, c.frame_rate = s.frame_rate, c.refresh_hz = s.refresh_hz;
     c.original_look = s.original_look;
     c.texture_filter = s.texture_filter;  // Session 33
+    c.renderer = s.renderer;              // Session 37
     // The player's own NVIDIA folder, else the files bundled with a release (Session 25, Jarrod: ship them). Session
     // 31: a folder of their own that has no NVIDIA files (moved, deleted) falls back to the bundled ones too.
     const std::string dir = HasStreamline(s.dlss_dir) || p.nvidia.empty() ? s.dlss_dir : PathStr(p.nvidia);

@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.1.10
+
+- **For laptops and older graphics cards: a LIGHT renderer.** Settings -> Graphics -> RENDERER: ACCURATE is the exact
+  Xbox 360 renderer (as before); LIGHT uses your graphics card's own render targets and blending, which should be much
+  lighter on integrated graphics. In our checks it draws the same picture (on the same replayed match, under 0.001% of
+  the pixels differ noticeably). The first-run setup picks LIGHT and 720p on integrated graphics. We have not been able
+  to test it on integrated graphics ourselves yet: please tell us how it runs.
+- **AMD graphics cards (Windows): no more black match frames.** AMD's Windows driver can't run the accurate renderer,
+  and the game fell back to an older path that showed mostly black frames in matches. It now uses the LIGHT renderer's
+  fixes there by itself. (Untested on a real AMD card so far: reports welcome.)
+- **Uses far less CPU.** The game used to keep up to three CPU cores fully busy just waiting (for the graphics card,
+  for the next frame). It now rests while it waits: about two cores less in a match, at the same frame rate. On a
+  laptop that power and heat goes to the graphics instead. (Advanced: `--wwe2k14_low_power=false` brings the old
+  behaviour back.)
+- **FSR can't break a game any more.** If AMD FSR can't run on a graphics card, the game turns it off by itself with a
+  message on screen and carries on (before, the picture could shake and the game hang at a loading screen), and the
+  launcher shows why. FSR is no longer offered on integrated graphics, which it does not support.
+- **FRAME RATE 30** (Settings -> Display), for PCs that can't hold 60: below 60 the game runs in slow motion, so this
+  uses the game's own 30 fps mode instead (entrances and matches at a steady 30, at normal speed). The match timer
+  counts at half speed in this mode.
+- **A true freeze for photo mode and CineCam.** Freezing the scene now really stops it (wrestlers, crowd, effects)
+  instead of slowing it down a lot, and on release everything carries on from the same moment. In photo mode the
+  titantron and sound hold too; CineCam's freeze keeps them running. New for CineCam: freeze automatically at the start
+  of every entrance, and F8 outside a match opens a CineCam setup panel.
+- The game's log now says which graphics card it uses and which renderer path that card gets.
+
 ## v0.1.9
 
 - **Fixed: the game crashing at start on PCs with Overwolf** (an access violation, error 0xC0000005, before the title

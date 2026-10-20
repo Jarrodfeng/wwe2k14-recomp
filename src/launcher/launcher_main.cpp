@@ -17,6 +17,7 @@
 // Command-line automation (used for unattended checks; each does what the matching button does):
 //   --page play|mods|settings    --mods-tab trons|titles|logos    --advanced (open the Advanced sections)
 //   --game-data DIR  --user-data DIR (this run only; implies --no-save)    --wizard | --no-wizard   --rtx (show DLSS)
+//   --fake-igpu (Session 37: the choices for integrated graphics: light renderer, 720p, no FSR)
 //   --logo-add PNG  --logo-import (back up, run the game's menus, check)   --wait-game (until the game has closed)
 //   --backup  --restore N (0 = newest backup)  --report  --no-open (don't open folders)
 //   --settings FILE (another settings file: a fresh profile)   --play  --quick-match  --capture NAME
@@ -70,6 +71,7 @@
 #include "logo_save.h"
 #include "dlc_names.h"  // Session 32: DLC wrestlers' names from the player's DLC files (needs stb_image above)
 #include "wm30_list.h"  // Session 34: the 30 Years of WrestleMania matches from the player's game files
+#include "../vk_devices.h"  // Session 37: integrated graphics? interlock? (the renderer and FSR choices)
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -830,6 +832,7 @@ class App {
   std::string override_game_data, override_user_data;  // --game-data / --user-data (this run only)
   void OpenAdvanced() { advanced_open_ = true; }
   void ForceRtx() { force_rtx_ = true; }
+  void FakeIntegratedGpu() { fake_igpu_ = true; }  // Session 37: --fake-igpu
   void NoOpen() { open_folders_ = false; }
 
   void Reload() {
@@ -1953,6 +1956,11 @@ class App {
     if (p.frame_rate && c.frame_rate != launch_graphics_.frame_rate) s.frame_rate = c.frame_rate;
     if (p.original_look && c.original_look != launch_graphics_.original_look) s.original_look = c.original_look;
     if (p.texture_filter && c.texture_filter != launch_graphics_.texture_filter) s.texture_filter = c.texture_filter;
+    // Session 37: the game turned FSR off after a failure (src\upscale_guard.h): take its note too.
+    std::string note;
+    if (wwe2k14::gfxs::GetString(wwe2k14::gfxs::ReadFile(settings_path), "fsr_note", note) && !note.empty() &&
+        note != s.fsr_note)
+      s.fsr_note = note, Status("FSR could not run on this graphics card and was turned off: " + note);
     launch_graphics_set_ = false;
   }
   wwe2k14::gfxs::Choice launch_graphics_;  // the graphics choices as the game was started with them
@@ -2868,20 +2876,41 @@ class App {
   // the monitor shows: a real uncapped rate fast-forwards the game (--vsync=false). CLASSIC (0: 30 fps entrances)
   // appears only when it was picked in the game's menu.
   void FrameRateRow(Settings& t) {
-    std::vector<const char*> names{"60", "120", "UNCAPPED"};
-    int fi = t.frame_rate == 2 ? (t.refresh_hz == 120 ? 1 : 2) : 0;
-    if (t.frame_rate == 0) names.push_back("CLASSIC"), fi = 3;
+    // Session 37: "30" (frame_rate 3) for weak PCs, after UNCAPPED; CLASSIC (0) last when it was picked in the game.
+    std::vector<const char*> names{"60", "120", "UNCAPPED", "30"};
+    int fi = t.frame_rate == 2 ? (t.refresh_hz == 120 ? 1 : 2) : t.frame_rate == 3 ? 3 : 0;
+    if (t.frame_rate == 0) names.push_back("CLASSIC"), fi = 4;
     const int hz = hw_.refresh_hz;
     std::string note = fi == 0   ? "Entrances and matches at 60."
                        : fi == 1 ? "Entrances and matches at 120."
                        : fi == 2 ? "Matches at your monitor's rate (" + std::to_string(hz) + " Hz), entrances at up to 120."
+                       : fi == 3 ? "Entrances and matches at 30, for weaker PCs (below 60 the game would run in slow "
+                                   "motion). The match timer counts at half rate."
                                  : "Entrances at 30, matches at 60 (picked in the game's own menu).";
     if ((fi == 1 || fi == 2) && hz <= 60) note += " Your monitor runs at " + std::to_string(hz) + " Hz: this needs a faster one.";
     if (OptionRow("FRAME RATE", fi, names.data(), int(names.size()), true, note.c_str())) {
       if (fi == 0) t.frame_rate = 1, t.refresh_hz = 0;
       else if (fi == 1) t.frame_rate = 2, t.refresh_hz = 120;
       else if (fi == 2) t.frame_rate = 2, t.refresh_hz = 0;
+      else if (fi == 3) t.frame_rate = 3, t.refresh_hz = 0;
     }
+  }
+
+  // Session 37: ACCURATE (the Xbox 360's EDRAM in every pixel shader: the reference look, heavy on weak GPUs) or LIGHT
+  // (the graphics card's own render targets with the Session 37 fixes: same picture in our checks; src\light_renderer.h).
+  // A card without interlock (AMD on Windows) cannot run ACCURATE: the SDK falls back to LIGHT's path, and
+  // --wwe2k14_fbo_fallback_fix (default on, Jarrod 2026-10-20) applies LIGHT's fixes there.
+  void RendererRow(Settings& t, const wwe2k14::vkdev::Device& dev) {
+    static constexpr const char* kRen[] = {"ACCURATE", "LIGHT"};
+    t.renderer = std::clamp(t.renderer, 0, 1);
+    std::string note = t.renderer == 0 ? "The exact Xbox 360 renderer. Needs a strong graphics card."
+                                       : "Lighter on the graphics card: for integrated graphics, laptops and older cards. "
+                                         "The same picture in our checks.";
+    if (!dev.name.empty() && !dev.interlock && t.renderer == 0)
+      note += " Your card (" + dev.name + ") can't run it: the game uses the light renderer there.";
+    else if (dev.integrated() && t.renderer == 0)
+      note += " Integrated graphics (" + dev.name + "): LIGHT is suggested.";
+    OptionRow("RENDERER", t.renderer, kRen, 2, true, note.c_str());
   }
 
   void SettingsGraphics() {
@@ -2900,9 +2929,18 @@ class App {
                                               "AMD FSR 3: 720p drawn, shown as 1440p."};
     const bool rtx = hw_.rtx || force_rtx_;
     const bool fsr = wwe2k14::gfxs::HasFsrRuntime();
+    // Session 37: the card the game will use (Display -> GRAPHICS CARD).
+    const wwe2k14::vkdev::Device dev = ChosenDevice(s.gpu);
+    RendererRow(s, dev);
+    // Session 37 (FSR never breaks a game; only where it works): no FSR on integrated graphics (AMD's FSR 3.1 list
+    // starts at Radeon RX 5000 / GeForce RTX 20, no integrated GPUs; a playtester's UHD 620 shook and hung with it).
+    // Every FSR mode on any monitor otherwise (Jarrod, 2026-10-20: a bigger output than the screen is a choice, like a
+    // render scale above 100%). A saved choice stays visible.
+    const bool fsr_card = fsr && !dev.integrated();
     std::vector<int> idx{0};
     if (rtx) idx.insert(idx.end(), {1, 2, 3, 4});
-    if (fsr) idx.insert(idx.end(), {5, 6, 7});
+    if (fsr_card) idx.insert(idx.end(), {5, 6, 7});
+    else if (fsr && wwe2k14::gfxs::IsFsr(s.upscale)) idx.push_back(s.upscale == 5 ? 5 : s.upscale == 6 ? 6 : 7);
     std::vector<const char*> names;
     int ui = 0;
     for (size_t i = 0; i < idx.size(); ++i) {
@@ -2913,13 +2951,25 @@ class App {
       std::string note = kUpNote[idx[size_t(ui)]];
       if (!rtx && ui == 0)
         note += " DLSS needs an NVIDIA RTX card (found: " + (hw_.gpu.empty() ? std::string("unknown") : hw_.gpu) + ").";
-      if (OptionRow("UPSCALING", ui, names.data(), int(names.size()), true, note.c_str()))
+      if (wwe2k14::gfxs::IsFsr(s.upscale) && dev.integrated())
+        note += " Not offered on integrated graphics (" + dev.name + "): FSR does not support it.";
+      if (OptionRow("UPSCALING", ui, names.data(), int(names.size()), true, note.c_str())) {
         s.upscale = kUpValue[idx[size_t(ui)]];
+        s.fsr_note.clear();  // a new choice: the old note no longer applies
+      }
     } else {
       int off = 0;
       const std::string why = "DLSS needs an NVIDIA RTX card (found: " + (hw_.gpu.empty() ? std::string("unknown") : hw_.gpu) +
-                              "); FSR needs amd_fidelityfx_vk.dll next to the game (missing).";
+                              (!fsr ? "); FSR needs amd_fidelityfx_vk.dll next to the game (missing)."
+                                    : "); FSR is not offered on integrated graphics (" + dev.name + ").");
       OptionRow("UPSCALING", off, names.data(), 1, false, why.c_str());
+    }
+    if (!s.fsr_note.empty()) {  // Session 37: the game turned FSR off on this PC (src\upscale_guard.h)
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14 * d);
+      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
+      ImGui::TextColored(kWarn, "Last time FSR could not run on this graphics card, so the game turned it off: %s",
+                         s.fsr_note.c_str());
+      ImGui::PopTextWrapPos();
     }
     if (rtx && wwe2k14::gfxs::IsNvidia(s.upscale)) {
       // Session 31 (Jarrod: the bundled files should just work): with NVIDIA's files next to the launcher (a release)
@@ -3128,6 +3178,7 @@ class App {
     } else {
       if (!wiz_ready_) {  // the suggestions, once per visit of this step
         wiz_ = s, wiz_.resolution = SuggestResolution(hw_), wiz_.frame_rate = SuggestFrameRate(hw_), wiz_.upscale = 0;
+        SuggestForDevice(wiz_);  // Session 37: integrated graphics -> LIGHT at 720p
         wiz_ready_ = true;
       }
       ImGui::TextDisabled("Suggested for your PC (%s, %dx%d at %d Hz). You can change them later in Settings.",
@@ -3146,10 +3197,15 @@ class App {
       for (size_t i = 0; i < gpus_.size(); ++i)
         if (gpus_[i].name == wiz_.gpu) gi = int(i) + 1;
       if (OptionRow("GRAPHICS CARD", gi, ptrs.data(), int(ptrs.size()), true,
-                    gpus_.size() > 1 ? "Automatic: the dedicated card with the most memory." : nullptr))
+                    gpus_.size() > 1 ? "Automatic: the dedicated card with the most memory." : nullptr)) {
         wiz_.gpu = gi == 0 ? std::string() : gpus_[size_t(gi - 1)].name;
+        wiz_.resolution = SuggestResolution(hw_), wiz_.renderer = 0;
+        SuggestForDevice(wiz_);  // Session 37: the suggestions follow the card
+      }
+      RendererRow(wiz_, ChosenDevice(wiz_.gpu));  // Session 37
       static constexpr const char* kRes[] = {"720P", "1440P", "4K"};
-      OptionRow("RESOLUTION", wiz_.resolution, kRes, 3);
+      OptionRow("RESOLUTION", wiz_.resolution, kRes, 3, true,
+                ChosenDevice(wiz_.gpu).integrated() ? "720p suggested for integrated graphics." : nullptr);
       FrameRateRow(wiz_);
       ImGui::TextDisabled("%s", hw_.rtx ? "Upscaling (DLSS / DLAA / FSR) is in Settings -> Graphics."
                                         : "Upscaling (AMD FSR) is in Settings -> Graphics.");
@@ -3164,7 +3220,7 @@ class App {
     } else {
       if (ModalMainButton("FINISH")) {
         s.language = wiz_.language, s.gpu = wiz_.gpu, s.resolution = wiz_.resolution;
-        s.frame_rate = wiz_.frame_rate, s.upscale = wiz_.upscale;
+        s.frame_rate = wiz_.frame_rate, s.upscale = wiz_.upscale, s.renderer = wiz_.renderer;
         FinishWizard();
         ImGui::CloseCurrentPopup();
       }
@@ -3176,6 +3232,15 @@ class App {
   }
   Settings wiz_;            // the wizard's last step: the suggestions, changed in place until FINISH
   bool wiz_ready_ = false;
+
+  // Session 37 (the brief: "The first-run wizard should pick it on integrated graphics"): integrated graphics get the
+  // light renderer at 720p (a UHD 620 drew 5-10 fps in matches with the accurate renderer at 720p); a card that cannot
+  // run the accurate renderer (no interlock: AMD on Windows) gets the light renderer.
+  void SuggestForDevice(Settings& t) {
+    const wwe2k14::vkdev::Device dev = ChosenDevice(t.gpu);
+    if (dev.integrated()) t.renderer = 1, t.resolution = 0;
+    else if (!dev.name.empty() && !dev.interlock) t.renderer = 1;
+  }
 
   void FinishWizard() {
     s.first_run_done = true, s.page = 0, wizard_step_ = 0;
@@ -4182,6 +4247,17 @@ class App {
   int logo_srv_w_[3] = {};
   GameFont gfont_;
   std::vector<Gpu> gpus_;  // Settings -> Display: the graphics cards (ListGpus)
+  // Session 37: the Vulkan devices (vk_devices.h), listed once; the one the game will use for a GRAPHICS CARD choice.
+  std::vector<wwe2k14::vkdev::Device> vk_devs_;
+  bool vk_listed_ = false;
+  bool fake_igpu_ = false;  // automation: --fake-igpu (the integrated-graphics choices on any PC, for screenshots)
+  wwe2k14::vkdev::Device ChosenDevice(const std::string& gpu) {
+    if (!vk_listed_) vk_devs_ = wwe2k14::vkdev::List(), vk_listed_ = true;
+    const int i = wwe2k14::vkdev::Pick(vk_devs_, gpu);
+    wwe2k14::vkdev::Device d = i >= 0 ? vk_devs_[size_t(i)] : wwe2k14::vkdev::Device{};
+    if (fake_igpu_) d.type = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU, d.name = "(test) integrated GPU";
+    return d;
+  }
   bool nv_other_ = false;  // Settings -> Graphics: the player opened "Use other files..." (Session 31)
   ID3D11ShaderResourceView* gfont_srv_ = nullptr;
   fs::path gfont_root_;
@@ -4252,6 +4328,7 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--wizard") app.wizard_mode_ = 1;
     else if (a == "--no-wizard") app.wizard_mode_ = -1;
     else if (a == "--rtx") app.ForceRtx();
+    else if (a == "--fake-igpu") app.FakeIntegratedGpu();  // Session 37
     else if (a == "--logo-add") out.push_back({"logo_add", next()});
     else if (a == "--logo-import") out.push_back({"logo_import"});
     else if (a == "--wait-game") out.push_back({"wait_game"});

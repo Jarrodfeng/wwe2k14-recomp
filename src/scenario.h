@@ -60,6 +60,7 @@
 #include <vector>
 
 #include "crowd_hype.h"  // called from the owner update hook below
+#include "scene_freeze.h"  // Session 36: the true freeze, around the owner update below
 #include "frame_stats.h"
 
 REXCVAR_DEFINE_BOOL(wwe2k14_scenario_observe, false, "wwe2k14",
@@ -1345,5 +1346,7 @@ REX_HOOK_RAW(sub_82C302A0) {
   wwe2k14::crowd::Tick();  // --wwe2k14_crowd_hype (Session 14, default off: one setting read)
   wwe2k14::scenario::SnapshotTick();
   wwe2k14::scenario::LaunchTick(ctx, base);
+  wwe2k14::freeze::RunnerEnter(ctx, base);  // Session 36: the true freeze (step fields, single tasks)
   __imp__sub_82C302A0(ctx, base);
+  wwe2k14::freeze::RunnerLeave(base);
 }

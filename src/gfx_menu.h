@@ -34,6 +34,7 @@
 #include "decode_probe.h"  // GuestPtr
 #include "frame_stats.h"
 #include "gfx_settings.h"
+#include "gpu_pick.h"      // Session 37: the chosen card (no FSR on integrated graphics)
 #include "input_script.h"  // g_request_quit (the clean quit)
 
 namespace wwe2k14::gfx_menu {
@@ -332,6 +333,14 @@ inline void BuildUpscaleOrder(bool nvidia, bool fsr) {
 }
 inline int FrameRateIndex(const gfxs::Choice& c) { return c.frame_rate == 2 ? (c.refresh_hz == 120 ? 1 : 2) : 0; }
 
+// Session 37 (FSR never breaks a game): FSR in the menu only with AMD's runtime, not on integrated graphics (FSR 3.1
+// does not support them; a UHD 620 shook and hung) and not after it failed in this run (src\upscale_guard.h).
+inline bool FsrOffered() {
+  if (!gfxs::HasFsrRuntime()) return false;
+  if (gpu_pick::g_known && gpu_pick::g_chosen.integrated()) return false;
+  return rex::cvar::GetFlagByName("gpu_fsr_failed").empty();
+}
+
 // The values the screen starts with: the settings file where it has them, else what the game is running.
 inline void LoadScreenValues() {
   gfxs::Choice c = g_running;
@@ -345,7 +354,7 @@ inline void LoadScreenValues() {
     if (p.refresh_hz) c.refresh_hz = f.refresh_hz;
     if (p.texture_filter) c.texture_filter = f.texture_filter;
   }
-  const bool dlss = DlssPossible(), fsr = gfxs::HasFsrRuntime();
+  const bool dlss = DlssPossible(), fsr = FsrOffered();
   BuildUpscaleOrder(dlss, fsr);
   if ((!dlss && gfxs::IsNvidia(c.upscale)) || (!fsr && gfxs::IsFsr(c.upscale))) c.upscale = 0;
   g_counts[0] = g_up_count, g_counts[1] = 3, g_counts[2] = 3, g_counts[3] = 3;

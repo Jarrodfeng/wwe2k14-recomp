@@ -8,7 +8,8 @@
 //   upscale      0 off, 1 DLAA, 2 DLSS performance, 3 DLSS quality, 4 DLSS ultra performance,
 //                5 FSR native, 6 FSR quality, 7 FSR performance (Session 33: AMD FSR 3, any graphics card)
 //   resolution   0 720p, 1 1440p (the default), 2 4K
-//   frame_rate   0 classic (30 fps entrances, 60 in matches), 1 60 everywhere (default), 2 high refresh
+//   frame_rate   0 classic (30 fps entrances, 60 in matches), 1 60 everywhere (default), 2 high refresh,
+//                3 30 everywhere (Session 37: weak PCs; the launcher only)
 //   refresh_hz   high refresh: game steps per second (0 = the monitor's)
 //   original_look  the original 720p / 4x MSAA / 30 fps entrance look (Advanced)
 //   texture_filter 0 standard (the forced 4x anisotropic filtering every run had), 1 8x, 2 16x (Session 33)
@@ -49,6 +50,7 @@ struct Choice {
   int refresh_hz = 0;
   bool original_look = false;
   int texture_filter = 0;  // Session 33
+  int renderer = 0;        // Session 37: 0 accurate, 1 light (--wwe2k14_light_renderer)
   std::string dlss_dir;
   bool operator==(const Choice& o) const {
     return upscale == o.upscale && resolution == o.resolution && frame_rate == o.frame_rate &&
@@ -120,11 +122,13 @@ inline Present Parse(const std::string& json, Choice& c) {
   p.refresh_hz = GetInt(json, "refresh_hz", c.refresh_hz);
   p.original_look = GetBool(json, "original_look", c.original_look);
   p.texture_filter = GetInt(json, "texture_filter", c.texture_filter);
+  GetInt(json, "renderer", c.renderer);  // Session 37 (the launcher's Settings -> Graphics; not in the game's menu)
   GetString(json, "dlss_dir", c.dlss_dir);
   c.upscale = std::clamp(c.upscale, 0, 7);
   c.resolution = std::clamp(c.resolution, 0, 2);
-  c.frame_rate = std::clamp(c.frame_rate, 0, 2);
+  c.frame_rate = std::clamp(c.frame_rate, 0, 3);  // Session 37: 3 = 30 everywhere (weak PCs)
   c.texture_filter = std::clamp(c.texture_filter, 0, 2);
+  c.renderer = std::clamp(c.renderer, 0, 1);
   return p;
 }
 
@@ -155,6 +159,48 @@ inline std::string SetInt(std::string json, const char* key, int value) {
   const size_t next = json.find_first_not_of(" \t\r\n", brace + 1);
   const bool empty_object = next == std::string::npos || json[next] == '}';
   return json.substr(0, brace + 1) + "\n  " + entry + (empty_object ? "" : ",") + json.substr(brace + 1);
+}
+
+// Session 37: sets (or adds) a string key in the JSON text ("..." with \ and " escaped, control characters dropped).
+inline std::string SetString(std::string json, const char* key, const std::string& value) {
+  std::string esc;
+  for (char ch : value) {
+    if (ch == '"' || ch == '\\') esc += '\\', esc += ch;
+    else if (static_cast<unsigned char>(ch) >= 0x20) esc += ch;
+  }
+  const std::regex re(std::string("(\"") + key + "\"\\s*:\\s*)\"(?:[^\"\\\\]|\\\\.)*\"");
+  std::smatch m;
+  if (std::regex_search(json, m, re))
+    return json.substr(0, size_t(m.position(0) + m.length(1))) + "\"" + esc + "\"" +
+           json.substr(size_t(m.position(0) + m.length(0)));
+  const size_t brace = json.find('{');
+  const std::string entry = std::string("\"") + key + "\": \"" + esc + "\"";
+  if (brace == std::string::npos) return "{\n  " + entry + "\n}\n";
+  const size_t next = json.find_first_not_of(" \t\r\n", brace + 1);
+  const bool empty_object = next == std::string::npos || json[next] == '}';
+  return json.substr(0, brace + 1) + "\n  " + entry + (empty_object ? "" : ",") + json.substr(brace + 1);
+}
+
+// Session 37: writes the JSON text back the way Save does (temp file + rename, the old file never deleted first).
+inline bool WriteJson(const fs::path& path, const std::string& json) {
+  std::error_code ec;
+  fs::create_directories(path.parent_path(), ec);
+  fs::path tmp = path;
+  tmp += L".tmp";
+  {
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f << json;
+    if (!f) return false;
+  }
+  for (int attempt = 0; attempt < 5; ++attempt) {
+    ec.clear();
+    fs::rename(tmp, path, ec);
+    if (!ec) return true;
+    Sleep(50);
+  }
+  fs::remove(tmp, ec);
+  return false;
 }
 
 // Writes the three choices into the file (created with the folder when it does not exist). Temp file + rename, so a
@@ -289,7 +335,15 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
   if (c.original_look) f.push_back({"wwe2k14_preset_1440p60", "false"});
   else if (!own_size && c.resolution == 0) f.push_back({"resolution_scale", "1"});
   else if (!own_size && c.resolution == 2) f.push_back({"wwe2k14_preset_4k60", "true"});
-  if (c.frame_rate == 0 && !c.original_look) f.push_back({"wwe2k14_entrance_60fps", "false"});
+  if ((c.frame_rate == 0 || c.frame_rate == 3) && !c.original_look) f.push_back({"wwe2k14_entrance_60fps", "false"});
+  // Session 37: 30 everywhere for weak PCs (below 60 the game runs in slow motion: it steps a fixed 1/60 s). Matches
+  // use the game's own 30 fps mode (step 1/30 s, run 2632: 33.3 ms frames, real time); entrances keep their stock 30
+  // (their rate 60 = unchanged). The match clock counts updates, so it runs at 30 per second (frame-counted timers at
+  // half rate: Jarrod to judge).
+  if (c.frame_rate == 3) {
+    f.push_back({"wwe2k14_step_hz", "30"});
+    f.push_back({"wwe2k14_step_hz_entrance", "60"});
+  }
   const int hz = c.refresh_hz > 0 ? c.refresh_hz : monitor_hz;
   if (c.frame_rate == 2 && hz > 60) {  // game steps per second = the refresh rate; entrances at most 120
     f.push_back({"wwe2k14_step_hz", std::to_string(hz)});
@@ -310,6 +364,7 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
     f.push_back({"wwe2k14_fsr", "true"});
     f.push_back({"wwe2k14_fsr_mode", modes[c.upscale - 5]});
   }
+  if (c.renderer == 1) f.push_back({"wwe2k14_light_renderer", "true"});  // Session 37
   // Wrestler motion vectors are always on with DLAA / DLSS / FSR (Session 28: the game's own default, no flag needed).
   if (IsNvidia(c.upscale) && !dlss_dir.empty()) f.push_back({"wwe2k14_dlaa_dir", dlss_dir});
   return f;

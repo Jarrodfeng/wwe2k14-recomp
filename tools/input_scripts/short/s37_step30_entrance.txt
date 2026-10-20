@@ -1,0 +1,17 @@
+# harness: realtime (frame times in an entrance)
+# Session 37 (the launcher's FRAME RATE 30 = --wwe2k14_step_hz=30 --wwe2k14_step_hz_entrance=60
+# --wwe2k14_entrance_60fps=false): Brock's entrance should run its stock 30 fps (word 30, 33.3 ms frames) at real
+# speed. Logs the frame-rate word 5 s into the tron and quits; frames_NNN.csv has the frame times. Needs
+# --wwe2k14_launch=lesnar_bryan (entrances on). on_fail quit.
+on_fail quit
+log s30e: start
+include boot_to_menu
+log s30e: main menu reached
+wait_file 343.bik2 3600
+log scene=tron_343
+wait_frames 150
+log_state frame_rate
+wait_frames 150
+log_state frame_rate
+log bench: done
+quit

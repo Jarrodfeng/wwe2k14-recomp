@@ -1,0 +1,15 @@
+# harness: realtime (the game's GPU waits for the flip only exist at vsync)
+# Session 37 (low power): 25 s of a launched match at normal speed, for per-thread CPU time
+# (tools\perf\thread_busy.ps1 next to it, py tools\perf\thread_report.py RUN) and frame pacing (frames_NNN.csv) with
+# --wwe2k14_low_power=false / true. Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true. Run alone
+# (other games on the CPU confound the numbers). on_fail quit.
+on_fail quit
+log lp: start
+include boot_to_menu
+log lp: main menu reached
+wait_state match_clock !=0 3600 2
+wait_frames 120
+log scene=match
+wait_frames 1500
+log bench: done
+quit

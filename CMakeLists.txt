@@ -90,7 +90,8 @@ if(WIN32)
             ${WWE2K14_IMGUI}/imgui_widgets.cpp ${WWE2K14_IMGUI}/misc/cpp/imgui_stdlib.cpp
             ${WWE2K14_IMGUI}/backends/imgui_impl_win32.cpp ${WWE2K14_IMGUI}/backends/imgui_impl_dx11.cpp)
         target_include_directories(wwe2k14_launcher PRIVATE src/launcher ${WWE2K14_IMGUI} ${WWE2K14_IMGUI}/backends
-            "${WWE2K14_SDK_THIRDPARTY}/inja/third_party/include" "${WWE2K14_SDK_THIRDPARTY}/stb")
+            "${WWE2K14_SDK_THIRDPARTY}/inja/third_party/include" "${WWE2K14_SDK_THIRDPARTY}/stb"
+            "${WWE2K14_SDK_THIRDPARTY}/Vulkan-Headers/include")  # Session 37: src/vk_devices.h (headers only)
         target_compile_definitions(wwe2k14_launcher PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS
             WWE2K14_VERSION="${WWE2K14_VERSION}")
         set_property(TARGET wwe2k14_launcher PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
