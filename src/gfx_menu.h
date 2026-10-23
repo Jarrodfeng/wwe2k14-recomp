@@ -221,10 +221,11 @@ inline void ApplyLauncherSettings() {
   if (!REXCVAR_GET(wwe2k14_use_launcher_settings)) return;
   const std::filesystem::path path = SettingsFile();
   const std::string json = gfxs::ReadFile(path);
-  if (json.empty()) {
-    REXLOG_INFO("[wwe2k14][gfxmenu] no settings file at {}: graphics settings left as they are", gfxs::Utf8(path));
-    return;
-  }
+  // Session 51 (Jarrod, 2026-10-22: "NATIVE for everyone"): no file = the launcher's defaults, so the NATIVE renderer
+  // (the other defaults set nothing: 1440p, 60 fps, no upscaler are the game's own).
+  if (json.empty())
+    REXLOG_INFO("[wwe2k14][gfxmenu] no settings file at {}: the launcher's defaults (NATIVE renderer)",
+                gfxs::Utf8(path));
   gfxs::Choice c;
   gfxs::Parse(json, c);
   const std::string dir = gfxs::StreamlineDir(rex::cvar::GetFlagByName("wwe2k14_dlaa_dir"), c.dlss_dir);
@@ -257,8 +258,9 @@ inline void ApplyLauncherSettings() {
     // every start-up setting is in place (CaptureRunning); run 2141 confirmed the result.
     if (name == "resolution_scale") g_force_scale_one = true;
   }
-  REXLOG_INFO("[wwe2k14][gfxmenu] settings file {}: upscale {}, resolution {}, frame rate {} -> {}", gfxs::Utf8(path),
-              c.upscale, c.resolution, c.frame_rate, applied.empty() ? "(nothing to set)" : applied);
+  REXLOG_INFO("[wwe2k14][gfxmenu] settings file {}: upscale {}, resolution {}, frame rate {}, renderer {} -> {}",
+              gfxs::Utf8(path), c.upscale, c.resolution, c.frame_rate, c.renderer,
+              applied.empty() ? "(nothing to set)" : applied);
 }
 
 inline bool DlssPossible();  // below

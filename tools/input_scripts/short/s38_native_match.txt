@@ -1,0 +1,30 @@
+# Session 38 (native renderer): T1 check in a launched match (entrances skipped). Needs --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true --gpu_native=1. A census of three match frames, then the same moment shown
+# three ways (emulated, native, split), a report line every 60 frames in the log ([native]), quit. Untimed (lanes
+# OK). on_fail quit.
+on_fail quit
+log native: start
+include boot_to_menu
+log native: main menu reached
+cvar gpu_native_census 3
+wait_frames 10
+wait_state match_clock !=0 3600 2
+log native: match clock running
+cvar gpu_native_census 3
+wait_frames 240
+cvar wwe2k14_freeze true
+wait_frames 30
+cvar gpu_native_view 0
+wait_frames 10
+screenshot n38_emulated
+cvar gpu_native_view 1
+wait_frames 10
+screenshot n38_native
+cvar gpu_native_view 2
+wait_frames 10
+screenshot n38_split
+cvar gpu_native_view 0
+cvar wwe2k14_freeze false
+wait_frames 240
+log native: end
+quit

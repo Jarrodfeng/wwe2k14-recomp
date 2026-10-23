@@ -1,0 +1,37 @@
+# Session 38 (native renderer): same-frame pictures (gpu_native_dump: the emulated scene from the EDRAM and the native
+# picture of one frame) in Brock's entrance, Bryan's and the match of the s21_lb replay. Copy of short\s21_replay_time.txt
+# with dumps. Needs --wwe2k14_replay_play=s21_lb --gpu_native=1 --gpu_native_shading=1 [--gpu_native_draws=1]. on_fail quit.
+on_fail quit
+log bench: start s21_hash (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 200
+cvar gpu_native_dump 1
+wait_frames 100
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 200
+cvar gpu_native_dump 1
+wait_frames 440
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 300
+cvar gpu_native_dump 1
+wait_frames 300
+wait_frames 60
+log bench: done
+quit

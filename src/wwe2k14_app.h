@@ -59,6 +59,8 @@
 #include "ultrawide.h"      // --wwe2k14_aspect (Session 33 item 6, default 16:9 = off)
 #include "wm30_jump.h"      // --wwe2k14_wm30 (Session 34: jump into a 30 Years of WrestleMania match, default off)
 #include "upscale_guard.h"  // Session 37: a failed FSR turns itself off with a notice (with --wwe2k14_fsr)
+#include "direct_start.h"   // Session 53: a release started without the launcher (hand-off, settings file, message)
+#include "keybinds_save.h"  // Session 53: the keyboard binds saved in the save folder (--wwe2k14_save_keybinds)
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
 // (used to read jump tables and pointer tables that live inside the encrypted XEX).
@@ -97,6 +99,20 @@ REXCVAR_DEFINE_BOOL(wwe2k14_preset_1440p60, true, "wwe2k14",
 // Session 7c: the same at 4K (resolution_scale=3).
 REXCVAR_DEFINE_BOOL(wwe2k14_preset_4k60, false, "wwe2k14",
                     "4K 60 fps: as wwe2k14_preset_1440p60, but resolution_scale=3");
+// Session 41 (low-spec step 2, docs\native\LOWSPEC_PLAN.md): one switch for integrated graphics (see OnPreSetup).
+REXCVAR_DEFINE_BOOL(wwe2k14_preset_low, false, "wwe2k14",
+                    "Session 41: the LOW preset for integrated graphics: 720p (resolution_scale=1, no MSAA), the "
+                    "native renderer (gpu_native=2; the SDK turns it off without the interlock path, where the light "
+                    "renderer's fixes apply), exact cheap clears (gpu_fast_clear), 30 fps (game step 30 in matches, "
+                    "stock 30 fps entrances), a shorter vblank spin. Default off; "
+                    "the launcher's LOW choice and its first-run wizard on integrated graphics set it");
+// Session 43 (stretch S4, docs\native\STEAM_DECK.md): groundwork for a Steam Deck preset (see OnPreSetup). Default
+// off; nothing detects the Deck yet. Untested on a Deck.
+REXCVAR_DEFINE_BOOL(wwe2k14_preset_deck, false, "wwe2k14",
+                    "Session 43 (groundwork, untested on a Deck): the Steam Deck preset - 1280x720 (resolution_scale=1, "
+                    "no MSAA; letterboxed in the Deck's 1280x800), the native renderer (gpu_native=2; RADV under Proton "
+                    "has fragment shader interlock), exact cheap clears, 60 fps entrances and matches (the game's own "
+                    "steps), a shorter vblank spin. Default off");
 // Session 22 item 1: one switch for a 165 Hz monitor (default off until Jarrod's flicker check; see OnPreSetup).
 REXCVAR_DEFINE_BOOL(wwe2k14_preset_165, false, "wwe2k14",
                     "165 Hz setup (experiment, default off): Session 21's GPU winners, the match at 165 game steps "
@@ -144,6 +160,7 @@ class Wwe2k14App : public rex::ReXApp {
       if (dir == dir.parent_path()) break;
       dir = dir.parent_path();
     }
+    wwe2k14::direct_start::Configure(paths);  // Session 53: a release started directly (no game files found yet)
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {
@@ -265,6 +282,63 @@ class Wwe2k14App : public rex::ReXApp {
     // Session 24: --wwe2k14_dlss picks the render scale from its mode (first, so the presets below leave it alone).
     wwe2k14::dlaa::ConfigureScale();
 
+    // Session 41 (low-spec step 2): --wwe2k14_preset_low, the launcher's LOW choice for integrated graphics (set first,
+    // so the 1440p preset below keeps only its no-MSAA / upload / texture-load parts). The frame rate is the launcher's
+    // FRAME RATE 30 (gfx_settings.h, frame_rate 3): entrance_60fps off makes entrances the game's own 30 fps (word 30;
+    // step 30 maps a stock 30 entrance back to 30, step_rate.h), matches step 30. gpu_native 2 needs the interlock
+    // path: the SDK turns it off itself on the light renderer and on cards without interlock (Session 39, 298dd3f).
+    // Each setting only if left at default.
+    // Session 51 (Jarrod, 2026-10-22: "NATIVE for everyone"): the renderer part is the NATIVE renderer's own list
+    // (gfx_settings.h NativeRendererFlags, the same the launcher's NATIVE sets); LOW adds only its quality part.
+    if (REXCVAR_GET(wwe2k14_preset_low)) {
+      std::vector<std::pair<std::string, std::string>> low = {
+          {"resolution_scale", "1"},           // 1280x720
+          {"wwe2k14_entrance_60fps", "false"},  // stock 30 fps entrances
+          {"wwe2k14_step_hz", "30"},            // matches at the game's 30 fps mode
+          {"wwe2k14_step_hz_entrance", "60"},   // (= unchanged for a 30 entrance)
+          // Laptops: the precise vblank timer's final spin 1000 -> 250 us (run 2723: late mean 0 -> 45 us, max 675 us;
+          // frame pacing unchanged: p99 17.7 vs 18.0 ms).
+          {"gpu_vblank_precise_timer_spin_us", "250"},
+          // Session 44 (Jarrod, 2026-10-21: "direct loads only" for the playtest build): direct 1x texture loads for
+          // resolve outputs - exact (~57,000 loads verified, Session 43), GPU -5..-10% on LOW and -7..-15% on the light
+          // renderer (runs 2819 / 2821).
+          {"vulkan_texture_load_direct_unscaled", "true"}};
+      for (const auto& flag : wwe2k14::gfxs::NativeRendererFlags()) low.push_back(flag);
+      for (const auto& [name, value] : low) {
+        if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
+      }
+      REXLOG_INFO("[wwe2k14][preset_low] LOW preset: resolution_scale={}, entrance_60fps={}, step_hz={} (entrances {}), "
+                  "gpu_native={}, vblank spin {} us, fast clears {}, direct 1x texture loads {}, truth frames {}, GPR "
+                  "skip {}, half2 {}, lean draws {}, geometry trust {}",
+                  rex::cvar::GetFlagByName("resolution_scale"), rex::cvar::GetFlagByName("wwe2k14_entrance_60fps"),
+                  rex::cvar::GetFlagByName("wwe2k14_step_hz"), rex::cvar::GetFlagByName("wwe2k14_step_hz_entrance"),
+                  rex::cvar::GetFlagByName("gpu_native"), rex::cvar::GetFlagByName("gpu_vblank_precise_timer_spin_us"),
+                  rex::cvar::GetFlagByName("gpu_fast_clear"),
+                  rex::cvar::GetFlagByName("vulkan_texture_load_direct_unscaled"),
+                  rex::cvar::GetFlagByName("gpu_native_truth"),
+                  rex::cvar::GetFlagByName("gpu_native_half2_skip_gpr_draws"),
+                  rex::cvar::GetFlagByName("gpu_native_half2"), rex::cvar::GetFlagByName("gpu_native_lean_draws"),
+                  rex::cvar::GetFlagByName("gpu_native_trust_geometry_pages"));
+    }
+
+    // Session 43 (stretch S4): --wwe2k14_preset_deck (docs\native\STEAM_DECK.md): as LOW, but 60 fps (the Deck's GPU is
+    // ~4x a UHD 620; its screen is 1280x800 at 60 Hz). Set before the 1440p preset, so it keeps only its no-MSAA /
+    // upload / texture-load parts. Each setting only if left at default.
+    if (REXCVAR_GET(wwe2k14_preset_deck)) {
+      for (auto [name, value] : {std::pair{"resolution_scale", "1"},           // 1280x720, letterboxed in 1280x800
+                                 std::pair{"wwe2k14_entrance_60fps", "true"},   // 60 fps entrances
+                                 std::pair{"gpu_native", "2"},                  // the native renderer (RADV: interlock)
+                                 std::pair{"gpu_fast_clear", "true"},
+                                 std::pair{"gpu_vblank_precise_timer_spin_us", "250"}}) {
+        if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
+      }
+      REXLOG_INFO("[wwe2k14][preset_deck] Steam Deck preset (groundwork): resolution_scale={}, entrance_60fps={}, "
+                  "gpu_native={}, fast clears {}, vblank spin {} us",
+                  rex::cvar::GetFlagByName("resolution_scale"), rex::cvar::GetFlagByName("wwe2k14_entrance_60fps"),
+                  rex::cvar::GetFlagByName("gpu_native"), rex::cvar::GetFlagByName("gpu_fast_clear"),
+                  rex::cvar::GetFlagByName("gpu_vblank_precise_timer_spin_us"));
+    }
+
     // Session 7c: --wwe2k14_preset_4k60 = the 1440p60 preset at resolution_scale 3 (set first, so the preset below
     // leaves it alone). Session 7c runs 168+: entrances at 60 fps on both routes at 4K.
     if (REXCVAR_GET(wwe2k14_preset_4k60) &&
@@ -382,6 +456,8 @@ class Wwe2k14App : public rex::ReXApp {
   void OnPostSetup() override {
     REXLOG_INFO("[wwe2k14] game_data_root: {} ({})", game_data_root().string(),
                 std::filesystem::is_regular_file(game_data_root()) ? "disc image" : "folder");
+    REXLOG_INFO("[wwe2k14] user_data_root: {}", user_data_root().string());  // Session 53: the save folder in use
+    wwe2k14::keybinds_save::Install(user_data_root());  // Session 53 item 2.6: keyboard binds kept between starts
     for (const char* name : {"gpu_plugin", "wwe2k14_gpu_backend", "readback_resolve",
                              "gpu_allow_invalid_fetch_constants", "vsync",
                              "wwe2k14_ignore_offset_for_ranged_allocations", "log_max_file_size_mb",

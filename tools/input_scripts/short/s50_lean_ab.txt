@@ -1,0 +1,37 @@
+# harness: fast-forward ok (Session 50: in-run A/B of step 1 - the lean draw path, library attribution and the geometry-page trust - on / off inside truth frames; by command-thread busy and GPU ms per frame; run it -Exclusive, alone, for the timed A/B)
+# Session 50 (from s49_wb_ab): mode 1 = gpu_native_half2 2 + gpu_native_lean_draws + gpu_native_trust_geometry_pages,
+# mode 0 = all three off (truth frames both ways), every 120 frames through the s21_lb replay (Brock's and Bryan's
+# entrances, the match), logged as "ab: mode 1 / 0". Run with --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true
+# --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true; read with py tools\native\ab_gpu.py RUN [--metric busy] and
+# (profiled, fast-forwarded: --wwe2k14_profile_gpu_commands=true --wwe2k14_profile_stacks=true) py
+# tools\native\profile_ab.py RUN. on_fail quit.
+on_fail quit
+log bench: start s50_lean_ab (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 1800
+repeat 40
+cvar gpu_native_half2 2
+cvar gpu_native_lean_draws true
+cvar gpu_native_trust_geometry_pages true
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_half2 0
+cvar gpu_native_lean_draws false
+cvar gpu_native_trust_geometry_pages false
+log ab: mode 0
+wait_frames 120
+end_repeat
+log bench: done
+quit

@@ -1,0 +1,29 @@
+# Session 39 (native renderer N2): T1 check of replace mode (gpu_native 2) in a launched match (entrances skipped).
+# Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --gpu_native=2. With the scene frozen, the
+# same frame's final picture in mode 2, mode 0 (the emulated renderer alone) and mode 2 again (compare them with
+# tools\native\diff_pair.py), a [native] report line every N frames (gpu_native_report_frames), quit. Untimed (lanes
+# OK). on_fail quit.
+on_fail quit
+log native: start
+include boot_to_menu
+log native: main menu reached
+wait_state match_clock !=0 3600 2
+log native: match clock running
+wait_frames 240
+cvar wwe2k14_freeze true
+wait_frames 30
+screenshot n39_replace_a
+wait_frames 10
+screenshot n39_replace_a2
+cvar gpu_native 0
+wait_frames 10
+screenshot n39_emulated
+wait_frames 10
+screenshot n39_emulated2
+cvar gpu_native 2
+wait_frames 10
+screenshot n39_replace_b
+cvar wwe2k14_freeze false
+wait_frames 240
+log native: end
+quit

@@ -15,6 +15,9 @@ include(generated/rexglue.cmake)
 # other build is marked "+dev".
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" WWE2K14_VERSION LIMIT_COUNT 1)
 option(WWE2K14_RELEASE "A release build (tools/release/make_release.ps1)" OFF)
+# Session 39: make_release.ps1 -LocalTest NAME (a local test build, never published) appends "-NAME-playtest".
+set(WWE2K14_VERSION_SUFFIX "" CACHE STRING "Appended to the version (make_release.ps1 -LocalTest)")
+string(APPEND WWE2K14_VERSION "${WWE2K14_VERSION_SUFFIX}")
 if(NOT WWE2K14_RELEASE)
     string(APPEND WWE2K14_VERSION "+dev")
 endif()

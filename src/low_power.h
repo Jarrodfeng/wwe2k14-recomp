@@ -99,12 +99,15 @@ inline void Begin() { t_wait.waiting = false; }
 // WAIT_REG_MEM (SDK gpu_wait_reg_mem_sleep_us: short precise sleeps instead of yielding).
 inline void Configure() {
   if (!REXCVAR_GET(wwe2k14_low_power)) return;
-  for (auto [name, value] : {std::pair{"present_ui_idle_wait", "true"}, std::pair{"gpu_wait_reg_mem_sleep_us", "100"}})
+  // Session 41 (low-spec step 1): the SDK timer queue's thread (the kernel's 1 ms tick) sleeps instead of spinning.
+  for (auto [name, value] : {std::pair{"present_ui_idle_wait", "true"}, std::pair{"gpu_wait_reg_mem_sleep_us", "100"},
+                             std::pair{"timer_queue_sleep", "true"}})
     if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
   REXLOG_INFO("[wwe2k14][low_power] on: the game's GPU waits sleep after {} us (sleeps of {} us), present_ui_idle_wait={}, "
-              "gpu_wait_reg_mem_sleep_us={}",
+              "gpu_wait_reg_mem_sleep_us={}, timer_queue_sleep={}",
               REXCVAR_GET(wwe2k14_low_power_spin_us), REXCVAR_GET(wwe2k14_low_power_sleep_us),
-              rex::cvar::GetFlagByName("present_ui_idle_wait"), rex::cvar::GetFlagByName("gpu_wait_reg_mem_sleep_us"));
+              rex::cvar::GetFlagByName("present_ui_idle_wait"), rex::cvar::GetFlagByName("gpu_wait_reg_mem_sleep_us"),
+              rex::cvar::GetFlagByName("timer_queue_sleep"));
 }
 
 }  // namespace wwe2k14::low_power

@@ -99,7 +99,10 @@ struct Settings {
   // Session 37: why the game turned FSR off on this PC (src\upscale_guard.h writes it; shown under Graphics until the
   // player picks an upscaler again).
   std::string fsr_note;
-  int renderer = 0;            // Session 37: 0 accurate, 1 light (weak / integrated GPUs; src\light_renderer.h)
+  int renderer = 2;            // Session 37: 0 accurate, 1 light (weak / integrated GPUs; src\light_renderer.h);
+                               // Session 41: 2 native (accurate + the native renderer, --gpu_native=2); Session 51
+                               // (Jarrod, 2026-10-22: "NATIVE for everyone"): 2 by default
+  int settings_version = wwe2k14::gfxs::kSettingsVersion;  // Session 51: the old default renderer moved to NATIVE (gfx_settings.h)
   int texture_filter = 0;      // Session 33: 0 standard (4x), 1 8x, 2 16x anisotropic filtering
   bool discord = false;        // Session 33: Discord status (off by default)
   int aspect = 0;              // Session 33: 0 = 16:9 (the game's own), 1 = auto (the monitor's: ultrawide Hor+)
@@ -154,13 +157,19 @@ struct Settings {
   bool dlc = true;
   std::string dlc_dir;
   std::string dlc_off;
+  // Session 53 (a playtester: "make the launcher open the game automatic"; Jarrod: "a toggle in the game settings"):
+  // the launcher starts the game at once when it opens (3 seconds to stay, Shift held skips it).
+  bool quick_start = false;
+  // Session 53 (a playtester: "an option to change the size of the logo when importing. 256x256 or 128x128"): the
+  // canvas the logo import picks in the game's SELECT CANVAS SIZE menu.
+  int logo_size = 256;
 };
 
 inline void to_json(json& j, const Settings& s) {
   j = json{{"game_exe", s.game_exe}, {"mods_dir", s.mods_dir}, {"scenario", s.scenario}, {"preset", s.preset},
            {"mods", s.mods}, {"skip_entrances", s.skip_entrances}, {"logo_legacy_route", s.logo_legacy_route}, {"quick_mode", s.quick_mode}, {"quick_type", s.quick_type}, {"quick_arena", s.quick_arena}, {"quick_ids", s.quick_ids}, {"quick_cpu_only", s.quick_cpu_only}, {"cinecam", s.cinecam}, {"look", s.look},
            {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"dlss_dir", s.dlss_dir},
-           {"fsr_note", s.fsr_note}, {"renderer", s.renderer},
+           {"fsr_note", s.fsr_note}, {"renderer", s.renderer}, {"settings_version", s.settings_version},
            {"discord", s.discord}, {"discord_app_id", s.discord_app_id}, {"aspect", s.aspect},
            {"photo_mode", s.photo_mode},
            {"arena_override", s.arena_override}, {"arena", s.arena}, {"participants", s.participants},
@@ -175,7 +184,7 @@ inline void to_json(json& j, const Settings& s) {
            {"perf_report", s.perf_report}, {"original_look", s.original_look}, {"page", s.page},
            {"mods_tab", s.mods_tab}, {"runin", s.runin}, {"keyboard", s.keyboard},
            {"language", s.language}, {"gpu", s.gpu}, {"windowed", s.windowed}, {"titles_view", s.titles_view}, {"check_updates", s.check_updates},
-           {"dlc", s.dlc}, {"dlc_dir", s.dlc_dir}, {"dlc_off", s.dlc_off}};
+           {"dlc", s.dlc}, {"dlc_dir", s.dlc_dir}, {"dlc_off", s.dlc_off}, {"quick_start", s.quick_start}, {"logo_size", s.logo_size}};
 }
 template <class T>
 inline void Get(const json& j, const char* k, T& v) {
@@ -190,6 +199,12 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "cinecam", s.cinecam), Get(j, "look", s.look), Get(j, "arena_override", s.arena_override);
   Get(j, "upscale", s.upscale), Get(j, "texture_filter", s.texture_filter), Get(j, "dlss_dir", s.dlss_dir);
   Get(j, "fsr_note", s.fsr_note), Get(j, "renderer", s.renderer);
+  // Session 51 (Jarrod, 2026-10-22: "NATIVE for everyone"): a file from before it with the old default renderer
+  // (ACCURATE) moves to NATIVE once; the next save writes the version, so a renderer picked after that stays.
+  int version = 0;
+  Get(j, "settings_version", version);
+  if (version < wwe2k14::gfxs::kSettingsVersion && s.renderer == 0) s.renderer = 2;
+  s.settings_version = wwe2k14::gfxs::kSettingsVersion;
   Get(j, "discord", s.discord), Get(j, "discord_app_id", s.discord_app_id), Get(j, "aspect", s.aspect);
   Get(j, "photo_mode", s.photo_mode);
   Get(j, "arena", s.arena), Get(j, "participants", s.participants), Get(j, "replay_name", s.replay_name);
@@ -205,6 +220,8 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "page", s.page), Get(j, "mods_tab", s.mods_tab), Get(j, "runin", s.runin), Get(j, "keyboard", s.keyboard);
   Get(j, "language", s.language), Get(j, "gpu", s.gpu), Get(j, "windowed", s.windowed), Get(j, "titles_view", s.titles_view), Get(j, "check_updates", s.check_updates);
   Get(j, "dlc", s.dlc), Get(j, "dlc_dir", s.dlc_dir), Get(j, "dlc_off", s.dlc_off);
+  Get(j, "quick_start", s.quick_start), Get(j, "logo_size", s.logo_size);
+  if (s.logo_size != 128) s.logo_size = 256;
   if (!j.contains("resolution") && j.contains("look")) {  // the Session 17-24 Play tab's "Look"
     if (s.look == 1) s.original_look = true;
     if (s.look == 2) s.resolution = 2;
@@ -222,7 +239,9 @@ inline fs::path SettingsPath() {
 
 // The launcher's own data on this PC: %LOCALAPPDATA%\wwe2k14-launcher (previews, backups, a release's scenarios and
 // recordings). Made from the user's own game files, so it stays on this PC (never in the repo or a release).
+inline fs::path g_local_data_override;  // Session 53: --local-data DIR (tests: never the player's own folder)
 inline fs::path LocalDataDir() {
+  if (!g_local_data_override.empty()) return g_local_data_override;
   PWSTR local = nullptr;
   fs::path dir;
   if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local))) dir = local;

@@ -1,0 +1,16 @@
+# Session 48 (Half 2, N5a): the runtime trace of the D3D library's register flushes in a match frame. Coverage build.
+# Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true (+ --wwe2k14_preset_low=true). Arms
+# --wwe2k14_trace live after the match clock runs: the per-draw flush 0x82CAE7D0 (the device and its five dirty
+# qwords at r3), the register-run writer 0x82CBD428 (r4 mask, r5 first register, r6 shadow), the fetch-constant
+# writer 0x82CBD668, the float-constant writer 0x82CBD7C0 and the indexed draw writer 0x82CB19E0. Untimed. on_fail quit.
+on_fail quit
+log n5: start
+include boot_to_menu
+log n5: main menu reached
+wait_state match_clock !=0 3600 2
+log n5: match clock running
+wait_frames 240
+cvar wwe2k14_trace 0x82CAE7D0/60*r3,0x82CBD428/400*r6,0x82CBD668/60,0x82CBD7C0/60,0x82CB19E0/60*r3
+wait_frames 120
+log n5: end
+quit

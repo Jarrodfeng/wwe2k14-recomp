@@ -34,7 +34,14 @@
 #   -SelfTest   test the scan itself (no build, no zip): a scratch stage with three planted forbidden files (a game
 #               file's bytes under a harmless name, an nvngx_*.dll, a .bik2) must give three hits; exit 0 = the scan
 #               caught all three.
-param([string]$Version = '', [switch]$Playtest, [switch]$Incremental, [switch]$SelfTest)
+#
+#   -LocalTest NAME   (Session 39) a local test build for Jarrod's own PCs, never published: the version is VERSION +
+#               "-NAME-playtest" (no -Version needed), the SDK patch export check is skipped (a branch SDK such as
+#               native is not in the series), the zip goes to out\release\localtest\ (apart from the releases,
+#               which release.ps1 publishes from out\release\), and the performance test ships with it: the route
+#               s41_perf_breakdown.txt as perf_test.txt (Session 41; the launcher then offers its PERFORMANCE TEST) and
+#               tools\native\PERFORMANCE_TEST.txt (the steps). Same build, same forbidden scan.
+param([string]$Version = '', [switch]$Playtest, [switch]$Incremental, [switch]$SelfTest, [string]$LocalTest = '')
 $ErrorActionPreference = 'Stop'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 Set-Location $R
@@ -139,20 +146,32 @@ if ($SelfTest) {
     "make_release -SelfTest: PASS (the scan caught all $($want.Count) planted files; game file planted: $($small.Length) bytes)"
     exit 0
 }
+$fileVersion = (Get-Content (Join-Path $R 'VERSION') -TotalCount 1).Trim()
+$suffix = ''
+if ($LocalTest) {
+    if ($LocalTest -notmatch '^[a-z0-9][a-z0-9-]*$') { Fail "-LocalTest wants a short lower-case name (letters, digits, -)" }
+    if ($Version) { Fail "-LocalTest names the version itself; leave out -Version" }
+    $suffix = "-$LocalTest-playtest"
+    $Version = "$fileVersion$suffix"
+    $Playtest = [switch]$true
+}
 if (-not $Version) { Fail "-Version is required" }
 
 # ---- 1. state
-$fileVersion = (Get-Content (Join-Path $R 'VERSION') -TotalCount 1).Trim()
-if ($fileVersion -ne $Version) { Fail "VERSION says '$fileVersion', -Version is '$Version' (edit VERSION and commit it first)" }
+if ("$fileVersion$suffix" -ne $Version) { Fail "VERSION says '$fileVersion', -Version is '$Version' (edit VERSION and commit it first)" }
 if ($Playtest -and $Version -notmatch 'playtest') { Fail "-Playtest needs a version with 'playtest' in it" }
 if (-not $Playtest -and $Version -match 'playtest') { Fail "'$Version' is a playtest version: pass -Playtest" }
 $dirty = @(git status --porcelain --untracked-files=no)
 if ($dirty.Count) { Fail "uncommitted changes:`n$($dirty -join "`n")" }
 # The SDK changes travel only as patches\rexglue-sdk\full: they must rebuild the SDK branch exactly (Session 25: the old
 # patch series silently didn't).
-$sdkCheck = py "$R\tools\sdk_patches\export_series.py" --check 2>&1
-if ($LASTEXITCODE) { Fail "the SDK patch export is out of date (run py tools\sdk_patches\export_series.py, commit full\):`n$($sdkCheck -join "`n")" }
-$sdkCheck | Select-Object -Last 1
+if ($LocalTest) {
+    "SDK patch export check skipped (-LocalTest: a local test build of a branch SDK, never published)"
+} else {
+    $sdkCheck = py "$R\tools\sdk_patches\export_series.py" --check 2>&1
+    if ($LASTEXITCODE) { Fail "the SDK patch export is out of date (run py tools\sdk_patches\export_series.py, commit full\):`n$($sdkCheck -join "`n")" }
+    $sdkCheck | Select-Object -Last 1
+}
 $commit = (git rev-parse --short HEAD).Trim()
 "make_release: $Version from commit $commit$(if ($Playtest) { ' (playtest)' })"
 
@@ -166,7 +185,7 @@ try {
     if (-not $Incremental -and (Test-Path $build)) { Remove-Item -Recurse -Force $build }
     $t0 = Get-Date
     $log = Join-Path $R "logs\release_build_$Version.log"
-    cmake --preset win-amd64-release -B $build -DWWE2K14_RELEASE=ON "-Drexglue_DIR=$sdkCmake" *>&1 | Out-File $log
+    cmake --preset win-amd64-release -B $build -DWWE2K14_RELEASE=ON "-DWWE2K14_VERSION_SUFFIX=$suffix" "-Drexglue_DIR=$sdkCmake" *>&1 | Out-File $log
     if ($LASTEXITCODE) { Fail "configure failed (see $log)" }
     cmake --build $build -j 16 *>&1 | Out-File $log -Append
     if ($LASTEXITCODE) { Fail "build failed (see $log)" }
@@ -194,6 +213,10 @@ $files = [ordered]@{
     'LICENSE'                 = Join-Path $R 'docs\release\LICENSE'
     'THIRD_PARTY_NOTICES.md'  = Join-Path $R 'docs\release\THIRD_PARTY_NOTICES.md'
     'CHANGELOG.md'            = Join-Path $R 'docs\release\CHANGELOG.md'
+}
+if ($LocalTest) {  # our route: the launcher's performance test
+    $files['perf_test.txt'] = Join-Path $R 'tools\input_scripts\short\s41_perf_breakdown.txt'  # Session 41
+    $files['PERFORMANCE_TEST.txt'] = Join-Path $R 'tools\native\PERFORMANCE_TEST.txt'  # the steps for the tester
 }
 $buildOutputs = @('wwe2k14.exe', 'wwe2k14_launcher.exe', 'rexruntime.dll', 'rexgpu-xenos.dll')
 # Third-party redistributables: published path -> source (copied unmodified; the scan compares them byte for byte).
@@ -243,7 +266,8 @@ $hits = Get-ForbiddenHits $stage $files $buildOutputs $build $redist
 if ($hits.Count) { Fail "forbidden content:`n  $($hits -join "`n  ")" }
 
 # ---- 5. zip
-$outDir = Join-Path $R 'out\release'
+$outDir = Join-Path $R $(if ($LocalTest) { 'out\release\localtest' } else { 'out\release' })
+$null = New-Item -ItemType Directory -Force -Path $outDir
 $zip = Join-Path $outDir "$name.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
 Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
@@ -259,7 +283,9 @@ foreach ($e in $entries) {
 }
 $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
 "$sha  $name.zip" | Set-Content -LiteralPath "$zip.sha256"
-foreach ($doc in 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md') { Copy-Item (Join-Path $stage $doc) (Join-Path $outDir $doc) -Force }
+if (-not $LocalTest) {  # the release's docs (a local test leaves them alone)
+    foreach ($doc in 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md') { Copy-Item (Join-Path $stage $doc) (Join-Path $outDir $doc) -Force }
+}
 "zip: $zip ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB, $($entries.Count) entries)"
 "sha256: $sha"
 "make_release: PASS ($Version, commit $commit)"

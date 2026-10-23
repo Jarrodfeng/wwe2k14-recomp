@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.2.0
+
+- **A new renderer, NATIVE, now the default for everyone.** Instead of imitating the Xbox 360's graphics chip and its
+  special EDRAM memory step by step, NATIVE draws each frame straight on your graphics card: a match frame no longer
+  touches the emulated EDRAM at all. It was built to give laptops and integrated graphics a playable game. Playtesters
+  on Intel Iris Xe report 60 fps. On our desktop it draws the same picture as before.
+  - Your settings move to NATIVE once if they still had the old default (ACCURATE). LIGHT stays LIGHT. ACCURATE and
+    LIGHT are still in Settings -> Graphics -> RENDERER as fallbacks.
+  - NATIVE needs a graphics card with fragment shader interlock (most NVIDIA and Intel cards). Elsewhere (AMD on
+    Windows) the game uses the LIGHT renderer instead, as before.
+  - With DLSS or DLAA (NVIDIA RTX) NATIVE runs in an earlier, partly emulated mode.
+  - Integrated graphics start at 720p and 30 fps by themselves (the first-run setup), and both are normal settings
+    you can change.
+- **Less work for the processor and the graphics card**, on top of the new renderer:
+  - The renderer's command thread does about 9-14% less work in entrances and matches (draws that didn't change are
+    recorded by a shorter path, and vertex data the game didn't touch is no longer checked every frame).
+  - The game's copy passes are done straight from the renderer's own images, merged and batched. On our desktop the
+    graphics card's time per frame fell by about 12-16% at 1440p.
+  - A background clock thread that kept part of a CPU core busy now sleeps (7.6% of a core down to under 1%).
+- **Start the game without the launcher window:**
+  - Fixed: starting `wwe2k14.exe` directly (double-click, a shortcut) stopped with "--game_data_root was not
+    provided". It now starts with your launcher settings (game files, save, mods, language, graphics); if the game
+    files aren't set up yet, it tells you where to pick them.
+  - Settings -> Game -> STARTING THE GAME: **QUICK START** starts the game as soon as the launcher opens (press any key
+    within 3 seconds to stay in the launcher, or hold Shift while opening it). The launcher closes with the game.
+  - **Make a desktop shortcut** (same place) puts a shortcut on your desktop that starts the game directly.
+- **Fixed: Build previews** (Mods -> Trons) failed with the same "--game_data_root was not provided" error.
+- **Keyboard binds are kept.** Keys you change in the keyboard mode's settings (F4) used to last only until you closed
+  the game. Every change is now saved (in your save folder, as `keybinds.toml`) and comes back the next time.
+- **Logo import: 256x256 or 128x128.** Mods -> Logos has a size choice: the game's own two canvas sizes.
+- **A little less stutter right before entrances.** The game checks its free memory there, and every failed check
+  used to be written to the log on its own (about 1,000 lines in one frame). Those lines are gone.
+- The game's log now also names the save folder it uses.
+
 ## v0.1.10
 
 - **For laptops and older graphics cards: a LIGHT renderer.** Settings -> Graphics -> RENDERER: ACCURATE is the exact

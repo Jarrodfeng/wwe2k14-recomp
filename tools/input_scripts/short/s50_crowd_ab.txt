@@ -1,0 +1,33 @@
+# harness: fast-forward ok (Session 50 step 3: in-run A/B of the crowd scene pass - wwe2k14_scene_crowd 1 / 0 - inside truth frames with step 1 on; by thread busy and GPU ms)
+# Session 50 (docs\native\SCENE_MAP.md section 7): mode 1 = wwe2k14_scene_crowd 1, mode 0 = 0, every 120 frames through
+# the s21_lb replay, logged as "ab: mode 1 / 0". Run with --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true
+# --gpu_native_half2=2 --gpu_native_lean_draws=true --gpu_native_trust_geometry_pages=true --vulkan_gpu_timestamps=true
+# --wwe2k14_file_trace=true (profiled: --wwe2k14_profile_main=true --wwe2k14_profile_gpu_commands=true
+# --wwe2k14_profile_threads=GPU,CGameMain --wwe2k14_profile_stacks=true); read with py tools\native\ab_gpu.py RUN
+# --metric busy and py tools\native\profile_ab.py RUN --thread ... on_fail quit.
+on_fail quit
+log bench: start s50_crowd_ab (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 1800
+repeat 40
+cvar wwe2k14_scene_crowd 1
+log ab: mode 1
+wait_frames 120
+cvar wwe2k14_scene_crowd 0
+log ab: mode 0
+wait_frames 120
+end_repeat
+log bench: done
+quit

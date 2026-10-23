@@ -1,0 +1,17 @@
+# harness: realtime (Session 53 item 2.7: frame-time hitches around cutscenes - entrances, the cut to the match, the
+# match's own cinematic moments - at normal speed)
+# A launched match with entrances (e.g. --wwe2k14_launch=@quick --wwe2k14_quick_type=0
+# --wwe2k14_launch_participants=218,276 --wwe2k14_fixed_seed=13 --wwe2k14_bookmark_auto_ms=50): logs each scene
+# change, plays 3600 frames of the match, quits. Then `py tools\perf\s53_hitch_context.py NNN` lists the long frames
+# with the pipeline creations and file opens around them; the auto bookmarks (captures\NNN_bookmark_K.*) show where.
+on_fail quit
+log s53c: start
+include boot_to_menu
+log s53c: main menu reached
+wait_file INGAMELUA.PAC 3600
+log scene=match_load
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 3600
+log bench: done
+quit

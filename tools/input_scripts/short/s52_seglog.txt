@@ -1,0 +1,27 @@
+# harness: fast-forward ok (Session 52: one match frame and one of Bryan's entrance with the native segment log - every truth pass, load, alias, resolve)
+on_fail quit
+log bench: start s52_seglog (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_file MNUIHD.PAC 3600
+log census: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log census: match launched
+wait_file 343.bik2 1800
+log census: entrances
+wait_frames 300
+wait_frames 6
+wait_file 324.bik2 20000
+wait_frames 440
+cvar gpu_native_segment_log 1
+wait_frames 6
+wait_state match_clock !=0 9000 2
+log census: match clock running
+wait_frames 600
+cvar gpu_native_segment_log 1
+wait_frames 30
+log census: end
+quit

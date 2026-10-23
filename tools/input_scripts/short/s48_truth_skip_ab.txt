@@ -1,0 +1,35 @@
+# harness: fast-forward ok (Session 48: in-run A/B of truth frames + the GPR-flush skip (gpu_native_half2_skip_gpr_draws) against LOW as it ships, by GPU ms and command-thread busy per frame; run it -Exclusive, alone)
+# Session 48: as s46_truth_ab, with gpu_native_half2_skip_gpr_draws switched with truth (on in mode 1, off in mode 0).
+# Session 46 (from s45_all_ab): gpu_native_truth (it turns on gpu_native_all and gpu_native_lean; the off side turns all three off: LOW as it ships) on / off every 120 frames through the s21_lb replay (Brock's and
+# Bryan's entrances, the match), logged as "ab: mode 1 / 0". Run with --wwe2k14_replay_play=s21_lb
+# --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true; read with py tools\native\ab_gpu.py RUN. on_fail quit.
+on_fail quit
+log bench: start s48_truth_skip_ab (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 1800
+repeat 40
+cvar gpu_native_truth true
+cvar gpu_native_half2_skip_gpr_draws true
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_truth false
+cvar gpu_native_all false
+cvar gpu_native_lean false
+cvar gpu_native_half2_skip_gpr_draws false
+log ab: mode 0
+wait_frames 120
+end_repeat
+log bench: done
+quit

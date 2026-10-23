@@ -1,0 +1,40 @@
+# Session 38 (native renderer, milestone 2): the game's own pixel shaders on the native path. Needs
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --gpu_native=1 --gpu_native_shading=1. In the
+# match, frozen: the views (0 the emulated picture, 1 native, 3 the scene split before post-processing, 4 the emulated
+# scene) with the depth-writing draws, then with all scene draws; [native] report lines carry the parity numbers.
+# Untimed (lanes OK). on_fail quit.
+on_fail quit
+log native: start
+include boot_to_menu
+log native: main menu reached
+wait_state match_clock !=0 3600 2
+log native: match clock running
+wait_frames 240
+cvar wwe2k14_freeze true
+wait_frames 60
+cvar gpu_native_view 0
+wait_frames 4
+screenshot n38s_emulated
+cvar gpu_native_view 1
+wait_frames 4
+screenshot n38s_native_opaque
+cvar gpu_native_view 3
+wait_frames 4
+screenshot n38s_scene_split_opaque
+cvar gpu_native_view 4
+wait_frames 4
+screenshot n38s_emulated_scene
+cvar gpu_native_draws 1
+wait_frames 70
+cvar gpu_native_view 1
+wait_frames 4
+screenshot n38s_native_all
+cvar gpu_native_view 3
+wait_frames 4
+screenshot n38s_scene_split_all
+wait_frames 70
+cvar gpu_native_view 0
+cvar wwe2k14_freeze false
+wait_frames 200
+log native: end
+quit

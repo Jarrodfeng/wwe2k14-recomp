@@ -44,19 +44,21 @@ REXCVAR_DEFINE_BOOL(wwe2k14_timeline, false, "wwe2k14",
 namespace wwe2k14 {
 
 inline void StartTimelineIfRequested() {
-  if (!REXCVAR_GET(wwe2k14_timeline)) return;
   const int log_number = CurrentLogNumber();
-  const auto logs = std::filesystem::current_path() / "logs";
-  // Frame anatomy (gpu_anatomy_path, from our SDK patch when the SDK build has it): if it's left empty, write it
-  // next to the timeline as logs/anatomy_NNN_%d.csv (the SDK fills in %d). Builds without it: nothing to do.
+  // Frame anatomy (gpu_anatomy_path, from our SDK patch when the SDK build has it): if it's left empty, write it as
+  // logs/anatomy_NNN_%d.csv next to the run's log (the SDK fills in %d). Builds without it: nothing to do. Session 41:
+  // also without the timeline (the launcher's performance test captures frames in a release build), in the game's own
+  // logs folder (the exe's; the same as the working folder in our runs).
   if (rex::cvar::GetFlagInfo("gpu_anatomy_path") && rex::cvar::GetFlagByName("gpu_anatomy_path").empty()) {
     char anatomy[48];
     std::snprintf(anatomy, sizeof(anatomy), "anatomy_%03d_%%d.csv", log_number);
-    const std::string anatomy_path = (logs / anatomy).string();
+    const std::string anatomy_path = (rex::filesystem::GetExecutableFolder() / "logs" / anatomy).string();
     if (rex::cvar::SetFlagByName("gpu_anatomy_path", anatomy_path)) {
       REXLOG_INFO("[wwe2k14][timeline] gpu_anatomy_path = {}", anatomy_path);
     }
   }
+  if (!REXCVAR_GET(wwe2k14_timeline)) return;
+  const auto logs = std::filesystem::current_path() / "logs";
   char name[32];
   std::snprintf(name, sizeof(name), "timeline_%03d.csv", log_number);
   const std::string path = (logs / name).string();

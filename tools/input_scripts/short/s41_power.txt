@@ -1,0 +1,28 @@
+# harness: realtime (frame pacing and the vblank timer's lateness only mean something at vsync)
+# Session 41 (low-spec step 1): one normal-speed run, a launched match in four windows of 2400 frames (40 s, at least one full
+# [s6][O1] precise-vblank stats line each): the SDK timer queue spinning vs sleeping (timer_queue_sleep), then the
+# precise vblank timer's final spin at 1000 / 250 / 0 us. Per-thread CPU: tools\perf\thread_busy.ps1 next to it,
+# py tools\perf\thread_report.py RUN (scenes = the windows); pacing: frames_NNN.csv, py tools\perf\rate_check.py.
+# Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true. Run alone. on_fail quit.
+on_fail quit
+log pw: start
+include boot_to_menu
+log pw: main menu reached
+wait_state match_clock !=0 3600 2
+wait_frames 120
+cvar timer_queue_sleep false
+cvar gpu_vblank_precise_timer_spin_us 1000
+log scene=tq_spin_vb1000
+wait_frames 2400
+cvar timer_queue_sleep true
+log scene=tq_sleep_vb1000
+wait_frames 2400
+cvar gpu_vblank_precise_timer_spin_us 250
+log scene=tq_sleep_vb250
+wait_frames 2400
+cvar gpu_vblank_precise_timer_spin_us 0
+log scene=tq_sleep_vb0
+wait_frames 2400
+cvar gpu_vblank_precise_timer_spin_us 1000
+log bench: done
+quit

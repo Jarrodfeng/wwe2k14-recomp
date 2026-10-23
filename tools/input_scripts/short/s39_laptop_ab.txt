@@ -1,0 +1,32 @@
+# Session 39: the laptop / playtester test of the native renderer, one run. Self-contained (inline state chains, no
+# includes, no states.toml), so it runs from a test zip next to wwe2k14.exe (as native_ab.txt; the launcher's
+# PERFORMANCE TEST starts it). Boots to the main menu, the Quick Match (Lesnar vs Bryan, entrances on) starts by itself,
+# then the native renderer is switched on and off every 120 frames (gpu_native 2 / 0, logged as "ab: mode N") through
+# both entrances and the start of the match, and the game quits. Short windows and a paired comparison (each "on"
+# window against the "off" windows either side, tools\native\laptop_ab.py) keep the camera shots' bias out of one run
+# (Jarrod, 2026-10-20: one run for a playtester, not three).
+# Game flags (from the launcher's PERFORMANCE TEST, or Settings -> Advanced -> Extra flags as one line):
+#   --wwe2k14_input_script=native_ab.txt --wwe2k14_launch=@quick --wwe2k14_quick_type=0
+#   --wwe2k14_launch_participants=343,324 --wwe2k14_file_trace=true --vsync=false
+# on_fail quit: a wait that fails ends the run (the log says which).
+on_fail quit
+log laptop: start
+wait_file SaveData.Dat 3600
+wait_state 0x8395C8D0 3 1800 2
+press_until_state START 0x8395C8D0 4 10 30
+press_until_state A 0x8395C8D0 >=5 10 30
+wait_file MNUIHD.PAC 1800
+log laptop: main menu reached (the quick match starts by itself)
+wait_file INGAMELUA.PAC 3600
+log laptop: match loading
+log ab: start
+repeat 48
+cvar gpu_native 2
+log ab: mode 2
+wait_frames 120
+cvar gpu_native 0
+log ab: mode 0
+wait_frames 120
+end_repeat
+log laptop: done
+quit

@@ -1,0 +1,27 @@
+# harness: fast-forward ok (Session 49: the census of the ties to guest memory - resolve write-backs, who reads their pages, the write-watch faults - over the s21_lb replay)
+# Session 49 (the RAM ties, docs\native\RAM_TIES.md): run with --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true
+# --gpu_ram_stats=true --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true (+ the replay's own flags). Logs
+# "census: ..." at the main menu, Brock's entrance video, the match clock, the end; read [native][ram], [s49][ram],
+# [s49][faults] lines between them (py tools\native\ram_census.py RUN). Untimed. on_fail quit.
+on_fail quit
+log census: start s49_ram_census (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log census: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log census: match launched
+wait_file 343.bik2 1800
+log census: entrances
+wait_state match_clock !=0 9000 2
+log census: match clock running
+wait_frames 2400
+log census: end
+quit

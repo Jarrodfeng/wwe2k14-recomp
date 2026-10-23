@@ -10,7 +10,8 @@ Build {{VERSION}} (commit {{COMMIT}}).
 - Windows 10 or 11, 64-bit.
 - A graphics card with Vulkan support (any recent NVIDIA, AMD or Intel GPU with up-to-date drivers).
 - Nothing else to install: the Microsoft Visual C++ runtime files the game needs are included (next to the game).
-- An Xbox-compatible controller is recommended. A keyboard mode exists (Settings -> Advanced) but is untested.
+- An Xbox-compatible controller is recommended. A keyboard mode exists (Settings -> Advanced) but is untested; change
+  its keys with F4 in the game (your changes are kept).
 - Your own WWE 2K14 Xbox 360 disc, copied to your PC as a folder or a disc image (below).
 
 ## Copying your disc
@@ -72,6 +73,10 @@ back on and everything is there again.
 
 Your saves go to `Documents\wwe2k14` (the same place every time you play).
 
+To skip the launcher window: Settings -> Game -> **QUICK START** (the game starts as soon as the launcher opens; press
+any key within 3 seconds to stay, or hold Shift while opening it), or **Make a desktop shortcut** there. Starting
+`wwe2k14.exe` itself also works and uses your launcher settings.
+
 ## Controls
 
 The game plays as it did on the Xbox 360, with a controller. On PC:
@@ -93,8 +98,13 @@ off applies at once; the DLSS modes, the frame rate and the resolution apply the
 - **Graphics card:** Automatic uses your dedicated graphics card, also on laptops that have a second, built-in one.
   You can pick a card by name.
 - **Display:** fullscreen or windowed.
-- **Resolution:** 720p, 1440p or 4K. 1440p is the default.
+- **Renderer** (Settings -> Graphics): NATIVE (the default) draws the game straight on your graphics card. ACCURATE
+  imitates the Xbox 360's graphics chip exactly and LIGHT is a lighter version of it: use them if NATIVE shows
+  something wrong. Graphics cards without fragment shader interlock (AMD on Windows) use LIGHT by themselves.
+- **Resolution:** 720p, 1440p or 4K. 1440p is the default (720p on integrated graphics).
 - **Frame rate:**
+  - 30: entrances and matches at a steady 30 fps, for PCs that can't hold 60 (the default on integrated graphics).
+    The match timer counts at half speed.
   - 60: entrances and matches at 60 fps (the default).
   - 120: entrances and matches at 120 (needs a monitor faster than 60 Hz).
   - Uncapped: matches at your monitor's refresh rate, entrances at up to 120.
@@ -112,7 +122,7 @@ off applies at once; the DLSS modes, the frame rate and the resolution apply the
 
 - **Trons:** play your own video (MP4 / MOV / MKV) as any wrestler's titantron.
 - **Titles:** replace a title reveal video, transparency included.
-- **Logos:** import PNG pictures as real Create-a-Logo logos.
+- **Logos:** import PNG pictures as real Create-a-Logo logos, at 256x256 or 128x128 (Logo size).
   - The launcher backs up your save first.
   - Then the game makes and saves each logo itself.
   - Use them on attires like any logo you paint. The game allows at most 2 different 256x256 logos on one custom

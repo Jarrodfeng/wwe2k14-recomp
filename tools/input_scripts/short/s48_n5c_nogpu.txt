@@ -1,0 +1,25 @@
+# Session 48 (Half 2, N5c): the D3D library's no-GPU mode at run time. Coverage build. Needs
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true (+ --wwe2k14_preset_low=true). After the match
+# clock runs, loads the probe plugin (probes\probes.cpp: sets device byte 11069 bit 0x02 at the next indexed draw and
+# reports draws / waits / submits / Present per 30 guest frames), takes a shot every 60 frames and logs the match
+# clock, so the log shows whether frames, fences and Present keep coming. on_fail continue (a hang is a result).
+on_fail continue
+log n5c: start
+include boot_to_menu
+wait_state match_clock !=0 3600 2
+log n5c: match clock running
+wait_frames 120
+log_state match_clock
+screenshot n5c_before
+plugin load
+wait_frames 60
+log_state match_clock
+screenshot n5c_60
+wait_frames 120
+log_state match_clock
+screenshot n5c_180
+wait_frames 120
+log_state match_clock
+screenshot n5c_300
+log n5c: end
+quit

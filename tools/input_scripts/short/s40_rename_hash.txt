@@ -1,0 +1,40 @@
+# harness: fast-forward ok (Session 40: EDRAM renaming exactness; untimed)
+# Session 40: what every resolve writes, hashed ([resolve_stats] ... hash H, frame F), at Bryan +440 and match +600
+# of the s21_lb replay, for two runs to compare (one with --gpu_edram_rename=true): readback on for those frames only
+# (readback_resolve full; read once per frame), 250 resolves each time. Run with --wwe2k14_replay_play=s21_lb. on_fail quit.
+on_fail quit
+log bench: start s40_rename_hash (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+cvar gpu_edram_rename_log 40
+cvar readback_resolve full
+wait_frames 2
+cvar gpu_resolve_log 250
+wait_frames 4
+cvar readback_resolve none
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 600
+cvar gpu_edram_rename_log 40
+cvar readback_resolve full
+wait_frames 2
+cvar gpu_resolve_log 250
+wait_frames 4
+cvar readback_resolve none
+wait_frames 30
+log bench: done
+quit

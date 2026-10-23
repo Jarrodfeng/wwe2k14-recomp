@@ -1,0 +1,17 @@
+# Session 48 (Half 2, N5b / N6a): the game's library draws matched to the command processor's draw packets and their
+# registers compared (SDK gpu_native_half2 1, [native][half2] lines every 60 frames). Needs
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true (+ --wwe2k14_preset_low=true); with
+# --wwe2k14_replay_play=s21_lb it covers the replay's entrances too (then pass the replay's own flags). Untimed.
+on_fail quit
+log half2: start
+include boot_to_menu
+log half2: main menu reached
+wait_state match_clock !=0 3600 2
+log half2: match clock running
+wait_frames 120
+cvar gpu_native_half2 1
+wait_frames 600
+cvar gpu_native_half2 0
+wait_frames 30
+log half2: end
+quit

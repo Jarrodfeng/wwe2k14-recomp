@@ -1933,6 +1933,1966 @@
           "size": 11375616
         }
       ]
+    },
+    {
+      "id": "pin-46e2c31-1020-1739",
+      "sdk_commit": "46e2c310a6dbf7f3a610ed6f765c89c133ca4bad",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s38h, 2026-10-20T17:39:05 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s38h.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "native branch: Session 38 native renderer (side-car, game shaders, parity)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "009574588f0e02102ab08c4dc114028fe53f30de0f2150980d4e505bd14a0299",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "6bddcf560d04877fe6165ef8cfded90cb1ded672e3bca94a4106a3baca763b3b",
+          "size": 7754752
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "a8280150ea43d119c4f9344517982cb52521fbc948d3f2b120ff9505fc48c0d0",
+          "size": 11375616
+        }
+      ]
+    },
+    {
+      "id": "pin-182184c-1020-1849",
+      "sdk_commit": "182184c5910fec2c189562e248cab5b5b14faeeb",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s39g, 2026-10-20T18:49:04 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s39g.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 39 native N2 replace mode (SDK branch native)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "dac1cf7ee4fd8e76fed358b16ca03ac548042cbe9a0ecb165f74fbf01f24bd9d",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "ea68aa802e5845a33da12cd6ede1c4b970656853a26d84f19e5c52ac78c9dc8c",
+          "size": 7787520
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "9e559534834558d7aba0795485b5a71e7d024771d3cc215a662ed00a2127d6c9",
+          "size": 11376128
+        }
+      ]
+    },
+    {
+      "id": "pin-8357e14-1020-1909",
+      "sdk_commit": "8357e143badba580cff6bca0d8388025d3180052",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s39i, 2026-10-20T19:09:33 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s39i.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 39 native N2 replace mode + review fixes (SDK branch native)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "dac1cf7ee4fd8e76fed358b16ca03ac548042cbe9a0ecb165f74fbf01f24bd9d",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "a19d73121768d2afaa4ac2c596a970db258486d276255745f4c4ad521f8b1dbb",
+          "size": 7787520
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "9e559534834558d7aba0795485b5a71e7d024771d3cc215a662ed00a2127d6c9",
+          "size": 11376128
+        }
+      ]
+    },
+    {
+      "id": "pin-298dd3f-1020-1938",
+      "sdk_commit": "298dd3fa9f2d5ffeeca4e32bd14380593c411890",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s39k, 2026-10-20T19:38:36 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s39k.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 39 native N2 + light-renderer off (SDK branch native)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "dac1cf7ee4fd8e76fed358b16ca03ac548042cbe9a0ecb165f74fbf01f24bd9d",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "6f49492bc1c30cfbd8c9e8bdcfce3a69d744ca0f6f12ec00fd46f17ddd715814",
+          "size": 7788032
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "9e559534834558d7aba0795485b5a71e7d024771d3cc215a662ed00a2127d6c9",
+          "size": 11376128
+        }
+      ]
+    },
+    {
+      "id": "pin-b54ac46-1020-2239",
+      "sdk_commit": "b54ac469fce8f70b19e9b146269c621cd7c6e50b",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s41e, 2026-10-20T22:39:36 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s41e.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 41: native b54ac46 (timer_queue_sleep, gpu_fast_clear)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "ef3f632ee08e8ee41d72b4a965f063d23386b7968b41f71ff671d77fed63927c",
+          "size": 7850496
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-36fd3bb-1020-2249",
+      "sdk_commit": "36fd3bb575d83cf98c66f81ea77ad1f4267bc54b",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s42a, 2026-10-20T22:49:23 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s42a.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 42: POSTMAP anatomy columns (copy control/pitch, texture fetches)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "6591990d86d0972f295838748b9e40a2d7532f464426ca1b0b6290ffe28a5d90",
+          "size": 7852544
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-11efb0c-1020-2344",
+      "sdk_commit": "11efb0ced30682456f409c392b726627304ced36",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s42f, 2026-10-20T23:44:34 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s42f.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 42: native post-processing + after-scene (off by default)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "550b80a90105ec9342b98154cbf347fbd351e211e20d8288f086070ca88e2bb8",
+          "size": 7890432
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-9042037-1020-2352",
+      "sdk_commit": "90420377aeb74d1823b43a720f93b939da130e59",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-20",
+      "built": "build_sdk.ps1 -Run s42h, 2026-10-20T23:52:31 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s42h.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 42: post targets for the whole frame",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c69bd38f58533806789b6cbf11b7bd6aacd995fee875bc5f9db6bf3c80014d8e",
+          "size": 7889920
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-3a26a54-1021-0036",
+      "sdk_commit": "3a26a54d7591cf45274100a747ea88d313ab4492",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43e, 2026-10-21T00:36:10 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43e.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43 step 5.2: depth in post targets (gpu_native_post_depth), exact 467/467",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "3bd0cecb518ce6a99a8e4606f5749672b54dde93506f822500ee27feed9e7544",
+          "size": 7898624
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-1f2ee1b-1021-0040",
+      "sdk_commit": "1f2ee1b906eef4da952360ab896216fe40d09b11",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43g, 2026-10-21T00:40:41 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43g.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43 step 5.3: 16-bit formats in post targets, exact 467/467",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "4a1b2b4b9a6ae4b25bb037a74d5c7072879192a2e0d43455f01851e8df408a0b",
+          "size": 7903232
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-36a1301-1021-0105",
+      "sdk_commit": "36a1301ad1ca686e4f0707fc99c91a09f14fdd08",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43j, 2026-10-21T01:05:33 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43j.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43 step 5.5: quantized post targets + review fixes, exact 467/467",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "3ae93457adb8fd26c35f56665df334c764c6cd0bab76ebfef79422d081448a75",
+          "size": 7914496
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-2ed923f-1021-0114",
+      "sdk_commit": "2ed923f1cfb808cf0e72e8096a487bb7f498e895",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43l, 2026-10-21T01:14:25 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43l.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43 step 7.1: gpu_native_lean (no gain), exact 467/467",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "240313110dbcadcfdf8c1e01a836d91a0ffa4be2fc890c94b3e7b9ebb9b75a42",
+          "size": 7919104
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-bdf2161-1021-0153",
+      "sdk_commit": "bdf2161ebcf877e3914cec757d17e06680e43d55",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43o, 2026-10-21T01:53:21 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43o.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43 S1 fix (post load set) + S0-pre cover stats, exact 467/467",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "45ff1682f8c11e76c5dba80899b8666de86fd01fd854bd7b58e4028a4ef5ced8",
+          "size": 7928320
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-520ad6f-1021-0201",
+      "sdk_commit": "520ad6fc2ed1ece5b96a9084db9b4c541e21a900",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43q, 2026-10-21T02:01:02 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43q.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43 S2: gpu_native_scene_extras",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "700572722c076fe43354ccc3cba28b86c548a1e06fa7115ebb76e937cd48e16f",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "5c8259e332fc82515c0085a33a18213e493b60972c2c0c1380761260d80c694d",
+          "size": 7932416
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ab7f3e67191bcff2c38b4b444db74b5001b9c46a0cb8b77d5551fc1b8dcb9a19",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-44e2f4d-1021-0235",
+      "sdk_commit": "44e2f4dbf41ae43f98b0c8e4eb2d4419f0cfe70a",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43s, 2026-10-21T02:35:26 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43s.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43 S0b-lite: direct 1x texture loads, exact",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "088765476d39c08ab7e1cfba44371884fbea1a50b96de0f4414b841259f15928",
+          "size": 7934464
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-02037df-1021-0248",
+      "sdk_commit": "02037dfce6a5b3cb096773bc43111bbe0a522e8d",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43u, 2026-10-21T02:48:32 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43u.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43: [native][gpu] split",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "add5cc47b7af79e13c389c4c0d55c202130f207a0798e4143cdf363aabcb9e65",
+          "size": 7937536
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-ce7513f-1021-0256",
+      "sdk_commit": "ce7513fc53e14b5897f6d44df745044b309ce84f",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43w, 2026-10-21T02:56:06 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43w.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43 S0b-lite review fix (tiled only)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "9d1cfeb24e53ca96d17b3cce96317a3ea67ebdcfca146444802519d4d449a7a0",
+          "size": 7937536
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-8fb47ca-1021-0300",
+      "sdk_commit": "8fb47caa299ac9be9542632166215c33df514dc2",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s43y, 2026-10-21T03:00:48 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s43y.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 43: gpu_native_post_min_pixels",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "e390132f0d6971525e66ee6746b7ad006ee4f4c095fff19b142c0a7a4bf79b21",
+          "size": 7940608
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-ddc3f8f-1021-0422",
+      "sdk_commit": "ddc3f8fffc5617663277b53ed8e83afebe7a26c4",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s44d, 2026-10-21T04:22:21 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s44d.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 44: gpu_native_merge, gpu_native_post_lean_depth (both off, exact), diagnostics vulkan_texture_load_skip_debug / gpu_native_post_depth_unrounded_debug",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "46ec689f7dac8beff52547e017198e0d074d482a6defcd35ddc4007078e33900",
+          "size": 7955968
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-2069f1a-1021-1032",
+      "sdk_commit": "2069f1a527e6bea422a2d72920a5d9aa5e0df879",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s45n, 2026-10-21T10:32:10 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s45n.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 45 N0-N2c: frame census, gpu_native_all, post sync, read analysis, resolve from post targets (exact, 467/467); defer parked",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "4f0438332c63aae9343841a55ddc28901dfd1043765b583e92382f243401c668",
+          "size": 8027648
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-0237b99-1021-1142",
+      "sdk_commit": "0237b99e0d3d0d0d4259eba4d0bd0c4e6d0b744c",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s45ab, 2026-10-21T11:42:25 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s45ab.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 45 step 2: N0-N2e + N3a + review fixes + segment log diagnostics (gpu_native_all bundle; all off by default)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "7e8180679fb3e156b9883de622b5218acf5605f317ce4a334813968e26333a34",
+          "size": 8065024
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-4a8176f-1021-1154",
+      "sdk_commit": "4a8176fc068283d72a5ec11068d20b255bf8abe9",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s45ad, 2026-10-21T11:54:11 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s45ad.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 45 step 2: + N3b gpu_native_resolve_texture_stock (gpu_native_all bundle; all off by default)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "d8a099a5c970b0797dee9f5696321c4d4bc6c18d00bf4031413dcbf4f6b56bea",
+          "size": 8069632
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-f422d8f-1021-1211",
+      "sdk_commit": "f422d8f4d4c72d7e29f741e99adea318afd85e3b",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s45af, 2026-10-21T12:11:56 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s45af.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 45 step 2: + gpu_native_all_exclude diagnostic (cost breakdown); all off by default",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "5c9b810b61a13e381ef12e815a5c7a545cb63b650a45279315afc53f28cbd568",
+          "size": 8072704
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-efe0e92-1021-1217",
+      "sdk_commit": "efe0e929f567dcb486edf099bade8ed5d5a9dbb8",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s45ah, 2026-10-21T12:17:00 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s45ah.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 45 step 2 final: + 64bpp fast-clear fills (gpu_native_all); all off by default",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "588dd06924528e284afbbd6f9fd26080c9c801edb3f2870d7e2387971ceb91c0",
+          "size": 8074240
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-bb830cf-1021-1613",
+      "sdk_commit": "bb830cf82610ff5f886ff1b5172fba6bc2603a1b",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s46c, 2026-10-21T16:13:18 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s46c.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 46 M0: truth switch + EDRAM census",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6ab7eb7120be577e7dc88806f9b24dec78c787b326b2100309b68538effefbd3",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "b4697df0f34c1f4421c7c97121dd9bc16220d1a43b75d8aaf02074523a3f9f7d",
+          "size": 8084480
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ad7298926d920dea9c4afa1bef7c0b1578b9a53c8a391e213c90a4159abe085e",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-868b313-1021-1812",
+      "sdk_commit": "868b313b3ac772168da4532cdc8457c8d0f74003",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s46x2, 2026-10-21T18:12:29 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s46x2.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s46 truth frames M1-M5 + review fixes (868b313)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "ce770372752827e194f691bc180c7f4d309c761ba2806db4e2c8f62691c2cac6",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "1fdd7f163d3826e381c54092b9844a915da3ee8933d239adbee3168ad3ecebdf",
+          "size": 8196096
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "f6e79cd5b7d7e5a4b984eced9b9416ee57e1d3b45224b6cda829a157e587e292",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-3752abd-1021-1908",
+      "sdk_commit": "3752abd7231c051de7acfc8a892a94ecd7fc70fe",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s46ab, 2026-10-21T19:08:05 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s46ab.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s46 truth stencil + scene-key-less truth frames",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "ce770372752827e194f691bc180c7f4d309c761ba2806db4e2c8f62691c2cac6",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "29805763f8809a13cdb8c90ef63cff89b147f0bf693a58c8ddfd4c09ebbb71a0",
+          "size": 8202240
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "f6e79cd5b7d7e5a4b984eced9b9416ee57e1d3b45224b6cda829a157e587e292",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-ac76ee2-1021-2028",
+      "sdk_commit": "ac76ee2098ea735607f02497b80d2f479d921734",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s47f, 2026-10-21T20:28:38 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s47f.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 47 truth CPU: fast path, owned bitsets, merged truth repeats, async truth pipelines, review fixes (ac76ee2)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "ce770372752827e194f691bc180c7f4d309c761ba2806db4e2c8f62691c2cac6",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "264031a5b8b90358416e8b506aecccc481da6fc5c923e368995eba3733fe033a",
+          "size": 8194048
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "f6e79cd5b7d7e5a4b984eced9b9416ee57e1d3b45224b6cda829a157e587e292",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-45a6832-1021-2209",
+      "sdk_commit": "45a6832ace5fd846243b65f2e6240c8ace228a07",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s47s, 2026-10-21T22:09:22 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s47s.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 47: truth CPU steps 2-5 + M6 texture fills, 0 reloads at 720p, reviewed (45a6832)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "ce770372752827e194f691bc180c7f4d309c761ba2806db4e2c8f62691c2cac6",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c9bc661ddf38c69da2b758d9515699bf9b31518f54aadbe5369165117bb13fa3",
+          "size": 8217600
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "f6e79cd5b7d7e5a4b984eced9b9416ee57e1d3b45224b6cda829a157e587e292",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-2f1e7f8-1021-2314",
+      "sdk_commit": "2f1e7f87b0fe023c32d8347ece88a636edbe850e",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-21",
+      "built": "build_sdk.ps1 -Run s47z, 2026-10-21T23:14:27 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s47z.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 47: truth CPU + M6 fills at 1x and 4x, reviewed (2f1e7f8)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "ce770372752827e194f691bc180c7f4d309c761ba2806db4e2c8f62691c2cac6",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "a74bc9372a101963023b71c7fdb39e397aacdafb4edeaa263d9aeaffa5050d9d",
+          "size": 8220672
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "f6e79cd5b7d7e5a4b984eced9b9416ee57e1d3b45224b6cda829a157e587e292",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-526f5a8-1022-0104",
+      "sdk_commit": "526f5a8d3f3c3a4cc3b77ce6d80d69efc92cd8bf",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s48pin1, 2026-10-22T01:04:36 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s48pin1.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 48 N5b/N6a compare (gpu_native_half2 1)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "18525ae26b7ed821680917787d6019cdbf2db429ee42c4b804219b15ba67ecde",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "e8e1505cf46b23855163dfba15feea4383e406b6fbf9dbfcdc8eee0893d7d15d",
+          "size": 8270848
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "4b107a8957e4d972a9075ddf19ddade940943691e6f5d3667ec9f2964707489f",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-1c2c0e3-1022-0153",
+      "sdk_commit": "1c2c0e3c82b6ea85df3187fc79d4743e2906db47",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s48pin2, 2026-10-22T01:53:41 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s48pin2.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 48 GPR flush skip",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "18525ae26b7ed821680917787d6019cdbf2db429ee42c4b804219b15ba67ecde",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "8c3691db7bc9841d32e985cd89e2984186a37975608281b54a514a309a6b317c",
+          "size": 8275456
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "4b107a8957e4d972a9075ddf19ddade940943691e6f5d3667ec9f2964707489f",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-9467d9d-1022-0221",
+      "sdk_commit": "9467d9d12ec4ab192b3ec4d5dc41326421fc5884",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s48pin3, 2026-10-22T02:21:10 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s48pin3.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 48 draw description compare",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "18525ae26b7ed821680917787d6019cdbf2db429ee42c4b804219b15ba67ecde",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "82f81ee03eeb4733ad56d55b2b78475b571b7ee356a67944391fe67c40e704e3",
+          "size": 8284160
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "4b107a8957e4d972a9075ddf19ddade940943691e6f5d3667ec9f2964707489f",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-0f0ed8c-1022-0239",
+      "sdk_commit": "0f0ed8c630aa37e3b4be318928b56bcafa266f8d",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s48pin4, 2026-10-22T02:39:17 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s48pin4.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 48 N6a complete",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "18525ae26b7ed821680917787d6019cdbf2db429ee42c4b804219b15ba67ecde",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "2d31fe91ad7ffb48027f287fbd092727c00cab6a847e2a1ff00764e228ea45c2",
+          "size": 8284672
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "4b107a8957e4d972a9075ddf19ddade940943691e6f5d3667ec9f2964707489f",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-c29b67e-1022-0245",
+      "sdk_commit": "c29b67ef4c503b354a9fb3c6893b4d89cb8d7dd8",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s48pin5, 2026-10-22T02:45:50 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s48pin5.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 48 N5b complete",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "18525ae26b7ed821680917787d6019cdbf2db429ee42c4b804219b15ba67ecde",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "564851ef780a123604596bd8d70aca281991984c236a6857e428900be3519572",
+          "size": 8284672
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "4b107a8957e4d972a9075ddf19ddade940943691e6f5d3667ec9f2964707489f",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-1f0d01a-1022-0342",
+      "sdk_commit": "1f0d01a2a3371836da78d0aae9eb8818bdf82b4b",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s48pin6, 2026-10-22T03:42:14 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s48pin6.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 48 scaled fill gate",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "18525ae26b7ed821680917787d6019cdbf2db429ee42c4b804219b15ba67ecde",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "b97d31d84ad803eba662a00dc7436562132b0680155f37bde88704654351f482",
+          "size": 8287232
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "4b107a8957e4d972a9075ddf19ddade940943691e6f5d3667ec9f2964707489f",
+          "size": 11379200
+        }
+      ]
+    },
+    {
+      "id": "pin-5a64203-1022-0744",
+      "sdk_commit": "5a642039eb873753d9d970dd3b7a18f2aadf42ea",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s49a2, 2026-10-22T07:43:59 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s49a2.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 49 step 1: gpu_ram_stats census (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "070b2023e2a6e4ba0585591776216d20b540727c53199546600705afe0502225",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "aa6e2c17afa17ceff6907e946fd21fb0f21af0fce2fa97d900b48c98652adc7a",
+          "size": 8309248
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "c9ce0cddfe58dbf3f694da10d233723ee173a81c2b56ef0840e210b30a7d316d",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-0a9c64f-1022-0826",
+      "sdk_commit": "0a9c64f4e7c4e75b6d478ac438b5437a82ba2f2a",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s49i, 2026-10-22T08:26:35 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s49i.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 49 step 2: texture-only resolves (gpu_native_truth_skip_writeback, off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "070b2023e2a6e4ba0585591776216d20b540727c53199546600705afe0502225",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "7a79079585511e76ee6e2c095c3b31a01b099d33f7c1ab59ed411535a0aa7a32",
+          "size": 8342016
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "c9ce0cddfe58dbf3f694da10d233723ee173a81c2b56ef0840e210b30a7d316d",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-5c18676-1022-0841",
+      "sdk_commit": "5c18676f5caead16976772eedb16484e278f90d4",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s49k, 2026-10-22T08:41:26 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s49k.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 49 step 2 + review fixes",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "070b2023e2a6e4ba0585591776216d20b540727c53199546600705afe0502225",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "9e32c2a0d085e83a3f06aa903336e240be1fa201bf079bd4e64e8b9d2e5ced20",
+          "size": 8342528
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "c9ce0cddfe58dbf3f694da10d233723ee173a81c2b56ef0840e210b30a7d316d",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-a531409-1022-0922",
+      "sdk_commit": "a5314096734f65937be3bae60f2df0bb25c98857",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s49m, 2026-10-22T09:22:27 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s49m.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 49 final: texture-only resolves + lazy fill diagnostic",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "070b2023e2a6e4ba0585591776216d20b540727c53199546600705afe0502225",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "60d809ac24cf334925a9dafbb8c14947f112cbea64b4d9d3dc6b09a9bc71756c",
+          "size": 8345600
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "c9ce0cddfe58dbf3f694da10d233723ee173a81c2b56ef0840e210b30a7d316d",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-ae1cd77-1022-1127",
+      "sdk_commit": "ae1cd770b7a64d22bb38d237fc58b5a75d50de82",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s50e, 2026-10-22T11:27:37 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s50e.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 50 step 1 dev: lean draws + geometry trust (SDK ae1cd77)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "070b2023e2a6e4ba0585591776216d20b540727c53199546600705afe0502225",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "93beda75295a95502117036a7619b2a0f06c512ba5588bfb1ed38f19493a9111",
+          "size": 8375808
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "c9ce0cddfe58dbf3f694da10d233723ee173a81c2b56ef0840e210b30a7d316d",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-61896f6-1022-1150",
+      "sdk_commit": "61896f6532b2e031742ba58f6e781df0522a1aa6",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s50j, 2026-10-22T11:50:31 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s50j.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 50 step 1: lean draws + geometry trust + review fixes (SDK 61896f6)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "070b2023e2a6e4ba0585591776216d20b540727c53199546600705afe0502225",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "abf1d347de50dfa2bf38e203a3198a0b404f6c1573fc8d333907dbe81851744c",
+          "size": 8380928
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "c9ce0cddfe58dbf3f694da10d233723ee173a81c2b56ef0840e210b30a7d316d",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-b32d59f-1022-1236",
+      "sdk_commit": "b32d59fb841f53739659ffb260c2b4901ba15578",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s50o, 2026-10-22T12:36:13 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s50o.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 50 final: lean draws + geometry trust + crowd pass (SDK b32d59f)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "070b2023e2a6e4ba0585591776216d20b540727c53199546600705afe0502225",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "582a7f51a3d1de38da494db0aaf47dceb17e59327223fa15e9866ce3ed70aab4",
+          "size": 8398848
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "c9ce0cddfe58dbf3f694da10d233723ee173a81c2b56ef0840e210b30a7d316d",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-87cd31f-1022-1638",
+      "sdk_commit": "87cd31f7d3acceffdcfd79a595bde25529f9a5c9",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s51n, 2026-10-22T16:38:31 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s51n.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 51 step 1: state log (gpu_native_half2 3)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "d4415cdc3da2de2d8bad3c6035301a157232ab4fd3d8468e52a2e0f8aad65226",
+          "size": 8449536
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-38cc7e5-1022-1650",
+      "sdk_commit": "38cc7e50597ae985d1f2945634950d38abdff0fa",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s51r, 2026-10-22T16:50:27 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s51r.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 51 step 2: log-fed frames (gpu_native_detached 1)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "f1f3449eefe6d3cecc9916615805b9a6390490b195c23601af84ff378d46f4d0",
+          "size": 8461312
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-155d795-1022-1744",
+      "sdk_commit": "155d795938d10041dbd026172b5b2b9fb7fed551",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s51ac, 2026-10-22T17:44:55 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s51ac.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 51 step 3 experimental (gpu_native_detached 2)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "4ec2a846e690b300ea27d934264c8df469118f9575e07a03e404dd542ff15f94",
+          "size": 8479232
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-bfa0101-1022-1802",
+      "sdk_commit": "bfa01017bdfee8ab63ba07f86b555dc898e0f5b5",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-22",
+      "built": "build_sdk.ps1 -Run s51ag, 2026-10-22T18:02:17 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s51ag.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 51 final: state log, log-fed frames, detached (experimental) + review fixes",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "b9865e49b4a6663d44da7263a855daafbf7c9aaf43c17c2c7185e3962a24f090",
+          "size": 8480768
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-113fd17-1023-0019",
+      "sdk_commit": "113fd1765db490bef16133ece4cc0deed0d8c788",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52a, 2026-10-23T00:19:04 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52a.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 0: direct-unscaled kinds mask, native GPU timers switch",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "78b5fb33a866d84f96349df2ee1ecd49855fd7bfed9efb1a7441dd5b63c43e85",
+          "size": 8485888
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-2c343a6-1023-0025",
+      "sdk_commit": "2c343a6037d513ed28071bbd118c70b8bfe84240",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52b, 2026-10-23T00:25:48 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52b.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 0: truth GPU-work diagnostic",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "6006801b8af623c9af5ce1ea3d9bc6b2433efe731efbad8ffa64a344bd0aa089",
+          "size": 8488960
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-dd34c55-1023-0032",
+      "sdk_commit": "dd34c55b721d677b66145b93746bc5991ddb3354",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52c, 2026-10-23T00:32:34 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52c.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 0: skip-resolves diagnostic",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c3fa8220ae3077d72236e7035ac136a219dc5cedbaee7da8c9f7b85721e50ead",
+          "size": 8492544
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-1e355c9-1023-0052",
+      "sdk_commit": "1e355c96ae206ff3304a0ce97d35189392e9a3b5",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52e, 2026-10-23T00:52:52 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52e.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 1a: barrier merge (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "6542618392224ac37d62573006798bfc48674a2cc6694ec4cd44163d27a24014",
+          "size": 8502784
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-05bb1a9-1023-0058",
+      "sdk_commit": "05bb1a950d6425cd489bdb209d728369bed0bc71",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52g, 2026-10-23T00:58:38 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52g.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 1a: record-time barrier merge (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "af5df0cf9bed09362e546f5bace5c0e73e6e51a35b9e29005df526ce46fa9328",
+          "size": 8504832
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-287af93-1023-0106",
+      "sdk_commit": "287af93e38815a1a24934b24907245513fd5fc95",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52h, 2026-10-23T01:06:35 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52h.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52: small-resolve skip diagnostic",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "020b7f9e9bce9c2a8f9c7a55b8fab2065916f03ed9883c54b4baf6ce20c1cf2f",
+          "size": 8507904
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-c3820a1-1023-0112",
+      "sdk_commit": "c3820a19311bb707cdeb41db8916ea9f1abef95c",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52i, 2026-10-23T01:12:27 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52i.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52: barrier census diagnostic",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "e24613f39dc496a441ca8615265d7de464ff11cdefe117c08ec238bad5ffe196",
+          "size": 8521728
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-bbc6e40-1023-0119",
+      "sdk_commit": "bbc6e4051dc32b632e6a9f6b6052b83ef0c7a2b4",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52k, 2026-10-23T01:19:27 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52k.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 1b: scaled direct resolve (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "6aecef0c7451d7abba9a4e9524cbb48dd8b1f01a3c6d7a77e412c85e178ab5a8",
+          "size": 8529408
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-fc707ce-1023-0125",
+      "sdk_commit": "fc707ce2acf2893ab90dca13b286777a7b929017",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52m, 2026-10-23T01:25:09 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52m.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 steps 1b fix + 1c (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "24646dd9191a162fb53ef0c8348aba61064a11078b75f58ef275914101337501",
+          "size": 8540160
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-ef240e5-1023-0132",
+      "sdk_commit": "ef240e5ea3d5adb194e271ab11fa09bcc8e9e5b4",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52o, 2026-10-23T01:31:57 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52o.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 1c census",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "acc395b1f8004db214f291e6d1fb91bcc502485df2bf7c6ae2f2f1c0c6248f5e",
+          "size": 8541184
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-c77727e-1023-0134",
+      "sdk_commit": "c77727e57cc12786e022fd78e03030037296c614",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52p, 2026-10-23T01:34:27 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52p.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 1c: direct any page (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "2cac704fdcca95a5e5afc953d2465faaca1943985b21fcd206fad21872af36c9",
+          "size": 8543744
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-c16a339-1023-0139",
+      "sdk_commit": "c16a339862fbb4e113040512489c5a2f5d85df63",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52q, 2026-10-23T01:39:14 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52q.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 review fixes",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "8794e4f2399070aaab8d8acbfd0d80ef9cdc695c03fa55446723a9217cdab68a",
+          "size": 8543744
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-1ddf9f1-1023-0153",
+      "sdk_commit": "1ddf9f1a0b3f21b4b2ae03b66deddd859b8ff20b",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52s, 2026-10-23T01:53:40 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52s.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 1d (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "f666b1363afbeac32c83f517c2c2a23105053bdec41ce15085eb0088cfaac3c8",
+          "size": 8553984
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-a2ae208-1023-0209",
+      "sdk_commit": "a2ae208296f7efe704d4a90c4c7481f913c99d92",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52u, 2026-10-23T02:09:22 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52u.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 2a defer dest use (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "7df6c33093192b00c485a537abef3bbcb8854686e8068e7e8a7f28a4ba932377",
+          "size": 8556544
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-8ed6e9d-1023-0219",
+      "sdk_commit": "8ed6e9d9c6c70a37beec42570f1435063601ee79",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52w, 2026-10-23T02:19:34 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52w.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 2b scaled fills into storage views",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c62900151e1cba357c934d4d9c8e169ebdf9ab6a24080cbcd0fd48cc40b83bf7",
+          "size": 8556544
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-2c03313-1023-0225",
+      "sdk_commit": "2c03313a3952ce51d0b78db77b0864d9004e1c4e",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52y, 2026-10-23T02:25:00 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52y.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 2c scaled texture write (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "2d8f2b4e9ed1bed3f65ca9368d106a7d45351db89d14e409a44181cf3e7a6610",
+          "size": 8561664
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-098c4cc-1023-0241",
+      "sdk_commit": "098c4cc5f854f05ec63770ee3adedfd68940c1c1",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52za, 2026-10-23T02:41:46 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52za.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 2d cover outdated (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c1ccb4b08d2fab6ac9ad5fc99a3ca3bc620661c5dd427146a2cf18ff8b98ddbe",
+          "size": 8564224
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-e856a27-1023-0258",
+      "sdk_commit": "e856a2772d8c53ca92bb9311b776b22109c082d9",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52zc, 2026-10-23T02:58:26 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52zc.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 2e scaled fill kinds",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "8d368f3f3a88da39a335bfe8ef67880aabe7c221c96b23a8c04eda760c092c15",
+          "size": 8567296
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-bd55f4f-1023-0321",
+      "sdk_commit": "bd55f4f15d575d2b77ac33504772bbe7211fb5da",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52ze, 2026-10-23T03:21:00 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52ze.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 3a batch resolves (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "d80ccac466c2e869b5ddb4869b7fafcb08550e5b6ba40b1b36cdd3b8e9a250ac",
+          "size": 8573952
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-a2d1cf6-1023-0327",
+      "sdk_commit": "a2d1cf6e18bc19252a1ee46d63e0985b261f41e2",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52zh, 2026-10-23T03:27:21 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52zh.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 3b batch rename (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "bb2d93e4456e68cafeefe6bd0aa8e0ff6935b1df177cb9193625bf9ad110702c",
+          "size": 8584704
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-ad2ad01-1023-0344",
+      "sdk_commit": "ad2ad0135ed30361d44be59d9823bcec4c03f6c4",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52zj, 2026-10-23T03:44:17 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52zj.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 3c held texture barriers (off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "bacec6ee98fdd3001cb6b630a767e85b5ff7adf270e52407e5999972c4e06098",
+          "size": 8585216
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-4dead3e-1023-0406",
+      "sdk_commit": "4dead3eabf3813815f6a4f6698e126aa8d46664f",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s52zl, 2026-10-23T04:06:18 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s52zl.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 52 step 3 + review fixes",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6e70624ca17ee70f79b1807d7a9a97e59e5b301edbff26420bb4d5e939646a30",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "427de8ad383f08d90d430ab07df653796b8f32ed5e170802365dada95ed0eecf",
+          "size": 8585728
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6a9b5df41fde6cabaf18996f6ccc5531a02c0f20fdcfc58797c368ad8a67b742",
+          "size": 11391488
+        }
+      ]
+    },
+    {
+      "id": "pin-e0f7277-1023-0918",
+      "sdk_commit": "e0f72778d351da15341cf1b7e963d4f39ee68e4e",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s53, 2026-10-23T09:18:22 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s53.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 53 item 2.7: allocation probe failures at debug level",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "e8ee23b1a1166cf1b655f902df0af427661fd77825eced735e137d466ef7f1f1",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "ac8238e35e144ebc7af2562ad1e3e2f266ad05ac20fd200cb248f359c85cce10",
+          "size": 8585728
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "552ca227751eac52ad27454664b2098c52615d9ff134aa378e27aa0b43fc3041",
+          "size": 11391488
+        }
+      ]
     }
   ]
 }

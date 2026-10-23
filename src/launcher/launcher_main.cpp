@@ -36,6 +36,9 @@
 //   --launch                --shot FILE.bmp (window screenshot after the UI settles)
 //   --exit                  (quit after the steps)    --log FILE (what the steps did)
 //   --no-save               (don't write the settings file)
+//   --perf-test             (Session 39: run the performance test, test builds with perf_test.txt only (Session 41);
+//                           waits for it)
+//   --show-perf-test        (open its window, for a look)
 
 #include "launcher_core.h"
 
@@ -912,11 +915,17 @@ class App {
       if (forced) logo_forced_[f] = std::atoi(st.a.c_str() + at + 1) - 1;
     }
     else if (st.op == "logo_import") StartLogoImport();
+    else if (st.op == "logo_size") s.logo_size = std::atoi(st.a.c_str()) == 128 ? 128 : 256;
     else if (st.op == "wait_game") return game_proc_ == nullptr;
+    else if (st.op == "perf_test") StartPerfTest();                // Session 39
+    else if (st.op == "wait_perf_test") return perf_step_ < 0;     // ... until all its runs are done
+    else if (st.op == "show_perf_test") want_perf_popup_ = true;   // its window, for a look
     else if (st.op == "backup") DoBackup("automation");
     else if (st.op == "restore") RefreshLogos(true), DoRestore(std::atoi(st.a.c_str()));
     else if (st.op == "report") MakeReport();
     else if (st.op == "play") LaunchPlain();
+    else if (st.op == "create_shortcut") CreateDesktopShortcut();  // Session 53 (with --shortcut-dir in tests)
+    else if (st.op == "build_previews") BuildPreviews();
     else if (st.op == "wizard_step") wizard_step_ = std::clamp(std::atoi(st.a.c_str()), 0, 2);
     else if (st.op == "no_rtx") hw_.rtx = false, force_rtx_ = false;
     else if (st.op == "quick_match") LaunchQuickMatch();
@@ -963,6 +972,7 @@ class App {
   void Frame() {
     CollectThumbs();
     PollGame();
+    DirectStartPoll();  // Session 53
     hover_video_.clear();
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -991,6 +1001,8 @@ class App {
     ImGui::EndChild();
     Wizard();
     CrashPopup();
+    QuickStartPopup();  // Session 53
+    PerfTestPopup();  // Session 39
     UpdatePopup();
     LogUpdateOnce();
     ImGui::End();
@@ -998,7 +1010,116 @@ class App {
   }
 
   // Something moving: a preview playing or thumbnails loading (the main loop keeps drawing at the screen rate).
-  bool Animating() { return player_.Playing() || thumbs_.Busy(); }
+  bool Animating() { return player_.Playing() || thumbs_.Busy() || quick_pending_; }
+
+  // ---------------- Session 53 (items 2.1 / 2.4): the game without the launcher's window. `--start-game` (wwe2k14.exe
+  // started directly hands over to it, src\direct_start.h; a desktop shortcut) starts the game at once, as PLAY GAME
+  // does, and the window stays hidden; QUICK START (Settings -> GAME) does the same after 3 seconds in which a key or a
+  // click keeps the launcher open (Shift held while it opens skips it). Hidden, the launcher closes when the game
+  // closes, or shows itself when the game crashed (the crash window) or when something needs the player (no game
+  // files yet, the game already running).
+  bool start_game_ = false, quick_pending_ = false, exit_with_game_ = false;
+  std::chrono::steady_clock::time_point quick_at_{};
+  static constexpr int kQuickStartSeconds = 3;
+
+  void BeginDirectStart(bool automation) {
+    if (start_game_) {
+      if (gd_.ok) {
+        want_wizard_ = false;  // the files are there: the player asked for the game, not the wizard
+        LaunchPlain();
+        if (game_proc_) {
+          exit_with_game_ = true;
+          Log("direct start: the game started, the window stays hidden");
+          return;
+        }
+      }
+      ShowWindow(hwnd_, SW_SHOWDEFAULT);
+      if (!gd_.ok) GoPage(2), settings_section_ = 0, Status("Pick your game files here, then press PLAY GAME.");
+      Log(std::string("direct start: window shown (") + (gd_.ok ? "the game did not start" : "no game files") + ")");
+      return;
+    }
+    if (s.quick_start && !automation && gd_.ok && !want_wizard_ && !GameRunning()) {
+      if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
+        Status("Quick start skipped (Shift held).");
+        return;
+      }
+      quick_pending_ = true;  // the 3 seconds start with the first frame drawn (the window takes ~2 s to come up)
+      Log("quick start: counting down");
+    }
+  }
+
+  // The countdown over the launcher (QUICK START); any key or click cancels it.
+  void QuickStartPopup() {
+    if (!quick_pending_) return;
+    if (quick_at_ == std::chrono::steady_clock::time_point{}) {
+      quick_at_ = std::chrono::steady_clock::now() + std::chrono::seconds(kQuickStartSeconds);
+      Log("quick start: countdown shown");
+    }
+    if (!ImGui::IsPopupOpen("quickstart")) ImGui::OpenPopup("quickstart");
+    if (!BeginGameModal("quickstart", "STARTING THE GAME", 560 * Dpi())) return;
+    const double left = std::chrono::duration<double>(quick_at_ - std::chrono::steady_clock::now()).count();
+    ImGui::Text("The game starts in %d...", std::max(1, int(std::ceil(left))));
+    ImGui::TextDisabled("Press any key or click to stay in the launcher. QUICK START is in Settings -> GAME.");
+    ImGui::Dummy(ImVec2(0, 10 * Dpi()));
+    bool stay = ModalMainButton("STAY IN THE LAUNCHER");
+    ImGui::NewLine();
+    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END && !stay; ++k)
+      if (ImGui::IsKeyPressed(ImGuiKey(k), false)) stay = true;
+    if (stay) {
+      quick_pending_ = false;
+      ImGui::CloseCurrentPopup();
+      Status("Quick start cancelled: you are in the launcher.");
+    } else if (left <= 0) {
+      quick_pending_ = false;
+      ImGui::CloseCurrentPopup();
+      LaunchPlain();
+      if (game_proc_) exit_with_game_ = true, ShowWindow(hwnd_, SW_HIDE), Log("quick start: the game started");
+    }
+    ImGui::EndPopup();
+  }
+
+  // Each frame: a hidden launcher closes with the game, or comes back for a crash.
+  void DirectStartPoll() {
+    if (!exit_with_game_ || game_proc_) return;
+    exit_with_game_ = false;
+    if (want_crash_popup_) {
+      ShowWindow(hwnd_, SW_SHOWDEFAULT), SetForegroundWindow(hwnd_);
+      Log("direct start: the game crashed, window shown");
+      return;
+    }
+    Log("direct start: the game closed, the launcher closes too");
+    PostQuitMessage(0);
+  }
+
+  // Settings -> GAME: a shortcut on the desktop (or in --shortcut-dir, tests) that starts the game directly.
+  fs::path shortcut_dir_;
+  bool CreateDesktopShortcut() {
+    fs::path dir = shortcut_dir_;
+    if (dir.empty()) {
+      PWSTR desk = nullptr;
+      if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desk))) dir = desk;
+      CoTaskMemFree(desk);
+    }
+    wchar_t self[MAX_PATH * 2];
+    GetModuleFileNameW(nullptr, self, DWORD(std::size(self)));
+    IShellLinkW* link = nullptr;
+    if (dir.empty() || FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link))))
+      return false;
+    std::wstring args = L"--start-game";
+    if (settings_path != SettingsPath()) args += L" --settings \"" + settings_path.wstring() + L"\"";
+    link->SetPath(self);
+    link->SetArguments(args.c_str());
+    link->SetWorkingDirectory(fs::path(self).parent_path().c_str());
+    link->SetIconLocation(paths_.game_exe.c_str(), 0);
+    link->SetDescription(L"WWE 2K14 (starts the game with your launcher settings)");
+    IPersistFile* file = nullptr;
+    bool ok = SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&file)));
+    const fs::path lnk = dir / L"WWE 2K14.lnk";
+    if (ok) ok = SUCCEEDED(file->Save(lnk.c_str(), TRUE)), file->Release();
+    link->Release();
+    Status(ok ? "Made a desktop shortcut: " + PathStr(lnk) : "Couldn't make the shortcut in " + PathStr(dir));
+    return ok;
+  }
 
   void Shutdown() {
     if (game_proc_) CloseHandle(game_proc_), game_proc_ = nullptr;
@@ -1350,6 +1471,12 @@ class App {
       ImGui::SetCursorScreenPos(ImVec2(wx + (ww - 0.22f * wh - ts.x) / 2, y));
       ImGui::TextDisabled("%s", text);
     }
+    if (PerfTestAvailable()) {  // Session 39: a test build's performance test (PerfTestPopup)
+      y += ImGui::GetTextLineHeightWithSpacing() + 10 * d;
+      ImGui::SetCursorScreenPos(ImVec2(wx + (ww - 0.22f * wh) / 2 - 110 * d, y));
+      if (ImGui::Button("PERFORMANCE TEST (test build)", ImVec2(220 * d, 0))) want_perf_popup_ = true;
+      y += ImGui::GetFrameHeight();
+    }
 
     // Bottom: what Play uses, the keys, and the Advanced tools.
     const float line = ImGui::GetTextLineHeightWithSpacing();
@@ -1363,6 +1490,7 @@ class App {
                         kResolutionNames[s.original_look ? 0 : s.resolution],
                         s.frame_rate == 2   ? (s.refresh_hz == 120 ? ", 120 fps" : ", uncapped")
                         : s.frame_rate == 0 ? ", classic frame rate"
+                        : s.frame_rate == 3 ? ", 30 fps"  // Session 41 (it said 60)
                                             : ", 60 fps",
                         s.upscale ? ", upscaling on" : "", dlc_text.c_str());
     if (ImGui::Button("Advanced: replays, re-shoots, seeds, director...")) play_view_ = 2;
@@ -1920,7 +2048,30 @@ class App {
   }
 
   // Starts a command; the game itself is watched for an abnormal exit (PollGame).
-  void StartGame(const Command& cmd, const std::string& ok_msg) {
+  // Session 53: a launcher on another settings file (--settings: a test, a fresh profile) gives the game the same file,
+  // so the game's GRAPHICS menu and its FSR note never write the player's own one.
+  std::string GameSettingsFlag() const {
+    return settings_path == SettingsPath() ? "" : "--wwe2k14_settings_file=" + Quote(PathStr(settings_path));
+  }
+  // A helper run of the game (Build previews, a logo import): where the game files and the save are, as GameFlags
+  // gives them to PLAY GAME, and this launcher's settings file; each ends with a space.
+  std::string HelperPathFlags() const {
+    std::string a;
+    if (!s.game_data_dir.empty()) a += "--game_data_root=" + Quote(s.game_data_dir) + " ";
+    if (!s.user_data_dir.empty()) a += "--user_data_root=" + Quote(s.user_data_dir) + " ";
+    if (const std::string f = GameSettingsFlag(); !f.empty()) a += f + " ";
+    return a;
+  }
+  Command WithSettingsFile(Command c) const {
+    const std::string f = GameSettingsFlag();
+    if (f.empty() || c.exe != paths_.game_exe.wstring() || c.args.find(L"--wwe2k14_settings_file=") != std::wstring::npos)
+      return c;  // (TRY AGAIN restarts last_cmd_, which has it already)
+    c.args += (c.args.empty() ? L"" : L" ") + Widen(f), c.display += " " + f;
+    return c;
+  }
+
+  void StartGame(const Command& cmd_in, const std::string& ok_msg) {
+    const Command cmd = WithSettingsFile(cmd_in);
     if (game_proc_ || (cmd.exe == paths_.game_exe.wstring() && GameRunning())) {
       Status("The game is already running");
       return;
@@ -1978,6 +2129,11 @@ class App {
       return;
     }
     ReloadGraphicsSettings();
+    if (perf_step_ >= 0) {  // Session 39: a performance test run (its exit code goes into the test's about.txt)
+      if (code) Log("performance test run exited with " + ExitCodeText(code));
+      PerfRunEnded(code);
+      return;
+    }
     if (code == kGameReportedErrorExitCode) {  // the game showed its own message first: no crash dialog
       Status("The game could not start (or stopped on an error it reported). Its log has the details.");
       return;
@@ -2168,6 +2324,191 @@ class App {
     }
   }
 
+  // ---------------- Session 39: the performance test (the native renderer on vs off, for a playtester's laptop)
+  // Offered only when the test route native_ab.txt is next to the game (only a test build ships it). One game: a
+  // Quick Match the route drives by itself (Lesnar vs Bryan, entrances on, both CPU; the native renderer switched on
+  // and off every 120 frames through both entrances and the start of the match) on the accurate renderer, which then
+  // quits. Its choices are its own flags: the player's saved settings are not changed. Then one .zip of the run's log
+  // and frame times (user name removed) to send back; tools\native\laptop_ab.py reads it. (The machinery runs a list
+  // of runs; one is enough, Jarrod 2026-10-20.)
+  struct PerfRun {
+    int renderer;
+    const char* label;
+    const char* script;  // order A (native on first) or B: alternating windows show different shots, A and B cancel
+    std::string log;     // the run's game log (its frames_NNN.csv has the same NNN)
+    DWORD code = 0;
+  };
+  std::vector<PerfRun> perf_runs_;
+  int perf_step_ = -1;  // the run going now; -1 = no test running
+  bool perf_stop_ = false, want_perf_popup_ = false, perf_offered_ = false;
+  fs::path perf_zip_;
+
+  // Session 41 (low-spec step 0, docs\native\LOWSPEC_PLAN.md): the test is now the per-pass breakdown. One button, two
+  // games in a row: the LOW preset (NATIVE: the accurate renderer with the native renderer, fast clears; 720p, frame
+  // rate 30), then the light renderer with the same settings. The route (perf_test.txt, from
+  // tools\input_scripts\short\s41_perf_breakdown.txt) takes frame-anatomy captures with GPU timestamps per pass at the
+  // main menu, Bryan's entrance and the match, and switches the fast clears on and off through the entrances. The zip
+  // gets the anatomy files too; tools\native\laptop_breakdown.py reads it.
+  static constexpr const char* kPerfRoute = "perf_test.txt";
+  bool PerfTestAvailable() const {
+    std::error_code ec;
+    return fs::exists(paths_.game_exe.parent_path() / kPerfRoute, ec);
+  }
+  void StartPerfTest() {
+    if (game_proc_) return Status("Close the game first");
+    perf_runs_ = {{2, "LOW preset (native renderer)", kPerfRoute}, {1, "light renderer", kPerfRoute}};
+    perf_step_ = 0, perf_stop_ = false, perf_zip_.clear();
+    StartPerfRun();
+  }
+  void StartPerfRun() {
+    Settings t = PlainSettings();
+    t.renderer = perf_runs_[perf_step_].renderer;
+    // The LOW preset's resolution and frame rate for both games (only the renderer differs), no upscaler.
+    t.resolution = 0, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
+    t.mods = false, t.cinecam = t.photo_mode = t.runin = false, t.perf_report = 0;
+    t.scenario = "@quick", t.quick_type = 0, t.quick_ids = "343,324", t.quick_cpu_only = true, t.quick_arena = -1;
+    t.skip_entrances = false;
+    t.extra = std::string("--wwe2k14_input_script=") + perf_runs_[perf_step_].script +
+              " --wwe2k14_file_trace=true --vsync=false";
+    StartGame(BuildCommand(t, paths_), "Performance test: run " + std::to_string(perf_step_ + 1) + " of " +
+                                           std::to_string(perf_runs_.size()) + " started");
+    if (!game_proc_) perf_step_ = -1;  // could not start: Status says why
+  }
+  // From PollGame, when a test run's game has closed.
+  void PerfRunEnded(DWORD code) {
+    PerfRun& r = perf_runs_[perf_step_];
+    r.code = code;
+    const fs::path log = Newest(paths_.logs, "wwe2k14_", ".log");
+    r.log = log.empty() ? std::string() : PathStr(log.filename());
+    if (!perf_stop_ && perf_step_ + 1 < int(perf_runs_.size())) {
+      ++perf_step_;
+      StartPerfRun();
+      return;
+    }
+    perf_step_ = -1;
+    FinishPerfTest();
+  }
+  void FinishPerfTest() {
+    fs::path dir = paths_.launcher_dir / "reports";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) dir = LocalDataDir() / "reports", fs::create_directories(dir, ec);
+    const fs::path zip = dir / ("performance_test_" + NowStamp("%Y%m%d_%H%M") + ".zip");
+    ZipWriter z(zip);
+    if (!z.ok()) return Status("Could not write " + PathStr(zip));
+    std::string about = std::string("WWE 2K14 recomp performance test (Session 41: per-pass breakdown, LOW preset and "
+                                    "light renderer)\nVersion: ") +
+                        Version() + "\nMade: " + NowStamp("%Y-%m-%d %H:%M") + " (local time)\n\n" + HardwareText(hw_) +
+                        "\nTest settings: 720p, frame rate 30 (the LOW preset's), no upscaler; the player's own "
+                        "resolution: " +
+                        kResolutionNames[s.resolution] + "\n\n";
+    for (size_t i = 0; i < perf_runs_.size(); ++i) {
+      const PerfRun& r = perf_runs_[i];
+      about += "Run " + std::to_string(i + 1) + ": " + r.label + ", log " + (r.log.empty() ? "(none)" : r.log) +
+               ", exit " + (r.log.empty() && !r.code ? std::string("(not run)") : ExitCodeText(r.code)) + "\n";
+      if (r.log.empty()) continue;
+      z.Add(r.log, Redact(ReadTail(paths_.logs / Widen(r.log), 48u << 20)));
+      const std::string number = r.log.substr(8, r.log.size() - 8 - 4);  // wwe2k14_NNN.log
+      const std::string frames = "frames_" + number + ".csv";
+      if (fs::exists(paths_.logs / Widen(frames), ec)) z.Add(frames, ReadTail(paths_.logs / Widen(frames), 16u << 20));
+      // Session 41: the run's frame-anatomy captures (anatomy_NNN_K.csv trimmed to the columns the breakdown reads;
+      // its _gpu, _gpu_frames and _frames files whole). Numbers only (shader hashes, registers, times).
+      const std::string prefix = "anatomy_" + number + "_";
+      for (const auto& e : fs::directory_iterator(paths_.logs, ec)) {
+        const std::string name = PathStr(e.path().filename());
+        if (name.rfind(prefix, 0) != 0 || e.path().extension() != ".csv") continue;
+        const bool main_csv = name.find_first_not_of("0123456789", prefix.size()) == name.size() - 4;
+        std::string data = ReadTail(e.path(), 64u << 20);
+        if (main_csv) data = AnatomyColumns(data);
+        if (name.find("_texloads") == std::string::npos) z.Add(name, data);
+      }
+    }
+    z.Add("about.txt", Redact(about));
+    if (!z.Close()) return Status("Could not finish " + PathStr(zip));
+    perf_zip_ = zip;
+    want_perf_popup_ = true;
+    Status("Performance test saved: " + PathStr(zip));
+    Log("performance test saved " + PathStr(zip));
+  }
+  // Session 41: a frame-anatomy CSV with only the columns tools\native\laptop_breakdown.py reads (the zip is stored
+  // uncompressed; the full file is ~3 MB per capture). Rows whose field count differs from the header's are left out.
+  static std::string AnatomyColumns(const std::string& csv) {
+    static const char* kKeep[] = {"frame",          "idx",           "kind",          "cp_us",         "vs_hash",
+                                  "ps_hash",        "prim",          "count",         "rb_surface_info",
+                                  "rb_color_info0", "rb_color_info1", "rb_color_info2", "rb_color_info3",
+                                  "rb_depth_info",  "rb_modecontrol", "rb_depthcontrol", "rb_color_mask", "skipped",
+                                  "copy_dest",      "copy_info",     "dispatches",    "barrier_batches",
+                                  "fsi_edram_barriers"};
+    auto split = [](const std::string& line) {
+      std::vector<std::string> f;
+      size_t a = 0;
+      for (size_t b; (b = line.find(',', a)) != std::string::npos; a = b + 1) f.push_back(line.substr(a, b - a));
+      f.push_back(line.substr(a));
+      return f;
+    };
+    std::string out;
+    std::vector<size_t> cols;
+    size_t header_fields = 0;
+    size_t pos = 0;
+    while (pos < csv.size()) {
+      size_t end = csv.find('\n', pos);
+      if (end == std::string::npos) end = csv.size();
+      std::string line = csv.substr(pos, end - pos);
+      pos = end + 1;
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (line.empty()) continue;
+      const std::vector<std::string> f = split(line);
+      if (!header_fields) {
+        header_fields = f.size();
+        for (const char* k : kKeep)
+          for (size_t i = 0; i < f.size(); ++i)
+            if (f[i] == k) cols.push_back(i);
+      } else if (f.size() != header_fields) {
+        continue;
+      }
+      for (size_t i = 0; i < cols.size(); ++i) out += (i ? "," : "") + f[cols[i]];
+      out += '\n';
+    }
+    return out;
+  }
+
+  void PerfTestPopup() {
+    // Offered once when the launcher opens (not to automation runs, which start it with --perf-test if they want it).
+    if (PerfTestAvailable() && !perf_offered_) perf_offered_ = true, want_perf_popup_ = steps.empty();
+    if (want_perf_popup_) ImGui::OpenPopup("perf_test"), want_perf_popup_ = false;
+    if (!BeginGameModal("perf_test", "PERFORMANCE TEST", 680 * Dpi())) return;
+    if (perf_step_ >= 0) {
+      ImGui::Text("The test is running.");
+      ImGui::Spacing();
+      ImGui::TextWrapped("The game starts, plays two entrances and the start of a match by itself, and closes; "
+                         "then it does the same once more with another renderer (15 to 25 minutes in all on a "
+                         "laptop). Please leave the PC alone until then; don't touch the controller or keyboard "
+                         "while the game runs.");
+      Note("To stop early: close the game (Alt+F4); what ran so far is still saved.");
+    } else if (!perf_zip_.empty()) {
+      ImGui::TextWrapped("Done, thank you! Please send this file:");
+      ImGui::TextColored(kGood, "%s", PathStr(perf_zip_).c_str());
+      ImGui::Dummy(ImVec2(0, 12 * Dpi()));
+      if (ModalMainButton("OPEN THE FOLDER")) {
+        const std::wstring arg = L"/select,\"" + perf_zip_.wstring() + L"\"";
+        ShellExecuteW(hwnd_, nullptr, L"explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+      }
+      if (ModalButton("Close")) ImGui::CloseCurrentPopup();
+    } else {
+      ImGui::TextWrapped("This test build measures where your graphics card spends its time. It plays the same "
+                         "Quick Match twice by itself, with two renderers (15 to 25 minutes in all on a laptop), and "
+                         "then saves one .zip for you to send back. Your settings stay as they are.");
+      ImGui::Spacing();
+      Note("Before you start: plug the laptop in, close other programs, and leave it alone while it runs.");
+      ImGui::Dummy(ImVec2(0, 12 * Dpi()));
+      if (ModalMainButton("START THE TEST", gd_.ok && !game_proc_)) StartPerfTest();
+      if (ModalButton("Not now")) ImGui::CloseCurrentPopup();
+      if (!gd_.ok) ImGui::TextColored(kBad, "Set up your game files first (Settings).");
+    }
+    ImGui::NewLine();
+    ImGui::EndPopup();
+  }
+
   // ---------------- Mods
   // Session 31: game-style tabs: the selected one a slanted black bar with red text (like the selected page on the
   // red panel), the others grey. Returns true when the selection changed.
@@ -2327,10 +2668,19 @@ class App {
     } else {
       if (ImGui::Button("Add PNG pictures...", ImVec2(-1, 0)))
         for (auto& f : PickPngs(hwnd_)) AddLogoPick(f);
+      // Session 53 (a playtester's request): the logo's size, the game's own SELECT CANVAS SIZE choice.
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted("Logo size:");
+      ImGui::SameLine();
+      ImGui::RadioButton("256x256", &s.logo_size, 256);
+      ImGui::SameLine();
+      ImGui::RadioButton("128x128", &s.logo_size, 128);
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A smaller logo: the game's 128x128 canvas (the size its own editor offers first).");
       if (logo_picks_.empty()) {
-        Note("Any PNG works; it is scaled to 256x256. Square pictures look best.");
+        Note("Any PNG works; it is scaled to the logo size. Square pictures look best.");
       } else {
-        // The selected picture at 256x256, as the game will get it.
+        // The selected picture, as the game will get it (stretched to the square canvas).
         if (logo_pick_sel_ >= int(logo_picks_.size())) logo_pick_sel_ = 0;
         const fs::path& cur = logo_picks_[size_t(logo_pick_sel_)];
         int w = 0, h = 0;
@@ -2338,7 +2688,7 @@ class App {
         const float side = std::min(256 * dpi, ImGui::GetContentRegionAvail().x);
         const ImVec2 a = ImGui::GetCursorScreenPos();
         ImGui::Dummy(ImVec2(side, side));
-        // The game's canvas is square: the picture is stretched to 256x256 (as src\logo_import.h scales it).
+        // The game's canvas is square: the picture is stretched to it (as src\logo_import.h scales it).
         Checker(ImGui::GetWindowDrawList(), a, ImVec2(a.x + side, a.y + side), 8 * dpi);
         if (srv)
           ImGui::GetWindowDrawList()->AddImage(ImTextureRef(reinterpret_cast<ImTextureID>(srv)), a,
@@ -2445,7 +2795,7 @@ class App {
       return;
     }
     std::string err;
-    logo_jobs_ = PlanLogoJobs(logo_, logo_picks_, err);
+    logo_jobs_ = PlanLogoJobs(logo_, logo_picks_, err, s.logo_size);
     if (!logo_forced_.empty() && !logo_jobs_.empty()) {  // automation: the slots given with --logo-add PNG@SLOT
       for (auto& j : logo_jobs_)
         if (auto it = logo_forced_.find(j.png); it != logo_forced_.end()) j.slot = it->second;
@@ -2486,9 +2836,7 @@ class App {
     fs::remove(logo_result_file_, ec);
     Command c;
     c.exe = paths_.game_exe.wstring(), c.workdir = paths_.launcher_dir.wstring();
-    std::string a;
-    if (!s.game_data_dir.empty()) a += "--game_data_root=" + Quote(s.game_data_dir) + " ";
-    if (!s.user_data_dir.empty()) a += "--user_data_root=" + Quote(s.user_data_dir) + " ";
+    std::string a = HelperPathFlags();
     a += "--wwe2k14_input_script=" + Quote(PathStr(script)) + " --vsync=false";  // fast-forwarded menus
     a += " --wwe2k14_use_launcher_settings=false";  // a helper run keeps the default look, whatever the Play settings are
     a += " --wwe2k14_input_result=" + Quote(PathStr(logo_result_file_));
@@ -2763,6 +3111,15 @@ class App {
     SubHeading("GAME FILES");
     GameDataSection(false);
     ImGui::Dummy(ImVec2(0, 8 * Dpi()));
+    // Session 53 (a playtester's request; Jarrod: "a toggle in the game settings").
+    SubHeading("STARTING THE GAME");
+    OptionToggle("QUICK START", s.quick_start, true,
+                 "Opening the launcher starts the game straight away with these settings (3 seconds to press a key or "
+                 "click to stay; hold Shift while opening the launcher to skip it). The launcher closes with the game.");
+    if (ImGui::Button("Make a desktop shortcut")) CreateDesktopShortcut();
+    ImGui::SameLine();
+    ImGui::TextDisabled("It starts the game directly with these settings (so does wwe2k14.exe itself).");
+    ImGui::Dummy(ImVec2(0, 8 * Dpi()));
     SubHeading("DOWNLOADABLE CONTENT");
     DlcSection();
     ImGui::Dummy(ImVec2(0, 8 * Dpi()));
@@ -2900,17 +3257,24 @@ class App {
   // (the graphics card's own render targets with the Session 37 fixes: same picture in our checks; src\light_renderer.h).
   // A card without interlock (AMD on Windows) cannot run ACCURATE: the SDK falls back to LIGHT's path, and
   // --wwe2k14_fbo_fallback_fix (default on, Jarrod 2026-10-20) applies LIGHT's fixes there.
+  // Session 41 (low-spec step 2): NATIVE (2) = ACCURATE with the native renderer drawing the scene (the game's own
+  // shaders on the card's own render targets, --gpu_native=2): on the playtester's UHD 620 +10-28% fps over ACCURATE.
+  // It needs interlock like ACCURATE (the SDK turns it off by itself otherwise).
+  // Session 51 (Jarrod, 2026-10-22: "native should just replace low ... it may be easy for playtesters to use a wrong
+  // setting"; "NATIVE for everyone"): NATIVE is the default on every PC, ACCURATE and LIGHT are fallbacks, and the LOW
+  // preset button is gone (resolution and frame rate are their own rows; integrated graphics still start at 720p / 30).
   void RendererRow(Settings& t, const wwe2k14::vkdev::Device& dev) {
-    static constexpr const char* kRen[] = {"ACCURATE", "LIGHT"};
-    t.renderer = std::clamp(t.renderer, 0, 1);
-    std::string note = t.renderer == 0 ? "The exact Xbox 360 renderer. Needs a strong graphics card."
-                                       : "Lighter on the graphics card: for integrated graphics, laptops and older cards. "
-                                         "The same picture in our checks.";
-    if (!dev.name.empty() && !dev.interlock && t.renderer == 0)
+    static constexpr const char* kRen[] = {"ACCURATE", "LIGHT", "NATIVE"};
+    t.renderer = std::clamp(t.renderer, 0, 2);
+    std::string note = t.renderer == 0   ? "Fallback: the Xbox 360's own frame buffer emulated in every pixel. Needs a "
+                                           "strong graphics card."
+                       : t.renderer == 1 ? "Fallback: lighter on the graphics card, for cards NATIVE can't run on. The "
+                                           "same picture in our checks."
+                                         : "The default: the scene drawn by the graphics card's own hardware, on every "
+                                           "PC from integrated graphics up. The same picture in our checks.";
+    if (!dev.name.empty() && !dev.interlock && t.renderer != 1)
       note += " Your card (" + dev.name + ") can't run it: the game uses the light renderer there.";
-    else if (dev.integrated() && t.renderer == 0)
-      note += " Integrated graphics (" + dev.name + "): LIGHT is suggested.";
-    OptionRow("RENDERER", t.renderer, kRen, 2, true, note.c_str());
+    OptionRow("RENDERER", t.renderer, kRen, 3, true, note.c_str());
   }
 
   void SettingsGraphics() {
@@ -3199,7 +3563,7 @@ class App {
       if (OptionRow("GRAPHICS CARD", gi, ptrs.data(), int(ptrs.size()), true,
                     gpus_.size() > 1 ? "Automatic: the dedicated card with the most memory." : nullptr)) {
         wiz_.gpu = gi == 0 ? std::string() : gpus_[size_t(gi - 1)].name;
-        wiz_.resolution = SuggestResolution(hw_), wiz_.renderer = 0;
+        wiz_.resolution = SuggestResolution(hw_), wiz_.frame_rate = SuggestFrameRate(hw_), wiz_.renderer = 2;
         SuggestForDevice(wiz_);  // Session 37: the suggestions follow the card
       }
       RendererRow(wiz_, ChosenDevice(wiz_.gpu));  // Session 37
@@ -3236,10 +3600,14 @@ class App {
   // Session 37 (the brief: "The first-run wizard should pick it on integrated graphics"): integrated graphics get the
   // light renderer at 720p (a UHD 620 drew 5-10 fps in matches with the accurate renderer at 720p); a card that cannot
   // run the accurate renderer (no interlock: AMD on Windows) gets the light renderer.
+  // Session 41 (low-spec step 2): integrated graphics get the LOW preset (NATIVE, or LIGHT without interlock; 720p,
+  // FRAME RATE 30). Session 51 ("NATIVE for everyone"): NATIVE on every card with interlock; integrated graphics still
+  // start at 720p / 30 fps without an upscaler (the LOW preset's quality part, no button any more).
   void SuggestForDevice(Settings& t) {
     const wwe2k14::vkdev::Device dev = ChosenDevice(t.gpu);
-    if (dev.integrated()) t.renderer = 1, t.resolution = 0;
-    else if (!dev.name.empty() && !dev.interlock) t.renderer = 1;
+    if (!dev.name.empty() && !dev.interlock) t.renderer = 1;
+    else if (dev.integrated()) t.renderer = 2;
+    if (dev.integrated()) t.resolution = 0, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
   }
 
   void FinishWizard() {
@@ -3459,7 +3827,9 @@ class App {
   void BuildPreviews() {
     std::error_code ec;
     fs::create_directories(TronCacheDir(), ec);
-    const std::string flag = "--wwe2k14_tron_export=" + Quote(PathStr(TronCacheDir())) +
+    // Session 53 item 2.2 (a playtester: "--game_data_root was not provided" from Build previews): the game files and
+    // save folders as PLAY GAME gives them (the run had none, so a release found no game files).
+    const std::string flag = HelperPathFlags() + "--wwe2k14_tron_export=" + Quote(PathStr(TronCacheDir())) +
                              " --wwe2k14_use_launcher_settings=false";  // a helper run keeps the default look
     Command c;
     if (s.harness) {
@@ -4310,6 +4680,8 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--preset") out.push_back({"preset", next()});
     else if (a == "--harness") out.push_back({"harness", next()});
     else if (a == "--launch") out.push_back({"launch"});
+    else if (a == "--perf-test") out.push_back({"perf_test"}), out.push_back({"wait_perf_test"});  // Session 39
+    else if (a == "--show-perf-test") out.push_back({"show_perf_test"});
     else if (a == "--shot") out.push_back({"shot", next()});
     else if (a == "--exit") app.exit_after_steps = true;
     else if (a == "--log") app.log_path = fs::path(Widen(next()));
@@ -4331,6 +4703,7 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--fake-igpu") app.FakeIntegratedGpu();  // Session 37
     else if (a == "--logo-add") out.push_back({"logo_add", next()});
     else if (a == "--logo-import") out.push_back({"logo_import"});
+    else if (a == "--logo-size") out.push_back({"logo_size", next()});  // Session 53: 128 or 256
     else if (a == "--wait-game") out.push_back({"wait_game"});
     else if (a == "--backup") out.push_back({"backup"});
     else if (a == "--restore") out.push_back({"restore", next()});
@@ -4338,6 +4711,11 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--no-open") app.NoOpen();
     else if (a == "--settings") app.settings_path = fs::path(Widen(next()));  // another settings file (a fresh profile)
     else if (a == "--play") out.push_back({"play"});
+    else if (a == "--start-game") app.start_game_ = true;  // Session 53: the game at once, the window hidden
+    else if (a == "--shortcut-dir") app.shortcut_dir_ = fs::path(Widen(next()));  // Session 53 tests
+    else if (a == "--create-shortcut") out.push_back({"create_shortcut"});
+    else if (a == "--build-previews") out.push_back({"build_previews"});  // Session 53 item 2.2 test
+    else if (a == "--local-data") g_local_data_override = fs::path(Widen(next()));
     else if (a == "--quick-match") out.push_back({"quick_match"});
     else if (a == "--quick-type") out.push_back({"quick_type", next()});
     else if (a == "--wm30-era") out.push_back({"wm30_era", next()});  // Session 34
@@ -4382,8 +4760,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     MessageBoxW(hwnd, L"Direct3D 11 is not available.", L"WWE 2K14 Launcher", MB_ICONERROR);
     return 1;
   }
-  ShowWindow(hwnd, SW_SHOWDEFAULT);
-  UpdateWindow(hwnd);
+  // Session 53: --start-game keeps the window hidden (the App shows it if the game can't start).
+  bool start_game = false;
+  {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    for (int i = 1; argv && i < argc; ++i) start_game |= std::wstring(argv[i]) == L"--start-game";
+    if (argv) LocalFree(argv);
+  }
+  if (!start_game) ShowWindow(hwnd, SW_SHOWDEFAULT), UpdateWindow(hwnd);
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -4409,6 +4794,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   app.Load();
   for (auto& st : steps) app.steps.push_back(st);
   app.MaybeWizard(!steps.empty());
+  app.BeginDirectStart(!steps.empty());  // Session 53: --start-game / QUICK START
 
   int frame = 0;
   bool done = false;

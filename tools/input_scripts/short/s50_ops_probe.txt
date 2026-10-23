@@ -1,0 +1,32 @@
+# harness: fast-forward ok (Session 50 step 2: the engine's render commands by the probe plugin - op histogram, recorders' callers, one frame's op sequence - in Brock's entrance and in the match)
+# Session 50 (docs\native\SCENE_MAP.md): COVERAGE build (run_list -Exe coverage or the coverage exe path) with
+# --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true --wwe2k14_file_trace=true. The probe (probes\probes.cpp) is
+# loaded at Brock's entrance video and again at the match clock; read [s50][ops] / [s50][rec] / [s50][seq] lines
+# (py tools\native\scene\ops_report.py RUN). Untimed. on_fail quit.
+on_fail quit
+log census: start s50_ops_probe (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log census: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log census: match launched
+wait_file 343.bik2 1800
+log census: entrances (probe on)
+plugin load
+wait_frames 420
+plugin unload
+wait_state match_clock !=0 9000 2
+log census: match clock running (probe on)
+plugin load
+wait_frames 420
+plugin unload
+log census: end
+quit

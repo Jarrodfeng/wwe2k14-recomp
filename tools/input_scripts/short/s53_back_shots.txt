@@ -1,0 +1,20 @@
+# harness: fast-forward ok (Session 53 item 2.3: pictures of wrestlers' backs in a match, untimed)
+# A launched match (e.g. --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=101,205
+# --wwe2k14_fixed_seed=13): from the launch to the match a screenshot every 150 frames (entrances, NNN_e_NN), from
+# the match's start one every 90 frames for 3600 frames (NNN_m_01..40), then quit. With the same seed the shots of two runs show the same moments (near-identical). on_fail
+# quit.
+on_fail quit
+log s53b: start
+include boot_to_menu
+log s53b: main menu reached
+wait_file INGAMELUA.PAC 3600
+log s53b: match launched
+screenshot_every 150 e
+wait_file M3.PAC 30000
+screenshot_every 0
+log scene=match
+screenshot_every 90 m
+wait_frames 3600
+screenshot_every 0
+log bench: done
+quit

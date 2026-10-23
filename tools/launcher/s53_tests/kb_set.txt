@@ -1,0 +1,5 @@
+wait_frames 300
+cvar keybind_a G
+cvar keybind_start Return
+wait_frames 30
+quit

@@ -1,0 +1,34 @@
+# harness: fast-forward ok (Session 45: s45_parity_shots plus the native segment log for 2 frames at Bryan +300 and in the match at p_match1500; untimed)
+# Six shots of the s21_lb replay at fixed points: Brock's entrance (343.bik2 + 200 frames), Bryan's entrance (as
+# s42_shots: at 324.bik2), the match at M3.PAC + 600 / 1500 / 2400 / 3300 frames. Run it twice (the reference
+# settings and the candidate), then `py tools\native\parity_pair.py RUN_A RUN_B` (per-shot difference bands and
+# difference pictures). Replay frames are near-identical, not byte-identical (two-state frames): compare bands, not
+# exact equality. Run with --wwe2k14_replay_play=s21_lb. on_fail quit. Screenshots p_* are local only.
+on_fail quit
+log bench: start s45_parity_shots (launch)
+wait_file SaveData.Dat 3600
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 20000
+log scene=tron_343
+wait_frames 200
+screenshot p_brock200
+wait_file 324.bik2 20000
+log scene=tron_324
+screenshot p_bryan
+wait_frames 300
+cvar gpu_native_segment_log 2
+wait_file M3.PAC 30000
+log scene=match
+screenshot p_match0600
+wait_frames 900
+screenshot p_match1500
+cvar gpu_native_segment_log 2
+wait_frames 900
+screenshot p_match2400
+wait_frames 900
+screenshot p_match3300
+log bench: done
+quit

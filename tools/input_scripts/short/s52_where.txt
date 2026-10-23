@@ -1,0 +1,36 @@
+# harness: fast-forward ok (Session 52 step 0: where the NATIVE frame goes - frame-anatomy captures with GPU marks in Brock's and Bryan's entrances and the match, the RAM census, a profiled pass; untimed)
+# Session 52 step 0 (SESSION52_PLAN.md section 2): the s21_lb replay as NATIVE ships (LOW + truth frames). Run with
+# --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true
+# [--resolution_scale=4 for 1440p] [--gpu_ram_stats=true] [--wwe2k14_profile_gpu_commands=true
+# --wwe2k14_profile_stacks=true --wwe2k14_profile_main=true]. Logs "ab: mode 0" once (profile_ab.py splits by it).
+# Anatomy: logs\anatomy_NNN_K.csv, K = 1 Brock, 2 Bryan, 3 match (2 frames each); read with
+# py tools\bench\anatomy_report.py ... --gpu and py tools\native\pass_gpu.py. on_fail quit.
+on_fail quit
+log bench: start s52_where (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_file MNUIHD.PAC 3600
+log census: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log census: match launched
+wait_file 343.bik2 1800
+log census: entrances
+log ab: mode 0
+wait_frames 300
+cvar gpu_anatomy_gpu_marks true
+cvar gpu_anatomy_capture 2
+wait_frames 6
+wait_file 324.bik2 20000
+wait_frames 440
+cvar gpu_anatomy_capture 2
+wait_frames 6
+wait_state match_clock !=0 9000 2
+log census: match clock running
+wait_frames 600
+cvar gpu_anatomy_capture 2
+wait_frames 1200
+log census: end
+quit

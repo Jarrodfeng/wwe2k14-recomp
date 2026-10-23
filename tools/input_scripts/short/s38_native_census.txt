@@ -1,0 +1,28 @@
+# Session 38 (native renderer): the census of the guest's command stream per context (gpu_native_census: indirect
+# buffers, occlusion query events, visibility-query draws, memexport draws, shaders per frame and since start). Needs
+# --wwe2k14_launch=lesnar_bryan (entrances on). Main menu, Brock's entrance (tron 343), Bryan's (tron 324), the
+# match: 5 census frames each, [native][census] lines in the log. Untimed (lanes OK). on_fail quit.
+on_fail quit
+log census: start
+include boot_to_menu
+log scene=menu
+wait_frames 30
+cvar gpu_native_census 5
+wait_frames 20
+wait_file 343.bik2 20000
+log scene=tron_343
+wait_frames 300
+cvar gpu_native_census 5
+wait_frames 20
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 300
+cvar gpu_native_census 5
+wait_frames 20
+wait_state match_clock !=0 30000 2
+log scene=match
+wait_frames 600
+cvar gpu_native_census 5
+wait_frames 20
+log census: end
+quit

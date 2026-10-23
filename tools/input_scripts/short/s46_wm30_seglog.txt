@@ -1,0 +1,31 @@
+# Session 46: s44_wm30_play with the native segment log for 2 frames just before wm_01 (the truth frames' flare check).
+# Session 44 (native sweep addition, DESIGN 3g): 30 Years of WrestleMania gameplay. Use with --wwe2k14_wm30=N
+# --wwe2k14_wm30_auto=false (the setting's own menu drive waits while a route runs, run 2853: this route drives the
+# menus as wm30_jump_check.txt does; the jump swaps match N in when the first era's first match is picked). Then A
+# every 600 frames until the match clock runs (skips the pre-match video and the card; run 2864 sat in the video),
+# then screenshots every 1,200 frames for 4,800 frames and quits. Untimed, fast-forward ok (the nav includes
+# wait for their states). on_fail quit. Screenshots wm_* are local only.
+on_fail quit
+log wm: start
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4   # the era card, then its first match: picking one opens EVTDSC<era>.PAC
+log wm: match picked
+press_until_state A match_clock !=0 60 600 5   # skips the pre-match video (real-time length, run 2864) and the card
+log wm: match clock running
+screenshot wm_start
+wait_frames 1198
+cvar gpu_native_segment_log 2
+screenshot wm_01
+wait_frames 1200
+screenshot wm_02
+log wm: end
+quit
+screenshot_every 1200 wm
+wait_frames 4800
+screenshot_every 0
+screenshot wm_end
+wait_frames 60
+log wm: end
+quit

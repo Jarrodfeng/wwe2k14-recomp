@@ -36,6 +36,8 @@
 #include "entrance_music.h"  // --wwe2k14_entrance_music (Session 33 item 5, default off)
 #include "ultrawide.h"       // --wwe2k14_aspect (Session 33 item 6, default off)
 #include "perf_report.h"  // --wwe2k14_perf_report (Session 20 item 9, default off)
+#include "half2_hooks.h"  // SDK gpu_native_half2 (Session 48, Half 2: the game's D3D library draws; default off)
+#include "scene_crowd.h"  // --wwe2k14_scene_crowd (Session 50 step 3: the crowd as a scene-level pass; default off)
 
 namespace rex::kernel::xboxkrnl {
 // ReXGlue's implementations, exported by rexruntime.dll but not declared in the public headers.

@@ -1,0 +1,21 @@
+WWE 2K14 recomp - performance test build
+========================================
+
+Thank you for helping! This build measures where your graphics card spends its time. It is a test build only: please don't pass it
+on.
+
+You need: your own WWE 2K14 game files set up in the launcher (as for the normal playtest builds), the laptop plugged
+in, and 20 to 30 minutes in which you don't need the PC.
+
+1. Unzip this folder somewhere new (not over your normal playtest folder).
+2. Start wwe2k14_launcher.exe from this folder.
+3. A window "PERFORMANCE TEST" opens. Click START THE TEST.
+   (If you closed it: Play page -> "PERFORMANCE TEST (test build)".)
+4. Leave the PC alone. The game starts, plays two entrances and the start of a match by itself, and closes; then
+   it does the same a second time with another renderer. Don't touch the controller or keyboard while the game is
+   running.
+5. When it is done, the launcher says "Done, thank you!" and shows a file called performance_test_DATE.zip (in the
+   "reports" folder next to the launcher; OPEN THE FOLDER shows it). Please send that file back.
+
+Your own settings are not changed. The .zip holds the game's logs, its frame times, timings of the graphics card's work and your PC's basics (graphics card,
+processor, memory, Windows version); your user name is removed from file paths.

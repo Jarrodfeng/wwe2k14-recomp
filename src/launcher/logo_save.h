@@ -1,7 +1,7 @@
 // wwe2k14 launcher - Create-a-Logo import (Session 25 item 1). No UI code here.
 //
 // The player picks PNGs; the launcher backs up the save, then starts the game with an input script that goes to
-// CREATIONS -> LOGO, opens each free slot at 256x256, lets the logo importer (src\logo_import.h) put the picture on
+// CREATIONS -> LOGO, opens each free slot at 256x256 (or 128x128, Session 53), lets the logo importer (src\logo_import.h) put the picture on
 // the canvas and presses ACCEPT: the game writes its own save (no hand-edited bytes, no checksum risk). Afterwards the
 // launcher reads the save again and checks each slot. Format and route: docs\systems\save_logos.md.
 //
@@ -247,9 +247,11 @@ inline std::string RestoreBackup(const Backup& b, const fs::path& title_dir) {
 struct LogoJob {
   int slot = 0;      // 0-19
   fs::path png;
+  int size = 256;    // Session 53: the canvas, 256 or 128 (the game's SELECT CANVAS SIZE choice)
 };
 
-inline std::vector<LogoJob> PlanLogoJobs(const LogoSave& save, const std::vector<fs::path>& pngs, std::string& err) {
+inline std::vector<LogoJob> PlanLogoJobs(const LogoSave& save, const std::vector<fs::path>& pngs, std::string& err,
+                                         int size = 256) {
   std::vector<int> free;
   // Session 27: no Custom Logo file yet = the game creates one with its default logo in slot 1 (run 1921).
   std::error_code ec;
@@ -265,7 +267,7 @@ inline std::vector<LogoJob> PlanLogoJobs(const LogoSave& save, const std::vector
     return SlotX(a) != SlotX(b) ? SlotX(a) < SlotX(b) : SlotRow(a) < SlotRow(b);
   });
   std::vector<LogoJob> jobs;
-  for (size_t i = 0; i < pick.size(); ++i) jobs.push_back({pick[i], pngs[i]});
+  for (size_t i = 0; i < pick.size(); ++i) jobs.push_back({pick[i], pngs[i], size == 128 ? 128 : 256});
   return jobs;
 }
 
@@ -308,8 +310,8 @@ inline std::string LogoImportScript(const std::vector<LogoJob>& jobs, bool legac
       o << "wait_frames 10\n"
            "log logo_import: slot " << j.slot + 1 << "\n"
            "press A\nwait_frames 60\n"                   // SELECT CANVAS SIZE (cursor on 128x128)
-           "press DOWN\nwait_frames 20\n"                // 256x256
-           "press A\nwait_frames 90\n"                   // the editor
+        << (j.size == 128 ? "" : "press DOWN\nwait_frames 20\n")  // 256x256
+        << "press A\nwait_frames 90\n"                   // the editor
            "cvar wwe2k14_logo_import_file " << PathStr(j.png) << "\n"
            "cvar wwe2k14_logo_import true\nwait_frames 20\n"
            "press LT 10\nwait_frames 30\n"               // the Tools panel; the left stick moves in it
@@ -377,13 +379,14 @@ inline std::string LogoImportScript(const std::vector<LogoJob>& jobs, bool legac
       << "press A\n"
       << "wait_state " << kLogoScreen << " 0 120\n"   // a used slot would not open the size menu: stop here
       << "wait_frames 20\n"
-      << "assert_state " << kLogoSize << " 0\n"       // the menu starts on 128x128
-      << "press_until_state DOWN " << kLogoSize << " 1 2 30\n"
+      << "assert_state " << kLogoSize << " 0\n";      // the menu starts on 128x128
+    if (j.size != 128) o << "press_until_state DOWN " << kLogoSize << " 1 2 30\n";
+    o << "assert_state " << kLogoSize << " " << (j.size == 128 ? 0 : 1) << "\n"
       << "assert_state " << kLogoScreen << " 0\n"
-      << "log logo_import: slot " << j.slot + 1 << " -> 256x256 editor\n"
+      << "log logo_import: slot " << j.slot + 1 << " -> " << j.size << "x" << j.size << " editor\n"
       << "press A\n"
       << "wait_state " << kLogoScreen << " 3 300\n"
-      << "wait_state " << kLogoCanvas << " 256 120\n"
+      << "wait_state " << kLogoCanvas << " " << j.size << " 120\n"
       << "wait_frames 30\n"
       << "cvar wwe2k14_logo_import_file " << PathStr(j.png) << "\n"
       << "cvar wwe2k14_logo_import true\nwait_frames 20\n"
@@ -409,7 +412,7 @@ inline std::string LogoImportScript(const std::vector<LogoJob>& jobs, bool legac
   o << "log logo_import: done\nwait_frames 60\nquit\n";
   return o.str();
 }
-// After the game closed: did every job's slot become a used logo, and at 256x256 (the save's own size field)?
+// After the game closed: did every job's slot become a used logo, at its size (the save's own size field)?
 struct LogoResult {
   int ok = 0, failed = 0, low_res = 0;
   std::string detail;
@@ -421,7 +424,7 @@ inline LogoResult CheckLogoJobs(const std::vector<LogoJob>& jobs, const LogoSave
     const auto& a = after.slots[size_t(j.slot)];
     const bool was = before.slots[size_t(j.slot)].used;
     std::string line = "slot " + std::to_string(j.slot + 1) + " (" + PathStr(j.png.filename()) + "): ";
-    if (!was && a.used && a.w == 256) ++r.ok, line += "saved 256x256";
+    if (!was && a.used && a.w == j.size) ++r.ok, line += "saved " + std::to_string(j.size) + "x" + std::to_string(j.size);
     else if (!was && a.used) ++r.ok, ++r.low_res, line += "saved, but " + std::to_string(a.w) + "x" + std::to_string(a.h);
     else ++r.failed, line += "NOT saved";
     r.detail += line + "\n";

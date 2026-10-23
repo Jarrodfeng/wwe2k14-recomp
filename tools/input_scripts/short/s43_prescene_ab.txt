@@ -1,0 +1,32 @@
+# harness: fast-forward ok (Session 43: in-run A/B of depth + 16-bit formats in post targets by GPU ms per frame; untimed)
+# Session 43 (from s42_post_ab): the passes before the scene in post targets (gpu_native_post_depth + gpu_native_post_16bit, with --gpu_native_post=true and the LOW preset) on / off every 120 frames through the s21_lb replay (Brock's and
+# Bryan's entrances, the match), logged as "ab: mode 1 / 0". Run with --wwe2k14_replay_play=s21_lb
+# --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true; read with py tools\native\ab_gpu.py RUN. on_fail quit.
+on_fail quit
+log bench: start s43_prescene_ab (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 1800
+repeat 40
+cvar gpu_native_post_depth true
+cvar gpu_native_post_16bit true
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_post_depth false
+cvar gpu_native_post_16bit false
+log ab: mode 0
+wait_frames 120
+end_repeat
+log bench: done
+quit

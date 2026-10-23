@@ -1,0 +1,23 @@
+# harness: fast-forward ok (Session 49: who writes the pages that change without a write watch firing - WM30 match 15's documentary video, physical 0x1F880000)
+# Session 49 (RAM_TIES.md section 7): run 3374 counted 196 pages (e.g. 0x1F880000-0x1F883000) whose bytes changed while
+# no shared-memory watch fired. Hardware write watches on the first dword of physical 0x1F880000 in each guest view
+# (0xA0000000: 0xBF880000, 0xC0000000: 0xDF880000, 0xE0000000 with its 4 KB offset: 0xFF87F000 and, in case the
+# offset goes the other way, 0xFF881000); a hit names the writer ([wwe2k14][watch]). No hit in any view = a writer
+# outside the guest views (the physical mapping). Then as s44_wm30_play (it stops in the video, as run 3374 did).
+# Run with --wwe2k14_wm30=15 --wwe2k14_wm30_auto=false --wwe2k14_preset_low=true. Untimed. on_fail quit.
+on_fail quit
+log stale: start
+watch 0xBF880000 4 any
+watch 0xDF880000 4 any
+watch 0xFF87F000 4 any
+watch 0xFF881000 4 any
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4   # the era card, then its first match: picking one opens EVTDSC<era>.PAC
+log stale: match picked
+press_until_state A match_clock !=0 60 600 5   # skips the pre-match video (real-time length, run 2864) and the card
+log stale: match clock running
+wait_frames 600
+log stale: end
+quit

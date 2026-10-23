@@ -1,0 +1,2 @@
+wait_frames 200
+quit
