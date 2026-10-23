@@ -11,7 +11,8 @@ Build {{VERSION}} (commit {{COMMIT}}).
 - A graphics card with Vulkan support (any recent NVIDIA, AMD or Intel GPU with up-to-date drivers).
 - Nothing else to install: the Microsoft Visual C++ runtime files the game needs are included (next to the game).
 - An Xbox-compatible controller is recommended. A keyboard mode exists (Settings -> Advanced) but is untested; change
-  its keys with F4 in the game (your changes are kept).
+  its keys with F4 in the game (your changes are kept). When the game shows its on-screen keyboard (a name to enter),
+  you can simply type on your PC keyboard.
 - Your own WWE 2K14 Xbox 360 disc, copied to your PC as a folder or a disc image (below).
 
 ## Copying your disc

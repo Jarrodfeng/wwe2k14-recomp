@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.1
+
+Everything in the v0.2.0 playtest builds (more resolutions, NATIVE on cards without interlock, the AMD fixes), plus:
+
+- **Fixed: red patches on wrestlers' skin and wrestlers drawn glowing white** (seen on Intel laptops). On a slow
+  laptop the game's shaders take long to compile, and the drawing that builds the wrestlers' textures (skin, attire,
+  damage) was skipped meanwhile and never redone. We made it happen on our PC by slowing the compiles down the same
+  way, and with the fix the same match looks right. The cost: a few short pauses on the loading screen the first time
+  (no pauses in play). **Intel laptop players: please tell us whether the red patches and the white wrestler are
+  gone.**
+- **Fixed: Quick Matches that never ended** (for example a six-man Hell in a Cell where nobody went for a pin). Quick
+  Match now sets a match's rules the way the game's own menus do. We played every match type to its finish with all
+  CPU wrestlers: all of them end.
+- **New: type on your PC keyboard in the game's name fields** (Create a Story, championships, ...). Each key you type
+  jumps the on-screen keyboard to that key and presses it, with the game's own red highlight. Shift, Backspace, Enter
+  (done), Escape (cancel), Space and the arrow keys work too. While the on-screen keyboard is up, the keys you type
+  don't also work as controller buttons (keyboard mode).
+
 ## v0.2.0-native-s54b-playtest
 
 A test build for playtesters (pre-release), the s54 playtest plus two fixes from a ROG Ally tester:

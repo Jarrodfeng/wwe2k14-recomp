@@ -1,0 +1,26 @@
+# Session 55 part 2 (Quick Match matches that never end): does a Quick Match of type T end by itself? Boot, the
+# launcher fires at the main menu, the match runs (entrances skipped), then wait for the finish type
+# (G+472 0x8376ACCC != 0; 1 pinfall, 7 Rumble) for up to 144,000 frames (40 minutes of match at 60 steps a second,
+# 80 at step 30), a screenshot every 36,000 frames; log the finish type, the winner / loser bytes and the match clock,
+# two screenshots after the decision, quit. Untimed, fast-forwarded (game logic, not pictures: Jarrod wants these at
+# 360p, as fast as the game goes). Read the results with py tools\s55\qm_report.py RUN...
+# Use with --wwe2k14_launch=@quick --wwe2k14_quick_type=T --wwe2k14_launch_participants=A,B[,...]
+# --wwe2k14_launch_skip_entrances=true (tools\s55\qm_sweep.ps1 sets them per type).
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 3600
+wait_state seq 9 3600 30
+wait_state match_clock >600 30000 2   # the match itself runs (frames on its clock)
+log qm_finish: match running
+screenshot qmf_start
+screenshot_every 36000 qmf
+wait_state 0x8376ACCC !=0 144000 2 optional
+log qm_finish: wait over
+log_state 0x8376ACCC
+log_state 0x8376E3EC
+log_state match_clock
+screenshot qmf_end
+wait_frames 600
+screenshot qmf_end10
+log qm_finish: done
+quit

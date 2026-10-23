@@ -1,0 +1,472 @@
+# ReXGlue SDK changes for WWE 2K14 (session55): 50c9137a0a1f..1ee937091702 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  1ee9370 wwe2k14 Session 55 review fixes: a narrow draw's pending pipeline is taken out of the creation queue and made, or waited for alone (AwaitPendingPipeline; not the whole queue), and made at once without a placeholder with vulkan_pipeline_no_submit_wait off too (fast path included); native: finished worker pipelines drained and an unstarted job for the key dropped before making it at once; both debug delays in every creation path
+#  160d5ec wwe2k14 Session 55 (the red blocks / white wrestlers on slow laptops): a draw into a surface narrower than the screen waits for its pipeline instead of being skipped (it may build a texture the game keeps; with compiles slowed to 100 ms, run 3729, wrestlers' textures stayed washed out all match): NATIVE truth draws (gpu_native_truth_pipeline_wait_offscreen) and the stock path (vulkan_pipeline_sync_offscreen), both on; diagnostics vulkan_pipeline_debug_delay_ms (stock creation threads), gpu_debug_texture_min_lod
+#  989188c wwe2k14 Session 55 diagnostics for the red blocks on Intel laptops: vulkan_debug_check_buffer_offsets (log buffer descriptor / texel buffer view offsets that break a given alignment, 64 = Intel HD), gpu_native_truth_debug_pipeline_delay_ms (a slow laptop's pipeline compile time)
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index f99f84d92eb2339ea37aa7114afa00c45f721526..244deb9ad50b2c8ada7307a9f340471b68bb9262 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -1170,10 +1170,13 @@ class NativeRenderer {
+   // The truth census (per frame slot, summed in the report): fallbacks by reason, boundary loads / write-outs, staged
+   // resolves and their tiles from the EDRAM, alias reads (a run read tiles another image owns: kept as they were).
+   static constexpr uint32_t kTruthReasons = 24;
++  // Session 55: surfaces at least this many 80-sample tiles wide are the screen-wide ones (1280 pixels).
++  static constexpr uint32_t kTruthScreenPitchTiles = 16;
+   struct TruthCounts {
+     uint32_t frames = 0, fallbacks = 0, passes = 0, draws = 0, loads = 0, writeouts = 0, staged = 0, staged_edram = 0;
+     uint32_t alias_reads = 0, store_dispatches = 0, direct = 0;
+     uint32_t compiling = 0;  // Session 47: draws skipped while their pipeline was being made
++    uint32_t waited = 0;     // Session 55: draws into narrower surfaces whose pipeline was made at once instead
+     uint32_t filled = 0, fill_refused = 0;
+     uint32_t fill_packed = 0, fill_direct = 0;
+     uint32_t deferred = 0, deferred_batches = 0;  // Session 52: texture-only resolves deferred, flushes
+diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
+index 3f3f0d68f913b43e6cc62860bf7dcb8a34bac0da..3680f3bc43ee068c6b81cce4f065a0d35e1fc7db 100644
+--- a/include/rex/graphics/vulkan/pipeline_cache.h
++++ b/include/rex/graphics/vulkan/pipeline_cache.h
+@@ -391,10 +391,23 @@ class VulkanPipelineCache {
+                              VkShaderModule fragment_shader_override = VK_NULL_HANDLE);
+   void CreationThread(size_t thread_index);
+   void CreateQueuedPipelinesOnProcessorThread();
++  // wwe2k14 patch (Session 55): one queued pipeline made on this thread; one pending pipeline waited for.
++  void CreateQueuedPipelineOnProcessorThread(const PipelineCreationArguments& creation_arguments);
++  void AwaitPendingPipeline(std::pair<const PipelineDescription, Pipeline>* entry);
+   void ProcessDeferredPipelineDestructions(bool force_all);
+ 
+   VulkanCommandProcessor& command_processor_;
+   const RegisterFile& register_file_;
++  // wwe2k14 patch (Session 55): draws into narrower surfaces whose pipeline was made or awaited at once (logged at
++  // powers of two).
++  uint64_t offscreen_waits_ = 0;
++  void NoteOffscreenWait(const char* how) {
++    const uint64_t n = ++offscreen_waits_;
++    if (!(n & (n - 1))) {
++      REXGPU_INFO("[s55][sync_offscreen] {} pipelines for draws into surfaces narrower than the screen made or awaited "
++                  "at once instead of skipping the draw (latest: {})", n, how);
++    }
++  }
+   VulkanRenderTargetCache& render_target_cache_;
+   VkShaderStageFlags guest_shader_vertex_stages_;
+ 
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 98ab077232304a759502d19ee1c9bfdcb342425f..1e03d94454eb775a9a956ec6c38a87d76635d3d4 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -9,6 +9,7 @@
+ #include <rex/graphics/vulkan/native/native_renderer.h>
+ 
+ #include <algorithm>
++#include <chrono>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstring>
+@@ -261,6 +262,14 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_async_pipelines, true, "GPU/Native",
+                     "thread; a truth draw whose pipeline is not ready yet is skipped, as the emulated renderer skips "
+                     "one (vulkan_pipeline_no_submit_wait). false = made at once on the command thread (Session 46)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 55, the red blocks): a 2-core laptop (i3-6100U, HD 520) skipped 109,595 truth draws while
++// their pipelines were made, this PC ~1,400. Diagnostic: the worker waits this long before each pipeline, as a slow
++// driver compiles, so the draws skipped meanwhile can be studied here.
++REXCVAR_DEFINE_INT32(gpu_native_truth_debug_pipeline_delay_ms, 0, "GPU/Native",
++                     "Diagnostic (Session 55): every native pipeline creation (the worker thread's and the command "
++                     "thread's) waits this many milliseconds first (a slow laptop's compile time); 0 = none")
++    .range(0, 10000)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_native_truth_texture_fill, 63, "GPU/Native",
+                      "With gpu_native_truth (Session 47, M6): a 1x resolve also fills the texture it feeds from the "
+                      "native image, so the texture is not loaded again (the guest memory is written as before). Bit "
+@@ -1815,6 +1824,21 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+     }
+     return VK_NULL_HANDLE;
+   }
++  // Session 55 (review): made at once while the worker may have it - its finished pipelines first, and a job for this
++  // key it has not started yet goes (made here instead of twice).
++  if (pipeline_thread_.joinable()) {
++    DrainPipelineJobs();
++    found = pipelines_.find(key);
++    if (found != pipelines_.end()) return found->second;
++    std::lock_guard<std::mutex> lock(pipeline_mutex_);
++    for (auto job = pipeline_jobs_.begin(); job != pipeline_jobs_.end(); ++job) {
++      if (job->key == key) {
++        pipeline_jobs_.erase(job);
++        pipeline_pending_.erase(key);
++        break;
++      }
++    }
++  }
+   const VkPipeline pipeline = CreatePipeline(draw, key, spec_values);
+   if (pipeline == VK_NULL_HANDLE && pipelines_failed_++ < 8) {
+     REXGPU_WARN("[native] pipeline creation failed for vertex shader {:016X}, pixel shader {:016X}",
+@@ -1881,6 +1905,10 @@ void NativeRenderer::StopPipelineWorker() {
+ }
+ 
+ VkPipeline NativeRenderer::CreatePipeline(const Draw& draw, const PipelineKey& key, const float spec_values[3]) const {
++  // Session 55: gpu_native_truth_debug_pipeline_delay_ms - on the worker and on the command thread alike (review).
++  if (const int32_t delay = REXCVAR_GET(gpu_native_truth_debug_pipeline_delay_ms); delay > 0) {
++    std::this_thread::sleep_for(std::chrono::milliseconds(delay));
++  }
+   // (Session 47: what GetPipeline decided, from its key - the worker thread reads no state that changes.)
+   const VkShaderModule pixel_shader = key.pixel_shader;
+   const uint32_t color_mask = (key.state >> 16) & 0xF;
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index b06dd581fa3d0baf0b6340a9932edf59c9d8d18a..6bb06fc6d2a967434dc1832f2b27749ba89c9928 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -42,6 +42,13 @@ REXCVAR_DEFINE_INT32(gpu_native_truth_draw_height, 0, "GPU/Native",
+                      "scale's own size")
+     .range(0, 4320)
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++// wwe2k14 patch (Session 55, the red blocks / white wrestlers on slow laptops; ClaimTruth).
++REXCVAR_DEFINE_BOOL(gpu_native_truth_pipeline_wait_offscreen, true, "GPU/Native",
++                    "Session 55: with gpu_native_truth_async_pipelines, a truth draw into a surface narrower than the "
++                    "screen (under 16 tiles = 1280 pixels) whose pipeline is not ready waits for it (made at once) "
++                    "instead of being skipped: such draws build textures the game keeps (wrestlers' while a match "
++                    "loads), and a skipped one stays missing. false = every such draw is skipped (Sessions 47-54)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_native_truth_draw_min_pitch, 16, "GPU/Native",
+                      "Session 54: with gpu_native_truth_draw_height, the surfaces drawn smaller: at least this many "
+                      "80-pixel tiles wide (16 = 1280: the screen-wide ones). Narrower surfaces draw at the resolution "
+@@ -441,8 +448,16 @@ bool NativeRenderer::ClaimTruth(Draw& draw) {
+   // draws nothing without a pipeline), as the emulated path skips a draw whose pipeline is still being made.
+   bool pending = false;
+   // (Review: only where the emulated path skips too - async_shader_compilation - so such frames are held back alike.)
+-  draw.pipeline = GetPipeline(
+-      draw, REXCVAR_GET(gpu_native_truth_async_pipelines) && REXCVAR_GET(async_shader_compilation) ? &pending : nullptr);
++  const bool async = REXCVAR_GET(gpu_native_truth_async_pipelines) && REXCVAR_GET(async_shader_compilation);
++  // Session 55 (the red blocks / white wrestlers on slow laptops): only a draw into a screen-wide surface may be
++  // skipped while its pipeline is made (that frame shows without it, the next has it). A draw into a narrower surface
++  // usually builds a texture the game keeps (the wrestlers' while a match loads): skipped, it stays missing all match.
++  // A 2-core laptop skipped 109,595 draws; here, compiles slowed down to 100 ms (gpu_native_truth_debug_pipeline_delay_ms,
++  // run 3729) left wrestlers' trunks, waistbands and skin washed out for the whole match. Those draws wait instead.
++  const bool may_skip = pitch_tiles >= kTruthScreenPitchTiles || !REXCVAR_GET(gpu_native_truth_pipeline_wait_offscreen);
++  const size_t pipelines_before = pipelines_.size();
++  draw.pipeline = GetPipeline(draw, async && may_skip ? &pending : nullptr);
++  if (async && !may_skip && pipelines_.size() != pipelines_before) ++truth_counts_.waited;
+   if (pending) {
+     ++truth_counts_.compiling;
+     draw.owned = true;
+@@ -3865,11 +3880,11 @@ void NativeRenderer::LogTruthCensus() {
+     REXGPU_INFO("[native][truth] frames {}-{}: truth frames {}, fallbacks {} ({}); per frame: passes {:.1f}, draws "
+                 "{:.1f}, boundary loads {:.1f}, write-outs {:.2f}, staged resolves {:.1f} (tiles from the EDRAM "
+                 "{:.1f}), direct copies {:.1f}, store dispatches {:.1f}, alias reads {:.1f}; images {}{}; skipped "
+-                "while their pipeline was made {}; textures filled by copy {:.1f} (refused {:.1f}; packed {:.1f}, of them "
++                "while their pipeline was made {} (made at once instead, not the screen: {}); textures filled by copy {:.1f} (refused {:.1f}; packed {:.1f}, of them "
+                 "into the texture's storage view {:.1f}); resolves deferred {:.1f} in {:.1f} batches, renames {:.1f}; draw twins: made {:.2f}, read {:.1f}",
+                 frame_ + 1 - report_.frames, frame_, c.frames, c.fallbacks, reasons.empty() ? "none" : reasons,
+                 pf(c.passes), pf(c.draws), pf(c.loads), pf(c.writeouts), pf(c.staged), pf(c.staged_edram), pf(c.direct),
+-                pf(c.store_dispatches), pf(c.alias_reads), truth_images_.size(), gpu, c.compiling, pf(c.filled),
++                pf(c.store_dispatches), pf(c.alias_reads), truth_images_.size(), gpu, c.compiling, c.waited, pf(c.filled),
+                 pf(c.fill_refused), pf(c.fill_packed), pf(c.fill_direct), pf(c.deferred), pf(c.deferred_batches), pf(c.renames),
+                 pf(c.twin_blits[0]), pf(c.twin_blits[1]));
+     if (ram_stats_) {  // Session 49 (the RAM ties)
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 78d693c3074fd37ae5951786b7190bd688e65a7c..0c7675a1072765dc0d08412c839a825efd9d2d3e 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -12,6 +12,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
++#include <chrono>
+ #include <cstdint>
+ #include <cstring>
+ #include <memory>
+@@ -78,6 +79,20 @@ REXCVAR_DEFINE_BOOL(vulkan_pipeline_sync_depth_only, false, "GPU/Vulkan",
+                     "With vulkan_pipeline_no_submit_wait: still create pipelines for draws without a "
+                     "pixel shader (depth-only) on the command processor thread, as before")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 55, the red blocks / white wrestlers on slow laptops): a draw skipped while its pipeline is
++// being made is lost for good when it builds a texture the game keeps (the wrestlers' while a match loads; with the
++// native renderer's compiles slowed down to 100 ms, run 3729, trunks, waistbands and skin stayed washed out all
++// match). Only draws into screen-wide surfaces (1280 pixels or more) are skipped; the others wait for their pipeline.
++REXCVAR_DEFINE_INT32(vulkan_pipeline_debug_delay_ms, 0, "GPU/Vulkan",
++                     "Diagnostic (Session 55): every pipeline creation (creation threads, the command processor's "
++                     "own, placeholders) waits this many milliseconds first (a slow laptop's compile time); 0 = none")
++    .range(0, 10000)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(vulkan_pipeline_sync_offscreen, true, "GPU/Vulkan",
++                    "Session 55: with async_shader_compilation, a draw into a surface narrower than the screen (under "
++                    "1280 pixels) whose pipeline is not ready waits for it instead of being skipped (it may build a "
++                    "texture the game keeps). false = every such draw is skipped (Sessions 6-54)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -1232,11 +1247,16 @@ bool VulkanPipelineCache::ConfigurePipeline(
+         uint32_t(primitive_processing_result.host_primitive_reset_enabled), render_pass_key.key);
+     return false;
+   }
++  // wwe2k14 patch (Session 55): vulkan_pipeline_sync_offscreen - the surface the draw goes to (guest pixels).
++  const bool sync_offscreen = REXCVAR_GET(vulkan_pipeline_sync_offscreen) && !creation_threads_.empty() &&
++                              register_file_.Get<reg::RB_SURFACE_INFO>().surface_pitch < 1280;
+   if (last_pipeline_ && last_pipeline_->first == description) {
+     VkPipeline last_pipeline = last_pipeline_->second.pipeline.load(std::memory_order_acquire);
+     const PipelineLayoutProvider* last_pipeline_layout =
+         last_pipeline_->second.pipeline_layout.load(std::memory_order_acquire);
+-    if (last_pipeline != VK_NULL_HANDLE && last_pipeline_layout != nullptr) {
++    // (Session 55, review: not a placeholder for a narrow draw - the lookup below waits for the real one.)
++    if (last_pipeline != VK_NULL_HANDLE && last_pipeline_layout != nullptr &&
++        !(sync_offscreen && last_pipeline_->second.is_placeholder.load(std::memory_order_acquire))) {
+       pipeline_out = last_pipeline;
+       pipeline_layout_out = last_pipeline_layout;
+       if (pipeline_handle_out) {
+@@ -1263,6 +1283,14 @@ bool VulkanPipelineCache::ConfigurePipeline(
+   auto it = pipelines_.find(description);
+   if (it != pipelines_.end()) {
+     VkPipeline found_pipeline = it->second.pipeline.load(std::memory_order_acquire);
++    if (sync_offscreen && it->second.is_placeholder.load(std::memory_order_acquire)) {
++      // wwe2k14 patch (Session 55): still being made (queued for a screen-wide draw first): this one only, out of
++      // the queue onto this thread, or waited for on its creation thread (review: AwaitPipelineCreation makes the
++      // whole queue - a long stall on a slow laptop while a match loads).
++      AwaitPendingPipeline(&*it);
++      NoteOffscreenWait("awaited");
++      found_pipeline = it->second.pipeline.load(std::memory_order_acquire);
++    }
+     if (found_pipeline == VK_NULL_HANDLE &&
+         it->second.is_placeholder.load(std::memory_order_acquire)) {
+       // wwe2k14 patch (Session 6, H1): queued by vulkan_pipeline_no_submit_wait
+@@ -1330,10 +1358,17 @@ bool VulkanPipelineCache::ConfigurePipeline(
+     if (vertex_shader->shader().memexport_eM_written() ||
+         (pixel_shader && pixel_shader->shader().memexport_eM_written())) {
+       use_async = false;
++    } else if (sync_offscreen) {  // wwe2k14 patch (Session 55): made now (below)
+     } else if (pixel_shader || !REXCVAR_GET(vulkan_pipeline_sync_depth_only)) {
+       queued_without_placeholder = true;
+     }
+   }
++  // wwe2k14 patch (Session 55): vulkan_pipeline_sync_offscreen - a narrow draw's new pipeline is made now, on this
++  // thread, with or without vulkan_pipeline_no_submit_wait (review: no placeholder for it either).
++  if (sync_offscreen && use_async) {
++    use_async = false;
++    NoteOffscreenWait("made at once");
++  }
+   if (queued_without_placeholder) {
+     if (use_async) {
+       creation_arguments_real.priority = async_priority;
+@@ -3243,6 +3278,11 @@ bool VulkanPipelineCache::TryGetPipelineCreationArgumentsForDescription(
+ 
+ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments& creation_arguments,
+                                                 VkShaderModule fragment_shader_override) {
++  // wwe2k14 patch (Session 55): vulkan_pipeline_debug_delay_ms (before the "already made" check is fine: a slow
++  // driver is slow wherever the creation runs; callers only reach here to create).
++  if (const int32_t delay = REXCVAR_GET(vulkan_pipeline_debug_delay_ms); delay > 0) {
++    std::this_thread::sleep_for(std::chrono::milliseconds(delay));
++  }
+   VkPipeline existing_pipeline =
+       creation_arguments.pipeline->second.pipeline.load(std::memory_order_acquire);
+   bool is_placeholder =
+@@ -3817,6 +3857,43 @@ void VulkanPipelineCache::CreateQueuedPipelinesOnProcessorThread() {
+       creation_arguments = creation_queue_.top();
+       creation_queue_.pop();
+     }
++    CreateQueuedPipelineOnProcessorThread(creation_arguments);
++  }
++}
++
++// wwe2k14 patch (Session 55): vulkan_pipeline_sync_offscreen - wait for one pending pipeline only. Taken out of the
++// creation queue (under its lock no creation thread can take it) and made here; when a creation thread is already
++// making it, waited for until that thread publishes it (or fails: the flag is cleared either way).
++void VulkanPipelineCache::AwaitPendingPipeline(std::pair<const PipelineDescription, Pipeline>* entry) {
++  PipelineCreationArguments mine;
++  bool found = false;
++  {
++    std::lock_guard<std::mutex> lock(creation_request_lock_);
++    std::vector<PipelineCreationArguments> others;
++    others.reserve(creation_queue_.size());
++    while (!creation_queue_.empty()) {
++      if (!found && creation_queue_.top().pipeline == entry) {
++        mine = creation_queue_.top();
++        found = true;
++      } else {
++        others.push_back(creation_queue_.top());
++      }
++      creation_queue_.pop();
++    }
++    for (const PipelineCreationArguments& a : others) creation_queue_.push(a);
++  }
++  if (found) {
++    CreateQueuedPipelineOnProcessorThread(mine);
++    return;
++  }
++  // (At most 2 s: a pipeline still pending then is skipped as before rather than holding the command processor.)
++  for (int i = 0; i < 10000 && entry->second.is_placeholder.load(std::memory_order_acquire); ++i) {
++    std::this_thread::sleep_for(std::chrono::microseconds(200));
++  }
++}
++
++void VulkanPipelineCache::CreateQueuedPipelineOnProcessorThread(const PipelineCreationArguments& creation_arguments) {
++  {
+     bool created = EnsurePipelineCreated(creation_arguments);
+     if (!created) {
+       bool has_placeholder =
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 3d1e4f55e10e0a52976c9b3b5060723f16f0f817..98f74b683cbaa85a2ade23c9e93b002cf8c81657 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -43,6 +43,14 @@
+ #include <rex/ui/vulkan/util.h>
+ 
+ REXCVAR_DEFINE_BOOL(non_seamless_cube_map, false, "GPU", "Use non-seamless cube map sampling");
++// wwe2k14 patch (Session 55, the red blocks on Intel laptops): other GPUs may sample other mip levels than this one
++// (their own LOD from the same gradients). Diagnostic: every mipmapped sampler starts this many levels further down, so
++// the smaller levels - the ones a resolve fills or a load writes that this PC hardly samples - are what the pictures
++// show (compare runs with a setting on / off at the same value).
++REXCVAR_DEFINE_DOUBLE(gpu_debug_texture_min_lod, 0.0, "GPU",
++                      "Diagnostic (Session 55): add this to every mipmapped sampler's minimum LOD (1 = the first "
++                      "level below the base is the largest sampled); 0 = off. Read when a sampler is made: set it at "
++                      "start");
+ // wwe2k14 patch (Session 45, NATIVE TEXWRITE): the native renderer's settings (native_renderer.cpp).
+ REXCVAR_DECLARE(bool, gpu_native_all);
+ REXCVAR_DECLARE(bool, gpu_native_resolve_texture);
+@@ -1425,6 +1433,10 @@ VkSampler VulkanTextureCache::UseSamplerUncached(SamplerParameters parameters,
+                               uint32_t(xenos::AnisoFilter::kMax_1_1)));
+   }
+   sampler_create_info.minLod = float(parameters.mip_min_level);
++  // wwe2k14 patch (Session 55): gpu_debug_texture_min_lod (not for base-map-only samplers).
++  if (const double extra = REXCVAR_GET(gpu_debug_texture_min_lod); extra > 0 && !parameters.mip_base_map) {
++    sampler_create_info.minLod += float(extra);
++  }
+   if (parameters.mip_base_map) {
+     assert_false(parameters.mip_linear);
+     sampler_create_info.maxLod = sampler_create_info.minLod + 0.25f;
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 44a400430f00e3f19433ff567dcbd1f7312d7b53..35d1c013d0063d7ac1a9781817f04edeaca7ec5a 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cstring>
+ #include <string>
+ #include <unordered_map>
+@@ -23,6 +24,13 @@
+ #include <rex/ui/vulkan/streamline.h>  // wwe2k14 patch (Session 18, DLAA)
+ #include <rex/ui/vulkan/device.h>
+ 
++#if REX_PLATFORM_WIN32  // wwe2k14 patch (Session 55): vulkan_debug_check_buffer_offsets (the calling module)
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#include <windows.h>
++#endif
++
+ REXCVAR_DEFINE_BOOL(vulkan_require_fragment_stores_and_atomics, true, "UI/Vulkan",
+                     "Deprecated and ignored for parity; fragmentStoresAndAtomics is always "
+                     "required for Vulkan GPU emulation")
+@@ -52,10 +60,93 @@ REXCVAR_DEFINE_BOOL(vulkan_transform_feedback, false, "UI/Vulkan",
+                     "Enable VK_EXT_transform_feedback if supported (DLSS object motion vectors, gpu_dlss_objmv)")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ 
++// wwe2k14 patch (Session 55, the red blocks on Intel laptops): this PC's limits are not every player's. The HD 520 (and
++// other older Intel graphics) needs storage buffer and texel buffer offsets in multiples of 64 bytes, where the 4090
++// takes 16; a binding that breaks the device's rule is undefined behaviour there (the data lands elsewhere), and
++// nothing in the code reads minStorageBufferOffsetAlignment. Diagnostic: check every buffer descriptor write and texel
++// buffer view against the alignment given here and log the ones that break it (with the calling code's address).
++REXCVAR_DEFINE_INT32(vulkan_debug_check_buffer_offsets, 0, "UI/Vulkan",
++                     "Diagnostic (Session 55): log buffer descriptor writes and texel buffer views whose offset is not a "
++                     "multiple of this many bytes (64 = Intel HD / Iris Xe's storage and texel buffer alignment); 0 = off")
++    .range(0, 4096)
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ namespace rex {
+ namespace ui {
+ namespace vulkan {
+ 
++namespace {
++// wwe2k14 patch (Session 55): vulkan_debug_check_buffer_offsets.
++PFN_vkUpdateDescriptorSets g_real_update_descriptor_sets = nullptr;
++PFN_vkCreateBufferView g_real_create_buffer_view = nullptr;
++VkDeviceSize g_check_alignment = 0;
++std::atomic<uint64_t> g_bad_offsets{0}, g_checked_offsets{0};
++#if REX_PLATFORM_WIN32
++#define CallerAddress() _ReturnAddress()
++#else
++#define CallerAddress() __builtin_return_address(0)
++#endif
++
++uintptr_t CallerRva(void* address, const char*& module_name) {
++#if REX_PLATFORM_WIN32
++  static thread_local char name[MAX_PATH];
++  HMODULE module = nullptr;
++  module_name = "?";
++  if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                          static_cast<LPCSTR>(address), &module)) {
++    return uintptr_t(address);
++  }
++  if (GetModuleFileNameA(module, name, MAX_PATH)) {
++    const char* slash = std::strrchr(name, '\\');
++    module_name = slash ? slash + 1 : name;
++  }
++  return uintptr_t(address) - uintptr_t(module);
++#else
++  module_name = "?";
++  return uintptr_t(address);
++#endif
++}
++
++void NoteBadOffset(void* caller, const char* what, VkDeviceSize offset, VkDeviceSize range, uint32_t binding) {
++  const uint64_t n = g_bad_offsets.fetch_add(1, std::memory_order_relaxed) + 1;
++  if (n > 64 && (n & (n - 1))) return;  // the first 64, then at powers of two
++  const char* module_name;
++  const uintptr_t rva = CallerRva(caller, module_name);
++  REXLOG_WARN("[vulkan][offsets] #{} (of {} checked): {} offset {} (0x{:X}, {} past a multiple of {}) range {} binding {} "
++              "from {}+0x{:X}", n, g_checked_offsets.load(std::memory_order_relaxed), what, offset, offset,
++              offset % g_check_alignment, g_check_alignment, range == VK_WHOLE_SIZE ? int64_t(-1) : int64_t(range),
++              binding, module_name, rva);
++}
++
++VKAPI_ATTR void VKAPI_CALL CheckedUpdateDescriptorSets(VkDevice device, uint32_t write_count,
++                                                       const VkWriteDescriptorSet* writes, uint32_t copy_count,
++                                                       const VkCopyDescriptorSet* copies) {
++  for (uint32_t i = 0; i < write_count; ++i) {
++    const VkWriteDescriptorSet& w = writes[i];
++    const bool storage = w.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++    const bool uniform = w.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++    if ((!storage && !uniform) || !w.pBufferInfo) continue;
++    for (uint32_t j = 0; j < w.descriptorCount; ++j) {
++      g_checked_offsets.fetch_add(1, std::memory_order_relaxed);
++      if (w.pBufferInfo[j].offset % g_check_alignment) {
++        NoteBadOffset(CallerAddress(), storage ? "storage buffer" : "uniform buffer", w.pBufferInfo[j].offset,
++                      w.pBufferInfo[j].range, w.dstBinding);
++      }
++    }
++  }
++  g_real_update_descriptor_sets(device, write_count, writes, copy_count, copies);
++}
++
++VKAPI_ATTR VkResult VKAPI_CALL CheckedCreateBufferView(VkDevice device, const VkBufferViewCreateInfo* info,
++                                                       const VkAllocationCallbacks* allocator, VkBufferView* view) {
++  g_checked_offsets.fetch_add(1, std::memory_order_relaxed);
++  if (info && info->offset % g_check_alignment) {
++    NoteBadOffset(CallerAddress(), "texel buffer view", info->offset, info->range, 0);
++  }
++  return g_real_create_buffer_view(device, info, allocator, view);
++}
++}  // namespace
++
+ template <typename Structure, VkStructureType StructureType>
+ struct VulkanFeatures {
+   Structure supported = {StructureType};
+@@ -872,6 +963,18 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     return nullptr;
+   }
+ 
++  // wwe2k14 patch (Session 55): vulkan_debug_check_buffer_offsets (one device per process).
++  if (const int32_t align = REXCVAR_GET(vulkan_debug_check_buffer_offsets); align > 0 && !g_real_update_descriptor_sets) {
++    g_check_alignment = VkDeviceSize(align);
++    g_real_update_descriptor_sets = dfn.vkUpdateDescriptorSets;
++    g_real_create_buffer_view = dfn.vkCreateBufferView;
++    dfn.vkUpdateDescriptorSets = CheckedUpdateDescriptorSets;
++    dfn.vkCreateBufferView = CheckedCreateBufferView;
++    REXLOG_INFO("[vulkan][offsets] checking buffer descriptor and texel buffer view offsets against {} bytes (this "
++                "device: storage {}, uniform {}, texel {})", align, properties.limits.minStorageBufferOffsetAlignment,
++                properties.limits.minUniformBufferOffsetAlignment, properties.limits.minTexelBufferOffsetAlignment);
++  }
++
+   // Get the queues.
+ 
+   for (size_t queue_family_index = 0; queue_family_index < device->queue_families_.size();

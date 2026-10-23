@@ -627,6 +627,11 @@ REXCVAR_DEFINE_STRING(wwe2k14_quick_rules, "", "wwe2k14",
                       "type setter, before apply: OFF=BYTE,... (OFF 12..75, M byte offsets; apply copies M+12..75 to "
                       "G+0..63). Empty = the menus' values for the types checked (60 steel cage: M+21=3; 81 Inferno: "
                       "M+71=3); 'none' = the type's bare defaults");
+REXCVAR_DEFINE_BOOL(wwe2k14_quick_menu_options, true, "wwe2k14",
+                    "Session 55 (Quick Match matches that never ended: no pinfalls): with --wwe2k14_launch=@quick, give "
+                    "the type setter the options record the menus build (the game's default options with the type's "
+                    "own merged in, as sub_82924658 / sub_82922138 do). false = no options record (Sessions 27-54: "
+                    "rule byte G+1 stays 0 and CPU matches run on without a decision)");
 REXCVAR_DEFINE_BOOL(wwe2k14_launch_restore_ga, true, "wwe2k14",
                     "After the launcher's apply, write the captured settings struct G and participant slots A back "
                     "when they differ (e.g. a Royal Rumble's entry order, drawn during apply). false = keep what "
@@ -666,6 +671,8 @@ REX_EXTERN(sub_822C0898);         // per-character data (id) -> pointer; the dem
 REX_EXTERN(sub_82B6D900);         // Session 27: mode setter (M, mode): M+4
 REX_EXTERN(sub_822CA9C0);         // Session 27: match type setter (M, type, options; 0 = the type's defaults)
 REX_EXTERN(sub_822C6668);         // Session 27: pace setter (M, pace): M+528
+REX_EXTERN(sub_827D9440);         // Session 55: the global block (0x83891878) - match options at +0x80458 / +0x804CA
+REX_EXTERN(sub_822CEDF8);         // Session 55: options record merge (dst, the type's 27-byte record)
 
 namespace wwe2k14::scenario {
 
@@ -937,13 +944,44 @@ inline void FireLaunch(PPCContext& ctx, uint8_t* base, uint32_t sm) {
       fn(ctx, base);
       ctx = saved;
     };
+    const int64_t qtype = std::clamp<int64_t>(REXCVAR_GET(wwe2k14_quick_type), 0, 118);  // 119 types
+    // Session 55 (Quick Match matches that never ended): without an options record the type setter expands the rule
+    // bytes from the global block's default options alone (+0x80458), where the menus first merge in the type's own
+    // 27-byte options (+0x804CA + 27 x type) with sub_822CEDF8 (the menus' type-set helper sub_82924658 ->
+    // sub_82922138) and pass that record. Without it rule byte G+1 stayed 0 (menus 1) and CPU vs CPU matches ran 40
+    // minutes without a pin (run 3717) where the menus' six-man Hell in a Cell ended by pinfall in 2.4 (run 3719).
+    // The record is built here the same way, from the game's own data, in a guest buffer of our own.
+    uint32_t options = 0;
+    if (REXCVAR_GET(wwe2k14_quick_menu_options)) {
+      static uint32_t buffer = 0;
+      if (!buffer) buffer = REX_KERNEL_MEMORY()->SystemHeapAlloc(128);
+      ctx = saved;
+      ctx.lr = 0;
+      sub_827D9440(ctx, base);
+      const uint32_t global = ctx.r3.u32;
+      ctx = saved;
+      if (buffer && global) {
+        std::memcpy(Guest(buffer), Guest(global + 0x80458), 92);  // as sub_82922138
+        call(sub_822CEDF8, {buffer, global + 0x804CA + 27 * uint32_t(qtype)});
+        options = buffer;
+        REXLOG_INFO("[wwe2k14][scenario] quick: options record for type {} (the menus' recipe): {:02X} {:02X} {:02X} "
+                    "{:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} "
+                    "{:02X} {:02X} {:02X} ... frame={}", qtype, U8(buffer), U8(buffer + 1), U8(buffer + 2),
+                    U8(buffer + 3), U8(buffer + 4), U8(buffer + 5), U8(buffer + 6), U8(buffer + 7), U8(buffer + 8),
+                    U8(buffer + 9), U8(buffer + 10), U8(buffer + 11), U8(buffer + 12), U8(buffer + 13),
+                    U8(buffer + 14), U8(buffer + 15), U8(buffer + 16), U8(buffer + 17), U8(buffer + 18),
+                    U8(buffer + 19), Frame());
+      } else {
+        REXLOG_WARN("[wwe2k14][scenario] quick: no options record (buffer {:08X}, global block {:08X}); the type's "
+                    "defaults alone", buffer, global);
+      }
+    }
     call(sub_82B6D900, {m, 0});                                              // mode 0 = exhibition
-    call(sub_822CA9C0, {m, uint64_t(std::clamp<int64_t>(REXCVAR_GET(wwe2k14_quick_type), 0, 118)), 0});  // 119 types
+    call(sub_822CA9C0, {m, uint64_t(qtype), options});
     call(sub_822C6668, {m, uint64_t(std::clamp<int64_t>(REXCVAR_GET(wwe2k14_quick_pace), 0, 2))});  // pace
     // Session 30: rule bytes the menus write but the type's defaults leave out. Found by bisecting menu captures
     // against Quick Matches (runs 2298-2330, docs/systems/match_setup.md): M+21 bit 0 = the steel cage, M+71 bit 0 =
     // the Inferno fire ring (the type setter without the menus' options pointer leaves 0 / 2: no cage, no fire).
-    const int64_t qtype = std::clamp<int64_t>(REXCVAR_GET(wwe2k14_quick_type), 0, 118);
     std::string rules = REXCVAR_GET(wwe2k14_quick_rules);
     // (Session 31: the other steel cages, 61-63, have M+21 = 3 from their own type defaults: runs 2387-2389, 2405.)
     if (rules.empty()) rules = qtype == 60 ? "21=3" : qtype == 81 ? "71=3" : "";

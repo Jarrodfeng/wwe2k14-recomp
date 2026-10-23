@@ -61,6 +61,7 @@
 #include "upscale_guard.h"  // Session 37: a failed FSR turns itself off with a notice (with --wwe2k14_fsr)
 #include "direct_start.h"   // Session 53: a release started without the launcher (hand-off, settings file, message)
 #include "keybinds_save.h"  // Session 53: the keyboard binds saved in the save folder (--wwe2k14_save_keybinds)
+#include "keyboard_typing.h"  // Session 55: --wwe2k14_keyboard_typing (the PC keyboard types into the game's keyboard)
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
 // (used to read jump tables and pointer tables that live inside the encrypted XEX).
@@ -536,6 +537,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::runin::InstallBind();  // Session 16: F9 = run-in (no-op unless --wwe2k14_runin)
     wwe2k14::cinecam::Install(window(), drawer);  // Session 13 CineCam free camera; no-op unless --wwe2k14_cinecam
     wwe2k14::photo::Install();  // Session 33 photo mode; no-op unless --wwe2k14_photo_mode
+    wwe2k14::typing::Install(window());  // Session 55; no-op unless --wwe2k14_keyboard_typing
     wwe2k14::wm30::Install();   // Session 34; no-op unless --wwe2k14_wm30
     // Session 37: a failed FSR is turned off with a notice (no-op unless --wwe2k14_fsr).
     wwe2k14::upscale_guard::Install(

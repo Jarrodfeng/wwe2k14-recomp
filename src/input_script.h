@@ -1967,6 +1967,9 @@ inline InputScript g_input_script;
 // Session 33 (photo mode, src\photo_mode.h): sees player 1's pad after everything above and may change it (an idle
 // pad for the game while the pad drives the camera). Null = nothing.
 inline void (*g_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
+// Session 55 (src\keyboard_typing.h): the key typed on the PC keyboard, pressed on the game's on-screen keyboard. Null =
+// nothing.
+inline void (*g_typing_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
 // Session 33: photo mode's per-frame step (VdSwap, kernel_overrides.h). Null = nothing.
 inline void (*g_photo_frame_hook)(uint8_t* base) = nullptr;
 // Session 34: the 30 Years of WrestleMania jump's per-frame step (src/wm30_jump.h, VdSwap). Null = nothing.
@@ -1979,6 +1982,9 @@ inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
   if (g_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
       (!(flags & 0xFF) || (flags & 0x01)))
     g_pad_filter(&*state);
+  if (g_typing_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
+      (!(flags & 0xFF) || (flags & 0x01)))
+    g_typing_pad_filter(&*state);
   return result;
 }
 

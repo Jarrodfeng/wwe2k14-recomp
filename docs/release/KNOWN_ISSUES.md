@@ -8,9 +8,12 @@
   one doesn't show up, please send a report (launcher: Report a problem lists your packs, never their files).
 - Discord status needs an application id (Settings -> Game) until the project has its own.
 - Our own menu items in the game (QUIT TO DESKTOP, GRAPHICS, PHOTO MODE) stay in English in every language.
-- Some players see a red block on a wrestler's back or face, or a wrestler drawn glowing white (seen on Intel Iris
-  Xe). We can't make it happen on our PC yet. If you see it, please send a report (launcher: Report a problem) and
-  tell us whether it also happens with Settings -> Graphics -> RENDERER: ACCURATE.
+- Red patches on wrestlers' skin / a wrestler drawn glowing white (Intel laptops): fixed in v0.2.1 as far as we can
+  test on our PC (we reproduced it by slowing shader compiles down). If you still see it, please send a report
+  (launcher: Report a problem).
+- Typing on the PC keyboard into the game's name fields was tested in the championship name; other fields use the
+  same on-screen keyboard. Keyboard layouts other than US English type what their keys show, but only the characters
+  the game's on-screen keyboard has.
 - NATIVE on graphics cards without fragment shader interlock (older AMD drivers / graphics) and the LIGHT fallback
   have not been tested on such a card by us yet (only on our NVIDIA card forced onto the same path). With FRAME RATE
   30 the match timer (and anything else the game counts in frames) runs at half speed.
