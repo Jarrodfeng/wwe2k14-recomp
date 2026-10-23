@@ -1,0 +1,20 @@
+# harness: realtime (Session 54: the in-game GRAPHICS menu's RESOLUTION one step left, ACCEPT, quit - for the launcher round trip, tools\launcher\s54_tests\roundtrip_test.ps1; menus drop presses fast-forwarded)
+# From boot: main menu -> OPTIONS -> GRAPHICS (Session 28 patch, item 3) -> row 2 (RESOLUTION) -> LEFT -> ACCEPT (A),
+# then quit. The screen text of the row is logged before and after. on_fail quit.
+on_fail quit
+include boot_to_menu
+include menu_to_options
+press_until_state DOWN cursor 3 24 30 5 if_needed
+press A
+wait_frames 150
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+log_text
+press LEFT
+wait_frames 30
+log_text
+press A
+wait_frames 120
+quit

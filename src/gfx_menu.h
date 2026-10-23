@@ -374,7 +374,7 @@ inline void LoadScreenValues() {
   const bool dlss = DlssPossible(), fsr = FsrOffered();
   BuildUpscaleOrder(dlss, fsr);
   if ((!dlss && gfxs::IsNvidia(c.upscale)) || (!fsr && gfxs::IsFsr(c.upscale))) c.upscale = 0;
-  const bool native = NativeRunning();  // Session 54
+  const bool native = NativeRunning() && c.upscale == 0;  // Session 54 (as the launcher: no upscaler)
   BuildResolutionOrder(native);
   const int res_index = gfxs::ResolutionIndex(c.resolution, c.draw_height, native);
   int res_value = 0;

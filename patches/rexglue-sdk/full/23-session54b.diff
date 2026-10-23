@@ -1,0 +1,539 @@
+# ReXGlue SDK changes for WWE 2K14 (session54b): ec136eb164d9..50c9137a0a1f on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  50c9137 wwe2k14 Session 54 (an ROG Ally tester: "it looks 720p at 360p/480p/540p"): draw twins without blits where the device cannot blit D32S8 (AMD's Windows driver)
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 1c86c5c59cb01a21c392f3add8599ad738226db1..f99f84d92eb2339ea37aa7114afa00c45f721526 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -1114,9 +1114,11 @@ class NativeRenderer {
+     VkImage draw_for = VK_NULL_HANDLE;
+     uint32_t draw_width = 0, draw_height = 0;
+     bool draw_dirty = false;
+-    // Colour: the twin sampled by the resample pass (TruthResampleUp), and this image as its target.
+-    VkDescriptorSet draw_set = VK_NULL_HANDLE;
+-    VkFramebuffer sync_framebuffer = VK_NULL_HANDLE;
++    // The resample passes (TruthResampleTwin): [0] into the twin (sampling this image), [1] into this image
++    // (sampling the twin). Depth: the twin's depth and stencil aspects as sampled views.
++    VkDescriptorSet sync_sets[2] = {};
++    VkFramebuffer sync_fbs[2] = {};
++    VkImageView draw_sample_view = VK_NULL_HANDLE, draw_stencil_view = VK_NULL_HANDLE;
+     bool is_64bpp() const { return kind == 2 && format == 5; }
+     uint32_t row_tiles() const { return pitch_tiles * (is_64bpp() ? 2u : 1u); }
+   };
+@@ -1259,8 +1261,20 @@ class NativeRenderer {
+   void TruthBlitTwin(TruthImage& image, bool up);
+   // Colour twins into their images at the exact draw ratio (a blit's whole-pixel rectangles stretch a twin whose size
+   // is not a whole number of pixels, 2/3 of 1280 = 853.3), never reading the twin's partly drawn last row / column.
+-  bool TruthResampleUp(TruthImage& image);
++  // (Review of an AMD tester's report: AMD's Windows driver cannot blit D32S8 - depth goes through a shader pass
++  // there, its stencil by VK_EXT_shader_stencil_export; the colour twins always.)
++  bool TruthResampleTwin(TruthImage& image, bool up);
++  void TruthCopyTwin(TruthImage& image, bool up);
+   bool EnsureTruthResampleObjects();
++  bool EnsureTruthDepthResampleObjects();
++  bool truth_depth_blit_ = true;            // the depth twins by vkCmdBlitImage (D32S8 blittable), else the pass
++  bool truth_depth_stencil_export_ = false;  // the depth pass writes stencil too
++  bool truth_depth_resample_failed_ = false;
++  VkShaderModule truth_depth_resample_shader_ = VK_NULL_HANDLE;
++  VkDescriptorSetLayout truth_depth_set_layout_ = VK_NULL_HANDLE;
++  VkPipelineLayout truth_depth_resample_layout_ = VK_NULL_HANDLE;
++  VkRenderPass truth_depth_resample_pass_ = VK_NULL_HANDLE;
++  VkPipeline truth_depth_resample_pipeline_ = VK_NULL_HANDLE;
+   bool truth_resample_failed_ = false;
+   VkShaderModule truth_resample_shaders_[2] = {};  // vertex, fragment
+   VkDescriptorSetLayout truth_resample_set_layout_ = VK_NULL_HANDLE;
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index d5c18fe8cfa043ac7f3f340b09d3065108d9bcd6..98ab077232304a759502d19ee1c9bfdcb342425f 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -1693,6 +1693,13 @@ void NativeRenderer::DestroyObjects() {
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyDescriptorSetLayout, device, truth_store_set_layout_);
+   for (VkShaderModule& s : truth_store_shaders_) ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyShaderModule, device, s);
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyShaderModule, device, truth_fill_shader_);  // Session 47
++  RetirePipeline(truth_depth_resample_pipeline_);  // Session 54 (the depth pass)
++  truth_depth_resample_pipeline_ = VK_NULL_HANDLE;
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyRenderPass, device, truth_depth_resample_pass_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyShaderModule, device, truth_depth_resample_shader_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipelineLayout, device, truth_depth_resample_layout_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyDescriptorSetLayout, device, truth_depth_set_layout_);
++  truth_depth_resample_failed_ = false;
+   for (VkPipeline& p : truth_resample_pipelines_) {  // Session 54
+     RetirePipeline(p);
+     p = VK_NULL_HANDLE;
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 777452b118f67e4f3bd40e024a22ba8490cf4b64..b06dd581fa3d0baf0b6340a9932edf59c9d8d18a 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -48,6 +48,10 @@ REXCVAR_DEFINE_INT32(gpu_native_truth_draw_min_pitch, 16, "GPU/Native",
+                      "scale (their syncs cost more than they save)")
+     .range(1, 64)
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_draw_depth_blit, true, "GPU/Native",
++                    "Session 54: with gpu_native_truth_draw_height, depth twins copied by a blit where the device can "
++                    "blit D32S8 (false: the shader pass AMD's driver needs, for testing it elsewhere)")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_draw_twins_off, false, "GPU/Native",
+                     "Session 54 (diagnostic, for in-run A/Bs of gpu_native_truth_draw_height): the truth passes draw at "
+                     "the resolution scale again (switched at a frame end). The pixel shaders keep the draw height's "
+@@ -578,9 +582,10 @@ bool NativeRenderer::EnsureTruthObjects() {
+   // (Per image: two store sets and a direct resolve set - one storage buffer and three samplers; Session 46: the
+   // store sets' stencil binding, two more.)
+   // (Session 54: with draw twins, a colour twin's resample set too - one sampler.)
+-  const uint32_t twin_sets = truth_draw_ratio_ > 0.0f && truth_draw_ratio_ < 1.0f ? kTruthMaxImages : 0;
++  // (Two a twin - into it and out of it -, a depth twin's with two samplers.)
++  const uint32_t twin_sets = truth_draw_ratio_ > 0.0f && truth_draw_ratio_ < 1.0f ? 2 * kTruthMaxImages : 0;
+   VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 * kTruthMaxImages + 64},
+-                                   {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 * kTruthMaxImages + twin_sets + 64}};
++                                   {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 * kTruthMaxImages + 2 * twin_sets + 64}};
+   VkDescriptorPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+   pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+   pool_info.maxSets = 4 * kTruthMaxImages + twin_sets + 64;
+@@ -949,11 +954,18 @@ float NativeRenderer::TruthDrawRatio() {
+     ifn.vkGetPhysicalDeviceFormatProperties(vulkan_device->physical_device(), format, &properties);
+     return (properties.optimalTilingFeatures & needed) == needed;
+   };
++  // (Review of an AMD tester's report - "it looks 720p at 360p / 480p / 540p": AMD's Windows driver cannot blit
++  // D32S8, gpuinfo.org; this used to give up here. Colour twins go through the resample pass, sampled linearly;
++  // depth through a blit where it can, else the depth pass.)
+   constexpr VkFormatFeatureFlags kBlit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT;
+-  constexpr VkFormatFeatureFlags kBlitLinear = kBlit | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+-  if (!has(kTruthColorFormats[1], kBlitLinear) || !has(kTruthColorFormats[2], kBlitLinear) ||
+-      !has(VK_FORMAT_D32_SFLOAT_S8_UINT, kBlit)) {
+-    REXGPU_WARN("[native][truth] draw height {}: the truth image formats cannot be blitted on this device - the passes "
++  constexpr VkFormatFeatureFlags kSampledLinear =
++      VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
++  truth_depth_blit_ =
++      has(VK_FORMAT_D32_SFLOAT_S8_UINT, kBlit) && REXCVAR_GET(gpu_native_truth_draw_depth_blit);
++  truth_depth_stencil_export_ = vulkan_device->extensions().ext_EXT_shader_stencil_export;
++  if (!has(kTruthColorFormats[1], kSampledLinear) || !has(kTruthColorFormats[2], kSampledLinear) ||
++      !EnsureTruthResampleObjects() || (!truth_depth_blit_ && !EnsureTruthDepthResampleObjects())) {
++    REXGPU_WARN("[native][truth] draw height {}: the resample passes could not be made on this device - the passes "
+                 "draw at the resolution scale ({} rows)",
+                 height, 720u * scale_y);
+     return truth_draw_ratio_;
+@@ -967,9 +979,11 @@ float NativeRenderer::TruthDrawRatio() {
+   }
+   truth_twin_min_pitch_ = uint32_t(std::max(1, REXCVAR_GET(gpu_native_truth_draw_min_pitch)));
+   REXGPU_INFO("[native][truth] draw height {}: the truth passes draw at {:.4f} of the resolution scale's size "
+-              "(resolution scale {}, {}x{} for the 1280x720 screen); reads at the resolution scale",
++              "(resolution scale {}, {}x{} for the 1280x720 screen); reads at the resolution scale; depth twins by {}",
+               height, truth_draw_ratio_, scale_y, uint32_t(std::ceil(1280.0f * scale_x * truth_draw_ratio_)),
+-              uint32_t(std::ceil(720.0f * scale_y * truth_draw_ratio_)));
++              uint32_t(std::ceil(720.0f * scale_y * truth_draw_ratio_)),
++              truth_depth_blit_ ? "blit" : truth_depth_stencil_export_ ? "the depth pass (stencil exported)"
++                                                                    : "the depth pass (no stencil export: stencil kept)");
+   return truth_draw_ratio_;
+ }
+ 
+@@ -987,20 +1001,30 @@ void NativeRenderer::TruthRetireTwin(TruthImage& t) {
+       }
+     }
+   }
+-  if (t.draw_image != VK_NULL_HANDLE || t.draw_view != VK_NULL_HANDLE || t.sync_framebuffer != VK_NULL_HANDLE) {
++  if (t.draw_image != VK_NULL_HANDLE || t.draw_view != VK_NULL_HANDLE || t.sync_fbs[0] != VK_NULL_HANDLE ||
++      t.sync_fbs[1] != VK_NULL_HANDLE) {
+     Retired r;
+     r.submission = command_processor_.GetCurrentSubmission();
+     r.images[0] = t.draw_image;
+     r.memory[0] = t.draw_memory;
+     r.views[0] = t.draw_view;
+-    r.framebuffer = t.sync_framebuffer;  // (its image's view: retired with the twin, made again with it)
++    r.views[1] = t.draw_sample_view;
++    r.views[2] = t.draw_stencil_view;
++    r.framebuffer = t.sync_fbs[0];  // (the image's view in [1]: retired with the twin, made again with it)
+     retired_.push_back(r);
++    if (t.sync_fbs[1] != VK_NULL_HANDLE) {
++      Retired f;
++      f.submission = r.submission;
++      f.framebuffer = t.sync_fbs[1];
++      retired_.push_back(f);
++    }
+   }
+-  if (t.draw_set != VK_NULL_HANDLE) {
+-    truth_retired_sets_.push_back({command_processor_.GetCurrentSubmission(), t.draw_set});
+-    t.draw_set = VK_NULL_HANDLE;
++  for (VkDescriptorSet& set : t.sync_sets) {
++    if (set != VK_NULL_HANDLE) truth_retired_sets_.push_back({command_processor_.GetCurrentSubmission(), set});
++    set = VK_NULL_HANDLE;
+   }
+-  t.sync_framebuffer = VK_NULL_HANDLE;
++  t.sync_fbs[0] = t.sync_fbs[1] = VK_NULL_HANDLE;
++  t.draw_sample_view = t.draw_stencil_view = VK_NULL_HANDLE;
+   t.draw_image = VK_NULL_HANDLE;
+   t.draw_memory = VK_NULL_HANDLE;
+   t.draw_view = VK_NULL_HANDLE;
+@@ -1135,11 +1159,22 @@ bool NativeRenderer::EnsureTruthTwin(int16_t index) {
+   view_info.format = format;
+   view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(
+       depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
+-  if (dfn.vkCreateImageView(device, &view_info, nullptr, &view) != VK_SUCCESS) {
++  VkImageView sample_view = VK_NULL_HANDLE, stencil_view = VK_NULL_HANDLE;
++  bool views_ok = dfn.vkCreateImageView(device, &view_info, nullptr, &view) == VK_SUCCESS;
++  if (depth && views_ok) {  // (the depth pass samples the twin's two aspects)
++    view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_DEPTH_BIT);
++    views_ok = dfn.vkCreateImageView(device, &view_info, nullptr, &sample_view) == VK_SUCCESS;
++    view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_STENCIL_BIT);
++    views_ok = views_ok && dfn.vkCreateImageView(device, &view_info, nullptr, &stencil_view) == VK_SUCCESS;
++  }
++  if (!views_ok) {
+     Retired r;
+     r.submission = command_processor_.GetCurrentSubmission();
+     r.images[0] = image;
+     r.memory[0] = memory;
++    r.views[0] = view;
++    r.views[1] = sample_view;
++    r.views[2] = stencil_view;
+     retired_.push_back(r);
+     return false;
+   }
+@@ -1160,10 +1195,12 @@ bool NativeRenderer::EnsureTruthTwin(int16_t index) {
+   t.draw_image = image;
+   t.draw_memory = memory;
+   t.draw_view = view;
++  t.draw_sample_view = sample_view;
++  t.draw_stencil_view = stencil_view;
+   t.draw_for = t.image;
+   t.draw_width = width;
+   t.draw_height = height;
+-  TruthBlitTwin(t, false);
++  TruthCopyTwin(t, false);
+   t.draw_dirty = false;
+   return true;
+ }
+@@ -1180,7 +1217,18 @@ void NativeRenderer::TruthSyncRead(int16_t index) {
+     REXGPU_INFO("[native][seg] frame {} twin sync: image {} {}x{} kind {} base {} pitch {}", frame_, index, t.width,
+                 t.height, t.kind, int32_t(t.base == kTruthScratchBase ? -1 : int32_t(t.base)), t.pitch_tiles);
+   }
+-  if (t.kind == 3 || !TruthResampleUp(t)) TruthBlitTwin(t, true);
++  TruthCopyTwin(t, true);
++}
++
++void NativeRenderer::TruthCopyTwin(TruthImage& t, bool up) {
++  if (t.kind == 3 && truth_depth_blit_) {
++    TruthBlitTwin(t, up);  // (exact, with the stencil, where the device blits D32S8)
++    return;
++  }
++  if (!TruthResampleTwin(t, up)) {
++    static uint32_t logged = 0;
++    if (logged++ < 4) REXGPU_ERROR("[native][truth] a draw twin could not be copied (kind {}, {})", t.kind, up ? "up" : "down");
++  }
+ }
+ 
+ namespace {
+@@ -1205,6 +1253,139 @@ void main() {
+ )";
+ }  // namespace
+ 
++// The depth pass: each pixel takes the source's depth (and, with VK_EXT_shader_stencil_export, stencil) at the
++// nearest source pixel (x the ratio), within max_coord (the source's whole pixels).
++constexpr char kTruthDepthResampleShader[] = R"(
++#version 450
++layout(set = 0, binding = 0) uniform sampler2D src_depth;
++layout(push_constant) uniform Constants { vec2 ratio; vec2 max_coord; } c;
++void main() {
++  ivec2 p = ivec2(min(floor(gl_FragCoord.xy * c.ratio), c.max_coord));
++  gl_FragDepth = texelFetch(src_depth, p, 0).r;
++}
++)";
++constexpr char kTruthDepthStencilResampleShader[] = R"(
++#version 450
++#extension GL_ARB_shader_stencil_export : require
++layout(set = 0, binding = 0) uniform sampler2D src_depth;
++layout(set = 0, binding = 1) uniform usampler2D src_stencil;
++layout(push_constant) uniform Constants { vec2 ratio; vec2 max_coord; } c;
++void main() {
++  ivec2 p = ivec2(min(floor(gl_FragCoord.xy * c.ratio), c.max_coord));
++  gl_FragDepth = texelFetch(src_depth, p, 0).r;
++  gl_FragStencilRefARB = int(texelFetch(src_stencil, p, 0).r);
++}
++)";
++
++bool NativeRenderer::EnsureTruthDepthResampleObjects() {
++  if (truth_depth_resample_pipeline_ != VK_NULL_HANDLE) return true;
++  if (truth_depth_resample_failed_ || !EnsureTruthResampleObjects()) return false;
++  truth_depth_resample_failed_ = true;  // until everything below exists
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  {
++    std::vector<uint32_t> spirv;
++    std::string error;
++    if (!command_processor_.CompileGlslToSpirv(
++            VK_SHADER_STAGE_FRAGMENT_BIT,
++            truth_depth_stencil_export_ ? kTruthDepthStencilResampleShader : kTruthDepthResampleShader, spirv, error)) {
++      REXGPU_ERROR("[native][truth] depth resample shader compilation failed: {}", error);
++      return false;
++    }
++    truth_depth_resample_shader_ =
++        ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++    if (truth_depth_resample_shader_ == VK_NULL_HANDLE) return false;
++  }
++  VkDescriptorSetLayoutBinding bindings[2] = {
++      {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
++      {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
++  VkDescriptorSetLayoutCreateInfo set_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
++  set_info.bindingCount = 2;
++  set_info.pBindings = bindings;
++  if (dfn.vkCreateDescriptorSetLayout(device, &set_info, nullptr, &truth_depth_set_layout_) != VK_SUCCESS) return false;
++  VkPushConstantRange push = {VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4 * sizeof(float)};
++  VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
++  layout_info.setLayoutCount = 1;
++  layout_info.pSetLayouts = &truth_depth_set_layout_;
++  layout_info.pushConstantRangeCount = 1;
++  layout_info.pPushConstantRanges = &push;
++  if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &truth_depth_resample_layout_) != VK_SUCCESS) {
++    return false;
++  }
++  VkAttachmentDescription attachment = {};
++  attachment.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
++  attachment.samples = VK_SAMPLE_COUNT_1_BIT;
++  attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
++  attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
++  attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
++  attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
++  attachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
++  attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
++  VkAttachmentReference reference = {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
++  VkSubpassDescription subpass = {};
++  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
++  subpass.pDepthStencilAttachment = &reference;
++  VkRenderPassCreateInfo pass_info = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
++  pass_info.attachmentCount = 1;
++  pass_info.pAttachments = &attachment;
++  pass_info.subpassCount = 1;
++  pass_info.pSubpasses = &subpass;
++  if (dfn.vkCreateRenderPass(device, &pass_info, nullptr, &truth_depth_resample_pass_) != VK_SUCCESS) return false;
++  VkPipelineShaderStageCreateInfo stages[2] = {
++      {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT,
++       truth_resample_shaders_[0], "main", nullptr},
++      {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT,
++       truth_depth_resample_shader_, "main", nullptr}};
++  VkPipelineVertexInputStateCreateInfo vertex_input = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
++  VkPipelineInputAssemblyStateCreateInfo input_assembly = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
++  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
++  VkPipelineViewportStateCreateInfo viewport = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
++  viewport.viewportCount = 1;
++  viewport.scissorCount = 1;
++  VkPipelineRasterizationStateCreateInfo raster = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
++  raster.polygonMode = VK_POLYGON_MODE_FILL;
++  raster.cullMode = VK_CULL_MODE_NONE;
++  raster.lineWidth = 1.0f;
++  VkPipelineMultisampleStateCreateInfo multisample = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
++  multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
++  VkPipelineDepthStencilStateCreateInfo depth = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
++  depth.depthTestEnable = VK_TRUE;
++  depth.depthWriteEnable = VK_TRUE;
++  depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;
++  if (truth_depth_stencil_export_) {  // (the exported value replaces the reference)
++    depth.stencilTestEnable = VK_TRUE;
++    depth.front = {VK_STENCIL_OP_REPLACE, VK_STENCIL_OP_REPLACE, VK_STENCIL_OP_REPLACE, VK_COMPARE_OP_ALWAYS,
++                   0xFFu, 0xFFu, 0u};
++    depth.back = depth.front;
++  }
++  VkPipelineColorBlendStateCreateInfo blend_state = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
++  VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
++  VkPipelineDynamicStateCreateInfo dynamic = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
++  dynamic.dynamicStateCount = 2;
++  dynamic.pDynamicStates = dynamic_states;
++  VkGraphicsPipelineCreateInfo info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
++  info.stageCount = 2;
++  info.pStages = stages;
++  info.pVertexInputState = &vertex_input;
++  info.pInputAssemblyState = &input_assembly;
++  info.pViewportState = &viewport;
++  info.pRasterizationState = &raster;
++  info.pMultisampleState = &multisample;
++  info.pDepthStencilState = &depth;
++  info.pColorBlendState = &blend_state;
++  info.pDynamicState = &dynamic;
++  info.layout = truth_depth_resample_layout_;
++  info.renderPass = truth_depth_resample_pass_;
++  if (dfn.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &info, nullptr, &truth_depth_resample_pipeline_) !=
++      VK_SUCCESS) {
++    truth_depth_resample_pipeline_ = VK_NULL_HANDLE;
++    return false;
++  }
++  truth_depth_resample_failed_ = false;
++  return true;
++}
++
+ bool NativeRenderer::EnsureTruthResampleObjects() {
+   if (truth_resample_pipelines_[1] != VK_NULL_HANDLE) return true;
+   if (truth_resample_failed_) return false;
+@@ -1313,87 +1494,124 @@ bool NativeRenderer::EnsureTruthResampleObjects() {
+   return true;
+ }
+ 
+-bool NativeRenderer::TruthResampleUp(TruthImage& t) {
+-  if ((t.kind != 1 && t.kind != 2) || !EnsureTruthResampleObjects() || truth_pool_ == VK_NULL_HANDLE) return false;
++// A twin into its image (up) or the image into its twin: colour sampled linearly at the exact ratio, depth (and its
++// stencil) at the nearest pixel - never the source's partly drawn last row / column going up. Both in their
++// attachment layout before and after.
++bool NativeRenderer::TruthResampleTwin(TruthImage& t, bool up) {
++  const bool depth = t.kind == 3;
++  if (depth ? !EnsureTruthDepthResampleObjects() : (t.kind != 1 && t.kind != 2) || !EnsureTruthResampleObjects()) {
++    return false;
++  }
++  if (truth_pool_ == VK_NULL_HANDLE || (depth && (!t.sample_view || !t.stencil_view || !t.draw_sample_view ||
++                                                  !t.draw_stencil_view))) {
++    return false;
++  }
+   const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+-  if (t.draw_set == VK_NULL_HANDLE) {
++  const uint32_t i = up ? 1 : 0;
++  const VkImageLayout read_layout =
++      depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++  if (t.sync_sets[i] == VK_NULL_HANDLE) {
+     VkDescriptorSetAllocateInfo alloc = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+     alloc.descriptorPool = truth_pool_;
+     alloc.descriptorSetCount = 1;
+-    alloc.pSetLayouts = &truth_resample_set_layout_;
+-    if (dfn.vkAllocateDescriptorSets(device, &alloc, &t.draw_set) != VK_SUCCESS) {
+-      t.draw_set = VK_NULL_HANDLE;
++    alloc.pSetLayouts = depth ? &truth_depth_set_layout_ : &truth_resample_set_layout_;
++    if (dfn.vkAllocateDescriptorSets(device, &alloc, &t.sync_sets[i]) != VK_SUCCESS) {
++      t.sync_sets[i] = VK_NULL_HANDLE;
+       return false;
+     }
+-    VkDescriptorImageInfo image_info = {sampler_, t.draw_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+-    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+-    write.dstSet = t.draw_set;
+-    write.descriptorCount = 1;
+-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+-    write.pImageInfo = &image_info;
+-    dfn.vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+-  }
+-  if (t.sync_framebuffer == VK_NULL_HANDLE) {
++    VkDescriptorImageInfo image_info[2] = {
++        {depth ? sampler_nearest_ : sampler_, depth ? (up ? t.draw_sample_view : t.sample_view)
++                                                    : (up ? t.draw_view : t.sample_view),
++         read_layout},
++        {sampler_nearest_, up ? t.draw_stencil_view : t.stencil_view, read_layout}};
++    VkWriteDescriptorSet writes[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
++    for (uint32_t w = 0; w < 2; ++w) {
++      writes[w].dstSet = t.sync_sets[i];
++      writes[w].dstBinding = w;
++      writes[w].descriptorCount = 1;
++      writes[w].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
++      writes[w].pImageInfo = &image_info[w];
++    }
++    dfn.vkUpdateDescriptorSets(device, depth ? 2 : 1, writes, 0, nullptr);
++  }
++  const uint32_t target_w = up ? t.width : t.draw_width, target_h = up ? t.height : t.draw_height;
++  const VkRenderPass pass = depth ? truth_depth_resample_pass_ : truth_resample_passes_[t.kind];
++  if (t.sync_fbs[i] == VK_NULL_HANDLE) {
+     VkFramebufferCreateInfo fb_info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+-    fb_info.renderPass = truth_resample_passes_[t.kind];
++    fb_info.renderPass = pass;
+     fb_info.attachmentCount = 1;
+-    fb_info.pAttachments = &t.view;
+-    fb_info.width = t.width;
+-    fb_info.height = t.height;
++    fb_info.pAttachments = up ? &t.view : &t.draw_view;
++    fb_info.width = target_w;
++    fb_info.height = target_h;
+     fb_info.layers = 1;
+-    if (dfn.vkCreateFramebuffer(device, &fb_info, nullptr, &t.sync_framebuffer) != VK_SUCCESS) {
+-      t.sync_framebuffer = VK_NULL_HANDLE;
++    if (dfn.vkCreateFramebuffer(device, &fb_info, nullptr, &t.sync_fbs[i]) != VK_SUCCESS) {
++      t.sync_fbs[i] = VK_NULL_HANDLE;
+       return false;
+     }
+   }
+   DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
+-  // The twin to be sampled; the image's earlier reads (stores, resolves, fills, copies) done before it is drawn over.
++  const VkImageAspectFlags aspects = depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT
++                                           : VK_IMAGE_ASPECT_COLOR_BIT;
++  const VkImageLayout attachment_layout =
++      depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++  const VkAccessFlags attachment_access =
++      depth ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
++            : VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++  const VkPipelineStageFlags attachment_stages =
++      depth ? VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT
++            : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
++  // The source to be sampled; the target's earlier reads (stores, resolves, fills, copies) done before it is drawn over.
+   VkImageMemoryBarrier barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+   barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+-  barrier.image = t.draw_image;
+-  barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++  barrier.image = up ? t.draw_image : t.image;
++  barrier.srcAccessMask = attachment_access;
+   barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+-  barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+-  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+-  barrier.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
++  barrier.oldLayout = attachment_layout;
++  barrier.newLayout = read_layout;
++  barrier.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(aspects);
+   VkMemoryBarrier reads_done = {VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr,
+-                                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT,
+-                                VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT};
+-  cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+-                              VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+-                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 1,
+-                          &reads_done, 0, nullptr, 1, &barrier);
++                                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | attachment_access,
++                                attachment_access};
++  cb.CmdVkPipelineBarrier(attachment_stages | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT |
++                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
++                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | attachment_stages, 0, 1, &reads_done, 0, nullptr, 1,
++                          &barrier);
+   VkRenderPassBeginInfo begin_info = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+-  begin_info.renderPass = truth_resample_passes_[t.kind];
+-  begin_info.framebuffer = t.sync_framebuffer;
+-  begin_info.renderArea = {{0, 0}, {t.width, t.height}};
++  begin_info.renderPass = pass;
++  begin_info.framebuffer = t.sync_fbs[i];
++  begin_info.renderArea = {{0, 0}, {target_w, target_h}};
+   cb.CmdVkBeginRenderPass(&begin_info, VK_SUBPASS_CONTENTS_INLINE);
+-  const VkViewport viewport = {0.0f, 0.0f, float(t.width), float(t.height), 0.0f, 1.0f};
+-  const VkRect2D scissor = {{0, 0}, {t.width, t.height}};
++  const VkViewport viewport = {0.0f, 0.0f, float(target_w), float(target_h), 0.0f, 1.0f};
++  const VkRect2D scissor = {{0, 0}, {target_w, target_h}};
+   cb.CmdVkSetViewport(0, 1, &viewport);
+   cb.CmdVkSetScissor(0, 1, &scissor);
+-  cb.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, truth_resample_pipelines_[t.kind]);
+-  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, truth_resample_layout_, 0, 1, &t.draw_set, 0, nullptr);
+-  // (The whole twin pixels the passes drew: the draw ratio of the image's size, rounded down.)
+-  const float constants[4] = {truth_draw_ratio_, truth_draw_ratio_,
+-                              std::floor(float(t.width) * truth_draw_ratio_) - 0.5f,
+-                              std::floor(float(t.height) * truth_draw_ratio_) - 0.5f};
+-  cb.CmdVkPushConstants(truth_resample_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(constants), constants);
++  cb.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS,
++                       depth ? truth_depth_resample_pipeline_ : truth_resample_pipelines_[t.kind]);
++  const VkPipelineLayout layout = depth ? truth_depth_resample_layout_ : truth_resample_layout_;
++  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &t.sync_sets[i], 0, nullptr);
++  // Source pixels per target pixel, and the last source position used: going up the twin's whole pixels (the draw
++  // ratio of the image's size, rounded down), going down the whole image. Colour: a texel-centre position (bilinear);
++  // depth: a pixel index (nearest).
++  const float ratio = up ? truth_draw_ratio_ : 1.0f / truth_draw_ratio_;
++  const float whole_w = up ? std::floor(float(t.width) * truth_draw_ratio_) : float(t.width);
++  const float whole_h = up ? std::floor(float(t.height) * truth_draw_ratio_) : float(t.height);
++  const float constants[4] = {ratio, ratio, whole_w - (depth ? 1.0f : 0.5f), whole_h - (depth ? 1.0f : 0.5f)};
++  cb.CmdVkPushConstants(layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(constants), constants);
+   cb.CmdVkDraw(3, 1, 0, 0);
+   cb.CmdVkEndRenderPass();
+   barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+-  barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+-  barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+-  barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+-  cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0,
+-                          nullptr, 0, nullptr, 1, &barrier);
++  barrier.dstAccessMask = attachment_access;
++  barrier.oldLayout = read_layout;
++  barrier.newLayout = attachment_layout;
++  cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, attachment_stages, 0, 0, nullptr, 0, nullptr, 1,
++                          &barrier);
+   // (Native passes and the command processor bind their own pipeline, sets and viewport after this.)
+   truth_bound_valid_ = false;
+   truth_foreign_bind_ = true;
+   command_processor_.NativeDropBindings();
+-  ++truth_counts_.twin_blits[1];
++  ++truth_counts_.twin_blits[up ? 1 : 0];
+   return true;
+ }
+ 

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.2.0-native-s54b-playtest
+
+A test build for playtesters (pre-release), the s54 playtest plus two fixes from a ROG Ally tester:
+
+- **Fixed: 360p, 480p and 540p (and 1080p) drew at 720p on AMD graphics** (ROG Ally, Legion Go, Radeon cards).
+  AMD's driver can't do one kind of image copy those sizes used, so the game quietly fell back to 720p. They now
+  use a different copy that works there. Your log says which one it uses ("depth twins by ...").
+- **Fixed: a resolution picked in the game's GRAPHICS menu was undone by the launcher** when the game closed (360p -
+  540p and 1080p only; 720p / 1440p / 4K were kept). Both now show and keep the same choice.
+- The game's GRAPHICS menu now offers 360p - 540p and 1080p only without upscaling, like the launcher.
+
 ## v0.2.0-native-s54-playtest
 
 A test build for playtesters (pre-release). Everything in v0.2.0, plus:

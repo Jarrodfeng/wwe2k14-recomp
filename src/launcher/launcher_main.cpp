@@ -2098,6 +2098,7 @@ class App {
     if (save_settings) SaveSettings(settings_path, s);
     if (cmd.exe == paths_.game_exe.wstring()) {  // what the in-game GRAPHICS screen may change (ReloadGraphicsSettings)
       launch_graphics_.upscale = s.upscale, launch_graphics_.resolution = s.resolution;
+      launch_graphics_.draw_height = s.draw_height;  // Session 54 (review of a tester's report: it was dropped)
       launch_graphics_.frame_rate = s.frame_rate, launch_graphics_.original_look = s.original_look;
       launch_graphics_.texture_filter = s.texture_filter;
       launch_graphics_set_ = true;
@@ -2114,6 +2115,12 @@ class App {
     const wwe2k14::gfxs::Present p = wwe2k14::gfxs::Parse(wwe2k14::gfxs::ReadFile(settings_path), c);
     if (p.upscale && c.upscale != launch_graphics_.upscale) s.upscale = c.upscale;
     if (p.resolution && c.resolution != launch_graphics_.resolution) s.resolution = c.resolution;
+    // Session 54 (a ROG Ally tester: "whatever set from launcher doesn't get saved to game setting graphics or the
+    // other way around"): the in-game 360p - 540p / 1080p choice too - before, the launcher's old value was saved over it.
+    if ((p.resolution || p.draw_height) && (c.resolution != launch_graphics_.resolution ||
+                                            c.draw_height != launch_graphics_.draw_height)) {
+      s.resolution = c.resolution, s.draw_height = c.draw_height;
+    }
     if (p.frame_rate && c.frame_rate != launch_graphics_.frame_rate) s.frame_rate = c.frame_rate;
     if (p.original_look && c.original_look != launch_graphics_.original_look) s.original_look = c.original_look;
     if (p.texture_filter && c.texture_filter != launch_graphics_.texture_filter) s.texture_filter = c.texture_filter;
