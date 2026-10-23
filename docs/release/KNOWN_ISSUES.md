@@ -11,7 +11,9 @@
 - Some players see a red block on a wrestler's back or face, or a wrestler drawn glowing white (seen on Intel Iris
   Xe). We can't make it happen on our PC yet. If you see it, please send a report (launcher: Report a problem) and
   tell us whether it also happens with Settings -> Graphics -> RENDERER: ACCURATE.
-- The AMD fallback (LIGHT) has not been tested on AMD cards by us yet. With FRAME RATE 30 the match timer (and
-  anything else the game counts in frames) runs at half speed.
+- NATIVE on graphics cards without fragment shader interlock (older AMD drivers / graphics) and the LIGHT fallback
+  have not been tested on such a card by us yet (only on our NVIDIA card forced onto the same path). With FRAME RATE
+  30 the match timer (and anything else the game counts in frames) runs at half speed.
+- 360p - 540p and 1080p: the speed gain on integrated graphics has not been measured by us yet (no such PC here).
 - The in-game GRAPHICS screen has no RENDERER choice yet (the launcher only).
 - CineCam's setup panel (F8 outside a match) and the automatic entrance freeze are new and lightly tested.

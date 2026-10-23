@@ -18,6 +18,7 @@
 //   --page play|mods|settings    --mods-tab trons|titles|logos    --advanced (open the Advanced sections)
 //   --game-data DIR  --user-data DIR (this run only; implies --no-save)    --wizard | --no-wizard   --rtx (show DLSS)
 //   --fake-igpu (Session 37: the choices for integrated graphics: light renderer, 720p, no FSR)
+//   --fake-no-interlock (Session 54: a card without fragment shader interlock)
 //   --logo-add PNG  --logo-import (back up, run the game's menus, check)   --wait-game (until the game has closed)
 //   --backup  --restore N (0 = newest backup)  --report  --no-open (don't open folders)
 //   --settings FILE (another settings file: a fresh profile)   --play  --quick-match  --capture NAME
@@ -740,6 +741,7 @@ class App {
     if (!override_user_data.empty()) s.user_data_dir = override_user_data;
     hw_ = DetectHardware(hwnd_);
     if (hw_.refresh_hz > 0) g_monitor_hz = hw_.refresh_hz;
+    if (s.first_run_done && s.loaded_version < 3 && MigrateForDevice(s) && save_settings) SaveSettings(settings_path, s);
     g_perf_report_default = IsPlaytest();
     Reload();
     StartUpdateCheck(update_force_);
@@ -836,6 +838,7 @@ class App {
   void OpenAdvanced() { advanced_open_ = true; }
   void ForceRtx() { force_rtx_ = true; }
   void FakeIntegratedGpu() { fake_igpu_ = true; }  // Session 37: --fake-igpu
+  void FakeNoInterlock() { fake_no_interlock_ = true; }  // Session 54: --fake-no-interlock
   void NoOpen() { open_folders_ = false; }
 
   void Reload() {
@@ -1487,7 +1490,7 @@ class App {
     const int dlc_on = DlcPacksOn();
     const std::string dlc_text = dlc_on ? ", DLC: " + std::to_string(dlc_on) + (dlc_on == 1 ? " pack on" : " packs on") : "";
     ImGui::TextDisabled("%s%s%s%s.  F8 CineCam (when on in Settings), Alt+F4 quits.",
-                        kResolutionNames[s.original_look ? 0 : s.resolution],
+                        ResolutionName(s).c_str(),
                         s.frame_rate == 2   ? (s.refresh_hz == 120 ? ", 120 fps" : ", uncapped")
                         : s.frame_rate == 0 ? ", classic frame rate"
                         : s.frame_rate == 3 ? ", 30 fps"  // Session 41 (it said 60)
@@ -1497,6 +1500,13 @@ class App {
   }
 
   static constexpr const char* kResolutionNames[] = {"720p", "1440p", "4K"};
+  // Session 54: the size the game draws at (360p ... 4K): a draw height only with NATIVE and no upscaler.
+  static bool DrawHeightApplies(const Settings& t) { return t.renderer == 2 && t.upscale == 0 && !t.original_look; }
+  static std::string ResolutionName(const Settings& t) {
+    if (t.original_look) return kResolutionNames[0];
+    if (DrawHeightApplies(t) && t.draw_height) return std::to_string(t.draw_height) + "p";
+    return kResolutionNames[std::clamp(t.resolution, 0, 2)];
+  }
 
   // The match types a Quick Match can build, laid out like the game's PLAY menu (its order, from the Session 30 menu
   // crawl; db\ids\match_types.json). type = the game's match type id (docs\systems\match_setup.md); group = the
@@ -2364,7 +2374,7 @@ class App {
     Settings t = PlainSettings();
     t.renderer = perf_runs_[perf_step_].renderer;
     // The LOW preset's resolution and frame rate for both games (only the renderer differs), no upscaler.
-    t.resolution = 0, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
+    t.resolution = 0, t.draw_height = 0, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
     t.mods = false, t.cinecam = t.photo_mode = t.runin = false, t.perf_report = 0;
     t.scenario = "@quick", t.quick_type = 0, t.quick_ids = "343,324", t.quick_cpu_only = true, t.quick_arena = -1;
     t.skip_entrances = false;
@@ -2401,7 +2411,7 @@ class App {
                         Version() + "\nMade: " + NowStamp("%Y-%m-%d %H:%M") + " (local time)\n\n" + HardwareText(hw_) +
                         "\nTest settings: 720p, frame rate 30 (the LOW preset's), no upscaler; the player's own "
                         "resolution: " +
-                        kResolutionNames[s.resolution] + "\n\n";
+                        ResolutionName(s) + "\n\n";
     for (size_t i = 0; i < perf_runs_.size(); ++i) {
       const PerfRun& r = perf_runs_[i];
       about += "Run " + std::to_string(i + 1) + ": " + r.label + ", log " + (r.log.empty() ? "(none)" : r.log) +
@@ -3220,11 +3230,42 @@ class App {
                   : dlss          ? "The upscaler picks the size itself (Graphics). "
                                   : "",
                   hw_.screen_w, hw_.screen_h, hw_.refresh_hz, kRes[sug]);
-    OptionRow("RESOLUTION", s.resolution, kRes, 3, !dlss && !s.original_look, rnote);
+    ResolutionRow(s, !dlss && !s.original_look, rnote);
 
     FrameRateRow(s);
     ImGui::Dummy(ImVec2(0, 10 * d));
     ImGui::TextDisabled("In the game: F3 shows the frame rate.");
+  }
+
+  // Session 54 (Jarrod, 2026-10-23: "360p, 480, 540p, 720p, 1080p, 1440p, and 4k as resolution options"): 360p - 540p
+  // and 1080p are drawn by NATIVE only (its passes at that size, its copies at 720p / 1440p: gfx_settings.h
+  // kResolutions), so the other renderers and the upscalers offer the whole sizes, with a note.
+  void ResolutionRow(Settings& t, bool enabled, const char* extra_note) {
+    const bool native = DrawHeightApplies(t);
+    std::vector<int> entries;  // kResolutions indices offered
+    for (int i = 0; i < wwe2k14::gfxs::kResolutionCount; ++i)
+      if (native || !wwe2k14::gfxs::kResolutions[i].native_only) entries.push_back(i);
+    std::vector<const char*> names;
+    for (int i : entries) names.push_back(wwe2k14::gfxs::kResolutions[i].name);
+    const int current = wwe2k14::gfxs::ResolutionIndex(t.resolution, t.draw_height, native);
+    int vi = 0;
+    for (size_t k = 0; k < entries.size(); ++k)
+      if (entries[k] == current) vi = int(k);
+    const auto& e = wwe2k14::gfxs::kResolutions[entries[size_t(vi)]];
+    std::string note = extra_note ? extra_note : "";
+    if (enabled && native && e.draw_height) {
+      char drawn[160];
+      std::snprintf(drawn, sizeof(drawn), " Drawn at %dx%d and scaled to your screen%s.", (e.draw_height * 16 + 8) / 9,
+                    e.draw_height, e.draw_height < 720 ? ": less work for the graphics card, softer picture" : "");
+      note += drawn;
+    }
+    if (enabled && !native)
+      note += t.renderer != 2 ? " 360p, 480p, 540p and 1080p need the NATIVE renderer."
+                              : " 360p, 480p, 540p and 1080p are not available with upscaling.";
+    if (OptionRow("RESOLUTION", vi, names.data(), int(names.size()), enabled, note.c_str())) {
+      const auto& n = wwe2k14::gfxs::kResolutions[entries[size_t(std::clamp(vi, 0, int(entries.size()) - 1))]];
+      t.resolution = n.resolution, t.draw_height = n.draw_height;
+    }
   }
 
   // Session 31 (Jarrod): FRAME RATE = 60 / 120 / UNCAPPED, 60 fps entrances by default. Stored in the fields the game's
@@ -3255,7 +3296,7 @@ class App {
 
   // Session 37: ACCURATE (the Xbox 360's EDRAM in every pixel shader: the reference look, heavy on weak GPUs) or LIGHT
   // (the graphics card's own render targets with the Session 37 fixes: same picture in our checks; src\light_renderer.h).
-  // A card without interlock (AMD on Windows) cannot run ACCURATE: the SDK falls back to LIGHT's path, and
+  // A card without interlock (older AMD drivers / graphics; Session 54) cannot run ACCURATE: the SDK falls back to LIGHT's path, and
   // --wwe2k14_fbo_fallback_fix (default on, Jarrod 2026-10-20) applies LIGHT's fixes there.
   // Session 41 (low-spec step 2): NATIVE (2) = ACCURATE with the native renderer drawing the scene (the game's own
   // shaders on the card's own render targets, --gpu_native=2): on the playtester's UHD 620 +10-28% fps over ACCURATE.
@@ -3272,8 +3313,13 @@ class App {
                                            "same picture in our checks."
                                          : "The default: the scene drawn by the graphics card's own hardware, on every "
                                            "PC from integrated graphics up. The same picture in our checks.";
-    if (!dev.name.empty() && !dev.interlock && t.renderer != 1)
+    // Session 54: NATIVE runs without interlock too (its own render targets); ACCURATE does not. LIGHT stays the
+    // default for such cards until a player with one has tried NATIVE (Jarrod's call).
+    if (!dev.name.empty() && !dev.interlock && t.renderer == 0)
       note += " Your card (" + dev.name + ") can't run it: the game uses the light renderer there.";
+    if (!dev.name.empty() && !dev.interlock && t.renderer == 2)
+      note += " Your card (" + dev.name + ") lacks fragment shader interlock: NATIVE runs on its own render targets "
+              "there (new: if the picture looks wrong, try LIGHT and please report it).";
     OptionRow("RENDERER", t.renderer, kRen, 3, true, note.c_str());
   }
 
@@ -3541,7 +3587,7 @@ class App {
       }
     } else {
       if (!wiz_ready_) {  // the suggestions, once per visit of this step
-        wiz_ = s, wiz_.resolution = SuggestResolution(hw_), wiz_.frame_rate = SuggestFrameRate(hw_), wiz_.upscale = 0;
+        wiz_ = s, wiz_.resolution = SuggestResolution(hw_), wiz_.draw_height = 0, wiz_.frame_rate = SuggestFrameRate(hw_), wiz_.upscale = 0;
         SuggestForDevice(wiz_);  // Session 37: integrated graphics -> LIGHT at 720p
         wiz_ready_ = true;
       }
@@ -3563,13 +3609,11 @@ class App {
       if (OptionRow("GRAPHICS CARD", gi, ptrs.data(), int(ptrs.size()), true,
                     gpus_.size() > 1 ? "Automatic: the dedicated card with the most memory." : nullptr)) {
         wiz_.gpu = gi == 0 ? std::string() : gpus_[size_t(gi - 1)].name;
-        wiz_.resolution = SuggestResolution(hw_), wiz_.frame_rate = SuggestFrameRate(hw_), wiz_.renderer = 2;
+        wiz_.resolution = SuggestResolution(hw_), wiz_.draw_height = 0, wiz_.frame_rate = SuggestFrameRate(hw_), wiz_.renderer = 2;
         SuggestForDevice(wiz_);  // Session 37: the suggestions follow the card
       }
       RendererRow(wiz_, ChosenDevice(wiz_.gpu));  // Session 37
-      static constexpr const char* kRes[] = {"720P", "1440P", "4K"};
-      OptionRow("RESOLUTION", wiz_.resolution, kRes, 3, true,
-                ChosenDevice(wiz_.gpu).integrated() ? "720p suggested for integrated graphics." : nullptr);
+      ResolutionRow(wiz_, true, ChosenDevice(wiz_.gpu).integrated() ? "540p suggested for integrated graphics." : nullptr);
       FrameRateRow(wiz_);
       ImGui::TextDisabled("%s", hw_.rtx ? "Upscaling (DLSS / DLAA / FSR) is in Settings -> Graphics."
                                         : "Upscaling (AMD FSR) is in Settings -> Graphics.");
@@ -3597,17 +3641,37 @@ class App {
   Settings wiz_;            // the wizard's last step: the suggestions, changed in place until FINISH
   bool wiz_ready_ = false;
 
-  // Session 37 (the brief: "The first-run wizard should pick it on integrated graphics"): integrated graphics get the
+  // (History.) Session 37 (the brief: "The first-run wizard should pick it on integrated graphics"): integrated graphics get the
   // light renderer at 720p (a UHD 620 drew 5-10 fps in matches with the accurate renderer at 720p); a card that cannot
-  // run the accurate renderer (no interlock: AMD on Windows) gets the light renderer.
+  // run the accurate renderer (no interlock: older AMD drivers / graphics) gets the light renderer.
   // Session 41 (low-spec step 2): integrated graphics get the LOW preset (NATIVE, or LIGHT without interlock; 720p,
   // FRAME RATE 30). Session 51 ("NATIVE for everyone"): NATIVE on every card with interlock; integrated graphics still
   // start at 720p / 30 fps without an upscaler (the LOW preset's quality part, no button any more).
+  // Session 54 (Jarrod, 2026-10-23: "540 as the default for igpus, as well as native as default for unsupported
+  // interlock GPUs ... to make sure AMD people try the right thing"): NATIVE on cards without interlock too (it runs
+  // there now: gpu_native_truth_host_rt), integrated graphics at 540p (NATIVE draws at 960x540).
   void SuggestForDevice(Settings& t) {
     const wwe2k14::vkdev::Device dev = ChosenDevice(t.gpu);
-    if (!dev.name.empty() && !dev.interlock) t.renderer = 1;
-    else if (dev.integrated()) t.renderer = 2;
-    if (dev.integrated()) t.resolution = 0, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
+    if ((!dev.name.empty() && !dev.interlock) || dev.integrated()) t.renderer = 2;
+    if (dev.integrated()) t.resolution = 0, t.draw_height = 540, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
+  }
+
+  // Session 54: once for a file from before settings version 3 (after the first-run setup), the same two choices
+  // where the file still has what the setup used to pick: LIGHT on a card without interlock -> NATIVE; NATIVE at 720p
+  // on integrated graphics -> 540p. Logged; true when something moved.
+  bool MigrateForDevice(Settings& t) {
+    const wwe2k14::vkdev::Device dev = ChosenDevice(t.gpu);
+    bool moved = false;
+    if (!dev.name.empty() && !dev.interlock && t.renderer == 1) {
+      t.renderer = 2, moved = true;
+      Log("settings: no interlock on " + dev.name + ": renderer LIGHT -> NATIVE (once, Session 54)");
+    }
+    if (dev.integrated() && t.renderer == 2 && t.resolution == 0 && t.draw_height == 0 && t.upscale == 0) {
+      t.draw_height = 540, moved = true;
+      Log("settings: integrated graphics: resolution 720p -> 540p (once, Session 54)");
+    }
+    t.loaded_version = wwe2k14::gfxs::kSettingsVersion;
+    return moved;
   }
 
   void FinishWizard() {
@@ -4621,11 +4685,13 @@ class App {
   std::vector<wwe2k14::vkdev::Device> vk_devs_;
   bool vk_listed_ = false;
   bool fake_igpu_ = false;  // automation: --fake-igpu (the integrated-graphics choices on any PC, for screenshots)
+  bool fake_no_interlock_ = false;  // automation (Session 54): --fake-no-interlock (a card without interlock)
   wwe2k14::vkdev::Device ChosenDevice(const std::string& gpu) {
     if (!vk_listed_) vk_devs_ = wwe2k14::vkdev::List(), vk_listed_ = true;
     const int i = wwe2k14::vkdev::Pick(vk_devs_, gpu);
     wwe2k14::vkdev::Device d = i >= 0 ? vk_devs_[size_t(i)] : wwe2k14::vkdev::Device{};
     if (fake_igpu_) d.type = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU, d.name = "(test) integrated GPU";
+    if (fake_no_interlock_) d.interlock = false, d.name = "(test) card without interlock";
     return d;
   }
   bool nv_other_ = false;  // Settings -> Graphics: the player opened "Use other files..." (Session 31)
@@ -4701,6 +4767,7 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--no-wizard") app.wizard_mode_ = -1;
     else if (a == "--rtx") app.ForceRtx();
     else if (a == "--fake-igpu") app.FakeIntegratedGpu();  // Session 37
+    else if (a == "--fake-no-interlock") app.FakeNoInterlock();  // Session 54
     else if (a == "--logo-add") out.push_back({"logo_add", next()});
     else if (a == "--logo-import") out.push_back({"logo_import"});
     else if (a == "--logo-size") out.push_back({"logo_size", next()});  // Session 53: 128 or 256

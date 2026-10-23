@@ -5,10 +5,11 @@
 // interlock: the device has what the SDK's accurate render target path (render_target_path_vulkan=fsi) needs:
 // fragment shader pixel or sample interlock, fragment stores and atomics, sample rate shading and standard sample
 // locations (thirdparty\rexglue-sdk-src\src\graphics\vulkan\render_target_cache.cpp, Initialize). Without it the SDK
-// falls back to the host render target path (fbo) by itself. AMD's Windows driver has not exposed interlock (AMDVLK
-// issue 108; unconfirmed claims that a 2024 driver added it); Intel and NVIDIA do; Mesa's RADV (Linux, Steam Deck) since
-// Mesa 23.2. The SDK also needs a storage buffer slot count this list does not check (all known interlock devices have
-// enough).
+// falls back to the host render target path (fbo) by itself. Session 54: AMD's Windows driver has exposed interlock
+// since Adrenalin 24.12.1 (2024-12-05, AMD's Vulkan release notes; gpuinfo.org: RX 5000 and newer, Radeon 7xxM / 8xxM
+// on driver 2.0.317+); older AMD drivers and graphics lack it. Intel and NVIDIA have it; Mesa's RADV (Linux, Steam
+// Deck) since Mesa 23.2. The SDK also needs a storage buffer slot count this list does not check (all known interlock
+// devices have enough).
 
 #pragma once
 

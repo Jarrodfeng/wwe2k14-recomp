@@ -103,6 +103,7 @@ struct Settings {
                                // Session 41: 2 native (accurate + the native renderer, --gpu_native=2); Session 51
                                // (Jarrod, 2026-10-22: "NATIVE for everyone"): 2 by default
   int settings_version = wwe2k14::gfxs::kSettingsVersion;  // Session 51: the old default renderer moved to NATIVE (gfx_settings.h)
+  int loaded_version = 0;  // Session 54: the file's settings_version as read (not saved; 0 = no file / none)
   int texture_filter = 0;      // Session 33: 0 standard (4x), 1 8x, 2 16x anisotropic filtering
   bool discord = false;        // Session 33: Discord status (off by default)
   int aspect = 0;              // Session 33: 0 = 16:9 (the game's own), 1 = auto (the monitor's: ultrawide Hor+)
@@ -134,6 +135,7 @@ struct Settings {
   std::string user_data_dir;   // the game's save folder (empty = Documents\wwe2k14, the game's default)
   bool first_run_done = false; // the first-run wizard has been finished
   int resolution = 1;          // 0 720p, 1 1440p (the game's default), 2 4K
+  int draw_height = 0;         // Session 54: NATIVE draws at 360 / 480 / 540 (resolution 0) or 1080 (1); 0 = none
   int frame_rate = 1;          // 0 classic (30 fps entrances, 60 matches), 1 60 everywhere, 2 high refresh
   int refresh_hz = 0;          // high refresh: game steps per second (0 = the monitor's refresh rate)
   int perf_report = -1;        // write logs\perf_report_NNN.txt: 1 on, 0 off, -1 the build's default (playtest: on)
@@ -180,7 +182,8 @@ inline void to_json(json& j, const Settings& s) {
            {"window_w", s.window_w}, {"window_h", s.window_h}, {"trons_view", s.trons_view},
            {"trons_sort", s.trons_sort}, {"trons_sort_desc", s.trons_sort_desc},
            {"game_data_dir", s.game_data_dir}, {"user_data_dir", s.user_data_dir}, {"first_run_done", s.first_run_done},
-           {"resolution", s.resolution}, {"frame_rate", s.frame_rate}, {"refresh_hz", s.refresh_hz},
+           {"resolution", s.resolution}, {"draw_height", s.draw_height}, {"frame_rate", s.frame_rate},
+           {"refresh_hz", s.refresh_hz},
            {"perf_report", s.perf_report}, {"original_look", s.original_look}, {"page", s.page},
            {"mods_tab", s.mods_tab}, {"runin", s.runin}, {"keyboard", s.keyboard},
            {"language", s.language}, {"gpu", s.gpu}, {"windowed", s.windowed}, {"titles_view", s.titles_view}, {"check_updates", s.check_updates},
@@ -203,7 +206,8 @@ inline void from_json(const json& j, Settings& s) {
   // (ACCURATE) moves to NATIVE once; the next save writes the version, so a renderer picked after that stays.
   int version = 0;
   Get(j, "settings_version", version);
-  if (version < wwe2k14::gfxs::kSettingsVersion && s.renderer == 0) s.renderer = 2;
+  if (version < 2 && s.renderer == 0) s.renderer = 2;
+  s.loaded_version = version;  // Session 54 (the launcher's device moves, MigrateForDevice)
   s.settings_version = wwe2k14::gfxs::kSettingsVersion;
   Get(j, "discord", s.discord), Get(j, "discord_app_id", s.discord_app_id), Get(j, "aspect", s.aspect);
   Get(j, "photo_mode", s.photo_mode);
@@ -221,6 +225,9 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "language", s.language), Get(j, "gpu", s.gpu), Get(j, "windowed", s.windowed), Get(j, "titles_view", s.titles_view), Get(j, "check_updates", s.check_updates);
   Get(j, "dlc", s.dlc), Get(j, "dlc_dir", s.dlc_dir), Get(j, "dlc_off", s.dlc_off);
   Get(j, "quick_start", s.quick_start), Get(j, "logo_size", s.logo_size);
+  Get(j, "draw_height", s.draw_height);  // Session 54
+  s.resolution = std::clamp(s.resolution, 0, 2);
+  s.draw_height = wwe2k14::gfxs::ValidDrawHeight(s.resolution, s.draw_height);
   if (s.logo_size != 128) s.logo_size = 256;
   if (!j.contains("resolution") && j.contains("look")) {  // the Session 17-24 Play tab's "Look"
     if (s.look == 1) s.original_look = true;
@@ -974,6 +981,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
   {
     wwe2k14::gfxs::Choice c;
     c.upscale = s.upscale, c.resolution = s.resolution, c.frame_rate = s.frame_rate, c.refresh_hz = s.refresh_hz;
+    c.draw_height = s.draw_height;  // Session 54
     c.original_look = s.original_look;
     c.texture_filter = s.texture_filter;  // Session 33
     c.renderer = s.renderer;              // Session 37

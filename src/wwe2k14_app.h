@@ -185,6 +185,10 @@ class Wwe2k14App : public rex::ReXApp {
         config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin, "any");
       }
     }
+    // Session 54: the settings file once more now that the GPU plugin's settings exist (gpu_native, the native
+    // renderer's flags, gpu_native_truth_draw_height: set before this they were lost - run 3652 ran without NATIVE;
+    // likely also run 2139's resolution_scale). Only what is still at default (the first call's settings stay).
+    wwe2k14::gfx_menu::ApplyLauncherSettings();
 
     // readback_resolve: Xenia's known-good 2K14 setting is "fast" (CLAUDE.md: fixes outfits there), and this app
     // used to force it. A/B 2026-10-07 (Jarrod, wwe2k14_054 vs 056): "fast" more than doubles the GPU command

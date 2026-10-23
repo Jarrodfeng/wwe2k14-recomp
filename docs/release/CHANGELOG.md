@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.2.0-native-s54-playtest
+
+A test build for playtesters (pre-release). Everything in v0.2.0, plus:
+
+- **More resolutions: 360p, 480p, 540p, 720p, 1080p, 1440p and 4K.** Pick them in Settings -> Display -> RESOLUTION,
+  in the first-run setup, or in the game's own GRAPHICS menu. 360p - 540p and 1080p are really drawn at that size by
+  the NATIVE renderer, so the graphics card does less work (a softer picture), then scaled to your screen. They need
+  NATIVE without an upscaler; with ACCURATE, LIGHT or DLSS / DLAA / FSR the choices are 720p, 1440p and 4K.
+- **Integrated graphics now start at 540p** (NATIVE, frame rate 30). If your settings still had the old automatic
+  720p on integrated graphics, they move to 540p once. You can change it back any time.
+- **NATIVE now also runs on graphics cards without fragment shader interlock** (AMD cards on older drivers, older AMD
+  graphics). It is the default there now instead of LIGHT, and settings that still had LIGHT from the old automatic
+  choice move to NATIVE once. On our PC (forced onto that path) it draws exactly the same picture as NATIVE elsewhere
+  and needs about 13% less graphics-card time than LIGHT in a match. **AMD players: please try it and tell us** -
+  if the picture looks wrong, Settings -> Graphics -> RENDERER: LIGHT and send a report.
+- Note for AMD: AMD's own Windows driver has had the feature NATIVE prefers since Adrenalin 24.12.1 (December 2024),
+  so Radeon RX 5000 and newer on a current driver already used NATIVE.
+- Fixed: when the game read your settings by itself (started without the launcher), the NATIVE renderer's settings
+  were dropped.
+
 ## v0.2.0
 
 - **A new renderer, NATIVE, now the default for everyone.** Instead of imitating the Xbox 360's graphics chip and its

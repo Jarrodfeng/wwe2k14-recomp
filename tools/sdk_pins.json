@@ -3893,6 +3893,34 @@
           "size": 11391488
         }
       ]
+    },
+    {
+      "id": "pin-ec136eb-1023-1538",
+      "sdk_commit": "ec136eb164d9aef10fb99d8e1cb7087f28691f13",
+      "sdk_branch": "native",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-23",
+      "built": "build_sdk.ps1 -Run s54pin, 2026-10-23T15:38:37 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s54pin.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 54: resolutions (draw twins), NATIVE without interlock, review fixes",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "0692550de4b243f5b58b718eb869883767824b1f3370bd2aeff3abdddf2a6ffd",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "527f05e65fa0a31e79243515d6f8702e6fa32e052e9fdd1faefe781af1f8f806",
+          "size": 8628736
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "ccab839ae8a015a033a2a8fe957293a1936f3c4738de58972d50970a2c1a2d48",
+          "size": 11391488
+        }
+      ]
     }
   ]
 }

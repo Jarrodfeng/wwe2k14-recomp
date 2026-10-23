@@ -1,0 +1,25 @@
+# harness: fast-forward ok (Session 54: in-run A/B of NATIVE's draw height - the truth passes drawn smaller - against drawing at the resolution scale, by GPU ms and command-thread busy per frame; run it alone)
+# Session 54 (from s46_truth_ab): gpu_native_truth_draw_twins_off false (mode 1: the passes draw at
+# --gpu_native_truth_draw_height) / true (mode 0: at the resolution scale) every 120 frames through the s21_lb replay
+# (Brock's and Bryan's entrances, the match). Mode 0 keeps the draw height's pixel positions in the shaders (a cost
+# comparison, not a picture). Run with --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true
+# --gpu_native_truth_draw_height=N --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true; read with
+# py tools\native\ab_gpu.py RUN. on_fail quit.
+on_fail quit
+log bench: start s54_twins_ab (launch)
+wait_file SaveData.Dat 3600
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 1800
+repeat 40
+cvar gpu_native_truth_draw_twins_off false
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_truth_draw_twins_off true
+log ab: mode 0
+wait_frames 120
+end_repeat
+log bench: done
+quit

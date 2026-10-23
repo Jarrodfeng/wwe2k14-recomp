@@ -100,8 +100,11 @@ off applies at once; the DLSS modes, the frame rate and the resolution apply the
 - **Display:** fullscreen or windowed.
 - **Renderer** (Settings -> Graphics): NATIVE (the default) draws the game straight on your graphics card. ACCURATE
   imitates the Xbox 360's graphics chip exactly and LIGHT is a lighter version of it: use them if NATIVE shows
-  something wrong. Graphics cards without fragment shader interlock (AMD on Windows) use LIGHT by themselves.
-- **Resolution:** 720p, 1440p or 4K. 1440p is the default (720p on integrated graphics).
+  something wrong. NATIVE also runs on graphics cards without fragment shader interlock (older AMD drivers or
+  graphics); ACCURATE does not, so there it uses LIGHT.
+- **Resolution:** 360p, 480p, 540p, 720p, 1080p, 1440p or 4K. 1440p is the default (540p on integrated graphics).
+  360p - 540p and 1080p are drawn at that size by NATIVE (less work for the graphics card, a softer picture) and
+  need NATIVE without an upscaler; otherwise 720p, 1440p and 4K are offered.
 - **Frame rate:**
   - 30: entrances and matches at a steady 30 fps, for PCs that can't hold 60 (the default on integrated graphics).
     The match timer counts at half speed.

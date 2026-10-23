@@ -265,6 +265,19 @@ inline void ApplyLauncherSettings() {
 
 inline bool DlssPossible();  // below
 
+// Session 54: this run draws with NATIVE's truth frames, so it can draw 360p - 540p and 1080p (gfxs::kResolutions).
+inline bool NativeRunning() {
+  return FlagInt("gpu_native") == 2 && FlagIsTrue("gpu_native_truth") && !FlagIsTrue("wwe2k14_light_renderer");
+}
+// The RESOLUTION row's values (gfxs::kResolutions indices): all with NATIVE, else the whole sizes.
+inline int g_res_order[8] = {3, 5, 6};
+inline int g_res_count = 3;
+inline void BuildResolutionOrder(bool native) {
+  g_res_count = 0;
+  for (int i = 0; i < gfxs::kResolutionCount && g_res_count < 8; ++i)
+    if (native || !gfxs::kResolutions[i].native_only) g_res_order[g_res_count++] = i;
+}
+
 // After every start-up setting is in place (end of OnPreSetup): what this run is doing, read back from the settings.
 inline void CaptureRunning() {
   if (g_force_scale_one && rex::cvar::GetFlagSource("resolution_scale") != rex::cvar::Source::kCommandLine)
@@ -277,6 +290,7 @@ inline void CaptureRunning() {
   else if (FlagIsTrue("wwe2k14_dlaa")) r.upscale = 1;
   const std::string scale = rex::cvar::GetFlagByName("resolution_scale");
   r.resolution = scale == "1" ? 0 : scale == "3" ? 2 : 1;
+  r.draw_height = NativeRunning() ? gfxs::ValidDrawHeight(r.resolution, FlagInt("gpu_native_truth_draw_height")) : 0;
   r.texture_filter = REXCVAR_GET(wwe2k14_texture_filter) >= 16 ? 2 : REXCVAR_GET(wwe2k14_texture_filter) >= 8 ? 1 : 0;
   if (FlagInt("wwe2k14_step_hz") > 60) r.frame_rate = 2, r.refresh_hz = int(FlagInt("wwe2k14_step_hz"));
   else if (!FlagIsTrue("wwe2k14_entrance_60fps")) r.frame_rate = 0;
@@ -352,6 +366,7 @@ inline void LoadScreenValues() {
     const gfxs::Present p = gfxs::Parse(json, f);
     if (p.upscale) c.upscale = f.upscale;
     if (p.resolution) c.resolution = f.resolution;
+    if (p.resolution || p.draw_height) c.draw_height = f.draw_height;  // Session 54
     if (p.frame_rate) c.frame_rate = f.frame_rate;
     if (p.refresh_hz) c.refresh_hz = f.refresh_hz;
     if (p.texture_filter) c.texture_filter = f.texture_filter;
@@ -359,8 +374,14 @@ inline void LoadScreenValues() {
   const bool dlss = DlssPossible(), fsr = FsrOffered();
   BuildUpscaleOrder(dlss, fsr);
   if ((!dlss && gfxs::IsNvidia(c.upscale)) || (!fsr && gfxs::IsFsr(c.upscale))) c.upscale = 0;
-  g_counts[0] = g_up_count, g_counts[1] = 3, g_counts[2] = 3, g_counts[3] = 3;
-  g_vals[0] = UpscaleToIndex(c.upscale), g_vals[1] = FrameRateIndex(c), g_vals[2] = c.resolution;
+  const bool native = NativeRunning();  // Session 54
+  BuildResolutionOrder(native);
+  const int res_index = gfxs::ResolutionIndex(c.resolution, c.draw_height, native);
+  int res_value = 0;
+  for (int i = 0; i < g_res_count; ++i)
+    if (g_res_order[i] == res_index) res_value = i;
+  g_counts[0] = g_up_count, g_counts[1] = 3, g_counts[2] = g_res_count, g_counts[3] = 3;
+  g_vals[0] = UpscaleToIndex(c.upscale), g_vals[1] = FrameRateIndex(c), g_vals[2] = res_value;
   g_vals[3] = std::clamp(c.texture_filter, 0, 2);
   g_frame_loaded = g_vals[1], g_frame_file = c;
 }
@@ -377,7 +398,10 @@ inline bool CommitScreenValues() {
     const int fi = std::clamp(g_vals[1], 0, 2);
     n.frame_rate = fi == 0 ? 1 : 2, n.refresh_hz = fi == 1 ? 120 : 0;
   }
-  n.resolution = std::clamp(g_vals[2], 0, 2);
+  {  // Session 54
+    const gfxs::ResolutionEntry& e = gfxs::kResolutions[g_res_order[std::clamp(g_vals[2], 0, g_res_count - 1)]];
+    n.resolution = e.resolution, n.draw_height = e.draw_height;
+  }
   n.texture_filter = std::clamp(g_vals[3], 0, 2);
   const std::filesystem::path path = SettingsFile();
   bool cleared_original_look = false;
@@ -409,10 +433,12 @@ inline bool CommitScreenValues() {
   // Session 31: 120 <-> UNCAPPED (both high refresh) differ in the step rate, read at start.
   const bool step_changed = eff.frame_rate == 2 && g_running.frame_rate == 2 && hz != g_running.refresh_hz;
   const bool restart = saved && (eff.upscale != g_running.upscale || eff.frame_rate != g_running.frame_rate ||
-                                 step_changed || (!dlss_running && eff.resolution != g_running.resolution));
-  REXLOG_INFO("[wwe2k14][gfxmenu] ACCEPT: upscale {}, resolution {}, frame rate {} saved to {} ({}){}; now running "
-              "upscale {}, frame rate {}; restart needed: {}",
-              n.upscale, n.resolution, n.frame_rate, gfxs::Utf8(path), saved ? "ok" : "FAILED",
+                                 step_changed ||
+                                 (!dlss_running && (eff.resolution != g_running.resolution ||
+                                                    (eff.upscale == 0 && eff.draw_height != g_running.draw_height))));
+  REXLOG_INFO("[wwe2k14][gfxmenu] ACCEPT: upscale {}, resolution {} (draw height {}), frame rate {} saved to {} ({}){}; "
+              "now running upscale {}, frame rate {}; restart needed: {}",
+              n.upscale, n.resolution, n.draw_height, n.frame_rate, gfxs::Utf8(path), saved ? "ok" : "FAILED",
               cleared_original_look ? " (the file's \"original look\" is switched off so these apply)" : "",
               g_running.upscale, g_running.frame_rate, restart ? "yes" : "no");
   return restart;
@@ -496,9 +522,14 @@ inline TextEntry g_texts[] = {
     {kTextVal1 + 0, "60", 0},
     {kTextVal1 + 1, "120", 0},
     {kTextVal1 + 2, "UNCAPPED", 0},
-    {kTextVal2 + 0, "720P", 0},
-    {kTextVal2 + 1, "1440P", 0},
-    {kTextVal2 + 2, "4K", 0},
+    // Session 54: RESOLUTION's texts by gfxs::kResolutions index.
+    {kTextVal2 + 0, "360P", 0},
+    {kTextVal2 + 1, "480P", 0},
+    {kTextVal2 + 2, "540P", 0},
+    {kTextVal2 + 3, "720P", 0},
+    {kTextVal2 + 4, "1080P", 0},
+    {kTextVal2 + 5, "1440P", 0},
+    {kTextVal2 + 6, "4K", 0},
     {kTextRestart, "Some changes apply the next time you start the game.", 0},
     {kTextQuit, "QUIT TO DESKTOP", 0},
     {kTextQuitAsk, "Quit to desktop?", 0},
@@ -987,6 +1018,10 @@ REX_HOOK_RAW(sub_82B1ADF8) {
       } else if (row == 0) {  // Session 33: up to 8 values (the words after the table are put back after the call)
         TableGuard guard(base, kValueTextTable, 8);
         for (int i = 0; i < g_up_count; ++i) Put32(kValueTextTable + 4 * i, kTextVal0 + uint32_t(g_up_order[i]));
+        __imp__sub_82B1ADF8(ctx, base);
+      } else if (row == 2) {  // Session 54: up to 7 sizes (as row 0)
+        TableGuard guard(base, kValueTextTable, 8);
+        for (int i = 0; i < g_res_count; ++i) Put32(kValueTextTable + 4 * i, kTextVal2 + uint32_t(g_res_order[i]));
         __imp__sub_82B1ADF8(ctx, base);
       } else {
         TableGuard guard(base, kValueTextTable, 5);

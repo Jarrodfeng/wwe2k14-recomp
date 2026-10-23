@@ -8,6 +8,10 @@
 //   upscale      0 off, 1 DLAA, 2 DLSS performance, 3 DLSS quality, 4 DLSS ultra performance,
 //                5 FSR native, 6 FSR quality, 7 FSR performance (Session 33: AMD FSR 3, any graphics card)
 //   resolution   0 720p, 1 1440p (the default), 2 4K
+//   draw_height  Session 54 (Jarrod: "360p, 480, 540p, 720p, 1080p, 1440p, and 4k"): 0, or 360 / 480 / 540 (with
+//                resolution 0) or 1080 (with resolution 1): the NATIVE renderer draws at that height and makes its
+//                copies at the resolution's whole size (SDK gpu_native_truth_draw_height). A key of its own, so a
+//                build from before it reads 720p / 1440p (unknown resolution values would clamp to 4K there)
 //   frame_rate   0 classic (30 fps entrances, 60 in matches), 1 60 everywhere (default), 2 high refresh,
 //                3 30 everywhere (Session 37: weak PCs; the launcher only)
 //   refresh_hz   high refresh: game steps per second (0 = the monitor's)
@@ -53,13 +57,14 @@ struct Choice {
   int refresh_hz = 0;
   bool original_look = false;
   int texture_filter = 0;  // Session 33
+  int draw_height = 0;     // Session 54: 0, 360 / 480 / 540 (resolution 0), 1080 (resolution 1); NATIVE only
   int renderer = 2;        // Session 37: 0 accurate, 1 light (--wwe2k14_light_renderer); Session 41: 2 native
                            // (the accurate renderer with the native renderer drawing the scene, --gpu_native=2);
                            // Session 51: 2 by default (Jarrod: "NATIVE for everyone")
   std::string dlss_dir;
   bool operator==(const Choice& o) const {
-    return upscale == o.upscale && resolution == o.resolution && frame_rate == o.frame_rate &&
-           texture_filter == o.texture_filter;
+    return upscale == o.upscale && resolution == o.resolution && draw_height == o.draw_height &&
+           frame_rate == o.frame_rate && texture_filter == o.texture_filter;
   }
 };
 
@@ -117,18 +122,49 @@ inline bool GetString(const std::string& json, const char* key, std::string& out
 // move of the old default renderer to NATIVE. A file below it with renderer 0 (ACCURATE, the default until Session 50)
 // reads as NATIVE; LIGHT and NATIVE stay as they are. The launcher writes the version back with its next save, so an
 // ACCURATE picked by hand after that stays (one picked by hand before it cannot be told from the old default).
-inline constexpr int kSettingsVersion = 2;
+// Session 54: version 3 = the file has had the launcher's one-time device moves (launcher_main.cpp MigrateForDevice:
+// LIGHT -> NATIVE on a card without interlock, 720p -> 540p on integrated graphics with NATIVE).
+inline constexpr int kSettingsVersion = 3;
 inline int MigrateRenderer(const std::string& json, int renderer) {
   int version = 0;
   GetInt(json, "settings_version", version);
-  return version < kSettingsVersion && renderer == 0 ? 2 : renderer;
+  return version < 2 && renderer == 0 ? 2 : renderer;  // (Session 51's move: files from before version 2)
 }
 
 // Which of the keys the file has (a key that is absent says nothing: the caller keeps what the game is running).
 struct Present {
   bool upscale = false, resolution = false, frame_rate = false, refresh_hz = false, original_look = false;
   bool texture_filter = false;
+  bool draw_height = false;  // Session 54
 };
+
+// Session 54: the resolutions in menu order - the file's `resolution` (the whole size copies are made at) and
+// `draw_height` (0: that size; else what NATIVE draws at). native_only: the other renderers draw only whole sizes.
+struct ResolutionEntry {
+  const char* name;
+  int resolution, draw_height;
+  bool native_only;
+};
+inline constexpr ResolutionEntry kResolutions[] = {{"360P", 0, 360, true},   {"480P", 0, 480, true},
+                                                   {"540P", 0, 540, true},   {"720P", 0, 0, false},
+                                                   {"1080P", 1, 1080, true}, {"1440P", 1, 0, false},
+                                                   {"4K", 2, 0, false}};
+inline constexpr int kResolutionCount = int(std::size(kResolutions));
+// The draw height that goes with a resolution, or 0.
+inline int ValidDrawHeight(int resolution, int draw_height) {
+  for (const ResolutionEntry& e : kResolutions)
+    if (e.draw_height && e.draw_height == draw_height && e.resolution == resolution) return draw_height;
+  return 0;
+}
+// The menu entry of a (resolution, draw height) pair; one NATIVE alone can draw shows as its whole size otherwise.
+inline int ResolutionIndex(int resolution, int draw_height, bool native = true) {
+  if (!native) draw_height = 0;
+  for (int i = 0; i < kResolutionCount; ++i)
+    if (kResolutions[i].resolution == resolution && kResolutions[i].draw_height == draw_height) return i;
+  for (int i = 0; i < kResolutionCount; ++i)
+    if (kResolutions[i].resolution == resolution && !kResolutions[i].draw_height) return i;
+  return 5;  // 1440p
+}
 
 inline Present Parse(const std::string& json, Choice& c) {
   Present p;
@@ -138,11 +174,13 @@ inline Present Parse(const std::string& json, Choice& c) {
   p.refresh_hz = GetInt(json, "refresh_hz", c.refresh_hz);
   p.original_look = GetBool(json, "original_look", c.original_look);
   p.texture_filter = GetInt(json, "texture_filter", c.texture_filter);
+  p.draw_height = GetInt(json, "draw_height", c.draw_height);  // Session 54
   GetInt(json, "renderer", c.renderer);  // Session 37 (the launcher's Settings -> Graphics; not in the game's menu)
   c.renderer = MigrateRenderer(json, c.renderer);  // Session 51
   GetString(json, "dlss_dir", c.dlss_dir);
   c.upscale = std::clamp(c.upscale, 0, 7);
   c.resolution = std::clamp(c.resolution, 0, 2);
+  c.draw_height = ValidDrawHeight(c.resolution, c.draw_height);
   c.frame_rate = std::clamp(c.frame_rate, 0, 3);  // Session 37: 3 = 30 everywhere (weak PCs)
   c.texture_filter = std::clamp(c.texture_filter, 0, 2);
   c.renderer = std::clamp(c.renderer, 0, 2);  // Session 41: 2 native
@@ -237,6 +275,7 @@ inline bool Save(const fs::path& path, const Choice& c, bool* cleared = nullptr)
   }
   json = SetInt(json, "upscale", c.upscale);
   json = SetInt(json, "resolution", c.resolution);
+  json = SetInt(json, "draw_height", ValidDrawHeight(c.resolution, c.draw_height));  // Session 54
   json = SetInt(json, "frame_rate", c.frame_rate);
   json = SetInt(json, "refresh_hz", c.refresh_hz);  // Session 31: 120 vs UNCAPPED (the monitor's rate, 0)
   json = SetInt(json, "texture_filter", c.texture_filter);  // Session 33
@@ -400,6 +439,10 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // exclusive A/B 3609 at 720p -3.1 / -4.1 / -7.4%; reviewed (no route bug, 5 hardening fixes in SDK 4dead3e).
       {"gpu_native_truth_batch_resolves", "true"},
       {"gpu_native_truth_batch_rename", "true"},
+      // Session 54 (part B): on a card without fragment shader interlock (the host render target path) the truth
+      // frames run too (no effect on cards with interlock). Forced fbo on the 4090: resolve hashes 467 / 467, parity
+      // shots 6 / 6 byte-identical to NATIVE on interlock; vs LIGHT GPU -13.3% match, command thread -4.7%.
+      {"gpu_native_truth_host_rt", "true"},
   };
 }
 
@@ -451,6 +494,10 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
   if (c.renderer == 1) f.push_back({"wwe2k14_light_renderer", "true"});  // Session 37
   if (c.renderer == 2)
     for (const auto& [name, value] : NativeRendererFlags()) f.push_back({name, value});
+  // Session 54: NATIVE drawing below the whole size (no upscaler: DLAA / DLSS / FSR turn truth frames off; the SDK
+  // logs and ignores a height it cannot draw).
+  if (c.renderer == 2 && c.upscale == 0 && !c.original_look && ValidDrawHeight(c.resolution, c.draw_height))
+    f.push_back({"gpu_native_truth_draw_height", std::to_string(c.draw_height)});
   // Wrestler motion vectors are always on with DLAA / DLSS / FSR (Session 28: the game's own default, no flag needed).
   if (IsNvidia(c.upscale) && !dlss_dir.empty()) f.push_back({"wwe2k14_dlaa_dir", dlss_dir});
   return f;
