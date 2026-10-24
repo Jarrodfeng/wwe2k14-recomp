@@ -71,6 +71,12 @@ namespace wwe2k14::typing {
 
 constexpr uint32_t kKeyboardVtable = 0x82048B70;  // the keyboard grid widget's class (run 3723)
 constexpr uint32_t kRowOffset = 20, kColumnOffset = 36;
+// Session 57: hidden keyboards update every frame too (the CAW roster form has two, updated in turn; the arena EDIT
+// list one): before this the hook took each as "a keyboard opened" every frame (state reset, the log flooded, PC keys
+// kept from the pad). The widget's word +216 is 2 while its keyboard is on screen and 0 while hidden (snap, run 3846:
+// the roster form's NAME keyboard opened / closed twice, 0 -> 2 -> 0 each time, the never-opened one stays 0; the
+// arena name keyboard 0 -> 2 when shown).
+constexpr uint32_t kShownOffset = 216;
 constexpr uint16_t kPadA = 0x1000, kPadB = 0x2000, kPadX = 0x4000, kPadY = 0x8000, kPadStart = 0x0010, kPadLs = 0x0040,
                    kPadLb = 0x0100, kPadRb = 0x0200;
 constexpr int kHoldFrames = 2, kGapFrames = 2;  // a press = held 2 widget frames, then 2 released (one clean edge)
@@ -320,8 +326,9 @@ REX_EXTERN(sub_82933758);  // the keyboard's "cursor moved": model cursor = widg
 REX_HOOK_RAW(sub_8292F3B8) {
   if (REXCVAR_GET(wwe2k14_keyboard_typing)) {
     const uint32_t self = ctx.r3.u32;
-    if (self && rex::memory::load_and_swap<uint32_t>(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(self)) ==
-                    wwe2k14::typing::kKeyboardVtable) {
+    uint8_t* const w = self ? REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(self) : nullptr;
+    if (w && rex::memory::load_and_swap<uint32_t>(w) == wwe2k14::typing::kKeyboardVtable &&
+        rex::memory::load_and_swap<uint32_t>(w + wwe2k14::typing::kShownOffset) != 0) {  // on screen (Session 57)
       wwe2k14::typing::OnWidgetFrame(self, [&] {
         const PPCContext saved = ctx;
         ctx.lr = 0;

@@ -1,0 +1,274 @@
+# ReXGlue SDK changes for WWE 2K14 (session57): 3d91313879f7..3313bb8a7ca2 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  3313bb8 wwe2k14 Session 57 review fixes: AwaitPendingPipeline's 2 s cap is a real deadline (10,000 x 200 us sleeps were 10-20 s on Windows, ~156 s with the window covered); a clear-only resolve no longer resets the skipped-draw count before the copy it is for
+#  d9d107c wwe2k14 Session 57 (red patches still reported): gpu_log_skipped_draw_resolves (default on) - a resolve that follows draws skipped while their pipeline was made (placeholders, truth draws and repeats) is logged with what it copies and the widths of the skipped draws' surfaces, the first 40 then every 100th, so a tester's log shows whether skipped draws reach a texture the game keeps
+#  e47cf8e wwe2k14 Session 57 (red patches still reported): the screen-wide width for skipping a draw while its pipeline is made is a setting - gpu_native_truth_pipeline_skip_min_pitch (tiles, default 16) and vulkan_pipeline_sync_offscreen_min_pitch (pixels, default 1280); large = never skipped. Defaults unchanged
+#  843b019 wwe2k14 Session 57 review fix: the scaled resolve readback binds only this resolve's scaled range (from the storage buffer offset alignment below it) with a shader offset relative to it - the whole buffer from 0 with a 32-bit offset skipped every destination past 4 GiB scaled (the 4K preset's 3x3: guest addresses from ~0x1C71C71D) and bound more than maxStorageBufferRange
+#  c1a0e19 wwe2k14 Session 57 (tester bug 4): readback_resolve_override, a readback mode the app sets at run time and GetReadbackResolveMode reads at every resolve (-1 none set, 0 none .. 3 full): the create modes whose GPU-drawn pictures the CPU reads back (a Custom Superstar's render, an arena's menu screenshot) came out as noise with readback off
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 5ed2d0ebe224fd7c346fd1e4466f4c89a1f10787..c5951d55464c419bae2388c168dc5ca3c01f197d 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1119,6 +1119,14 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // Tracks whether any draw in the current frame used an async placeholder
+   // graphics pipeline and may have produced incomplete output.
+   bool frame_used_async_placeholder_pipeline_ = false;
++  // wwe2k14 patch (Session 57, red patches still reported): draws skipped while their pipeline was made since the last
++  // resolve (emulated placeholders and truth draws / repeats), the narrowest and widest surface they went to (guest
++  // pixels), and how many resolves after such draws were logged (gpu_log_skipped_draw_resolves).
++  void NoteSkippedDraw();
++  uint32_t skipped_draws_since_resolve_ = 0;
++  uint32_t skipped_draws_pitch_min_ = 0;
++  uint32_t skipped_draws_pitch_max_ = 0;
++  uint64_t skipped_draw_resolves_ = 0;
+   // Guest frame index, since some transient resources can be reused across
+   // submissions. Values updated in the beginning of a frame.
+   uint64_t frame_current_ = 1;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index afaff9af560c0772de82d1cd1cde4d859d327573..2fd42f8166f7f16149d194913b31c0237c81f7f8 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -135,6 +135,16 @@ REXCVAR_DEFINE_STRING(readback_resolve, "none", "GPU",
+     .allowed({"none", "fast", "some", "full"})
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// wwe2k14 patch (Session 57, tester bug 4): a readback mode the app switches at run time, read at every resolve (so
++// it applies from the next resolve on, not the next swap): -1 = none set (readback_resolve applies), 0 none, 1 fast,
++// 2 some, 3 full. The app sets 3 while the game is in a mode whose rendered pictures its CPU reads back (a Custom
++// Superstar's render, an arena's menu screenshot): with readback off those came out as noise.
++REXCVAR_DEFINE_INT32(readback_resolve_override, -1, "GPU",
++                     "Readback mode set at run time by the app, ahead of readback_resolve: -1 none set, 0 none, "
++                     "1 fast, 2 some, 3 full")
++    .range(-1, 3)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(readback_resolve_half_pixel_offset, false, "GPU",
+                     "When draw resolution scaling is active, sample from the center of each "
+                     "scaled block during resolve readback downscale")
+@@ -521,6 +531,19 @@ ReadbackResolveMode CommandProcessor::GetReadbackResolveMode(
+   // wwe2k14 patch (Session 6, CP10): IssueCopy calls this for every resolve; use the readback_resolve parse
+   // cached at context setup and at every guest swap (RefreshReadbackResolveModeCache), so a change of
+   // readback_resolve takes effect at the next swap. The legacy backend flag is still read on every call.
++  // wwe2k14 patch (Session 57): the app's run-time mode first (one int load).
++  switch (REXCVAR_GET(readback_resolve_override)) {
++    case 0:
++      return ReadbackResolveMode::kDisabled;
++    case 1:
++      return ReadbackResolveMode::kFast;
++    case 2:
++      return ReadbackResolveMode::kSome;
++    case 3:
++      return ReadbackResolveMode::kFull;
++    default:
++      break;
++  }
+   ReadbackResolveMode shared_mode;
+   bool shared_mode_overrides_legacy;
+   if (readback_resolve_cache_valid_) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 46fe44967e28750af52ad6b2cc000db316663baa..4dfbec94ea8363bb24b422939bac7014aeaca385 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -267,6 +267,13 @@ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+ // wwe2k14 patch (Session 37): resolves left to describe in a [resolve_stats] line (set with gpu_resolve_log).
+ static int32_t g_resolve_stats_remaining = 0;
+ 
++// wwe2k14 patch (Session 57, red patches still reported on a GTX 1060): a diagnostic for testers' logs.
++REXCVAR_DEFINE_BOOL(gpu_log_skipped_draw_resolves, true, "GPU/Vulkan",
++                    "Session 57: log a resolve that follows draws skipped while their pipeline was made (what it "
++                    "copies, and the widths of the surfaces those draws went to): the first 40, then every 100th. "
++                    "Copies of the screen are expected; a copy into a texture the game keeps would lose those draws")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vulkan_readback_memexport, false, "GPU/Vulkan",
+                     "Read data written by memory export in shaders on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -9248,6 +9255,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                                 &pipeline_is_placeholder);
+   if (REXCVAR_GET(async_shader_compilation) && pipeline_is_placeholder) {
+     frame_used_async_placeholder_pipeline_ = true;
++    NoteSkippedDraw();  // wwe2k14 patch (Session 57)
+     anatomy_skip_reason_ = kAnatomySkipPlaceholder;  // wwe2k14 patch (Session 6, COUNTERS)
+     // wwe2k14 patch (Session 6, H1): counted for the vulkan_pipeline_no_submit_wait log.
+     ++pipeline_no_wait_stats.frame_skipped_draws;
+@@ -9855,7 +9863,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   const bool truth_owned = native_owned && native_draw.truth;
+   // wwe2k14 patch (Session 47, NATIVE TRUTH CPU, review): a truth draw skipped while its pipeline is being made counts
+   // as a placeholder draw (vulkan_async_skip_incomplete_frames holds the frame back, as for the emulated draws).
+-  if (truth_owned && native_draw.pipeline == VK_NULL_HANDLE) frame_used_async_placeholder_pipeline_ = true;
++  if (truth_owned && native_draw.pipeline == VK_NULL_HANDLE) {
++    frame_used_async_placeholder_pipeline_ = true;
++    NoteSkippedDraw();  // wwe2k14 patch (Session 57)
++  }
+   if (truth_owned) {
+     if (in_render_pass_) EndRenderPass();
+     SubmitBarriers(false);
+@@ -11966,6 +11977,17 @@ std::string VulkanCommandProcessor::FlightGpuRecords(void* user, uint32_t max_re
+   return out;
+ }
+ 
++// wwe2k14 patch (Session 57): a draw skipped while its pipeline was made (see gpu_log_skipped_draw_resolves).
++void VulkanCommandProcessor::NoteSkippedDraw() {
++  const uint32_t pitch = uint32_t(register_file_->Get<reg::RB_SURFACE_INFO>().surface_pitch);
++  if (skipped_draws_since_resolve_++ == 0) {
++    skipped_draws_pitch_min_ = skipped_draws_pitch_max_ = pitch;
++  } else {
++    skipped_draws_pitch_min_ = std::min(skipped_draws_pitch_min_, pitch);
++    skipped_draws_pitch_max_ = std::max(skipped_draws_pitch_max_, pitch);
++  }
++}
++
+ bool VulkanCommandProcessor::IssueCopy() {
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");
+@@ -12073,6 +12095,24 @@ bool VulkanCommandProcessor::IssueCopy() {
+                   uint32_t(dp.copy_dest_height), matte_regs_[4], matte_regs_[5], matte_regs_[6]);
+     }
+     matte_force_readback_ = false;
++    // wwe2k14 patch (Session 57): the copy after draws skipped while their pipeline was made (gpu_log_skipped_draw_
++    // resolves). A copying resolve starts the count again; a clear-only one leaves it for the copy that follows
++    // (review: else that copy, the one the log is for, went unlogged).
++    const bool copies = copy_control.copy_command != xenos::CopyCommand::kNull;
++    if (skipped_draws_since_resolve_ != 0 && copies && REXCVAR_GET(gpu_log_skipped_draw_resolves)) {
++      ++skipped_draw_resolves_;
++      if (skipped_draw_resolves_ <= 40 || skipped_draw_resolves_ % 100 == 0) {
++        const reg::RB_COPY_DEST_INFO di = mregs.Get<reg::RB_COPY_DEST_INFO>();
++        const reg::RB_COPY_DEST_PITCH dp = mregs.Get<reg::RB_COPY_DEST_PITCH>();
++        REXGPU_INFO("[s57][skipped] resolve #{} (frame {}) after {} draw(s) skipped while their pipeline was made "
++                    "(their surfaces {}-{} wide): {} of a {}-wide surface to 0x{:08X}, {}x{}, format {}",
++                    skipped_draw_resolves_, frame_current_, skipped_draws_since_resolve_, skipped_draws_pitch_min_,
++                    skipped_draws_pitch_max_, copying_depth ? "depth" : "colour",
++                    uint32_t(mregs.Get<reg::RB_SURFACE_INFO>().surface_pitch), matte_regs_[1],
++                    uint32_t(dp.copy_dest_pitch), uint32_t(dp.copy_dest_height), uint32_t(di.copy_dest_format));
++      }
++    }
++    if (copies) skipped_draws_since_resolve_ = 0;
+     // Depth resolves, and (Session 16, aligned colour) the frame's full-size colour resolves: the scene colour right
+     // before the depth copy is the same frame's picture without the HUD (run 1287: resolve 51 colour0, 52 depth).
+     const reg::RB_COPY_DEST_PITCH dest_pitch = mregs.Get<reg::RB_COPY_DEST_PITCH>();
+@@ -12266,9 +12306,17 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     }
+ 
+     VkBuffer scaled_resolve_buffer = texture_cache_->scaled_resolve_buffer();
+-    if (scaled_resolve_buffer == VK_NULL_HANDLE || scaled_start > uint64_t(UINT32_MAX)) {
++    if (scaled_resolve_buffer == VK_NULL_HANDLE) {
+       return true;
+     }
++    // wwe2k14 patch (Session 57 review): only this resolve's scaled range is bound (from the storage buffer offset
++    // alignment below it), and the shader's offset is relative to that. Binding the whole buffer from 0 with a 32-bit
++    // offset skipped every destination whose scaled offset passes 4 GiB (at the 4K preset's 3x3 scale: guest addresses
++    // from ~0x1C71C71D) and bound more than maxStorageBufferRange.
++    const VkDeviceSize source_alignment =
++        std::max(vulkan_device->properties().minStorageBufferOffsetAlignment, VkDeviceSize(4));
++    const VkDeviceSize source_bind_offset = VkDeviceSize(scaled_start) & ~(source_alignment - 1);
++    const VkDeviceSize source_bind_range = VkDeviceSize(scaled_start) - source_bind_offset + scaled_length;
+ 
+     uint32_t downscale_buffer_size = AlignReadbackBufferSize(written_length);
+     if (downscale_buffer_size > resolve_downscale_buffer_size_) {
+@@ -12312,8 +12360,8 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+ 
+     VkDescriptorBufferInfo buffer_infos[2] = {};
+     buffer_infos[0].buffer = scaled_resolve_buffer;
+-    buffer_infos[0].offset = 0;
+-    buffer_infos[0].range = VK_WHOLE_SIZE;
++    buffer_infos[0].offset = source_bind_offset;
++    buffer_infos[0].range = source_bind_range;
+     buffer_infos[1].buffer = resolve_downscale_buffer_;
+     buffer_infos[1].offset = 0;
+     buffer_infos[1].range = written_length;
+@@ -12360,7 +12408,7 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     constants.scale_y = texture_cache_->draw_resolution_scale_y();
+     constants.pixel_size_log2 = pixel_size_log2;
+     constants.tile_count = tile_count;
+-    constants.source_offset_bytes = uint32_t(scaled_start);
++    constants.source_offset_bytes = uint32_t(VkDeviceSize(scaled_start) - source_bind_offset);
+     constants.half_pixel_offset = (REXCVAR_GET(readback_resolve_half_pixel_offset) &&
+                                    (constants.scale_x > 1 || constants.scale_y > 1))
+                                       ? 1u
+@@ -15273,7 +15321,10 @@ bool VulkanCommandProcessor::RepeatDrawFast(const Shader* vertex_shader, uint64_
+   // wwe2k14 patch (Session 46, NATIVE TRUTH M5): a truth repeat is drawn in the native renderer's own pass.
+   const bool truth_owned = native_owned && native_repeat.truth;
+   // wwe2k14 patch (Session 47, review): skipped while its pipeline is being made (as in IssueDraw).
+-  if (truth_owned && native_repeat.pipeline == VK_NULL_HANDLE) frame_used_async_placeholder_pipeline_ = true;
++  if (truth_owned && native_repeat.pipeline == VK_NULL_HANDLE) {
++    frame_used_async_placeholder_pipeline_ = true;
++    NoteSkippedDraw();  // wwe2k14 patch (Session 57)
++  }
+   if (truth_owned) {
+     if (in_render_pass_) EndRenderPass();
+     SubmitBarriers(false);
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index d1483f5929a2a21fee3c3cdf05454348c3a8e24a..38f2b20fbb1b9146fdcb13f26292592dacb76050 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -49,6 +49,15 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_pipeline_wait_offscreen, true, "GPU/Native"
+                     "instead of being skipped: such draws build textures the game keeps (wrestlers' while a match "
+                     "loads), and a skipped one stays missing. false = every such draw is skipped (Sessions 47-54)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 57, red patches still reported on a GTX 1060): the width from which a draw counts as screen-wide
++// for gpu_native_truth_pipeline_wait_offscreen. A texture the game builds in a screen-wide surface would still lose
++// draws; 1024 = no draw is ever skipped (each new pipeline is made at once).
++REXCVAR_DEFINE_INT32(gpu_native_truth_pipeline_skip_min_pitch, 16, "GPU/Native",
++                     "Session 57: with gpu_native_truth_pipeline_wait_offscreen, a truth draw whose pipeline is not "
++                     "ready may be skipped only on a surface at least this many 80-pixel tiles wide (16 = 1280: the "
++                     "screen); narrower ones wait. 1024 = never skipped")
++    .range(0, 1024)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_native_truth_draw_min_pitch, 16, "GPU/Native",
+                      "Session 54: with gpu_native_truth_draw_height, the surfaces drawn smaller: at least this many "
+                      "80-pixel tiles wide (16 = 1280: the screen-wide ones). Narrower surfaces draw at the resolution "
+@@ -520,7 +529,9 @@ bool NativeRenderer::ClaimTruth(Draw& draw) {
+   // usually builds a texture the game keeps (the wrestlers' while a match loads): skipped, it stays missing all match.
+   // A 2-core laptop skipped 109,595 draws; here, compiles slowed down to 100 ms (gpu_native_truth_debug_pipeline_delay_ms,
+   // run 3729) left wrestlers' trunks, waistbands and skin washed out for the whole match. Those draws wait instead.
+-  const bool may_skip = pitch_tiles >= kTruthScreenPitchTiles || !REXCVAR_GET(gpu_native_truth_pipeline_wait_offscreen);
++  // (Session 57: the width is gpu_native_truth_pipeline_skip_min_pitch, kTruthScreenPitchTiles by default.)
++  const bool may_skip = pitch_tiles >= uint32_t(REXCVAR_GET(gpu_native_truth_pipeline_skip_min_pitch)) ||
++                        !REXCVAR_GET(gpu_native_truth_pipeline_wait_offscreen);
+   const size_t pipelines_before = pipelines_.size();
+   draw.pipeline = GetPipeline(draw, async && may_skip ? &pending : nullptr);
+   if (async && !may_skip && pipelines_.size() != pipelines_before) ++truth_counts_.waited;
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 0c7675a1072765dc0d08412c839a825efd9d2d3e..310995465887d07a074ceca9cadfc03febcd7c00 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -93,6 +93,14 @@ REXCVAR_DEFINE_BOOL(vulkan_pipeline_sync_offscreen, true, "GPU/Vulkan",
+                     "1280 pixels) whose pipeline is not ready waits for it instead of being skipped (it may build a "
+                     "texture the game keeps). false = every such draw is skipped (Sessions 6-54)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 57, red patches still reported on a GTX 1060): the screen-wide width for
++// vulkan_pipeline_sync_offscreen (a texture the game builds in a screen-wide surface would still lose draws).
++REXCVAR_DEFINE_INT32(vulkan_pipeline_sync_offscreen_min_pitch, 1280, "GPU/Vulkan",
++                     "Session 57: with vulkan_pipeline_sync_offscreen, a draw whose pipeline is not ready may be "
++                     "skipped only on a surface at least this many guest pixels wide (1280 = the screen); narrower "
++                     "ones wait. 16384 = never skipped")
++    .range(0, 16384)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -1249,7 +1257,8 @@ bool VulkanPipelineCache::ConfigurePipeline(
+   }
+   // wwe2k14 patch (Session 55): vulkan_pipeline_sync_offscreen - the surface the draw goes to (guest pixels).
+   const bool sync_offscreen = REXCVAR_GET(vulkan_pipeline_sync_offscreen) && !creation_threads_.empty() &&
+-                              register_file_.Get<reg::RB_SURFACE_INFO>().surface_pitch < 1280;
++                              register_file_.Get<reg::RB_SURFACE_INFO>().surface_pitch <
++                                  uint32_t(REXCVAR_GET(vulkan_pipeline_sync_offscreen_min_pitch));
+   if (last_pipeline_ && last_pipeline_->first == description) {
+     VkPipeline last_pipeline = last_pipeline_->second.pipeline.load(std::memory_order_acquire);
+     const PipelineLayoutProvider* last_pipeline_layout =
+@@ -3887,8 +3896,11 @@ void VulkanPipelineCache::AwaitPendingPipeline(std::pair<const PipelineDescripti
+     return;
+   }
+   // (At most 2 s: a pipeline still pending then is skipped as before rather than holding the command processor.)
+-  for (int i = 0; i < 10000 && entry->second.is_placeholder.load(std::memory_order_acquire); ++i) {
+-    std::this_thread::sleep_for(std::chrono::microseconds(200));
++  // Session 57 review: a real deadline - 10,000 sleeps of 200 us were 10-20 s on Windows (the sleep rounds up to the
++  // timer tick) and ~156 s with the window covered (the coarse timer), should a driver compile hang.
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
++  while (entry->second.is_placeholder.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
++    std::this_thread::yield();
+   }
+ }
+ 

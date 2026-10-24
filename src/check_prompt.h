@@ -67,6 +67,7 @@ struct State {
   Banner* banner = nullptr;                                      // UI thread only
   void* hwnd = nullptr;                                          // the game window (Session 30: raise + flash)
   bool installed = false;
+  bool binds = false;  // the F1 / F2 / F5 keys (harness runs only)
 };
 
 inline State& S() {
@@ -163,7 +164,7 @@ inline void HideToast() {  // UI thread
   t.dialog = nullptr;
 }
 
-// Any thread. No-op outside harness runs (no overlay installed).
+// Any thread. No-op before Install (no overlay yet).
 inline void ShowToast(const std::string& text, double seconds = 2.5) {
   State& s = S();
   if (!s.installed || !s.post_ui) return;
@@ -229,15 +230,17 @@ inline void Answer(int verdict) {  // UI thread (key bind)
 }
 
 // From ReXApp::OnCreateDialogs (UI thread). `harness` = an input script or the live channel is set: only then the
-// keys are bound (players never get them).
+// keys are bound (players never get them). Session 58: the toast works for players too (F11's "marked" note).
 inline void Install(rex::ui::ImGuiDrawer* drawer, std::function<void(std::function<void()>)> post_ui, bool harness,
                     void* hwnd = nullptr) {
-  if (!harness || !drawer) return;
+  if (!drawer) return;
   State& s = S();
   s.drawer = drawer;
   s.hwnd = hwnd;
   s.post_ui = std::move(post_ui);
   s.installed = true;
+  if (!harness) return;
+  s.binds = true;
   rex::ui::RegisterBind("bind_wwe2k14_check_pass", "F1", "Harness check: yes / looks right", [] { Answer(kPass); });
   rex::ui::RegisterBind("bind_wwe2k14_check_fail", "F2", "Harness check: no / wrong", [] { Answer(kFail); });
   rex::ui::RegisterBind("bind_wwe2k14_check_skip", "F5", "Harness check: skip", [] { Answer(kSkip); });
@@ -247,9 +250,11 @@ inline void Install(rex::ui::ImGuiDrawer* drawer, std::function<void(std::functi
 inline void Shutdown() {  // UI thread, before the drawer goes away
   State& s = S();
   if (!s.installed) return;
-  rex::ui::UnregisterBind("bind_wwe2k14_check_pass");
-  rex::ui::UnregisterBind("bind_wwe2k14_check_fail");
-  rex::ui::UnregisterBind("bind_wwe2k14_check_skip");
+  if (s.binds) {
+    rex::ui::UnregisterBind("bind_wwe2k14_check_pass");
+    rex::ui::UnregisterBind("bind_wwe2k14_check_fail");
+    rex::ui::UnregisterBind("bind_wwe2k14_check_skip");
+  }
   HideBanner();
   HideToast();
   s.drawer = nullptr;

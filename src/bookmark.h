@@ -1,4 +1,5 @@
-// wwe2k14 - the "that, just now" bookmark key (Session 29, test harness; the key exists only in harness runs).
+// wwe2k14 - the "that, just now" bookmark key (Session 29, test harness; Session 58: players have it too, as "mark this
+// moment" for Report a problem).
 //
 // F11 (bind_wwe2k14_bookmark; an input script or the live channel is set) saves a bundle for "something looked wrong a
 // moment ago", so a report like "the entrance hitched just now" comes with data:
@@ -64,6 +65,7 @@ inline std::atomic<uint64_t> g_last_file_open_frame{0};
 inline void NoteFileOpen(uint64_t frame) { g_last_file_open_frame.store(frame, std::memory_order_relaxed); }
 inline void TakeAuto(double ms, uint64_t frame);  // below
 inline bool g_installed = false;
+inline bool g_player = false;  // Session 58: installed for a player (no harness): the note says where it goes
 
 struct Ring {
   std::array<int64_t, kRing> ns{};       // steady clock at each VdSwap
@@ -375,12 +377,15 @@ inline int TakeImpl(const std::string& reason) {
   }
   const uint64_t frame = g_guest_frame.load();
   const std::string label = fmt::format("bookmark_{}", k);
-  SaveScreenshot(label);
+  // Session 58: a player's mark is a full-size JPEG (a 1440p PNG is ~3 MB; the report carries up to 12 marks).
+  if (g_player) SaveSnapshot(label, 1u << 16);
+  else SaveScreenshot(label);
 #ifdef _WIN32
   if (reason.empty()) MessageBeep(MB_OK);
 #endif
-  check::ShowToast(reason.empty() ? fmt::format("Bookmark {} saved (frame {})", k, frame)
-                                  : fmt::format("Auto-bookmark {} ({})", k, reason));
+  check::ShowToast(!reason.empty() ? fmt::format("Auto-bookmark {} ({})", k, reason)
+                   : g_player      ? fmt::format("Marked ({}): it goes into Report a problem", k)
+                                   : fmt::format("Bookmark {} saved (frame {})", k, frame));
   const std::string text_now = screen_text::Joined(2000);  // Session 30: the text on screen at the key
   // Session 30 (#5): every known struct whose base is a readable, non-null pointer, read now (structs.toml).
   std::string structs_now;
@@ -410,7 +415,8 @@ inline int TakeImpl(const std::string& reason) {
     std::string body = fmt::format("# bookmark {} of run {:03}: guest frame {}, {}{}\n", k,
                                    std::max(CurrentLogNumber(), 0), frame, when,
                                    reason.empty() ? std::string(" (key)") : " (auto: " + reason + ")");
-    body += fmt::format("screenshot: captures/{:03}_{}.png\n\n## states now\n", std::max(CurrentLogNumber(), 0), label);
+    body += fmt::format("screenshot: captures/{:03}_{}.{}\n\n## states now\n", std::max(CurrentLogNumber(), 0), label,
+                        g_player ? "jpg" : "png");
     body += "(a state outside its own screen reads unrelated memory, e.g. logo_* outside Create a Logo: see the meanings "
             "in tools/input_scripts/states.toml)\n";
     for (const std::string& line : StateLines()) body += line + "\n";
@@ -455,14 +461,18 @@ inline void TakeAuto(double ms, uint64_t frame) {
   TakeImpl(fmt::format("hitch {:.0f} ms", ms));
 }
 
-// From ReXApp::OnCreateDialogs (UI thread), harness runs only (same rule as the check keys).
+// From ReXApp::OnCreateDialogs (UI thread). Session 58 (Jarrod: reports with as much as possible): players get the key
+// too, as "mark this moment" for Report a problem (the launcher packs the marks of the runs it sends).
 inline void Install(bool harness) {
-  if (!harness) return;
   g_installed = true;
+  g_player = !harness;
   StartClipRing();  // no-op unless --wwe2k14_bookmark_clip_fps
-  rex::ui::RegisterBind("bind_wwe2k14_bookmark", "F11", "Harness: bookmark this moment (screenshot, states, recent "
-                        "frame times and warnings)", [] { Take(); });
-  REXLOG_INFO("[wwe2k14][bookmark] installed: F11 saves a 'that, just now' bundle (src/bookmark.h)");
+  rex::ui::RegisterBind("bind_wwe2k14_bookmark", "F11",
+                        harness ? "Harness: bookmark this moment (screenshot, states, recent frame times and warnings)"
+                                : "Mark this moment for a problem report (a screenshot and what the game was doing)",
+                        [] { Take(); });
+  REXLOG_INFO("[wwe2k14][bookmark] installed: F11 saves a 'that, just now' bundle (src/bookmark.h){}",
+              harness ? "" : " - for players: it goes into Report a problem");
 }
 
 inline void Shutdown() {

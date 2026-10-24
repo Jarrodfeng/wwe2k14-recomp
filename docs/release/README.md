@@ -87,6 +87,7 @@ The game plays as it did on the Xbox 360, with a controller. On PC:
 | **F8** | CineCam: a free camera (turn it on in Settings -> Game). Hold the right mouse button to look, W/A/S/D to move. Its timeline along the bottom makes keyframed shots: K sets a key at the playhead, Space plays the move (shots are saved in Documents\WWE 2K14\CineCam). |
 | **F9** | A run-in: another wrestler interferes (turn it on in Settings -> Game; experimental). |
 | **F3** | Shows the frame rate. |
+| **F11** | Marks this moment for a problem report: a screenshot and what the game was doing (it goes into **Report a problem**). |
 | **Alt+F4** | Quit. The main menu also has QUIT TO DESKTOP at the bottom. |
 
 ## Settings
@@ -135,10 +136,13 @@ off applies at once; the DLSS modes, the frame rate and the resolution apply the
 
 ## Something went wrong?
 
-Use **Report a problem** in the launcher (bottom left). It makes a `.zip` and opens its folder. Inside are:
-- the latest game log and the performance report;
-- the launcher's settings and the version;
-- your PC's basics (GPU, CPU, RAM, Windows).
+When you see something wrong in the game, press **F11**: it marks the moment. Then use **Report a problem** in the
+launcher (bottom left); you can write what happened in its box. It makes a `.zip` and opens its folder. Inside are:
+- the logs of your last 3 games, with which wrestlers, arena and match you played and how the graphics card coped
+  (shaders made, video memory);
+- small screenshots of each scene of those games and the moments you marked with F11;
+- the performance report, the launcher's settings and the version;
+- your PC's basics (graphics cards and their drivers, CPU, RAM, Windows, monitor).
 
 Your user name is removed from file paths, and nothing is sent anywhere. Send the zip to whoever gave you this build.
 

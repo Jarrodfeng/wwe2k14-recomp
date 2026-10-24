@@ -188,6 +188,7 @@ inline void LogFileOpen(const char* call, ppc_ptr_t<rex::system::X_OBJECT_ATTRIB
   if (result == 0) g_input_script.OnFileOpened(path);  // wait_file sync points / recording comments
   if (result == 0) bookmark::NoteFileOpen(g_guest_frame);  // Session 29: no automatic bookmark right after a load
   if (result == 0) g_load_turbo.OnFileOpened(path);    // no-op unless --wwe2k14_load_turbo*
+  if (result == 0 && g_readback_file_hook) g_readback_file_hook(path, g_guest_frame.load());  // --wwe2k14_readback_loads
   BootSkipOnFileOpen(g_guest_frame.load());            // --wwe2k14_skip_boot_screens bookkeeping
   FileTraceOnOpen(path, result, handle_out ? uint32_t(*handle_out) : 0);  // no-op unless --wwe2k14_file_trace
   FlightOnFileOpen(call[2] == 'O', path, disposition, access, result == 0 && handle_out ? uint32_t(*handle_out) : 0,
@@ -265,6 +266,9 @@ inline void VdSwapOverride(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped
   discord::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0), g_guest_frame);  // no-op unless --wwe2k14_discord
   if (g_photo_frame_hook) g_photo_frame_hook(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0));  // --wwe2k14_photo_mode
   if (g_wm30_frame_hook) g_wm30_frame_hook(g_guest_frame);  // --wwe2k14_wm30 (Session 34)
+  if (g_readback_frame_hook) g_readback_frame_hook(g_guest_frame);  // --wwe2k14_readback_sequences (Session 57)
+  if (g_pipeline_wait_frame_hook) g_pipeline_wait_frame_hook(g_guest_frame);  // --wwe2k14_load_pipeline_wait (S57)
+  if (g_session_frame_hook) g_session_frame_hook(g_guest_frame);  // --wwe2k14_session_log (Session 58)
   entrance_music::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0));  // no-op unless a custom theme plays
   ultrawide::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0), g_guest_frame);  // no-op at 16:9
   perf_report::OnFrame();  // no-op unless --wwe2k14_perf_report (after step_rate: its scene flags)

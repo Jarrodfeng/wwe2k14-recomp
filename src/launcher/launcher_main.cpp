@@ -893,6 +893,9 @@ class App {
   }
 
   void Log(const std::string& msg) {
+    // Session 58: the last 300 messages in memory too, for Report a problem (players have no --log file).
+    recent_log_.push_back(NowStamp("%Y-%m-%d %H:%M:%S") + "  " + msg);
+    if (recent_log_.size() > 300) recent_log_.erase(recent_log_.begin());
     if (log_path.empty()) return;
     std::ofstream f(log_path, std::ios::app);
     f << msg << "\n";
@@ -2064,11 +2067,13 @@ class App {
     return settings_path == SettingsPath() ? "" : "--wwe2k14_settings_file=" + Quote(PathStr(settings_path));
   }
   // A helper run of the game (Build previews, a logo import): where the game files and the save are, as GameFlags
-  // gives them to PLAY GAME, and this launcher's settings file; each ends with a space.
+  // gives them to PLAY GAME, the DLC packs (Session 57, tester bug 2: the save may need them) and this launcher's
+  // settings file; each ends with a space.
   std::string HelperPathFlags() const {
     std::string a;
     if (!s.game_data_dir.empty()) a += "--game_data_root=" + Quote(s.game_data_dir) + " ";
     if (!s.user_data_dir.empty()) a += "--user_data_root=" + Quote(s.user_data_dir) + " ";
+    for (const auto& x : DlcFlags(s, paths_)) a += x + " ";
     if (const std::string f = GameSettingsFlag(); !f.empty()) a += f + " ";
     return a;
   }
@@ -2146,6 +2151,7 @@ class App {
       return;
     }
     ReloadGraphicsSettings();
+    last_exit_ = ExitCodeText(code) + " at " + NowStamp("%Y-%m-%d %H:%M");  // Session 58: for Report a problem
     if (perf_step_ >= 0) {  // Session 39: a performance test run (its exit code goes into the test's about.txt)
       if (code) Log("performance test run exited with " + ExitCodeText(code));
       PerfRunEnded(code);
@@ -2233,9 +2239,17 @@ class App {
     if (BeginGameModal("report", "REPORT A PROBLEM", 620 * Dpi())) {
       ImGui::TextWrapped("Make a problem report: a .zip you can send us.");
       ImGui::Spacing();
-      Note("Inside: the latest game log, the performance report, the launcher's settings, the version and your PC's "
-           "basics (GPU, CPU, RAM, Windows, monitor). Your user name is removed from file paths. Nothing is sent: "
-           "the folder opens and you choose what to do with it.");
+      Note("Inside: the logs of your last 3 games (with which wrestlers, arena and match you played), small "
+           "screenshots of each scene, the moments you marked with F11, the performance report, the launcher's "
+           "settings, the version and your PC's basics (graphics cards and drivers, CPU, RAM, Windows, monitor). Your "
+           "user name is removed from file paths. Nothing is sent: the folder opens and you choose what to do with "
+           "it.");
+      Note("Tip: press F11 in the game when you see a problem. It marks the moment (a screenshot and what the game "
+           "was doing) for this report.");
+      ImGui::Spacing();
+      ImGui::TextUnformatted("What happened? (optional)");
+      ImGui::InputTextMultiline("##report_note", report_note_, sizeof(report_note_),
+                                ImVec2(-FLT_MIN, 90 * Dpi()));
       ImGui::Dummy(ImVec2(0, 12 * Dpi()));
       if (ModalMainButton("MAKE THE REPORT")) {
         ImGui::CloseCurrentPopup();
@@ -2306,33 +2320,243 @@ class App {
     return s;
   }
 
+  // Session 58: every display adapter Windows lists, with its driver version and date, and the CPU's threads / cores.
+  static std::string PcDetailsText() {
+    std::string t = "Graphics drivers:\n";
+    const wchar_t* cls = L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}";
+    for (int i = 0; i < 16; ++i) {
+      wchar_t key[256];
+      swprintf(key, 256, L"%s\\%04d", cls, i);
+      const std::string desc = RegString(HKEY_LOCAL_MACHINE, key, L"DriverDesc");
+      if (desc.empty()) continue;
+      t += "  " + desc + ": driver " + RegString(HKEY_LOCAL_MACHINE, key, L"DriverVersion") + " (" +
+           RegString(HKEY_LOCAL_MACHINE, key, L"DriverDate") + ")\n";
+    }
+    DWORD len = 0;
+    uint32_t cores = 0;
+    GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &len);
+    std::vector<uint8_t> buf(len);
+    if (len && GetLogicalProcessorInformationEx(RelationProcessorCore,
+                                                reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buf.data()),
+                                                &len)) {
+      for (DWORD off = 0; off < len;) {
+        const auto* p = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buf.data() + off);
+        ++cores;
+        off += p->Size;
+      }
+    }
+    t += "CPU threads: " + std::to_string(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)) + ", cores: " +
+         std::to_string(cores) + "\n";
+    return t;
+  }
+
+  // Session 58: `folder`'s files into a compressed .zip with Windows' own tar.exe (Windows 10 1803 and later).
+  static bool TarZip(const fs::path& folder, const fs::path& zip) {
+    wchar_t sys[MAX_PATH];
+    if (!GetSystemDirectoryW(sys, MAX_PATH)) return false;
+    const fs::path tar = fs::path(sys) / L"tar.exe";
+    std::error_code ec;
+    if (!fs::exists(tar, ec)) return false;
+    std::wstring cmd = L"\"" + tar.wstring() + L"\" -a -c -f \"" + zip.wstring() + L"\" -C \"" + folder.wstring() + L"\"";
+    for (const auto& e : fs::recursive_directory_iterator(folder, ec)) {
+      if (e.is_regular_file()) cmd += L" \"" + fs::relative(e.path(), folder, ec).generic_wstring() + L"\"";
+    }
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+      return false;
+    }
+    const DWORD w = WaitForSingleObject(pi.hProcess, 120000);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    if (w != WAIT_OBJECT_0) TerminateProcess(pi.hProcess, 1);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return w == WAIT_OBJECT_0 && code == 0 && fs::exists(zip, ec) && fs::file_size(zip, ec) > 0;
+  }
+
+  // Session 58: the newest `n` files in `dir` named prefix*ext, newest first.
+  static std::vector<fs::path> NewestN(const fs::path& dir, const std::string& prefix, const std::string& ext, size_t n) {
+    std::vector<std::pair<fs::file_time_type, fs::path>> all;
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+      const std::string name = PathStr(e.path().filename());
+      if (!e.is_regular_file() || name.rfind(prefix, 0) != 0 || Lower(PathStr(e.path().extension())) != ext) continue;
+      all.emplace_back(e.last_write_time(ec), e.path());
+    }
+    std::sort(all.begin(), all.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::vector<fs::path> out;
+    for (size_t i = 0; i < all.size() && i < n; ++i) out.push_back(all[i].second);
+    return out;
+  }
+
+  // Session 58: a game log for the report, condensed: each distinct message (its time stamp and thread id left out)
+  // keeps its first 30 copies and the rest are counted at the end (an HD 520's log had one warning tens of thousands
+  // of times); a result still over 24 MB keeps its first 4 and last 20 MB.
+  static std::string CondenseLog(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return {};
+    std::string text((std::istreambuf_iterator<char>(f)), {});
+    std::unordered_map<std::string, uint32_t> seen;
+    std::vector<std::string> repeated;
+    std::string out;
+    out.reserve(text.size() / 2);
+    for (size_t pos = 0; pos < text.size();) {
+      size_t nl = text.find('\n', pos);
+      if (nl == std::string::npos) nl = text.size();
+      const std::string_view line(text.data() + pos, nl - pos);
+      std::string_view rest = line;
+      if (rest.size() > 26 && rest[0] == '[' && rest[1] == '2') rest.remove_prefix(std::min(rest.find("] ") + 2, rest.size()));
+      std::string key(rest);
+      const size_t t = key.find("] [t");
+      if (t != std::string::npos) {
+        const size_t e = key.find("] ", t + 3);
+        if (e != std::string::npos) key.erase(t + 1, e - t);
+      }
+      uint32_t& n = seen[key];
+      if (++n <= 30) {
+        out.append(line).push_back('\n');
+      } else if (n == 31) {
+        repeated.push_back(key);
+      }
+      pos = nl + 1;
+    }
+    if (!repeated.empty()) {
+      out += "\n[report] lines left out after their first 30 copies (count left out, message):\n";
+      for (const std::string& k : repeated) out += "  " + std::to_string(seen[k] - 30) + "  " + k + "\n";
+    }
+    constexpr size_t kMax = 24u << 20, kHead = 4u << 20, kTail = 20u << 20;
+    if (out.size() > kMax) {
+      out = out.substr(0, kHead) + "\n[report] ... " + std::to_string(out.size() - kHead - kTail) +
+            " bytes left out ...\n" + out.substr(out.size() - kTail);
+    }
+    return out;
+  }
+
+  // Session 58: "Matches in this log" for about.txt, from its [wwe2k14][match] card lines (ids named from
+  // data\ids\characters.json and the DLC packs' names).
+  std::string MatchCardsText(const std::string& log) const {
+    std::string out;
+    std::string last;
+    for (size_t at = log.find("[wwe2k14][match] card ("); at != std::string::npos;
+         at = log.find("[wwe2k14][match] card (", at + 1)) {
+      const size_t nl = log.find('\n', at);
+      const std::string line = log.substr(at, nl == std::string::npos ? std::string::npos : nl - at);
+      const size_t p = line.find("participants ");
+      if (p == std::string::npos) continue;
+      std::string who;
+      for (size_t i = p + 13; i < line.size();) {
+        const size_t colon = line.find(':', i);
+        if (colon == std::string::npos) break;
+        const int slot = std::atoi(line.c_str() + i), id = std::atoi(line.c_str() + colon + 1);
+        if (slot < 40) {  // 40-42: the extra ids (roles unknown)
+          std::string name = "#" + std::to_string(id);
+          for (const auto* list : {&chars_, &dlc_chars_}) {
+            for (const Character& c : *list) {
+              if (c.id == id) name = c.name + " (" + std::to_string(id) + ")";
+            }
+          }
+          who += (who.empty() ? "" : ", ") + name;
+        }
+        const size_t comma = line.find(", ", colon);
+        if (comma == std::string::npos || comma > line.find(" frame=", colon)) break;
+        i = comma + 2;
+      }
+      std::string arena;
+      if (const size_t a = line.find(" arena "); a != std::string::npos) {
+        const int id = std::atoi(line.c_str() + a + 7);
+        arena = "arena " + std::to_string(id);
+        for (const Arena& ar : arenas_) {
+          if (ar.id == id) arena = ar.name + " (" + std::to_string(id) + ")";
+        }
+      }
+      const size_t ty = line.find(" type ");
+      const std::string entry = "  " + who + "; " + arena + "; match type " +
+                                (ty == std::string::npos ? "?" : std::to_string(std::atoi(line.c_str() + ty + 6))) +
+                                (line.find("(match clock started)") != std::string::npos ? " (played)" : "") + "\n";
+      if (entry != last) out += entry;
+      last = entry;
+    }
+    return out.empty() ? "  (none recorded)\n" : out;
+  }
+
   void MakeReport() {
     fs::path dir = paths_.launcher_dir / "reports";
     std::error_code ec;
     fs::create_directories(dir, ec);
     if (ec) dir = LocalDataDir() / "reports", fs::create_directories(dir, ec);
-    const fs::path zip = dir / ("report_" + NowStamp("%Y%m%d_%H%M") + ".zip");
-    ZipWriter z(zip);
-    if (!z.ok()) {
-      Status("Could not write " + PathStr(zip));
-      return;
-    }
+    const std::string stamp = "report_" + NowStamp("%Y%m%d_%H%M%S");
+    const fs::path zip = dir / (stamp + ".zip");
+    // Session 58: the files are put together in a folder first, then zipped (compressed) with Windows' own tar.exe;
+    // if that fails, the stored .zip of before.
+    std::vector<std::pair<std::string, std::string>> files;  // name in the zip -> contents
     std::string about = std::string("WWE 2K14 recomp problem report\nVersion: ") + Version() + "\nMade: " +
-                        NowStamp("%Y-%m-%d %H:%M") + " (local time)\n\n" + HardwareText(hw_) + "\nGame data: " +
-                        gd_.message + "\n";
-    const fs::path log = Newest(paths_.logs, "wwe2k14_", ".log");
-    const fs::path perf = Newest(paths_.logs, "perf_report_", ".txt");
-    about += "Game log: " + (log.empty() ? std::string("(none)") : PathStr(log.filename())) +
-             "\nPerformance report: " + (perf.empty() ? std::string("(none: turn it on in Settings)") : PathStr(perf.filename())) + "\n";
-    about += DlcReportText();  // Session 32: pack names and states, never their files
-    z.Add("about.txt", Redact(about));
-    if (!log.empty()) z.Add(PathStr(log.filename()), Redact(ReadTail(log, 24u << 20)));
-    if (!perf.empty()) z.Add(PathStr(perf.filename()), Redact(ReadTail(perf, 4u << 20)));
-    z.Add("launcher_settings.json", Redact(json(s).dump(2)));
-    if (!z.Close()) {
-      Status("Could not finish " + PathStr(zip));
-      return;
+                        NowStamp("%Y-%m-%d %H:%M") + " (local time)\n\n" + HardwareText(hw_) + PcDetailsText() +
+                        "\nGame data: " + gd_.message + "\nLast game exit: " +
+                        (last_exit_.empty() ? std::string("(none since the launcher started)") : last_exit_) + "\n";
+    const std::string note(report_note_);
+    about += "Player's note: " + (note.empty() ? std::string("(none)") : std::string("note.txt")) + "\n";
+    if (!note.empty()) files.emplace_back("note.txt", note + "\n");
+    // The last 3 games: logs (condensed), their scene snapshots and F11 marks.
+    const fs::path captures = paths_.game_exe.parent_path() / "captures";
+    size_t marks = 0;
+    about += "\nGames in this report (newest first):\n";
+    for (const fs::path& log : NewestN(paths_.logs, "wwe2k14_", ".log", 3)) {
+      const std::string name = PathStr(log.filename());
+      const std::string text = Redact(CondenseLog(log));
+      files.emplace_back(name, text);
+      const std::string number = name.substr(8, name.size() - 8 - 4);  // wwe2k14_NNN.log
+      about += "- " + name + "\n" + MatchCardsText(text);
+      for (const auto& e : fs::directory_iterator(captures, ec)) {
+        const std::string c = PathStr(e.path().filename());
+        if (c.rfind(number + "_scene_", 0) == 0 && Lower(PathStr(e.path().extension())) == ".jpg") {
+          files.emplace_back("captures/" + c, ReadTail(e.path(), 4u << 20));
+        } else if (c.rfind(number + "_bookmark_", 0) == 0 && marks < 12) {
+          const std::string ext = Lower(PathStr(e.path().extension()));
+          if (ext == ".png" || ext == ".jpg" || ext == ".txt") {
+            files.emplace_back("captures/" + c, ext == ".txt" ? Redact(ReadTail(e.path(), 1u << 20))
+                                                              : ReadTail(e.path(), 16u << 20));
+            if (ext != ".txt") ++marks;
+          }
+        }
+      }
     }
+    about += "F11 marks: " + std::to_string(marks) + "\n";
+    const fs::path perf = Newest(paths_.logs, "perf_report_", ".txt");
+    about += "Performance report: " + (perf.empty() ? std::string("(none: turn it on in Settings)") : PathStr(perf.filename())) + "\n";
+    if (!perf.empty()) files.emplace_back(PathStr(perf.filename()), Redact(ReadTail(perf, 4u << 20)));
+    about += DlcReportText();  // Session 32: pack names and states, never their files
+    files.emplace_back("launcher_settings.json", Redact(json(s).dump(2)));
+    std::string recent;
+    for (const std::string& m : recent_log_) recent += m + "\n";
+    files.emplace_back("launcher_messages.txt", Redact(recent));
+    files.insert(files.begin(), {"about.txt", Redact(about)});
+
+    bool zipped = false;
+    const fs::path stage = dir / stamp;
+    fs::create_directories(stage / "captures", ec);
+    bool staged = !ec;
+    for (const auto& [name, data] : files) {
+      if (!staged) break;
+      std::ofstream out(stage / Widen(name), std::ios::binary);
+      out.write(data.data(), std::streamsize(data.size()));
+      staged = bool(out);
+    }
+    if (staged) zipped = TarZip(stage, zip);
+    fs::remove_all(stage, ec);
+    if (!zipped) {
+      ZipWriter z(zip);
+      if (!z.ok()) {
+        Status("Could not write " + PathStr(zip));
+        return;
+      }
+      for (const auto& [name, data] : files) z.Add(name, data);
+      if (!z.Close()) {
+        Status("Could not finish " + PathStr(zip));
+        return;
+      }
+    }
+    report_note_[0] = 0;
     last_report_ = zip;
     Status("Report saved: " + PathStr(zip));
     if (open_folders_) {
@@ -2882,6 +3106,11 @@ class App {
       if (stage.rfind("logo_import: ", 0) == 0) stage = stage.substr(13);
       logo_result_ += "The import stopped at an unexpected screen (" + stage +
                       "); the game closed without saving there. Nothing else was changed.\n";
+      // Session 57 (tester bug 2): before the main menu, the likely screen is the game's notice that the save needs
+      // DLC packs it does not see (a pack switched off, or the DLC folder moved).
+      if (stage == "start" || stage == "waiting for the main menu")
+        logo_result_ += "If the game said your save needs downloadable content: turn on its DLC packs in Settings -> "
+                        "GAME (USE MY DLC and every pack the save was made with), then import again.\n";
     } else if (line.empty() && r.failed) {
       logo_result_ += "The game closed before the import finished.\n";
     }
@@ -3699,6 +3928,10 @@ class App {
   int wizard_step_ = 0, want_mods_tab_ = -1;
   std::string capture_name_ = "my_match";
   fs::path last_report_;
+  // Session 58 (Report a problem): the launcher's last messages, the last game exit, the player's note.
+  std::vector<std::string> recent_log_;
+  std::string last_exit_;
+  char report_note_[4096] = {};
   LogoSave logo_, logo_before_;
   bool logo_loaded_ = false, importing_ = false;
   fs::file_time_type logo_stamp_{};

@@ -119,6 +119,20 @@ REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe, true, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe_verify, false, "wwe2k14",
                     "Run both BPE decoders, compare, keep the game's output; log [wwe2k14][native_bpe] mismatches and "
                     "save their inputs to out/harness/bpe/mismatch (Session 11; default off)");
+REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe_menus, false, "wwe2k14",
+                    "Session 58: the native BPE decoder also outside the in-game sequence (menus, select screens, 30 "
+                    "Years of WrestleMania). Off (default): the game's own decoder there, at the speed the game "
+                    "expects (a menu preview built with the fast one left Bobby Heenan red in the match)");
+REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe_debug, false, "wwe2k14",
+                    "Session 58 (diagnostic): with _verify, log [s58][bpe_tail] when the game's decoder changes bytes "
+                    "in the 4 KB after what it produced");
+REXCVAR_DEFINE_INT32(wwe2k14_native_bpe_debug_slow, 0, "wwe2k14",
+                     "Session 58 (diagnostic): native BPE calls spin until they took N times their decode time (the "
+                     "game's decoder takes ~5.5x); 0 / 1 = off")
+    .range(0, 100);
+REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe_debug_regs, false, "wwe2k14",
+                    "Session 58 (diagnostic): with _verify, the registers after the game's decoder are put back as the "
+                    "native path leaves them (r3-r6 set, the rest as before the call)");
 
 REX_EXTERN(__imp__sub_82C41918);
 REX_EXTERN(__imp__sub_82C41738);
@@ -499,6 +513,11 @@ inline void ZlibCall(PPCContext& __restrict ctx, uint8_t* base) {
 }
 
 // --- Native replacement (Session 11, --wwe2k14_native_bpe / --wwe2k14_native_bpe_verify) ---------------------------
+// Session 58: true while the game is in its in-game sequence (set by the app: load_probe.h includes this header).
+// Null = always.
+inline bool (*g_native_bpe_in_game)() = nullptr;
+inline std::atomic<uint64_t> g_bpe_menu_guest_calls{0};  // calls left to the game's decoder outside the game
+
 struct NativeStats {
   // guarded: native mode = calls the guest body ran because of a real overlap / straddle; verify mode = calls whose
   // destination is within the generous bound (native mode would stage them). staged: decoded via a scratch buffer.
@@ -516,10 +535,11 @@ inline void NativeReport(uint64_t frame, bool verify) {
   if (!g_native.next_report_frame.compare_exchange_strong(next, (frame / 600 + 1) * 600)) return;
   const NativeStats& s = g_native;
   REXLOG_INFO("[wwe2k14][native_bpe] at frame {}: mode={} calls={} bytes={} zero={} native_ms={:.1f} guest_ms={:.1f} "
-              "fallbacks={} guarded={} staged={} verified={} mismatches={} native_errors={}",
+              "fallbacks={} guarded={} staged={} verified={} mismatches={} native_errors={} menu_guest={}",
               frame, verify ? "verify" : "native", s.calls.load(), s.bytes.load(), s.zero.load(),
               TicksMs(int64_t(s.native_ticks.load())), TicksMs(int64_t(s.guest_ticks.load())), s.fallbacks.load(),
-              s.guarded.load(), s.staged.load(), s.verified.load(), s.mismatches.load(), s.native_errors.load());
+              s.guarded.load(), s.staged.load(), s.verified.load(), s.mismatches.load(), s.native_errors.load(),
+              g_bpe_menu_guest_calls.load());
 }
 
 // Saves the guest's input (header + the stream bytes the guest read) and output as a corpus-format file in
@@ -569,9 +589,37 @@ inline void NativeCall(PPCContext& __restrict ctx, uint8_t* base, bool verify) {
       r = native_bpe::Decode(block, host.get(), expanded);  // same bound as the native mode
       s.native_ticks.fetch_add(uint64_t(Ticks() - n0), std::memory_order_relaxed);
     }
+    // Session 58 (diagnostic, Heenan's red attire with native BPE only): the 4 KB after the decoded bytes and the
+    // volatile registers, as they were before the guest body, to see whether it writes past what it produces or
+    // leaves registers the native path does not set.
+    // Only the rest of the page holding the last decoded byte: the page after it may not be mapped (run 3926).
+    uint8_t tail_before[4096];
+    const uint32_t tail_at = dst + (host ? r.produced : expanded);
+    const uint32_t kTail = ((tail_at + 0xFFFu) & ~0xFFFu) - tail_at;
+    const bool check_tail = REXCVAR_GET(wwe2k14_native_bpe_debug) && kTail != 0 && tail_at < 0xE0000000u;
+    if (check_tail) std::memcpy(tail_before, GuestPtr(base, tail_at), kTail);
+    std::unique_ptr<PPCContext> before;
+    if (REXCVAR_GET(wwe2k14_native_bpe_debug_regs)) before.reset(new PPCContext(ctx));
     const int64_t g0 = Ticks();
     __imp__sub_82C41918(ctx, base);
     s.guest_ticks.fetch_add(uint64_t(Ticks() - g0), std::memory_order_relaxed);
+    if (check_tail && host) {
+      const uint8_t* after = GuestPtr(base, dst + r.produced);
+      uint32_t first = kTail, last = 0;
+      for (uint32_t i = 0; i < kTail; ++i) {
+        if (after[i] != tail_before[i]) first = std::min(first, i), last = i;
+      }
+      if (first != kTail && s.logged.fetch_add(1) < 64) {
+        REXLOG_WARN("[s58][bpe_tail] frame={} src=0x{:08X} dst=0x{:08X} expanded={} produced={}: the guest wrote "
+                    "bytes {}-{} past what it produced", frame, src, dst, expanded, r.produced, first, last);
+      }
+    }
+    if (before) {
+      // As the native path leaves them: r3-r6 from the guest, everything else as before the call.
+      const uint64_t r3 = ctx.r3.u64, r4 = ctx.r4.u64, r5 = ctx.r5.u64, r6 = ctx.r6.u64;
+      ctx = *before;
+      ctx.r3.u64 = r3, ctx.r4.u64 = r4, ctx.r5.u64 = r5, ctx.r6.u64 = r6;
+    }
     if (guarded) s.guarded.fetch_add(1, std::memory_order_relaxed);
     if (host) {
       s.verified.fetch_add(1, std::memory_order_relaxed);
@@ -627,6 +675,12 @@ inline void NativeCall(PPCContext& __restrict ctx, uint8_t* base, bool verify) {
     r = native_bpe::Decode(block, GuestPtr(base, dst), expanded);
   }
   s.native_ticks.fetch_add(uint64_t(Ticks() - n0), std::memory_order_relaxed);
+  if (const int32_t slow = REXCVAR_GET(wwe2k14_native_bpe_debug_slow); slow > 1) {
+    // Session 58 (diagnostic): spin until the call took `slow` times its native time (the guest decoder is ~5.5x).
+    const int64_t took = Ticks() - n0;
+    while (Ticks() - n0 < took * slow) {
+    }
+  }
   if (r.error) {
     // A bound tripped (a stream the guest would decode past its declared size, or a malformed one): run the game's
     // own decoder, which rewrites the destination from the untouched input.
@@ -686,12 +740,21 @@ inline void NativeCallTimed(PPCContext& __restrict ctx, uint8_t* base, bool veri
 // decoder, so it runs the guest body whatever the native settings say; then --wwe2k14_native_bpe (default on) /
 // _verify replace the BPE decoder (verify: both run, the game's output is kept; with the probe on, the native path
 // feeds its per-frame / per-call lines); then the probe times the game's decoder (native off); else the original.
+// Session 58: outside the in-game sequence the game's own decoder runs unless --wwe2k14_native_bpe_menus (30 Years of
+// WrestleMania match 1, run 3929 vs 3930: native BPE in the menu, where the match preview builds Bobby Heenan, left
+// him red in the match; the same build at the game's decoder speed was right, and so was native BPE in the match load).
 REX_HOOK_RAW(sub_82C41918) {
   if (REXCVAR_GET(wwe2k14_bpe_corpus)) {
     wwe2k14::decode_probe::BpeCall(ctx, base);
     return;
   }
   const bool verify = REXCVAR_GET(wwe2k14_native_bpe_verify);
+  if (!verify && REXCVAR_GET(wwe2k14_native_bpe) && !REXCVAR_GET(wwe2k14_native_bpe_menus) &&
+      wwe2k14::decode_probe::g_native_bpe_in_game && !wwe2k14::decode_probe::g_native_bpe_in_game()) {
+    wwe2k14::decode_probe::g_bpe_menu_guest_calls.fetch_add(1, std::memory_order_relaxed);
+    __imp__sub_82C41918(ctx, base);
+    return;
+  }
   if (verify || REXCVAR_GET(wwe2k14_native_bpe)) {
     if (REXCVAR_GET(wwe2k14_decode_probe)) {
       wwe2k14::decode_probe::NativeCallTimed(ctx, base, verify);

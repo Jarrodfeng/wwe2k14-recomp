@@ -1,0 +1,20 @@
+# harness: fast-forward ok (Session 57 bug 3: a custom finisher that never gets past its first pose)
+# A launched scenario with custom superstars from a tester's save, e.g. the capture s57_omega_cole (Kenny Omega vs
+# Adam Cole, both CPU, both with INFINITE finishers; needs -Data userdata_s57_tester and --wwe2k14_dlc=true):
+#   --wwe2k14_launch=s57_omega_cole --wwe2k14_launch_skip_entrances=true
+# From the match's start a screenshot every 2000 frames, then quit when the match is decided or after 20,000 frames.
+# The freeze (runs 3851 / 041: Omega holds Cole from behind and nothing moves) shows as no decision (0x8376ACCC
+# stays 0) and the same pose in the last shots; a normal CPU match of these two ends in about 11,000 frames.
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 3600
+wait_state seq 9 3600 30
+wait_state match_clock >600 30000 2
+log s57f: match running
+screenshot_every 2000 f
+wait_state 0x8376ACCC !=0 20000 2 optional
+screenshot_every 0
+screenshot f_end
+log_state 0x8376ACCC
+log s57f: done
+quit

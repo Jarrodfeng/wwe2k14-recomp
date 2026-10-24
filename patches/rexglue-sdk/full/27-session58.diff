@@ -1,0 +1,342 @@
+# ReXGlue SDK changes for WWE 2K14 (session58): 3313bb8a7ca2..0ef0000aad71 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  0ef0000 wwe2k14 Session 58 (problem reports): [s58][gpu] summary line every gpu_session_stats_frames (600) frames when pipelines were made or draws skipped (at least every 3600): pipelines made + creation times (stock / native), draws skipped while compiling, video memory used of the budget
+#  9b12262 wwe2k14 Session 58: a draw on a surface wider than any screen waits for its pipeline too (vulkan_pipeline_sync_offscreen_max_pitch 2048, gpu_native_truth_pipeline_skip_max_pitch 25 tiles): a character's 2048x1024 attire is drawn on a 2080-wide surface and two of its draws were skipped in the 30 Years menu (runs 3887 / 3897)
+#  f2790c9 wwe2k14 Session 58 (diagnostic): gpu_debug_swap_delay_ms - the command processor sleeps at every guest swap (a slow graphics card)
+#  ff7776a wwe2k14 Session 58 (diagnostic): gpu_texture_watch * = every draw
+#  de089e8 wwe2k14 Session 58 (diagnostic): gpu_texture_watch / gpu_texture_watch_draws - the draws that bind a watched texture log all their textures ([s58][texwatch])
+
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 127dc58c3a87c2fd214cb120db01e709fec34800..8f903c12a5dd7869feec0a09a6135fbb117b456e 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -11,7 +11,10 @@
+ 
+ #include <algorithm>
+ #include <cstdint>
++#include <cstdlib>
++#include <string>
+ #include <utility>
++#include <vector>
+ 
+ #include <rex/assert.h>
+ #include <rex/chrono/clock.h>
+@@ -541,8 +544,74 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 58, a diagnostic): the textures of the draws that bind a watched texture. For the next
++// gpu_texture_watch_draws draws that bind a texture whose base or mip address is in gpu_texture_watch (hex guest
++// addresses, comma-separated), one [s58][texwatch] line per texture the draw uses: fetch index, base / mip address,
++// format, size, swizzle, endianness, tiling, signs, mip levels and dimension. Then it stops until the list changes.
++REXCVAR_DEFINE_STRING(gpu_texture_watch, "", "GPU",
++                      "Session 58 (diagnostic): hex guest addresses (comma-separated); the draws that bind a texture "
++                      "with one of them as base or mip address log all their textures ([s58][texwatch]); * = every "
++                      "draw")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(gpu_texture_watch_draws, 60, "GPU",
++                     "Session 58: how many draws gpu_texture_watch logs after its list is set")
++    .range(1, 100000)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++namespace {
++void LogWatchedTextures(const RegisterFile& regs, uint32_t used_texture_mask) {
++  static std::string list_seen;
++  static std::vector<uint32_t> watched;
++  static int32_t remaining = 0;
++  static uint32_t draw_index = 0;
++  const std::string list = REXCVAR_GET(gpu_texture_watch);
++  if (list != list_seen) {
++    list_seen = list;
++    watched.clear();
++    for (size_t at = 0; at < list.size();) {
++      size_t end = list.find(',', at);
++      if (end == std::string::npos) end = list.size();
++      const std::string item = list.substr(at, end - at);
++      if (!item.empty()) watched.push_back(uint32_t(std::strtoul(item.c_str(), nullptr, 16)));
++      at = end + 1;
++    }
++    remaining = REXCVAR_GET(gpu_texture_watch_draws);
++    draw_index = 0;
++  }
++  const bool all = list == "*";  // every draw
++  if (remaining <= 0 || (watched.empty() && !all)) return;
++  ++draw_index;
++  bool hit = all;
++  uint32_t mask = used_texture_mask, index = 0;
++  while (!hit && bit_inline::bit_scan_forward(mask, &index)) {
++    mask &= ~(UINT32_C(1) << index);
++    const xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(index);
++    for (uint32_t w : watched) {
++      hit |= (uint32_t(fetch.base_address) << 12) == w || (uint32_t(fetch.mip_address) << 12) == w;
++    }
++  }
++  if (!hit) return;
++  --remaining;
++  mask = used_texture_mask;
++  while (bit_inline::bit_scan_forward(mask, &index)) {
++    mask &= ~(UINT32_C(1) << index);
++    const xenos::xe_gpu_texture_fetch_t f = regs.GetTextureFetch(index);
++    REXGPU_INFO("[s58][texwatch] draw {} fetch {}: type {} base 0x{:08X} mip 0x{:08X} format {} {}x{} dim {} "
++                "swizzle 0x{:03X} endian {} tiled {} pitch {} signs {}{}{}{} num_format {} mips {}-{} packed {} "
++                "exp_adjust {}",
++                draw_index, index, uint32_t(f.type), uint32_t(f.base_address) << 12, uint32_t(f.mip_address) << 12,
++                uint32_t(f.format), uint32_t(f.size_2d.width) + 1, uint32_t(f.size_2d.height) + 1,
++                uint32_t(f.dimension), uint32_t(f.swizzle), uint32_t(f.endianness), uint32_t(f.tiled),
++                uint32_t(f.pitch) << 5, uint32_t(f.sign_x), uint32_t(f.sign_y), uint32_t(f.sign_z),
++                uint32_t(f.sign_w), uint32_t(f.num_format), uint32_t(f.mip_min_level), uint32_t(f.mip_max_level),
++                uint32_t(f.packed_mips), int32_t(f.exp_adjust));
++  }
++}
++}  // namespace
++
+ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+   const auto& regs = register_file();
++  if (!REXCVAR_GET(gpu_texture_watch).empty()) LogWatchedTextures(regs, used_texture_mask);  // Session 58
+ 
+   // wwe2k14 patch (Session 7, TEXREQ): the settings are latched for this call, including the backend's part
+   // of it (its override runs right after this), so they can be flipped at any time. _verify runs the full
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 4dfbec94ea8363bb24b422939bac7014aeaca385..c7ac803a895ff013e334b03b70d527e07d858e34 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -53,6 +53,7 @@
+ #include <rex/graphics/pipeline/shader/spirv_translator.h>
+ #include <rex/graphics/registers.h>
+ #include <rex/graphics/vulkan/command_processor.h>
++#include "s58_stats.h"  // wwe2k14 patch (Session 58)
+ #include <rex/graphics/vulkan/native/native_renderer.h>  // wwe2k14 patch (Session 38, NATIVE)
+ #include <rex/graphics/vulkan/pipeline_cache.h>
+ #include <rex/graphics/vulkan/render_target_cache.h>
+@@ -110,6 +111,18 @@ REXCVAR_DEFINE_INT32(gpu_barrier_map, 0, "GPU",
+                      "by SubmitBarriers per frame, by call site (3 return addresses), with their pipeline barrier "
+                      "commands, buffer barriers (shared memory / EDRAM / other), image barriers, the render passes "
+                      "they ended and the ORed stage masks. Measurement only (a stack capture per batch)");
++REXCVAR_DEFINE_INT32(gpu_session_stats_frames, 600, "GPU",
++                     "Session 58 (problem reports): every this many guest frames, an [s58][gpu] line when pipelines "
++                     "were made or draws skipped since the last one (and at least every 3600 frames): pipelines made "
++                     "and their creation times, draws skipped while compiling, video memory used of the budget; 0 = "
++                     "none")
++    .range(0, 1000000)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(gpu_debug_swap_delay_ms, 0, "GPU",
++                     "Session 58 (diagnostic): the command processor sleeps this many ms at every guest swap (a slow "
++                     "graphics card that falls behind the game's CPU); 0 = none")
++    .range(0, 1000)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_resolve_log, 0, "GPU",
+                      "Log the next N resolves (source colour RT / depth, copy and EDRAM registers, written range), "
+                      "then reset to 0");
+@@ -4232,6 +4245,50 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
+   gamma_ramp_pwl_current_frame_ = UINT32_MAX;
+ }
+ 
++// wwe2k14 patch (Session 58, problem reports): the [s58][gpu] summary line (s58_stats.h).
++static void S58GpuSummary(uint64_t frame, const ui::vulkan::VulkanDevice* device) {
++  const int32_t every = REXCVAR_GET(gpu_session_stats_frames);
++  if (every <= 0) return;
++  static uint64_t last_frame = 0, last_line = 0;
++  static uint64_t last[5] = {};  // stock count / us, native count / us, skipped draws
++  if (frame < last_frame + uint64_t(every)) return;
++  const uint64_t now[5] = {s58::g_stock_pipelines.count.load(), s58::g_stock_pipelines.total_us.load(),
++                           s58::g_native_pipelines.count.load(), s58::g_native_pipelines.total_us.load(),
++                           s58::g_skipped_draws.load()};
++  const bool changed = now[0] != last[0] || now[2] != last[2] || now[4] != last[4];
++  if (!changed && frame < last_line + 3600) {
++    last_frame = frame;
++    return;
++  }
++  std::string vram = "n/a";
++  if (device && device->extensions().ext_EXT_memory_budget) {
++    const ui::vulkan::VulkanInstance::Functions& ifn = device->vulkan_instance()->functions();
++    if (ifn.vkGetPhysicalDeviceMemoryProperties2) {
++      VkPhysicalDeviceMemoryBudgetPropertiesEXT budget = {};
++      budget.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
++      VkPhysicalDeviceMemoryProperties2 props = {};
++      props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
++      props.pNext = &budget;
++      ifn.vkGetPhysicalDeviceMemoryProperties2(device->physical_device(), &props);
++      uint64_t used = 0, total = 0;
++      for (uint32_t i = 0; i < props.memoryProperties.memoryHeapCount; ++i) {
++        if (!(props.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)) continue;
++        used += budget.heapUsage[i], total += budget.heapBudget[i];
++      }
++      vram = fmt::format("{} of {} MB (device-local heaps)", used >> 20, total >> 20);
++    }
++  }
++  auto avg = [](uint64_t us, uint64_t n) { return n ? double(us) / double(n) / 1000.0 : 0.0; };
++  const uint64_t d[5] = {now[0] - last[0], now[1] - last[1], now[2] - last[2], now[3] - last[3], now[4] - last[4]};
++  REXGPU_INFO("[s58][gpu] frames {}-{}: pipelines made {} (avg {:.1f} ms) + native {} (avg {:.1f} ms), slowest so far "
++              "{:.1f} / {:.1f} ms; draws skipped while compiling {} ({} in all); VRAM {}",
++              last_frame, frame, d[0], avg(d[1], d[0]), d[2], avg(d[3], d[2]),
++              double(s58::g_stock_pipelines.max_us.load()) / 1000.0,
++              double(s58::g_native_pipelines.max_us.load()) / 1000.0, d[4], now[4], vram);
++  for (int i = 0; i < 5; ++i) last[i] = now[i];
++  last_frame = frame, last_line = frame;
++}
++
+ // wwe2k14 patch (Session 16, MATTE): a guest swap ends an armed depth dump once something was dumped.
+ static void MatteOnSwap(uint32_t& resolve_index, uint32_t& dumped, uint32_t& depth_dumped) {
+   resolve_index = 0;
+@@ -5700,6 +5757,12 @@ void VulkanCommandProcessor::DlaaOnSwap() {
+ 
+ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                        uint32_t frontbuffer_height) {
++  // wwe2k14 patch (Session 58, a diagnostic): a slow graphics card. The command processor sleeps this long at every
++  // guest swap, so it falls behind the game's CPU as a laptop GPU's does (the game waits only where it syncs).
++  if (const int32_t delay = REXCVAR_GET(gpu_debug_swap_delay_ms); delay > 0) {
++    std::this_thread::sleep_for(std::chrono::milliseconds(delay));
++  }
++  S58GpuSummary(frame_current_, GetVulkanDevice());  // wwe2k14 patch (Session 58): the [s58][gpu] line
+   MatteOnSwap(matte_resolve_index_, matte_dumped_, matte_depth_dumped_);  // wwe2k14 patch (Session 16, MATTE)
+   ChainProbeSwap();  // wwe2k14 patch (Session 23, CHAINPROBE)
+   wide_menu_frame_ = !dlaa_scene_done_;  // wwe2k14 patch (Session 33, WIDE): this frame drew no 3D scene
+@@ -11979,6 +12042,7 @@ std::string VulkanCommandProcessor::FlightGpuRecords(void* user, uint32_t max_re
+ 
+ // wwe2k14 patch (Session 57): a draw skipped while its pipeline was made (see gpu_log_skipped_draw_resolves).
+ void VulkanCommandProcessor::NoteSkippedDraw() {
++  s58::g_skipped_draws.fetch_add(1, std::memory_order_relaxed);  // wwe2k14 patch (Session 58): s58_stats.h
+   const uint32_t pitch = uint32_t(register_file_->Get<reg::RB_SURFACE_INFO>().surface_pitch);
+   if (skipped_draws_since_resolve_++ == 0) {
+     skipped_draws_pitch_min_ = skipped_draws_pitch_max_ = pitch;
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 3baa8e03f15483f84e87de791dc81ef9fac868d9..30a2e200b2526846c3060724594befb0c3176f9d 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <rex/graphics/vulkan/native/native_renderer.h>
++#include "../s58_stats.h"  // wwe2k14 patch (Session 58)
+ 
+ #include <algorithm>
+ #include <chrono>
+@@ -2071,10 +2072,12 @@ VkPipeline NativeRenderer::CreatePipeline(const Draw& draw, const PipelineKey& k
+   info.layout = draw.layout;
+   info.renderPass = post ? post_render_pass_continue_[post_class] : render_pass_load_;
+   VkPipeline pipeline = VK_NULL_HANDLE;
++  const auto s58_t0 = std::chrono::steady_clock::now();  // wwe2k14 patch (Session 58): s58_stats.h
+   if (dfn.vkCreateGraphicsPipelines(vulkan_device->device(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) !=
+       VK_SUCCESS) {
+     pipeline = VK_NULL_HANDLE;
+   }
++  s58::g_native_pipelines.Add(s58_t0);
+   return pipeline;
+ }
+ 
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 38f2b20fbb1b9146fdcb13f26292592dacb76050..e156a6263dbf14a2c161b13e0da9dc6bdbb8d129 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -58,6 +58,13 @@ REXCVAR_DEFINE_INT32(gpu_native_truth_pipeline_skip_min_pitch, 16, "GPU/Native",
+                      "screen); narrower ones wait. 1024 = never skipped")
+     .range(0, 1024)
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 58): and at most this wide (a character's attire is drawn on a 2080-wide = 26-tile surface).
++REXCVAR_DEFINE_INT32(gpu_native_truth_pipeline_skip_max_pitch, 25, "GPU/Native",
++                     "Session 58: with gpu_native_truth_pipeline_wait_offscreen, a truth draw on a surface wider than "
++                     "this many 80-pixel tiles waits for its pipeline too (25: a 26-tile attire surface waits, screens "
++                     "up to 1920 = 24 tiles may skip). 1024 = no upper limit")
++    .range(0, 1024)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_native_truth_draw_min_pitch, 16, "GPU/Native",
+                      "Session 54: with gpu_native_truth_draw_height, the surfaces drawn smaller: at least this many "
+                      "80-pixel tiles wide (16 = 1280: the screen-wide ones). Narrower surfaces draw at the resolution "
+@@ -530,7 +537,9 @@ bool NativeRenderer::ClaimTruth(Draw& draw) {
+   // A 2-core laptop skipped 109,595 draws; here, compiles slowed down to 100 ms (gpu_native_truth_debug_pipeline_delay_ms,
+   // run 3729) left wrestlers' trunks, waistbands and skin washed out for the whole match. Those draws wait instead.
+   // (Session 57: the width is gpu_native_truth_pipeline_skip_min_pitch, kTruthScreenPitchTiles by default.)
+-  const bool may_skip = pitch_tiles >= uint32_t(REXCVAR_GET(gpu_native_truth_pipeline_skip_min_pitch)) ||
++  // (Session 58: and at most gpu_native_truth_pipeline_skip_max_pitch wide - a character's attire surface is wider.)
++  const bool may_skip = (pitch_tiles >= uint32_t(REXCVAR_GET(gpu_native_truth_pipeline_skip_min_pitch)) &&
++                         pitch_tiles <= uint32_t(REXCVAR_GET(gpu_native_truth_pipeline_skip_max_pitch))) ||
+                         !REXCVAR_GET(gpu_native_truth_pipeline_wait_offscreen);
+   const size_t pipelines_before = pipelines_.size();
+   draw.pipeline = GetPipeline(draw, async && may_skip ? &pending : nullptr);
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 310995465887d07a074ceca9cadfc03febcd7c00..ad27093ad509c8a70de99ff30f112b2b6bf3842a 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -43,6 +43,7 @@
+ #include <rex/graphics/util/draw.h>
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include <rex/graphics/vulkan/pipeline_cache.h>
++#include "s58_stats.h"  // wwe2k14 patch (Session 58)
+ #include <rex/graphics/vulkan/shader.h>
+ #include <rex/graphics/xenos.h>
+ #include <rex/hash.h>
+@@ -101,6 +102,14 @@ REXCVAR_DEFINE_INT32(vulkan_pipeline_sync_offscreen_min_pitch, 1280, "GPU/Vulkan
+                      "ones wait. 16384 = never skipped")
+     .range(0, 16384)
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 58): and at most this wide - a wider surface is not a screen (a character's 2048x1024 attire
++// is drawn on a 2080-wide one).
++REXCVAR_DEFINE_INT32(vulkan_pipeline_sync_offscreen_max_pitch, 2048, "GPU/Vulkan",
++                     "Session 58: with vulkan_pipeline_sync_offscreen, a draw on a surface wider than this many guest "
++                     "pixels waits for its pipeline too (2048: the 2080-wide surface of a character's attire waits, "
++                     "screens up to 1920 may skip). 16384 = no upper limit")
++    .range(0, 16384)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -1256,9 +1265,12 @@ bool VulkanPipelineCache::ConfigurePipeline(
+     return false;
+   }
+   // wwe2k14 patch (Session 55): vulkan_pipeline_sync_offscreen - the surface the draw goes to (guest pixels).
++  // wwe2k14 patch (Session 58): and a surface wider than any screen (the 2080-wide surface a character's 2048x1024
++  // attire is drawn on: two of its draws were skipped in the 30 Years menu, runs 3887 / 3897) waits too.
++  const uint32_t surface_pitch = register_file_.Get<reg::RB_SURFACE_INFO>().surface_pitch;
+   const bool sync_offscreen = REXCVAR_GET(vulkan_pipeline_sync_offscreen) && !creation_threads_.empty() &&
+-                              register_file_.Get<reg::RB_SURFACE_INFO>().surface_pitch <
+-                                  uint32_t(REXCVAR_GET(vulkan_pipeline_sync_offscreen_min_pitch));
++                              (surface_pitch < uint32_t(REXCVAR_GET(vulkan_pipeline_sync_offscreen_min_pitch)) ||
++                               surface_pitch > uint32_t(REXCVAR_GET(vulkan_pipeline_sync_offscreen_max_pitch)));
+   if (last_pipeline_ && last_pipeline_->first == description) {
+     VkPipeline last_pipeline = last_pipeline_->second.pipeline.load(std::memory_order_acquire);
+     const PipelineLayoutProvider* last_pipeline_layout =
+@@ -3764,8 +3776,10 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+   VkPipeline pipeline;
++  const auto s58_t0 = std::chrono::steady_clock::now();  // wwe2k14 patch (Session 58): s58_stats.h
+   VkResult create_result = dfn.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1,
+                                                          &pipeline_create_info, nullptr, &pipeline);
++  s58::g_stock_pipelines.Add(s58_t0);
+   if (create_result != VK_SUCCESS) {
+     uint64_t ps_hash = creation_arguments.pixel_shader
+                            ? creation_arguments.pixel_shader->shader().ucode_data_hash()
+diff --git a/src/graphics/vulkan/s58_stats.h b/src/graphics/vulkan/s58_stats.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..064d221051bc08b246fab655efa7cfc7d207943f
+--- /dev/null
++++ b/src/graphics/vulkan/s58_stats.h
+@@ -0,0 +1,28 @@
++// wwe2k14 patch (Session 58, problem reports): counters for the [s58][gpu] summary line that
++// VulkanCommandProcessor::IssueSwap writes every gpu_session_stats_frames guest frames: pipelines made (the emulated
++// path's guest pipelines and the native renderer's draw pipelines) with their creation times, and draws skipped while
++// their pipeline was made.
++#pragma once
++
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++
++namespace rex::graphics::vulkan::s58 {
++
++struct PipelineStats {
++  std::atomic<uint64_t> count{0}, total_us{0}, max_us{0};
++  void Add(std::chrono::steady_clock::time_point t0) {
++    const uint64_t us = uint64_t(
++        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count());
++    count.fetch_add(1, std::memory_order_relaxed);
++    total_us.fetch_add(us, std::memory_order_relaxed);
++    uint64_t m = max_us.load(std::memory_order_relaxed);
++    while (us > m && !max_us.compare_exchange_weak(m, us, std::memory_order_relaxed)) {
++    }
++  }
++};
++inline PipelineStats g_stock_pipelines, g_native_pipelines;
++inline std::atomic<uint64_t> g_skipped_draws{0};
++
++}  // namespace rex::graphics::vulkan::s58

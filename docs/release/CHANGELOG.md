@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.2.2
+
+Everything in the v0.2.1-native-s56-playtest build (NATIVE faster at 720p, 1440p and 4K; faster on graphics cards
+without Resizable BAR), plus fixes for your reports on v0.2.1:
+
+- **Fixed: importing a custom logo with a save that uses DLC** - the import's own game run did not get your DLC
+  settings, so the game refused the save ("missing or damaged downloadable content"). Build previews had the same
+  problem. If an import still stops before the main menu, the launcher now tells you to turn on your save's DLC packs
+  (Settings -> GAME).
+- **Fixed: a custom superstar's picture on the selection screen, and a custom arena's thumbnail, showing as noise** -
+  the game reads these pictures back from the graphics card, and we had that copy-back off for speed. It is now on
+  inside Create a Superstar and Create an Arena. Pictures saved before this build stay garbled: edit the superstar or
+  arena and save it again (ACCEPT) to get a new one.
+- **Fixed (we think): red patches on wrestlers' skin** (Intel laptops) - while a match loads, the game now waits for
+  each drawing step to be ready instead of skipping it. Load times are unchanged on our PC; a very slow PC may stay
+  about a second longer on the loading screen. Textures the game draws wider than the screen (a wrestler's attire)
+  now always wait too, at any time. If you still see patches, please send a report: the log now shows where any
+  skipped drawing went.
+- **Fixed: typing on the PC keyboard into a custom superstar's name form** (it could swallow keys).
+- **Fixed: wrestlers and managers drawn as coloured noise, or black with magenta streaks** (Bobby Heenan, Miss
+  Elizabeth and Randy Savage in 30 Years of WrestleMania, custom superstars) - some attires are drawn on the graphics
+  card and then read back by the game, and we had that copy-back off for speed. It is now on while a match loads and
+  for a few seconds after a wrestler loads, and those drawings are never skipped. Match loads can take a little longer.
+- **Fixed: Bobby Heenan red at ringside** in 30 Years of WrestleMania (right in his entrance, red once the match
+  started) - our faster file decompressor raced the game while a menu built his look; in the menus the game now uses
+  its own decompressor again (the faster one stays for match loads, where it saves the most time). This may also be
+  what was left of the red patches on wrestlers picked in the menus - please tell us.
+- **New: better problem reports.** Press **F11** in the game when you see something wrong: it marks the moment (a
+  screenshot and what the game was doing). **Report a problem** now packs your last 3 games' logs (with which
+  wrestlers, arena and match you played, the scenes you went through, and how your graphics card coped: shaders made
+  and how long they took, video memory), small screenshots of each scene, your F11 marks, your graphics drivers and a
+  note you can write - compressed, so it is small enough to post.
+
 ## v0.2.1-native-s56-playtest
 
 A test build for playtesters (pre-release): v0.2.1 plus a round of speed work on the NATIVE renderer. Pictures are

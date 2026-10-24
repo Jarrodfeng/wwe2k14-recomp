@@ -228,8 +228,10 @@ inline std::atomic<int> g_screenshots_in_flight{0};
 inline void (*g_screenshot_hook)(const std::string& label) = nullptr;
 
 // PNG through Windows Imaging Component (part of Windows: no extra library). RawImage is R8 G8 B8 X8 -> 24-bit BGR;
-// with `alpha` (Session 18: title reveal thumbnails) R8 G8 B8 A8 -> 32-bit BGRA.
-inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage& image, bool alpha = false) {
+// with `alpha` (Session 18: title reveal thumbnails) R8 G8 B8 A8 -> 32-bit BGRA. Session 58: `container` =
+// GUID_ContainerFormatJpeg for the scene snapshots (src/session_log.h).
+inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage& image, bool alpha = false,
+                       const GUID& container = GUID_ContainerFormatPng) {
   const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // this worker thread
   bool ok = false;
   IWICImagingFactory* factory = nullptr;
@@ -243,7 +245,7 @@ inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImag
     if (FAILED(factory->CreateStream(&stream)) ||
         FAILED(stream->InitializeFromFilename(path.wstring().c_str(), GENERIC_WRITE)))
       break;
-    if (FAILED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) ||
+    if (FAILED(factory->CreateEncoder(container, nullptr, &encoder)) ||
         FAILED(encoder->Initialize(stream, WICBitmapEncoderNoCache)))
       break;
     if (FAILED(encoder->CreateNewFrame(&frame, &props)) || FAILED(frame->Initialize(props))) break;
@@ -325,6 +327,49 @@ inline void SaveScreenshot(const std::string& label) {
       out.write(line.data(), row);
     }
     REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{})", path.string(), image.width, image.height);
+  }).detach();
+}
+
+// Session 58: a small JPEG of the guest output (box-filtered down to at most `max_width` pixels wide) as
+// captures/NNN_LABEL.jpg, on a worker thread: the scene snapshots that go into Report a problem (src/session_log.h).
+inline void SaveSnapshot(const std::string& label, uint32_t max_width) {
+  g_screenshots_in_flight.fetch_add(1);
+  std::thread([label, max_width] {
+    struct InFlight {
+      ~InFlight() { g_screenshots_in_flight.fetch_sub(1); }
+    } in_flight;
+    auto* runtime = REX_KERNEL_STATE()->emulator();
+    auto* graphics = runtime ? runtime->graphics_system() : nullptr;
+    auto* presenter = graphics ? graphics->presenter() : nullptr;
+    rex::ui::RawImage image;
+    if (!presenter || !presenter->CaptureGuestOutput(image) || !image.width || !image.height) return;
+    const uint32_t f = (image.width + max_width - 1) / max_width;  // whole-number box size
+    rex::ui::RawImage thumb;
+    thumb.width = image.width / f, thumb.height = image.height / f, thumb.stride = thumb.width * 4;
+    thumb.data.resize(size_t(thumb.stride) * thumb.height);
+    for (uint32_t y = 0; y < thumb.height; ++y) {
+      for (uint32_t x = 0; x < thumb.width; ++x) {
+        uint32_t sum[3] = {0, 0, 0};
+        for (uint32_t j = 0; j < f; ++j) {
+          const uint8_t* p = image.data.data() + size_t(y * f + j) * image.stride + size_t(x) * f * 4;
+          for (uint32_t i = 0; i < f; ++i, p += 4) sum[0] += p[0], sum[1] += p[1], sum[2] += p[2];
+        }
+        uint8_t* d = thumb.data.data() + size_t(y) * thumb.stride + size_t(x) * 4;
+        for (int c = 0; c < 3; ++c) d[c] = uint8_t(sum[c] / (f * f));
+        d[3] = 255;
+      }
+    }
+    const auto dir = std::filesystem::current_path() / "captures";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    char prefix[16];
+    std::snprintf(prefix, sizeof(prefix), "%03d_", std::max(CurrentLogNumber(), 0));
+    const auto path = dir / (prefix + label + ".jpg");
+    auto part = path;
+    part += ".part";
+    if (SavePngWic(part, thumb, false, GUID_ContainerFormatJpeg) && (std::filesystem::rename(part, path, ec), !ec)) {
+      REXLOG_INFO("[wwe2k14][session] snapshot {} ({}x{})", path.filename().string(), thumb.width, thumb.height);
+    }
   }).detach();
 }
 
@@ -1974,6 +2019,14 @@ inline void (*g_typing_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
 inline void (*g_photo_frame_hook)(uint8_t* base) = nullptr;
 // Session 34: the 30 Years of WrestleMania jump's per-frame step (src/wm30_jump.h, VdSwap). Null = nothing.
 inline void (*g_wm30_frame_hook)(uint64_t frame) = nullptr;
+// Session 57: exact readback in the create modes (src/create_readback.h, VdSwap). Null = nothing.
+inline void (*g_readback_frame_hook)(uint64_t frame) = nullptr;
+// Session 58: the session timeline for problem reports (src/session_log.h, VdSwap). Null = nothing.
+inline void (*g_session_frame_hook)(uint64_t frame) = nullptr;
+// Session 58: the same, told of every file the game opens (kernel_overrides.h LogFileOpen). Null = nothing.
+inline void (*g_readback_file_hook)(const std::string& path, uint64_t frame) = nullptr;
+// Session 57: no skipped draws during the in-game loads (src/load_pipeline_wait.h, VdSwap). Null = nothing.
+inline void (*g_pipeline_wait_frame_hook)(uint64_t frame) = nullptr;
 
 inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
                                          ppc_ptr_t<rex::input::X_INPUT_STATE> state) {

@@ -62,6 +62,9 @@
 #include "direct_start.h"   // Session 53: a release started without the launcher (hand-off, settings file, message)
 #include "keybinds_save.h"  // Session 53: the keyboard binds saved in the save folder (--wwe2k14_save_keybinds)
 #include "keyboard_typing.h"  // Session 55: --wwe2k14_keyboard_typing (the PC keyboard types into the game's keyboard)
+#include "create_readback.h"  // Session 57: --wwe2k14_readback_sequences (exact readback in the create modes, default on)
+#include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
+#include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
 // (used to read jump tables and pointer tables that live inside the encrypted XEX).
@@ -479,6 +482,12 @@ class Wwe2k14App : public rex::ReXApp {
     if (REXCVAR_GET(wwe2k14_mount_cache)) MountCachePartition();
     wwe2k14::mods::Install(runtime()->file_system(), game_data_root());  // no-op unless --wwe2k14_mods (Session 17)
     wwe2k14::dlc::Install(runtime()->file_system(), game_data_root());   // no-op unless --wwe2k14_dlc (Session 32)
+    wwe2k14::create_readback::Install();  // Session 57 (tester bug 4): readback in the create modes
+    // Session 58: native BPE only in the in-game sequence (9) unless --wwe2k14_native_bpe_menus (src/decode_probe.h).
+    wwe2k14::decode_probe::g_native_bpe_in_game = [] { return wwe2k14::load_probe::CurrentSequence() == 9; };
+    wwe2k14::load_pipeline_wait::Install();  // Session 57 (tester bug 1): no skipped draws during in-game loads
+    // Session 58: the session timeline for Report a problem (snapshots off in harness runs unless asked for).
+    wwe2k14::session_log::Install(!REXCVAR_GET(wwe2k14_input_script).empty() || !REXCVAR_GET(wwe2k14_live).empty());
     wwe2k14::StartTimelineIfRequested();
     wwe2k14::StartThreadPlacement();  // logs the CPU topology; watcher only with --wwe2k14_thread_placement
     wwe2k14::StartFlightRecorder();   // no-op unless --wwe2k14_flight_recorder (Session 8 task 11)
@@ -547,7 +556,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::check::Install(
         drawer, [this](std::function<void()> f) { app_context().CallInUIThreadDeferred(std::move(f)); }, harness,
         window() ? window()->GetNativeWindowHandle() : nullptr);
-    wwe2k14::bookmark::Install(harness);  // Session 29: F11 = "that, just now" bundle (harness runs only)
+    wwe2k14::bookmark::Install(harness);  // Session 29: F11 = "that, just now" bundle (Session 58: players too)
     wwe2k14::screen_text::Enable(harness);  // Session 30: text the game fetched, for scripts / live / bookmarks
   }
 

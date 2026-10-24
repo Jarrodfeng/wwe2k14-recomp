@@ -1,0 +1,58 @@
+# nav: CREATIONS -> custom arena 1 re-saved with a new MENU SCREENSHOT, back at the main menu. Session 57 (tester bug
+# 4: the arena thumbnail is the same CPU readback as the custom superstar's render), from live run 3844;
+# `include creations_to_arena_shot`.
+# Start: the CREATIONS list (menu 3), cursor 0 SUPERSTAR (menu_to_creations). The save needs custom arena 1 (the frozen
+#        save has "CUSTOM ARENA").
+# End:   back in the menus (sequence 75; run 3845: the CUSTOM ARENA screen / CREATIONS; once in run 3844 the title screen
+#        came first, then START + A). The thumbnail shows in PLAY > ... > SELECT ARENA > (RB RB) CUSTOM ARENAS.
+# Normal speed only (frame-counted presses). Sequence 28 = Create an Arena.
+# Steps: DOWN x6 = ARENA -> EDIT -> slot 1 -> EDIT -> the summary page -> DOWN x3 = ACCEPT -> the editor -> LB = the
+# last tab OTHER (NAMEPLATE / MENU SCREENSHOT / ACCEPT) -> MENU SCREENSHOT -> camera 12 -> A takes it -> ACCEPT ->
+# the name keyboard -> START = ENTER saves (00CustomArena.car) -> B, YES = leave the editor.
+press_until_state DOWN cursor 6 12 30 5 if_needed
+press_until_state UP cursor 6 12 30 5 if_needed
+wait_frames 30
+press A
+wait_text NEW 300
+wait_frames 60
+press DOWN
+wait_frames 30
+press A
+wait_text EMPTY 600
+wait_frames 120
+press A
+wait_frames 120
+press A
+wait_text SCREEN FILTER 900
+wait_frames 120
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press A
+wait_text CHANGE TAB 1200
+wait_frames 120
+press LB
+wait_text MENU SCREENSHOT 300
+wait_frames 60
+press DOWN
+wait_frames 30
+press A
+wait_frames 150
+press A
+wait_frames 180
+press DOWN
+wait_frames 30
+press A
+wait_frames 200
+press START
+wait_frames 400
+press B
+wait_frames 60
+press LEFT
+wait_frames 20
+press A
+wait_state seq 75 1200
+wait_frames 120

@@ -1,0 +1,15 @@
+# Session 58: 30 Years match 1 (WrestleMania 2, Heenan) with the menus driven by the route (s44_wm30_play.txt's
+# steps), for runs with --readback_resolve=full where the jump's own menu drive drops presses. Use with
+# --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false (any match: --wwe2k14_wm30=N). The A presses skip the entrances. Stops 300
+# frames into the match (the live game stays open).
+log s58wm: start
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log s58wm: match picked
+press_until_state A match_clock !=0 60 600 5
+log s58wm: match clock running
+wait_frames 300
+screenshot s58wm_match
+log s58wm: done

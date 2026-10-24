@@ -59,6 +59,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <wincodec.h>  // Session 58: GUID_ContainerFormatPng for SavePngWic's declaration below
 #endif
 
 #include <rex/cvar.h>
@@ -115,7 +116,9 @@ REXCVAR_DEFINE_INT32(wwe2k14_clip_queue, 8, "wwe2k14",
 namespace wwe2k14 {
 
 // Session 24 (wwe2k14_clip_png): the screenshot command's PNG writer (src/input_script.h, defined after this file).
-inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage& image, bool alpha);
+// (Session 58: + the container format, defaulted at the definition.)
+inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage& image, bool alpha,
+                       const GUID& container);
 
 // Running + finishing clips (the script's quit waits for 0).
 inline std::atomic<int> g_clips_in_flight{0};
@@ -491,7 +494,7 @@ class Clip {
             png.data = image.data;
             const auto path = out_.parent_path() /
                               (out_.stem().string() + "_f" + std::to_string(f.gframe) + ".png");
-            if (!SavePngWic(path, png, false))
+            if (!SavePngWic(path, png, false, GUID_ContainerFormatPng))
               REXLOG_WARN("[wwe2k14][clip] {}: PNG of guest frame {} failed", name_, f.gframe);
             break;
           }

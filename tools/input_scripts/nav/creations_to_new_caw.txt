@@ -1,0 +1,35 @@
+# nav: CREATIONS -> a new custom superstar saved, back at the main menu. Session 57 (tester bug 4: the custom
+# superstar's render), from live run 3844; `include creations_to_new_caw`.
+# Start: the CREATIONS list (menu 3), cursor 0 SUPERSTAR (menu_to_creations). The save needs a free CAW slot.
+# End:   the main menu (QUIT TO DESKTOP on screen) after "Creating Custom Superstar": the new superstar "THE SUPERSTAR"
+#        (the SUPERSTAR template, default attires) is in the save; its render is made during "Creating Custom Superstar".
+# Normal speed only: the editor's presses wait on frame counts, not states (no states known there yet).
+# Steps: SUPERSTAR -> NEW (sequence 76 Create a Superstar) -> the SUPERSTAR template -> LB = the last tab OTHER
+# (EDIT RING ATTIRE ... MENU SCREEN POSE ... ACCEPT) -> ACCEPT -> YES to "No changes have been made to Entrance or
+# Cinematic Attire ... continue?" -> ROSTER APPLICATION FORM -> UP = its ACCEPT -> A.
+press A
+wait_frames 120
+press_until_state A seq 76 5 120
+wait_frames 900
+press A
+wait_frames 400
+press LB
+wait_text MENU SCREEN POSE 300
+wait_frames 30
+repeat 8
+press DOWN
+wait_frames 15
+end_repeat
+wait_frames 30
+press A
+wait_frames 200
+press LEFT
+wait_frames 30
+press A
+wait_text ROSTER APPLICATION FORM 900
+wait_frames 60
+press UP
+wait_frames 30
+press A
+wait_text QUIT TO DESKTOP 3600
+wait_frames 90
