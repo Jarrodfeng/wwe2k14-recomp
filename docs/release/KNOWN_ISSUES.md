@@ -8,9 +8,13 @@
   one doesn't show up, please send a report (launcher: Report a problem lists your packs, never their files).
 - Discord status needs an application id (Settings -> Game) until the project has its own.
 - Our own menu items in the game (QUIT TO DESKTOP, GRAPHICS, PHOTO MODE) stay in English in every language.
-- Red patches on wrestlers' skin / a wrestler drawn glowing white (Intel laptops): fixed in v0.2.1 as far as we can
-  test on our PC (we reproduced it by slowing shader compiles down). If you still see it, please send a report
-  (launcher: Report a problem).
+- Red patches on wrestlers' skin / a wrestler drawn glowing white (Intel laptops): v0.2.1 fixed one cause, but
+  players still report red square patches. Not fixed yet - please send a report with your logs (launcher: Report a
+  problem).
+- Reported, not fixed yet (we are working on them): importing a custom logo does not work when your save uses DLC
+  (the game says the save needs missing downloadable content); after an imported custom wrestler does a custom
+  finisher, a wrestler can stay stuck in a pose; after editing a custom wrestler, their picture on the selection
+  screen can show up garbled.
 - Typing on the PC keyboard into the game's name fields was tested in the championship name; other fields use the
   same on-screen keyboard. Keyboard layouts other than US English type what their keys show, but only the characters
   the game's on-screen keyboard has.

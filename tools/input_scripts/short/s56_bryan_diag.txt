@@ -1,0 +1,44 @@
+# harness: fast-forward ok (Session 56: Bryan's entrance and the match with every per-frame census on for a few frames - the native segment log (every truth pass, load, alias, resolve), the recorded Vulkan commands ([s20][RECSTATS]), barriers by call site ([s21][BARMAP]) and by kind ([s52][barrier kinds]). Run with --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true)
+on_fail quit
+log bench: start s56_bryan_diag (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_file MNUIHD.PAC 3600
+log census: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log census: match launched
+wait_file 343.bik2 1800
+log census: entrances
+wait_frames 300
+wait_frames 6
+wait_file 324.bik2 20000
+wait_frames 440
+log census: bryan diag start
+cvar gpu_native_segment_log 1
+cvar gpu_record_stats 1
+cvar gpu_barrier_map 1
+cvar vulkan_barrier_census 1
+wait_frames 4
+cvar gpu_record_stats 0
+cvar gpu_barrier_map 0
+cvar vulkan_barrier_census 0
+log census: bryan diag end
+wait_state match_clock !=0 9000 2
+log census: match clock running
+wait_frames 600
+log census: match diag start
+cvar gpu_native_segment_log 1
+cvar gpu_record_stats 1
+cvar gpu_barrier_map 1
+cvar vulkan_barrier_census 1
+wait_frames 4
+cvar gpu_record_stats 0
+cvar gpu_barrier_map 0
+cvar vulkan_barrier_census 0
+log census: match diag end
+wait_frames 30
+log census: end
+quit

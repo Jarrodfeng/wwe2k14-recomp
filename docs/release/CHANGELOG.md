@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.1-native-s56-playtest
+
+A test build for playtesters (pre-release): v0.2.1 plus a round of speed work on the NATIVE renderer. Pictures are
+unchanged (we compared them pixel for pixel at 720p, 1440p and 4K).
+
+- **Faster: NATIVE at 720p** - on our test PC about 6% faster in Daniel Bryan's entrance, 13% in Brock Lesnar's and 18%
+  in the match. The many small drawing steps the game does each frame now wait on each other only where they must.
+- **Faster: NATIVE at 1440p and 4K** - about 10-14% in the match and 4-6% in entrances: the same speed-ups as 720p
+  now work at higher resolutions too.
+- **Faster on graphics cards without Resizable BAR**: the numbers each drawing step needs now sit in the card's own
+  memory instead of being read across the PCIe bus, about 7% less graphics-card time (it costs a little more
+  processor time; no change on integrated graphics).
+- A little less processor time per frame in matches (about 3%).
+- **Integrated graphics players** (Intel / AMD laptops, handhelds): please tell us whether it runs better for you -
+  we measured on a desktop card.
+
 ## v0.2.1
 
 Everything in the v0.2.0 playtest builds (more resolutions, NATIVE on cards without interlock, the AMD fixes), plus:

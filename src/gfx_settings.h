@@ -439,6 +439,31 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // exclusive A/B 3609 at 720p -3.1 / -4.1 / -7.4%; reviewed (no route bug, 5 hardening fixes in SDK 4dead3e).
       {"gpu_native_truth_batch_resolves", "true"},
       {"gpu_native_truth_batch_rename", "true"},
+      // Session 56 step 1 (the truth passes' render pass dependencies were a GPU wait each, and the match's scene pass
+      // was split 7 times): truth passes without external dependencies, their synchronisation as image barriers only
+      // where needed; a clear-first pass that renames its colour image renames its depth image too (the tiny
+      // clear-first passes no longer share one); textures written by compute or copies made sampleable before a pass
+      // opens. Pictures 6 / 6 byte-identical (3774 / 3775), resolve hashes 467 / 467 (3776 / 3777); in-run A/B 3778
+      // (720p, fast-forwarded): Brock -13.3%, Bryan -5.9%, match -18.0%; reviewed (5 fixes, SDK acfe491).
+      {"gpu_native_truth_lazy_pass_deps", "true"},
+      {"gpu_native_truth_lazy_pass_style", "1"},
+      {"gpu_native_truth_rename_depth", "true"},
+      {"vulkan_texture_sample_written_early", "true"},
+      // Session 56 step 3a: lean draws are not sent to the full IssueDraw for writes that change nothing they keep
+      // (SHADER_CONSTANT_FLUSH_FETCH_*, shader loads, INVALIDATE_STATE): "state written" draws ~290 -> ~160 a match
+      // frame; pictures 6 / 6 identical (3783), hashes 467 / 467 (3782); command thread match -3.3% (3781).
+      {"gpu_native_lean_benign_writes", "true"},
+      // Session 56 step 1f: texture-only resolves at a resolution scale too (the scaled resolve buffer written from the
+      // texture only when something reads it), so batching and renames work at 1440p / 4K: pictures 1440p
+      // byte-identical (3821), hashes 467 / 467 (3827); in-run A/B 1440p match -14.4% / -10.4%, Bryan -4.3% / -5.8%
+      // (3822 / 3826); reviewed (64-bit offsets for 4K, the readback reader, SDK fixes).
+      {"gpu_native_truth_skip_writeback_scaled", "true"},
+      // Session 56 (Jarrod, 2026-10-24 09:05: "let's have it on for native"): the per-draw constants in the GPU's
+      // host-visible memory (the BAR window when there is no Resizable BAR) instead of system memory read across PCIe:
+      // separate runs 3809-3812 GPU -7..-8% (match, Bryan), command thread +10..15% (the CPU writes them across PCIe).
+      // Integrated GPUs share memory: no change there. Takes effect at start (a restart setting).
+      {"vulkan_uniform_pool_device_local", "true"},
+      {"vulkan_device_local_upload_min_heap_mb", "128"},
       // Session 54 (part B): on a card without fragment shader interlock (the host render target path) the truth
       // frames run too (no effect on cards with interlock). Forced fbo on the 4090: resolve hashes 467 / 467, parity
       // shots 6 / 6 byte-identical to NATIVE on interlock; vs LIGHT GPU -13.3% match, command thread -4.7%.
