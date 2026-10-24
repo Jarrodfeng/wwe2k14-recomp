@@ -1,0 +1,54 @@
+# harness: fast-forward ok (Session 56: in-run A/B - Session 59 end: every hot Session 56 + 59 GPU / command-thread setting on vs off, the medium items included (run with --wwe2k14_readback_loads=false); GPU ms and command-thread busy per frame)
+# (Brock's and Bryan's entrances, the match), logged as "ab: mode 1 / 0". Run with --wwe2k14_replay_play=s21_lb
+# --wwe2k14_preset_low=true --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true [--resolution_scale=2 for
+# 1440p]; read with py tools\native\ab_gpu.py RUN [--metric busy]. Made by tools\perf\s56_ab_route.py. on_fail quit.
+on_fail quit
+log bench: start s56_s59_cumul2_ab (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 1800
+repeat 40
+cvar gpu_native_truth_lazy_pass_deps true
+cvar gpu_native_truth_rename_depth true
+cvar vulkan_texture_sample_written_early true
+cvar gpu_native_lean_benign_writes true
+cvar gpu_native_truth_skip_writeback_scaled true
+cvar gpu_native_truth_defer_dest_use_scaled true
+cvar gpu_native_truth_batch_fills true
+cvar gpu_native_truth_direct_resolve_scaled_full_texture true
+cvar gpu_native_truth_direct_resolve_full_1x true
+cvar gpu_native_truth_fill_direct_small true
+cvar gpu_native_truth_fill_direct_depth true
+cvar gpu_native_truth_direct_resolve_depth true
+cvar gpu_native_truth_direct_resolve_scaled_small true
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_truth_lazy_pass_deps false
+cvar gpu_native_truth_rename_depth false
+cvar vulkan_texture_sample_written_early false
+cvar gpu_native_lean_benign_writes false
+cvar gpu_native_truth_skip_writeback_scaled false
+cvar gpu_native_truth_defer_dest_use_scaled false
+cvar gpu_native_truth_batch_fills false
+cvar gpu_native_truth_direct_resolve_scaled_full_texture false
+cvar gpu_native_truth_direct_resolve_full_1x false
+cvar gpu_native_truth_fill_direct_small false
+cvar gpu_native_truth_fill_direct_depth false
+cvar gpu_native_truth_direct_resolve_depth false
+cvar gpu_native_truth_direct_resolve_scaled_small false
+log ab: mode 0
+wait_frames 120
+end_repeat
+log bench: done
+quit

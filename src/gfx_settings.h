@@ -458,6 +458,40 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // byte-identical (3821), hashes 467 / 467 (3827); in-run A/B 1440p match -14.4% / -10.4%, Bryan -4.3% / -5.8%
       // (3822 / 3826); reviewed (64-bit offsets for 4K, the readback reader, SDK fixes).
       {"gpu_native_truth_skip_writeback_scaled", "true"},
+      // Session 59: at a resolution scale a resolve's write use of the scaled resolve buffer is held until a dispatch
+      // writes it (texture-only scaled resolves: none, so the truth passes around them need no barrier: 1440p 1 -> 21
+      // free passes a match frame); texture fills into a storage view join the batch of texture-only resolves.
+      // In-run A/Bs: 3963 (1440p) Brock -9.3%, Bryan -3.0%, match -8.2%; 3974 (720p) match -3.4%, command thread -2.3%.
+      // Pictures 6 / 6 byte-identical at 720p and 1440p (3984 / 3986, 3987 / 3988), resolve hashes 467 / 467 (3989 /
+      // 3990, 3991 / 3992); reviewed (fixes dfa7bd1, 063a235).
+      {"gpu_native_truth_defer_dest_use_scaled", "true"},
+      {"gpu_native_truth_batch_fills", "true"},
+      // Session 59 step 1b: at a resolution scale the full k_16_16 / k_16_16_16_16 copies (the shadow atlas parts) also
+      // write the scaled texture they feed - 1440p texture reloads 5 -> 0-1 a match frame (42 -> 0-14 MB). Pictures 6 / 6
+      // byte-identical at 1440p (4009 vs 3987), resolve hashes 467 / 467 (4010 vs 3991); A/B 4011 (1440p): match -4.0%,
+      // Bryan -3.2%, Brock -19.3%.
+      {"gpu_native_truth_direct_resolve_scaled_full_texture", "true"},
+      // Session 59 step 1d: at 1x the full k_8 / k_4_4_4_4 copies (shadow maps, a mip chain) straight from the RGBA8
+      // truth image into memory - staged resolves 11.2 -> 1.0 a 720p match frame. Resolve hashes 467 / 467 (4019 vs
+      // 3989), pictures 6 / 6 byte-identical (4020 vs 3984); A/B 4021 (720p): match -3.8%, Brock -10.1%, Bryan -0.5%.
+      {"gpu_native_truth_direct_resolve_full_1x", "true"},
+      // Session 59 medium items a / b (Jarrod: "Do the medium"): 1x k_8 textures get an R8_UINT storage view, and the
+      // k_8 and depth texture fills write the texture through its storage view (no staging buffer, no buffer copy);
+      // the 1x depth copy goes straight from the depth image into memory (no staging stores, no stock copy): staged
+      // resolves 1.0 -> 0 and storage-view fills 12.6 -> 17.5 a 720p match frame (census 4041). Resolve hashes 467 / 467
+      // (4051 vs 3989, 4052 vs 3991), pictures 6 / 6 byte-identical at 720p and 1440p (4053 vs 3984, 4054 vs 3987);
+      // reviewed (fixes SDK e03ea01). In-run A/Bs (720p): 4045 match -11.4%, Brock -13.7%, Bryan +0.3%; 4055 match
+      // -9.6%, Brock -10.9%, Bryan -12.6%.
+      {"vulkan_texture_native_storage_small", "true"},
+      {"gpu_native_truth_fill_direct_small", "true"},
+      {"gpu_native_truth_fill_direct_depth", "true"},
+      {"gpu_native_truth_direct_resolve_depth", "true"},
+      // Session 59 medium item c: at a resolution scale the k_8 / k_4_4_4_4 copies straight into the scaled resolve
+      // buffer (the stock scaled layout), and the depth copy above at a scale too: 1440p staged write-backs 12.6 -> 1.0
+      // (entrances), 11.9 -> 0 (match) a frame (4060 / 4061). Exact as above (1440p 4052, 4054). Timed census 4062 /
+      // 4063 (native GPU timers): write-backs 0.854 -> 0.708 ms a frame (entrances), match 0.459 -> 0.480 (noise: the
+      // untouched fills moved 0.03); 1440p in-run A/Bs too noisy to read (4056 - 4059).
+      {"gpu_native_truth_direct_resolve_scaled_small", "true"},
       // Session 56 (Jarrod, 2026-10-24 09:05: "let's have it on for native"): the per-draw constants in the GPU's
       // host-visible memory (the BAR window when there is no Resizable BAR) instead of system memory read across PCIe:
       // separate runs 3809-3812 GPU -7..-8% (match, Bryan), command thread +10..15% (the CPU writes them across PCIe).

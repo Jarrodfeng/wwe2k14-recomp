@@ -1,0 +1,22 @@
+# Session 59: 30 Years match 1 (WrestleMania 2: Heenan walks out with King Kong Bundy) with the entrances played, not
+# skipped, and a screenshot every 240 frames from the match pick to the bell - the garbled-attire check of Session 58
+# (#9 / #2 / #7 / #10: Heenan's tuxedo noise or black / magenta without the readback). Use with --wwe2k14_wm30=1
+# --wwe2k14_wm30_auto=false; compare with captures\3887_s58_fix_heenan.png (right). Quits at the bell + 120 frames.
+log s59heenan: start
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log s59heenan: match picked
+wait_frames 120
+# (the match briefing: READY starts the load - run 3972 waited here without it; the 30 Years load opens MISC02_INGAME.PAC, run 3985)
+press_until_file A MISC02_INGAME 6 300 4
+log s59heenan: match loading
+screenshot_every 240 s59heenan
+wait_state match_clock !=0 30000 2
+log s59heenan: match clock running
+screenshot_every 0
+wait_frames 120
+screenshot s59heenan_bell
+log s59heenan: done
+quit

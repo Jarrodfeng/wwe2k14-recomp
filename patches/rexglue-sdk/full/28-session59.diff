@@ -1,0 +1,2478 @@
+# ReXGlue SDK changes for WWE 2K14 (session59): 0ef0000aad71..e03ea01780e4 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  e03ea01 Session 59 review fixes (medium items): native storage views for k_8 on R8 host formats only (k_4_4_4_4's B4G4R4A4 has no storage image support); the 1x and scaled k_8 / k_4_4_4_4 direct copies swap endianness as the stock 8 / 16bpp copies (k_8 never, k_4_4_4_4 only 8-in-16); the 1x texture write not after a fill and only with the extended storage formats
+#  7caf05b Session 59 medium item c: gpu_native_truth_direct_resolve_scaled_small (k_8 / k_4_4_4_4 copies at a resolution scale straight into the scaled buffer, the stock 8-texel unit layout); gpu_native_truth_direct_resolve_depth at a resolution scale too (FULL_DEPTH); all off
+#  b463cfb Session 59 medium items: gpu_native_truth_fill_direct_small (k_8 / k_4_4_4_4 fills through R8_UINT / R16_UINT views), gpu_native_truth_fill_direct_depth (depth fills through the R32_UINT view), gpu_native_truth_direct_resolve_depth (1x depth copies straight from the depth image), all off
+#  4c91865 wwe2k14 Session 59: shaderStorageImageExtendedFormats enabled when supported; vulkan_texture_native_storage_small (off): 1x k_8 / k_4_4_4_4 textures without mips get R8_UINT / R16_UINT storage views; gpu_native_truth_direct_resolve_full_1x_texture (off): the 1x full copy writes that texture too (no fill)
+#  a2a4be4 wwe2k14 Session 59 (diagnostic): wide resolves in the readback windows logged, read back or not ([s59][readback])
+#  34e87e8 wwe2k14 Session 59 (diagnostic): vulkan_debug_skip_draw_read_barrier - the ceiling of range-aware shared-memory read barriers
+#  d285d44 wwe2k14 Session 59 (diagnostic): gpu_debug_draw_census_vs / _count - [s59][drawcensus] per draw of one vertex shader: dirty bits, index base / count, fetch-constant hash
+#  cf6b943 wwe2k14 Session 59 step 1d: gpu_native_truth_direct_resolve_full_1x (off) - full k_8 / k_4_4_4_4 copies at 1x straight from the RGBA8 truth image into memory (no staging stores, no stock copy; overlapping texture-only records materialized first)
+#  35317cc wwe2k14 Session 59 (diagnostic): gpu_native_truth_debug_skip_staged_resolves - the staged resolves' ceiling (plan step 1d)
+#  d78b62a wwe2k14 Session 59 step 1b: the texture write found by the texture's own base and written at the copy's place in it (atlas parts: copy_dest_base_x / y; two push constants more for the texture variant)
+#  b7be252 wwe2k14 Session 59 step 4b: vulkan_uniform_pool_mirror (off, restart) - draw constants written to system memory pages, each with a device-local mirror the descriptors use; the ranges flushed at the submission end are copied host -> mirror in the hoist stream (first in the submission)
+#  063a235 wwe2k14 Session 59 (review fixes, the rest of dfa7bd1's list): a restored lean base needs the same primitive and major mode and ends the repeat run (repeat_prev_ invalid); clear-only resolves do not count in the readback destination history, which is pruned once a frame
+#  dfa7bd1 wwe2k14 Session 59: step 1b gpu_native_truth_direct_resolve_scaled_full_texture (off) - the full k_16_16 / k_16_16_16_16 copies at a scale also write their scaled texture; review fixes: a restored lean base needs the same primitive / major mode and ends the repeat run; a texture leaving the storage-write usage (reload, swap sample, another write) flushes the deferred native work first; clear-only resolves do not count in the readback history, pruned once a frame
+#  ea2c3d4 wwe2k14 Session 59 step 4a: gpu_native_lean_multi_base (off) - this frame's last 16 lean bases kept by render state; a draw with no base or with render state written goes lean on an earlier base of exactly its render state and shaders (no packet / outside write since); samplers redone after a restore
+#  9eabc51 wwe2k14 Session 59 (review of step 1c): a fill that is not deferred flushes the batch before its texture barrier; one that meets an earlier batched write of its texture flushes with its own barrier still held, then records it before its dispatch
+#  51981db wwe2k14 Session 59: deferred fills share a batch when their texture rectangles do not overlap (one texture barrier per texture); vulkan_constants_reuse_identical (off): a constant buffer equal to the last written of its kind this frame reuses that copy; census [s59][lean multi] (with gpu_native_lean_dirty_census)
+#  aff1c4d wwe2k14 Session 59 step 1c: gpu_native_truth_batch_fills (off) - truth texture fills into a storage view deferred into the texture-only resolve batch (held texture barrier; flush binds per-entry set count / push size); diagnostic gpu_native_truth_debug_skip_alias (step 3 ceiling)
+#  32e3efd wwe2k14 Session 59: readback_resolve_override_skip_recurring (the app's readback windows skip the frame's recurring resolves; one-off resolves still read back) + diagnostic vulkan_debug_skip_constants_rebind
+#  7db8410 wwe2k14 Session 59 step 1a: gpu_native_truth_defer_dest_use_scaled (off) - at a resolution scale a truth resolve's scaled-buffer write use is held until a dispatch writes the buffer (texture-only scaled resolves: none, so the truth passes around them keep their lazy chain)
+#  483e569 wwe2k14 Session 59 (diagnostic): the segment log's lazy pass barrier line names the command that broke the lazy chain
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index c5951d55464c419bae2388c168dc5ca3c01f197d..42fc4ab3d016e7c8d6fec26e9a65a0df20cd3457 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -408,8 +408,10 @@ class VulkanCommandProcessor : public CommandProcessor {
+                                 uint32_t group_count_x, uint32_t group_count_y);
+   // wwe2k14 patch (Session 45, NATIVE TEXWRITE): the texture cache's part (VulkanTextureCache::NativeTextureForResolve
+   // / NativeTextureResolved), and the render target cache's call after the resolve's MarkRangeAsResolved.
++  // (Session 59: `format` k_16_16 / k_16_16_16_16 too - their R32_UINT / R16G16B16A16_UINT storage views.)
+   VkDescriptorSet NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32, uint32_t endianness,
+-                                          uint32_t& width_out, uint32_t& height_out, void*& handle_out, bool allow_scaled = false);
++                                          uint32_t& width_out, uint32_t& height_out, void*& handle_out, bool allow_scaled = false,
++                                          xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8);
+   void NativeTextureResolved(void* handle);
+   // wwe2k14 patch (Session 47, NATIVE TRUTH M6): VulkanTextureCache::NativeTextureForCopy; and, after a resolve's copy
+   // in a truth frame (before MarkRangeAsResolved), the native renderer fills the texture it feeds from its image.
+@@ -432,9 +434,18 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // writes no memory and drops it (Drop) - no barrier before it, none before the next draw.
+   void NativeHoldResolveDestUse(uint32_t start, uint32_t length) {
+     held_dest_use_ = true;
++    held_dest_scaled_ = false;
+     held_dest_start_ = start;
+     held_dest_length_ = length;
+   }
++  // wwe2k14 patch (Session 59, gpu_native_truth_defer_dest_use_scaled): the same for a scaled resolve's write of the
++  // scaled resolve buffer (VulkanTextureCache::UseScaledResolveBufferForWrite at Flush).
++  void NativeHoldScaledResolveDestUse(uint64_t start, uint64_t length) {
++    held_dest_use_ = true;
++    held_dest_scaled_ = true;
++    held_dest_scaled_start_ = start;
++    held_dest_scaled_length_ = length;
++  }
+   void NativeFlushResolveDestUse();
+   // wwe2k14 patch (Session 52, gpu_native_truth_cover_outdated): VulkanTextureCache::NativeSetCover.
+   void NativeSetTextureCover(uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+@@ -448,10 +459,14 @@ class VulkanCommandProcessor : public CommandProcessor {
+                                     VkImageLayout& old_layout);
+   void NativeDropResolveDestUse() { held_dest_use_ = false; }
+   bool held_dest_use_ = false;
++  bool held_dest_scaled_ = false;  // wwe2k14 patch (Session 59)
+   uint32_t held_dest_start_ = 0, held_dest_length_ = 0;
++  uint64_t held_dest_scaled_start_ = 0, held_dest_scaled_length_ = 0;  // wwe2k14 patch (Session 59)
+   void NativeTruthBeforeMemoryWrite(const draw_util::ResolveInfo& info);
+   bool NativeTruthFillOnly(const draw_util::ResolveInfo& info, const draw_util::ResolveCopyShaderConstants& constants);
+   bool NativeTruthResolveScaledFull(const draw_util::ResolveInfo& info, VkDescriptorSet dest_set);  // Session 52
++  bool NativeTruthResolveFull1x(const draw_util::ResolveInfo& info, uint32_t dest_base, uint32_t dest_coordinate_info,
++                                uint32_t dest_info, VkDescriptorSet dest_set);  // Session 59
+   void NativeTruthAfterResolveMarked(const draw_util::ResolveInfo& info);
+   uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false) const;
+   // wwe2k14 patch (Session 56, gpu_native_truth_skip_writeback_scaled): the scaled resolve buffer, a guest range's
+@@ -1668,6 +1683,30 @@ class VulkanCommandProcessor : public CommandProcessor {
+   LeanStats lean_stats_;
+   std::map<uint32_t, uint64_t> lean_census_;  // wwe2k14 patch (Session 56): gpu_native_lean_dirty_census
+   uint64_t lean_census_draws_ = 0, lean_census_sets_[3] = {};
++  // wwe2k14 patch (Session 59, census with gpu_native_lean_dirty_census): the last 32 bases' render-state hashes
++  // (0x2000-0x23FF without the draw packet's own registers) and vertex shaders; "state written" draws whose state
++  // matches one of them (a multi-base lean path's hit rate), and those with writes outside the block or packets.
++  std::array<std::pair<uint64_t, const Shader*>, 32> lean_base_ring_ = {};
++  uint32_t lean_base_ring_next_ = 0;
++  uint64_t lean_multi_checks_ = 0, lean_multi_hits_ = 0, lean_multi_outside_ = 0;
++  uint64_t LeanStateHash() const;
++  // wwe2k14 patch (Session 59, gpu_native_lean_multi_base): this frame's earlier lean bases, by render state - a draw
++  // with no base or with render state written goes lean on the base whose render-state block (0x2000-0x23FF, without
++  // the draw packet's own registers) it equals exactly, with the same active shaders and no packet or register outside
++  // the block written since that base was captured (lean_outside_epoch_).
++  struct LeanBaseEntry {
++    uint64_t hash = 0;
++    uint64_t frame = UINT64_MAX;
++    uint64_t outside_epoch = 0;
++    LeanState state;
++    std::array<uint32_t, 0x400> regs = {};
++    std::unique_ptr<native::Draw> draw;
++  };
++  std::array<LeanBaseEntry, 16> lean_bases_;
++  uint32_t lean_bases_next_ = 0;
++  uint64_t lean_outside_epoch_ = 0;
++  uint64_t lean_multi_restored_ = 0;
++  bool LeanRestoreBase(uint32_t prim_type, bool major_mode_explicit);
+   void LeanCaptureBase(const VulkanShader* vertex_shader, VulkanShader* pixel_shader, uint32_t prim_type,
+                        bool major_mode_explicit, bool primitive_polygonal,
+                        Shader::HostVertexShaderType host_vertex_shader_type, uint32_t used_texture_mask,
+@@ -1851,6 +1890,29 @@ class VulkanCommandProcessor : public CommandProcessor {
+ 
+   std::unique_ptr<VulkanSharedMemory> shared_memory_;
+   bool native_resolve_readback_ = false;  // wwe2k14 patch (Session 49): inside IssueCopy_ReadbackResolvePath
++  // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical): per constant buffer kind, the last one written in
++  // this frame (its bytes, where it is) - a draw whose buffer has the same bytes uses that copy.
++  struct ConstantsReuseEntry {
++    uint64_t frame = UINT64_MAX;
++    size_t size = 0;
++    VkDescriptorBufferInfo info = {};
++    uint8_t* mapping = nullptr;
++    std::array<uint8_t, 4096> bytes;
++  };
++  ConstantsReuseEntry constants_reuse_[5];
++  uint64_t constants_reuse_hits_ = 0, constants_reuse_misses_ = 0, constants_reuse_bytes_saved_ = 0,
++           constants_reuse_bytes_written_ = 0, constants_reuse_stats_frame_ = 0;
++  bool ConstantsTryReuse(uint32_t kind, const void* bytes, size_t size);
++  void ConstantsNoteWritten(uint32_t kind, const void* bytes, size_t size, uint8_t* mapping);
++  // wwe2k14 patch (Session 59, readback_resolve_override_skip_recurring): per resolve destination base, the last frame
++  // it was resolved in and how many frames in a row (gaps of at most one) it has been; and the skips counted.
++  struct ReadbackDestHistory {
++    uint64_t last_frame = 0;
++    uint32_t streak = 0;
++  };
++  std::unordered_map<uint32_t, ReadbackDestHistory> readback_dest_history_;
++  uint64_t readback_dest_pruned_frame_ = UINT64_MAX;
++  uint64_t readback_recurring_skipped_ = 0, readback_recurring_kept_ = 0;
+ 
+   std::unique_ptr<VulkanPrimitiveProcessor> primitive_processor_;
+ 
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 30b5e135d235fc7b6691510036a7fa8757353781..6820643c3b53e79d78f52e03d1cd0232053ea7f9 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -117,6 +117,16 @@ class DeferredCommandBuffer {
+                                uint32_t first_set, uint32_t descriptor_set_count,
+                                const VkDescriptorSet* descriptor_sets,
+                                uint32_t dynamic_offset_count, const uint32_t* dynamic_offsets) {
++    // wwe2k14 patch (Session 59, diagnostic vulkan_debug_skip_constants_rebind: pictures wrong): a graphics bind of
++    // only the constants set (1) with the set already bound - new dynamic offsets alone - is not recorded.
++    if (debug_skip_constants_rebind && pipeline_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS) {
++      if (layout != debug_last_layout_ || first_set == 0) debug_last_constants_set_ = VK_NULL_HANDLE;
++      debug_last_layout_ = layout;
++      if (first_set == 1 && descriptor_set_count == 1 && dynamic_offset_count) {
++        if (descriptor_sets[0] == debug_last_constants_set_) return;
++        debug_last_constants_set_ = descriptor_sets[0];
++      }
++    }
+     ++record_stats_.c[RecordStats::kDescriptorBinds];  // wwe2k14 patch (Session 20, RECSTATS)
+     record_stats_.c[RecordStats::kDescriptorSets] += descriptor_set_count;
+     size_t arguments_size = rex::align(sizeof(ArgsVkBindDescriptorSets), alignof(VkDescriptorSet));
+@@ -443,6 +453,12 @@ class DeferredCommandBuffer {
+   // (Session 56: the last begin's reason - 0 no barrier, 1 other work since a lazy pass ended, 2 an attachment of a
+   // lazy pass since the last barrier.)
+   uint32_t lazy_last_reason() const { return lazy_last_reason_; }
++  // (Session 59, diagnostic: the command that last broke a lazy chain - Command as a number.)
++  uint32_t lazy_break_command() const { return lazy_break_command_; }
++  // (Session 59, diagnostic: set by the command processor from vulkan_debug_skip_constants_rebind.)
++  bool debug_skip_constants_rebind = false;
++  VkDescriptorSet debug_last_constants_set_ = VK_NULL_HANDLE;
++  VkPipelineLayout debug_last_layout_ = VK_NULL_HANDLE;
+   uint64_t lazy_begins_free() const { return lazy_begins_free_; }
+   uint64_t lazy_begins_synced() const { return lazy_begins_synced_; }
+ 
+@@ -912,6 +928,7 @@ class DeferredCommandBuffer {
+   void AddLazyImageBarriers(const LazyAttachment* attachments, size_t count);
+   uint64_t lazy_begins_free_ = 0, lazy_begins_synced_ = 0;
+   uint32_t lazy_last_reason_ = 0;
++  uint32_t lazy_break_command_ = UINT32_MAX;  // wwe2k14 patch (Session 59, diagnostic)
+   bool barrier_pending_ = false;
+   VkPipelineStageFlags pending_src_stage_mask_ = 0, pending_dst_stage_mask_ = 0;
+   std::vector<VkMemoryBarrier> pending_memory_barriers_;
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index fe0d233f8b864e55be85aa3c0715d4bc95719cd5..8ea1c97653637c2f1d54533ce05d3f19250b9840 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -384,6 +384,28 @@ class NativeRenderer {
+   bool EnsureResolveScaledFullPipeline();
+   VkPipelineLayout resolve_scaled_full_layout_ = VK_NULL_HANDLE;
+   VkPipeline resolve_scaled_full_pipeline_ = VK_NULL_HANDLE;
++  // Session 59 (gpu_native_truth_direct_resolve_scaled_full_texture): the same copy also writing the scaled texture
++  // ([0] k_16_16 through r32ui, [1] k_16_16_16_16 through rgba16ui), on a layout with the texture's set 2.
++  VkPipelineLayout resolve_scaled_full_tex_layout_ = VK_NULL_HANDLE;
++  VkPipeline resolve_scaled_full_tex_pipelines_[2] = {};
++  bool resolve_scaled_full_tex_failed_ = false;
++  bool EnsureResolveScaledFullTexPipelines();
++  // Session 59 (gpu_native_truth_direct_resolve_full_1x): full k_8 / k_4_4_4_4 copies at 1x straight from an RGBA8 truth
++  // image into memory (on resolve_scaled_full_layout_).
++  VkPipeline resolve_full_1x_pipeline_ = VK_NULL_HANDLE;
++  VkPipeline resolve_depth_1x_pipeline_ = VK_NULL_HANDLE;  // Session 59 (FULL1X_DEPTH)
++  bool resolve_depth_1x_failed_ = false;
++  VkPipeline resolve_depth_scaled_pipeline_ = VK_NULL_HANDLE;  // Session 59 (FULL_DEPTH, at a resolution scale)
++  bool resolve_depth_scaled_failed_ = false;
++  VkPipeline resolve_full_1x_tex_pipelines_[2] = {};  // Session 59: [0] k_8 (r8ui), [1] k_4_4_4_4 (r16ui)
++  bool resolve_full_1x_tex_failed_ = false;
++  bool resolve_full_1x_failed_ = false;
++ public:
++  bool TruthResolveFull1x(const draw_util::ResolveInfo& info, uint32_t dest_base, uint32_t dest_coordinate_info,
++                          uint32_t dest_info, VkDescriptorSet dest_set);
++  // Session 59 (gpu_native_truth_direct_resolve_depth): from TruthResolveDirect for a 1x depth copy.
++  bool TruthResolveDepth1x(const draw_util::ResolveInfo& info, uint32_t dest_base, uint32_t dest_coordinate_info,
++                           uint32_t dest_info, VkDescriptorSet dest_set);
+   bool resolve_scaled_full_failed_ = false;
+   void TruthAfterResolveMarked(const draw_util::ResolveInfo& info);
+   void TruthMaterialize(uint32_t start, uint32_t length, uint32_t reason);
+@@ -624,6 +646,12 @@ class NativeRenderer {
+     VkPipelineStageFlags texture_src_stage;
+     VkAccessFlags texture_src_access;
+     VkImageLayout texture_old_layout;
++    // Session 59 (gpu_native_truth_batch_fills): a texture fill's dispatch has 2 sets and 10 push constants.
++    uint32_t set_count = 3;
++    uint32_t pc_size = sizeof(uint32_t) * 12;
++    // (A fill's texel rectangle in its texture, x0 y0 x1 y1: fills into one texture whose rectangles do not overlap
++    // share a batch - the shadow atlases are filled several times a frame. A resolve's: none, x1 = 0.)
++    int32_t texture_rect[4] = {0, 0, 0, 0};
+   };
+   std::vector<DeferredResolve> truth_deferred_;
+   // Session 52 (gpu_native_truth_batch_rename): an image's GPU objects, set aside (busy: a deferred resolve reads it)
+@@ -1168,9 +1196,12 @@ class NativeRenderer {
+   VkPipeline truth_fill_pipeline_ = VK_NULL_HANDLE;
+   // Session 52 (gpu_native_truth_fill_direct): the pack shader writing the texture's storage view (32 / 64 bits).
+   VkPipelineLayout truth_fill_tex_layout_ = VK_NULL_HANDLE;
+-  VkPipeline truth_fill_tex_pipelines_[2] = {};
++  // (Session 59, gpu_native_truth_fill_direct_small: [2] / [3] write k_8 / k_4_4_4_4 through R8_UINT / R16_UINT.)
++  VkPipeline truth_fill_tex_pipelines_[4] = {};
+   bool truth_fill_tex_failed_ = false;
++  bool truth_fill_tex_small_failed_ = false;
+   bool EnsureTruthFillTexPipelines();
++  bool EnsureTruthFillTexSmallPipelines();
+   VkDescriptorSet TruthStoreSet(TruthImage& t, bool staging, VkBuffer buffer);
+   VkDescriptorPool truth_pool_ = VK_NULL_HANDLE;
+   uint32_t truth_resolution_[2] = {};  // the resolution scale the images were made at
+@@ -1186,11 +1217,11 @@ class NativeRenderer {
+   static constexpr uint32_t kTruthScreenPitchTiles = 16;
+   struct TruthCounts {
+     uint32_t frames = 0, fallbacks = 0, passes = 0, draws = 0, loads = 0, writeouts = 0, staged = 0, staged_edram = 0;
+-    uint32_t alias_reads = 0, store_dispatches = 0, direct = 0;
++    uint32_t alias_reads = 0, store_dispatches = 0, direct = 0, direct_depth = 0;  // (Session 59: direct_depth)
+     uint32_t compiling = 0;  // Session 47: draws skipped while their pipeline was being made
+     uint32_t waited = 0;     // Session 55: draws into narrower surfaces whose pipeline was made at once instead
+     uint32_t filled = 0, fill_refused = 0;
+-    uint32_t fill_packed = 0, fill_direct = 0;
++    uint32_t fill_packed = 0, fill_direct = 0, fills_deferred = 0;  // (Session 59: fills_deferred)
+     uint32_t deferred = 0, deferred_batches = 0;  // Session 52: texture-only resolves deferred, flushes
+     uint32_t twin_blits[2] = {};  // Session 54: draw twins made from their images (0), images from twins (1)
+     uint32_t early_sampled = 0;
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 7bb8baf9a495f11d66c27ef53dbb0386f6021675..d28cc345bb4b982182263ebb8ffc6d014a507982 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -211,8 +211,10 @@ class VulkanTextureCache final : public TextureCache {
+   // and matches the resolve (pitch in 32-texel units, endianness): prepared for a compute write that keeps its other
+   // texels (usage kComputeStorageWrite, layout GENERAL); returns its storage descriptor set (binding 0), its size and a
+   // handle for NativeTextureResolved. VK_NULL_HANDLE when there is none.
++  // (Session 59: `format` k_16_16 / k_16_16_16_16 too - their R32_UINT / R16G16B16A16_UINT storage views.)
+   VkDescriptorSet NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32, uint32_t endianness,
+-                                          uint32_t& width_out, uint32_t& height_out, void*& handle_out, bool allow_scaled = false);
++                                          uint32_t& width_out, uint32_t& height_out, void*& handle_out, bool allow_scaled = false,
++                                          xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8);
+   // After the resolve's MarkRangeAsResolved (which made the texture outdated): it holds what the memory holds.
+   void NativeTextureResolved(void* handle);
+   // wwe2k14 patch (Session 47, NATIVE TRUTH M6): the 1x 2D tiled single-level texture of `format` last loaded (directly
+@@ -222,7 +224,7 @@ class VulkanTextureCache final : public TextureCache {
+   // none (`why` says why).
+   // (Session 47, step 2: or the start page of one of its mip levels - not in the packed tail - with that level's pitch;
+   // level_out says which, width_out / height_out are that level's.)
+-  // (Session 52, gpu_native_truth_fill_direct: storage_bytes 4 / 8 and storage_set_out - for a single-level texture with
++  // (Session 52, gpu_native_truth_fill_direct: storage_bytes 4 / 8 - Session 59: or 1 / 2 - and storage_set_out - for a single-level texture with
+   // the direct load's raw-bits storage view of that size, the texture is prepared for a compute write into it (layout
+   // GENERAL) and *storage_set_out is its storage set; otherwise as before, *storage_set_out VK_NULL_HANDLE.)
+   bool NativeTextureForCopy(uint32_t base_page, uint32_t pitch_div_32, uint32_t endianness, xenos::TextureFormat format,
+diff --git a/include/rex/ui/vulkan/device.h b/include/rex/ui/vulkan/device.h
+index 8acc952ffb5fe6e2534ae91b6096815c2f27abfb..9649c31f928720e4180da9277aba811143e79914 100644
+--- a/include/rex/ui/vulkan/device.h
++++ b/include/rex/ui/vulkan/device.h
+@@ -106,6 +106,7 @@ class VulkanDevice {
+     bool occlusionQueryPrecise = false;
+     bool vertexPipelineStoresAndAtomics = false;
+     bool fragmentStoresAndAtomics = false;
++    bool shaderStorageImageExtendedFormats = false;  // wwe2k14 patch (Session 59: 8 / 16-bit storage views)
+     bool shaderClipDistance = false;
+     bool shaderCullDistance = false;
+     bool sparseBinding = false;
+diff --git a/include/rex/ui/vulkan/upload_buffer_pool.h b/include/rex/ui/vulkan/upload_buffer_pool.h
+index 797d7ec0d480baf487ad90a0dd1aedb5ec9e9da2..2fcfdd07e44380c3ee0557e2e4faa0814aa29347 100644
+--- a/include/rex/ui/vulkan/upload_buffer_pool.h
++++ b/include/rex/ui/vulkan/upload_buffer_pool.h
+@@ -42,6 +42,17 @@ class VulkanUploadBufferPool : public GraphicsUploadBufferPool {
+   // Logs every memory heap and memory type of the device ([s7][REBAR]).
+   static void LogMemoryHeapsAndTypes(const VulkanDevice* vulkan_device);
+   bool prefers_device_local() const { return prefer_device_local_; }
++  // wwe2k14 patch (Session 59, vulkan_uniform_pool_mirror): each page also gets a device-local copy (not host-visible)
++  // that Request hands out as the buffer; the CPU writes the host page, and every range FlushWrites flushes is listed
++  // (pending_mirror_copies) for the owner to copy host -> mirror before anything of the submission reads it. Set before
++  // the first Request.
++  struct MirrorCopy {
++    VkBuffer source, mirror;
++    VkDeviceSize offset, size;
++  };
++  void SetMirror(bool mirror) { mirror_ = mirror; }
++  bool mirror() const { return mirror_; }
++  std::vector<MirrorCopy>& pending_mirror_copies() { return pending_mirror_copies_; }
+   // Some pages may be (or become) device-local host-visible memory chosen for prefer_device_local. The CPU must
+   // not read them: write-combined and across PCIe, every read is an uncached round trip to the GPU. Final from
+   // creation (the memory type is chosen in the constructor with prefer_device_local): false without
+@@ -89,7 +100,12 @@ class VulkanUploadBufferPool : public GraphicsUploadBufferPool {
+     void* mapping_;
+     // wwe2k14 patch (Session 7b, REBAR): pages of one pool may differ after an allocation fallback.
+     uint32_t memory_type_;
++    VkBuffer mirror_buffer_ = VK_NULL_HANDLE;  // wwe2k14 patch (Session 59)
++    VkDeviceMemory mirror_memory_ = VK_NULL_HANDLE;
+   };
++  bool mirror_ = false;  // wwe2k14 patch (Session 59)
++  std::vector<MirrorCopy> pending_mirror_copies_;
++  void CreateMirror(VulkanPage& page);
+ 
+   // wwe2k14 patch (Session 7b, REBAR): the memory type for buffers that can be in supported_types - the usual
+   // host-visible one, or the device-local one with prefer_device_local (then also sets device_local_out and
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index c7ac803a895ff013e334b03b70d527e07d858e34..25e86c4cb1cc89a7a9e3852d81dd785d82e5fd8d 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -52,6 +52,7 @@
+ #include <rex/graphics/pipeline/shader/shader.h>
+ #include <rex/graphics/pipeline/shader/spirv_translator.h>
+ #include <rex/graphics/registers.h>
++#include <rex/hash.h>  // wwe2k14 patch (Session 59): XXH3 for the lean multi-base census
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include "s58_stats.h"  // wwe2k14 patch (Session 58)
+ #include <rex/graphics/vulkan/native/native_renderer.h>  // wwe2k14 patch (Session 38, NATIVE)
+@@ -76,6 +77,7 @@ REXCVAR_DEFINE_BOOL(vulkan_flight_gpu_records, false, "GPU/Vulkan",
+ // wwe2k14 patch (Session 16, MATTE): find and dump the game's depth resolves (for depth mattes). Both default off.
+ // wwe2k14 patch (Session 20, RECSTATS)
+ REXCVAR_DECLARE(bool, gpu_native_truth_clear_attachments);  // wwe2k14 patch (Session 56, native_truth.cpp)
++REXCVAR_DECLARE(int32_t, readback_resolve_override);  // wwe2k14 patch (Session 59; graphics/command_processor.cpp)
+ // wwe2k14 patch (Session 56): writes that change nothing a lean draw keeps.
+ REXCVAR_DEFINE_BOOL(gpu_native_lean_same_values, false, "GPU",
+                     "Session 56: a lean draw candidate whose render state was written (bulk register writes mark whole "
+@@ -276,6 +278,42 @@ REXCVAR_DEFINE_STRING(gpu_fsr_jitter_sign, "1,1", "GPU", "FSR 3 (debug): \"X,Y\"
+ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                     "Read render-to-texture results on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 59, diagnostic): see IssueDrawLean.
++REXCVAR_DEFINE_STRING(gpu_debug_draw_census_vs, "", "GPU/Vulkan",
++                      "Session 59 diagnostic: a vertex shader hash (16 hex digits) whose next gpu_debug_draw_census_count "
++                      "draws log [s59][drawcensus] lines")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(gpu_debug_draw_census_count, 0, "GPU/Vulkan", "Session 59 diagnostic: see gpu_debug_draw_census_vs")
++    .range(0, 100000)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 59): see VulkanUploadBufferPool::SetMirror.
++REXCVAR_DEFINE_BOOL(vulkan_uniform_pool_mirror, false, "GPU/Vulkan",
++                    "Session 59: the draw constants written by the CPU into system memory and copied into the card's "
++                    "own memory at the start of each submission (one copy of the submission's ranges), instead of "
++                    "vulkan_uniform_pool_device_local's CPU writes across the bus. Takes effect at start")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++// wwe2k14 patch (Session 59): see VulkanCommandProcessor::ConstantsTryReuse.
++REXCVAR_DEFINE_BOOL(vulkan_constants_reuse_identical, false, "GPU/Vulkan",
++                    "Session 59: a draw's constant buffer (system, float vertex / pixel, bool / loop, fetch) whose "
++                    "bytes equal the last one of its kind written in the same frame uses that copy - no new upload "
++                    "(with vulkan_uniform_pool_device_local, no write across the bus); float constants only with the "
++                    "device-local shadow copies. [s59][constants] counts")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 59, diagnostic: pictures wrong): see DeferredCommandBuffer::CmdVkBindDescriptorSets.
++REXCVAR_DEFINE_BOOL(vulkan_debug_skip_constants_rebind, false, "GPU/Vulkan",
++                    "Session 59 diagnostic (pictures wrong): a bind of only the draw constants' set with new dynamic "
++                    "offsets is not recorded when the set is already bound - the GPU cost of the per-draw constant "
++                    "rebinds, for in-run A/Bs")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 59): the app's readback windows (readback_resolve_override) read back only resolves that are
++// not part of the frame's own recurring work.
++REXCVAR_DEFINE_INT32(readback_resolve_override_skip_recurring, 0, "GPU/Vulkan",
++                     "Session 59: while readback_resolve_override is 1-3, a resolve whose destination was also "
++                     "resolved in at least this many earlier frames in a row (gaps of at most one frame: double "
++                     "buffers) is not read back - the frame's own recurring copies (screen, shadows, effects); one-off "
++                     "resolves (an attire built on the GPU when a character loads) still are. 0 = every resolve")
++    .range(0, 60)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ // wwe2k14 patch (Session 37): resolves left to describe in a [resolve_stats] line (set with gpu_resolve_log).
+ static int32_t g_resolve_stats_remaining = 0;
+@@ -392,6 +430,12 @@ REXCVAR_DEFINE_BOOL(gpu_native_lean_draws, false, "GPU/Native",
+ REXCVAR_DEFINE_BOOL(gpu_native_lean_draws_library, true, "GPU/Native",
+                     "Session 50 (diagnostic): gpu_native_lean_draws only for draw packets attributed to a library "
+                     "draw (false: any draw with only constants written since its base)");
++REXCVAR_DEFINE_BOOL(gpu_native_lean_multi_base, false, "GPU/Native",
++                    "Session 59: gpu_native_lean_draws keeps this frame's last 16 bases (by render state): a draw with "
++                    "no base, or with render-state registers written since the base, goes lean on an earlier base whose "
++                    "render state (0x2000-0x23FF but the draw packet's own) and shaders it equals exactly, when no "
++                    "state packet or other register was written since that base (counted in [native][lean] as "
++                    "restored)");
+ REXCVAR_DEFINE_BOOL(gpu_native_lean_draws_verify, false, "GPU/Native",
+                     "Session 50 (diagnostic): every draw gpu_native_lean_draws would take goes to the full path, and "
+                     "what that derives is compared with the base the lean path would have used ([native][lean] "
+@@ -2638,8 +2682,12 @@ bool VulkanCommandProcessor::SetupContext() {
+       vulkan_device, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+       rex::align(std::max(ui::GraphicsUploadBufferPool::kDefaultPageSize, size_t(16384)),
+                  size_t(device_properties.minUniformBufferOffsetAlignment)),
+-      "uniform (guest draw constants)", REXCVAR_GET(vulkan_uniform_pool_device_local),
++      "uniform (guest draw constants)",
++      REXCVAR_GET(vulkan_uniform_pool_device_local) && !REXCVAR_GET(vulkan_uniform_pool_mirror),
+       VkDeviceSize(std::max(REXCVAR_GET(vulkan_device_local_upload_min_heap_mb), int32_t(0))) << 20);
++  // wwe2k14 patch (Session 59, vulkan_uniform_pool_mirror): host pages the CPU writes, copied into device-local mirrors
++  // at the start of each submission (the hoist stream) - the GPU reads its own memory without CPU writes across the bus.
++  uniform_buffer_pool_->SetMirror(REXCVAR_GET(vulkan_uniform_pool_mirror));
+ 
+   // Descriptor set layouts that don't depend on the setup of other subsystems.
+   VkShaderStageFlags guest_shader_stages =
+@@ -7003,10 +7051,10 @@ void VulkanCommandProcessor::NativeBeforeStockResolve() {
+ VkDescriptorSet VulkanCommandProcessor::NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32,
+                                                                 uint32_t endianness, uint32_t& width_out,
+                                                                 uint32_t& height_out, void*& handle_out,
+-                                                                bool allow_scaled) {
++                                                                bool allow_scaled, xenos::TextureFormat format) {
+   handle_out = nullptr;
+   return texture_cache_ ? texture_cache_->NativeTextureForResolve(base_page, pitch_div_32, endianness, width_out,
+-                                                                  height_out, handle_out, allow_scaled)
++                                                                  height_out, handle_out, allow_scaled, format)
+                         : VK_NULL_HANDLE;
+ }
+ 
+@@ -7176,6 +7224,10 @@ void VulkanCommandProcessor::NativeSetTextureCover(uint32_t x, uint32_t y, uint3
+ void VulkanCommandProcessor::NativeFlushResolveDestUse() {
+   if (!held_dest_use_) return;
+   held_dest_use_ = false;
++  if (held_dest_scaled_) {  // wwe2k14 patch (Session 59, gpu_native_truth_defer_dest_use_scaled)
++    if (texture_cache_) texture_cache_->UseScaledResolveBufferForWrite(held_dest_scaled_start_, held_dest_scaled_length_);
++    return;
++  }
+   shared_memory_->Use(VulkanSharedMemory::Usage::kComputeWrite,
+                       std::pair<uint32_t, uint32_t>(held_dest_start_, held_dest_length_));
+ }
+@@ -7185,6 +7237,14 @@ bool VulkanCommandProcessor::NativeTruthResolveScaledFull(const draw_util::Resol
+   return native_ && native_->enabled() && native_->truth() && native_->TruthResolveScaledFull(info, dest_set);
+ }
+ 
++// wwe2k14 patch (Session 59)
++bool VulkanCommandProcessor::NativeTruthResolveFull1x(const draw_util::ResolveInfo& info, uint32_t dest_base,
++                                                      uint32_t dest_coordinate_info, uint32_t dest_info,
++                                                      VkDescriptorSet dest_set) {
++  return native_ && native_->enabled() && native_->truth() &&
++         native_->TruthResolveFull1x(info, dest_base, dest_coordinate_info, dest_info, dest_set);
++}
++
+ VkDescriptorSet VulkanCommandProcessor::NativeResolveSetForBuffer(VkBuffer buffer) {
+   return render_target_cache_ ? render_target_cache_->ResolveSetForBuffer(buffer) : VK_NULL_HANDLE;
+ }
+@@ -8883,6 +8943,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
++  // wwe2k14 patch (Session 59, diagnostic)
++  deferred_command_buffer_.debug_skip_constants_rebind = REXCVAR_GET(vulkan_debug_skip_constants_rebind);
+ 
+   const RegisterFile& regs = *register_file_;
+   (void)index_buffer_info;
+@@ -11113,7 +11175,25 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+   }
+   LeanStats& stats = lean_stats_;
+   const uint32_t dirty = repeat_dirty_;
++  // wwe2k14 patch (Session 59, diagnostic gpu_debug_draw_census_vs / _count): what changed before each draw of one
++  // vertex shader - the dirty bits, the index base / count, a hash of the vertex fetch constants.
++  if (const int32_t left = REXCVAR_GET(gpu_debug_draw_census_count); left > 0) [[unlikely]] {
++    const VulkanShader* vs = static_cast<VulkanShader*>(active_vertex_shader());
++    if (vs && fmt::format("{:016X}", vs->ucode_data_hash()) == REXCVAR_GET(gpu_debug_draw_census_vs)) {
++      rex::cvar::SetFlagByName("gpu_debug_draw_census_count", std::to_string(left - 1));
++      const uint32_t* r = register_file_->values;
++      REXGPU_INFO("[s59][drawcensus] frame {}: dirty 0x{:X} index base 0x{:08X} count {} fetch hash {:016X} library {}",
++                  frame_current_, dirty, index_buffer_info ? index_buffer_info->guest_base : 0, index_count,
++                  XXH3_64bits(r + XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0, sizeof(uint32_t) * 6 * 32), library_kind);
++    }
++  }
+   repeat_benign_ = REXCVAR_GET(gpu_native_lean_benign_writes);  // wwe2k14 patch (Session 56)
++  // wwe2k14 patch (Session 59, gpu_native_lean_multi_base): state outside the compared block changed - earlier bases
++  // no longer hold (every draw passes here first, whichever path records it).
++  const bool outside_written = (dirty & (kRepeatDirtyPacket | kRepeatDirtyOtherOutside)) != 0;
++  if (outside_written) ++lean_outside_epoch_;
++  const bool multi_base = REXCVAR_GET(gpu_native_lean_multi_base);
++  bool restored = false;
+   // wwe2k14 patch (Session 56, gpu_native_lean_dirty_census): which registers a "state written" draw saw written.
+   const bool census = REXCVAR_GET(gpu_native_lean_dirty_census);
+   if (census != repeat_census_) {
+@@ -11167,19 +11247,43 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+     return full(kLeanMode);
+   }
+   if (!lean_.valid) {
+-    return full(kLeanNoBase);
++    // wwe2k14 patch (Session 59, gpu_native_lean_multi_base): or an earlier base of the same render state.
++    if (!multi_base || outside_written || !LeanRestoreBase(uint32_t(prim_type), major_mode_explicit)) {
++      return full(kLeanNoBase);
++    }
++    restored = true;
+   }
+   // Only constants (float, fetch, bool / loop) since the base: its render state holds.
+-  if (dirty & (kRepeatDirtyOther | kRepeatDirtyPacket)) {
++  if (census && (dirty & (kRepeatDirtyOther | kRepeatDirtyPacket))) {  // wwe2k14 patch (Session 59, census)
++    if (dirty & (kRepeatDirtyPacket | kRepeatDirtyOtherOutside)) {
++      ++lean_multi_outside_;
++    } else {
++      ++lean_multi_checks_;
++      const uint64_t h = LeanStateHash();
++      const Shader* vs = active_vertex_shader();
++      for (const auto& e : lean_base_ring_) {
++        if (e.first == h && e.second == vs) {
++          ++lean_multi_hits_;
++          break;
++        }
++      }
++    }
++  }
++  if (!restored && (dirty & (kRepeatDirtyOther | kRepeatDirtyPacket))) {
+     // wwe2k14 patch (Session 56, gpu_native_lean_same_values): or every register written holds the base's value.
+     const uint32_t* now = register_file_->values;
+     constexpr uint32_t kDma = 0x21FA - 0x2000, kAfter = 0x21FD - 0x2000;  // VGT_DMA_BASE .. VGT_DRAW_INITIATOR
+     if (!REXCVAR_GET(gpu_native_lean_same_values) || (dirty & (kRepeatDirtyPacket | kRepeatDirtyOtherOutside)) ||
+         std::memcmp(now + 0x2000, lean_regs_.data(), kDma * sizeof(uint32_t)) != 0 ||
+         std::memcmp(now + 0x2000 + kAfter, lean_regs_.data() + kAfter, (0x400 - kAfter) * sizeof(uint32_t)) != 0) {
+-      return full(kLeanDirty);
++      // wwe2k14 patch (Session 59, gpu_native_lean_multi_base): or an earlier base of this render state.
++      if (!multi_base || outside_written || !LeanRestoreBase(uint32_t(prim_type), major_mode_explicit)) {
++        return full(kLeanDirty);
++      }
++      restored = true;
++    } else {
++      ++stats.same_values;
+     }
+-    ++stats.same_values;
+   }
+   auto vertex_shader = static_cast<VulkanShader*>(active_vertex_shader());
+   if (!vertex_shader || vertex_shader != lean_.active_vertex_shader ||
+@@ -11266,7 +11370,8 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+     if (!shader) {
+       continue;
+     }
+-    if (dirty & kRepeatDirtyFetch) {
++    // (Session 59: after a restored base too - the samplers kept are the last draw's, maybe of other shaders.)
++    if ((dirty & kRepeatDirtyFetch) || restored) {
+       const std::vector<VulkanShader::SamplerBinding>& bindings = shader->GetSamplerBindingsAfterTranslation();
+       shader_samplers.clear();
+       shader_samplers.reserve(bindings.size());
+@@ -11483,6 +11588,9 @@ void VulkanCommandProcessor::LeanCaptureBase(const VulkanShader* vertex_shader,
+   LeanState now;
+   now.valid = true;
+   std::memcpy(lean_regs_.data(), register_file_->values + 0x2000, sizeof(lean_regs_));  // wwe2k14 patch (Session 56)
++  if (repeat_census_) {  // wwe2k14 patch (Session 59, census)
++    lean_base_ring_[lean_base_ring_next_++ & 31] = {LeanStateHash(), active_vertex_shader()};
++  }
+   now.active_vertex_shader = active_vertex_shader();
+   now.active_pixel_shader = active_pixel_shader();
+   now.pixel_shader = pixel_shader;
+@@ -11507,6 +11615,67 @@ void VulkanCommandProcessor::LeanCaptureBase(const VulkanShader* vertex_shader,
+     if (native_repeat_draw_) LeanVerifyCompare(now, *native_repeat_draw_);
+   }
+   lean_ = now;
++  // wwe2k14 patch (Session 59, gpu_native_lean_multi_base): kept by its render state (one entry a state and shaders).
++  if (REXCVAR_GET(gpu_native_lean_multi_base) && native_repeat_draw_ && native_repeat_draw_valid_) {
++    const uint64_t h = LeanStateHash();
++    LeanBaseEntry* slot = nullptr;
++    for (LeanBaseEntry& e : lean_bases_) {
++      if (e.frame == frame_current_ && e.hash == h && e.state.active_vertex_shader == now.active_vertex_shader &&
++          e.state.active_pixel_shader == now.active_pixel_shader) {
++        slot = &e;
++        break;
++      }
++    }
++    if (!slot) slot = &lean_bases_[lean_bases_next_++ & 15];
++    slot->hash = h;
++    slot->frame = frame_current_;
++    slot->outside_epoch = lean_outside_epoch_;
++    slot->state = now;
++    slot->regs = lean_regs_;
++    if (!slot->draw) slot->draw = std::make_unique<native::Draw>();
++    *slot->draw = *native_repeat_draw_;
++  }
++}
++
++// wwe2k14 patch (Session 59, gpu_native_lean_multi_base): an earlier base of this frame with exactly this render state
++// and these shaders, captured since the last packet / outside write, becomes the base (as LeanCaptureBase left it).
++bool VulkanCommandProcessor::LeanRestoreBase(uint32_t prim_type, bool major_mode_explicit) {
++  constexpr uint32_t kDma = 0x21FA - 0x2000, kAfter = 0x21FD - 0x2000;
++  const uint64_t h = LeanStateHash();
++  const Shader* const vs = active_vertex_shader();
++  const Shader* const ps = active_pixel_shader();
++  const uint32_t* const now = register_file_->values + 0x2000;
++  for (LeanBaseEntry& e : lean_bases_) {
++    if (e.frame != frame_current_ || e.hash != h || e.outside_epoch != lean_outside_epoch_ || !e.draw ||
++        e.state.active_vertex_shader != vs || e.state.active_pixel_shader != ps || e.state.prim_type != prim_type ||
++        e.state.major_mode_explicit != major_mode_explicit) {
++      continue;
++    }
++    if (std::memcmp(now, e.regs.data(), kDma * sizeof(uint32_t)) != 0 ||
++        std::memcmp(now + kAfter, e.regs.data() + kAfter, (0x400 - kAfter) * sizeof(uint32_t)) != 0) {
++      continue;
++    }
++    lean_ = e.state;
++    lean_regs_ = e.regs;
++    if (!native_repeat_draw_) native_repeat_draw_ = std::make_unique<native::Draw>();
++    *native_repeat_draw_ = *e.draw;
++    native_repeat_draw_valid_ = true;
++    // (Review: the repeat path follows the last recorded draw - not a restored base: a draw that leaves the lean
++    // path after the restore must not be taken as a repeat of it.)
++    repeat_prev_.valid = false;
++    ++lean_multi_restored_;
++    return true;
++  }
++  return false;
++}
++
++// wwe2k14 patch (Session 59, census): the render-state block 0x2000-0x23FF without VGT_DMA_BASE / SIZE /
++// DRAW_INITIATOR.
++uint64_t VulkanCommandProcessor::LeanStateHash() const {
++  constexpr uint32_t kDma = 0x21FA - 0x2000, kAfter = 0x21FD - 0x2000;
++  const uint32_t* r = register_file_->values + 0x2000;
++  const uint64_t a = XXH3_64bits(r, kDma * sizeof(uint32_t));
++  return XXH3_64bits_withSeed(r + kAfter, (0x400 - kAfter) * sizeof(uint32_t), a);
+ }
+ 
+ void VulkanCommandProcessor::LeanVerifyCompare(const LeanState& now, const native::Draw& d) {
+@@ -11588,12 +11757,15 @@ void VulkanCommandProcessor::LeanFrameEnd() {
+     const double f = double(frames);
+     REXGPU_INFO("[native][lean] frames {}-{}, per frame: lean {:.1f}, repeats {:.1f}; to IssueDraw: not a library draw "
+                 "{:.1f}, mode {:.1f}, no base {:.1f}, state written {:.1f}, shaders {:.1f}, primitive {:.1f}, sampler "
+-                "{:.1f}, claim {:.1f}, verify {:.1f}; verify: {} compared, {} mismatches, {} not truth",
++                "{:.1f}, claim {:.1f}, verify {:.1f}; verify: {} compared, {} mismatches, {} not truth; restored bases "
++                "{:.1f}",
+                 stats.first_frame, frame_current_, stats.reasons[kLeanTaken] / f, stats.reasons[kLeanRepeat] / f,
+                 stats.reasons[kLeanNotLibrary] / f, stats.reasons[kLeanMode] / f, stats.reasons[kLeanNoBase] / f,
+                 stats.reasons[kLeanDirty] / f, stats.reasons[kLeanShader] / f, stats.reasons[kLeanPrimitive] / f,
+                 stats.reasons[kLeanSampler] / f, stats.reasons[kLeanClaim] / f, stats.reasons[kLeanVerify] / f,
+-                stats.verify_checked, stats.verify_mismatches, stats.verify_not_truth);
++                stats.verify_checked, stats.verify_mismatches, stats.verify_not_truth,
++                double(lean_multi_restored_) / f);
++    lean_multi_restored_ = 0;
+   }
+   if (lean_census_draws_) {  // wwe2k14 patch (Session 56, gpu_native_lean_dirty_census)
+     std::vector<std::pair<uint64_t, uint32_t>> top;
+@@ -11610,6 +11782,11 @@ void VulkanCommandProcessor::LeanFrameEnd() {
+                 double(stats.same_values) / double(frames),
+                 double(lean_census_sets_[0]) / double(frames), double(lean_census_sets_[1]) / double(frames),
+                 double(lean_census_sets_[2]) / double(frames), text);
++    REXGPU_INFO("[s59][lean multi] frames {}-{}: state written with only 0x2000-0x23FF registers {:.1f} a frame, of "
++                "them matching one of the last 32 bases {:.1f}; with packets or other registers {:.1f}",
++                stats.first_frame, frame_current_, double(lean_multi_checks_) / double(frames),
++                double(lean_multi_hits_) / double(frames), double(lean_multi_outside_) / double(frames));
++    lean_multi_checks_ = lean_multi_hits_ = lean_multi_outside_ = 0;
+     lean_census_.clear();
+     lean_census_draws_ = 0;
+     lean_census_sets_[0] = lean_census_sets_[1] = lean_census_sets_[2] = 0;
+@@ -12213,6 +12390,45 @@ bool VulkanCommandProcessor::IssueCopy() {
+   }
+ 
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
++  // wwe2k14 patch (Session 59, readback_resolve_override_skip_recurring): every resolve's destination is tracked (so
++  // the history is there when the app's window opens); within the window a recurring one is not read back.
++  {
++    const uint32_t dest = matte_regs_[1];
++    // (Review: a clear-only resolve's RB_COPY_DEST_BASE is left over from an earlier copy - not counted.)
++    const bool copies = register_file_->Get<reg::RB_COPY_CONTROL>().copy_command != xenos::CopyCommand::kNull;
++    ReadbackDestHistory scratch;
++    ReadbackDestHistory& h = copies ? readback_dest_history_[dest] : scratch;
++    if (copies && h.last_frame != frame_current_) {
++      h.streak = (h.streak && frame_current_ - h.last_frame <= 2) ? h.streak + 1 : 1;
++      h.last_frame = frame_current_;
++    }
++    if (readback_dest_history_.size() > 1024 && readback_dest_pruned_frame_ != frame_current_) {
++      readback_dest_pruned_frame_ = frame_current_;  // (review: once a frame - old one-offs dropped)
++      std::erase_if(readback_dest_history_,
++                    [&](const auto& e) { return frame_current_ - e.second.last_frame > 120; });
++    }
++    const int32_t recurring = REXCVAR_GET(readback_resolve_override_skip_recurring);
++    if (recurring > 0 && readback_mode != ReadbackResolveMode::kDisabled &&
++        REXCVAR_GET(readback_resolve_override) > 0 && !matte_force_readback_) {
++      // (streak counts this frame: resolved in `recurring` earlier frames in a row as well.)
++      const bool skip = h.streak > uint32_t(recurring);
++      if (skip) {
++        readback_mode = ReadbackResolveMode::kDisabled;
++        ++readback_recurring_skipped_;
++      } else {
++        ++readback_recurring_kept_;
++      }
++      // (Session 59: the wide copies - the attire builds are 2048 wide - logged, read back or not.)
++      if (copies && (matte_regs_[3] & 0x3FFFu) >= 1024u) {
++        REXGPU_INFO("[s59][readback] wide resolve dest 0x{:08X} pitch {} {} (streak {}) frame {}", dest,
++                    matte_regs_[3] & 0x3FFFu, skip ? "NOT read back" : "read back", h.streak, frame_current_);
++      }
++      if (((readback_recurring_skipped_ + readback_recurring_kept_) & 1023) == 0) {
++        REXGPU_INFO("[s59][readback] recurring resolves not read back {}, read back {} (since start)",
++                    readback_recurring_skipped_, readback_recurring_kept_);
++      }
++    }
++  }
+   bool copied;
+   // The pass runs after the scene depth resolve, or (gpu_dlaa_color_base set) after that colour resolve, later in
+   // the frame (the colour the post passes sample can be resolved after the depth: run 1391, resolve 47).
+@@ -13392,6 +13608,16 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     shared_memory_->EndSubmission();
+ 
+     uniform_buffer_pool_->FlushWrites();
++    // wwe2k14 patch (Session 59, vulkan_uniform_pool_mirror): this submission's constants into the mirrors, first in the
++    // submission (the hoist stream's closing barrier makes them visible to every command after).
++    if (!uniform_buffer_pool_->pending_mirror_copies().empty()) {
++      DeferredCommandBuffer& hoist = BeginHoistedUpload();
++      for (const auto& c : uniform_buffer_pool_->pending_mirror_copies()) {
++        const VkBufferCopy region = {c.offset, c.offset, c.size};
++        hoist.CmdVkCopyBuffer(c.source, c.mirror, 1, &region);
++      }
++      uniform_buffer_pool_->pending_mirror_copies().clear();
++    }
+ 
+     // Submit sparse binds earlier, before executing the deferred command
+     // buffer, to reduce latency.
+@@ -15445,6 +15671,44 @@ bool VulkanCommandProcessor::RepeatDrawFast(const Shader* vertex_shader, uint64_
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 59, vulkan_constants_reuse_identical): the buffer of `kind` written last in this frame, if it
++// holds these bytes, becomes the current one (its place; for the dynamic offsets its mapping - a repack copies from the
++// shadow copy, which holds the same bytes, or from that mapping).
++bool VulkanCommandProcessor::ConstantsTryReuse(uint32_t kind, const void* bytes, size_t size) {
++  ConstantsReuseEntry& r = constants_reuse_[kind];
++  if (r.frame != frame_current_ || r.size != size || std::memcmp(r.bytes.data(), bytes, size) != 0) return false;
++  current_constant_buffer_infos_[kind] = r.info;
++  if (constants_dynamic_offsets_) constants_dynamic_offsets_->mappings[kind] = r.mapping;
++  ++constants_reuse_hits_;
++  constants_reuse_bytes_saved_ += size;
++  return true;
++}
++
++void VulkanCommandProcessor::ConstantsNoteWritten(uint32_t kind, const void* bytes, size_t size, uint8_t* mapping) {
++  ConstantsReuseEntry& r = constants_reuse_[kind];
++  ++constants_reuse_misses_;
++  constants_reuse_bytes_written_ += size;
++  if (size > r.bytes.size()) {
++    r.frame = UINT64_MAX;
++    return;
++  }
++  r.frame = frame_current_;
++  r.size = size;
++  std::memcpy(r.bytes.data(), bytes, size);
++  r.info = current_constant_buffer_infos_[kind];
++  r.mapping = mapping;
++  if (frame_current_ - constants_reuse_stats_frame_ >= 600) {
++    const double frames = double(frame_current_ - constants_reuse_stats_frame_);
++    REXGPU_INFO("[s59][constants] frames {}-{}: buffers reused {:.1f} / written {:.1f} a frame, KB saved {:.1f} / "
++                "written {:.1f} a frame",
++                constants_reuse_stats_frame_, frame_current_, double(constants_reuse_hits_) / frames,
++                double(constants_reuse_misses_) / frames, double(constants_reuse_bytes_saved_) / 1024.0 / frames,
++                double(constants_reuse_bytes_written_) / 1024.0 / frames);
++    constants_reuse_hits_ = constants_reuse_misses_ = constants_reuse_bytes_saved_ = constants_reuse_bytes_written_ = 0;
++    constants_reuse_stats_frame_ = frame_current_;
++  }
++}
++
+ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+                                             const VulkanShader* pixel_shader) {
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+@@ -15506,6 +15770,24 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     constants_dynamic->MaybeLogStats(frame_current_, uniform_buffer_pool_->page_size());
+   }
+ 
++  // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical).
++  const bool constants_reuse = REXCVAR_GET(vulkan_constants_reuse_identical);
++  const auto gather_float = [&](uint8_t* dst, const uint32_t* float_regs, const uint64_t* map) {
++    if (REXCVAR_GET(vulkan_float_constant_runs)) {
++      GatherFloatConstantRuns(dst, float_regs, map);
++      return;
++    }
++    for (uint32_t i = 0; i < 4; ++i) {
++      uint64_t entry = map[i];
++      uint32_t index;
++      while (bit_inline::bit_scan_forward(entry, &index)) {
++        entry &= ~(1ull << index);
++        std::memcpy(dst, float_regs + (i << 8) + (index << 2), sizeof(float) * 4);
++        dst += sizeof(float) * 4;
++      }
++    }
++  };
++
+   // Write the new constant buffers.
+   constexpr uint32_t kAllConstantBuffersMask =
+       (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferCount) - 1;
+@@ -15520,6 +15802,11 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+           (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferSystem))) {
+       VkDescriptorBufferInfo& buffer_info =
+           current_constant_buffer_infos_[SpirvShaderTranslator::kConstantBufferSystem];
++      // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical): the same bytes as the last written: that copy.
++      if (constants_reuse && ConstantsTryReuse(SpirvShaderTranslator::kConstantBufferSystem, &system_constants_,
++                                               sizeof(SpirvShaderTranslator::SystemConstants))) {
++        current_constant_buffers_up_to_date_ |= UINT32_C(1) << SpirvShaderTranslator::kConstantBufferSystem;
++      } else {
+       uint8_t* mapping = uniform_buffer_pool_->Request(
+           frame_current_, sizeof(SpirvShaderTranslator::SystemConstants), uniform_buffer_alignment,
+           buffer_info.buffer, buffer_info.offset);
+@@ -15536,8 +15823,13 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         std::memcpy(constants_dynamic->shadow[SpirvShaderTranslator::kConstantBufferSystem], &system_constants_,
+                     sizeof(SpirvShaderTranslator::SystemConstants));
+       }
++      if (constants_reuse) {
++        ConstantsNoteWritten(SpirvShaderTranslator::kConstantBufferSystem, &system_constants_,
++                             sizeof(SpirvShaderTranslator::SystemConstants), mapping);
++      }
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+                                               << SpirvShaderTranslator::kConstantBufferSystem;
++      }  // (Session 59: not reused)
+     }
+     // Vertex shader float constants.
+     if (!(current_constant_buffers_up_to_date_ &
+@@ -15551,6 +15843,18 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       // dummy buffer.
+       size_t float_constants_size =
+           sizeof(float) * 4 * std::max(float_constant_count_vertex, UINT32_C(1));
++      // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical): with the shadow copy, gathered there first and
++      // compared with the last written of this kind.
++      uint8_t* const reuse_shadow =
++          constants_reuse && constants_dynamic ? constants_dynamic->shadow[SpirvShaderTranslator::kConstantBufferFloatVertex] : nullptr;
++      bool reused = false;
++      if (reuse_shadow) {
++        gather_float(reuse_shadow, &regs[XE_GPU_REG_SHADER_CONSTANT_000_X], current_float_constant_map_vertex_);
++        reused = ConstantsTryReuse(SpirvShaderTranslator::kConstantBufferFloatVertex, reuse_shadow, float_constants_size);
++      }
++      if (reused) {
++        current_constant_buffers_up_to_date_ |= UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatVertex;
++      } else {
+       uint8_t* mapping = uniform_buffer_pool_->Request(frame_current_, float_constants_size,
+                                                        uniform_buffer_alignment, buffer_info.buffer,
+                                                        buffer_info.offset);
+@@ -15571,7 +15875,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         mapping = float_shadow;
+       }
+       // wwe2k14 patch (Session 6, CP3): one memcpy per run of consecutive used constants.
+-      if (REXCVAR_GET(vulkan_float_constant_runs)) {
++      if (reuse_shadow) {
++        // (Session 59: already gathered into the shadow copy.)
++      } else if (REXCVAR_GET(vulkan_float_constant_runs)) {
+         const uint32_t* float_constant_regs = &regs[XE_GPU_REG_SHADER_CONSTANT_000_X];
+         size_t float_constants_written = GatherFloatConstantRuns(
+             mapping, float_constant_regs, current_float_constant_map_vertex_);
+@@ -15596,8 +15902,12 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       if (float_shadow) {  // wwe2k14 patch (Session 7b, REBAR)
+         std::memcpy(float_pool_mapping, float_shadow, float_constants_size);
+       }
++      if (reuse_shadow) {
++        ConstantsNoteWritten(SpirvShaderTranslator::kConstantBufferFloatVertex, reuse_shadow, float_constants_size, float_pool_mapping);
++      }
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+                                               << SpirvShaderTranslator::kConstantBufferFloatVertex;
++      }  // (Session 59: not reused)
+     }
+     // Pixel shader float constants.
+     if (!(current_constant_buffers_up_to_date_ &
+@@ -15606,6 +15916,18 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+           current_constant_buffer_infos_[SpirvShaderTranslator::kConstantBufferFloatPixel];
+       size_t float_constants_size =
+           sizeof(float) * 4 * std::max(float_constant_count_pixel, UINT32_C(1));
++      // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical): with the shadow copy, gathered there first and
++      // compared with the last written of this kind.
++      uint8_t* const reuse_shadow =
++          constants_reuse && constants_dynamic ? constants_dynamic->shadow[SpirvShaderTranslator::kConstantBufferFloatPixel] : nullptr;
++      bool reused = false;
++      if (reuse_shadow) {
++        gather_float(reuse_shadow, &regs[XE_GPU_REG_SHADER_CONSTANT_256_X], current_float_constant_map_pixel_);
++        reused = ConstantsTryReuse(SpirvShaderTranslator::kConstantBufferFloatPixel, reuse_shadow, float_constants_size);
++      }
++      if (reused) {
++        current_constant_buffers_up_to_date_ |= UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel;
++      } else {
+       uint8_t* mapping = uniform_buffer_pool_->Request(frame_current_, float_constants_size,
+                                                        uniform_buffer_alignment, buffer_info.buffer,
+                                                        buffer_info.offset);
+@@ -15625,7 +15947,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         mapping = float_shadow;
+       }
+       // wwe2k14 patch (Session 6, CP3): one memcpy per run of consecutive used constants.
+-      if (REXCVAR_GET(vulkan_float_constant_runs)) {
++      if (reuse_shadow) {
++        // (Session 59: already gathered into the shadow copy.)
++      } else if (REXCVAR_GET(vulkan_float_constant_runs)) {
+         const uint32_t* float_constant_regs = &regs[XE_GPU_REG_SHADER_CONSTANT_256_X];
+         size_t float_constants_written = GatherFloatConstantRuns(
+             mapping, float_constant_regs, current_float_constant_map_pixel_);
+@@ -15650,8 +15974,12 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       if (float_shadow) {  // wwe2k14 patch (Session 7b, REBAR)
+         std::memcpy(float_pool_mapping, float_shadow, float_constants_size);
+       }
++      if (reuse_shadow) {
++        ConstantsNoteWritten(SpirvShaderTranslator::kConstantBufferFloatPixel, reuse_shadow, float_constants_size, float_pool_mapping);
++      }
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+                                               << SpirvShaderTranslator::kConstantBufferFloatPixel;
++      }  // (Session 59: not reused)
+     }
+     // Bool and loop constants.
+     if (!(current_constant_buffers_up_to_date_ &
+@@ -15662,6 +15990,12 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       static_assert(kBoolLoopConstantsSize ==
+                         ConstantsDynamicOffsets::GetRange(SpirvShaderTranslator::kConstantBufferBoolLoop),
+                     "wwe2k14 patch (Session 6, CP7): the dynamic range must be this size");
++      // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical).
++      if (constants_reuse && ConstantsTryReuse(SpirvShaderTranslator::kConstantBufferBoolLoop,
++                                               &regs[XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031],
++                                               kBoolLoopConstantsSize)) {
++        current_constant_buffers_up_to_date_ |= UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop;
++      } else {
+       uint8_t* mapping = uniform_buffer_pool_->Request(frame_current_, kBoolLoopConstantsSize,
+                                                        uniform_buffer_alignment, buffer_info.buffer,
+                                                        buffer_info.offset);
+@@ -15678,8 +16012,13 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         std::memcpy(constants_dynamic->shadow[SpirvShaderTranslator::kConstantBufferBoolLoop],
+                     &regs[XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031], kBoolLoopConstantsSize);
+       }
++      if (constants_reuse) {
++        ConstantsNoteWritten(SpirvShaderTranslator::kConstantBufferBoolLoop,
++                             &regs[XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031], kBoolLoopConstantsSize, mapping);
++      }
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+                                               << SpirvShaderTranslator::kConstantBufferBoolLoop;
++      }  // (Session 59: not reused)
+     }
+     // Fetch constants.
+     if (!(current_constant_buffers_up_to_date_ &
+@@ -15690,6 +16029,11 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       static_assert(kFetchConstantsSize ==
+                         ConstantsDynamicOffsets::GetRange(SpirvShaderTranslator::kConstantBufferFetch),
+                     "wwe2k14 patch (Session 6, CP7): the dynamic range must be this size");
++      // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical).
++      if (constants_reuse && ConstantsTryReuse(SpirvShaderTranslator::kConstantBufferFetch,
++                                               &regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], kFetchConstantsSize)) {
++        current_constant_buffers_up_to_date_ |= UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFetch;
++      } else {
+       uint8_t* mapping = uniform_buffer_pool_->Request(frame_current_, kFetchConstantsSize,
+                                                        uniform_buffer_alignment, buffer_info.buffer,
+                                                        buffer_info.offset);
+@@ -15706,8 +16050,13 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         std::memcpy(constants_dynamic->shadow[SpirvShaderTranslator::kConstantBufferFetch],
+                     &regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], kFetchConstantsSize);
+       }
++      if (constants_reuse) {
++        ConstantsNoteWritten(SpirvShaderTranslator::kConstantBufferFetch,
++                             &regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], kFetchConstantsSize, mapping);
++      }
+       current_constant_buffers_up_to_date_ |= UINT32_C(1)
+                                               << SpirvShaderTranslator::kConstantBufferFetch;
++      }  // (Session 59: not reused)
+     }
+   }
+ 
+diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
+index cffd908a87ae306974ea8f0572bf2db120beb24b..cb86f89c36b5ddce4ff846ff576cb4ae71d7116c 100644
+--- a/src/graphics/vulkan/deferred_command_buffer.cpp
++++ b/src/graphics/vulkan/deferred_command_buffer.cpp
+@@ -132,6 +132,8 @@ void DeferredCommandBuffer::Reset() {
+   barrier_pending_ = false;  // wwe2k14 patch (Session 52: dropped with the stream)
+   // wwe2k14 patch (Session 56: likewise - a stream handed on wrote its barrier at its end)
+   lazy_sync_pending_ = lazy_chain_ = in_lazy_pass_ = false;
++  debug_last_constants_set_ = VK_NULL_HANDLE;  // wwe2k14 patch (Session 59, diagnostic)
++  debug_last_layout_ = VK_NULL_HANDLE;
+   lazy_attachments_.clear();
+   command_stream_.clear();
+   last_draw_end_ = SIZE_MAX;  // wwe2k14 patch (Session 23, MERGE)
+@@ -689,6 +691,7 @@ void DeferredCommandBuffer::CmdVkPipelineBarrier(
+     const VkBufferMemoryBarrier* buffer_memory_barriers, uint32_t image_memory_barrier_count,
+     const VkImageMemoryBarrier* image_memory_barriers) {
+   // wwe2k14 patch (Session 56): the barrier held after lazy render passes goes first (joined with this one).
++  if (lazy_chain_) lazy_break_command_ = uint32_t(Command::kVkPipelineBarrier);  // (Session 59, diagnostic)
+   lazy_chain_ = false;
+   if (lazy_sync_pending_ && !in_lazy_pass_) FlushLazySync();
+   BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+@@ -1008,6 +1011,7 @@ void* DeferredCommandBuffer::WriteCommand(Command command, size_t arguments_size
+   // wwe2k14 patch (Session 56): the barrier after lazy render passes goes before GPU work outside a lazy pass.
+   if (command != Command::kVkPipelineBarrier && !KeepsLazyChain(command)) {
+     if (lazy_sync_pending_ && !in_lazy_pass_) FlushLazySync();
++    if (lazy_chain_) lazy_break_command_ = uint32_t(command);  // wwe2k14 patch (Session 59, diagnostic)
+     lazy_chain_ = false;
+   }
+   // wwe2k14 patch (Session 52): a held-back barrier goes before any command that is not a bind or state.
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 30a2e200b2526846c3060724594befb0c3176f9d..9a28a6bab45de710e3529da678b15cf5856a4e00 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -1684,6 +1684,29 @@ void NativeRenderer::DestroyObjects() {
+   RetirePipeline(resolve_scaled_full_pipeline_);  // Session 52
+   resolve_scaled_full_pipeline_ = VK_NULL_HANDLE;
+   resolve_scaled_full_failed_ = false;
++  RetirePipeline(resolve_full_1x_pipeline_);  // Session 59
++  RetirePipeline(resolve_depth_1x_pipeline_);  // Session 59
++  resolve_depth_1x_pipeline_ = VK_NULL_HANDLE;
++  resolve_depth_1x_failed_ = false;
++  RetirePipeline(resolve_depth_scaled_pipeline_);
++  resolve_depth_scaled_pipeline_ = VK_NULL_HANDLE;
++  resolve_depth_scaled_failed_ = false;
++  for (VkPipeline& p : resolve_full_1x_tex_pipelines_) {
++    RetirePipeline(p);
++    p = VK_NULL_HANDLE;
++  }
++  resolve_full_1x_tex_failed_ = false;
++  resolve_full_1x_pipeline_ = VK_NULL_HANDLE;
++  resolve_full_1x_failed_ = false;
++  for (VkPipeline& p : resolve_scaled_full_tex_pipelines_) {  // Session 59
++    RetirePipeline(p);
++    p = VK_NULL_HANDLE;
++  }
++  resolve_scaled_full_tex_failed_ = false;
++  if (resolve_scaled_full_tex_layout_ != VK_NULL_HANDLE) {
++    dfn.vkDestroyPipelineLayout(device, resolve_scaled_full_tex_layout_, nullptr);
++    resolve_scaled_full_tex_layout_ = VK_NULL_HANDLE;
++  }
+   if (resolve_scaled_full_layout_ != VK_NULL_HANDLE) {
+     dfn.vkDestroyPipelineLayout(device, resolve_scaled_full_layout_, nullptr);
+     resolve_scaled_full_layout_ = VK_NULL_HANDLE;
+@@ -1729,6 +1752,7 @@ void NativeRenderer::DestroyObjects() {
+     RetirePipeline(p);
+     p = VK_NULL_HANDLE;
+   }
++  truth_fill_tex_small_failed_ = false;  // Session 59
+   if (truth_fill_tex_layout_ != VK_NULL_HANDLE) {  // (review: and its layout)
+     dfn.vkDestroyPipelineLayout(device, truth_fill_tex_layout_, nullptr);
+     truth_fill_tex_layout_ = VK_NULL_HANDLE;
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index e156a6263dbf14a2c161b13e0da9dc6bdbb8d129..8a48c28bbdf793f0a79488cb0bcc74975e140321 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -118,7 +118,56 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_fill_direct, false, "GPU/Native",
+                     "view writes the texture there, not into the staging buffer and a buffer-to-image copy (the same "
+                     "bits; two barriers and a copy fewer)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// Session 59 (medium item c).
++REXCVAR_DEFINE_BOOL(gpu_native_truth_direct_resolve_scaled_small, false, "GPU/Native",
++                    "Session 59: with gpu_native_truth_direct_resolve_scaled_full, at a resolution scale a full k_8 / "
++                    "k_4_4_4_4 copy of a surface one RGBA8 truth image holds whole is done straight from the image into "
++                    "the scaled resolve buffer (the 1x direct copy's packing, the stock scaled copy's layout: 8-texel "
++                    "units), not through the staging stores and the stock copy")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// Session 59 (medium item b).
++REXCVAR_DEFINE_BOOL(gpu_native_truth_direct_resolve_depth, false, "GPU/Native",
++                    "Session 59: with gpu_native_truth_direct_resolve, a fast 32bpp 1x depth copy of a surface one depth "
++                    "truth image holds whole is done straight from the image into memory (its 20e4 / 24-bit depth and "
++                    "its stencil, as the truth store writes them), not through the staging stores and the stock copy")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_fill_direct_depth, false, "GPU/Native",
++                    "Session 59: with gpu_native_truth_fill_direct, a depth texture fill (k_24_8_FLOAT) into a texture "
++                    "with the direct load's R32_UINT storage view writes the texture there (the same 32-bit float bits), "
++                    "not into the staging buffer and a buffer-to-image copy")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// Session 59 (medium item a).
++REXCVAR_DEFINE_BOOL(gpu_native_truth_fill_direct_small, false, "GPU/Native",
++                    "With gpu_native_truth_fill_direct (Session 59): a k_8 / k_4_4_4_4 texture fill into a texture with "
++                    "an R8_UINT / R16_UINT storage view (vulkan_texture_native_storage_small) writes the texture there, "
++                    "one texel an invocation, not into the staging buffer and a buffer-to-image copy (the same bits)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ // Session 52 (step 0, diagnostic: where the truth passes' GPU time goes).
++REXCVAR_DEFINE_BOOL(gpu_native_truth_direct_resolve_full_1x, false, "GPU/Native",
++                    "Session 59: at 1x, full k_8 / k_4_4_4_4 copies of an RGBA8 truth image straight into memory (no "
++                    "staging stores, no stock copy); the texture fill after it is unchanged")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_direct_resolve_full_1x_texture, false, "GPU/Native",
++                    "Session 59: with gpu_native_truth_direct_resolve_full_1x, the copy also writes the k_8 / "
++                    "k_4_4_4_4 texture it feeds (its R8_UINT / R16_UINT storage view, vulkan_texture_native_storage_small) "
++                    "- no texture fill after it")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_direct_resolve_scaled_full_texture, false, "GPU/Native",
++                    "Session 59: with gpu_native_truth_direct_resolve_scaled_full, the full k_16_16 / k_16_16_16_16 "
++                    "copies at a resolution scale also write the scaled texture they feed (its storage view), so it is "
++                    "not reloaded from the scaled resolve buffer afterwards")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_batch_fills, false, "GPU/Native",
++                    "Session 59: with gpu_native_truth_batch_resolves, a truth texture fill straight into the "
++                    "texture's storage view is deferred and recorded with the batched texture-only resolves (one "
++                    "barrier pair for the batch instead of one per fill, and the batch is no longer flushed by every "
++                    "fill)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_skip_alias, false, "GPU/Native",
++                    "Diagnostic (Session 59), the picture is WRONG with it on: tiles another truth image owns are not "
++                    "brought in (no staging stores, no alias loads) - the upper bound of loading them straight from "
++                    "their owner (plan step 3) in in-run A/Bs")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_native_truth_debug_gpu_work, 0, "GPU/Native",
+                      "Diagnostic (Session 52), the picture is WRONG with it on: 1 = every truth draw's scissor is one "
+                      "pixel (its vertex work stays, its pixel work goes), 2 = no truth draw call is recorded at all "
+@@ -308,6 +357,10 @@ layout(push_constant) uniform Constants {
+ layout(set = 1, binding = 0, r32ui) uniform writeonly uimage2D texture_out;
+ #elif TEXOUT == 2
+ layout(set = 1, binding = 0, rgba16ui) uniform writeonly uimage2D texture_out;
++#elif TEXOUT == 3
++layout(set = 1, binding = 0, r8ui) uniform writeonly uimage2D texture_out;  // Session 59: k_8
++#elif TEXOUT == 4
++layout(set = 1, binding = 0, r16ui) uniform writeonly uimage2D texture_out;  // Session 59: k_4_4_4_4
+ #endif
+ uvec2 Gap(uvec2 p) { return max(p, uvec2(c.gap & 0xFFu, c.gap >> 8)); }
+ uint DepthToFloat24(float z) {
+@@ -358,6 +411,25 @@ void main() {
+     // Several texels a dword (k_8: 4, k_4_4_4_4: 2): this invocation's texels along x. The full copy's 8-bit values to
+     // floats (x 1/255) packed as 8 / 4-bit unorm; k_8 takes red; k_4_4_4_4 is R | G << 4 | B << 8 | A << 12 in memory,
+     // which the texture load turns into B4G4R4A4 (A | R << 4 | G << 8 | B << 12).
++#if TEXOUT == 3 || TEXOUT == 4
++    // Session 59 (gpu_native_truth_fill_direct_small): one texel an invocation, into the texture's R8_UINT / R16_UINT
++    // view - the same value as below, in texture form.
++    {
++      precise vec4 f = vec4(uvec4(round(clamp(raw, 0.0, 1.0) * 255.0))) * 0.00392156886;
++      if ((c.mode & 16u) != 0u) f = f.bgra;
++      uint texel_value;
++      if (mode == 4u) {
++        precise float b = clamp(f.r, 0.0, 1.0) * 255.0 + 0.5;
++        texel_value = uint(b) & 0xFFu;
++      } else {
++        precise vec4 n = clamp(f, 0.0, 1.0) * 15.0 + 0.5;
++        uvec4 u = uvec4(n) & 0xFu;
++        texel_value = u.a | (u.r << 4) | (u.g << 8) | (u.b << 12);
++      }
++      imageStore(texture_out, ivec2(g + uvec2(c.dst_x, c.dst_y)), uvec4(texel_value));
++      return;
++    }
++#endif
+     uint per = mode == 4u ? 4u : 2u;
+     if (g.x * per >= c.width) return;
+     value = 0u;
+@@ -2063,6 +2135,13 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+       (scaled && !REXCVAR_GET(gpu_native_truth_direct_resolve_scaled))) {
+     return false;
+   }
++  // Session 59 (gpu_native_truth_direct_resolve_depth): a 1x depth copy straight from the depth image.
++  // (At a resolution scale too: the scaled layout, from the binding's start.)
++  if (info.IsCopyingDepth()) {
++    return REXCVAR_GET(gpu_native_truth_direct_resolve_depth) &&
++           TruthResolveDepth1x(info, constants.dest_base, constants.dest_relative.dest_coordinate_info.packed,
++                               constants.dest_relative.dest_info.value, dest_set);
++  }
+   const draw_util::ResolveEdramInfo& edram = info.color_edram_info;
+   if (info.IsCopyingDepth() || edram.is_depth || edram.format_is_64bpp || edram.msaa_samples != xenos::MsaaSamples::k1X ||
+       uint32_t(edram.format) != 0 || info.rb_copy_control.copy_src_select != 0 || info.copy_dest_info.copy_dest_array ||
+@@ -2351,6 +2430,44 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+   return true;
+ }
+ 
++bool NativeRenderer::EnsureTruthFillTexSmallPipelines() {
++  // Session 59 (gpu_native_truth_fill_direct_small): TEXOUT 3 (r8ui) / 4 (r16ui) - the device's extended storage
++  // formats.
++  if (truth_fill_tex_pipelines_[2] != VK_NULL_HANDLE && truth_fill_tex_pipelines_[3] != VK_NULL_HANDLE) return true;
++  if (truth_fill_tex_small_failed_ || !EnsureTruthFillTexPipelines()) return false;
++  truth_fill_tex_small_failed_ = true;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  if (!vulkan_device->properties().shaderStorageImageExtendedFormats) return false;
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  for (int variant = 2; variant < 4; ++variant) {
++    std::vector<uint32_t> spirv;
++    std::string error;
++    const std::string source = std::string("#version 450\n#define TEXOUT ") + (variant == 2 ? "3" : "4") + "\n" +
++                               kTruthFillComputeShader;
++    if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT, source, spirv, error)) {
++      REXGPU_ERROR("[native][truth] direct small texture fill shader compilation failed: {}", error);
++      return false;
++    }
++    const VkShaderModule shader =
++        ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++    if (shader == VK_NULL_HANDLE) return false;
++    VkComputePipelineCreateInfo info = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
++    info.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, shader,
++                  "main", nullptr};
++    info.layout = truth_fill_tex_layout_;
++    const bool ok = dfn.vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &info, nullptr,
++                                                 &truth_fill_tex_pipelines_[variant]) == VK_SUCCESS;
++    dfn.vkDestroyShaderModule(device, shader, nullptr);
++    if (!ok) {
++      truth_fill_tex_pipelines_[variant] = VK_NULL_HANDLE;
++      return false;
++    }
++  }
++  truth_fill_tex_small_failed_ = false;
++  return true;
++}
++
+ // Session 52 (gpu_native_truth_fill_direct): the pack shader with TEXOUT 1 (r32ui) / 2 (rgba16ui), on the store's set 0
+ // and the texture's storage set 1.
+ bool NativeRenderer::EnsureTruthFillTexPipelines() {
+@@ -2418,6 +2535,14 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+ layout(set = 0, binding = 0, std430) buffer Out { uint texels[]; };
+ layout(set = 0, binding = 1) uniform sampler2D source;
+ layout(set = 1, binding = 0, std430) writeonly buffer DestBuffer { uint dest[]; };
++#ifdef FULL_DEPTH
++layout(set = 0, binding = 2) uniform usampler2D stencil_source;  // Session 59: the depth image's stencil
++#endif
++#if defined(FULL_TEXOUT) && FULL_TEXOUT == 2
++layout(set = 2, binding = 0, rgba16ui) uniform writeonly uimage2D texture_out;
++#elif defined(FULL_TEXOUT)
++layout(set = 2, binding = 0, r32ui) uniform writeonly uimage2D texture_out;
++#endif
+ layout(push_constant) uniform Constants {
+   uint origin_x;  // the copy's first pixel in the image (host)
+   uint origin_y;
+@@ -2429,6 +2554,10 @@ layout(push_constant) uniform Constants {
+   uint dest_y0;
+   uint pitch;  // guest texels, aligned to 32
+   uint info;  // endian | scale_x << 4 | scale_y << 8
++#ifdef FULL_TEXOUT
++  uint tex_x0;  // Session 59: the copy's first host texel in the texture (an atlas part's offset included)
++  uint tex_y0;
++#endif
+ } c;
+ int XeTextureTiledOffset2D(ivec2 p, uint pitch_aligned, uint bpb_log2) {
+   int macro = ((p.x >> 5) + (p.y >> 5) * int(pitch_aligned >> 5u)) << (bpb_log2 + 7u);
+@@ -2442,8 +2571,74 @@ uint XeEndianSwap32(uint value, uint endian) {
+   if (endian == 2u || endian == 3u) value = (value << 16u) | (value >> 16u);
+   return value;
+ }
++#ifdef FULL_DEPTH
++// Session 59 (gpu_native_truth_direct_resolve_depth at a resolution scale): one host texel an invocation of a 32bpp
++// depth copy - the dword the truth store writes (DepthToEdram << 8 | the stencil byte: the image's, mode bit 1, or bits
++// 8-15; mode bit 0: 20e4), at its place in the scaled buffer as mode 1's 32bpp texels, endian swapped.
++uint DepthToEdram(float z, bool is_float) {
++  z = clamp(z, 0.0, 1.0);
++  if (!is_float) {
++    precise float scaled = z * 16777215.0;
++    return uint(roundEven(scaled));
++  }
++  uint u = floatBitsToUint(z);
++  uint b = u < 0x38800000u ? ((u & 0x7FFFFFu) | 0x800000u) >> min(113u - (u >> 23), 24u) : u - (112u << 23);
++  b += 3u + ((b >> 3) & 1u);
++  return (b >> 3) & 0xFFFFFFu;
++}
++void main() {
++  uvec2 g = gl_GlobalInvocationID.xy;
++  if (g.x >= c.width || g.y >= c.height) return;
++  ivec2 q = ivec2(max(g, uvec2(c.gap & 0xFFu, c.gap >> 8)) + uvec2(c.origin_x, c.origin_y));
++  float z = texelFetch(source, q, 0).r;
++  uint st = (c.mode & 2u) != 0u ? (texelFetch(stencil_source, q, 0).r & 0xFFu) : ((c.mode >> 8) & 0xFFu);
++  uint value = (DepthToEdram(z, (c.mode & 1u) != 0u) << 8) | st;
++  uint endian = c.info & 7u, sx = (c.info >> 4) & 15u, sy = (c.info >> 8) & 15u;
++  uint hx = c.dest_x0 * sx + g.x, hy = c.dest_y0 * sy + g.y;
++  uint gsx = hx >> 2u;
++  uint gux = gsx / sx, guy = hy / sy;
++  uint offset = uint(XeTextureTiledOffset2D(ivec2(int(gux << 2u), int(guy)), c.pitch, 2u)) * (sx * sy) +
++                (((((gsx - gux * sx) * sy + (hy - guy * sy)) << 2u) + (hx & 3u)) << 2u);
++  dest[offset >> 2u] = XeEndianSwap32(value, endian);
++}
++#else
+ void main() {
+   uvec2 g = gl_GlobalInvocationID.xy;
++  uint small_mode = c.mode & 15u;
++  if (small_mode == 4u || small_mode == 5u) {
++    // Session 59 (gpu_native_truth_direct_resolve_scaled_small): one dword an invocation of a full k_8 (4 host texels)
++    // / k_4_4_4_4 (2) copy from an RGBA8 image - the texels as the 1x direct copy packs them (memory form), at their
++    // place in the scaled buffer as the stock scaled copy writes it (resolve_full_8bpp / 16bpp_scaled): 8-texel units
++    // (8 / 16 bytes) of one host row; unit (ux, y) of host texels is guest unit (ux / scale_x, y / scale_y) at its guest
++    // 2D tiled offset times scale_x * scale_y, plus the sub-unit ((ux % scale_x) * scale_y + y % scale_y) x 8 texels.
++    uint per = small_mode == 4u ? 4u : 2u;
++    if (g.x * per >= c.width || g.y >= c.height) return;
++    uint value = 0u;
++    for (uint k = 0u; k < per; ++k) {
++      uvec2 pk = max(uvec2(g.x * per + k, g.y), uvec2(c.gap & 0xFFu, c.gap >> 8));
++      vec4 texel = texelFetch(source, ivec2(pk + uvec2(c.origin_x, c.origin_y)), 0);
++      precise vec4 f = vec4(uvec4(round(clamp(texel, 0.0, 1.0) * 255.0))) * 0.00392156886;
++      if ((c.mode & 16u) != 0u) f = f.bgra;
++      if (small_mode == 4u) {
++        precise float b = clamp(f.r, 0.0, 1.0) * 255.0 + 0.5;
++        value |= (uint(b) & 0xFFu) << (8u * k);
++      } else {
++        precise vec4 n = clamp(f, 0.0, 1.0) * 15.0 + 0.5;
++        uvec4 u = uvec4(n) & 0xFu;
++        value |= (u.r | (u.g << 4) | (u.b << 8) | (u.a << 12)) << (16u * k);
++      }
++    }
++    uint endian = c.info & 7u, sx = (c.info >> 4) & 15u, sy = (c.info >> 8) & 15u;
++    uint bpb_log2 = small_mode == 4u ? 0u : 1u;
++    uint hx = c.dest_x0 * sx + g.x * per, hy = c.dest_y0 * sy + g.y;
++    uint unit = hx >> 3u;
++    uint gux = unit / sx, guy = hy / sy;
++    uint offset = uint(XeTextureTiledOffset2D(ivec2(int(gux << 3u), int(guy)), c.pitch, bpb_log2)) * (sx * sy) +
++                  (((((unit - gux * sx) * sy + (hy - guy * sy)) << 3u) + (hx & 7u)) << bpb_log2);
++    // (Review: as the stock 8 / 16bpp copies - k_8 never swapped, k_4_4_4_4 only 8-in-16.)
++    dest[offset >> 2u] = XeEndianSwap32(value, small_mode == 4u || endian != 1u ? 0u : 1u);
++    return;
++  }
+   if (g.x >= c.width || g.y >= c.height) return;
+   uvec2 p = max(g, uvec2(c.gap & 0xFFu, c.gap >> 8));
+   vec4 raw = texelFetch(source, ivec2(p + uvec2(c.origin_x, c.origin_y)), 0);
+@@ -2464,7 +2659,13 @@ void main() {
+   uint index = offset >> 2u;
+   dest[index] = XeEndianSwap32(u.r | (u.g << 16), endian);
+   if (bpb64) dest[index + 1u] = XeEndianSwap32(u.b | (u.a << 16), endian);
++#if defined(FULL_TEXOUT) && FULL_TEXOUT == 2
++  imageStore(texture_out, ivec2(c.tex_x0 + g.x, c.tex_y0 + g.y), u);  // (Session 59: the bits before the swap)
++#elif defined(FULL_TEXOUT)
++  imageStore(texture_out, ivec2(c.tex_x0 + g.x, c.tex_y0 + g.y), uvec4(u.r | (u.g << 16), 0u, 0u, 0u));
++#endif
+ }
++#endif
+ )";
+ 
+ bool NativeRenderer::EnsureResolveScaledFullPipeline() {
+@@ -2515,6 +2716,493 @@ bool NativeRenderer::EnsureResolveScaledFullPipeline() {
+   return true;
+ }
+ 
++// Session 59 (gpu_native_truth_direct_resolve_scaled_full_texture): kNativeResolveScaledFullComputeShader with
++// FULL_TEXOUT 1 (k_16_16, r32ui) / 2 (k_16_16_16_16, rgba16ui) on a layout with the texture's set (as the RGBA8 scaled
++// resolve's NATIVE_TEXWRITE).
++bool NativeRenderer::EnsureResolveScaledFullTexPipelines() {
++  if (resolve_scaled_full_tex_pipelines_[1] != VK_NULL_HANDLE) return true;
++  if (resolve_scaled_full_tex_failed_ || truth_store_set_layout_ == VK_NULL_HANDLE) return false;
++  const VkDescriptorSetLayout texture_set_layout = command_processor_.NativeTextureSetLayout();
++  if (texture_set_layout == VK_NULL_HANDLE) return false;
++  resolve_scaled_full_tex_failed_ = true;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (resolve_scaled_full_tex_layout_ == VK_NULL_HANDLE) {
++    const VkDescriptorSetLayout set_layouts[3] = {
++        truth_store_set_layout_,
++        command_processor_.GetSingleTransientDescriptorLayout(
++            VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute),
++        texture_set_layout};
++    VkPushConstantRange push = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 12 * sizeof(uint32_t)};
++    VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
++    layout_info.setLayoutCount = 3;
++    layout_info.pSetLayouts = set_layouts;
++    layout_info.pushConstantRangeCount = 1;
++    layout_info.pPushConstantRanges = &push;
++    if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &resolve_scaled_full_tex_layout_) != VK_SUCCESS) {
++      resolve_scaled_full_tex_layout_ = VK_NULL_HANDLE;
++      return false;
++    }
++  }
++  for (uint32_t variant = 0; variant < 2; ++variant) {
++    if (resolve_scaled_full_tex_pipelines_[variant] != VK_NULL_HANDLE) continue;
++    std::vector<uint32_t> spirv;
++    std::string error;
++    const std::string source = std::string("#version 450\n#define FULL_TEXOUT ") + (variant ? "2" : "1") + "\n" +
++                               kNativeResolveScaledFullComputeShader;
++    if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT, source, spirv, error)) {
++      REXGPU_ERROR("[native][truth] scaled full resolve + texture shader compilation failed: {}", error);
++      return false;
++    }
++    const VkShaderModule shader =
++        ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++    if (shader == VK_NULL_HANDLE) return false;
++    VkComputePipelineCreateInfo create = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
++    create.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT,
++                    shader, "main", nullptr};
++    create.layout = resolve_scaled_full_tex_layout_;
++    const bool ok = dfn.vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &create, nullptr,
++                                                 &resolve_scaled_full_tex_pipelines_[variant]) == VK_SUCCESS;
++    dfn.vkDestroyShaderModule(device, shader, nullptr);
++    if (!ok) {
++      resolve_scaled_full_tex_pipelines_[variant] = VK_NULL_HANDLE;
++      return false;
++    }
++  }
++  resolve_scaled_full_tex_failed_ = false;
++  return true;
++}
++
++// Session 59 (gpu_native_truth_direct_resolve_full_1x): one invocation per dword of a full k_8 (4 texels) /
++// k_4_4_4_4 (2 texels) copy at 1x: the texels as kTruthFillComputeShader modes 4 / 5 convert them, in memory form
++// (k_4_4_4_4: R | G << 4 | B << 8 | A << 12), at dest_base + their 2D tiled offset, 32-bit endian swapped.
++constexpr char kNativeResolveFull1xComputeShader[] = R"(
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++layout(set = 0, binding = 0, std430) buffer Out { uint texels[]; };
++layout(set = 0, binding = 1) uniform sampler2D source;
++layout(set = 1, binding = 0, std430) buffer DestBuffer { uint dest[]; };
++#ifdef FULL1X_DEPTH
++layout(set = 0, binding = 2) uniform usampler2D stencil_source;  // Session 59: the depth image's stencil
++#endif
++#if defined(FULL1X_TEXOUT) && FULL1X_TEXOUT == 2
++layout(set = 2, binding = 0, r16ui) uniform writeonly uimage2D texture_out;
++#elif defined(FULL1X_TEXOUT)
++layout(set = 2, binding = 0, r8ui) uniform writeonly uimage2D texture_out;
++#endif
++layout(push_constant) uniform Constants {
++  uint origin_x;  // the image pixel of the copy's first texel
++  uint origin_y;
++  uint width;  // texels
++  uint height;
++  uint mode;  // 4 k_8, 5 k_4_4_4_4; bit 4: red and blue swapped
++  uint dest_base;  // bytes, relative to the binding
++  uint dest_x0;  // the copy's first texel in the destination
++  uint dest_y0;
++  uint pitch;  // texels, aligned to 32
++  uint endian;
++#ifdef FULL1X_TEXOUT
++  uint tex_x0;  // Session 59: the copy's first texel in the texture
++  uint tex_y0;
++#endif
++} c;
++int XeTextureTiledOffset2D(ivec2 p, uint pitch_aligned, uint bpb_log2) {
++  int macro = ((p.x >> 5) + (p.y >> 5) * int(pitch_aligned >> 5u)) << (bpb_log2 + 7u);
++  int micro = ((p.x & 7) + ((p.y & 14) << 2)) << bpb_log2;
++  int offset = macro + ((micro & -16) << 1) + (micro & 15) + ((p.y & 1) << 4);
++  return ((offset & -512) << 3) + ((p.y & 16) << 7) + ((offset & 448) << 2) +
++         (((((p.y & 8) >> 2) + (p.x >> 3)) & 3) << 6) + (offset & 63);
++}
++uint XeEndianSwap32(uint value, uint endian) {
++  if (endian == 1u || endian == 2u) value = ((value & 16711935u) << 8u) | ((value & 4278255360u) >> 8u);
++  if (endian == 2u || endian == 3u) value = (value << 16u) | (value >> 16u);
++  return value;
++}
++#ifdef FULL1X_DEPTH
++// Session 59 (gpu_native_truth_direct_resolve_depth): one invocation per texel of a 32bpp depth copy - the EDRAM dword
++// the truth store writes (kTruthStoreComputeShader's DepthToEdram << 8 | the stencil byte: the image's, mode bit 1, or
++// bits 8-15) at dest_base + its 2D tiled offset, endian swapped (the stock fast 32bpp copy of those dwords). Mode bit 0:
++// 20e4 depth.
++uint DepthToEdram(float z, bool is_float) {
++  z = clamp(z, 0.0, 1.0);
++  if (!is_float) {
++    precise float scaled = z * 16777215.0;
++    return uint(roundEven(scaled));
++  }
++  uint u = floatBitsToUint(z);
++  uint b = u < 0x38800000u ? ((u & 0x7FFFFFu) | 0x800000u) >> min(113u - (u >> 23), 24u) : u - (112u << 23);
++  b += 3u + ((b >> 3) & 1u);
++  return (b >> 3) & 0xFFFFFFu;
++}
++void main() {
++  uvec2 g = gl_GlobalInvocationID.xy;
++  if (g.x >= c.width || g.y >= c.height) return;
++  ivec2 p = ivec2(uvec2(c.origin_x, c.origin_y) + g);
++  float z = texelFetch(source, p, 0).r;
++  uint s = (c.mode & 2u) != 0u ? (texelFetch(stencil_source, p, 0).r & 0xFFu) : ((c.mode >> 8) & 0xFFu);
++  uint value = (DepthToEdram(z, (c.mode & 1u) != 0u) << 8) | s;
++  uint offset = c.dest_base + uint(XeTextureTiledOffset2D(ivec2(int(c.dest_x0 + g.x), int(c.dest_y0 + g.y)), c.pitch, 2u));
++  dest[offset >> 2u] = XeEndianSwap32(value, c.endian);
++}
++#else
++void main() {
++  uvec2 g = gl_GlobalInvocationID.xy;
++  uint mode = c.mode & 15u;
++  uint per = mode == 4u ? 4u : 2u;
++  if (g.x * per >= c.width || g.y >= c.height) return;
++  uint value = 0u;
++  for (uint k = 0u; k < per; ++k) {
++    vec4 texel = texelFetch(source, ivec2(uvec2(c.origin_x + g.x * per + k, c.origin_y + g.y)), 0);
++    precise vec4 f = vec4(uvec4(round(clamp(texel, 0.0, 1.0) * 255.0))) * 0.00392156886;
++    if ((c.mode & 16u) != 0u) f = f.bgra;
++    uint texel_bits;
++    if (mode == 4u) {
++      precise float b = clamp(f.r, 0.0, 1.0) * 255.0 + 0.5;
++      value |= (uint(b) & 0xFFu) << (8u * k);
++      texel_bits = uint(b) & 0xFFu;
++    } else {
++      precise vec4 n = clamp(f, 0.0, 1.0) * 15.0 + 0.5;
++      uvec4 u = uvec4(n) & 0xFu;
++      value |= (u.r | (u.g << 4) | (u.b << 8) | (u.a << 12)) << (16u * k);
++      texel_bits = u.a | (u.r << 4) | (u.g << 8) | (u.b << 12);  // (the texture's B4G4R4A4, as the load gives it)
++    }
++#ifdef FULL1X_TEXOUT
++    imageStore(texture_out, ivec2(int(c.tex_x0 + g.x * per + k), int(c.tex_y0 + g.y)), uvec4(texel_bits, 0u, 0u, 0u));
++#endif
++  }
++  uint offset = c.dest_base +
++                uint(XeTextureTiledOffset2D(ivec2(int(c.dest_x0 + g.x * per), int(c.dest_y0 + g.y)), c.pitch,
++                                            mode == 4u ? 0u : 1u));
++  // (Review: as the stock resolve_full_8bpp / 16bpp - k_8 never swapped, k_4_4_4_4 only 8-in-16.)
++  dest[offset >> 2u] = XeEndianSwap32(value, mode == 4u || c.endian != 1u ? 0u : 1u);
++}
++#endif
++)";
++
++bool NativeRenderer::TruthResolveFull1x(const draw_util::ResolveInfo& info, uint32_t dest_base,
++                                        uint32_t dest_coordinate_info, uint32_t dest_info, VkDescriptorSet dest_set) {
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  if (!truth_ || !replacing_ || scale_x != 1 || scale_y != 1 || !REXCVAR_GET(gpu_native_truth_direct_resolve_full_1x) ||
++      dest_set == VK_NULL_HANDLE) {
++    return false;
++  }
++  // (Texture-only records this copy overlaps go into memory before it writes - as the stock copy's.)
++  TruthResolveOverlaps(info, nullptr);
++  const draw_util::ResolveEdramInfo& edram = info.color_edram_info;
++  const reg::RB_COPY_DEST_INFO dest = info.copy_dest_info;
++  if (info.IsCopyingDepth() || edram.msaa_samples != xenos::MsaaSamples::k1X || dest.copy_dest_array ||
++      dest.copy_dest_exp_bias || info.rb_copy_control.copy_src_select != 0 ||
++      uint32_t(info.copy_dest_coordinate_info.copy_sample_select) != 0 || (dest_base & 3u)) {
++    return false;
++  }
++  uint32_t mode;
++  if (uint32_t(dest.copy_dest_format) == uint32_t(xenos::TextureFormat::k_8)) {
++    mode = 4;
++  } else if (uint32_t(dest.copy_dest_format) == uint32_t(xenos::TextureFormat::k_4_4_4_4)) {
++    mode = 5;
++  } else {
++    return false;
++  }
++  if (dest.copy_dest_swap) mode |= 16u;
++  uint32_t base = 0, row_length = 0, rows = 0, pitch = 0;
++  info.GetCopyEdramTileSpan(base, row_length, rows, pitch);
++  if (!rows || !row_length || uint64_t(rows) * std::max(1u, pitch) >= 2048) return false;
++  const int16_t index = TruthOwnerOf(base & 2047u);
++  if (index < 0) return false;
++  TruthImage& t = truth_images_[index];
++  for (uint32_t r = 0; r < rows; ++r) {
++    for (uint32_t c = 0; c < row_length; ++c) {
++      if (!t.owned.test((base + r * pitch + c) & 2047u)) return false;
++    }
++  }
++  if (t.kind != 1 || t.format != uint32_t(xenos::ColorRenderTargetFormat::k_8_8_8_8) || !t.initialized ||
++      t.base != info.color_original_base || edram.pitch_tiles != t.row_tiles() || t.is_64bpp()) {
++    return false;
++  }
++  const uint32_t tile_delta = (uint32_t(edram.base_tiles) - t.base) & 2047u;
++  const uint32_t src_x = (tile_delta % t.row_tiles()) * 80 + uint32_t(info.coordinate_info.edram_offset_x_div_8) * 8;
++  const uint32_t src_y = (tile_delta / t.row_tiles()) * 16 + uint32_t(info.coordinate_info.edram_offset_y_div_8) * 8;
++  const uint32_t w = uint32_t(info.coordinate_info.width_div_8) * 8;
++  const uint32_t h = uint32_t(info.height_div_8) * 8;
++  if (!w || !h || src_x + w > t.width || src_y + h > t.height) return false;
++  TruthFlushDeferred();
++  if (!EnsureTruthStaging() || !EnsureResolveScaledFullPipeline()) return false;  // (its layout)
++  if (resolve_full_1x_pipeline_ == VK_NULL_HANDLE) {
++    if (resolve_full_1x_failed_) return false;
++    resolve_full_1x_failed_ = true;
++    const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++    const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++    std::vector<uint32_t> spirv;
++    std::string error;
++    if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT,
++                                               std::string("#version 450\n") + kNativeResolveFull1xComputeShader, spirv,
++                                               error)) {
++      REXGPU_ERROR("[native][truth] 1x full resolve shader compilation failed: {}", error);
++      return false;
++    }
++    const VkShaderModule shader =
++        ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++    if (shader == VK_NULL_HANDLE) return false;
++    VkComputePipelineCreateInfo create = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
++    create.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT,
++                    shader, "main", nullptr};
++    create.layout = resolve_scaled_full_layout_;
++    const bool ok = dfn.vkCreateComputePipelines(vulkan_device->device(), VK_NULL_HANDLE, 1, &create, nullptr,
++                                                 &resolve_full_1x_pipeline_) == VK_SUCCESS;
++    dfn.vkDestroyShaderModule(vulkan_device->device(), shader, nullptr);
++    if (!ok) {
++      resolve_full_1x_pipeline_ = VK_NULL_HANDLE;
++      return false;
++    }
++    resolve_full_1x_failed_ = false;
++  }
++  const VkDescriptorSet source_set = TruthStoreSet(t, true, truth_staging_);
++  if (source_set == VK_NULL_HANDLE) return false;
++  // Session 59 (gpu_native_truth_direct_resolve_full_1x_texture): the texture the copy feeds, written by the same
++  // dispatch through its 8 / 16-bit storage view (found by its own base; written at the copy's place in it).
++  const uint32_t tex_x0 = info.copy_dest_base_x + uint32_t(info.copy_dest_coordinate_info.offset_x_div_8) * 8;
++  const uint32_t tex_y0 = info.copy_dest_base_y + uint32_t(info.copy_dest_coordinate_info.offset_y_div_8) * 8;
++  VkDescriptorSet texture_set = VK_NULL_HANDLE;
++  void* texture_handle = nullptr;
++  // (Review: not when a fill already wrote the texture - NativeTruthFillOnly runs first; r8ui / r16ui need the
++  // device's extended storage formats.)
++  if (REXCVAR_GET(gpu_native_truth_direct_resolve_full_1x_texture) && !texture_written_ &&
++      command_processor_.GetVulkanDevice()->properties().shaderStorageImageExtendedFormats &&
++      info.copy_dest_texture_base &&
++      (info.copy_dest_texture_base & 0xFFF) == 0 && !command_processor_.NativeResolveReadback() &&
++      EnsureResolveScaledFullTexPipelines()) {
++    const uint32_t variant = (mode & 15u) == 4u ? 0u : 1u;
++    if (resolve_full_1x_tex_pipelines_[variant] == VK_NULL_HANDLE && !resolve_full_1x_tex_failed_) {
++      resolve_full_1x_tex_failed_ = true;
++      const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++      const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++      std::vector<uint32_t> spirv;
++      std::string error;
++      if (command_processor_.CompileGlslToSpirv(
++              VK_SHADER_STAGE_COMPUTE_BIT,
++              std::string("#version 450\n#define FULL1X_TEXOUT ") + (variant ? "2" : "1") + "\n" +
++                  kNativeResolveFull1xComputeShader,
++              spirv, error)) {
++        const VkShaderModule shader =
++            ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++        if (shader != VK_NULL_HANDLE) {
++          VkComputePipelineCreateInfo create = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
++          create.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT,
++                          shader, "main", nullptr};
++          create.layout = resolve_scaled_full_tex_layout_;
++          if (dfn.vkCreateComputePipelines(vulkan_device->device(), VK_NULL_HANDLE, 1, &create, nullptr,
++                                           &resolve_full_1x_tex_pipelines_[variant]) != VK_SUCCESS) {
++            resolve_full_1x_tex_pipelines_[variant] = VK_NULL_HANDLE;
++          } else {
++            resolve_full_1x_tex_failed_ = false;
++          }
++          dfn.vkDestroyShaderModule(vulkan_device->device(), shader, nullptr);
++        }
++      } else {
++        REXGPU_ERROR("[native][truth] 1x full resolve + texture shader compilation failed: {}", error);
++      }
++    }
++    if (resolve_full_1x_tex_pipelines_[variant] != VK_NULL_HANDLE) {
++      uint32_t texture_w = 0, texture_h = 0;
++      texture_set = command_processor_.NativeTextureForResolve(
++          info.copy_dest_texture_base >> 12, uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32),
++          uint32_t(dest.copy_dest_endian), texture_w, texture_h, texture_handle, false,
++          variant ? xenos::TextureFormat::k_4_4_4_4 : xenos::TextureFormat::k_8);
++      if (texture_set != VK_NULL_HANDLE && (tex_x0 + w > texture_w || tex_y0 + h > texture_h)) {
++        texture_set = VK_NULL_HANDLE;  // (the texture is outdated and reloaded as before; its pushed barrier is harmless)
++        texture_handle = nullptr;
++      }
++    }
++  }
++  const bool texwrite = texture_set != VK_NULL_HANDLE;
++  const VkPipelineLayout full_layout = texwrite ? resolve_scaled_full_tex_layout_ : resolve_scaled_full_layout_;
++  EndTruthPass();
++  TruthSyncRead(index);  // Session 54 (draw twins)
++  DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++  VkImageMemoryBarrier b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
++  b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++  b.image = t.image;
++  b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++  b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
++  b.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++  b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++  b.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
++  cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
++  command_processor_.BindExternalComputePipeline(
++      texwrite ? resolve_full_1x_tex_pipelines_[(mode & 15u) == 4u ? 0 : 1] : resolve_full_1x_pipeline_);
++  const VkDescriptorSet sets[3] = {source_set, dest_set, texture_set};
++  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, full_layout, 0, texwrite ? 3 : 2, sets, 0, nullptr);
++  if (texwrite) {
++    texture_written_ = texture_handle;  // (up to date after MarkRangeAsResolved: AfterResolveMarked)
++    ++report_.textures_filled;
++  }
++  const uint32_t pc[12] = {src_x,
++                           src_y,
++                           w,
++                           h,
++                           mode,
++                           dest_base,
++                           ((dest_coordinate_info >> 20) & 0xFu) * 8u,
++                           ((dest_coordinate_info >> 24) & 0xFu) * 8u,
++                           (dest_coordinate_info & 1023u) << 5,
++                           dest_info & 7u,
++                           tex_x0,
++                           tex_y0};
++  cb.CmdVkPushConstants(full_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
++                        texwrite ? uint32_t(sizeof(pc)) : uint32_t(sizeof(uint32_t) * 10), pc);
++  command_processor_.NativeFlushResolveDestUse();  // (the destination's use: this dispatch writes it)
++  command_processor_.SubmitBarriers(true);
++  const uint32_t per = (mode & 15u) == 4u ? 4u : 2u;
++  cb.CmdVkDispatch((w / per + 7) / 8, (h + 7) / 8, 1);
++  b.srcAccessMask = 0;
++  b.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++  std::swap(b.oldLayout, b.newLayout);
++  cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0,
++                          nullptr, 0, nullptr, 1, &b);
++  ++truth_counts_.direct;
++  return true;
++}
++
++// Session 59 (gpu_native_truth_direct_resolve_depth): a fast 32bpp copy of a 1x depth surface one depth truth image
++// holds whole, straight from the image into memory: the dwords the staging stores would write (the image's stencil
++// where it holds every copied tile's, else its last clear's, as TruthStoreMany), at their destination texels.
++bool NativeRenderer::TruthResolveDepth1x(const draw_util::ResolveInfo& info, uint32_t dest_base,
++                                         uint32_t dest_coordinate_info, uint32_t dest_info, VkDescriptorSet dest_set) {
++  if (!truth_ || !replacing_ || dest_set == VK_NULL_HANDLE) return false;
++  // (At a resolution scale: kNativeResolveScaledFullComputeShader's FULL_DEPTH variant, host pixels.)
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  const bool scaled = scale_x != 1 || scale_y != 1;
++  const draw_util::ResolveEdramInfo& edram = info.depth_edram_info;
++  const reg::RB_COPY_DEST_INFO dest = info.copy_dest_info;
++  if (!info.IsCopyingDepth() || edram.msaa_samples != xenos::MsaaSamples::k1X || dest.copy_dest_array ||
++      dest.copy_dest_exp_bias || dest.copy_dest_swap ||
++      uint32_t(info.copy_dest_coordinate_info.copy_sample_select) != 0 || (dest_base & 3u)) {
++    return false;
++  }
++  uint32_t base = 0, row_length = 0, rows = 0, pitch = 0;
++  info.GetCopyEdramTileSpan(base, row_length, rows, pitch);
++  if (!rows || !row_length || uint64_t(rows) * std::max(1u, pitch) >= 2048) return false;
++  const int16_t index = TruthOwnerOf(base & 2047u);
++  if (index < 0) return false;
++  TruthImage& t = truth_images_[index];
++  if (t.kind != 3 || !t.initialized || t.image == VK_NULL_HANDLE || t.stencil_view == VK_NULL_HANDLE ||
++      t.base != info.depth_original_base || edram.pitch_tiles != t.row_tiles()) {
++    return false;
++  }
++  // Every copied tile the image's; its stencil the image's for all of them or for none (else the staged stores).
++  bool all_stencil = true, no_stencil = true;
++  for (uint32_t r = 0; r < rows; ++r) {
++    for (uint32_t c = 0; c < row_length; ++c) {
++      const uint32_t tile = (base + r * pitch + c) & 2047u;
++      if (!t.owned.test(tile)) return false;
++      const bool own = t.stencil_valid.test(tile);
++      all_stencil = all_stencil && own;
++      no_stencil = no_stencil && !own;
++    }
++  }
++  if (!all_stencil && !no_stencil) return false;
++  const uint32_t tile_delta = (uint32_t(edram.base_tiles) - t.base) & 2047u;
++  const uint32_t src_x =
++      scale_x * ((tile_delta % t.row_tiles()) * 80 + uint32_t(info.coordinate_info.edram_offset_x_div_8) * 8);
++  const uint32_t src_y =
++      scale_y * ((tile_delta / t.row_tiles()) * 16 + uint32_t(info.coordinate_info.edram_offset_y_div_8) * 8);
++  const uint32_t w = scale_x * uint32_t(info.coordinate_info.width_div_8) * 8;
++  const uint32_t h = scale_y * uint32_t(info.height_div_8) * 8;
++  if (!w || !h || src_x + w > t.width || src_y + h > t.height) return false;
++  TruthFlushDeferred();
++  if (!EnsureTruthStaging() || !EnsureResolveScaledFullPipeline()) return false;  // (its layout)
++  VkPipeline& depth_pipeline = scaled ? resolve_depth_scaled_pipeline_ : resolve_depth_1x_pipeline_;
++  bool& depth_failed = scaled ? resolve_depth_scaled_failed_ : resolve_depth_1x_failed_;
++  if (depth_pipeline == VK_NULL_HANDLE) {
++    if (depth_failed) return false;
++    depth_failed = true;
++    const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++    const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++    std::vector<uint32_t> spirv;
++    std::string error;
++    if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT,
++                                               scaled ? std::string("#version 450\n#define FULL_DEPTH 1\n") +
++                                                            kNativeResolveScaledFullComputeShader
++                                                      : std::string("#version 450\n#define FULL1X_DEPTH 1\n") +
++                                                            kNativeResolveFull1xComputeShader,
++                                               spirv, error)) {
++      REXGPU_ERROR("[native][truth] 1x depth resolve shader compilation failed: {}", error);
++      return false;
++    }
++    const VkShaderModule shader =
++        ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++    if (shader == VK_NULL_HANDLE) return false;
++    VkComputePipelineCreateInfo create = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
++    create.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT,
++                    shader, "main", nullptr};
++    create.layout = resolve_scaled_full_layout_;
++    const bool ok = dfn.vkCreateComputePipelines(vulkan_device->device(), VK_NULL_HANDLE, 1, &create, nullptr,
++                                                 &depth_pipeline) == VK_SUCCESS;
++    dfn.vkDestroyShaderModule(vulkan_device->device(), shader, nullptr);
++    if (!ok) {
++      depth_pipeline = VK_NULL_HANDLE;
++      return false;
++    }
++    depth_failed = false;
++  }
++  // (The store set: binding 1 the depth, binding 2 the stencil.)
++  const VkDescriptorSet source_set = TruthStoreSet(t, true, truth_staging_);
++  if (source_set == VK_NULL_HANDLE) return false;
++  // (Texture-only records this copy overlaps go into memory before it writes - as the stock copy's.)
++  TruthResolveOverlaps(info, nullptr);
++  EndTruthPass();
++  TruthSyncRead(index);  // Session 54 (draw twins)
++  DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++  constexpr VkPipelineStageFlags kDepthStages =
++      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
++  VkImageMemoryBarrier b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
++  b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++  b.image = t.image;
++  b.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
++  b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
++  b.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
++  b.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
++  b.subresourceRange =
++      ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
++  cb.CmdVkPipelineBarrier(kDepthStages | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
++                          0, nullptr, 0, nullptr, 1, &b);
++  command_processor_.BindExternalComputePipeline(depth_pipeline);
++  const VkDescriptorSet sets[2] = {source_set, dest_set};
++  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, resolve_scaled_full_layout_, 0, 2, sets, 0, nullptr);
++  const uint32_t mode = (t.format & 1u) | (all_stencil ? 2u : (t.stencil & 0xFFu) << 8);
++  // (1x: kNativeResolveFull1xComputeShader's constants; at a scale kNativeResolveScaledFullComputeShader's - the gap,
++  // the destination from the binding's start, endian | scale_x << 4 | scale_y << 8.)
++  const uint32_t gap = scaled && edram.fill_half_pixel_offset ? (scale_x / 2) | ((scale_y / 2) << 8) : 0u;
++  const uint32_t pc[10] = {src_x,
++                           src_y,
++                           w,
++                           h,
++                           mode,
++                           scaled ? gap : dest_base,
++                           ((dest_coordinate_info >> 20) & 0xFu) * 8u,
++                           ((dest_coordinate_info >> 24) & 0xFu) * 8u,
++                           (dest_coordinate_info & 1023u) << 5,
++                           (dest_info & 7u) | (scaled ? (scale_x << 4) | (scale_y << 8) : 0u)};
++  cb.CmdVkPushConstants(resolve_scaled_full_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), pc);
++  command_processor_.NativeFlushResolveDestUse();  // (the destination's use: this dispatch writes it)
++  command_processor_.SubmitBarriers(true);
++  cb.CmdVkDispatch((w + 7) / 8, (h + 7) / 8, 1);
++  b.srcAccessMask = 0;
++  b.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
++  std::swap(b.oldLayout, b.newLayout);
++  cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, kDepthStages, 0, 0, nullptr, 0, nullptr, 1, &b);
++  ++truth_counts_.direct;
++  ++truth_counts_.direct_depth;
++  if (segment_log_frames_ > 0) {
++    REXGPU_INFO("[native][seg] frame {} truth depth resolve direct: {}x{} from image {} at {},{} (stencil {})", frame_,
++                w, h, index, src_x, src_y, all_stencil ? "the image's" : "its last clear's");
++  }
++  return true;
++}
++
+ bool NativeRenderer::TruthResolveScaledFull(const draw_util::ResolveInfo& info, VkDescriptorSet dest_set) {
+   TruthFlushDeferred();  // Session 52
+   uint32_t scale_x = 1, scale_y = 1;
+@@ -2528,7 +3216,7 @@ bool NativeRenderer::TruthResolveScaledFull(const draw_util::ResolveInfo& info,
+   const draw_util::ResolveEdramInfo& edram = info.color_edram_info;
+   const reg::RB_COPY_DEST_INFO dest = info.copy_dest_info;
+   if (info.IsCopyingDepth() || edram.msaa_samples != xenos::MsaaSamples::k1X || dest.copy_dest_array ||
+-      dest.copy_dest_exp_bias || dest.copy_dest_swap || info.rb_copy_control.copy_src_select != 0 ||
++      dest.copy_dest_exp_bias || info.rb_copy_control.copy_src_select != 0 ||
+       uint32_t(info.copy_dest_coordinate_info.copy_sample_select) != 0) {
+     return false;
+   }
+@@ -2544,8 +3232,18 @@ bool NativeRenderer::TruthResolveScaledFull(const draw_util::ResolveInfo& info,
+     }
+   }
+   // RGBA16 images of the k_16_16_16_16 / k_16_16 surfaces, into the same format.
++  // (Session 59, gpu_native_truth_direct_resolve_scaled_small: RGBA8 images into k_8 / k_4_4_4_4 - modes 4 / 5, bit 4
++  // the red / blue swap; the other modes take no swap.)
+   uint32_t mode;
+-  if (t.kind == 2 && t.format == uint32_t(xenos::ColorRenderTargetFormat::k_16_16_16_16) &&
++  if (REXCVAR_GET(gpu_native_truth_direct_resolve_scaled_small) && t.kind == 1 &&
++      t.format == uint32_t(xenos::ColorRenderTargetFormat::k_8_8_8_8) &&
++      (uint32_t(dest.copy_dest_format) == uint32_t(xenos::TextureFormat::k_8) ||
++       uint32_t(dest.copy_dest_format) == uint32_t(xenos::TextureFormat::k_4_4_4_4))) {
++    mode = (uint32_t(dest.copy_dest_format) == uint32_t(xenos::TextureFormat::k_8) ? 4u : 5u) |
++           (dest.copy_dest_swap ? 16u : 0u);
++  } else if (dest.copy_dest_swap) {
++    return false;
++  } else if (t.kind == 2 && t.format == uint32_t(xenos::ColorRenderTargetFormat::k_16_16_16_16) &&
+       uint32_t(dest.copy_dest_format) == uint32_t(xenos::TextureFormat::k_16_16_16_16)) {
+     mode = 3;
+   } else if (t.kind == 2 && t.format == uint32_t(xenos::ColorRenderTargetFormat::k_16_16) &&
+@@ -2580,9 +3278,39 @@ bool NativeRenderer::TruthResolveScaledFull(const draw_util::ResolveInfo& info,
+   b.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+   cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+-  command_processor_.BindExternalComputePipeline(resolve_scaled_full_pipeline_);
+-  const VkDescriptorSet sets[2] = {source_set, dest_set};
+-  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, resolve_scaled_full_layout_, 0, 2, sets, 0, nullptr);
++  // Session 59 (gpu_native_truth_direct_resolve_scaled_full_texture): the scaled texture the copy feeds, written by the
++  // same dispatch (texel (hx, hy) of the shader is the texture's when RB_COPY_DEST_BASE is the texture's own base).
++  VkDescriptorSet texture_set = VK_NULL_HANDLE;
++  void* texture_handle = nullptr;
++  // (Session 59: by the texture's own base - an atlas part's copy starts inside it, copy_dest_base_x / y.)
++  const uint32_t tex_x0 = scale_x * (info.copy_dest_base_x + uint32_t(info.copy_dest_coordinate_info.offset_x_div_8) * 8);
++  const uint32_t tex_y0 = scale_y * (info.copy_dest_base_y + uint32_t(info.copy_dest_coordinate_info.offset_y_div_8) * 8);
++  if (REXCVAR_GET(gpu_native_truth_direct_resolve_scaled_full_texture) && info.copy_dest_texture_base && mode < 4 &&
++      (info.copy_dest_texture_base & 0xFFF) == 0 && !command_processor_.NativeResolveReadback() &&
++      EnsureResolveScaledFullTexPipelines()) {
++    uint32_t texture_w = 0, texture_h = 0;
++    texture_set = command_processor_.NativeTextureForResolve(
++        info.copy_dest_texture_base >> 12, uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32),
++        uint32_t(dest.copy_dest_endian), texture_w, texture_h, texture_handle, true,
++        mode == 3 ? xenos::TextureFormat::k_16_16_16_16 : xenos::TextureFormat::k_16_16);
++    // (Every texel the dispatch writes inside the texture - else the copy alone, and the texture loads as before.)
++    const uint32_t tx1 = tex_x0 + w;
++    const uint32_t ty1 = tex_y0 + h;
++    if (texture_set != VK_NULL_HANDLE && (tx1 > texture_w || ty1 > texture_h)) {
++      texture_set = VK_NULL_HANDLE;  // (its barrier, pushed, stays harmless: the texture is reloaded as before)
++      texture_handle = nullptr;
++    }
++  }
++  const bool texwrite = texture_set != VK_NULL_HANDLE;
++  const VkPipelineLayout full_layout = texwrite ? resolve_scaled_full_tex_layout_ : resolve_scaled_full_layout_;
++  command_processor_.BindExternalComputePipeline(texwrite ? resolve_scaled_full_tex_pipelines_[mode == 3 ? 1 : 0]
++                                                          : resolve_scaled_full_pipeline_);
++  const VkDescriptorSet sets[3] = {source_set, dest_set, texture_set};
++  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, full_layout, 0, texwrite ? 3 : 2, sets, 0, nullptr);
++  if (texwrite) {
++    texture_written_ = texture_handle;  // (up to date after MarkRangeAsResolved: AfterResolveMarked)
++    ++report_.textures_filled;
++  }
+   const uint32_t gap = edram.fill_half_pixel_offset ? (scale_x / 2) | ((scale_y / 2) << 8) : 0u;
+   const uint32_t pc[10] = {src_x,
+                            src_y,
+@@ -2594,9 +3322,17 @@ bool NativeRenderer::TruthResolveScaledFull(const draw_util::ResolveInfo& info,
+                            uint32_t(info.copy_dest_coordinate_info.offset_y_div_8) * 8,
+                            uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32) << 5,
+                            uint32_t(dest.copy_dest_endian) | (scale_x << 4) | (scale_y << 8)};
+-  cb.CmdVkPushConstants(resolve_scaled_full_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), pc);
++  const uint32_t pc_tex[12] = {pc[0], pc[1], pc[2], pc[3], pc[4], pc[5], pc[6], pc[7], pc[8], pc[9], tex_x0, tex_y0};
++  if (texwrite) {
++    cb.CmdVkPushConstants(full_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc_tex), pc_tex);
++  } else {
++    cb.CmdVkPushConstants(full_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), pc);
++  }
++  command_processor_.NativeFlushResolveDestUse();  // (Session 59: a held scaled use - this dispatch writes the buffer)
+   command_processor_.SubmitBarriers(true);  // (the scaled resolve buffer's barrier, pushed before the call)
+-  cb.CmdVkDispatch((w + 7) / 8, (h + 7) / 8, 1);
++  // (Session 59: the small modes - a dword of 4 / 2 texels an invocation.)
++  const uint32_t per = (mode & 15u) == 4u ? 4u : (mode & 15u) == 5u ? 2u : 1u;
++  cb.CmdVkDispatch((w / per + 7) / 8, (h + 7) / 8, 1);
+   b.srcAccessMask = 0;
+   b.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+   std::swap(b.oldLayout, b.newLayout);
+@@ -2742,8 +3478,8 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+   command_processor_.SubmitBarriers(true);  // (the textures' barriers, pushed when each resolve was deferred)
+   for (const DeferredResolve& d : truth_deferred_) {
+     command_processor_.BindExternalComputePipeline(d.pipeline);
+-    cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, d.layout, 0, 3, d.sets, 0, nullptr);
+-    cb.CmdVkPushConstants(d.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(d.pc), d.pc);
++    cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, d.layout, 0, d.set_count, d.sets, 0, nullptr);
++    cb.CmdVkPushConstants(d.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, d.pc_size, d.pc);
+     cb.CmdVkDispatch(d.group_count_x, d.group_count_y, 1);
+   }
+   // 3. Every image back to its attachment layout (the spares too: a rename takes one as it is).
+@@ -2896,7 +3632,10 @@ void NativeRenderer::TruthRetireBundle(TruthBundle& b) {
+ }
+ 
+ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+-  if (!texture_written_) TruthFlushDeferred();  // Session 52 (it reads an image)
++  // Session 59 (gpu_native_truth_batch_fills): a fill straight into a texture's storage view joins the deferred batch;
++  // the others flush it right before they record (below).
++  const bool batch_fills = REXCVAR_GET(gpu_native_truth_batch_fills) && REXCVAR_GET(gpu_native_truth_batch_resolves);
++  if (!texture_written_ && !batch_fills) TruthFlushDeferred();  // Session 52 (it reads an image)
+   const uint32_t fill_mask = uint32_t(REXCVAR_GET(gpu_native_truth_texture_fill));
+   if (!truth_ || !replacing_ || texture_written_ || !fill_mask || truth_fill_tried_) return;  // (S49: tried once)
+   uint32_t scale_x = 1, scale_y = 1;
+@@ -3023,21 +3762,45 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+   if (pack_mode >= 0 && pack_set == VK_NULL_HANDLE) return refuse("pack set");
+   // Session 52 (gpu_native_truth_fill_direct): straight into the texture's storage view where it has one.
+   const uint32_t pack_kind = pack_mode >= 0 ? uint32_t(pack_mode) & 15u : 15u;
++  // (Session 59, gpu_native_truth_fill_direct_small: k_8 / k_4_4_4_4 into an R8_UINT / R16_UINT view - 1 / 2 bytes.)
++  const bool small_kind = pack_kind == 4 || pack_kind == 5;
+   const uint32_t storage_bytes =
+       REXCVAR_GET(gpu_native_truth_fill_direct) && (pack_kind == 0 || pack_kind == 1 || pack_kind == 3) &&
+               EnsureTruthFillTexPipelines()
+           ? (pack_kind == 3 ? 8u : 4u)
++      : REXCVAR_GET(gpu_native_truth_fill_direct) && REXCVAR_GET(gpu_native_truth_fill_direct_small) && small_kind &&
++              EnsureTruthFillTexSmallPipelines()
++          ? (pack_kind == 4 ? 1u : 2u)
++      // (Session 59, gpu_native_truth_fill_direct_depth: the 32-bit float bits through the R32_UINT view - TEXOUT 1.)
++      : REXCVAR_GET(gpu_native_truth_fill_direct) && REXCVAR_GET(gpu_native_truth_fill_direct_depth) && depth &&
++              pack_kind == 2 && EnsureTruthFillTexPipelines()
++          ? 4u
+           : 0u;
++  const uint32_t tex_variant = pack_kind == 3 ? 1u : pack_kind == 4 ? 2u : pack_kind == 5 ? 3u : 0u;
+   VkDescriptorSet storage_set = VK_NULL_HANDLE;
+   if (REXCVAR_GET(gpu_native_truth_cover_outdated) && copy_w > 0 && copy_h > 0) {
+     command_processor_.NativeSetTextureCover(uint32_t(std::max(dst_x, 0)) | (dst_x < 0 ? 1u : 0u),
+                                              uint32_t(std::max(dst_y, 0)) | (dst_y < 0 ? 1u : 0u), uint32_t(copy_w),
+                                              uint32_t(copy_h));
+   }
+-  if (!command_processor_.NativeTextureForCopy(info.copy_dest_texture_base >> 12,
+-                                               uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32),
+-                                               uint32_t(dest.copy_dest_endian), format, texture, texture_w, texture_h,
+-                                               level, has_mips, handle, why, storage_bytes, &storage_set)) {
++  // (Session 59: a storage-view fill's texture barrier is held - recorded with the batch if the fill is deferred.)
++  const bool hold = batch_fills && storage_bytes && !depth && !texture_written_;
++  // (Review: a fill that cannot be deferred flushes the batch before its texture's barrier, as without batching.)
++  if (batch_fills && !hold && !texture_written_) TruthFlushDeferred();
++  if (hold) command_processor_.NativeHoldTextureBarrier(true);
++  const bool got = command_processor_.NativeTextureForCopy(
++      info.copy_dest_texture_base >> 12, uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32),
++      uint32_t(dest.copy_dest_endian), format, texture, texture_w, texture_h, level, has_mips, handle, why,
++      storage_bytes, &storage_set);
++  // (Session 59: not deferred after all - the held barrier pushed now, recorded as before.)
++  bool deferring = hold && got && storage_set != VK_NULL_HANDLE;
++  if (hold && !deferring) TruthFlushDeferred();  // (review: as above, before the barrier is pushed)
++  if (!deferring) command_processor_.NativeHoldTextureBarrier(false);
++  const auto release = [&]() {
++    if (deferring) command_processor_.NativeHoldTextureBarrier(false);
++    deferring = false;
++  };
++  if (!got) {
+     return refuse(why);
+   }
+   TruthSyncRead(index);  // Session 54 (draw twins)
+@@ -3046,33 +3809,33 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+   // after that.
+   if ((scale_x != 1 || scale_y != 1) && REXCVAR_GET(gpu_native_truth_texture_fill_lazy) &&
+       !command_processor_.NativeLastCopyTextureSampled()) {
+-    return refuse("not sampled since its last fill (gpu_native_truth_texture_fill_lazy)");
++    return release(), refuse("not sampled since its last fill (gpu_native_truth_texture_fill_lazy)");
+   }
+   const int32_t w = std::min({copy_w, int32_t(texture_w) - dst_x, int32_t(t.width) - src_x});
+   const int32_t h = std::min({copy_h, int32_t(texture_h) - dst_y, int32_t(t.height) - src_y});
+   // (The texture's barrier was pushed: it is a copy destination now, whatever is recorded below.)
+   command_processor_.SubmitBarriers(true);
+-  if (w <= 0 || h <= 0 || src_x < 0 || src_y < 0) return refuse("rectangle");
++  if (w <= 0 || h <= 0 || src_x < 0 || src_y < 0) return release(), refuse("rectangle");
+   // (Diagnostic narrowing, Session 47: swapped k_8_8_8_8 at a resolution scale only into textures of 128 guest texels
+   // or more - smaller ones differed from the reload in Brock's entrance, parity 3226 / 3234; why is unconfirmed.)
+   if (swap_scaled && REXCVAR_GET(gpu_native_truth_texture_fill_small_swap_scaled) == 0 &&
+       (texture_w / scale_x < 128 || texture_h / scale_y < 128)) {
+-    return refuse("small swapped texture at a resolution scale");
++    return release(), refuse("small swapped texture at a resolution scale");
+   }
+   // (Review: the image must hold all the copy wrote into the texture - a fill cut short by the image's own size would
+   // leave texels the memory has and the texture not.)
+   if (w < std::min(copy_w, int32_t(texture_w) - dst_x) || h < std::min(copy_h, int32_t(texture_h) - dst_y)) {
+-    return refuse("image smaller than the copy");
++    return release(), refuse("image smaller than the copy");
+   }
+   // (Review: in a texture with mip levels, a copy running past its level's size wrote into the next level's memory -
+   // that level would be marked up to date unfilled.)
+   if (has_mips &&
+       (copy_w > int32_t(texture_w) - dst_x || copy_h > int32_t(texture_h) - dst_y)) {
+-    return refuse("copy past the level");
++    return release(), refuse("copy past the level");
+   }
+   // (k_8 / k_4_4_4_4: 4 / 2 texels a dword in the pack shader.)
+   const uint32_t per = (pack_mode & 15) == 4 ? 4u : (pack_mode & 15) == 5 ? 2u : 1u;
+-  if (pack_mode >= 0 && uint32_t(w) % per) return refuse("width");
++  if (pack_mode >= 0 && uint32_t(w) % per) return release(), refuse("width");
+   DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
+   const bool packed = pack_mode >= 0;
+   VkImageMemoryBarrier b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+@@ -3091,11 +3854,64 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+                                                      VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+   const VkPipelineStageFlags image_stage = packed ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT;
+   if (packed) ++truth_counts_.fill_packed;  // Session 52
++  // Session 59 (gpu_native_truth_batch_fills): deferred with the texture-only resolves (one barrier pair for the batch).
++  if (deferring && packed) {
++    // (A deferred write into the same texture whose texels may overlap these - a resolve's, or a fill's rectangle that
++    // meets this one - goes first, with its barrier.)
++    bool same_texture = false;
++    for (const DeferredResolve& d : truth_deferred_) {
++      if (d.texture != handle) continue;
++      same_texture = same_texture || d.texture_rect[2] <= d.texture_rect[0] ||
++                     (d.texture_rect[0] < dst_x + w && dst_x < d.texture_rect[2] && d.texture_rect[1] < dst_y + h &&
++                      dst_y < d.texture_rect[3]);
++    }
++    if (same_texture) {
++      // (Review: the batch first, with this fill's barrier still held; then the barrier, recorded before this fill's
++      // dispatch - after the earlier write into the texture, not before it.)
++      TruthFlushDeferred();
++      release();
++      command_processor_.SubmitBarriers(true);
++    }
++  }
++  if (deferring && packed) {
++    ++truth_counts_.fill_direct;
++    ++truth_counts_.fills_deferred;
++    DeferredResolve& d = truth_deferred_.emplace_back();
++    d.texture_image = VK_NULL_HANDLE;
++    command_processor_.NativeTakeHeldTextureBarrier(d.texture_image, d.texture_src_stage, d.texture_src_access,
++                                                    d.texture_old_layout);
++    command_processor_.NativeHoldTextureBarrier(false);
++    d.pipeline = truth_fill_tex_pipelines_[tex_variant];
++    d.layout = truth_fill_tex_layout_;
++    d.sets[0] = pack_set;
++    d.sets[1] = storage_set;
++    d.sets[2] = VK_NULL_HANDLE;
++    d.set_count = 2;
++    const uint32_t gap = edram.fill_half_pixel_offset ? (scale_x / 2) | ((scale_y / 2) << 8) : 0u;
++    const uint32_t pc[10] = {uint32_t(src_x), uint32_t(src_y), uint32_t(w), uint32_t(h), uint32_t(pack_mode), gap,
++                             uint32_t(dst_x), uint32_t(dst_y)};
++    std::fill(std::begin(d.pc), std::end(d.pc), 0u);
++    std::memcpy(d.pc, pc, sizeof(pc));
++    d.pc_size = sizeof(pc);
++    d.group_count_x = (uint32_t(w) + 7) / 8;
++    d.group_count_y = (uint32_t(h) + 7) / 8;
++    d.image = t.image;
++    d.index = index;
++    d.texture = handle;
++    d.texture_rect[0] = dst_x, d.texture_rect[1] = dst_y, d.texture_rect[2] = dst_x + w, d.texture_rect[3] = dst_y + h;
++    // (A texture an earlier entry of the batch already takes to its compute-write layout: no second barrier for it in
++    // the same command - this one's would be GENERAL -> GENERAL; disjoint texels need no ordering.)
++    for (size_t k = 0; k + 1 < truth_deferred_.size() && d.texture_image != VK_NULL_HANDLE; ++k) {
++      if (truth_deferred_[k].texture_image == d.texture_image) d.texture_image = VK_NULL_HANDLE;
++    }
++  } else {
++  release();  // (Session 59: a held barrier when the fill turned out not packed - pushed and recorded as before)
++  command_processor_.SubmitBarriers(true);
+   if (packed && storage_set != VK_NULL_HANDLE) {
+     ++truth_counts_.fill_direct;
+     // Session 52 (gpu_native_truth_fill_direct): the image read, the texture written - no staging buffer, no copy.
+     cb.CmdVkPipelineBarrier(kAttachmentStages, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+-    command_processor_.BindExternalComputePipeline(truth_fill_tex_pipelines_[pack_kind == 3 ? 1 : 0]);
++    command_processor_.BindExternalComputePipeline(truth_fill_tex_pipelines_[tex_variant]);
+     const VkDescriptorSet sets[2] = {pack_set, storage_set};
+     cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, truth_fill_tex_layout_, 0, 2, sets, 0, nullptr);
+     const uint32_t gap = edram.fill_half_pixel_offset ? (scale_x / 2) | ((scale_y / 2) << 8) : 0u;
+@@ -3155,6 +3971,7 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+                           : VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+   std::swap(b.oldLayout, b.newLayout);
+   cb.CmdVkPipelineBarrier(image_stage, kAttachmentStages, 0, 0, nullptr, 0, nullptr, 1, &b);
++  }  // (Session 59: not deferred)
+   texture_written_ = handle;  // (up to date after MarkRangeAsResolved: AfterResolveMarked)
+   ++truth_counts_.filled;
+   ++report_.textures_filled;
+@@ -3771,7 +4588,8 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     d_alias = d_touch & truth_owned_any_ & ~d_image.owned;
+     if (!reads_depth) d_alias &= ~d_whole;
+   }
+-  if ((c_alias.any() || d_alias.any()) && (!EnsureTruthStaging() || truth_staging_load_set_ == VK_NULL_HANDLE)) {
++  if ((c_alias.any() || d_alias.any()) && (!EnsureTruthStaging() || truth_staging_load_set_ == VK_NULL_HANDLE ||
++                                           REXCVAR_GET(gpu_native_truth_debug_skip_alias))) {  // (Session 59, diagnostic)
+     c_alias.reset();
+     d_alias.reset();
+   }
+@@ -3890,8 +4708,9 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+                                   uint32_t(REXCVAR_GET(gpu_native_truth_lazy_pass_style)));
+       if (segment_log_frames_ > 0) {  // (diagnostic: why the lazy pass needed a barrier)
+         static const char* const kWhy[] = {"none", "other work", "colour image", "depth image"};
+-        REXGPU_INFO("[native][seg] frame {} lazy pass barrier: {}", frame_,
+-                    kWhy[std::min(cb.lazy_last_reason(), 3u)]);
++        // (Session 59: with the command that broke the chain - DeferredCommandBuffer::Command as a number.)
++        REXGPU_INFO("[native][seg] frame {} lazy pass barrier: {} (chain broken by command {})", frame_,
++                    kWhy[std::min(cb.lazy_last_reason(), 3u)], int32_t(cb.lazy_break_command()));
+       }
+     } else {
+       cb.CmdVkBeginRenderPass(&begin_info, VK_SUBPASS_CONTENTS_INLINE);
+@@ -4237,14 +5056,14 @@ void NativeRenderer::LogTruthCensus() {
+     }
+     REXGPU_INFO("[native][truth] frames {}-{}: truth frames {}, fallbacks {} ({}); per frame: passes {:.1f}, draws "
+                 "{:.1f}, boundary loads {:.1f}, write-outs {:.2f}, staged resolves {:.1f} (tiles from the EDRAM "
+-                "{:.1f}), direct copies {:.1f}, store dispatches {:.1f}, alias reads {:.1f}; images {}{}; skipped "
++                "{:.1f}), direct copies {:.1f} (depth {:.1f}), store dispatches {:.1f}, alias reads {:.1f}; images {}{}; skipped "
+                 "while their pipeline was made {} (made at once instead, not the screen: {}); textures filled by copy {:.1f} (refused {:.1f}; packed {:.1f}, of them "
+-                "into the texture's storage view {:.1f}); resolves deferred {:.1f} in {:.1f} batches, renames {:.1f}, textures made sampleable before a pass {:.1f}, depth renames {:.1f}, real depth clears {:.1f}; draw twins: made {:.2f}, read {:.1f}; lazy passes "
++                "into the texture's storage view {:.1f}, deferred {:.1f}); resolves deferred {:.1f} in {:.1f} batches, renames {:.1f}, textures made sampleable before a pass {:.1f}, depth renames {:.1f}, real depth clears {:.1f}; draw twins: made {:.2f}, read {:.1f}; lazy passes "
+                 "{:.1f} with no barrier, {:.1f} with one",
+                 frame_ + 1 - report_.frames, frame_, c.frames, c.fallbacks, reasons.empty() ? "none" : reasons,
+                 pf(c.passes), pf(c.draws), pf(c.loads), pf(c.writeouts), pf(c.staged), pf(c.staged_edram), pf(c.direct),
+-                pf(c.store_dispatches), pf(c.alias_reads), truth_images_.size(), gpu, c.compiling, c.waited, pf(c.filled),
+-                pf(c.fill_refused), pf(c.fill_packed), pf(c.fill_direct), pf(c.deferred), pf(c.deferred_batches), pf(c.renames), pf(c.early_sampled), pf(c.depth_renames), pf(c.clear_attachments),
++                pf(c.direct_depth), pf(c.store_dispatches), pf(c.alias_reads), truth_images_.size(), gpu, c.compiling, c.waited, pf(c.filled),
++                pf(c.fill_refused), pf(c.fill_packed), pf(c.fill_direct), pf(c.fills_deferred), pf(c.deferred), pf(c.deferred_batches), pf(c.renames), pf(c.early_sampled), pf(c.depth_renames), pf(c.clear_attachments),
+                 pf(c.twin_blits[0]), pf(c.twin_blits[1]),
+                 double(command_processor_.deferred_command_buffer().lazy_begins_free() - truth_lazy_free_) / frames,
+                 double(command_processor_.deferred_command_buffer().lazy_begins_synced() - truth_lazy_synced_) / frames);
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index a66e5f4c15d23fa512fa80f51b6c0c0c59eb9fa7..2d686eab1ca29798a0b3479c70ebf64f9889f794 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -78,6 +78,16 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_dest_use, false, "GPU/Native",
+                     "and the next draw's) is recorded only when a dispatch that writes the destination is: a texture-only "
+                     "resolve writes no memory and has none")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_skip_staged_resolves, false, "GPU/Native",
++                    "Session 59 diagnostic (pictures wrong): in a truth frame, resolves no native direct path takes (the "
++                    "staged ones) get no GPU work - the ceiling of direct paths for them")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_dest_use_scaled, false, "GPU/Native",
++                    "Session 59: gpu_native_truth_defer_dest_use at a resolution scale - a truth frame's resolve marks "
++                    "its write of the scaled resolve buffer (a barrier before it, and one before the next reader) only "
++                    "when a dispatch that writes the buffer is recorded: a texture-only scaled resolve has none, and "
++                    "the truth passes around it stay without barriers")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -1290,7 +1300,11 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           dfn.vkUpdateDescriptorSets(device, 1, &write_descriptor_set_dest, 0, nullptr);
+ 
+           // Submit the resolve.
+-          if (draw_resolution_scaled) {
++          if (draw_resolution_scaled && REXCVAR_GET(gpu_native_truth_defer_dest_use_scaled) &&
++              command_processor_.NativeTruthActive()) {
++            // wwe2k14 patch (Session 59): held as at 1x - recorded by the dispatch that writes the scaled buffer.
++            command_processor_.NativeHoldScaledResolveDestUse(copy_dest_use_start, copy_dest_use_length);
++          } else if (draw_resolution_scaled) {
+             texture_cache.UseScaledResolveBufferForWrite(copy_dest_use_start, copy_dest_use_length);
+           } else if (REXCVAR_GET(gpu_native_truth_defer_dest_use) && command_processor_.NativeTruthActive()) {
+             // wwe2k14 patch (Session 52): held until a dispatch writes the destination (dropped if none does).
+@@ -1333,9 +1347,12 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           }
+           // wwe2k14 patch (Session 52, gpu_native_truth_direct_resolve_scaled_full): at a scale, a full k_16_16 /
+           // k_16_16_16_16 copy straight from the truth image (no staging stores, no stock copy).
++          // (Session 59, gpu_native_truth_direct_resolve_scaled_small: k_8 / k_4_4_4_4 too - the 8 / 16bpp copies.)
+           if (!native_resolved && draw_resolution_scaled &&
+               (copy_shader == draw_util::ResolveCopyShaderIndex::kFull32bpp ||
+-               copy_shader == draw_util::ResolveCopyShaderIndex::kFull64bpp) &&
++               copy_shader == draw_util::ResolveCopyShaderIndex::kFull64bpp ||
++               copy_shader == draw_util::ResolveCopyShaderIndex::kFull8bpp ||
++               copy_shader == draw_util::ResolveCopyShaderIndex::kFull16bpp) &&
+               resolve_edram_set_override_ == VK_NULL_HANDLE) {
+             native_resolved = command_processor_.NativeTruthResolveScaledFull(resolve_info, descriptor_set_dest);
+           }
+@@ -1344,6 +1361,24 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           if (!native_resolved && !draw_resolution_scaled && resolve_edram_set_override_ == VK_NULL_HANDLE) {
+             native_resolved = command_processor_.NativeTruthFillOnly(resolve_info, copy_shader_constants);
+           }
++          // wwe2k14 patch (Session 59, gpu_native_truth_direct_resolve_full_1x): a full k_8 / k_4_4_4_4 copy at 1x straight
++          // from the truth image into memory (no staging stores, no stock copy).
++          if (!native_resolved && !draw_resolution_scaled &&
++              (copy_shader == draw_util::ResolveCopyShaderIndex::kFull8bpp ||
++               copy_shader == draw_util::ResolveCopyShaderIndex::kFull16bpp) &&
++              resolve_edram_set_override_ == VK_NULL_HANDLE) {
++            native_resolved = command_processor_.NativeTruthResolveFull1x(
++                resolve_info, copy_shader_constants.dest_base - uint32_t(write_descriptor_set_dest_buffer_info.offset),
++                copy_shader_constants.dest_relative.dest_coordinate_info.packed,
++                copy_shader_constants.dest_relative.dest_info.value, descriptor_set_dest);
++          }
++          // wwe2k14 patch (Session 59, diagnostic: pictures wrong): a resolve no native direct path took - a staged one -
++          // gets no GPU work (nor its texture fill): the ceiling of direct paths for them (plan step 1d).
++          bool debug_skip_staged = false;
++          if (!native_resolved && REXCVAR_GET(gpu_native_truth_debug_skip_staged_resolves) &&
++              command_processor_.NativeTruthActive()) {
++            native_resolved = debug_skip_staged = true;
++          }
+           // wwe2k14 patch (Session 49): texture-only resolves this copy overlaps, before it writes (once a resolve).
+           command_processor_.NativeTruthBeforeMemoryWrite(resolve_info);
+           const VkDescriptorSet truth_set =
+@@ -1430,7 +1465,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           // the native image too (up to date after MarkRangeAsResolved: no reload).
+           // (At a resolution scale too: the scaled texture, Session 47.)
+           command_processor_.NativeTruthTimer(7, true);
+-          if (!debug_skip) command_processor_.NativeTruthFillTexture(resolve_info);
++          if (!debug_skip && !debug_skip_staged) command_processor_.NativeTruthFillTexture(resolve_info);
+           command_processor_.NativeTruthTimer(7, false);
+ 
+           // Invalidate textures and mark the range as scaled if needed.
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index f1baecb40249e64010faa007d210679487cfd843..314b3c1bdd70649d59f997a18d20bc7e9bd2c093 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -68,6 +68,10 @@ REXCVAR_DEFINE_INT32(vulkan_upload_hoist, 0, "GPU/Vulkan",
+                      "each). Read per upload; a submission with any access recorded while it was 0 hoists "
+                      "nothing");
+ REXCVAR_DECLARE(bool, gpu_upload_skip_unchanged_verify);
++REXCVAR_DEFINE_BOOL(vulkan_debug_skip_draw_read_barrier, false, "GPU/Vulkan",
++                    "Session 59 diagnostic (racy, measurement only): no shared-memory barrier for a read after a "
++                    "compute write (resolves into memory, then draws) - the ceiling of range-aware read barriers")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ // wwe2k14 patch (Session 7b, REBAR): timing every UploadRanges chunk copy costs two host clock reads per chunk
+ // (about 2,000 per heavy frame), so it is opt-in rather than tied to the timeline - timeline runs without it
+ // measure what they did before. Turn it on for both runs of a vulkan_upload_pool_device_local on / off
+@@ -459,6 +463,12 @@ void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_
+   written_range.first = std::min(written_range.first, kBufferSize);
+   written_range.second = std::min(written_range.second, kBufferSize - written_range.first);
+   assert_true(usage != Usage::kRead || !written_range.second);
++  // wwe2k14 patch (Session 59, diagnostic vulkan_debug_skip_draw_read_barrier - racy, measurement only): a read after a
++  // compute write records no barrier (the ceiling of range-aware read barriers before draws).
++  if (usage == Usage::kRead && last_usage_ == Usage::kComputeWrite &&
++      REXCVAR_GET(vulkan_debug_skip_draw_read_barrier)) [[unlikely]] {
++    return;
++  }
+   // wwe2k14 patch (Session 7b, UPSKIP): a shader write to the buffer (resolve, memory export) follows - the pages
+   // it may write lose their upload hashes (an empty range: every page). RangeWrittenByGpu drops them too.
+   if (usage == Usage::kComputeWrite || usage == Usage::kGuestDrawReadWrite) {
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 5f9adb84370bd88ba227b8a2cde3a11865daec4a..3c7284dea409d1bbbf0512137c1ad3e5a88ca4c6 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -87,6 +87,11 @@ REXCVAR_DEFINE_INT32(vulkan_texture_load_direct_unscaled_kinds, 127, "GPU/Vulkan
+                      "k_16_16_16_16 (and _FLOAT), 16 k_16_16 (and _FLOAT), 32 k_8 / k_4_4_4_4, 64 any other; the "
+                      "others are loaded as without the setting. Applies to textures created while set")
+     .range(0, 127);
++REXCVAR_DEFINE_BOOL(vulkan_texture_native_storage_small, false, "GPU/Vulkan",
++                    "Session 59: new 1x k_8 textures without mips (R8 host formats) get an R8_UINT storage view (with "
++                    "shaderStorageImageExtendedFormats), so native fills and resolves can write them directly "
++                    "(k_4_4_4_4: no - B4G4R4A4 has no storage image support; review)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(vulkan_texture_load_direct_unscaled_any_page, false, "GPU/Vulkan",
+                     "Session 52: with vulkan_texture_load_direct_unscaled, a 1x tiled texture of those kinds gets a "
+                     "direct-load image even if no resolve has written its page yet when it is made (textures loaded "
+@@ -1595,6 +1600,8 @@ VkImageView VulkanTextureCache::RequestSwapTexture(uint32_t& width_scaled_out,
+   }
+   texture->MarkAsUsed();
+   VulkanTexture::Usage old_usage = texture->SetUsage(VulkanTexture::Usage::kSwapSampled);
++  // wwe2k14 patch (Session 59 review): as for a guest sample.
++  if (old_usage == VulkanTexture::Usage::kComputeStorageWrite) command_processor_.NativeFlushDeferredResolves();
+   if (old_usage != VulkanTexture::Usage::kSwapSampled) {
+     VkPipelineStageFlags src_stage_mask, dst_stage_mask;
+     VkAccessFlags src_access_mask, dst_access_mask;
+@@ -1733,7 +1740,23 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+                                 IsPageResolvedUnscaled(key.base_page << 12)) &&
+                                (uint32_t(REXCVAR_GET(vulkan_texture_load_direct_unscaled_kinds)) &
+                                 DirectUnscaledKindBit(key.format)) != 0;
+-  if ((key.scaled_resolve && REXCVAR_GET(vulkan_texture_load_direct)) || direct_unscaled) {
++  // wwe2k14 patch (Session 59, vulkan_texture_native_storage_small): 1x k_8 / k_4_4_4_4 textures without mips get an
++  // R8_UINT / R16_UINT storage view too (no direct load shader for them: they still load through the buffer path), so
++  // a native resolve can write them (gpu_native_truth_direct_resolve_full_1x_texture).
++  // (Review: k_8 only, on an R8 host format - the R8_UINT view is of its size class, and R8 storage images exist with
++  // the extended formats; B4G4R4A4 has no storage image support, so k_4_4_4_4 would need extended usage.)
++  const bool native_storage_small =
++      REXCVAR_GET(vulkan_texture_native_storage_small) && !key.scaled_resolve && key.tiled && !key.mip_max_level &&
++      key.dimension == xenos::DataDimension::k2DOrStacked && !key.depth_or_array_size_minus_1 &&
++      key.format == xenos::TextureFormat::k_8 &&
++      (formats[0] == VK_FORMAT_R8_UNORM || formats[0] == VK_FORMAT_R8_SNORM) &&
++      (formats[1] == VK_FORMAT_UNDEFINED || formats[1] == VK_FORMAT_R8_UNORM || formats[1] == VK_FORMAT_R8_SNORM) &&
++      key.GetGuestLayout().packed_level != 0 &&
++      command_processor_.GetVulkanDevice()->properties().shaderStorageImageExtendedFormats;
++  if (native_storage_small && EnsureDirectLoadInitialized()) {
++    direct_load_format = VK_FORMAT_R8_UINT;
++    direct_load_creation = VulkanTexture::DirectLoadCreation::kDeviceRejected;
++  } else if ((key.scaled_resolve && REXCVAR_GET(vulkan_texture_load_direct)) || direct_unscaled) {
+     if (!EnsureDirectLoadInitialized()) {
+       direct_load_creation = VulkanTexture::DirectLoadCreation::kUnavailable;
+     } else {
+@@ -2505,6 +2528,8 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   vulkan_texture.MarkAsUsed();
+   VulkanTexture::Usage texture_old_usage =
+       vulkan_texture.SetUsage(VulkanTexture::Usage::kTransferDestination);
++  // wwe2k14 patch (Session 59 review): a deferred native write into it goes first (a batched fill, then a reload).
++  if (texture_old_usage == VulkanTexture::Usage::kComputeStorageWrite) command_processor_.NativeFlushDeferredResolves();
+   // wwe2k14 patch (Session 7c, TEXLOAD): what the pre-copy image barrier does (texture load CSV): none (the image is
+   // still a transfer destination), undefined (never used: no contents), preserve, discard, or waw (see below).
+   const char* texload_transition = "none";
+@@ -2691,7 +2716,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+ VkDescriptorSet VulkanTextureCache::NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32,
+                                                             uint32_t endianness, uint32_t& width_out,
+                                                             uint32_t& height_out, void*& handle_out,
+-                                                            bool allow_scaled) {
++                                                            bool allow_scaled, xenos::TextureFormat format) {
+   const std::array<uint32_t, 4> cover = NativeTakeCover();  // wwe2k14 patch (Session 52)
+   handle_out = nullptr;
+   // Session 45: gpu_native_segment_log lists why a served resolve does not fill its texture.
+@@ -2711,7 +2736,7 @@ VkDescriptorSet VulkanTextureCache::NativeTextureForResolve(uint32_t base_page,
+   if (known == native_resolve_keys_.end()) return refuse("no direct load seen on this page", nullptr);
+   const TextureKey key = known->second;
+   // (Session 52: scaled textures at a resolution scale - gpu_native_truth_direct_resolve_scaled_texture.)
+-  if (key.format != xenos::TextureFormat::k_8_8_8_8 || key.dimension != xenos::DataDimension::k2DOrStacked ||
++  if (key.format != format || key.dimension != xenos::DataDimension::k2DOrStacked ||
+       key.depth_or_array_size_minus_1 || !key.tiled || key.mip_max_level || key.packed_mips ||
+       bool(key.scaled_resolve) != (allow_scaled && IsDrawResolutionScaled()) ||
+       uint32_t(key.endianness) != endianness || key.pitch != pitch_div_32) {
+@@ -2720,9 +2745,14 @@ VkDescriptorSet VulkanTextureCache::NativeTextureForResolve(uint32_t base_page,
+   Texture* found = NativeFindTexture(key);
+   if (!found) return refuse("texture gone", &key);
+   VulkanTexture& texture = static_cast<VulkanTexture&>(*found);
++  // (Session 59: k_16_16_16_16 - 64 bits a texel - through its R16G16B16A16_UINT view.)
++  const VkFormat storage_format = format == xenos::TextureFormat::k_16_16_16_16 ? VK_FORMAT_R16G16B16A16_UINT
++                                  : format == xenos::TextureFormat::k_8       ? VK_FORMAT_R8_UINT  // (Session 59)
++                                  : format == xenos::TextureFormat::k_4_4_4_4 ? VK_FORMAT_R16_UINT
++                                                                              : VK_FORMAT_R32_UINT;
+   if (texture.direct_load_creation() != VulkanTexture::DirectLoadCreation::kCapable ||
+-      texture.direct_load_format() != VK_FORMAT_R32_UINT) {
+-    return refuse("no R32_UINT storage view", &key);
++      texture.direct_load_format() != storage_format) {
++    return refuse("no R32_UINT / R16G16B16A16_UINT storage view", &key);
+   }
+   // (Session 52: or the write covers it whole - gpu_native_truth_cover_outdated, NativeSetCover.)
+   if (!NativeCoversWhole(key, cover) && !NativeTextureBaseUpToDate(texture)) {
+@@ -2954,28 +2984,42 @@ bool VulkanTextureCache::NativeTextureForCopy(uint32_t base_page, uint32_t pitch
+   // wwe2k14 patch (Session 52, gpu_native_truth_fill_direct): a compute write into its raw-bits storage view instead.
+   VkDescriptorSet storage_set = VK_NULL_HANDLE;
+   // (Scaled textures too, Session 52: their direct-load view - NativeTextureReadable is 1x only, for read-backs.)
++  // (Session 59, gpu_native_truth_fill_direct_small: 1 / 2 bytes - k_8 / k_4_4_4_4's R8_UINT / R16_UINT views.)
+   const VkFormat storage_format = storage_bytes == 4   ? VK_FORMAT_R32_UINT
+                                   : storage_bytes == 8 ? VK_FORMAT_R16G16B16A16_UINT
++                                  : storage_bytes == 1 ? VK_FORMAT_R8_UINT
++                                  : storage_bytes == 2 ? VK_FORMAT_R16_UINT
+                                                        : VK_FORMAT_UNDEFINED;
+   if (storage_bytes && storage_set_out && level_out == 0 && !key.mip_max_level && key.tiled &&
+       !key.depth_or_array_size_minus_1 && key.dimension == xenos::DataDimension::k2DOrStacked &&
+-      key.format != xenos::TextureFormat::k_24_8_FLOAT && key.format != xenos::TextureFormat::k_24_8 &&
++      // (Session 59, gpu_native_truth_fill_direct_depth: k_24_8_FLOAT too - its direct load's R32_UINT view holds the
++      // 32-bit float bits the depth fill writes; k_24_8's unorm depth is not a fill kind.)
++      key.format != xenos::TextureFormat::k_24_8 &&
+       texture.direct_load_creation() == VulkanTexture::DirectLoadCreation::kCapable &&
+       texture.direct_load_format() == storage_format) {
+     storage_set = texture.GetDirectLoadDescriptorSet();
+   }
+   if (storage_set != VK_NULL_HANDLE) {
+     const VulkanTexture::Usage old_usage = texture.SetUsage(VulkanTexture::Usage::kComputeStorageWrite);
++    // wwe2k14 patch (Session 59 review): an immediate write after a deferred one into it - the deferred one first (a
++    // held barrier is the caller's batching: TruthFillTexture orders overlapping writes itself).
++    if (old_usage == VulkanTexture::Usage::kComputeStorageWrite && !native_hold_barrier_) {
++      command_processor_.NativeFlushDeferredResolves();
++    }
+     native_last_copy_sampled_ = old_usage == VulkanTexture::Usage::kGuestShaderSampled ||
+                                 old_usage == VulkanTexture::Usage::kSwapSampled;
+     VkPipelineStageFlags src_stage;
+     VkAccessFlags src_access;
+     VkImageLayout old_layout;
+     GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
+-    command_processor_.PushImageMemoryBarrier(texture.image(), ui::vulkan::util::InitializeSubresourceRange(),
+-                                              src_stage, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, src_access,
+-                                              VK_ACCESS_SHADER_WRITE_BIT, old_layout, VK_IMAGE_LAYOUT_GENERAL,
+-                                              VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, false);
++    if (native_hold_barrier_) {  // wwe2k14 patch (Session 59, gpu_native_truth_batch_fills): recorded by the caller
++      native_held_barrier_ = {true, texture.image(), src_stage, src_access, old_layout};
++    } else {
++      command_processor_.PushImageMemoryBarrier(texture.image(), ui::vulkan::util::InitializeSubresourceRange(),
++                                                src_stage, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, src_access,
++                                                VK_ACCESS_SHADER_WRITE_BIT, old_layout, VK_IMAGE_LAYOUT_GENERAL,
++                                                VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, false);
++    }
+     *storage_set_out = storage_set;
+     image_out = texture.image();
+     width_out = key.GetWidth() * (key.scaled_resolve ? draw_resolution_scale_x() : 1);
+@@ -2985,6 +3029,8 @@ bool VulkanTextureCache::NativeTextureForCopy(uint32_t base_page, uint32_t pitch
+     return true;
+   }
+   const VulkanTexture::Usage old_usage = texture.SetUsage(VulkanTexture::Usage::kTransferDestination);
++  // wwe2k14 patch (Session 59 review): a deferred native write into it goes first.
++  if (old_usage == VulkanTexture::Usage::kComputeStorageWrite) command_processor_.NativeFlushDeferredResolves();
+   // wwe2k14 patch (Session 49): sampled since its last fill or load (its usage moved to sampled since then).
+   native_last_copy_sampled_ = old_usage == VulkanTexture::Usage::kGuestShaderSampled ||
+                               old_usage == VulkanTexture::Usage::kSwapSampled;
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 35d1c013d0063d7ac1a9781817f04edeaca7ec5a..e2b8fecb2160bf98d856c1a9c13981164c4234f2 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -763,6 +763,7 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     XE_UI_VULKAN_FEATURE(occlusionQueryPrecise)
+     XE_UI_VULKAN_FEATURE(vertexPipelineStoresAndAtomics)
+     XE_UI_VULKAN_FEATURE(fragmentStoresAndAtomics)
++    XE_UI_VULKAN_FEATURE(shaderStorageImageExtendedFormats)  // wwe2k14 patch (Session 59)
+     XE_UI_VULKAN_FEATURE(shaderClipDistance)
+     XE_UI_VULKAN_FEATURE(shaderCullDistance)
+     XE_UI_VULKAN_FEATURE(sparseBinding)
+diff --git a/src/ui/vulkan/vulkan_upload_buffer_pool.cpp b/src/ui/vulkan/vulkan_upload_buffer_pool.cpp
+index e0058e7b22af6d75cc66af37e3358ad39233e375..91a25da2607f8f032e2294d7577d91f6bf58a34c 100644
+--- a/src/ui/vulkan/vulkan_upload_buffer_pool.cpp
++++ b/src/ui/vulkan/vulkan_upload_buffer_pool.cpp
+@@ -187,7 +187,7 @@ uint8_t* VulkanUploadBufferPool::Request(uint64_t submission_index, size_t size,
+   if (!page) {
+     return nullptr;
+   }
+-  buffer_out = page->buffer_;
++  buffer_out = page->mirror_buffer_ != VK_NULL_HANDLE ? page->mirror_buffer_ : page->buffer_;  // (S59)
+   offset_out = VkDeviceSize(offset);
+   stats_.requested_bytes += size;  // wwe2k14 patch (Session 7b, REBAR)
+   return reinterpret_cast<uint8_t*>(page->mapping_) + offset;
+@@ -202,7 +202,7 @@ uint8_t* VulkanUploadBufferPool::RequestPartial(uint64_t submission_index, size_
+   if (!page) {
+     return nullptr;
+   }
+-  buffer_out = page->buffer_;
++  buffer_out = page->mirror_buffer_ != VK_NULL_HANDLE ? page->mirror_buffer_ : page->buffer_;  // (S59)
+   offset_out = VkDeviceSize(offset);
+   size_out = VkDeviceSize(size_obtained);
+   stats_.requested_bytes += size_obtained;  // wwe2k14 patch (Session 7b, REBAR)
+@@ -214,7 +214,7 @@ void VulkanUploadBufferPool::FillBufferCreateInfo(VkBufferCreateInfo& buffer_cre
+   buffer_create_info.pNext = nullptr;
+   buffer_create_info.flags = 0;
+   buffer_create_info.size = VkDeviceSize(page_size_);
+-  buffer_create_info.usage = usage_;
++  buffer_create_info.usage = usage_ | (mirror_ ? VkBufferUsageFlags(VK_BUFFER_USAGE_TRANSFER_SRC_BIT) : 0);
+   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+   buffer_create_info.queueFamilyIndexCount = 0;
+   buffer_create_info.pQueueFamilyIndices = nullptr;
+@@ -428,11 +428,56 @@ GraphicsUploadBufferPool::Page* VulkanUploadBufferPool::CreatePageImplementation
+   if (page_memory_type == device_local_memory_type_) {
+     ++stats_.pages_device_local;
+   }
+-  return new VulkanPage(vulkan_device_, buffer, memory, mapping, page_memory_type);
++  VulkanPage* const page = new VulkanPage(vulkan_device_, buffer, memory, mapping, page_memory_type);
++  if (mirror_) CreateMirror(*page);  // wwe2k14 patch (Session 59)
++  return page;
++}
++
++// wwe2k14 patch (Session 59, vulkan_uniform_pool_mirror): the page's device-local copy (a type with DEVICE_LOCAL and,
++// if possible, without HOST_VISIBLE: the card's own memory, not the BAR window). On failure the page has none and
++// Request hands out the host page as before.
++void VulkanUploadBufferPool::CreateMirror(VulkanPage& page) {
++  const VulkanDevice::Functions& dfn = vulkan_device_->functions();
++  const VkDevice device = vulkan_device_->device();
++  VkBufferCreateInfo info;
++  FillBufferCreateInfo(info);
++  info.size = allocation_size_;
++  info.usage = usage_ | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
++  VkBuffer buffer;
++  if (dfn.vkCreateBuffer(device, &info, nullptr, &buffer) != VK_SUCCESS) return;
++  VkMemoryRequirements requirements;
++  dfn.vkGetBufferMemoryRequirements(device, buffer, &requirements);
++  const VkPhysicalDeviceMemoryProperties properties = GetMemoryProperties(vulkan_device_);
++  uint32_t type = UINT32_MAX;
++  for (int pass = 0; pass < 2 && type == UINT32_MAX; ++pass) {
++    for (uint32_t i = 0; i < properties.memoryTypeCount; ++i) {
++      const VkMemoryPropertyFlags flags = properties.memoryTypes[i].propertyFlags;
++      if (!(requirements.memoryTypeBits & (1u << i)) || !(flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) continue;
++      if (pass == 0 && (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) continue;
++      type = i;
++      break;
++    }
++  }
++  VkMemoryAllocateInfo allocate = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
++  allocate.allocationSize = requirements.size;
++  allocate.memoryTypeIndex = type;
++  VkDeviceMemory memory = VK_NULL_HANDLE;
++  if (type == UINT32_MAX || dfn.vkAllocateMemory(device, &allocate, nullptr, &memory) != VK_SUCCESS ||
++      dfn.vkBindBufferMemory(device, buffer, memory, 0) != VK_SUCCESS) {
++    if (memory != VK_NULL_HANDLE) dfn.vkFreeMemory(device, memory, nullptr);
++    dfn.vkDestroyBuffer(device, buffer, nullptr);
++    return;
++  }
++  page.mirror_buffer_ = buffer;
++  page.mirror_memory_ = memory;
+ }
+ 
+ void VulkanUploadBufferPool::FlushPageWrites(Page* page, size_t offset, size_t size) {
+   const VulkanPage* vulkan_page = static_cast<const VulkanPage*>(page);
++  if (vulkan_page->mirror_buffer_ != VK_NULL_HANDLE && size) {  // wwe2k14 patch (Session 59)
++    pending_mirror_copies_.push_back(
++        {vulkan_page->buffer_, vulkan_page->mirror_buffer_, VkDeviceSize(offset), VkDeviceSize(size)});
++  }
+   util::FlushMappedMemoryRange(vulkan_device_, vulkan_page->memory_, vulkan_page->memory_type_,
+                                VkDeviceSize(offset), allocation_size_, VkDeviceSize(size));
+ }
+@@ -443,6 +488,8 @@ VulkanUploadBufferPool::VulkanPage::~VulkanPage() {
+   dfn.vkDestroyBuffer(device, buffer_, nullptr);
+   // Unmapping is done implicitly when the memory is freed.
+   dfn.vkFreeMemory(device, memory_, nullptr);
++  if (mirror_buffer_ != VK_NULL_HANDLE) dfn.vkDestroyBuffer(device, mirror_buffer_, nullptr);  // (Session 59)
++  if (mirror_memory_ != VK_NULL_HANDLE) dfn.vkFreeMemory(device, mirror_memory_, nullptr);
+ }
+ 
+ }  // namespace vulkan

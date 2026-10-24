@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.3
+
+A big speed update for the NATIVE renderer, plus a fix for slow entrance starts:
+
+- **Faster: NATIVE at 720p and 1440p.** The graphics card now does far less of the slow back-and-forth the Xbox 360's
+  drawing steps needed. Copies of drawn pictures (shadows, reflections, depth) go straight where the game reads them,
+  instead of through an in-between buffer and a second copy, and many tiny drawing steps no longer wait for each other.
+  In our measurements on an RTX 4090 the graphics card needs about 10-15% less time per frame in a match and up to about
+  20% less in some entrances, at 720p and at 1440p. Pictures are unchanged: we compared them pixel for pixel at 720p
+  and 1440p, and every copy the game reads back byte for byte.
+- **Fixed: entrances starting in slow motion for a few seconds** (since v0.2.2, on every renderer). v0.2.2's fix for
+  garbled attires copied every picture back from the graphics card for a few seconds after a wrestler loads. It now
+  copies back only the one-off pictures (the attires the game builds) and skips the ones the game redraws every frame,
+  so an entrance's first seconds run at full speed again. A slow PC can still drop a few frames there while the
+  attires are built.
+
 ## v0.2.2
 
 Everything in the v0.2.1-native-s56-playtest build (NATIVE faster at 720p, 1440p and 4K; faster on graphics cards

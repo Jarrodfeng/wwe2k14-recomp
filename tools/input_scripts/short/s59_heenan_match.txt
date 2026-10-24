@@ -1,0 +1,17 @@
+# Session 59: Session 58's s58_wm30_full.txt (30 Years match 1, WrestleMania 2: Heenan at ringside with King Kong Bundy)
+# with shots every 120 frames for the first 720 frames of the match, then quit - the garbled-attire check of the
+# readback narrowing. Use with --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false; Heenan's tuxedo should be right (black,
+# silver trim, red bow tie: captures\3887_s58_fix_heenan.png).
+log s58wm: start
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log s58wm: match picked
+press_until_state A match_clock !=0 60 600 5
+log s58wm: match clock running
+screenshot_every 120 s59ring
+wait_frames 720
+screenshot_every 0
+log s58wm: done
+quit

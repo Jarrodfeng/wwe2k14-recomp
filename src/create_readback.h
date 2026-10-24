@@ -56,6 +56,13 @@ REXCVAR_DEFINE_INT32(wwe2k14_readback_loads_mode, 3, "wwe2k14",
                      "windows: 1 fast (previous frame, every resolve), 2 some (previous frame, on a cache miss), 3 full "
                      "(at once, a GPU wait each). The create modes always use 3")
     .range(1, 3);
+REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring, 4, "wwe2k14",
+                     "Session 59: in the load and character windows (not the create modes), resolves whose destination "
+                     "was also resolved in this many earlier frames in a row are not read back (SDK "
+                     "readback_resolve_override_skip_recurring): the frame's own copies, which the CPU never reads; the "
+                     "one-off attire builds still are (run 4034: both 2048-wide attire builds of Session 58 read back 4 / 4). 0 = every resolve (4: a character's "
+                     "first 300 frames no longer run at half speed, A/B 3975)")
+    .range(0, 60);
 REXCVAR_DEFINE_INT32(wwe2k14_readback_char_hold_frames, 300, "wwe2k14",
                      "Session 58: frames after a character file (PAC\\CH\\CHnnn.PAC) opens during which every resolve "
                      "is read back (--wwe2k14_readback_loads)")
@@ -66,6 +73,8 @@ namespace wwe2k14::create_readback {
 inline bool g_on = false;
 inline int g_mode = 3;              // the mode of the newest reason to be on (kept through the hold)
 inline int g_set_mode = -1;         // the readback_resolve_override this last set (-1 = none)
+inline bool g_create = false;       // Session 59: the newest reason to be on is a create mode (kept through the hold)
+inline int g_set_skip = -1;         // Session 59: the readback_resolve_override_skip_recurring this last set
 inline uint64_t g_left_frame = 0;  // the frame the last reason to be on ended while on (0 = still a reason, or off)
 // Kept on this long after leaving (review): the command processor runs behind VdSwap, so a resolve the game issued in
 // the sequence's last frames may be processed after the switch.
@@ -98,8 +107,10 @@ inline void OnFrame(uint64_t frame) {
   const uint32_t from = load_probe::g_seq_from.load(std::memory_order_relaxed);
   const char* why = nullptr;
   int why_mode = 3;  // a create mode: always full
+  bool create = false;
   if (seq != 0 && load_probe::SequenceListed(seq, from, list)) {
     why = "a create mode";
+    create = true;
   } else if (REXCVAR_GET(wwe2k14_readback_loads)) {
     why_mode = REXCVAR_GET(wwe2k14_readback_loads_mode);
     if (g_load_turbo_ingame_window().load(std::memory_order_relaxed)) {
@@ -108,10 +119,16 @@ inline void OnFrame(uint64_t frame) {
       why = "a character file loaded";
     }
   }
-  if (why) g_left_frame = 0, g_mode = why_mode;
+  if (why) g_left_frame = 0, g_mode = why_mode, g_create = create;
   else if (g_on && g_left_frame == 0) g_left_frame = frame;
   const bool on = why || (g_on && frame - g_left_frame < kHoldFrames);
   const int mode = on ? g_mode : -1;
+  // Session 59: the loads' and character windows' recurring resolves are not read back (the create modes: every one).
+  const int skip = on && !g_create ? REXCVAR_GET(wwe2k14_readback_skip_recurring) : 0;
+  if (skip != g_set_skip) {
+    g_set_skip = skip;
+    rex::cvar::SetFlagByName("readback_resolve_override_skip_recurring", std::to_string(skip));
+  }
   if (mode == g_set_mode) return;
   g_on = on;
   g_set_mode = mode;

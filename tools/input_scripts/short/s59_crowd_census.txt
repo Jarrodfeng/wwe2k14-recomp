@@ -1,0 +1,23 @@
+# harness: fast-forward ok (Session 59: what changes between the crowd's draws in Bryan's entrance - [s59][drawcensus] lines for 60 draws of vertex shader C1028A64EFCF8229. Run with --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true --gpu_debug_draw_census_vs=C1028A64EFCF8229)
+on_fail quit
+log bench: start s56_bryan_diag (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_file MNUIHD.PAC 3600
+log census: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log census: match launched
+wait_file 343.bik2 1800
+log census: entrances
+wait_frames 300
+wait_frames 6
+wait_file 324.bik2 20000
+wait_frames 440
+log census: bryan diag start
+cvar gpu_debug_draw_census_count 60
+wait_frames 4
+log census: end
+quit

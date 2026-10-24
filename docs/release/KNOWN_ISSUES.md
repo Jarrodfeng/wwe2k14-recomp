@@ -22,5 +22,7 @@
   have not been tested on such a card by us yet (only on our NVIDIA card forced onto the same path). With FRAME RATE
   30 the match timer (and anything else the game counts in frames) runs at half speed.
 - 360p - 540p and 1080p: the speed gain on integrated graphics has not been measured by us yet (no such PC here).
+- v0.2.3's NATIVE speed-ups were checked and measured on our NVIDIA card only. If pictures look wrong on yours (shadows,
+  reflections, the crowd), please send a report (launcher: Report a problem).
 - The in-game GRAPHICS screen has no RENDERER choice yet (the launcher only).
 - CineCam's setup panel (F8 outside a match) and the automatic entrance freeze are new and lightly tested.
