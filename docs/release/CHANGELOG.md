@@ -1,6 +1,22 @@
 # Changelog
 
-## v0.2.3
+## v0.2.4
+
+A processor (CPU) update: the game needs less CPU time per frame. That matters most where the processor is the limit
+(handhelds, older and low-power laptops); on a fast desktop at 60 fps you will not see a difference, and laptops held
+back by their graphics chip gain little from this one.
+
+- **Faster: crowd scenes (NATIVE).** The game used to prepare each spectator as a separate drawing step, thousands of
+  them in some entrance shots. Now it hands over each group of spectators once, and the whole group is drawn in one
+  go. In the most crowd-heavy entrance shot we measured, the part of the processor that feeds the graphics card does
+  about 20% less work per frame. Pictures are unchanged: we compared them pixel for pixel.
+- **Faster: the game's own code.** The recompiled game code now keeps more of the Xbox 360 processor's state in the
+  PC's registers instead of in memory. In our measurements the main game thread needs about 15% less CPU time, and
+  the program is 13 MB smaller. The game runs exactly as before: we replayed a whole match and compared the game's
+  state every frame.
+- **Fixed: two background threads using a whole processor core each** while the monitor is off or asleep (and
+  possibly on some unusual display setups). The window's screen-refresh timer kept looping instead of waiting. On a
+  laptop that power goes back to the game and the graphics chip.
 
 A big speed update for the NATIVE renderer, plus a fix for slow entrance starts:
 

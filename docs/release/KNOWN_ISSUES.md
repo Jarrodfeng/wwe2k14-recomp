@@ -24,5 +24,7 @@
 - 360p - 540p and 1080p: the speed gain on integrated graphics has not been measured by us yet (no such PC here).
 - v0.2.3's NATIVE speed-ups were checked and measured on our NVIDIA card only. If pictures look wrong on yours (shadows,
   reflections, the crowd), please send a report (launcher: Report a problem).
+- v0.2.4's CPU gains were measured on our desktop (Ryzen 9 5950X) only; on handhelds and laptops they are expected,
+  not measured. If the crowd looks wrong in NATIVE (missing or flickering spectators), please send a report.
 - The in-game GRAPHICS screen has no RENDERER choice yet (the launcher only).
 - CineCam's setup panel (F8 outside a match) and the automatic entrance freeze are new and lightly tested.

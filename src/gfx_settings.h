@@ -502,6 +502,12 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // frames run too (no effect on cards with interlock). Forced fbo on the 4090: resolve hashes 467 / 467, parity
       // shots 6 / 6 byte-identical to NATIVE on interlock; vs LIGHT GPU -13.3% match, command thread -4.7%.
       {"gpu_native_truth_host_rt", "true"},
+      // Session 60 step 2: the crowd at the engine level - of each crowd group (audience_draw_block) the game records the
+      // first member only, the command processor adds the others as instances of that draw in one go (SDK
+      // gpu_scene_crowd_batch, on by default). Pictures 6 / 6 pixel-identical (4091 vs 4092); fast-forwarded normal
+      // play (4085 vs 4089): Brock's crowd opening shot 157 -> 240 fps (command thread -20%, draw packets 4,244 ->
+      // 1,257), Bryan's entrance +4% (pan +5%, command thread -10%), match +2%.
+      {"wwe2k14_scene_crowd", "1"},
   };
 }
 

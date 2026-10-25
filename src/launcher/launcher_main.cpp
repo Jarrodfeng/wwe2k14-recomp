@@ -2609,8 +2609,10 @@ class App {
     t.mods = false, t.cinecam = t.photo_mode = t.runin = false, t.perf_report = 0;
     t.scenario = "@quick", t.quick_type = 0, t.quick_ids = "343,324", t.quick_cpu_only = true, t.quick_arena = -1;
     t.skip_entrances = false;
+    // (Session 60: without the match's faster fast-forward vblank - the numbers stay comparable with earlier builds'
+    // tests, and its precise timer does not take a core from a weak laptop.)
     t.extra = std::string("--wwe2k14_input_script=") + perf_runs_[perf_step_].script +
-              " --wwe2k14_file_trace=true --vsync=false";
+              " --wwe2k14_file_trace=true --vsync=false --wwe2k14_ff_vblank_hz=0";
     StartGame(BuildCommand(t, paths_), "Performance test: run " + std::to_string(perf_step_ + 1) + " of " +
                                            std::to_string(perf_runs_.size()) + " started");
     if (!game_proc_) perf_step_ = -1;  // could not start: Status says why

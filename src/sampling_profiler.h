@@ -468,12 +468,28 @@ class SamplingProfiler {
     };
     std::vector<std::vector<Match>> matches(pending_.size());
     std::vector<size_t> already(pending_.size(), 0);  // matching threads sampled before
+    // Session 60: the prefix "busy" = the two unnamed threads with the most CPU time (2 s or more), for the host
+    // threads that spin without a name (Session 37's open item).
+    const auto busy_it = std::find(pending_.begin(), pending_.end(), std::string("busy"));
+    std::vector<std::pair<uint64_t, DWORD>> unnamed_cpu;
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return;
     THREADENTRY32 entry{sizeof(entry)};
     for (BOOL more = Thread32First(snapshot, &entry); more; more = Thread32Next(snapshot, &entry)) {
       if (entry.th32OwnerProcessID != GetCurrentProcessId() || entry.th32ThreadID == sampler_id_) continue;
       const std::string description = ThreadDescription(entry.th32ThreadID);
+      if (busy_it != pending_.end() && description.empty()) {
+        if (HANDLE h = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ThreadID)) {
+          FILETIME created, exited, kernel, user;
+          if (GetThreadTimes(h, &created, &exited, &kernel, &user)) {
+            const uint64_t t = (uint64_t(kernel.dwHighDateTime) << 32 | kernel.dwLowDateTime) +
+                               (uint64_t(user.dwHighDateTime) << 32 | user.dwLowDateTime);
+            if (t >= 20000000ull) unnamed_cpu.push_back({t, entry.th32ThreadID});  // 100 ns units: 2 s
+          }
+          CloseHandle(h);
+        }
+        continue;
+      }
       for (size_t i = 0; i < pending_.size(); ++i) {
         if (description.compare(0, pending_[i].size(), pending_[i]) != 0) continue;
         const bool sampled = std::any_of(targets_.begin(), targets_.end(),
@@ -484,6 +500,12 @@ class SamplingProfiler {
       }
     }
     CloseHandle(snapshot);
+    if (busy_it != pending_.end()) {
+      const size_t i = size_t(busy_it - pending_.begin());
+      std::sort(unnamed_cpu.rbegin(), unnamed_cpu.rend());
+      for (size_t k = 0; k < unnamed_cpu.size() && k < 2; ++k)
+        matches[i].push_back({unnamed_cpu[k].second, "unnamed " + std::to_string(unnamed_cpu[k].second)});
+    }
     std::vector<std::string> still_pending;
     for (size_t i = 0; i < pending_.size(); ++i) {
       if (matches[i].empty() && !already[i]) {

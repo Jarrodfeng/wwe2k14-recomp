@@ -33,6 +33,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -62,6 +63,12 @@ REXCVAR_DEFINE_BOOL(wwe2k14_step_vblank, false, "wwe2k14",
                     "Session 19 item 10: with wwe2k14_step_hz, set the SDK's gpu_vblank_rate_override_hz to the scaled "
                     "rate whenever the step is applied (and back to 0 = the video mode's 60 Hz while it is held or "
                     "off), so N fps runs in real time; false = leave the vblank alone (N/60x slow motion at 60 Hz)");
+
+REXCVAR_DEFINE_DOUBLE(wwe2k14_ff_vblank_hz, 4000.0, "wwe2k14",
+                      "Session 60: with vsync off (fast-forward), during the match (in game, not the entrances, not a "
+                      "load window, not replay mode) run the guest vblank at this rate on the precise timer (SDK "
+                      "gpu_vblank_unthrottled_hz) instead of 1 kHz Sleep(1) polling: the command thread waited ~25% "
+                      "of its time for the next vblank (profile 4082); match 284 -> 365 fps (4076 / 4084). 0 = off");
 
 REX_EXTERN(__imp__sub_82BB6BB0);
 REX_EXTERN(__imp__sub_82BB6D50);
@@ -173,12 +180,40 @@ inline void SyncDetTime(uint8_t* base) {
               g_guest_frame.load(std::memory_order_relaxed), w);
 }
 
+// Session 60 (wwe2k14_ff_vblank_hz): the faster fast-forward vblank in the match. Checked every 30 frames (the vsync
+// and rate settings are read by name); only a rate this code set is ever replaced, so a command-line
+// gpu_vblank_unthrottled_hz stays.
+inline double g_ff_vblank_applied = 0.0;
+inline bool g_ff_vblank_foreign = false;  // gpu_vblank_unthrottled_hz was set by someone else: leave it alone
+inline void ApplyFastForwardVblank(uint64_t frame) {
+  if (frame % 30 || g_ff_vblank_foreign) return;
+  const double want = REXCVAR_GET(wwe2k14_ff_vblank_hz);
+  const bool ff = want > 0.0 && g_in_game.load(std::memory_order_relaxed) &&
+                  !g_entrances.load(std::memory_order_relaxed) &&
+                  !g_load_turbo_active_flag().load(std::memory_order_relaxed) &&
+                  !g_load_turbo_ingame_window().load(std::memory_order_relaxed) && !rex::det::Enabled() &&
+                  rex::cvar::GetFlagByName("vsync") == "false";
+  const double target = ff ? want : 0.0;
+  if (target == g_ff_vblank_applied) return;
+  if (g_ff_vblank_applied == 0.0) {
+    const std::string now = rex::cvar::GetFlagByName("gpu_vblank_unthrottled_hz");
+    if (!now.empty() && std::strtod(now.c_str(), nullptr) != 0.0) {
+      g_ff_vblank_foreign = true;
+      return;
+    }
+  }
+  rex::cvar::SetFlagByName("gpu_vblank_unthrottled_hz", std::to_string(target));
+  REXLOG_INFO("[wwe2k14][step] fast-forward vblank {} -> {} Hz at frame {}", g_ff_vblank_applied, target, frame);
+  g_ff_vblank_applied = target;
+}
+
 // Once per presented frame (VdSwapOverride): applies a changed step_hz. Also learns the game word on the first
 // frame (boot has already called the setter by then; the word is 60).
 inline void OnFrameInner(uint8_t* base, uint64_t frame);
 inline void OnFrame(uint8_t* base, uint64_t frame) {
   OnFrameInner(base, frame);
   SyncDetTime(base);
+  ApplyFastForwardVblank(frame);
 }
 inline void OnFrameInner(uint8_t* base, uint64_t frame) {
   auto valid = [](uint32_t a) { return a >= 0x40000000u && a < 0xE0000000u; };

@@ -17,6 +17,15 @@ out_directory_path = "generated/default"
 #   The Lettering crash: sub_82CCD908 returned with r1 moved up 0x260 and r31 = 0, which is the setjmp frame's state.
 setjmp_address = 0x83438D70
 longjmp_address = 0x83438A50
+# Session 60 (docs\research\perf_fundamentals_s60.md 4.1): guest condition, count, fixed-point exception and
+# reservation registers as host locals instead of context-struct fields (XenonRecomp's options; Unleashed ships all
+# of them on). Not skip_lr: our hooks identify their callers by ctx.lr (scene_crowd, photo_mode, wm30_jump, runin, ...).
+# Not non_argument / non_volatile_as_local yet (setjmp / longjmp above; calling-convention risk, Gears 2's port).
+# non_argument_as_local tried in Session 60: the game hangs at boot (black screen, run 4080).
+cr_as_local = true
+ctr_as_local = true
+xer_as_local = true
+reserved_as_local = true
 includes = ["config/hints_scan_001.toml", "config/hints_scan_002.toml", "config/hints_scan_003.toml", "config/hints_scan_004.toml", "config/hints_live.toml", "config/switch_tables.toml", "config/hints_disasm_verified.toml", "config/timeline_hooks.toml", "config/s7_pacing_hooks.toml", "config/s7_tiling_hooks.toml", "config/determinism_hooks.toml", "config/s8_barrier_probe.toml", "config/fp_probe_hooks.toml", "config/scenario_hooks.toml"]
 
 [entrypoint.functions]

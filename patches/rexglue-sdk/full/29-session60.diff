@@ -1,0 +1,287 @@
+# ReXGlue SDK changes for WWE 2K14 (session60): e03ea01780e4..8bd883ab9ea1 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  8bd883a Session 60: crowd batch - one member through the draw dispatch starts each instanced run, then AppendCrowdInstances fills it (right after a run's first draw its other constant uploads lie between: reason 14); refusal reason codes ([scene][crowd] batch refused, first 12). Pictures 6 / 6 identical (4091 / 4092)
+#  32254dc Session 60: crowd batch - AppendCrowdInstances adds a queued crowd run's members as instances of the first member's draw (constants uploaded, nothing else derived again; stops at the first member that does not fit), gpu_scene_crowd_batch (default true; acts only with the game's wwe2k14_scene_crowd 1), [scene][crowd] batched count
+#  887ddaf Session 60: UI tick thread sleeps when WaitForVBlank returns at once (present_ui_tick_fast_sleep_ms 4; monitor off / asleep made it and the UI thread spin ~96% of a core each, run 4075); waits through the held output reference; [s60][ui_tick] counts every 10 s
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index bb0f41c300fdbec945459f88150e6eda7335d7b2..b93505c8160d9741bde3677bfcd506c903b496b3 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -493,6 +493,7 @@ class CommandProcessor {
+   bool scene_crowd_verify_active_ = false;
+   struct SceneCrowdStats {
+     uint64_t pushed = 0, matched = 0, dropped = 0, members = 0, failed = 0, verify_ok = 0, verify_bad = 0;
++    uint64_t batched = 0;  // Session 60: members added by AppendCrowdInstances
+     uint64_t pushed_window = 0, dropped_window = 0;
+     uint64_t dropped_local = 0;  // dropped by the command processor (never matched)
+     uint64_t first_frame = UINT64_MAX;
+@@ -510,6 +511,11 @@ class CommandProcessor {
+                              bool major_mode_explicit, uint32_t library_kind, bool& succeeded) {
+     return false;
+   }
++  // wwe2k14 patch (Session 60, CROWD BATCH): right after a crowd run's first member was drawn, add the members that
++  // follow (12 dwords each: VS constants c76-c78, host order) as instances of that draw - their constants written and
++  // uploaded, nothing else derived again (a member differs from the first only in c76-c78: the game's crowd loop records
++  // nothing else between them). Returns how many it added (from the front); the caller draws the rest one by one.
++  virtual uint32_t AppendCrowdInstances(const uint32_t* members, uint32_t count) { return 0; }
+   uint32_t half2_inline_vs_at_ = 0, half2_inline_vs_caller_ = 0;  // where the last inline VS load was (diagnostic)
+   uint32_t half2_ucode_[2] = {};  // guest physical address of the last IM_LOAD's microcode (VS, PS); 0: inline
+   uint32_t half2_shader_at_[2] = {};  // (Session 51, STATE LOG diagnostic) the last VS / PS load packet's address
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 42fc4ab3d016e7c8d6fec26e9a65a0df20cd3457..6164c242b6a7a718e899bca3997b90d92a5dc24e 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -518,6 +518,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // wwe2k14 patch (Session 50, LEAN DRAWS): gpu_native_lean_draws - see command_processor.cpp "LEAN DRAWS".
+   bool IssueDrawLean(xenos::PrimitiveType prim_type, uint32_t index_count, IndexBufferInfo* index_buffer_info,
+                      bool major_mode_explicit, uint32_t library_kind, bool& succeeded) override;
++  // wwe2k14 patch (Session 60, CROWD BATCH): see the base class.
++  uint32_t AppendCrowdInstances(const uint32_t* members, uint32_t count) override;
++  uint32_t crowd_batch_refusals_logged_ = 0;
+ 
+   // wwe2k14 patch (Session 6, COUNTERS): per-frame counters kept outside the base class.
+   void CollectFrameCounters(FrameCounters& counters) override;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 2fd42f8166f7f16149d194913b31c0237c81f7f8..3cc2c91622f52c1b2bd1a55245d61ab80d1cfad0 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -52,6 +52,10 @@
+ #include <rex/system/user_module.h>
+ 
+ REXCVAR_DEFINE_BOOL(vsync, true, "GPU", "Enable vertical sync");
++REXCVAR_DEFINE_BOOL(gpu_scene_crowd_batch, true, "GPU",
++                    "wwe2k14 (Session 60): the crowd members the game queued (wwe2k14_scene_crowd 1) are added as "
++                    "instances of their run's first draw in one go (their constants uploaded, nothing else derived "
++                    "again) instead of one draw dispatch each; false = Session 50's one dispatch per member");
+ 
+ REXCVAR_DEFINE_BOOL(gpu_wait_reg_mem_spin, false, "GPU",
+                     "WAIT_REG_MEM: yield-spin while the condition is unmet instead of sleeping "
+@@ -2830,7 +2834,18 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+   // The omitted members: each one's c76-c78 written as its op-21 record would have left them (the library's flush
+   // writes the whole group c76-c79; c79 is unchanged), then its draw as the packet's would be issued.
+   const uint32_t members = uint32_t(run.others.size() / 12);
+-  for (uint32_t m = 0; m < members; ++m) {
++  // wwe2k14 patch (Session 60, CROWD BATCH): one member through the draw dispatch (it starts a new instanced run: right
++  // after a run's first draw its other constant uploads lie between, so no member can follow it as an instance), then
++  // as many as fit straight as instances of that run, and again.
++  const bool batch = REXCVAR_GET(gpu_scene_crowd_batch);
++  for (uint32_t m = 0; m < members;) {
++    if (batch && m) {
++      const uint32_t b = AppendCrowdInstances(run.others.data() + 12 * size_t(m), members - m);
++      m += b;
++      st.members += b;
++      st.batched += b;
++      if (m >= members) break;
++    }
+     for (uint32_t i = 0; i < 12; ++i) WriteRegister(kSceneCrowdRegister + i, run.others[12 * size_t(m) + i]);
+     bool ok = false;
+     if (!IssueDrawLean(prim_type, index_count, index_buffer_info, major_mode_explicit, library_kind, ok)) {
+@@ -2838,6 +2853,7 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+     }
+     ++st.members;
+     st.failed += ok ? 0 : 1;
++    ++m;
+   }
+ }
+ 
+@@ -2868,9 +2884,10 @@ void CommandProcessor::SceneCrowdFrameEnd() {
+   if (st.pushed_window) {
+     const double n = double(frame - st.first_frame);
+     REXGPU_INFO("[scene][crowd] frames {}-{}, per frame: runs queued {:.1f}, matched {:.1f}, dropped {:.1f}; members "
+-                "drawn from the queue {:.1f} (failed {}); verify: {} members equal, {} differ",
++                "drawn from the queue {:.1f} (batched as instances {:.1f}, failed {}); verify: {} members equal, "
++                "{} differ",
+                 st.first_frame, frame, st.pushed_window / n, st.matched / n,
+-                (st.dropped_window + st.dropped_local) / n, st.members / n,
++                (st.dropped_window + st.dropped_local) / n, st.members / n, st.batched / n,
+                 st.failed,
+                 st.verify_ok, st.verify_bad);
+   }
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 25e86c4cb1cc89a7a9e3852d81dd785d82e5fd8d..71dd09c88bf4b28dbb4280702c3eeaad41d1c3ab 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -15671,6 +15671,140 @@ bool VulkanCommandProcessor::RepeatDrawFast(const Shader* vertex_shader, uint64_
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 60, CROWD BATCH): the crowd members after their run's first draw, as more instances of it.
++// Each member is exactly what RepeatDrawFast's merge does for a repeat whose only change is the vertex float constants
++// (its c76-c78 written, the vertex float constants uploaded one stride after the run's last, one instance added to the
++// draw recorded last), without the per-draw path around it: the lean checks, the repeat comparison, the native draw
++// copy - all of them hold for every member as they held for the first (the game records nothing else between them).
++// Stops at the first member that does not fit (the 256-vec4 range, another offset or buffer, a draw recorded after);
++// the caller draws the rest through the normal path, which starts a new run.
++uint32_t VulkanCommandProcessor::AppendCrowdInstances(const uint32_t* members, uint32_t count) {
++  RepeatFastStats& stats = repeat_fast_stats_;
++  ConstantsDynamicOffsets* const constants_dynamic = constants_dynamic_offsets_.get();
++  RepeatPrev& prev = repeat_prev_;
++  // (Why a run was not batched, the first few times: a reason code.)
++  auto refuse = [this](uint32_t reason) -> uint32_t {
++    if (crowd_batch_refusals_logged_ < 12) {
++      ++crowd_batch_refusals_logged_;
++      REXGPU_INFO("[scene][crowd] batch refused at frame {}: reason {}", frame_current_, reason);
++    }
++    return 0;
++  };
++  if (!count) return 0;
++  if (!REXCVAR_GET(vulkan_repeat_draw_fast) || !REXCVAR_GET(vulkan_repeat_draw_merge)) return refuse(1);
++  if (!prev.valid) return refuse(2);
++  if (!prev.merge_stride) return refuse(3);
++  if (!prev.run_instances) return refuse(4);
++  if (!constants_dynamic || REXCVAR_GET(vulkan_constants_dynamic_offsets_per_draw_sets) ||
++      REXCVAR_GET(vulkan_constants_dynamic_offsets_verify) || anatomy_active_ || gpu_marks_active_ ||
++      recstats_frames_ > 0 || skip_frame_draws_ || (crash_checkpoints_enabled() && !prev.crash_valid)) {
++    return refuse(5);
++  }
++  if (!current_guest_graphics_pipeline_layout_ || current_guest_graphics_pipeline_ != prev.pipeline ||
++      current_external_graphics_pipeline_ != VK_NULL_HANDLE) {
++    return refuse(6);
++  }
++  const auto* vertex_shader = static_cast<const VulkanShader*>(active_vertex_shader());
++  if (!vertex_shader || vertex_shader != prev.vertex_shader ||
++      vertex_shader->constant_register_map().float_count != prev.float_count) {
++    return refuse(7);
++  }
++  constexpr uint32_t kAllConstantBuffersMask = (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferCount) - 1;
++  constexpr uint32_t kVertexFloatBit = UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatVertex;
++  constexpr uint32_t kConstantsSetBit = UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetConstants;
++  if ((current_constant_buffers_up_to_date_ | kVertexFloatBit) != kAllConstantBuffersMask) return refuse(8);
++  // The run's draw is the truth draw recorded last (a native frame), or a host draw (AddInstanceToLastDraw checks that
++  // nothing was recorded after it).
++  const bool native_replacing = native_ && native_->enabled() && native_->replacing();
++  native::Draw* truth_base = nullptr;
++  if (native_replacing) {
++    if (!native_repeat_draw_valid_ || !native_repeat_draw_ || !native_repeat_draw_->owned ||
++        !native_repeat_draw_->truth || native_repeat_draw_->pipeline == VK_NULL_HANDLE) {
++      return refuse(9);
++    }
++    truth_base = native_repeat_draw_.get();
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const size_t uniform_buffer_alignment = size_t(vulkan_device->properties().minUniformBufferOffsetAlignment);
++  const size_t float_constants_size = sizeof(float) * 4 * std::max(prev.float_count, UINT32_C(1));
++  uint32_t* const regs = register_file_->values;
++  constexpr uint32_t kCrowdRegister = XE_GPU_REG_SHADER_CONSTANT_000_X + 4 * 76;  // c76-c78
++  VkDescriptorBufferInfo& buffer_info =
++      current_constant_buffer_infos_[SpirvShaderTranslator::kConstantBufferFloatVertex];
++  uint32_t done = 0, stop = 0;
++  for (; done < count; ++done) {
++    const uint32_t n = prev.run_instances;
++    if (n * prev.merge_stride + prev.float_count > 256 ||
++        current_graphics_descriptor_sets_[SpirvShaderTranslator::kDescriptorSetConstants] != prev.run_set ||
++        (truth_base && !native_->TruthLastDrawRecorded())) {
++      stop = n * prev.merge_stride + prev.float_count > 256 ? 10 : truth_base && !native_->TruthLastDrawRecorded() ? 12 : 11;
++      break;
++    }
++    std::memcpy(regs + kCrowdRegister, members + 12 * size_t(done), 12 * sizeof(uint32_t));
++    // The vertex float constants, as RepeatDrawFast uploads them.
++    current_constant_buffers_up_to_date_ &= ~kVertexFloatBit;
++    uint8_t* mapping = uniform_buffer_pool_->Request(frame_current_, float_constants_size, uniform_buffer_alignment,
++                                                     buffer_info.buffer, buffer_info.offset);
++    if (!mapping) {
++      stop = 13;
++      break;
++    }
++    constants_dynamic->mappings[SpirvShaderTranslator::kConstantBufferFloatVertex] = mapping;
++    buffer_info.range = VkDeviceSize(float_constants_size);
++    uint8_t* const float_pool_mapping = mapping;
++    uint8_t* const float_shadow = constants_dynamic->shadow[SpirvShaderTranslator::kConstantBufferFloatVertex];
++    if (float_shadow) mapping = float_shadow;
++    if (REXCVAR_GET(vulkan_float_constant_runs)) {
++      GatherFloatConstantRuns(mapping, &regs[XE_GPU_REG_SHADER_CONSTANT_000_X], current_float_constant_map_vertex_);
++    } else {
++      for (uint32_t i = 0; i < 4; ++i) {
++        uint64_t float_constant_map_entry = current_float_constant_map_vertex_[i];
++        uint32_t float_constant_index;
++        while (bit_inline::bit_scan_forward(float_constant_map_entry, &float_constant_index)) {
++          float_constant_map_entry &= ~(1ull << float_constant_index);
++          std::memcpy(mapping, &regs[XE_GPU_REG_SHADER_CONSTANT_000_X + (i << 8) + (float_constant_index << 2)],
++                      sizeof(float) * 4);
++          mapping += sizeof(float) * 4;
++        }
++      }
++    }
++    if (float_shadow) std::memcpy(float_pool_mapping, float_shadow, float_constants_size);
++    current_constant_buffers_up_to_date_ |= kVertexFloatBit;
++    current_graphics_descriptor_set_values_up_to_date_ &= ~kConstantsSetBit;
++    if (!constants_dynamic->PrepareSet(*this, false)) {
++      current_constant_buffers_up_to_date_ &= ~kVertexFloatBit;
++      break;
++    }
++    current_graphics_descriptor_set_values_up_to_date_ |= kConstantsSetBit;
++    bool next_instance = current_graphics_descriptor_sets_[SpirvShaderTranslator::kDescriptorSetConstants] ==
++                         prev.run_set;
++    for (uint32_t i = 0; next_instance && i < ConstantsDynamicOffsets::kBufferCount; ++i) {
++      uint32_t expected = prev.run_offsets[i];
++      if (i == SpirvShaderTranslator::kConstantBufferFloatVertex) expected += n * prev.merge_stride * 16;
++      next_instance = constants_dynamic->dynamic_offsets[i] == expected;
++    }
++    // (A truth draw's instance is claimed as the repeat path claims it: the same images and pipeline as the run's.)
++    if (!next_instance || (truth_base && !native_->ClaimTruthLean(*truth_base)) ||
++        !deferred_command_buffer_.AddInstanceToLastDraw(prev.host_indexed)) {
++      // Not this run's next instance: the normal path uploads again and starts a new run.
++      stop = !next_instance ? 14 : (truth_base && truth_base->truth_epoch == 0) ? 15 : 16;
++      current_constant_buffers_up_to_date_ &= ~kVertexFloatBit;
++      break;
++    }
++    ++prev.run_instances;
++    current_graphics_descriptor_sets_bound_up_to_date_ &= ~kConstantsSetBit;
++    ++stats.fast;
++    ++stats.merged;
++    if (truth_base) native_->NoteTruthInstance();
++    prev.sets_bound = current_graphics_descriptor_sets_bound_up_to_date_;
++  }
++  // The registers as the members' own records would have left them: the last member drawn here. (The normal path
++  // writes the remaining members' constants itself.) Nothing is dirty for the draw recorded last.
++  if (done) repeat_dirty_ = 0;
++  if (!done && stop) refuse(stop);
++  return done;
++}
++
+ // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical): the buffer of `kind` written last in this frame, if it
+ // holds these bytes, becomes the current one (its place; for the dynamic offsets its mapping - a repack copies from the
+ // shadow copy, which holds the same bytes, or from that mapping).
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+index 6e68471a0c19cd36092ae330a586a3e924a004e0..3003dd0f37d6dd6a5bd545cf9164b9162ab28f74 100644
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -42,6 +42,10 @@ REXCVAR_DEFINE_BOOL(present_ui_idle_wait, false, "UI/Presenter",
+                     "wwe2k14 (Session 37): with present_guest_frames_once, a UI paint that has no new guest frame "
+                     "waits for the next UI tick (a new guest frame still wakes it at once) instead of re-requesting "
+                     "the next paint immediately (the UI thread spun between guest frames)");
++REXCVAR_DEFINE_INT32(present_ui_tick_fast_sleep_ms, 4, "UI/Presenter",
++                     "wwe2k14 (Session 60): when the UI tick thread's WaitForVBlank returns in under 1 ms (a monitor "
++                     "that is off or asleep: run 4075, ~96% of a core in the tick thread and the UI thread it wakes), "
++                     "sleep this many ms instead of calling it again at once; 0 = off (the old busy loop)");
+ 
+ REXCVAR_DEFINE_BOOL(present_letterbox, true, "UI/Presenter",
+                     "Enable letterboxing for non-native aspect ratios");
+@@ -1735,7 +1739,25 @@ void Presenter::DXGIUITickThread() {
+     {
+       Microsoft::WRL::ComPtr<IDXGIOutput> dxgi_output = dxgi_ui_tick_output_;
+       dxgi_ui_tick_lock.unlock();
+-      wait_succeeded = SUCCEEDED(dxgi_ui_tick_output_->WaitForVBlank());
++      // wwe2k14 patch (Session 60): a WaitForVBlank that returns at once (monitor off / asleep) made this a busy
++      // loop that also woke the UI thread thousands of times a second; sleep instead. Counted, logged every 10 s.
++      const auto wait_start = std::chrono::steady_clock::now();
++      wait_succeeded = SUCCEEDED(dxgi_output->WaitForVBlank());
++      const auto wait_end = std::chrono::steady_clock::now();
++      static uint64_t s60_waits = 0, s60_fast = 0;
++      static auto s60_log_time = wait_end;
++      ++s60_waits;
++      const int32_t fast_sleep_ms = REXCVAR_GET(present_ui_tick_fast_sleep_ms);
++      if (wait_end - wait_start < std::chrono::milliseconds(1)) {
++        ++s60_fast;
++        if (fast_sleep_ms > 0) std::this_thread::sleep_for(std::chrono::milliseconds(fast_sleep_ms));
++      }
++      if (wait_end - s60_log_time >= std::chrono::seconds(10)) {
++        REXLOG_INFO("[s60][ui_tick] {} vblank waits in 10 s, {} returned in under 1 ms{}", s60_waits, s60_fast,
++                    s60_fast && fast_sleep_ms > 0 ? " (slept instead)" : "");
++        s60_waits = s60_fast = 0;
++        s60_log_time = wait_end;
++      }
+     }
+     dxgi_ui_tick_lock.lock();
+     if (wait_succeeded) {
