@@ -54,7 +54,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION

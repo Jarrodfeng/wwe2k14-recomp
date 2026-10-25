@@ -1,0 +1,20 @@
+# Session 66 (cost card): companion route for the s21_lb replay scenes - no screenshots, just the scene marks and
+# enough frames after each for the census windows (Brock 343.bik2 +300, Bryan 324.bik2 +300, match M3.PAC +900).
+# Use with --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true --wwe2k14_file_trace=true --gpu_record_stats=30
+on_fail quit
+log bench: start cost_scene_replay (replay)
+wait_file SaveData.Dat 3600
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 20000
+log scene=tron_343
+wait_frames 300
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 300
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 900
+log bench: done
+quit

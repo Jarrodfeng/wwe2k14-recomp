@@ -65,6 +65,9 @@
 #include "create_readback.h"  // Session 57: --wwe2k14_readback_sequences (exact readback in the create modes, default on)
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
+#include "replay_watch.h"  // Session 63 (Android only): log a runaway render-command replay (diagnosis)
+#include "native_skin.h"   // Session 64: the game's CPU vertex-skinning loop sub_82508738 natively (S66: every platform, via native_fn.h)
+#include "nf/all.h"        // Session 66 (F2): the native function factory's functions (off until verified)
 #include "shader_list.h"  // Session 61: --wwe2k14_shader_list (the shipped shader list into the shader storage)
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
@@ -126,6 +129,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_preset_165, false, "wwe2k14",
 // Session 6: one switch for all of this session's command-processor optimisation defaults (see OnPreSetup).
 REXCVAR_DEFINE_BOOL(wwe2k14_s6_defaults, true, "wwe2k14",
                     "Apply the Session 6 GPU command-processor optimisation defaults (false = Session 5 behaviour)");
+
+#if defined(__ANDROID__)
+REXCVAR_DEFINE_INT32(wwe2k14_android_pin_cpu, -1, "wwe2k14",
+                     "Session 63 (Android, diagnosis): run the game on this CPU core only (-1 = off)");
+#endif
 
 REXCVAR_DEFINE_BOOL(wwe2k14_mount_cache, false, "wwe2k14",
                     "Mount <user data>/cache_partition as the Xbox 360 HDD cache partition (cache:)");
@@ -230,6 +238,27 @@ class Wwe2k14App : public rex::ReXApp {
     // Session 5). Jarrod: "almost flawless".
     // Session 37: --wwe2k14_light_renderer (default off) sets the host render target path and its fixes first.
     wwe2k14::light::Configure();
+#if defined(__ANDROID__)
+    // Session 63 (Android port): the separate submit thread stays on, as on the PC. Adreno never wakes a fence wait whose
+    // work the submit thread has not handed to the driver yet (runs 007-008 stalled); the SDK now drains the submit
+    // queue before such a wait on Android (command_processor.cpp AwaitSubmissionCompletion). Played match: 39.7 fps
+    // mean without the thread (run 017) -> 47.7 with it (run 020), lowest 5 s window 16.9 -> 37.1.
+    // Session 63 (Jarrod, ~18:45: "all the current default settings should be built right into the android build"):
+    // there is no launcher and no settings file on the phone, and a +dev build never applies the launcher's defaults
+    // (gfx_menu::ApplyLauncherSettings), so the PC's defaults are set here: the NATIVE renderer's list (with its
+    // no-interlock part, gpu_native_truth_host_rt: Adreno has no interlock) and the host render-target path's two depth
+    // fixes. The 1440p60 preset below adds no MSAA / 60 fps entrances / UPSKIP / TEXDIRECT; its resolution stays 720p
+    // here until Jarrod picks the phone's picture (ANDROID_PLAN F5). Each only if left at default.
+    if (rex::cvar::GetFlagSource("resolution_scale") == rex::cvar::Source::kDefault)
+      rex::cvar::SetFlagByName("resolution_scale", "1");
+    for (const auto& [name, value] : wwe2k14::gfxs::NativeRendererFlags()) {
+      if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
+    }
+    wwe2k14::light::ApplyFixes();
+    REXLOG_INFO("[wwe2k14][android] PC defaults built in: gpu_native={}, truth={}, truth_host_rt={}, resolution_scale={}",
+                rex::cvar::GetFlagByName("gpu_native"), rex::cvar::GetFlagByName("gpu_native_truth"),
+                rex::cvar::GetFlagByName("gpu_native_truth_host_rt"), rex::cvar::GetFlagByName("resolution_scale"));
+#endif
     for (auto [name, value] : {std::pair{"render_target_path_vulkan", "fsi"},
                                std::pair{"vulkan_gpu_crash_diagnostics", "true"},
                                std::pair{"gpu_wait_reg_mem_spin", "true"},
@@ -443,6 +472,17 @@ class Wwe2k14App : public rex::ReXApp {
   }
 
   void OnPostInitLogging() override {
+#if defined(__ANDROID__)
+    // Session 63: --wwe2k14_android_pin_cpu=N runs the game on CPU core N only (this thread now; every thread made
+    // after it inherits). A diagnosis switch: on one core the CPU's memory ordering cannot show (phone run 013's freeze).
+    if (const int cpu = REXCVAR_GET(wwe2k14_android_pin_cpu); cpu >= 0) {
+      cpu_set_t set;
+      CPU_ZERO(&set);
+      CPU_SET(cpu, &set);
+      const int r = sched_setaffinity(0, sizeof(set), &set);
+      REXLOG_INFO("[wwe2k14][android] pinned to CPU {}: {}", cpu, r == 0 ? "ok" : std::strerror(errno));
+    }
+#endif
     wwe2k14::InstallCrashHandlers();
     wwe2k14::ApplyBackgroundFullSpeed();  // Session 32: test lanes behind other windows at full speed
     // Session 8 task 0: pin this run's log number now, inside run_and_triage's launch window (frame_stats.h).

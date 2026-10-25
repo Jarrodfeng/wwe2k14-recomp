@@ -39,7 +39,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>  // GetModuleFileNameW
+#include "platform/compat.h"  // GetModuleFileNameW
 
 #include "frame_stats.h"  // g_guest_frame
 

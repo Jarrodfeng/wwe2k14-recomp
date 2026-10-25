@@ -58,8 +58,10 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <wincodec.h>  // Session 58: GUID_ContainerFormatPng for SavePngWic's declaration below
+#endif
 #endif
 
 #include <rex/cvar.h>

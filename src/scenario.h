@@ -44,7 +44,7 @@
 #include <rex/system/xmemory.h>
 #include <rex/hook.h>
 
-#include <windows.h>  // __try / GetExceptionCode for the snapshot trigger's fault-safe copy
+#include "platform/compat.h"  // __try / GetExceptionCode for the snapshot trigger's fault-safe copy
 
 #include <algorithm>
 #include <atomic>

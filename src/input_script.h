@@ -161,10 +161,14 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <wincodec.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows libraries
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "ole32.lib")
+#endif
 #endif
 
 #include "frame_stats.h"
@@ -230,6 +234,14 @@ inline void (*g_screenshot_hook)(const std::string& label) = nullptr;
 // PNG through Windows Imaging Component (part of Windows: no extra library). RawImage is R8 G8 B8 X8 -> 24-bit BGR;
 // with `alpha` (Session 18: title reveal thumbnails) R8 G8 B8 A8 -> 32-bit BGRA. Session 58: `container` =
 // GUID_ContainerFormatJpeg for the scene snapshots (src/session_log.h).
+#if !defined(_WIN32)
+// Session 63 (Android port): no WIC; screenshots there come from `adb shell screencap` until phase 6 writes PNGs.
+inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage&, bool = false,
+                       const GUID& = GUID_ContainerFormatPng) {
+  REXLOG_WARN("[wwe2k14][input] {}: picture files are not written on this platform yet", path.filename().string());
+  return false;
+}
+#else
 inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage& image, bool alpha = false,
                        const GUID& container = GUID_ContainerFormatPng) {
   const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // this worker thread
@@ -274,6 +286,7 @@ inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImag
   if (SUCCEEDED(co)) CoUninitialize();
   return ok;
 }
+#endif  // _WIN32
 
 inline void SaveScreenshot(const std::string& label) {
   if (g_screenshot_hook) g_screenshot_hook(label);

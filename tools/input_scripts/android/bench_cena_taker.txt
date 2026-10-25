@@ -1,0 +1,28 @@
+# Session 64 (Android, unattended phone A/B): John Cena vs The Undertaker, WrestleMania XXX (BG56), both entrances,
+# started by the scenario launcher (the attract demo picks a different match every run). Use with
+#   pwsh -File tools\android\run.ps1 -Run NNN -Seconds 150 -Route tools\input_scripts\android\bench_cena_taker.txt -Scenario lesnar_bryan -GameArgs "--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=139,103"
+# Title presses from launch_boot_watch.txt. Marks in the log: Cena's tron (139.bik2), Undertaker's (103.bik2); quits
+# 900 frames after Undertaker's tron opens. Analyse: py tools\android\demo_fps.py NNN --from <mark> (the log's
+# [input] lines give the times).
+on_fail quit
+log bench: start cena_taker (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 139.bik2 3600
+log scene=tron_139
+wait_file 103.bik2 7200
+log scene=tron_103
+wait_frames 900
+log bench: end
+quit

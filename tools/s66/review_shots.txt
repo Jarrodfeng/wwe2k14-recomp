@@ -1,0 +1,33 @@
+# harness: fast-forward ok (Session 66: review_pack.py's route; s45_parity_shots plus a frame-locked clip of Brock's entrance crowd)
+# Same six same-frame shots as short\s45_parity_shots.txt (Brock +200, Bryan, match +600 / 1500 / 2400 / 3300) on the
+# s21_lb replay, and a 300-guest-frame clip (5 s at 60 fps, 720p at the LOW preset) from Brock's entrance +200. Use with
+# --wwe2k14_replay_play=s21_lb --wwe2k14_clip_dir=DIR --wwe2k14_clip_frame_locked=true (review_pack.py passes them).
+# Without a clip dir the clip commands only log that they were ignored. on_fail quit. Pictures are local only.
+on_fail quit
+log bench: start review_shots (launch)
+wait_file SaveData.Dat 3600
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 20000
+log scene=tron_343
+wait_frames 200
+screenshot p_brock200
+clip_start review 60
+wait_frames 300
+clip_stop review
+wait_file 324.bik2 20000
+log scene=tron_324
+screenshot p_bryan
+wait_file M3.PAC 30000
+log scene=match
+screenshot p_match0600
+wait_frames 900
+screenshot p_match1500
+wait_frames 900
+screenshot p_match2400
+wait_frames 900
+screenshot p_match3300
+log bench: done
+quit

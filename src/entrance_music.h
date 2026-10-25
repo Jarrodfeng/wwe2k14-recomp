@@ -40,9 +40,11 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): the player is Media Foundation (Windows only; ANDROID_PLAN F9)
 #include <mfplay.h>
 #pragma comment(lib, "mfplay.lib")
+#endif
 
 #include "frame_stats.h"  // g_guest_frame
 #include "guest_read.h"
@@ -74,6 +76,9 @@ inline std::filesystem::path FindMusicUncached(int id) {
 }
 // The hook runs on every poll (each frame): the folder is looked at again for an id at most every 2 s (review fix).
 inline std::filesystem::path FindMusic(int id) {
+#if !defined(_WIN32)
+  return {};  // Session 63 (Android port): no player there, so no theme is muted (ANDROID_PLAN F9)
+#endif
   if (!mods::g_on || id < 0) return {};
   static std::mutex m;
   static int last_id = -1;
@@ -109,6 +114,9 @@ inline std::atomic<int> g_playing_id{-1};
 // apartment with a message loop (without one the player is created but never starts: run 2523, Session 33).
 inline HANDLE g_wake = nullptr;
 
+#if !defined(_WIN32)
+inline void Post(Command) {}  // Session 63 (Android port): never reached (FindMusic finds nothing there)
+#else
 inline void Worker() {
   const HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   IMFPMediaPlayer* player = nullptr;
@@ -163,6 +171,7 @@ inline void Post(Command c) {
   g_queue.push_back(std::move(c));
   SetEvent(g_wake);
 }
+#endif  // _WIN32
 inline void Stop() {
   g_playing_id = -1;
   Post({});

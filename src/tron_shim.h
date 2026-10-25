@@ -63,15 +63,25 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <mfapi.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <mferror.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <mfidl.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <mfreadwrite.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows libraries
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfuuid.lib")
 #pragma comment(lib, "ole32.lib")
+#endif
 #endif
 
 #include "frame_stats.h"

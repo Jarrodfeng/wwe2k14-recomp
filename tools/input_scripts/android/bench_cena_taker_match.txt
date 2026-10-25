@@ -1,0 +1,26 @@
+# Session 64 (Android, unattended phone A/B within 2 minutes - Jarrod's limit for unattended runs): John Cena vs The
+# Undertaker, WrestleMania XXX (BG56), CPU vs CPU, entrances skipped, started by the scenario launcher. Use with
+#   pwsh -File tools\android\run.ps1 -Run NNN -Seconds 120 -Route tools\input_scripts\android\bench_cena_taker_match.txt -Scenario lesnar_bryan -GameArgs "--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=139,103 --wwe2k14_launch_skip_entrances=true"
+# Marks: "match: start" 600 frames after Undertaker's character file opens (past the load), "bench: end" 2400 frames
+# later. Analyse: py tools\android\demo_fps.py NNN --marks. Title presses from launch_boot_watch.txt.
+on_fail quit
+log bench: start cena_taker_match (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file CH103.PAC 3600
+wait_frames 600
+log match: start
+wait_frames 2400
+log bench: end
+quit

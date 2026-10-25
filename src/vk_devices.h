@@ -19,7 +19,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan_core.h>
@@ -55,7 +55,11 @@ inline std::string Lower(std::string s) {
 // In the loader's order (the SDK's vulkan_device index). Empty when there is no Vulkan.
 inline std::vector<Device> List() {
   std::vector<Device> out;
+#if defined(_WIN32)
   const HMODULE lib = LoadLibraryW(L"vulkan-1.dll");
+#else
+  const HMODULE lib = LoadLibraryW(L"libvulkan.so");  // Session 63 (Android port)
+#endif
   if (!lib) return out;
   const auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(lib, "vkGetInstanceProcAddr"));
   const auto create = gipa ? reinterpret_cast<PFN_vkCreateInstance>(gipa(nullptr, "vkCreateInstance")) : nullptr;

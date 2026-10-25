@@ -86,8 +86,10 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <share.h>
-#include <windows.h>
+#endif
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
 #include "frame_stats.h"

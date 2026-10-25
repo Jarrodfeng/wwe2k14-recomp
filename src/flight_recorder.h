@@ -98,11 +98,19 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <dbghelp.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <psapi.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <tlhelp32.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows libraries
 #pragma comment(lib, "dbghelp.lib")
+#endif
 #endif
 
 #include "frame_stats.h"
@@ -703,6 +711,12 @@ inline void FlightAppendStacks(std::string& out, const std::vector<FlightStack>&
       out += fmt::format("{}  #{:02} {}\n", indent, f, g_flight_names.Host(samples[i].rips[f]));
   }
 }
+#else
+// Session 63 (Android port): no dbghelp: guest addresses as plain hex.
+struct FlightNames {
+  std::string Guest(uint32_t address) const { return fmt::format("{:08X}", address); }
+};
+inline FlightNames g_flight_names;
 #endif  // _WIN32
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -32,8 +32,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <shlobj.h>
+#endif
 
 #include <algorithm>
 #include <cstdio>
@@ -321,6 +323,7 @@ inline bool Save(const fs::path& path, const Choice& c, bool* cleared = nullptr)
 // An NVIDIA RTX card (DLSS / DLAA), by DXGI (the same test the launcher uses).
 inline bool HasRtxCard() {
   bool rtx = false;
+#if defined(_WIN32)  // Session 63 (Android port): DXGI is Windows only; no RTX card on a phone
   using CreateFactoryFn = HRESULT(WINAPI*)(REFIID, void**);
   if (HMODULE dxgi = LoadLibraryW(L"dxgi.dll")) {
     auto create = reinterpret_cast<CreateFactoryFn>(GetProcAddress(dxgi, "CreateDXGIFactory1"));
@@ -355,14 +358,17 @@ inline bool HasRtxCard() {
       reinterpret_cast<ReleaseFn>(vt(factory)[2])(factory);
     }
   }
+#endif  // _WIN32
   return rtx;
 }
 
 // The main monitor's refresh rate.
 inline int MonitorHz() {
+#if defined(_WIN32)
   DEVMODEW dm{};
   dm.dmSize = sizeof(dm);
   if (EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &dm) && dm.dmDisplayFrequency > 1) return int(dm.dmDisplayFrequency);
+#endif  // Session 63 (Android port): 60 there until ANDROID_PLAN F5 picks the phone's rate
   return 60;
 }
 
@@ -526,6 +532,46 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // play (4085 vs 4089): Brock's crowd opening shot 157 -> 240 fps (command thread -20%, draw packets 4,244 ->
       // 1,257), Bryan's entrance +4% (pan +5%, command thread -10%), match +2%.
       {"wwe2k14_scene_crowd", "1"},
+      // Session 66 (NATIVE 2, G2.1): a truth pass whose first draw clears the whole surface does not load what it
+      // clears (load op DONT_CARE: memory traffic on tile and bandwidth-poor GPUs; the 4090 is not bandwidth-bound).
+      // check_item g2_dont_care: pictures 6 / 6 pixel-identical (4173 / 4174), resolve hashes 467 / 467 (4172 / 4175),
+      // gameplay identical (4176 / 4177), no new validation-layer message (4183); in-run A/B (4178, 720p) GPU -0.6 /
+      // -1.2 / -2.0% (Brock / Bryan / match, within noise on the 4090).
+      {"gpu_native_truth_pass_dont_care", "true"},
+      // Session 66 (B2.1): the vertex fetch's endian swap fixed in the shader from the draw's fetch constants (the
+      // census: every draw 8-in-32, one key per shader, so no extra translations). check_item b2_endian: pictures 6 / 6
+      // pixel-identical (4180), hashes 467 / 467 (4179), gameplay identical (4181); A/B (4182) GPU -8.2 / +1.3 / -3.3%.
+      {"gpu_native_vertex_endian_spec", "true"},
+      // Session 66 (H1.1): resolve readbacks (the app's load windows, src/create_readback.h) batched - one GPU wait for
+      // many copies (~21-28 per wait, run 4193), flushed before any command-processor write the guest can observe.
+      // check_item h1_batch (after fix 01170fd): pictures 6 / 6 (4221 / 4223), hashes 467 / 467 (4220 / 4222),
+      // gameplay identical (4224 / 4225).
+      {"readback_resolve_batch", "true"},
+      // Session 66 (pixel shader specialisation): the texture fetch's sign / gamma handling fixed from the draw's fetch
+      // constants (one key per shader; NATIVE pixel shaders 1,695 -> 1,066 AMD instructions, RGA gfx1103). check_item
+      // ps_texspec: pictures 6 / 6, hashes 467 / 467, gameplay identical; A/B GPU -6.8% Brock, -8.2% Bryan.
+      {"gpu_native_ps_texture_spec", "true"},
+      // The Xenos multiply rule (0 x anything = 0) dropped in NATIVE pixel shaders only where both operands are proven
+      // finite (assumes finite interpolators, constants and texture results). check_item ps_mul1: pictures 6 / 6,
+      // hashes 467 / 467, gameplay identical.
+      // Session 66 (Jarrod 2026-10-26, after the review packs: "the images look good"): mode 2 (also dropped where not
+      // proven finite, with a NaN-to-0 fallback), implicit LOD and fused multiply-add are NATIVE defaults (looks right).
+      {"gpu_native_ps_mul_mode", "2"},
+      {"gpu_native_ps_implicit_lod", "true"},
+      {"gpu_native_fma", "3"},
+      // Session 66 (G1.1): a deferred texture-only resolve that a newer resolve into the same texture covers whole is
+      // dropped (nothing sampled it: the batch would have been flushed). check_item g1_drop: pictures 6 / 6, hashes
+      // 467 / 467, gameplay identical (4244-4249); A/B GPU -2.2 / +0.9 / -4.1% (Brock / Bryan / match).
+      {"gpu_native_truth_drop_dead_resolves", "1"},
+      // Session 66: the multiply rule in NATIVE's vertex shaders too (~40% of their instructions; -28% vertex work by
+      // RGA), dropped only where both operands are proven finite, fetched float vertex data counted as finite.
+      // check_item vs_mul1: pictures 6 / 6, hashes 467 / 467, gameplay identical (4251-4253).
+      {"gpu_native_vs_mul_mode", "1"},
+      {"gpu_native_vs_mul_fetch_finite", "true"},
+      // Session 66 (native_ext): NATIVE pixel shaders without the alpha test / alpha-to-coverage / exponent bias /
+      // gamma epilogue when the draw has none of them (~8% of pixel-shader work by RGA). check_item ps_epilogue: pictures
+      // 6 / 6, hashes 467 / 467, gameplay identical (4287-4292); A/B within noise on the 4090.
+      {"gpu_native_ps_epilogue_spec", "true"},
   };
 }
 

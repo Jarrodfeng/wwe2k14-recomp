@@ -34,7 +34,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>  // GetModuleFileNameW
+#include "platform/compat.h"  // GetModuleFileNameW
 
 #include "game_files.h"
 #include "native_bpe.h"

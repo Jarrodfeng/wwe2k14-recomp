@@ -1,0 +1,65 @@
+# harness: fast-forward ok (Session 66 F1: are frozen frames identical? freeze in Brock's entrance, Bryan's and the match; shots 1 and 10+ frames apart; a G2.1 toggle while frozen)
+# Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_preset_low=true. on_fail quit. Screenshots fz_* are local only.
+on_fail quit
+log bench: start s66_freeze_probe (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 200
+cvar wwe2k14_freeze true
+wait_frames 30
+screenshot fz_a1
+wait_frames 1
+screenshot fz_a2
+wait_frames 1
+screenshot fz_a3
+wait_frames 10
+screenshot fz_a4
+wait_frames 60
+screenshot fz_a5
+cvar gpu_native_truth_pass_dont_care true
+wait_frames 10
+screenshot fz_b1
+wait_frames 1
+screenshot fz_b2
+cvar gpu_native_truth_pass_dont_care false
+wait_frames 10
+screenshot fz_a6
+cvar wwe2k14_freeze false
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 300
+cvar wwe2k14_freeze true
+wait_frames 30
+screenshot fz_c1
+wait_frames 1
+screenshot fz_c2
+wait_frames 10
+screenshot fz_c3
+cvar wwe2k14_freeze false
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 600
+cvar wwe2k14_freeze true
+wait_frames 30
+screenshot fz_d1
+wait_frames 1
+screenshot fz_d2
+wait_frames 10
+screenshot fz_d3
+cvar wwe2k14_freeze false
+log bench: done
+quit

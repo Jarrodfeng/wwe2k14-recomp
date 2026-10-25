@@ -12,7 +12,7 @@
 #pragma once
 
 #include "generated/default/wwe2k14_init.h"
-#include <windows.h>
+#include "platform/compat.h"  // Session 63: <windows.h> on Windows (src/platform/compat.h)
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -30,9 +30,13 @@
 #include <cstring>
 #include <ctime>
 #include <cwchar>
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <dbghelp.h>
+#endif
 #include <deque>
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <dxgi.h>
+#endif
 #include <filesystem>
 #include <fmt/format.h>
 #include <fstream>
@@ -43,15 +47,29 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <mfapi.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <mferror.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <mfidl.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <mfreadwrite.h>
+#endif
 #include <mutex>
 #include <new>
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <pdh.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <pdhmsg.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <psapi.h>
+#endif
 #include <regex>
 #include <rex/chrono/clock.h>
 #include <rex/cvar.h>
@@ -94,19 +112,29 @@
 #include <rex/ui/window_listener.h>
 #include <rex/ui/window.h>
 #include <set>
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <share.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <shlobj.h>
+#endif
 #include <span>
 #include <sstream>
 #include <string_view>
 #include <string>
 #include <system_error>
 #include <thread>
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <tlhelp32.h>
+#endif
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <wincodec.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <xmmintrin.h>
+#endif

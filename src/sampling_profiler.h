@@ -7,7 +7,9 @@
 //                                        (the full name when a prefix matches several threads; at most 8 named
 //                                        threads). A name not found yet is looked for again every report (the
 //                                        Vulkan "GPU Submit" thread only starts with the first async submission),
-//                                        and so is the name of a thread that has exited.
+//                                        and so is the name of a thread that has exited. Session 66: an entry
+//                                        starting with '*' matches anywhere in the name ("*F800002C" = the game
+//                                        thread whose name ends "(F800002C)"; the XThread hex part changes per run).
 //   --wwe2k14_profile_stacks=true        also write every sample's whole call stack, tagged with the guest
 //                                        frame and the thread's label, to logs/stacks_NNN.txt
 //                                        (tools/analysis/profile_stacks.py: inclusive time per function for a
@@ -64,11 +66,19 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <dbghelp.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <psapi.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <tlhelp32.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows libraries
 #pragma comment(lib, "dbghelp.lib")
+#endif
 #endif
 
 #include "frame_stats.h"
@@ -491,7 +501,11 @@ class SamplingProfiler {
         continue;
       }
       for (size_t i = 0; i < pending_.size(); ++i) {
-        if (description.compare(0, pending_[i].size(), pending_[i]) != 0) continue;
+        const std::string& want = pending_[i];
+        const bool hit = !want.empty() && want[0] == '*'
+                             ? description.find(std::string_view(want).substr(1)) != std::string::npos
+                             : description.compare(0, want.size(), want) == 0;
+        if (!hit) continue;
         const bool sampled = std::any_of(targets_.begin(), targets_.end(),
                                          [&](const Target& t) { return t.id == entry.th32ThreadID; });
         if (sampled) ++already[i];

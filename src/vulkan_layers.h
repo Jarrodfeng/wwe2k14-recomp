@@ -22,7 +22,7 @@
 #include <string>
 
 #ifdef _WIN32
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
 REXCVAR_DEFINE_STRING(wwe2k14_vulkan_disable_layers, "DISABLE_VULKAN_OW_OVERLAY_LAYER,DISABLE_VULKAN_OW_OBS_CAPTURE",

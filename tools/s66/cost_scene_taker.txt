@@ -1,0 +1,24 @@
+# Session 66 (cost card): companion route for Undertaker's WM XXX entrance (launched). Use with
+# --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=343,103 --wwe2k14_file_trace=true
+# --gpu_record_stats=30. Same opening as short\bench_launch_taker_wm.txt, no screenshots, ends 900 frames after 103.bik2.
+on_fail quit
+log bench: start cost_scene_taker (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+wait_file BG56.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_file 103.bik2 7200
+log scene=tron_103
+wait_frames 900
+log bench: done
+quit

@@ -61,6 +61,10 @@ REX_EXTERN(sub_83599390);  // BinkGetError
 
 namespace wwe2k14::tron_export {
 
+#if !defined(_WIN32)
+// Session 63 (Android port): the export writes MP4s with Media Foundation (a launcher tool): not on the phone.
+inline void Install() {}
+#else
 using tron_shim::GP;
 using tron_shim::Ld32;
 using tron_shim::St32;
@@ -429,5 +433,6 @@ inline void Install() {
   REXLOG_INFO("[wwe2k14][tron_export] armed: export to {} at frame {}", REXCVAR_GET(wwe2k14_tron_export),
               REXCVAR_GET(wwe2k14_tron_export_frame));
 }
+#endif  // _WIN32
 
 }  // namespace wwe2k14::tron_export

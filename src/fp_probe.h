@@ -64,17 +64,25 @@
 #include <mutex>
 #include <string>
 
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <xmmintrin.h>
+#else
+// Session 63 (Android port): no MXCSR on ARM. The probe (off by default) reads 0 and leaves the FP state alone.
+inline uint32_t _mm_getcsr() { return 0; }
+inline void _mm_setcsr(uint32_t) {}
+#endif
 
 #ifdef _WIN32
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <share.h>
+#endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
 #include "frame_stats.h"

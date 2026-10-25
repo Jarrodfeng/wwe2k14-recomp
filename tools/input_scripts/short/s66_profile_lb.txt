@@ -1,0 +1,39 @@
+# harness: realtime (Session 66 baseline: profile_lesnar_bryan with one "ab: mode 0" mark so profile_ab.py reads a one-mode profile; pass --vsync=false)
+# Session 19 item 1: the performance profile route. Same start as short\bench_launch_lesnar_bryan_pan.txt (use with
+# --wwe2k14_launch=lesnar_bryan: Brock Lesnar vs Daniel Bryan, Over the Limit BG04, Quick pace), then both entrances
+# in full and 2,000 match frames from M3.PAC. Scene marks: tron_343 (Brock), tron_324 (Bryan), match. Timed runs:
+# run_list -Exclusive. Needs the frozen user data (run_list.ps1). on_fail quit. Screenshots p_* are local only.
+on_fail quit
+log bench: start profile_lesnar_bryan (launch)
+log ab: mode 0
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 100
+screenshot p_brock100
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+screenshot p_bryan440
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 600
+screenshot p_match600
+wait_frames 1400
+screenshot p_match2000
+wait_frames 60
+log bench: done
+quit

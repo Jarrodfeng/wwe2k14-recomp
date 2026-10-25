@@ -29,13 +29,39 @@ set(WWE2K14_SOURCES
     src/main.cpp
 )
 
-if(WIN32)
+if(ANDROID)
+    # Session 63 (Android port, ANDROID_PLAN.md 3.1): a shared library; SDL's Java activity loads libmain.so and calls
+    # SDL_main (the SDK's windowed_app_main_sdl.cpp). Built by tools/android/build_game_android.ps1.
+    add_library(wwe2k14 SHARED ${WWE2K14_SOURCES})
+    set_target_properties(wwe2k14 PROPERTIES OUTPUT_NAME main)
+    # Codegen stays on the PC: the PC SDK's rexglue.exe (the script passes it), never the Android build of the tool.
+    if(TARGET rex::rexglue AND WWE2K14_PC_REXGLUE)
+        set_target_properties(rex::rexglue PROPERTIES IMPORTED_LOCATION "${WWE2K14_PC_REXGLUE}"
+                                                      IMPORTED_LOCATION_RELEASE "${WWE2K14_PC_REXGLUE}")
+    endif()
+elseif(WIN32)
     add_executable(wwe2k14 WIN32 ${WWE2K14_SOURCES})
 else()
     add_executable(wwe2k14 ${WWE2K14_SOURCES})
 endif()
 
 rexglue_setup_target(wwe2k14 GPU_PLUGINS xenos)
+if(ANDROID)
+    # Session 63: the NDK's libc++ does #include <version>, which the case-insensitive Windows disk resolves to our
+    # VERSION file while the repo root is an -I folder. Search the root for "quoted" includes only (nothing includes
+    # from it with <...>); the PC build (MSVC STL) never includes <version> and is unchanged.
+    foreach(_wwe2k14_t wwe2k14 wwe2k14_recomp)
+        if(TARGET ${_wwe2k14_t})
+            get_target_property(_wwe2k14_dirs ${_wwe2k14_t} INCLUDE_DIRECTORIES)
+            list(REMOVE_ITEM _wwe2k14_dirs "${CMAKE_CURRENT_SOURCE_DIR}")
+            set_property(TARGET ${_wwe2k14_t} PROPERTY INCLUDE_DIRECTORIES "${_wwe2k14_dirs}")
+            target_compile_options(${_wwe2k14_t} PRIVATE "-iquote${CMAKE_CURRENT_SOURCE_DIR}")
+        endif()
+    endforeach()
+    # main.cpp holds all our headers in one file: report every error of a pass, not the first 20.
+    target_compile_options(wwe2k14 PRIVATE -ferror-limit=0)
+    target_link_libraries(wwe2k14 PRIVATE android log)
+endif()
 # Only main.cpp (our code): a target-wide define would rebuild all the generated code on every version change.
 set_property(SOURCE src/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"")
 # Session 30 (#9): precompiled header for main.cpp: the generated declarations, the SDK, the C++ library, Windows

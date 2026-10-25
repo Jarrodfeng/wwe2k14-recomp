@@ -18,8 +18,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <shellapi.h>
+#endif
 
 #include <filesystem>
 #include <string>
@@ -42,6 +44,11 @@ namespace fs = std::filesystem;
 
 inline fs::path FromUtf8(const std::string& s) { return fs::path(reinterpret_cast<const char8_t*>(s.c_str())); }
 
+#if !defined(_WIN32)
+// Session 63 (Android port): no launcher exe to hand over to; the app's own start screen comes with ANDROID_PLAN F4.
+inline bool NoGameFlags() { return false; }
+inline bool HandOffToLauncher() { return false; }
+#else
 // The command line has no game flags: nothing, or only the flags a test adds (its settings file, this switch).
 inline bool NoGameFlags() {
   int argc = 0;
@@ -71,6 +78,7 @@ inline bool HandOffToLauncher() {
   CloseHandle(pi.hProcess);
   return true;
 }
+#endif  // _WIN32
 
 // Called at the end of OnConfigurePaths when no game files were found (no --game_data_root, no game_data\extracted
 // above the exe). Logging is not set up yet, so nothing here logs; OnPreSetup's "[wwe2k14] game_data_root" line shows

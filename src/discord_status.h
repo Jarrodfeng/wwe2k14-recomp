@@ -36,7 +36,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 
 #include "game_files.h"
 #include "guest_read.h"
@@ -151,6 +151,14 @@ inline std::string JsonEscape(const std::string& s) {
 inline HANDLE g_pipe = INVALID_HANDLE_VALUE;
 inline uint64_t g_nonce = 0;
 
+#if !defined(_WIN32)
+// Session 63 (Android port): no Discord app pipe on the phone; the activity is only logged.
+inline bool WriteFrame(uint32_t, const std::string&) { return false; }
+inline bool ReadFrame(uint32_t*, std::string*) { return false; }
+inline void Disconnect() {}
+inline bool Connect(const std::string&) { return false; }
+#else
+
 inline bool WriteFrame(uint32_t op, const std::string& json) {
   std::vector<uint8_t> buf(8 + json.size());
   const uint32_t len = uint32_t(json.size());
@@ -203,6 +211,7 @@ inline bool Connect(const std::string& app_id) {
   }
   return false;
 }
+#endif  // _WIN32
 
 inline void Worker() {
   std::string app_id;

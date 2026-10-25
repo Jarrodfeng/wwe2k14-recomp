@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- wwe2k14 Android port (Session 63, ANDROID_PLAN.md 4.1). Package: Jarrod's Q1 answer (2026-10-25, permanent).
+     Built by tools/android/build_apk.ps1 (no Gradle). android:debuggable is set in development builds only: the build
+     script adds it (run-as, lldb and simpleperf need it). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.jarrodfeng.wwe2k14"
+    android:versionCode="1"
+    android:versionName="0.3.0-android-dev"
+    android:installLocation="auto">
+
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="36" />
+
+    <!-- Vulkan 1.2 (0x402000); optional so the store / installer does not filter by it. -->
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x402000" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- Rumble on the phone (ANDROID_PLAN F2). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <application
+        android:label="WWE 2K14"
+        android:isGame="true"
+        android:appCategory="game"
+        android:extractNativeLibs="true"
+        android:hasCode="true"
+        android:allowBackup="false"
+        android:hardwareAccelerated="true">
+
+        <activity
+            android:name=".GameActivity"
+            android:exported="true"
+            android:label="WWE 2K14"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTask"
+            android:preferMinimalPostProcessing="true"
+            android:resizeableActivity="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -13,19 +13,25 @@
 #include <chrono>
 #include <cstdio>
 #ifdef _WIN32
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <share.h>
+#endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 #include <filesystem>
 #include <mutex>
 #include <string>
 #include <vector>
+
+#if defined(__ANDROID__)
+#include "android_perf_hint.h"  // Session 64: each frame's length to the phone's CPU governor
+#endif
 
 REXCVAR_DEFINE_INT32(wwe2k14_frame_summary_seconds, 5, "wwe2k14",
                      "Log a guest frame-time summary every N seconds (0 = off)");
@@ -104,6 +110,9 @@ class FrameStats {
     const double ms = std::chrono::duration<double, std::milli>(now - last_).count();
     const double t = std::chrono::duration<double>(now - start_).count();
     last_ = now;
+#if defined(__ANDROID__)
+    if (!g_frame_time_ignore_next.load(std::memory_order_relaxed)) perf_hint::g_perf_hint.OnFrame(ms);
+#endif
 
     if (csv_) std::fprintf(csv_, "%llu,%.3f,%.3f\n", static_cast<unsigned long long>(frame), t, ms);
 

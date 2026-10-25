@@ -25,7 +25,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 
 #include "guest_read.h"
 
@@ -41,10 +41,12 @@ inline double ScreenAspect() {
   const std::string fs = rex::cvar::GetFlagByName("fullscreen");
   if ((fs == "false" || fs == "0") && flag("window_width") > 0 && flag("window_height") > 0)
     return double(flag("window_width")) / double(flag("window_height"));
+#if defined(_WIN32)  // Session 63 (Android port): the phone's screen comes with ANDROID_PLAN F5
   DEVMODEW dm{};
   dm.dmSize = sizeof(dm);
   if (EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &dm) && dm.dmPelsHeight)
     return double(dm.dmPelsWidth) / double(dm.dmPelsHeight);
+#endif
   return 16.0 / 9.0;
 }
 

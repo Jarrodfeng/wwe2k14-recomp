@@ -23,7 +23,7 @@
 #include <cstdint>
 
 #ifdef _WIN32
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
 REXCVAR_DEFINE_BOOL(wwe2k14_fast_guest_reads, true, "wwe2k14",

@@ -81,7 +81,7 @@ REXCVAR_DEFINE_STRING(wwe2k14_trace, "", "wwe2k14",
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
 #include "frame_stats.h"

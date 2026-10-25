@@ -19,7 +19,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_background_full_speed, false, "wwe2k14",
                     "Session 32: opt the process out of Windows' background power throttling (EcoQoS, and the coarse "
@@ -34,6 +34,9 @@ namespace wwe2k14 {
 
 inline void ApplyBackgroundFullSpeed() {
   if (!REXCVAR_GET(wwe2k14_background_full_speed)) return;
+#if !defined(_WIN32)
+  REXLOG_INFO("[wwe2k14] background full speed: Windows power throttling only (nothing to do here)");  // Session 63
+#else
   PROCESS_POWER_THROTTLING_STATE s{};
   s.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
   s.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
@@ -43,6 +46,7 @@ inline void ApplyBackgroundFullSpeed() {
     REXLOG_INFO("[wwe2k14] background full speed: power throttling and the occluded-window timer limit are off");
   else
     REXLOG_WARN("[wwe2k14] background full speed: SetProcessInformation failed (error {})", GetLastError());
+#endif
 }
 
 }  // namespace wwe2k14

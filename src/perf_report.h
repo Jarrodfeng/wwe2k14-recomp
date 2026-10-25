@@ -32,12 +32,22 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <dxgi.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <pdh.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <pdhmsg.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <tlhelp32.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows libraries
 #pragma comment(lib, "pdh.lib")
+#endif
 #endif
 
 #include "frame_stats.h"  // CurrentLogNumber

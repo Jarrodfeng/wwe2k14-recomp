@@ -1,0 +1,32 @@
+# harness: fast-forward ok (Session 66 G1.0: the resolve census over the s21_lb replay; untimed, counters only)
+# Census windows (gpu_native_alias_census and, since B2.0, gpu_native_vertex_census N frames, then a [native][alias] summary each): Brock's entrance
+# (343.bik2 + 100, 300 frames), Bryan's entrance (324.bik2 + 100, 300 frames), the match (M3.PAC + 300, 600 frames).
+# Run with --wwe2k14_replay_play=s21_lb --wwe2k14_preset_low=true. on_fail quit.
+on_fail quit
+log bench: start s66_alias_census (launch)
+wait_file SaveData.Dat 3600
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+wait_file 343.bik2 20000
+log scene=tron_343
+wait_frames 100
+cvar gpu_native_alias_census 300
+cvar gpu_native_vertex_census 300
+cvar gpu_native_ps_census 300
+wait_frames 330
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 100
+cvar gpu_native_alias_census 300
+cvar gpu_native_vertex_census 300
+cvar gpu_native_ps_census 300
+wait_frames 330
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 300
+cvar gpu_native_alias_census 600
+cvar gpu_native_vertex_census 600
+cvar gpu_native_ps_census 600
+wait_frames 640
+log bench: done
+quit

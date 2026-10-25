@@ -110,7 +110,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>  // VirtualQuery (path chains, Session 14)
+#include "platform/compat.h"  // VirtualQuery (path chains, Session 14)
 #include <climits>
 
 REXCVAR_DEFINE_BOOL(wwe2k14_cinecam, false, "wwe2k14",

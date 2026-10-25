@@ -56,8 +56,10 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <shlobj.h>
+#endif
 
 #include <rex/hook.h>
 #include <rex/ppc/context.h>

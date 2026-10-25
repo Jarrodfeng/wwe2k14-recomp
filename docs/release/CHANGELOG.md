@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.6
+
+A lighter renderer for weaker GPUs and less CPU work animating the wrestlers.
+
+- **Graphics shaders about half as long.** The pixel shaders the renderer builds from the game's own are now about
+  half as long on average (measured offline for an AMD integrated GPU), and the vertex shaders lose a large part of
+  their emulation code too. Each shader is now tailored to what a draw actually uses (texture formats, how its colour
+  is written) instead of checking everything at run time. On our test PC the GPU time per frame fell 6-12% and the
+  memory traffic in a match by about a fifth; the bigger win should be on laptops and handhelds, where the GPU is the
+  limit - not measured there yet.
+- **Wrestler animation costs less CPU.** The game deforms the wrestlers' meshes on the CPU; that work now runs as
+  native code, about 40% less time on that thread.
+- **Fewer stalls when the game reads pictures back** (portraits, the match start): many copies now share one wait.
+- **Gameplay is unchanged:** replays play out identically. Three of the shader shortcuts can change a pixel here and
+  there by a hair (hardly ever visible); if anything looks wrong, Settings -> Advanced -> Extra flags
+  `--gpu_native_ps_mul_mode=1 --gpu_native_ps_implicit_lod=false --gpu_native_fma=0` turns them off - please send a
+  report if you need it.
+
 ## v0.2.5
 
 One renderer for everyone, upscalers that keep its speed, far fewer first-time stutters, and fixes for the create

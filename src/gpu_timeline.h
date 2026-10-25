@@ -52,7 +52,12 @@ inline void StartTimelineIfRequested() {
   if (rex::cvar::GetFlagInfo("gpu_anatomy_path") && rex::cvar::GetFlagByName("gpu_anatomy_path").empty()) {
     char anatomy[48];
     std::snprintf(anatomy, sizeof(anatomy), "anatomy_%03d_%%d.csv", log_number);
+#if defined(__ANDROID__)
+    // Session 64: the "exe" folder is the APK's read-only library folder; the logs are in the app's files folder.
+    const std::string anatomy_path = (std::filesystem::current_path() / "logs" / anatomy).string();
+#else
     const std::string anatomy_path = (rex::filesystem::GetExecutableFolder() / "logs" / anatomy).string();
+#endif
     if (rex::cvar::SetFlagByName("gpu_anatomy_path", anatomy_path)) {
       REXLOG_INFO("[wwe2k14][timeline] gpu_anatomy_path = {}", anatomy_path);
     }

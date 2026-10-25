@@ -38,9 +38,13 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <wincodec.h>
+#endif
+#if defined(_WIN32)  // Session 63 (Android port): Windows libraries
 #pragma comment(lib, "windowscodecs.lib")
+#endif
 
 #include "mods.h"
 
@@ -57,6 +61,13 @@ inline bool g_was_on = false;
 inline std::filesystem::file_time_type g_applied_stamp{};
 
 // The PNG as w x h straight-alpha BGRA (WIC), scaled with the Fant filter.
+#if !defined(_WIN32)
+// Session 63 (Android port): no WIC on the phone (the importer is off by default).
+inline bool LoadPng(const std::filesystem::path&, uint32_t, uint32_t, std::vector<uint8_t>&, std::string& err) {
+  err = "the logo importer reads PNGs with Windows Imaging Component (Windows only)";
+  return false;
+}
+#else
 inline bool LoadPng(const std::filesystem::path& file, uint32_t w, uint32_t h, std::vector<uint8_t>& bgra,
                     std::string& err) {
   const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -100,6 +111,7 @@ inline bool LoadPng(const std::filesystem::path& file, uint32_t w, uint32_t h, s
   if (SUCCEEDED(co)) CoUninitialize();
   return ok;
 }
+#endif  // _WIN32
 
 inline std::filesystem::path File() {
   const std::string f = REXCVAR_GET(wwe2k14_logo_import_file);

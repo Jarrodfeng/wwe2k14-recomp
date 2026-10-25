@@ -55,6 +55,8 @@ STEPS = [
     ('session59', 'e03ea01780e426550d82fcb446c72dedc8d2084c'),
     ('session60', '8bd883ab9ea10777ca96c9d8aff4ca028d961958'),
     ('session61', 'c33dc62ba9175bcf34ceb3571bf972eaed5ff85b'),
+    ('session63-64-android', '61ca96d9f003e2f4cb3f3d6c4e780269f16f3e6d'),
+    ('session66-native2', '12af82b49813c74787e7cf4a96910a5a6522b31c'),
 ]
 
 

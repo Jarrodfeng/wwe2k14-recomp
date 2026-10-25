@@ -29,8 +29,13 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
+#include "platform/compat.h"  // <windows.h> on Windows (Session 63)
+#if defined(_WIN32)
 #include <immintrin.h>
+#define WWE2K14_SPIN_PAUSE() _mm_pause()
+#else
+#define WWE2K14_SPIN_PAUSE() YieldProcessor()  // Session 63 (Android): ARM's yield (compat.h)
+#endif
 
 REXCVAR_DEFINE_BOOL(wwe2k14_low_power, true, "wwe2k14",
                     "Session 37: the game's GPU waits (gpu_wait_poll_step) give the CPU core back instead of "
@@ -72,7 +77,7 @@ inline void Between() {
   g_steps.fetch_add(1, std::memory_order_relaxed);
   const int64_t elapsed_us = (now.QuadPart - w.start.QuadPart) * 1000000 / Freq().QuadPart;
   if (elapsed_us < REXCVAR_GET(wwe2k14_low_power_spin_us)) {
-    for (int i = 0; i < 16; ++i) _mm_pause();
+    for (int i = 0; i < 16; ++i) WWE2K14_SPIN_PAUSE();
     return;
   }
   if (!w.timer) {
