@@ -65,6 +65,7 @@
 #include "create_readback.h"  // Session 57: --wwe2k14_readback_sequences (exact readback in the create modes, default on)
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
+#include "shader_list.h"  // Session 61: --wwe2k14_shader_list (the shipped shader list into the shader storage)
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
 // (used to read jump tables and pointer tables that live inside the encrypted XEX).
@@ -565,6 +566,8 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::ScanForUnregisteredFunctionPointers(runtime(), PPCImageConfig, 2000);
     DumpRequestedWords();
     wwe2k14::DumpGuestImage(runtime(), PPCImageConfig, REXCVAR_GET(wwe2k14_dump_image));  // empty = off
+    // Session 61: the shader list's shaders and pipelines into the storage the SDK loads right after this.
+    wwe2k14::shader_list::Import(runtime()->cache_root());
   }
 
  private:

@@ -77,6 +77,9 @@ param([string[]]$Scripts, [string]$Extra = '', [string]$Data = 'userdata_frozen'
       [switch]$Visible,     # Session 30: the window on top (unfocused) instead of behind the others
       [switch]$Windowed,    # Session 30: a 1280x720 window instead of fullscreen
       [switch]$Foreground,  # Session 30: the old fullscreen, activated window
+      # Session 61 (shader list sweeps): after each run its shader storage (the work folder's cache\shaders, mirrored
+      # away by the next run) is copied to DIR\<run log>_<script> (.xsh, .xpso, .xnps); '' = not kept (as before).
+      [string]$KeepShaderStorage = '',
       [string]$WorkerDir = '', [int]$WorkerId = 0)   # internal (task L1): a -Parallel worker started by run_list
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 . "$R\tools\runlock.ps1"
@@ -227,6 +230,15 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     }
     $line = "$(Split-Path $s -Leaf) -> $log  $exit$pass  $fail"
     if ($Tag) { $line = $line.TrimEnd() + $Tag }
+    # Session 61: the run's shader storage, before the next run's mirror replaces it.
+    if ($KeepShaderStorage) {
+        $src = "$R\out\bench\$Work\cache\shaders\shareable"
+        if (Test-Path -LiteralPath $src) {
+            $dst = Join-Path $KeepShaderStorage ("{0}_{1}" -f $(if ($log) { $log -replace ',', '+' } else { 'nolog' }), [IO.Path]::GetFileNameWithoutExtension($s))
+            robocopy $src $dst /E /NFL /NDL /NJH /NJS | Out-Null
+            $line = $line.TrimEnd() + "  [shaders kept: $dst]"
+        }
+    }
     # Session 29: what the script checked + a contact sheet of its screenshots (tools\harness\run_verdict.py), shown
     # under the result line with Write-Host by the callers below: scripts that parse run_list's output never see it.
     $script:RunListChecks = ''
@@ -275,6 +287,7 @@ if ($WorkerId -gt 0) {
     $RealTime = [switch][bool]$job.realtime
     $Step30 = [switch][bool]$job.step30
     $Visible = [switch][bool]$job.visible; $Foreground = [switch][bool]$job.foreground; $Windowed = [switch][bool]$job.windowed
+    $KeepShaderStorage = "$($job.keep_shaders)"
     $items = @($job.items)
     $first = $WorkerId - 1   # the parent reserved this item for this worker (claim_<first>.txt) before starting it
     $names = ($items | ForEach-Object { Split-Path "$($_.script)" -Leaf }) -join ','
@@ -325,7 +338,8 @@ function Invoke-RunListParallel {
         [ordered]@{ i = $i; script = "$($all[$i])"; extra = $(if ($i -lt @($ScriptExtras).Count) { "$($ScriptExtras[$i])" } else { '' }) } })
     $job = [ordered]@{ n = $n; extra = $Extra; data = $Data; wait = $WaitSeconds; nokill = [bool]$NoKill;
         notriage = [bool]$NoTriage; exe = $Exe; parent = $PID; items = $items; realtime = [bool]$RealTime; step30 = [bool]$Step30;
-        visible = [bool]$Visible; foreground = [bool]$Foreground; windowed = [bool]$Windowed }
+        visible = [bool]$Visible; foreground = [bool]$Foreground; windowed = [bool]$Windowed;
+        keep_shaders = $KeepShaderStorage }
     Write-RunListFile (Join-Path $dir 'job.json') ($job | ConvertTo-Json -Depth 5)
     Write-Host "[run_list] -Parallel ${n}: $($all.Count) scripts, up to $n at once, each worker in its own shared run-lock slot (work folder $dir)"
     $t0 = Get-Date

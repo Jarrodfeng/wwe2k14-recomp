@@ -3542,24 +3542,9 @@ class App {
   // Session 51 (Jarrod, 2026-10-22: "native should just replace low ... it may be easy for playtesters to use a wrong
   // setting"; "NATIVE for everyone"): NATIVE is the default on every PC, ACCURATE and LIGHT are fallbacks, and the LOW
   // preset button is gone (resolution and frame rate are their own rows; integrated graphics still start at 720p / 30).
-  void RendererRow(Settings& t, const wwe2k14::vkdev::Device& dev) {
-    static constexpr const char* kRen[] = {"ACCURATE", "LIGHT", "NATIVE"};
-    t.renderer = std::clamp(t.renderer, 0, 2);
-    std::string note = t.renderer == 0   ? "Fallback: the Xbox 360's own frame buffer emulated in every pixel. Needs a "
-                                           "strong graphics card."
-                       : t.renderer == 1 ? "Fallback: lighter on the graphics card, for cards NATIVE can't run on. The "
-                                           "same picture in our checks."
-                                         : "The default: the scene drawn by the graphics card's own hardware, on every "
-                                           "PC from integrated graphics up. The same picture in our checks.";
-    // Session 54: NATIVE runs without interlock too (its own render targets); ACCURATE does not. LIGHT stays the
-    // default for such cards until a player with one has tried NATIVE (Jarrod's call).
-    if (!dev.name.empty() && !dev.interlock && t.renderer == 0)
-      note += " Your card (" + dev.name + ") can't run it: the game uses the light renderer there.";
-    if (!dev.name.empty() && !dev.interlock && t.renderer == 2)
-      note += " Your card (" + dev.name + ") lacks fragment shader interlock: NATIVE runs on its own render targets "
-              "there (new: if the picture looks wrong, try LIGHT and please report it).";
-    OptionRow("RENDERER", t.renderer, kRen, 3, true, note.c_str());
-  }
+  // Session 61 (Jarrod, 2026-10-25: "remove the renderer option entirely, with light and accurate as advanced flags
+  // only"): no RENDERER row - NATIVE always; --wwe2k14_renderer=light|accurate in Advanced -> Extra flags for
+  // troubleshooting (launcher_core.h BuildFlags, gfx_settings.h RendererFromFlags).
 
   void SettingsGraphics() {
     const float d = Dpi();
@@ -3579,7 +3564,6 @@ class App {
     const bool fsr = wwe2k14::gfxs::HasFsrRuntime();
     // Session 37: the card the game will use (Display -> GRAPHICS CARD).
     const wwe2k14::vkdev::Device dev = ChosenDevice(s.gpu);
-    RendererRow(s, dev);
     // Session 37 (FSR never breaks a game; only where it works): no FSR on integrated graphics (AMD's FSR 3.1 list
     // starts at Radeon RX 5000 / GeForce RTX 20, no integrated GPUs; a playtester's UHD 620 shook and hung with it).
     // Every FSR mode on any monitor otherwise (Jarrod, 2026-10-20: a bigger output than the screen is a choice, like a
@@ -3850,7 +3834,6 @@ class App {
         wiz_.resolution = SuggestResolution(hw_), wiz_.draw_height = 0, wiz_.frame_rate = SuggestFrameRate(hw_), wiz_.renderer = 2;
         SuggestForDevice(wiz_);  // Session 37: the suggestions follow the card
       }
-      RendererRow(wiz_, ChosenDevice(wiz_.gpu));  // Session 37
       ResolutionRow(wiz_, true, ChosenDevice(wiz_.gpu).integrated() ? "540p suggested for integrated graphics." : nullptr);
       FrameRateRow(wiz_);
       ImGui::TextDisabled("%s", hw_.rtx ? "Upscaling (DLSS / DLAA / FSR) is in Settings -> Graphics."

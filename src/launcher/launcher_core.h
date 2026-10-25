@@ -207,6 +207,9 @@ inline void from_json(const json& j, Settings& s) {
   int version = 0;
   Get(j, "settings_version", version);
   if (version < 2 && s.renderer == 0) s.renderer = 2;
+  // Session 61 (Jarrod: "remove the renderer option entirely, with light and accurate as advanced flags only"): the
+  // stored renderer is no choice any more - always NATIVE (Extra flags --wwe2k14_renderer=light|accurate, BuildFlags).
+  s.renderer = 2;
   s.loaded_version = version;  // Session 54 (the launcher's device moves, MigrateForDevice)
   s.settings_version = wwe2k14::gfxs::kSettingsVersion;
   Get(j, "discord", s.discord), Get(j, "discord_app_id", s.discord_app_id), Get(j, "aspect", s.aspect);
@@ -992,7 +995,9 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     c.draw_height = s.draw_height;  // Session 54
     c.original_look = s.original_look;
     c.texture_filter = s.texture_filter;  // Session 33
-    c.renderer = s.renderer;              // Session 37
+    c.renderer = s.renderer;              // Session 37 (Session 61: NATIVE, or the performance test's own run)
+    // Session 61: the advanced flag --wwe2k14_renderer=light|accurate in Extra flags picks the renderer's flags.
+    if (const int r = wwe2k14::gfxs::RendererFromFlags(s.extra); r >= 0) c.renderer = r;
     // The player's own NVIDIA folder, else the files bundled with a release (Session 25, Jarrod: ship them). Session
     // 31: a folder of their own that has no NVIDIA files (moved, deleted) falls back to the bundled ones too.
     const std::string dir = HasStreamline(s.dlss_dir) || p.nvidia.empty() ? s.dlss_dir : PathStr(p.nvidia);

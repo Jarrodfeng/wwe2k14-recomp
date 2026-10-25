@@ -6,10 +6,13 @@
 #   ... -Tag t1                     (a label for this batch's record file)
 #   ... -Extra '--a=1 --b=2'        (Session 11: flags for every run, ONE string, passed to run_list -Extra)
 #   ... -Script PATH                (Session 11: run every item with this input script instead of the list's)
+#   ... -KeepShaderStorage DIR      (Session 61: each run's shader storage copied to DIR, for the shader list)
 # Output: the run_list result lines (one per item, input order) and out\harness\sweep\runs\<list>_<stamp>[_<tag>].json
 # = {list, tag, started, ended, items: [{name, extra, meta, line, log}]}; tools\sweep\results.py reads these files.
 param([Parameter(Mandatory)][string]$List, [int]$Parallel = 1, [int]$WaitSeconds = 720,
-      [string[]]$Only = @(), [string[]]$Skip = @(), [string]$Tag = '', [string]$Extra = '', [string]$Script = '')
+      [string[]]$Only = @(), [string[]]$Skip = @(), [string]$Tag = '', [string]$Extra = '', [string]$Script = '',
+      [string]$KeepShaderStorage = '',   # Session 61: run_list -KeepShaderStorage (each run's shader storage kept)
+      [string]$Exe = '')   # Session 61: run_list -Exe (a copy of the build, so builds need not wait; add --game_data_root)
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $listFile = "$R\out\harness\sweep\lists\$List.json"
 if (-not (Test-Path -LiteralPath $listFile)) { "ABORT: no list $listFile (run py tools\sweep\make_lists.py)"; exit 2 }
@@ -39,8 +42,9 @@ function Save-Record($lines, [string]$ended) {
                                        line = $ln; log = $log } }) }
     [IO.File]::WriteAllText($rec, ($out | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 }
+$exeArg = if ($Exe) { @{ Exe = $Exe } } else { @{} }
 Save-Record @() ''
-$out = & "$R\tools\bench\run_list.ps1" -Scripts $scripts -ScriptExtras $extras -Parallel $Parallel -WaitSeconds $WaitSeconds -Extra $Extra
+$out = & "$R\tools\bench\run_list.ps1" -Scripts $scripts -ScriptExtras $extras -Parallel $Parallel -WaitSeconds $WaitSeconds -Extra $Extra -KeepShaderStorage $KeepShaderStorage @exeArg
 $lines = @($out | ForEach-Object { "$_" } | Where-Object { $_ -match ' -> ' -or $_ -match '^\S+\.txt ->' })
 if ($lines.Count -ne $items.Count) {
     Write-Host "[sweep] WARNING: $($lines.Count) result lines for $($items.Count) items; raw output follows"

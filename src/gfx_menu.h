@@ -49,6 +49,12 @@ constexpr bool IsDevBuild() {
 }
 }  // namespace wwe2k14::gfx_menu
 
+// Session 61 (Jarrod, 2026-10-25: "remove the renderer option entirely, with light and accurate as advanced flags
+// only"): the renderer is no setting any more; this advanced flag picks LIGHT or ACCURATE for troubleshooting (the
+// launcher reads it from its Extra flags and builds that renderer's flags; the settings file's path here applies it).
+REXCVAR_DEFINE_STRING(wwe2k14_renderer, "", "wwe2k14",
+                      "Session 61 (advanced, troubleshooting): native (the default), light or accurate. Through the "
+                      "launcher: Settings -> Advanced -> Extra flags");
 REXCVAR_DEFINE_BOOL(wwe2k14_gfx_menu, true, "wwe2k14",
                     "Session 28: a GRAPHICS entry after GAMEPLAY in the main menu's OPTIONS list (a settings screen "
                     "in the game's own style). Default on (Jarrod, 2026-10-18); =false leaves the list stock. See "
@@ -228,6 +234,9 @@ inline void ApplyLauncherSettings() {
                 gfxs::Utf8(path));
   gfxs::Choice c;
   gfxs::Parse(json, c);
+  // Session 61: the renderer from the advanced flag only (the file's is always NATIVE now).
+  if (const int r = gfxs::RendererFromFlags("--wwe2k14_renderer=" + REXCVAR_GET(wwe2k14_renderer)); r >= 0)
+    c.renderer = r;
   const std::string dir = gfxs::StreamlineDir(rex::cvar::GetFlagByName("wwe2k14_dlaa_dir"), c.dlss_dir);
   if (gfxs::IsFsr(c.upscale) && !gfxs::HasFsrRuntime()) {  // Session 33
     REXLOG_WARN("[wwe2k14][gfxmenu] settings ask for FSR ({}) but amd_fidelityfx_vk.dll is not next to the game: "

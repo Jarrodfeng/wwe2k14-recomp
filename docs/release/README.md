@@ -100,10 +100,11 @@ off applies at once; the DLSS modes, the frame rate and the resolution apply the
 - **Graphics card:** Automatic uses your dedicated graphics card, also on laptops that have a second, built-in one.
   You can pick a card by name.
 - **Display:** fullscreen or windowed.
-- **Renderer** (Settings -> Graphics): NATIVE (the default) draws the game straight on your graphics card. ACCURATE
-  imitates the Xbox 360's graphics chip exactly and LIGHT is a lighter version of it: use them if NATIVE shows
-  something wrong. NATIVE also runs on graphics cards without fragment shader interlock (older AMD drivers or
-  graphics); ACCURATE does not, so there it uses LIGHT.
+- **Renderer:** the game always uses NATIVE, which draws the game straight on your graphics card (also on cards
+  without fragment shader interlock: older AMD drivers or graphics). For troubleshooting only, Settings -> Advanced ->
+  Extra flags takes `--wwe2k14_renderer=light` (a lighter imitation of the Xbox 360's graphics chip) or
+  `--wwe2k14_renderer=accurate` (the exact imitation; needs fragment shader interlock): please send a report if you
+  need one.
 - **Resolution:** 360p, 480p, 540p, 720p, 1080p, 1440p or 4K. 1440p is the default (540p on integrated graphics).
   360p - 540p and 1080p are drawn at that size by NATIVE (less work for the graphics card, a softer picture) and
   need NATIVE without an upscaler; otherwise 720p, 1440p and 4K are offered.

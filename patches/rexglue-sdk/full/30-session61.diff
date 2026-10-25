@@ -1,0 +1,1171 @@
+# ReXGlue SDK changes for WWE 2K14 (session61): 8bd883ab9ea1..c33dc62ba917 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  c33dc62 Session 61 review fixes: stored native records of transform-feedback / LOD-bias variants refused without the capture latched / gpu_dlss (as the emulated storage); a captured draw claimed again after a write-back only while the frame is still a truth frame; the render pass ended before the DLSS truth staging; prewarm log after the first and last pass only. Runs 4121-4123: 100% truth frames, captures matched
+#  16c4906 Session 61 (Jarrod: move DLSS and DLAA to the native renderer): truth frames with DLSS / DLAA / FSR (gpu_native_truth_upscalers, default true) - the DLSS pre-HUD copy from the truth images (TruthStageSurface: the surface staged in the EDRAM layout, DlssSnapshotColor32 source_set), the post-chain checks also after lean draws (AfterPostChainCheck), fast clears allowed under the jitter in truth frames (their rectangle from the registers), the characters' positions captured by their truth draws (Draw::xfb_*, ObjmvReserve / ObjmvUnreserve, NativeXfbBegin / End; a captured draw is never a lean base). Runs 4117 / 4118 / 4119 (DLSS / DLAA / FSR): 100% truth frames, object motion matched, pictures and HUD mask as the emulated path's
+#  dbed537 Session 61: native records' shaders into the shader storage (VulkanPipelineCache::StoreShader: only the emulated path's pipelines stored theirs - 6 of 234 records' shaders were missing); review fixes: one storage file per render path (TITLE.native.fsi|fbo.vk.xnps), twin records wait for truth frames (the truth draw ratio is decided at the first twin translation), records missing a render pass retried, the prewarm budget checked before each record, one write per record, counters reset in ShutdownStorage, jobs not started dropped at StopPipelineWorker / OnCachesCleared; vulkan_spirv_optimize (default off): SPIRV-Tools' performance passes on each shader before its module is made (SPIRV-Tools-opt built in, REXGLUE_SPIRV_OPT)
+#  e2fb0cb Session 61: stored native pipelines whose shaders are not loaded yet (the D3D library's own, not in the shader list: 14 of 179 in run 4102) are tried again every 120 frames, 20 times at most; the queued line logs each pass
+#  bf2d309 Session 61: the native renderer's pipelines stored (gpu_native_pipeline_storage: <shareable>\TITLE.native.vk.xnps, 64-byte records = shaders by hash + modification, layout by binding counts, geometry shader by host primitive, the key's bits; each checked to make its own key again before it is written) and made again from the first native frames on the pipeline worker (gpu_native_pipeline_prewarm_ms 4); CreatePipeline reads everything from the key (raster bits from RasterKey, post / truth / class / truth stencil from the variant). Runs 4100 / 4101: 179 stored, 179 / 179 queued at frame 25, draws skipped while compiling 292 -> 0
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 6164c242b6a7a718e899bca3997b90d92a5dc24e..735fb9b83cfa2bc0d7f3ffa2c0b46da5f739a93a 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -380,6 +380,13 @@ class VulkanCommandProcessor : public CommandProcessor {
+   void NativeResolutionScale(uint32_t& x, uint32_t& y) const;
+   // wwe2k14 patch (Session 54, NATIVE draw sizes): the native renderer's truth pass draw ratio (1 = none; decided once).
+   float NativeTruthDrawRatio();
++  // wwe2k14 patch (Session 61, gpu_native_pipeline_storage): the pipeline cache, for the native renderer's stored
++  // pipelines (their shaders by hash, translations, geometry shaders).
++  VulkanPipelineCache& NativePipelineCache() { return *pipeline_cache_; }
++  // wwe2k14 patch (Session 61, DLSS / DLAA object motion in truth frames): transform feedback around the next draw
++  // recorded (a truth draw's capture of its positions; the emulated capture uses the same).
++  void NativeXfbBegin(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size);
++  void NativeXfbEnd();
+   // wwe2k14 patch (Session 54): the native renderer bound its own pipeline, sets and dynamic state outside a draw.
+   void NativeDropBindings() { NativeStateTouched(false); }
+   // wwe2k14 patch (Session 45, NATIVE FRAME): the texture cache's running texture load counts (the frame census).
+@@ -1418,6 +1425,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // gamma pass into dlss_prehud_ (DlssPrehudGamma: the gamma pipeline and its ramp set must be bound) and DLSS gets
+   // it instead of the final picture; the composite adds the HUD (final - pre-HUD) on top.
+   void DlssMaybeSnapshot(const Shader& vertex_shader);
++  // wwe2k14 patch (Session 61): the DLSS snapshot + hide-HUD detection after a recorded draw (IssueDraw, IssueDrawLean).
++  void AfterPostChainCheck(const Shader& vertex_shader);
+   bool DlssPrehudGamma(uint32_t width, uint32_t height, uint32_t swap_frame_index);
+   DlaaImage dlss_snap_[2];  // by frame parity (gpu_dlss_hud_delay: a debug comparison with the previous frame's)
+   uint64_t dlss_snap_frame_ = UINT64_MAX;
+@@ -1450,6 +1459,11 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool ObjmvEnsureBuffers();
+   bool ObjmvBeginCapture(const Shader& vertex_shader, const PrimitiveProcessor::ProcessingResult& primitive);
+   void ObjmvEndCapture();
++  // wwe2k14 patch (Session 61): the capture's range without its begin (a truth draw captures in its own pass), and
++  // giving the last one back.
++  bool ObjmvReserve(const Shader& vertex_shader, const PrimitiveProcessor::ProcessingResult& primitive,
++                    VkBuffer& buffer_out, VkDeviceSize& offset_out, VkDeviceSize& size_out);
++  void ObjmvUnreserve();
+   void ObjmvPass(uint32_t width, uint32_t height, const float jitter[2], float near_z, float far_z);
+   bool objmv_latched_ = false;
+   bool objmv_failed_ = false;
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 8ea1c97653637c2f1d54533ce05d3f19250b9840..79c0250a94e1293da012ce68c6a48789c7774a9c 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -36,7 +36,9 @@
+ #include <chrono>
+ #include <condition_variable>
+ #include <cstdint>
++#include <cstdio>
+ #include <deque>
++#include <filesystem>
+ #include <mutex>
+ #include <string>
+ #include <thread>
+@@ -169,6 +171,18 @@ struct Draw {
+   uint8_t stencil_ref = 0;  // Session 46: RB_STENCILREFMASK stencilref (a truth clear's stencil value)
+   // Session 46 (truth frames): RB_STENCILREFMASK and _BF - reference, compare mask, write mask (front, back).
+   uint8_t stencil_refs[2] = {}, stencil_read_masks[2] = {}, stencil_write_masks[2] = {};
++  // Session 61 (pipeline storage): what the draw's shader modules and layout were made from - the vertex shader's and
++  // the guest pixel shader's modifications (the emulated translations), the native pixel translation's own settings
++  // (float24 / quantize / twin as GetNativePixelShaderTranslation got them) and the layout's binding counts (pixel
++  // textures, pixel samplers, vertex textures, vertex samplers).
++  uint64_t vertex_modification = 0, pixel_modification = 0;
++  bool ps_float24 = false, ps_twin = false;
++  uint8_t ps_quantize = 0;
++  uint16_t layout_counts[4] = {};
++  // Session 61 (DLSS / DLAA object motion in truth frames): a character draw's captured positions - the transform
++  // feedback buffer range the truth draw writes while it is drawn (VK_NULL_HANDLE: none). Never a lean base.
++  VkBuffer xfb_buffer = VK_NULL_HANDLE;
++  VkDeviceSize xfb_offset = 0, xfb_size = 0;
+ };
+ 
+ class NativeRenderer {
+@@ -335,6 +349,11 @@ class NativeRenderer {
+   // in the EDRAM's layout, and the returned storage-buffer set over it is what the copy shader reads instead of the
+   // EDRAM. VK_NULL_HANDLE: not a truth frame (or a failure, after which the frame went exact): the EDRAM as always.
+   VkDescriptorSet TruthResolveSource(const draw_util::ResolveInfo& info);
++  // Session 61 (DLSS / DLAA in truth frames): a surface's tiles (rows x pitch from base) staged in the EDRAM layout,
++  // as for a resolve; the staging buffer's storage-buffer set (the EDRAM set's layout), or VK_NULL_HANDLE outside
++  // truth frames.
++  VkDescriptorSet TruthStageSurface(uint32_t base_tiles, uint32_t pitch_tiles, uint32_t rows);
++  VkDescriptorSet TruthStageSpan(uint32_t base, uint32_t row_length, uint32_t rows, uint32_t pitch);
+   // Session 46 (M3): in a truth frame, a fast 32bpp 1x colour copy of a surface one RGBA8 image holds whole is done
+   // straight from that image by the transcribed resolve shader (every pixel from the image; the texture it feeds filled
+   // too, as N3a), in place of the staging store and the stock copy. False: TruthResolveSource's way.
+@@ -440,6 +459,12 @@ class NativeRenderer {
+   void OnSwapCompose(VkImageView guest_output, uint32_t width, uint32_t height);
+   // The command processor's shader / pipeline layout caches were cleared: our pipelines refer to their handles.
+   void OnCachesCleared();
++  // Session 61 (gpu_native_pipeline_storage): the native pipelines made in earlier runs, as records next to the
++  // emulated path's pipeline storage (<shareable>\TITLE.native.fsi|fbo.vk.xnps); opened with the shader storage (after it
++  // loaded the stored shaders), closed with it. The stored pipelines are made again in the background from the first
++  // frames the native renderer is on (gpu_native_pipeline_prewarm), and every new one is added.
++  void InitializeStorage(const std::filesystem::path& shareable_root, uint32_t title_id);
++  void ShutdownStorage();
+ 
+  private:
+   struct PipelineKey {
+@@ -949,7 +974,46 @@ class NativeRenderer {
+   // Waits until the worker has made every queued pipeline (before shader modules or layouts may be destroyed).
+   void WaitPipelineJobs();
+   void StopPipelineWorker();
++  // Session 61 (review): the queued jobs not started yet dropped (their keys no longer pending); pipeline_mutex_ held.
++  void DropPipelineJobsLocked();
+   VkPipeline CreatePipeline(const Draw& draw, const PipelineKey& key, const float spec_values[3]) const;
++  // Session 61 (pipeline storage): one native pipeline as plain values - the shaders by hash and modification, the
++  // layout by its binding counts, the geometry shader by the host primitive, and the key's own bits. Everything
++  // CreatePipeline reads comes from the key, so these values make the same pipeline again.
++  struct PipelineRecord {
++    uint64_t vertex_shader_hash;
++    uint64_t vertex_modification;
++    uint64_t pixel_shader_hash;  // the guest pixel shader (0 none): its emulated translation, the layout's counts
++    uint64_t pixel_modification;
++    uint64_t tint_hash;
++    uint32_t state;
++    uint32_t blend_control;
++    uint32_t variant;
++    uint16_t layout_counts[4];
++    uint8_t flags;  // kRecordNativePixel, kRecordFloat24, kRecordTwin, kRecordGeometry
++    uint8_t quantize;
++    uint8_t host_primitive;  // xenos::PrimitiveType (kRecordGeometry)
++    uint8_t pad = 0;
++  };
++  static_assert(sizeof(PipelineRecord) == 64);
++  static constexpr uint8_t kRecordNativePixel = 1, kRecordFloat24 = 2, kRecordTwin = 4, kRecordGeometry = 8;
++  // The record of a pipeline GetPipeline is about to make, checked by making its key again from it (only a record that
++  // gives the same key is stored).
++  void StorePipelineRecord(const Draw& draw, const PipelineKey& key);
++  // The key a record makes (translating its shaders where needed); false when a shader or object is missing.
++  bool KeyFromRecord(const PipelineRecord& record, PipelineKey& key);
++  // From OnFrameEnd: the stored records' pipelines queued for the worker, within gpu_native_pipeline_prewarm_ms; the
++  // storage flushed.
++  void StorageOnFrameEnd();
++  std::FILE* storage_file_ = nullptr;
++  bool storage_dirty_ = false;
++  std::unordered_set<uint64_t> storage_hashes_;  // records in the file (XXH3 of the record)
++  std::vector<PipelineRecord> prewarm_;           // stored records not made yet in this run
++  size_t prewarm_next_ = 0;
++  std::vector<PipelineRecord> prewarm_retry_;     // waiting for their shaders (StorageOnFrameEnd)
++  uint32_t prewarm_retries_ = 0, prewarm_logged_retries_ = 0;
++  uint32_t prewarm_queued_ = 0, prewarm_skipped_ = 0, storage_written_ = 0, storage_mismatch_ = 0;
++  bool prewarm_logged_ = false;
+   VkQueryPool query_pool_ = VK_NULL_HANDLE;
+   float timestamp_period_ns_ = 0.0f;
+ 
+diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
+index 3680f3bc43ee068c6b81cce4f065a0d35e1fc7db..5d364bf682158458aafff5a5db845aa82476158e 100644
+--- a/include/rex/graphics/vulkan/pipeline_cache.h
++++ b/include/rex/graphics/vulkan/pipeline_cache.h
+@@ -78,6 +78,16 @@ class VulkanPipelineCache {
+                            uint32_t dword_count);
+   // Analyze shader microcode on the translator thread.
+   void AnalyzeShaderUcode(Shader& shader) { shader.AnalyzeUcode(ucode_disasm_buffer_); }
++  // wwe2k14 patch (Session 61, gpu_native_pipeline_storage): a shader loaded so far (from the shader storage or by a
++  // draw), by its microcode hash; nullptr if none.
++  VulkanShader* FindShader(uint64_t ucode_data_hash) const {
++    auto it = shaders_.find(ucode_data_hash);
++    return it != shaders_.end() ? it->second : nullptr;
++  }
++  // wwe2k14 patch (Session 61): the shader into the shader storage file if it is not there yet - as ConfigurePipeline
++  // stores the shaders of the emulated path's pipelines; the native renderer's draws make none (their shaders were
++  // never stored before: runs 001-018, 6 of 234 native records' shaders missing).
++  void StoreShader(Shader& shader);
+ 
+   // Retrieves the shader modification for the current state. The shader must
+   // have microcode analyzed.
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index f0cceab649f3bd86b1975a8de43cf6d92231c999..a4c5a2e8fe23b8d7eef09134caba83f4e4a7d1e5 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -136,7 +136,8 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   // dest_layout, in GENERAL; the caller does its barriers). Only on the fragment shader interlock path (the EDRAM
+   // buffer is the render target there); false otherwise. Ends the render pass.
+   bool DlssSnapshotColor32(uint32_t base_tiles, uint32_t pitch_tiles, uint32_t width, uint32_t height,
+-                           bool swap_red_blue, VkDescriptorSetLayout dest_layout, VkDescriptorSet dest_set);
++                           bool swap_red_blue, VkDescriptorSetLayout dest_layout, VkDescriptorSet dest_set,
++                           VkDescriptorSet source_set = VK_NULL_HANDLE);  // Session 61: truth staging
+ 
+   // wwe2k14 patch (Session 41, FASTCLEAR): the fill of an exact cheap clear (shaders/edram_fill.cs.glsl), right after
+   // the clear's draw drew its first pixel: per surface, copies that pixel's sample 0 dword to every sample of the
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index 8a94d457356dba3bb596869e10d87014ce9e4e6c..dcf3a579c58ecd57de6cb28b61ccc0315eeae713 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -153,6 +153,11 @@ if(REXGLUE_USE_VULKAN)
+         OSDependent
+         OGLCompiler
+     )
++    # wwe2k14 patch (Session 61, vulkan_spirv_optimize): SPIRV-Tools' optimiser, built in (thirdparty/CMakeLists.txt).
++    if(TARGET SPIRV-Tools-opt)
++        target_link_libraries(rexgpu-xenos PRIVATE SPIRV-Tools-opt)
++        target_compile_definitions(rexgpu-xenos PRIVATE REX_HAS_SPIRV_OPT=1)
++    endif()
+ endif()
+ 
+ if(REXGLUE_USE_D3D12)
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 71dd09c88bf4b28dbb4280702c3eeaad41d1c3ab..5700d475541eb434191250c445ce9f8a1e13b559 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2502,6 +2502,9 @@ void VulkanCommandProcessor::InitializeShaderStorage(const std::filesystem::path
+                                                      uint32_t title_id, bool blocking) {
+   CommandProcessor::InitializeShaderStorage(cache_root, title_id, blocking);
+   pipeline_cache_->InitializeShaderStorage(cache_root, title_id, blocking);
++  // wwe2k14 patch (Session 61, gpu_native_pipeline_storage): the native renderer's stored pipelines (their shaders
++  // were loaded just now).
++  if (native_) native_->InitializeStorage(cache_root / "shaders" / "shareable", title_id);
+ }
+ 
+ bool VulkanCommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* reader,
+@@ -5236,6 +5239,24 @@ static void FsrEvaluateCallback(VkCommandBuffer command_buffer, const void* data
+   }
+ }
+ 
++// wwe2k14 patch (Session 61): after a draw is recorded - the DLSS pre-HUD snapshot (Session 24) and the hide-HUD /
++// wide detection (Session 33) of the post chain's last pass. IssueDraw and (Session 61: truth frames take that pass
++// through it) IssueDrawLean both call it.
++void VulkanCommandProcessor::AfterPostChainCheck(const Shader& vertex_shader) {
++  if (REXCVAR_GET(gpu_dlss)) {  // wwe2k14 patch (Session 24, DLSS): the picture before the HUD
++    DlssMaybeSnapshot(vertex_shader);
++  }
++  // wwe2k14 patch (Session 33, HIDEHUD / WIDE): this was the post chain's last pass? (the HUD follows)
++  if (REXCVAR_GET(gpu_hide_hud) || REXCVAR_GET(gpu_wide_factor) > 1.001) {
++    const std::string vs_text = REXCVAR_GET(gpu_dlss_hud_after_vs);
++    if (vs_text != hide_hud_vs_text_) {
++      hide_hud_vs_text_ = vs_text;
++      hide_hud_vs_ = std::strtoull(vs_text.c_str(), nullptr, 16);
++    }
++    if (vertex_shader.ucode_data_hash() == hide_hud_vs_) hide_hud_after_pass_ = true;
++  }
++}
++
+ void VulkanCommandProcessor::DlssMaybeSnapshot(const Shader& vertex_shader) {
+   if (!REXCVAR_GET(gpu_dlss_hud) || !dlaa_scene_done_ || !dlss_pending_.valid || dlss_pending_.frame != dlaa_frame_ ||
+       dlss_snap_frame_ == dlaa_frame_) {
+@@ -5269,9 +5290,25 @@ void VulkanCommandProcessor::DlssMaybeSnapshot(const Shader& vertex_shader) {
+                          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+   const uint32_t pitch_tiles = (uint32_t(surface_info.surface_pitch) + xenos::kEdramTileWidthSamples - 1) /
+                                xenos::kEdramTileWidthSamples;
++  // wwe2k14 patch (Session 61): in a truth frame the picture is in the native renderer's images, not the EDRAM -
++  // staged in the EDRAM layout first (its tiles, as for a resolve), and the snapshot reads that.
++  VkDescriptorSet source_set = VK_NULL_HANDLE;
++  if (native_ && native_->truth()) {
++    // (Session 61 review: the staging may copy from the EDRAM and set barriers - not inside the open truth pass.)
++    EndRenderPass();
++    const uint32_t tile_rows = xenos::kEdramTileHeightSamples * texture_cache_->draw_resolution_scale_y();
++    source_set = native_->TruthStageSurface(color_info.color_base, pitch_tiles, (height + tile_rows - 1) / tile_rows);
++  }
++  {  // (Session 61: where the snapshots came from, every 600)
++    static uint64_t from_truth = 0, from_edram = 0;
++    ++(source_set != VK_NULL_HANDLE ? from_truth : from_edram);
++    if ((from_truth + from_edram) % 600 == 0) {
++      REXGPU_INFO("[dlss] HUD step: {} pre-HUD copies from the truth images, {} from the EDRAM", from_truth, from_edram);
++    }
++  }
+   if (!render_target_cache_->DlssSnapshotColor32(color_info.color_base, pitch_tiles, width, height,
+                                                  REXCVAR_GET(gpu_dlss_hud_rb_swap),
+-                                                 texture_cache_->dlaa_storage_set_layout(), snap.set)) {
++                                                 texture_cache_->dlaa_storage_set_layout(), snap.set, source_set)) {
+     if (dlss_snap_log_left_) {
+       --dlss_snap_log_left_;
+       REXGPU_WARN("[dlss] HUD step: frame {}: no EDRAM snapshot (not the fsi render target path?)", dlaa_frame_);
+@@ -5286,8 +5323,10 @@ void VulkanCommandProcessor::DlssMaybeSnapshot(const Shader& vertex_shader) {
+   repeat_prev_.valid = false;  // wwe2k14 patch (Session 23, REPEAT): the render pass has ended
+   if (dlss_snap_log_left_) {
+     --dlss_snap_log_left_;
+-    REXGPU_INFO("[dlss] HUD step: frame {}: pre-HUD copy of colour base {} tiles, pitch {} tiles, {}x{}",
+-                dlaa_frame_, uint32_t(color_info.color_base), pitch_tiles, width, height);
++    REXGPU_INFO("[dlss] HUD step: frame {}: pre-HUD copy of colour base {} tiles, pitch {} tiles, {}x{} ({}; native {} enabled {} replacing {} truth {})",
++                dlaa_frame_, uint32_t(color_info.color_base), pitch_tiles, width, height,
++                source_set != VK_NULL_HANDLE ? "truth images" : "EDRAM", native_ != nullptr, native_ && native_->enabled(),
++                native_ && native_->replacing(), native_ && native_->truth());
+   }
+ }
+ 
+@@ -5555,6 +5594,33 @@ bool VulkanCommandProcessor::ObjmvEnsureBuffers() {
+ // IssueDraw, right before the host draw: begin the capture of a character draw (false: not captured).
+ bool VulkanCommandProcessor::ObjmvBeginCapture(const Shader& vertex_shader,
+                                                const PrimitiveProcessor::ProcessingResult& primitive) {
++  VkBuffer buffer = VK_NULL_HANDLE;
++  VkDeviceSize offset = 0, size = 0;
++  if (!ObjmvReserve(vertex_shader, primitive, buffer, offset, size)) return false;
++  NativeXfbBegin(buffer, offset, size);
++  return true;
++}
++
++// wwe2k14 patch (Session 61): a transform feedback capture around the next draw (the emulated draw's, or a truth
++// draw's own in the native renderer's pass).
++void VulkanCommandProcessor::NativeXfbBegin(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) {
++  const ui::vulkan::VulkanDevice::Functions& dfn = GetVulkanDevice()->functions();
++  ObjmvXfbBeginData begin = {dfn.vkCmdBindTransformFeedbackBuffersEXT, dfn.vkCmdBeginTransformFeedbackEXT, buffer,
++                             offset, size};
++  deferred_command_buffer_.CmdHostCallback(&ObjmvXfbBegin, &begin, sizeof(begin));
++}
++
++void VulkanCommandProcessor::NativeXfbEnd() {
++  ObjmvXfbEndData end = {GetVulkanDevice()->functions().vkCmdEndTransformFeedbackEXT};
++  deferred_command_buffer_.CmdHostCallback(&ObjmvXfbEnd, &end, sizeof(end));
++}
++
++// wwe2k14 patch (Session 61): a character draw's range in this frame's capture buffer, entered in the frame's list
++// (ObjmvBeginCapture's bookkeeping, without the transform feedback begin); false: not captured. A truth draw that
++// reserved one and was not claimed after all gives it back (ObjmvUnreserve).
++bool VulkanCommandProcessor::ObjmvReserve(const Shader& vertex_shader,
++                                          const PrimitiveProcessor::ProcessingResult& primitive, VkBuffer& buffer_out,
++                                          VkDeviceSize& offset_out, VkDeviceSize& size_out) {
+   // Room for every triangle the draw can produce (a strip with primitive restart produces fewer: the rest of its
+   // range stays zero from the frame's clear, w = 0, and the rasterizer skips it).
+   uint32_t vertices = 0;
+@@ -5585,10 +5651,9 @@ bool VulkanCommandProcessor::ObjmvBeginCapture(const Shader& vertex_shader,
+   draw.vertices = vertices;
+   std::memcpy(draw.viewport, objmv_viewport_, sizeof(draw.viewport));
+   objmv_draws_[k].push_back(draw);
+-  const ui::vulkan::VulkanDevice::Functions& dfn = GetVulkanDevice()->functions();
+-  ObjmvXfbBeginData begin = {dfn.vkCmdBindTransformFeedbackBuffersEXT, dfn.vkCmdBeginTransformFeedbackEXT,
+-                             objmv_buffers_[k], VkDeviceSize(objmv_cursor_) * 16, VkDeviceSize(vertices) * 16};
+-  deferred_command_buffer_.CmdHostCallback(&ObjmvXfbBegin, &begin, sizeof(begin));
++  buffer_out = objmv_buffers_[k];
++  offset_out = VkDeviceSize(objmv_cursor_) * 16;
++  size_out = VkDeviceSize(vertices) * 16;
+   objmv_cursor_ += vertices;
+   objmv_used_[k] = std::max(objmv_used_[k], objmv_cursor_);
+   ++objmv_captured_;
+@@ -5596,11 +5661,19 @@ bool VulkanCommandProcessor::ObjmvBeginCapture(const Shader& vertex_shader,
+ }
+ 
+ void VulkanCommandProcessor::ObjmvEndCapture() {
+-  ObjmvXfbEndData end = {GetVulkanDevice()->functions().vkCmdEndTransformFeedbackEXT};
+-  deferred_command_buffer_.CmdHostCallback(&ObjmvXfbEnd, &end, sizeof(end));
++  NativeXfbEnd();
+   repeat_prev_.valid = false;  // wwe2k14 patch (Session 23, REPEAT): no fast-path repeat of a captured draw
+ }
+ 
++// wwe2k14 patch (Session 61): the last ObjmvReserve given back (its truth draw was not claimed).
++void VulkanCommandProcessor::ObjmvUnreserve() {
++  std::vector<ObjmvDraw>& draws = objmv_draws_[uint32_t(dlaa_frame_ & 1)];
++  if (draws.empty()) return;
++  objmv_cursor_ -= draws.back().vertices;
++  draws.pop_back();
++  --objmv_captured_;
++}
++
+ // The motion pass, after the camera vectors: the characters' own motion into the motion image + the mask.
+ void VulkanCommandProcessor::ObjmvPass(uint32_t width, uint32_t height, const float jitter[2], float near_z,
+                                        float far_z) {
+@@ -7280,6 +7353,16 @@ void VulkanCommandProcessor::NativeDescribeDraw(native::Draw& draw, const Vulkan
+   draw.vertex_shader = vertex_translation.shader_module();
+   draw.layout = current_guest_graphics_pipeline_layout_ ? current_guest_graphics_pipeline_layout_->GetPipelineLayout()
+                                                         : VK_NULL_HANDLE;
++  // wwe2k14 patch (Session 61, gpu_native_pipeline_storage): what the modules and the layout come from (the layout's
++  // counts as IssueDraw takes them for GetPipelineLayout; the native renderer checks they give draw.layout).
++  draw.vertex_modification = vertex_translation.modification();
++  draw.pixel_modification = pixel_shader ? pixel_modification.value : 0;
++  draw.ps_float24 = draw.ps_twin = false;
++  draw.ps_quantize = 0;
++  draw.layout_counts[0] = uint16_t(pixel_shader ? pixel_shader->GetTextureBindingsAfterTranslation().size() : 0);
++  draw.layout_counts[1] = uint16_t(pixel_shader ? pixel_shader->GetSamplerBindingsAfterTranslation().size() : 0);
++  draw.layout_counts[2] = uint16_t(vertex_shader.GetTextureBindingsAfterTranslation().size());
++  draw.layout_counts[3] = uint16_t(vertex_shader.GetSamplerBindingsAfterTranslation().size());
+   std::copy(std::begin(current_graphics_descriptor_sets_), std::end(current_graphics_descriptor_sets_), draw.sets);
+   draw.sets_bound = native_sets_needed_;
+   if (constants_dynamic_offsets_) {
+@@ -7419,6 +7502,10 @@ void VulkanCommandProcessor::NativeDescribeDraw(native::Draw& draw, const Vulkan
+     const uint32_t msaa = (draw.surface_info >> 16) & 3;
+     const bool twin = native_->truth() &&
+                       native_->TruthTwinPitch(std::max(1u, ((draw.surface_info & 0x3FFF) * (msaa >= 2 ? 2u : 1u) + 79) / 80));
++    // wwe2k14 patch (Session 61, gpu_native_pipeline_storage): the translation's settings, for the pipeline record.
++    draw.ps_float24 = float24;
++    draw.ps_twin = twin;
++    draw.ps_quantize = uint8_t(draw.color_quantize);
+     if (cacheable && c.valid && c.shader == pixel_shader && c.modification == pixel_modification.value &&
+         c.float24 == float24 && c.quantize == draw.color_quantize && c.twin == twin) {
+       draw.pixel_shader = c.module;
+@@ -7768,8 +7855,11 @@ bool VulkanCommandProcessor::FastClearDetect(xenos::PrimitiveType prim_type, con
+   }
+   // wwe2k14 patch (Session 54): on the host render target path in a truth frame too (the native renderer draws the
+   // clear; one it refuses goes the normal way - EdramFill does nothing on that path).
++  // wwe2k14 patch (Session 61, DLSS / DLAA in truth frames): with the scene jitter on, a truth frame's clears are still
++  // fast clears (their rectangle comes from the registers, without the jitter - only the scene draws are jittered); a
++  // refused clear left the stencil of every truth image unknown, and every frame fell back (runs 4107 / 4108).
+   if ((render_target_cache_->GetPath() != RenderTargetCache::Path::kPixelShaderInterlock && !NativeTruthActive()) ||
+-      rename_.active || DlaaJitterOn()) {
++      rename_.active || (DlaaJitterOn() && !NativeTruthActive())) {
+     return FastClearReject(__LINE__);
+   }
+   const auto initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
+@@ -9903,14 +9993,29 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       }
+     }
+     if (native_->replacing()) {
+-      // A draw whose positions are captured (object motion vectors) is drawn emulated: never claimed.
+-      native_owned = !vertex_shader_modification.vertex.xfb_position && native_->Claim(native_draw);
++      // A draw whose positions are captured (object motion vectors) is drawn emulated: never claimed - wwe2k14 patch
++      // (Session 61) except in a truth frame, where the truth draw captures them in its own pass (its range reserved
++      // here, given back if it is not claimed after all).
++      const bool xfb = vertex_shader_modification.vertex.xfb_position;
++      const bool claimable = !xfb || native_->truth();
++      bool xfb_reserved = false;
++      if (xfb && native_->truth() && !dlaa_scene_done_) {
++        xfb_reserved = ObjmvReserve(*vertex_shader, primitive_processing_result, native_draw.xfb_buffer,
++                                    native_draw.xfb_offset, native_draw.xfb_size);
++        if (!xfb_reserved) native_draw.xfb_buffer = VK_NULL_HANDLE;
++      }
++      native_owned = claimable && native_->Claim(native_draw);
+       // wwe2k14 patch (Session 42, NATIVE POST): declined only because the native renderer's other target (scene /
+       // post, the same EDRAM tiles) holds draws not in the EDRAM: written back, then claimed again.
+-      if (!native_owned && !vertex_shader_modification.vertex.xfb_position && native_->ClaimWantsWriteBack()) {
++      if (!native_owned && claimable && native_->ClaimWantsWriteBack()) {
+         EndRenderPass();
+         native_->BeforeEmulatedEdramAccess(nullptr, false);  // Session 45: a switch, no emulated draw yet
+-        native_owned = native_->Claim(native_draw);
++        // (Session 61 review: the write-back may have ended the truth frame - a captured draw is then emulated.)
++        native_owned = (!xfb || native_->truth()) && native_->Claim(native_draw);
++      }
++      if (xfb_reserved && !native_owned) {
++        ObjmvUnreserve();
++        native_draw.xfb_buffer = VK_NULL_HANDLE;
+       }
+       if (!native_owned) {
+         if (native_->HasUnwrittenNative()) {
+@@ -10048,7 +10153,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   }
+ 
+   // wwe2k14 patch (Session 24, OBJMV): capture a character draw's positions (scene draws only: before the depth).
+-  const bool objmv_capture = vertex_shader_modification.vertex.xfb_position && !dlaa_scene_done_ &&
++  const bool objmv_capture = vertex_shader_modification.vertex.xfb_position && !dlaa_scene_done_ && !native_owned &&
+                              ObjmvBeginCapture(*vertex_shader, primitive_processing_result);
+ 
+   // Draw.
+@@ -10170,18 +10275,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   if (fast_clear || (truth_owned && native_draw.fast_clear)) {
+     repeat_prev_.valid = false;
+   }
+-  if (REXCVAR_GET(gpu_dlss)) {  // wwe2k14 patch (Session 24, DLSS): the picture before the HUD
+-    DlssMaybeSnapshot(*vertex_shader);
+-  }
+-  // wwe2k14 patch (Session 33, HIDEHUD / WIDE): this was the post chain's last pass? (the HUD follows)
+-  if (REXCVAR_GET(gpu_hide_hud) || REXCVAR_GET(gpu_wide_factor) > 1.001) {
+-    const std::string vs_text = REXCVAR_GET(gpu_dlss_hud_after_vs);
+-    if (vs_text != hide_hud_vs_text_) {
+-      hide_hud_vs_text_ = vs_text;
+-      hide_hud_vs_ = std::strtoull(vs_text.c_str(), nullptr, 16);
+-    }
+-    if (vertex_shader->ucode_data_hash() == hide_hud_vs_) hide_hud_after_pass_ = true;
+-  }
++  AfterPostChainCheck(*vertex_shader);  // Session 24 DLSS snapshot, Session 33 HIDEHUD / WIDE (Session 61: a helper)
++
+   // wwe2k14 patch (Session 7b, GPUMARKS).
+   if (gpu_marks_active_) {
+     // wwe2k14 patch (Session 7c, CAUSES): gpu_anatomy_gpu_marks_mode 1: the mark GpuMarksSparseDrawPre chose.
+@@ -11569,6 +11664,7 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+   repeat_prev_.merge_stride = lean_.merge_stride;
+   repeat_prev_.float_count = lean_.float_count;
+   RepeatStartRun();
++  AfterPostChainCheck(*vertex_shader);  // Session 61 (truth frames' composite pass may be lean)
+   ++stats.reasons[kLeanTaken];
+   succeeded = true;
+   return true;
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 9a28a6bab45de710e3529da678b15cf5856a4e00..f2c2f98164cd0cf9e4d13d58873ac712c7de79d0 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -17,8 +17,10 @@
+ 
+ #include <fmt/format.h>
+ #include <rex/cvar.h>
++#include <rex/filesystem.h>
+ #include <rex/logging.h>
+ #include <rex/graphics/vulkan/command_processor.h>
++#include <rex/graphics/vulkan/pipeline_cache.h>
+ #include <rex/ui/vulkan/util.h>
+ 
+ // ---------------------------------------------------------------------------------------------------------------
+@@ -258,6 +260,20 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_direct_resolve, true, "GPU/Native",
+                     "whole is done straight from the image (and fills the texture it feeds); false = every copy reads "
+                     "the staging buffer the image is stored into first")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 61, Jarrod: "move DLSS and DLAA to the native renderer"): truth frames with the upscalers.
++REXCVAR_DEFINE_BOOL(gpu_native_truth_upscalers, true, "GPU/Native",
++                    "Session 61: truth frames with DLSS / DLAA / FSR too (refused before): the pre-HUD copy from the "
++                    "truth images, the clears still fast clears under the jitter, the characters' positions captured "
++                    "by their truth draws. Runs 4117-4119: 100% truth frames. false = refused, as before");
++// wwe2k14 patch (Session 61): the native renderer's pipelines kept between runs and made again ahead of the draws.
++REXCVAR_DEFINE_BOOL(gpu_native_pipeline_storage, true, "GPU/Native",
++                    "Session 61: the native renderer's pipelines are stored as records next to the shader storage "
++                    "(<cache>\\shaders\\shareable\\TITLE.native.fsi|fbo.vk.xnps, needs store_shaders) and every new one "
++                    "is added");
++REXCVAR_DEFINE_INT32(gpu_native_pipeline_prewarm_ms, 4, "GPU/Native",
++                     "Session 61: from the first frames the native renderer is on, the stored pipelines are queued for "
++                     "its pipeline worker thread, their shaders translated on the command thread within this many ms "
++                     "a frame (0 = not made ahead). Uses the worker whatever gpu_native_truth_async_pipelines says");
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_async_pipelines, true, "GPU/Native",
+                     "With gpu_native_truth (Session 47): truth pipelines are made on a worker thread, not the command "
+                     "thread; a truth draw whose pipeline is not ready yet is skipped, as the emulated renderer skips "
+@@ -1165,6 +1181,7 @@ NativeRenderer::NativeRenderer(VulkanCommandProcessor& command_processor) : comm
+ 
+ NativeRenderer::~NativeRenderer() {
+   StopPipelineWorker();  // Session 47 (also without a device)
++  ShutdownStorage();     // Session 61
+   DestroyObjects();
+ }
+ 
+@@ -1837,6 +1854,12 @@ void NativeRenderer::OnCachesCleared() {
+   TruthDropRecords();  // Session 49 (none expected: ClearCaches wrote them into memory)
+   // The vertex shader modules and pipeline layouts our pipelines were made with may be destroyed and their handles
+   // reused: make new pipelines from now on.
++  {
++    // Session 61 (review): jobs not started are dropped, not waited for (a draw queues its own again; the stored
++    // pipelines' backlog would hold the clear for seconds on a slow driver).
++    std::lock_guard<std::mutex> lock(pipeline_mutex_);
++    DropPipelineJobsLocked();
++  }
+   WaitPipelineJobs();  // Session 47: the worker's pipelines use them too (made before they go)
+   for (auto& [key, pipeline] : pipelines_) RetirePipeline(pipeline);
+   pipelines_.clear();
+@@ -1873,6 +1896,7 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+     }
+     return found->second;
+   }
++  if (storage_file_) StorePipelineRecord(draw, key);  // Session 61 (a key not made yet in this run)
+   const float spec_values[3] = {float(target_height_) * 1.2f, float(target_width_) * 0.5f,
+                                 float(target_height_) * 0.5f};
+   // Session 47 (CPU): queued for the worker thread (a truth draw is skipped until its pipeline is made).
+@@ -1957,11 +1981,18 @@ void NativeRenderer::WaitPipelineJobs() {
+   DrainPipelineJobs();
+ }
+ 
++void NativeRenderer::DropPipelineJobsLocked() {
++  for (const PipelineJob& job : pipeline_jobs_) pipeline_pending_.erase(job.key);
++  pipeline_jobs_.clear();
++  if (!pipeline_busy_) pipeline_idle_cv_.notify_all();
++}
++
+ void NativeRenderer::StopPipelineWorker() {
+   if (!pipeline_thread_.joinable()) return;
+   {
+     std::lock_guard<std::mutex> lock(pipeline_mutex_);
+     pipeline_quit_ = true;
++    DropPipelineJobsLocked();  // Session 61 (review): a quit does not wait for the stored pipelines' backlog
+   }
+   pipeline_cv_.notify_all();
+   pipeline_thread_.join();
+@@ -1969,17 +2000,267 @@ void NativeRenderer::StopPipelineWorker() {
+   DrainPipelineJobs();
+ }
+ 
++// ---------------------------------------------------------------------------------------------------------------
++// Session 61: the stored native pipelines (gpu_native_pipeline_storage, gpu_native_pipeline_prewarm_ms)
++// ---------------------------------------------------------------------------------------------------------------
++
++namespace {
++// 'XNPS'; the record format's version; the translator's modification version (records hold its bits); the record
++// size. A file whose header differs is emptied.
++struct StorageHeader {
++  uint32_t magic, version, modification_version, record_size;
++};
++constexpr uint32_t kStorageMagic = 0x53504E58;
++constexpr uint32_t kStorageVersion = 0x20261025;
++}  // namespace
++
++void NativeRenderer::InitializeStorage(const std::filesystem::path& shareable_root, uint32_t title_id) {
++  ShutdownStorage();
++  if (!REXCVAR_GET(gpu_native_pipeline_storage)) return;
++  // (Review: one file per render path, as the emulated path's .fsi / .fbo pipeline storage - the translations' bits
++  // differ between them.)
++  const bool interlock = command_processor_.NativeEdramBuffer() != VK_NULL_HANDLE;
++  const std::filesystem::path path =
++      shareable_root / fmt::format("{:08X}.native.{}.vk.xnps", title_id, interlock ? "fsi" : "fbo");
++  storage_file_ = rex::filesystem::OpenFile(path, "a+b");
++  if (!storage_file_) {
++    REXGPU_WARN("[native][storage] cannot open {}: native pipelines not stored", rex::path_to_utf8(path));
++    return;
++  }
++  const StorageHeader want = {kStorageMagic, kStorageVersion, uint32_t(SpirvShaderTranslator::Modification::kVersion),
++                              uint32_t(sizeof(PipelineRecord))};
++  StorageHeader header = {};
++  rex::filesystem::Seek(storage_file_, 0, SEEK_SET);
++  if (fread(&header, sizeof(header), 1, storage_file_) == 1 && std::memcmp(&header, &want, sizeof(header)) == 0) {
++    // Records until the end or the first one whose hash does not match (a torn tail: the file is cut there).
++    uint64_t valid = sizeof(header);
++    uint64_t hash;
++    PipelineRecord record;
++    while (fread(&hash, sizeof(hash), 1, storage_file_) == 1 && fread(&record, sizeof(record), 1, storage_file_) == 1) {
++      if (XXH3_64bits(&record, sizeof(record)) != hash) break;
++      valid += sizeof(hash) + sizeof(record);
++      if (storage_hashes_.insert(hash).second) prewarm_.push_back(record);
++    }
++    rex::filesystem::TruncateStdioFile(storage_file_, valid);
++  } else {
++    rex::filesystem::TruncateStdioFile(storage_file_, 0);
++    fwrite(&want, sizeof(want), 1, storage_file_);
++    fflush(storage_file_);
++  }
++  rex::filesystem::Seek(storage_file_, 0, SEEK_END);
++  REXGPU_INFO("[native][storage] {} stored native pipelines ({})", prewarm_.size(), rex::path_to_utf8(path));
++}
++
++void NativeRenderer::ShutdownStorage() {
++  if (storage_file_) {
++    fflush(storage_file_);
++    fclose(storage_file_);
++    storage_file_ = nullptr;
++  }
++  storage_dirty_ = false;
++  storage_hashes_.clear();
++  prewarm_.clear();
++  prewarm_retry_.clear();
++  prewarm_next_ = 0;
++  prewarm_retries_ = prewarm_logged_retries_ = prewarm_queued_ = prewarm_skipped_ = 0;
++  storage_written_ = storage_mismatch_ = 0;
++  prewarm_logged_ = false;
++}
++
++bool NativeRenderer::KeyFromRecord(const PipelineRecord& record, PipelineKey& key) {
++  // Session 61 (review): as the emulated path's pipeline storage refuses them - a transform-feedback variant (the
++  // characters' capture with DLSS / DLAA / FSR) needs the capture latched (and with it the device feature), a LOD-bias
++  // variant needs gpu_dlss; a run without an upscaler must not make them from stored records.
++  if (SpirvShaderTranslator::Modification(record.vertex_modification).vertex.xfb_position &&
++      !command_processor_.ObjmvLatched()) {
++    return false;
++  }
++  if (SpirvShaderTranslator::Modification(record.pixel_modification).pixel.dlss_lod_bias_quarters &&
++      !REXCVAR_GET(gpu_dlss)) {
++    return false;
++  }
++  VulkanPipelineCache& cache = command_processor_.NativePipelineCache();
++  VulkanShader* vertex_shader = cache.FindShader(record.vertex_shader_hash);
++  if (!vertex_shader || vertex_shader->type() != xenos::ShaderType::kVertex) return false;
++  VulkanShader* pixel_shader = nullptr;
++  if (record.pixel_shader_hash) {
++    pixel_shader = cache.FindShader(record.pixel_shader_hash);
++    if (!pixel_shader || pixel_shader->type() != xenos::ShaderType::kPixel) return false;
++  }
++  // The emulated translations first (IssueDraw's order: the native pixel translation keeps their bindings).
++  auto* vertex_translation =
++      static_cast<VulkanShader::VulkanTranslation*>(vertex_shader->GetOrCreateTranslation(record.vertex_modification));
++  auto* pixel_translation =
++      pixel_shader
++          ? static_cast<VulkanShader::VulkanTranslation*>(pixel_shader->GetOrCreateTranslation(record.pixel_modification))
++          : nullptr;
++  if (!cache.EnsureShadersTranslated(vertex_translation, pixel_translation)) return false;
++  VkShaderModule pixel_module = VK_NULL_HANDLE;
++  if (record.flags & kRecordNativePixel) {
++    if (!pixel_shader) return false;
++    VulkanShader::VulkanTranslation* native_translation = cache.GetNativePixelShaderTranslation(
++        *pixel_shader, SpirvShaderTranslator::Modification(record.pixel_modification),
++        (record.flags & kRecordFloat24) != 0, record.quantize, (record.flags & kRecordTwin) != 0);
++    if (!native_translation) return false;
++    pixel_module = native_translation->shader_module();
++  }
++  const VulkanPipelineCache::PipelineLayoutProvider* layout = command_processor_.GetPipelineLayout(
++      record.layout_counts[0], record.layout_counts[1], record.layout_counts[2], record.layout_counts[3]);
++  if (!layout) return false;
++  VkShaderModule geometry_shader = VK_NULL_HANDLE;
++  if (record.flags & kRecordGeometry) {
++    PrimitiveProcessor::ProcessingResult primitive = {};
++    primitive.host_vertex_shader_type = Shader::HostVertexShaderType::kVertex;
++    primitive.host_primitive_type = xenos::PrimitiveType(record.host_primitive);
++    VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
++    geometry_shader = cache.GetNativeGeometryShader(primitive,
++                                                    SpirvShaderTranslator::Modification(record.vertex_modification),
++                                                    SpirvShaderTranslator::Modification(record.pixel_modification),
++                                                    topology);
++    if (geometry_shader == VK_NULL_HANDLE) return false;
++  }
++  key = {vertex_translation->shader_module(), pixel_module, layout->GetPipelineLayout(), record.state,
++         record.blend_control, record.tint_hash, geometry_shader, record.variant};
++  return key.vertex_shader != VK_NULL_HANDLE;
++}
++
++void NativeRenderer::StorePipelineRecord(const Draw& draw, const PipelineKey& key) {
++  PipelineRecord record = {};
++  record.vertex_shader_hash = draw.vertex_shader_hash;
++  record.vertex_modification = draw.vertex_modification;
++  record.pixel_shader_hash = draw.pixel_shader_hash;
++  record.pixel_modification = draw.pixel_shader_hash ? draw.pixel_modification : 0;
++  record.tint_hash = key.tint_hash;
++  record.state = key.state;
++  record.blend_control = key.blend_control;
++  record.variant = key.variant;
++  std::copy(std::begin(draw.layout_counts), std::end(draw.layout_counts), record.layout_counts);
++  if (key.pixel_shader != VK_NULL_HANDLE) {
++    record.flags |= kRecordNativePixel | (draw.ps_float24 ? kRecordFloat24 : 0) | (draw.ps_twin ? kRecordTwin : 0);
++    record.quantize = draw.ps_quantize;
++  }
++  if (key.geometry_shader != VK_NULL_HANDLE) {
++    record.flags |= kRecordGeometry;
++    record.host_primitive = draw.host_primitive;
++  }
++  const uint64_t hash = XXH3_64bits(&record, sizeof(record));
++  if (!storage_hashes_.insert(hash).second) return;  // stored (or checked) before
++  // Only a record that makes this very key again is stored (its shaders and objects exist now: lookups only).
++  PipelineKey again;
++  if (!KeyFromRecord(record, again) || !(again == key)) {
++    if (storage_mismatch_++ < 8) {
++      REXGPU_WARN("[native][storage] vertex shader {:016X} pixel shader {:016X}: the record does not make the same "
++                  "pipeline key (not stored)",
++                  draw.vertex_shader_hash, draw.pixel_shader_hash);
++    }
++    return;
++  }
++  // The record's shaders into the shader storage too (the emulated path stores only its own pipelines' shaders).
++  VulkanPipelineCache& cache = command_processor_.NativePipelineCache();
++  if (VulkanShader* shader = cache.FindShader(record.vertex_shader_hash)) cache.StoreShader(*shader);
++  if (record.pixel_shader_hash) {
++    if (VulkanShader* shader = cache.FindShader(record.pixel_shader_hash)) cache.StoreShader(*shader);
++  }
++  // One write of the whole stored record (review: two writes may be split by the CRT's buffer flush).
++  uint8_t stored[sizeof(hash) + sizeof(record)];
++  std::memcpy(stored, &hash, sizeof(hash));
++  std::memcpy(stored + sizeof(hash), &record, sizeof(record));
++  fwrite(stored, sizeof(stored), 1, storage_file_);
++  storage_dirty_ = true;
++  if ((++storage_written_ & 63) == 0) REXGPU_INFO("[native][storage] {} new native pipelines stored", storage_written_);
++}
++
++void NativeRenderer::StorageOnFrameEnd() {
++  if (storage_dirty_ && storage_file_) {
++    fflush(storage_file_);
++    storage_dirty_ = false;
++  }
++  const int32_t budget_ms = REXCVAR_GET(gpu_native_pipeline_prewarm_ms);
++  // Records whose shaders were not loaded yet (the D3D library's own, met in the first frames, are not in the shader
++  // list) are tried again every 120 frames, 20 times at most.
++  if (prewarm_next_ >= prewarm_.size() && !prewarm_retry_.empty() && prewarm_retries_ < 20 && frame_ % 120 == 0) {
++    ++prewarm_retries_;
++    prewarm_.swap(prewarm_retry_);
++    prewarm_retry_.clear();
++    prewarm_next_ = 0;
++  }
++  if (!enabled_ || budget_ms <= 0 || prewarm_next_ >= prewarm_.size()) return;
++  VulkanPipelineCache& cache = command_processor_.NativePipelineCache();
++  const auto t0 = std::chrono::steady_clock::now();
++  const float spec_values[3] = {float(target_height_) * 1.2f, float(target_width_) * 0.5f,
++                                float(target_height_) * 0.5f};
++  // (Review: the budget is checked before each record too - one record may translate up to four shaders.)
++  while (prewarm_next_ < prewarm_.size() &&
++         std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(budget_ms)) {
++    const PipelineRecord& record = prewarm_[prewarm_next_++];
++    // Waits (the retry passes) for: its shaders not loaded yet; a draw-twin translation outside truth frames (the
++    // truth draw ratio is decided at the first twin translation - review: not before truth frames are on); its post
++    // class's render pass not made yet (made with the post objects, before this in OnFrameEnd).
++    const bool post = (record.variant & 0xF) != 0;
++    const uint32_t post_class = post ? (record.variant & 7) - 1 : 0;
++    if (!cache.FindShader(record.vertex_shader_hash) ||
++        (record.pixel_shader_hash && !cache.FindShader(record.pixel_shader_hash)) ||
++        ((record.flags & kRecordTwin) && !truth()) ||
++        (post && post_class < kPostTargetClasses && post_render_pass_continue_[post_class] == VK_NULL_HANDLE) ||
++        (!post && render_pass_load_ == VK_NULL_HANDLE)) {
++      prewarm_retry_.push_back(record);
++      continue;
++    }
++    PipelineKey key;
++    if ((post && post_class >= kPostTargetClasses) || !KeyFromRecord(record, key)) {
++      ++prewarm_skipped_;
++    } else if (!pipelines_.count(key)) {
++      // (Its shaders into the shader storage: a record from before StoreShader may name shaders it lacks.)
++      cache.StoreShader(*cache.FindShader(record.vertex_shader_hash));
++      if (record.pixel_shader_hash) cache.StoreShader(*cache.FindShader(record.pixel_shader_hash));
++      std::lock_guard<std::mutex> lock(pipeline_mutex_);
++      if (pipeline_pending_.insert(key).second) {
++        if (!pipeline_thread_.joinable()) pipeline_thread_ = std::thread([this]() { PipelineWorker(); });
++        Draw draw;  // (CreatePipeline reads the key only)
++        draw.vertex_shader = key.vertex_shader;
++        draw.layout = key.layout;
++        pipeline_jobs_.push_back({key, draw, {spec_values[0], spec_values[1], spec_values[2]}});
++        pipeline_cv_.notify_one();
++        ++prewarm_queued_;
++      }
++    }
++  }
++  // (Logged after the first pass, and after the last retry pass or once nothing waits any more.)
++  if (prewarm_next_ >= prewarm_.size() && prewarm_retries_ != prewarm_logged_retries_ + (prewarm_logged_ ? 0u : 1u) &&
++      (!prewarm_logged_ || prewarm_retry_.empty() || prewarm_retries_ >= 20)) {
++    prewarm_logged_ = true;
++    prewarm_logged_retries_ = prewarm_retries_;
++    REXGPU_INFO("[native][storage] stored pipelines queued: {} in all (frame {}, pass {}); {} waiting for their "
++                "shaders / truth frames / a render pass, {} skipped (a translation or object failed)",
++                prewarm_queued_, frame_, prewarm_retries_, prewarm_retry_.size(), prewarm_skipped_);
++  }
++}
++
+ VkPipeline NativeRenderer::CreatePipeline(const Draw& draw, const PipelineKey& key, const float spec_values[3]) const {
+   // Session 55: gpu_native_truth_debug_pipeline_delay_ms - on the worker and on the command thread alike (review).
+   if (const int32_t delay = REXCVAR_GET(gpu_native_truth_debug_pipeline_delay_ms); delay > 0) {
+     std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+   }
+   // (Session 47: what GetPipeline decided, from its key - the worker thread reads no state that changes.)
++  // Session 61 (pipeline storage): everything from the key - the raster state from its RasterKey bits, post / truth /
++  // the post class / the truth stencil from its variant (GetPipeline: 1 + class + 8 truth, the stencil ops above bit
++  // 4) - so a stored record makes the same pipeline without the draw (the same values the draw gave: by construction).
++  (void)draw;
+   const VkShaderModule pixel_shader = key.pixel_shader;
+   const uint32_t color_mask = (key.state >> 16) & 0xF;
+   const uint32_t blend = key.blend_control;
+-  const bool post = draw.post;
+-  const uint32_t post_class = post ? (draw.truth ? uint32_t(draw.truth_class) : PostTargetClass(draw)) : 0;
++  const bool post = (key.variant & 0xF) != 0;
++  const bool truth = post && (key.variant & 8) != 0;
++  const uint32_t post_class = post ? (key.variant & 7) - 1 : 0;
++  const bool truth_stencil = post && truth && ((key.variant >> 4) & 1) != 0;
++  const uint32_t stencil_ops = truth_stencil ? key.variant >> 5 : 0;
++  const VkPrimitiveTopology topology = VkPrimitiveTopology(key.state & 0xF);
++  const bool primitive_restart = (key.state >> 4) & 1;
++  const VkCullModeFlags cull_mode = (key.state >> 5) & 3;
++  const bool front_face_clockwise = (key.state >> 7) & 1;
++  const bool depth_test = (key.state >> 8) & 1;
++  const bool depth_write = (key.state >> 9) & 1;
++  const VkCompareOp depth_compare = VkCompareOp((key.state >> 10) & 7);
+   const VkShaderModule geometry_shader = key.geometry_shader;
+   const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -2001,7 +2282,7 @@ VkPipeline NativeRenderer::CreatePipeline(const Draw& draw, const PipelineKey& k
+   VkPipelineShaderStageCreateInfo stages[3] = {};
+   uint32_t stage_count = 0;
+   stages[stage_count++] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT,
+-                           draw.vertex_shader, "main", nullptr};
++                           key.vertex_shader, "main", nullptr};
+   if (geometry_shader != VK_NULL_HANDLE) {
+     stages[stage_count++] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                              VK_SHADER_STAGE_GEOMETRY_BIT, geometry_shader, "main", nullptr};
+@@ -2013,49 +2294,49 @@ VkPipeline NativeRenderer::CreatePipeline(const Draw& draw, const PipelineKey& k
+   VkPipelineVertexInputStateCreateInfo vertex_input = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+   VkPipelineInputAssemblyStateCreateInfo input_assembly = {
+       VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+-  input_assembly.topology = draw.raster.topology;
+-  input_assembly.primitiveRestartEnable = draw.raster.primitive_restart ? VK_TRUE : VK_FALSE;
++  input_assembly.topology = topology;
++  input_assembly.primitiveRestartEnable = primitive_restart ? VK_TRUE : VK_FALSE;
+   VkPipelineViewportStateCreateInfo viewport = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+   viewport.viewportCount = 1;
+   viewport.scissorCount = 1;
+   VkPipelineRasterizationStateCreateInfo raster = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+   raster.polygonMode = VK_POLYGON_MODE_FILL;
+-  raster.cullMode = draw.raster.cull_mode;
+-  raster.frontFace = draw.raster.front_face_clockwise ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
++  raster.cullMode = cull_mode;
++  raster.frontFace = front_face_clockwise ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+   raster.depthBiasEnable = (key.state >> 13) & 1 ? VK_TRUE : VK_FALSE;
+   raster.lineWidth = 1.0f;
+   VkPipelineMultisampleStateCreateInfo multisample = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+   multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+   VkPipelineDepthStencilStateCreateInfo depth = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+-  depth.depthTestEnable = draw.raster.depth_test ? VK_TRUE : VK_FALSE;
+-  depth.depthWriteEnable = draw.raster.depth_write ? VK_TRUE : VK_FALSE;
+-  depth.depthCompareOp = draw.raster.depth_compare;
++  depth.depthTestEnable = depth_test ? VK_TRUE : VK_FALSE;
++  depth.depthWriteEnable = depth_write ? VK_TRUE : VK_FALSE;
++  depth.depthCompareOp = depth_compare;
+   if (post) {
+     // Session 42: every pixel a post draw writes gets stencil bit 0 (the write-back's coverage). A discarded pixel,
+     // or (Session 43, gpu_native_post_depth) one that fails the depth test, writes no stencil; a draw that writes
+     // depth also sets bit 1 (the write-back writes that pixel's depth). The depth test is the draw's own (20e4 values
+     // in the target, the shader's depth rounded to 20e4: exact); post draws have no polygon offset (claimed only so).
+-    depth.depthTestEnable = draw.raster.depth_test ? VK_TRUE : VK_FALSE;
+-    depth.depthWriteEnable = draw.raster.depth_write ? VK_TRUE : VK_FALSE;
+-    depth.depthCompareOp = draw.raster.depth_compare;
++    depth.depthTestEnable = depth_test ? VK_TRUE : VK_FALSE;
++    depth.depthWriteEnable = depth_write ? VK_TRUE : VK_FALSE;
++    depth.depthCompareOp = depth_compare;
+     depth.stencilTestEnable = VK_TRUE;
+-    const uint32_t stencil_write = 1u | (draw.raster.depth_write ? 2u : 0u);
++    const uint32_t stencil_write = 1u | (depth_write ? 2u : 0u);
+     depth.front = {VK_STENCIL_OP_KEEP, VK_STENCIL_OP_REPLACE, VK_STENCIL_OP_KEEP, VK_COMPARE_OP_ALWAYS, 0xFF,
+                    stencil_write, 3};
+     depth.back = depth.front;
+     // Session 46: a truth draw keeps its polygon offset (not exact: the host's bias in a float target) and writes no
+     // coverage marks (nothing is written back).
+-    if (!draw.truth) raster.depthBiasEnable = VK_FALSE;
+-    if (draw.truth) depth.stencilTestEnable = VK_FALSE;
++    if (!truth) raster.depthBiasEnable = VK_FALSE;
++    if (truth) depth.stencilTestEnable = VK_FALSE;
+     // Session 46: a truth draw's own stencil test (the guest's ops; reference and masks dynamic).
+-    if (draw.truth && draw.raster.stencil) {
++    if (truth_stencil) {
+       depth.stencilTestEnable = VK_TRUE;
+       const auto face = [](uint32_t ops) {
+         return VkStencilOpState{VkStencilOp(ops & 7), VkStencilOp((ops >> 3) & 7), VkStencilOp((ops >> 6) & 7),
+                                 VkCompareOp((ops >> 9) & 7), 0xFF, 0xFF, 0};
+       };
+-      depth.front = face(draw.raster.stencil_ops & 0xFFF);
+-      depth.back = face(draw.raster.stencil_ops >> 12);
++      depth.front = face(stencil_ops & 0xFFF);
++      depth.back = face(stencil_ops >> 12);
+     }
+   }
+   // The colour write mask's bits are R, G, B, A in both APIs.
+@@ -2080,7 +2361,7 @@ VkPipeline NativeRenderer::CreatePipeline(const Draw& draw, const PipelineKey& k
+                                      VK_DYNAMIC_STATE_STENCIL_REFERENCE,  VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
+                                      VK_DYNAMIC_STATE_STENCIL_WRITE_MASK};
+   VkPipelineDynamicStateCreateInfo dynamic = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+-  dynamic.dynamicStateCount = post && draw.truth && draw.raster.stencil ? 7 : 4;  // Session 46: truth stencil
++  dynamic.dynamicStateCount = post && truth_stencil ? 7 : 4;  // Session 46: truth stencil
+   dynamic.pDynamicStates = dynamic_states;
+   VkGraphicsPipelineCreateInfo info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+   info.stageCount = stage_count;
+@@ -2093,7 +2374,7 @@ VkPipeline NativeRenderer::CreatePipeline(const Draw& draw, const PipelineKey& k
+   info.pDepthStencilState = &depth;
+   info.pColorBlendState = &blend_state;
+   info.pDynamicState = &dynamic;
+-  info.layout = draw.layout;
++  info.layout = key.layout;
+   info.renderPass = post ? post_render_pass_continue_[post_class] : render_pass_load_;
+   VkPipeline pipeline = VK_NULL_HANDLE;
+   const auto s58_t0 = std::chrono::steady_clock::now();  // wwe2k14 patch (Session 58): s58_stats.h
+@@ -5189,7 +5470,10 @@ void NativeRenderer::OnFrameEnd(CommandProcessor::NativeCensus& census) {
+   // Session 46 (moved up, Session 54): truth frames wanted, and refused with EDRAM renaming (its slots are EDRAM), DLSS
+   // (its snapshot reads the EDRAM) or DLAA (its in-game menu rejects every clear).
+   const bool truth_wanted = mode == 2 && REXCVAR_GET(gpu_native_truth);
+-  const bool truth_refused = REXCVAR_GET(gpu_edram_rename) || REXCVAR_GET(gpu_dlss) || REXCVAR_GET(gpu_dlaa);
++  // Session 61 (gpu_native_truth_upscalers, test): DLSS / DLAA no longer refuse truth frames (their inputs taken from
++  // the truth frames' own images and resolves instead of the EDRAM).
++  const bool truth_refused = REXCVAR_GET(gpu_edram_rename) ||
++                             ((REXCVAR_GET(gpu_dlss) || REXCVAR_GET(gpu_dlaa)) && !REXCVAR_GET(gpu_native_truth_upscalers));
+   // Replacing needs the interlock path's EDRAM buffer. Without it (the light renderer: host render targets) mode 2 is
+   // off altogether, not a side-car that would draw the scene a second time - Session 54: unless truth frames run there
+   // (gpu_native_truth_host_rt: they need no EDRAM; frames that are not truth frames are emulated).
+@@ -5314,6 +5598,7 @@ void NativeRenderer::OnFrameEnd(CommandProcessor::NativeCensus& census) {
+   next = FrameSlot();
+   next.parity_submission = keep_parity_submission;
+   next.color_parity_submission = keep_color_parity_submission;
++  StorageOnFrameEnd();  // Session 61: the stored pipelines (after the settings and objects above)
+ }
+ 
+ void NativeRenderer::ReadFinishedFrames() {
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 8a48c28bbdf793f0a79488cb0bcc74975e140321..a43fd0cbf5265d539f6b7926bbfd13a9126f4197 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -650,7 +650,8 @@ bool NativeRenderer::ClaimTruthRepeat(Draw& draw) {
+ bool NativeRenderer::ClaimTruthLean(Draw& draw) {
+   if (!draw.truth || !draw.owned || !truth_ || !replacing_ || draw.truth_epoch != truth_claim_epoch_ ||
+       draw.occlusion_query || draw.pipeline == VK_NULL_HANDLE || REXCVAR_GET(gpu_native_truth_debug_draws) > 0 ||
+-      (draw.raster.stencil && !draw.fast_clear) || draw.fast_clear) {
++      (draw.raster.stencil && !draw.fast_clear) || draw.fast_clear ||
++      draw.xfb_buffer != VK_NULL_HANDLE) {  // Session 61: a captured draw's copy would capture into its range again
+     return false;
+   }
+   declined_pending_ = false;
+@@ -2018,14 +2019,23 @@ void NativeRenderer::TruthStoreMany(const int16_t* indices, size_t count, const
+ }
+ 
+ VkDescriptorSet NativeRenderer::TruthResolveSource(const draw_util::ResolveInfo& info) {
++  uint32_t base = 0, row_length = 0, rows = 0, pitch = 0;
++  info.GetCopyEdramTileSpan(base, row_length, rows, pitch);
++  return TruthStageSpan(base, row_length, rows, pitch);
++}
++
++// Session 61 (DLSS / DLAA in truth frames): a surface's tiles staged as TruthResolveSource stages a resolve's.
++VkDescriptorSet NativeRenderer::TruthStageSurface(uint32_t base_tiles, uint32_t pitch_tiles, uint32_t rows) {
++  return TruthStageSpan(base_tiles, pitch_tiles, rows, pitch_tiles);
++}
++
++VkDescriptorSet NativeRenderer::TruthStageSpan(uint32_t base, uint32_t row_length, uint32_t rows, uint32_t pitch) {
+   TruthFlushDeferred();  // Session 52
+   if (!truth_ || !replacing_) return VK_NULL_HANDLE;
+   if (!EnsureTruthStaging()) {
+     TruthFallback(kTruthStaging, nullptr);
+     return VK_NULL_HANDLE;
+   }
+-  uint32_t base = 0, row_length = 0, rows = 0, pitch = 0;
+-  info.GetCopyEdramTileSpan(base, row_length, rows, pitch);
+   std::bitset<2048> span;
+   if (uint64_t(rows) * std::max(1u, pitch) >= 2048) {
+     span.set();
+@@ -4864,6 +4874,9 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   }
+   const uint32_t vertex_count = debug_gpu_work == 3 ? std::min(draw.vertex_count, 3u) : draw.vertex_count;
+   const uint32_t instance_count = debug_gpu_work == 3 ? std::min(draw.instance_count, 1u) : draw.instance_count;
++  // Session 61: a character draw's positions captured while it is drawn (DLSS / DLAA object motion vectors).
++  const bool xfb = draw.xfb_buffer != VK_NULL_HANDLE && debug_gpu_work != 2;
++  if (xfb) command_processor_.NativeXfbBegin(draw.xfb_buffer, draw.xfb_offset, draw.xfb_size);
+   if (debug_gpu_work == 2) {
+   } else if (draw.indexed) {
+     // (Session 56, gpu_native_truth_dedupe_state: the buffer bound at offset 0 once, the draw from its first index.)
+@@ -4884,6 +4897,7 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   } else {
+     cb.CmdVkDraw(vertex_count, instance_count, 0, 0);
+   }
++  if (xfb) command_processor_.NativeXfbEnd();
+   // Session 56 (gpu_native_truth_clear_attachments): a fast clear's depth and stencil cleared again, for real.
+   if (debug_gpu_work != 2 && draw.fast_clear && draw.clear_depth >= 0.0f && uses_depth && draw.raster.depth_test &&
+       draw.raster.depth_write && draw.raster.depth_compare == VK_COMPARE_OP_ALWAYS &&
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index ad27093ad509c8a70de99ff30f112b2b6bf3842a..0eba7febf024e4eba2cdac427f9d8de583637667 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -1212,6 +1212,19 @@ VkShaderModule VulkanPipelineCache::GetNativeGeometryShader(
+   return GetGeometryShader(key);
+ }
+ 
++// wwe2k14 patch (Session 61).
++void VulkanPipelineCache::StoreShader(Shader& shader) {
++  if (!shader_storage_file_ || shader.ucode_storage_index() == shader_storage_index_) return;
++  shader.set_ucode_storage_index(shader_storage_index_);
++  assert_not_null(storage_write_thread_);
++  shader_storage_file_flush_needed_ = true;
++  {
++    std::lock_guard<std::mutex> lock(storage_write_request_lock_);
++    storage_write_shader_queue_.push_back(&shader);
++  }
++  storage_write_request_cond_.notify_all();
++}
++
+ bool VulkanPipelineCache::ConfigurePipeline(
+     VulkanShader::VulkanTranslation* vertex_shader, VulkanShader::VulkanTranslation* pixel_shader,
+     const PrimitiveProcessor::ProcessingResult& primitive_processing_result,
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 2d686eab1ca29798a0b3479c70ebf64f9889f794..ebee89c7f755730eb6b7da50a408329741972450 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -2333,9 +2333,12 @@ void VulkanRenderTargetCache::GetEdramBufferUsageMasks(EdramBufferUsage usage,
+ // wwe2k14 patch (Session 24, DLSS): the frame's picture before the HUD, straight from the EDRAM buffer.
+ bool VulkanRenderTargetCache::DlssSnapshotColor32(uint32_t base_tiles, uint32_t pitch_tiles, uint32_t width,
+                                                   uint32_t height, bool swap_red_blue,
+-                                                  VkDescriptorSetLayout dest_layout, VkDescriptorSet dest_set) {
+-  if (GetPath() != Path::kPixelShaderInterlock || dlss_snapshot_failed_ || edram_buffer_ == VK_NULL_HANDLE ||
+-      dest_layout == VK_NULL_HANDLE || dest_set == VK_NULL_HANDLE || !width || !height) {
++                                                  VkDescriptorSetLayout dest_layout, VkDescriptorSet dest_set,
++                                                  VkDescriptorSet source_set) {
++  // wwe2k14 patch (Session 61): source_set - the native renderer's truth staging (its EDRAM layout) in truth frames,
++  // where the EDRAM buffer holds nothing of the frame (and may not exist: the host render target path).
++  if ((source_set == VK_NULL_HANDLE && (GetPath() != Path::kPixelShaderInterlock || edram_buffer_ == VK_NULL_HANDLE)) ||
++      dlss_snapshot_failed_ || dest_layout == VK_NULL_HANDLE || dest_set == VK_NULL_HANDLE || !width || !height) {
+     return false;
+   }
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+@@ -2369,10 +2372,11 @@ bool VulkanRenderTargetCache::DlssSnapshotColor32(uint32_t base_tiles, uint32_t
+   const uint32_t pc[8] = {(base_tiles % xenos::kEdramTileCount) * tile_dwords, pitch_tiles * tile_dwords, tile_w,
+                           tile_h, width, height, xenos::kEdramTileCount * tile_dwords, swap_red_blue ? 1u : 0u};
+   // FSI writes from the draws so far -> this compute read (the next draw switches back, as after a resolve).
+-  UseEdramBuffer(EdramBufferUsage::kComputeRead);
++  if (source_set == VK_NULL_HANDLE) UseEdramBuffer(EdramBufferUsage::kComputeRead);
+   DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
+   command_processor_.BindExternalComputePipeline(dlss_snapshot_pipeline_);
+-  const VkDescriptorSet sets[2] = {edram_storage_buffer_descriptor_set_, dest_set};
++  const VkDescriptorSet sets[2] = {source_set != VK_NULL_HANDLE ? source_set : edram_storage_buffer_descriptor_set_,
++                                   dest_set};
+   command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, dlss_snapshot_layout_, 0, 2, sets, 0,
+                                          nullptr);
+   command_buffer.CmdVkPushConstants(dlss_snapshot_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), pc);
+diff --git a/src/graphics/vulkan/shader.cpp b/src/graphics/vulkan/shader.cpp
+index c2805b2e715199b778ea4248dec2f69fef086b1d..8b203cc29b47254ba998a2be7b4de218a6fc2491 100644
+--- a/src/graphics/vulkan/shader.cpp
++++ b/src/graphics/vulkan/shader.cpp
+@@ -9,15 +9,74 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <atomic>
++#include <chrono>
+ #include <cstdint>
++#include <vector>
+ 
+ #include <rex/assert.h>
++#include <rex/cvar.h>
+ #include <rex/graphics/vulkan/shader.h>
+ #include <rex/logging.h>
+ #include <rex/ui/vulkan/provider.h>
+ 
++#if REX_HAS_SPIRV_OPT
++#include <spirv-tools/optimizer.hpp>
++#endif
++
++// wwe2k14 patch (Session 61): SPIRV-Tools' performance passes (spirv-opt -O) on every translated shader before its
++// module is made. Session 60 measured them on dumped shaders: vertex shaders -32%, interlock pixel shaders -12.5% in
++// size, 39 / 245 ms a shader on this PC - a test switch for an integrated-graphics A/B, not a default.
++REXCVAR_DEFINE_BOOL(vulkan_spirv_optimize, false, "GPU",
++                    "Session 61: run SPIRV-Tools' performance passes (spirv-opt -O) on each translated shader before "
++                    "its Vulkan module is made (slower translation; for GPU A/Bs). The unoptimised code is used if "
++                    "the optimiser fails");
++
+ namespace rex::graphics::vulkan {
+ 
++namespace {
++#if REX_HAS_SPIRV_OPT
++std::atomic<uint64_t> g_spirv_opt_count{0}, g_spirv_opt_us{0}, g_spirv_opt_in{0}, g_spirv_opt_out{0};
++std::atomic<uint32_t> g_spirv_opt_failed{0};
++
++// The optimised words of a module, or empty if the optimiser failed (the caller keeps the original).
++std::vector<uint32_t> OptimizeSpirv(const uint32_t* words, size_t count, uint64_t hash) {
++  std::vector<uint32_t> out;
++  if (count < 5) return out;
++  // The target environment from the module's SPIR-V version (the translator's: 1.0 or the 1.3+ of newer devices).
++  const uint32_t version = words[1];
++  const spv_target_env env = version >= 0x10600   ? SPV_ENV_VULKAN_1_3
++                             : version >= 0x10400 ? SPV_ENV_VULKAN_1_2
++                             : version >= 0x10300 ? SPV_ENV_VULKAN_1_1
++                                                  : SPV_ENV_VULKAN_1_0;
++  const auto t0 = std::chrono::steady_clock::now();
++  spvtools::Optimizer optimizer(env);
++  optimizer.SetMessageConsumer([](spv_message_level_t, const char*, const spv_position_t&, const char*) {});
++  optimizer.RegisterPerformancePasses();
++  spvtools::OptimizerOptions options;
++  options.set_run_validator(false);  // (the translator's own output: validated by the driver as before)
++  if (!optimizer.Run(words, count, &out, options) || out.size() < 5) {
++    out.clear();
++    if (g_spirv_opt_failed.fetch_add(1, std::memory_order_relaxed) < 8) {
++      REXGPU_WARN("[spirv_opt] shader {:016X}: the optimiser failed, the unoptimised code is used", hash);
++    }
++    return out;
++  }
++  const uint64_t us = uint64_t(
++      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count());
++  const uint64_t n = g_spirv_opt_count.fetch_add(1, std::memory_order_relaxed) + 1;
++  const uint64_t total_us = g_spirv_opt_us.fetch_add(us, std::memory_order_relaxed) + us;
++  const uint64_t in = g_spirv_opt_in.fetch_add(count, std::memory_order_relaxed) + count;
++  const uint64_t o = g_spirv_opt_out.fetch_add(out.size(), std::memory_order_relaxed) + out.size();
++  if ((n & 63) == 1) {
++    REXGPU_INFO("[spirv_opt] {} shaders optimised: {:.1f}% of their size, {:.1f} ms each on average", n,
++                100.0 * double(o) / double(in), double(total_us) / 1000.0 / double(n));
++  }
++  return out;
++}
++#endif
++}  // namespace
++
+ VulkanShader::VulkanTranslation::~VulkanTranslation() {
+   if (shader_module_) {
+     const ui::vulkan::VulkanDevice* const vulkan_device =
+@@ -42,6 +101,19 @@ VkShaderModule VulkanShader::VulkanTranslation::GetOrCreateShaderModule() {
+   shader_module_create_info.flags = 0;
+   shader_module_create_info.codeSize = translated_binary().size();
+   shader_module_create_info.pCode = reinterpret_cast<const uint32_t*>(translated_binary().data());
++#if REX_HAS_SPIRV_OPT
++  // wwe2k14 patch (Session 61, vulkan_spirv_optimize): the module from the optimised copy (translated_binary(), and
++  // with it --dump_shaders, stays the translator's output).
++  std::vector<uint32_t> optimized;
++  if (REXCVAR_GET(vulkan_spirv_optimize) && translated_binary().size() % 4 == 0) {
++    optimized = OptimizeSpirv(reinterpret_cast<const uint32_t*>(translated_binary().data()),
++                              translated_binary().size() / 4, shader().ucode_data_hash());
++    if (!optimized.empty()) {
++      shader_module_create_info.codeSize = optimized.size() * sizeof(uint32_t);
++      shader_module_create_info.pCode = optimized.data();
++    }
++  }
++#endif
+   if (vulkan_device->functions().vkCreateShaderModule(vulkan_device->device(),
+                                                       &shader_module_create_info, nullptr,
+                                                       &shader_module_) != VK_SUCCESS) {
+diff --git a/thirdparty/CMakeLists.txt b/thirdparty/CMakeLists.txt
+index f102b56a18ad266586d0ea65cd0f376112db27e1..93efe1b432c06e3b138a1b62b754b025bc6f9a1d 100644
+--- a/thirdparty/CMakeLists.txt
++++ b/thirdparty/CMakeLists.txt
+@@ -327,6 +327,19 @@ if(REXGLUE_USE_VULKAN)
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/spirv-tools/include>
+         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+ 
++    # wwe2k14 patch (Session 61, vulkan_spirv_optimize): SPIRV-Tools' optimiser as static libraries linked into
++    # rexgpu-xenos (no executables, tests or install).
++    option(REXGLUE_SPIRV_OPT "Build SPIRV-Tools' optimiser into rexgpu-xenos (vulkan_spirv_optimize)" ON)
++    if(REXGLUE_SPIRV_OPT)
++        set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
++        set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
++        set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
++        set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
++        set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
++        set(SPIRV-Headers_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers" CACHE PATH "" FORCE)
++        add_subdirectory(spirv-tools EXCLUDE_FROM_ALL)
++    endif()
++
+     # glslang/SPIRV - SPIR-V code generation for shader translation
+     set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+     set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)

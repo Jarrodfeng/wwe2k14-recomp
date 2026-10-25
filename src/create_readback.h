@@ -22,6 +22,12 @@
 // for --wwe2k14_readback_char_hold_frames after any character file (PAC\CH\CHnnn.PAC) opens, which covers wrestlers
 // loaded during play (a Royal Rumble's entrants). Not during play otherwise.
 //
+// Session 61 (Jarrod: Create a Title's export garbled too; players: CAW very slow): 29 (Create a Title, the game's "CAB
+// MENU") added to the list; and in the create modes only one-off copies are read back now
+// (--wwe2k14_readback_create_skip_recurring 4: a destination resolved in 4 earlier frames in a row is not - the editors'
+// ~3 wide preview copies a frame). Checked live (run 4127): Create a Title's export, CAW's render and Create an Arena's
+// menu screenshot all right with it, each A/B'd against reading every copy.
+//
 //   --wwe2k14_readback_sequences=LIST   comma-separated sequence ids (N<M = N entered from M, as the fast loader's
 //                                       list); empty = never (the setting stays as the command line left it)
 //   --wwe2k14_readback_loads=false      not during the in-game loads / after character files
@@ -41,11 +47,11 @@
 #include "load_probe.h"    // CurrentSequence, g_seq_from, SequenceListed
 #include "load_turbo.h"    // g_load_turbo_ingame_window
 
-REXCVAR_DEFINE_STRING(wwe2k14_readback_sequences, "28,76", "wwe2k14",
+REXCVAR_DEFINE_STRING(wwe2k14_readback_sequences, "28,29,76", "wwe2k14",
                       "Session 57: game sequence ids in which every resolve is read back for the CPU at once (SDK "
                       "readback_resolve_override 3): the create modes that keep GPU-drawn pictures (28 Create an "
-                      "Arena's menu screenshot, 76 Create a Superstar's render). Empty = never. See "
-                      "src/create_readback.h");
+                      "Arena's menu screenshot, 29 Create a Title's export - Session 61, 76 Create a Superstar's "
+                      "render). Empty = never. See src/create_readback.h");
 REXCVAR_DEFINE_BOOL(wwe2k14_readback_loads, true, "wwe2k14",
                     "Session 58: every resolve is also read back while a match loads (the in-game load windows) and "
                     "shortly after a character file loads: some attires are drawn on the GPU and read back by the CPU "
@@ -62,6 +68,11 @@ REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring, 4, "wwe2k14",
                      "readback_resolve_override_skip_recurring): the frame's own copies, which the CPU never reads; the "
                      "one-off attire builds still are (run 4034: both 2048-wide attire builds of Session 58 read back 4 / 4). 0 = every resolve (4: a character's "
                      "first 300 frames no longer run at half speed, A/B 3975)")
+    .range(0, 60);
+REXCVAR_DEFINE_INT32(wwe2k14_readback_create_skip_recurring, 4, "wwe2k14",
+                     "Session 61 (players: CAW very slow): in the create modes too, resolves whose destination was "
+                     "also resolved in this many earlier frames in a row are not read back - the editor's per-frame "
+                     "copies; the pictures the mode keeps (a one-off copy) still are. 0 = every resolve (Session 57)")
     .range(0, 60);
 REXCVAR_DEFINE_INT32(wwe2k14_readback_char_hold_frames, 300, "wwe2k14",
                      "Session 58: frames after a character file (PAC\\CH\\CHnnn.PAC) opens during which every resolve "
@@ -123,8 +134,11 @@ inline void OnFrame(uint64_t frame) {
   else if (g_on && g_left_frame == 0) g_left_frame = frame;
   const bool on = why || (g_on && frame - g_left_frame < kHoldFrames);
   const int mode = on ? g_mode : -1;
-  // Session 59: the loads' and character windows' recurring resolves are not read back (the create modes: every one).
-  const int skip = on && !g_create ? REXCVAR_GET(wwe2k14_readback_skip_recurring) : 0;
+  // Session 59: the loads' and character windows' recurring resolves are not read back; Session 61: the create modes'
+  // either (wwe2k14_readback_create_skip_recurring; 0 = every one, as Session 57).
+  const int skip = !on ? 0
+                   : g_create ? REXCVAR_GET(wwe2k14_readback_create_skip_recurring)
+                              : REXCVAR_GET(wwe2k14_readback_skip_recurring);
   if (skip != g_set_skip) {
     g_set_skip = skip;
     rex::cvar::SetFlagByName("readback_resolve_override_skip_recurring", std::to_string(skip));

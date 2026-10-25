@@ -128,7 +128,25 @@ inline constexpr int kSettingsVersion = 3;
 inline int MigrateRenderer(const std::string& json, int renderer) {
   int version = 0;
   GetInt(json, "settings_version", version);
-  return version < 2 && renderer == 0 ? 2 : renderer;  // (Session 51's move: files from before version 2)
+  (void)version;  // (Session 51's move: files from before version 2 with renderer 0)
+  (void)renderer;
+  // Session 61 (Jarrod, 2026-10-25: "remove the renderer option entirely, with light and accurate as advanced flags
+  // only"): the file's renderer is not a choice any more - always NATIVE; LIGHT / ACCURATE only through
+  // --wwe2k14_renderer=light|accurate (RendererFromFlags).
+  return 2;
+}
+
+// Session 61: the advanced flag --wwe2k14_renderer=native|light|accurate in a flag string (the launcher's Extra flags)
+// -> 2 / 1 / 0; -1 when it is not there (or names no renderer).
+inline int RendererFromFlags(const std::string& flags) {
+  const std::string key = "--wwe2k14_renderer=";
+  const size_t at = flags.rfind(key);
+  if (at == std::string::npos || (at > 0 && flags[at - 1] != ' ')) return -1;
+  const size_t start = at + key.size();
+  const std::string value = flags.substr(start, flags.find(' ', start) == std::string::npos
+                                                    ? std::string::npos
+                                                    : flags.find(' ', start) - start);
+  return value == "native" ? 2 : value == "light" ? 1 : value == "accurate" ? 0 : -1;
 }
 
 // Which of the keys the file has (a key that is absent says nothing: the caller keeps what the game is running).

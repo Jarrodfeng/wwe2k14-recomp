@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.2.5
+
+One renderer for everyone, upscalers that keep its speed, far fewer first-time stutters, and fixes for the create
+modes.
+
+- **One renderer: NATIVE.** The RENDERER choice is gone from the launcher; everyone now runs NATIVE, the fastest one.
+  If you picked ACCURATE or LIGHT at some point (maybe while troubleshooting an older version), you are moved to
+  NATIVE automatically. For troubleshooting only, Settings -> Advanced -> Extra flags still takes
+  `--wwe2k14_renderer=light` or `--wwe2k14_renderer=accurate` - if you need one of them, please send a report.
+- **DLSS, DLAA and FSR now keep NATIVE's speed-up.** Until now, turning on any upscaler quietly switched NATIVE back to
+  its slower path. Now they run on NATIVE's fast path, with the HUD kept out of DLSS and the wrestlers' motion vectors
+  as before. We checked the pictures and that every frame stays on the fast path; how much faster it is with an
+  upscaler we have not measured yet.
+- **Far fewer first-time stutters.** The game prepares its graphics shaders the first time it meets each wrestler,
+  arena or effect - the hitches and missing frames you could see the first time something new appeared, worst on
+  laptops. Now:
+  - The game ships with a list of the shaders it uses (276 so far: every wrestler's entrance, all arenas, matches and
+    Create a Superstar). The list holds only their fingerprints, no game code: on the first launch the game rebuilds
+    the shaders from your own game files (under a second) and prepares them in the background during the logos and
+    menus.
+  - NATIVE now remembers its own work between launches (it used to redo it every time, and some of its shaders were
+    never saved at all).
+  - On our desktop, a first run with nothing saved went from 292 frames with missing parts to none. Anything not in the
+    list yet still hitches once and is remembered after that.
+- **Fixed: Create a Title's export came out as garbled noise** (like Create a Superstar's and Create an Arena's
+  pictures before v0.2.2).
+- **Faster: Create a Superstar, Create an Arena and Create a Title.** The fix for their saved pictures made the
+  processor wait for the graphics card on every frame the whole time you were in those modes. Now it waits only for
+  the pictures they actually save. Some of you reported Create a Superstar running slowly: this should help; on our
+  desktop it held 60 fps either way, so we could not measure the difference ourselves.
+
 ## v0.2.4
 
 A processor (CPU) update: the game needs less CPU time per frame. That matters most where the processor is the limit

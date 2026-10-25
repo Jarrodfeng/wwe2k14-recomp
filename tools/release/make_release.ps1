@@ -214,6 +214,11 @@ $files = [ordered]@{
     'THIRD_PARTY_NOTICES.md'  = Join-Path $R 'docs\release\THIRD_PARTY_NOTICES.md'
     'CHANGELOG.md'            = Join-Path $R 'docs\release\CHANGELOG.md'
 }
+# Session 61 (Jarrod: the shader list may be shipped next to the exe): hashes, XOR masks and pipeline states only; the
+# game rebuilds the shaders from the player's own files at boot (src\shader_list.h).
+if (Test-Path -LiteralPath (Join-Path $R 'db\shaders\shader_list.txt')) {
+    $files['shader_list.txt'] = Join-Path $R 'db\shaders\shader_list.txt'
+}
 if ($LocalTest) {  # our route: the launcher's performance test
     $files['perf_test.txt'] = Join-Path $R 'tools\input_scripts\short\s41_perf_breakdown.txt'  # Session 41
     $files['PERFORMANCE_TEST.txt'] = Join-Path $R 'tools\native\PERFORMANCE_TEST.txt'  # the steps for the tester

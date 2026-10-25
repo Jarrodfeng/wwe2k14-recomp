@@ -1,0 +1,27 @@
+# Session 61 (Jarrod: "a quick sweep of everyone vs Daniel Bryan, always ending just after Daniel Bryan's entrance
+# hits ... a full run of everyone's entrances without matches"): one wrestler's whole entrance, for the shader list.
+# Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=ID,324 (slot 0 enters first; list
+# out\harness\sweep\lists\entrances.json from tools\sweep\make_entrance_list.py). Boots to the main menu (title presses
+# of Jarrod's recording 056), lets the launcher fire, waits for Brock Lesnar's titantron (343.bik2, for Bryan's own item: his entrance
+# starts after the first wrestler's ends), 120 frames more, quit. on_fail quit.
+on_fail quit
+log entrance: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log entrance: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log entrance: in-game sequence loading
+wait_file 343.bik2 12000
+log entrance: Brock Lesnar's entrance started
+wait_frames 120
+screenshot e_lesnar
+wait_frames 30
+quit

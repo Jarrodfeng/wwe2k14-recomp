@@ -17,7 +17,7 @@
 - Typing on the PC keyboard into the game's name fields was tested in the championship name; other fields use the
   same on-screen keyboard. Keyboard layouts other than US English type what their keys show, but only the characters
   the game's on-screen keyboard has.
-- The LIGHT renderer can crash on older Intel graphics (HD 520): use NATIVE there (it runs well on those laptops).
+- The LIGHT renderer (now only an advanced flag) can crash on older Intel graphics (HD 520).
 - NATIVE on graphics cards without fragment shader interlock (older AMD drivers / graphics) and the LIGHT fallback
   have not been tested on such a card by us yet (only on our NVIDIA card forced onto the same path). With FRAME RATE
   30 the match timer (and anything else the game counts in frames) runs at half speed.
@@ -26,5 +26,9 @@
   reflections, the crowd), please send a report (launcher: Report a problem).
 - v0.2.4's CPU gains were measured on our desktop (Ryzen 9 5950X) only; on handhelds and laptops they are expected,
   not measured. If the crowd looks wrong in NATIVE (missing or flickering spectators), please send a report.
-- The in-game GRAPHICS screen has no RENDERER choice yet (the launcher only).
 - CineCam's setup panel (F8 outside a match) and the automatic entrance freeze are new and lightly tested.
+- v0.2.5's DLSS / DLAA / FSR on NATIVE was checked on our test routes (a match, the pause menu) on an NVIDIA card, not
+  through whole play sessions yet. If something looks wrong with an upscaler on (the HUD, ghosting on the wrestlers),
+  please send a report.
+- v0.2.5's shader list does not cover everything yet (Quick Match types, 30 Years of WrestleMania matches, some menus
+  and cutscenes): those still hitch the first time, then are remembered.
