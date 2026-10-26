@@ -951,6 +951,7 @@ REX_HOOK_RAW(sub_822563F8) {
     }
   }
   __imp__sub_822563F8(ctx, base);
+  if (wwe2k14::g_text_fetch_observer) wwe2k14::g_text_fetch_observer(id, lr);  // Session 67: the button legend
   // Session 30: the screen text for scripts / live / bookmarks (src/screen_text.h; harness runs only).
   if (wwe2k14::screen_text::Enabled()) wwe2k14::screen_text::Note(id, GuestStr(base, ctx.r3.u32, 120));
   if (!REXCVAR_GET(wwe2k14_gfxmenu_probe) || !REXCVAR_GET(wwe2k14_gfxmenu_probe_text)) return;

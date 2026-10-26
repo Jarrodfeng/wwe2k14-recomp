@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.2.7
+
+Map your keyboard in the launcher, a fix for runaway Backspace, and the mouse in the menus.
+
+- **Map your keys in the launcher.** Settings -> Advanced: the option is now called KEYBOARD CONTROLS, with a MAP KEYS
+  button beside it. It opens a window with a controller picture: each control is joined to its keys; click a key to
+  change it, right-click to remove it, "+" to add another, and hold Shift / Ctrl / Alt for a combination. Hovering a
+  row lights that control up on the picture, and a key used twice is pointed out. Changes save at once into the same
+  file as the in-game F4 overlay, and the game reads them when it starts. Keys follow your keyboard's own labels
+  (French, German, ...).
+- **Holding Backspace no longer runs away.** In the game's name fields, letting go of Backspace now stops the deleting
+  straight away (before, it kept going for a second or two and could wipe the whole name). Holding Enter or Escape
+  presses them once.
+- **The mouse in the menus (first version).** Point at an item to highlight it, click to select it, roll the wheel to
+  move or scroll, right-click to go back. It covers the menu lists and the whole road to a match: superstar select
+  (portraits, tabs and the 1P / COM slots), the PLAY / MATCH RULES / SELECT ARENA screen (with its ENTRANCE and MATCH
+  PACE settings), MATCH RULES (click a row or the arrows beside it to change a setting, LB / RB and the page marks to
+  change pages) and SELECT ARENA (all three tabs, the wheel scrolls the long ones). Everywhere else, the button bar's
+  A and B and a right click work, so you can always back out. The highlight jumps straight to what you point at, with
+  the game's own sounds. The mouse is never used in a match. Turn it off with the extra flag
+  `--wwe2k14_mouse_menus=false`.
+
 ## v0.2.6
 
 A lighter renderer for weaker GPUs and less CPU work animating the wrestlers.

@@ -14,6 +14,10 @@
 - A custom wrestler added to a save with an outside tool freezes (and so does his opponent) when he starts a custom
   finisher that the save does not have. Create that finisher in your save (CREATIONS > SPECIAL MOVE) or give him one
   of the game's own finishers. The freeze happens with all of our changes turned off too.
+- The mouse in the menus is new. Not covered yet: the player slots of handicap, Elimination Chamber and Royal Rumble
+  matches (use the controller or keys there) and the menus inside Create a Superstar, Create an Arena, 30 Years of
+  WrestleMania and other modes (there: the button bar's A / B and right click only). Custom arenas were tried on empty
+  slots only. Clicking a page mark goes one page at a time, so a jump of two pages shows the page between briefly.
 - Typing on the PC keyboard into the game's name fields was tested in the championship name; other fields use the
   same on-screen keyboard. Keyboard layouts other than US English type what their keys show, but only the characters
   the game's on-screen keyboard has.

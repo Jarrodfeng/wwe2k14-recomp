@@ -29,6 +29,14 @@
 // them (this listener sits above them and marks them handled). Function keys and keys with Ctrl / Alt pass through.
 // The character comes from SDL's text input (on while the keyboard is up), so non-US layouts type what their keys show
 // (a character the game's grid has not got is ignored). SDL gives keys only to the window with the keyboard focus.
+//
+// Held keys (Session 67, Jarrod: "holding backspace actually holds it for a second or two longer after you release the
+// button, accidentally causing people to completely lose all their text"): Windows repeats a held key ~30 times a second
+// but a press here takes 4 widget frames (15 a second at 60 fps, 7.5 at 30), so every repeat queued made the queue grow
+// while the key was held and the deletes ran on for seconds after the release. A repeat (SDL's key.repeat = the
+// KeyEvent's prev_state) now queues only when nothing is waiting, and the key's release drops a queued repeat: a held
+// key types as fast as the game takes presses and stops with the release (at most the press in progress finishes).
+// Held Enter / Escape do not repeat at all.
 #pragma once
 
 #include <rex/cvar.h>
@@ -48,6 +56,7 @@
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <utility>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -89,9 +98,11 @@ constexpr const char* kRows[2][4] = {{"1234567890-=", "qwertyuiop[]", "asdfghjkl
 constexpr int kFirstColumn[4] = {1, 1, 2, 2};
 
 // One thing typed: a character of the grid (key != 0) or a pad button of the screen's own (Y space, X back, ...).
+// vk = the PC key of a held key's repeat (0 = a first press or a test key): its release drops it from the queue.
 struct Action {
   char key = 0;
   uint16_t button = 0;
+  uint16_t vk = 0;
 };
 
 struct State {
@@ -111,6 +122,10 @@ struct State {
   uint16_t prev_real = 0;
   std::atomic<uint64_t> typed{0}, ignored{0};
   std::bitset<256> consumed;  // UI thread: keys whose down went to the keyboard (their up goes there too)
+  // UI thread: the character key whose repeat brings the next OnKeyChar (0 = a first press), and the repeats of the
+  // held key not queued because the game had not taken the previous press yet (logged at its release).
+  uint16_t char_repeat_vk = 0;
+  uint32_t repeats_skipped = 0, repeats_dropped = 0;
   rex::ui::Window* window = nullptr;
   std::atomic<bool> text_input{false};  // SDL text input on (the typed characters arrive as OnKeyChar)
 };
@@ -141,7 +156,24 @@ inline bool Find(char c, int& row, int& column, bool& shifted) {
 inline void Push(Action a) {
   State& s = S();
   std::lock_guard lock(s.mutex);
+  if (a.vk && !s.queue.empty()) {  // a held key's repeat waits for the game to take what is queued (Session 67)
+    ++s.repeats_skipped;
+    return;
+  }
   if (s.queue.size() < kMaxQueue) s.queue.push_back(a);
+}
+
+// UI thread, a key's release: its repeats still queued are dropped (Session 67).
+inline void DropRepeats(uint16_t vk) {
+  State& s = S();
+  std::lock_guard lock(s.mutex);
+  const size_t before = s.queue.size();
+  std::erase_if(s.queue, [vk](const Action& a) { return a.vk == vk; });
+  s.repeats_dropped += uint32_t(before - s.queue.size());
+  if (s.repeats_skipped || s.repeats_dropped)
+    REXLOG_INFO("[wwe2k14][typing] key {:02X} released: {} repeat(s) not queued while the game took the previous "
+                "press, {} queued repeat(s) dropped", vk, s.repeats_skipped, s.repeats_dropped);
+  s.repeats_skipped = s.repeats_dropped = 0;
 }
 
 // SDL text input on / off (any thread: the window call itself goes through the UI thread's queue).
@@ -253,6 +285,7 @@ class Listener final : public rex::ui::WindowInputListener {
       return;
     }
     if (vk >= 256 || e.is_ctrl_pressed() || e.is_alt_pressed() || e.is_super_pressed()) return;
+    const bool repeat = e.prev_state();  // SDL's key.repeat: Windows repeating a held key (window_sdl.cpp)
     Action a;
     switch (vk) {
       case VK_BACK: a.button = kPadX; break;
@@ -265,24 +298,29 @@ class Listener final : public rex::ui::WindowInputListener {
         if (!CharacterKey(vk)) return;  // function keys (our tools), arrows up / down, ... pass
         SetTextInput(true);              // (normally on since the keyboard opened)
         S().consumed.set(vk);            // the character itself comes as OnKeyChar
+        S().char_repeat_vk = repeat ? vk : 0;
         e.set_handled(true);
         return;
     }
     S().consumed.set(vk);
-    Push(a);
     e.set_handled(true);
+    if (repeat && (vk == VK_RETURN || vk == VK_ESCAPE)) return;  // a held Enter / Escape presses once
+    if (repeat) a.vk = vk;
+    Push(a);
   }
   void OnKeyUp(rex::ui::KeyEvent& e) override {
     const uint16_t vk = static_cast<uint16_t>(e.virtual_key());
     if (vk < 256 && S().consumed.test(vk)) {
       S().consumed.reset(vk);
+      DropRepeats(vk);
       e.set_handled(true);
     }
   }
   void OnKeyChar(rex::ui::KeyEvent& e) override {
     if (!Active()) return;
     const uint32_t c = static_cast<uint32_t>(e.virtual_key());  // the code point (window_sdl.cpp)
-    if (c > 0x20 && c < 0x7F) Push(Action{char(c), 0});           // (space: VK_SPACE above)
+    const uint16_t repeat_vk = std::exchange(S().char_repeat_vk, uint16_t(0));
+    if (c > 0x20 && c < 0x7F) Push(Action{char(c), 0, repeat_vk});  // (space: VK_SPACE above)
     else if (c != 0x20) ++S().ignored;
     e.set_handled(true);
   }

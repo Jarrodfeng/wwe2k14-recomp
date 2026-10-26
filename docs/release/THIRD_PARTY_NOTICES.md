@@ -31,6 +31,7 @@ link lines of the release build (`rexruntime.dll`, `rexgpu-xenos.dll`) and the b
 | DXC API headers | header-only | University of Illinois/NCSA. Copyright (C) Microsoft Corporation |
 | disruptorplus | header-only | licence not found in the source tree (see the release notes for Jarrod) |
 | ProggyTiny font (embedded in ReXGlue's overlay) | rexruntime.dll | licence not in the source tree (see the release notes for Jarrod) |
+| "360 controller.svg" by Alphathon, Wikimedia Commons (https://commons.wikimedia.org/wiki/File:360_controller.svg) | wwe2k14_launcher.exe (the KEYBOARD CONTROLS picture) | CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/). Changed: the labels and their lines removed, cropped; the changed picture is under the same licence |
 
 ## LGPL components (FFmpeg, libmspack)
 

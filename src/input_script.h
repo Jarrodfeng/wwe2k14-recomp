@@ -2028,6 +2028,11 @@ inline void (*g_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
 // Session 55 (src\keyboard_typing.h): the key typed on the PC keyboard, pressed on the game's on-screen keyboard. Null =
 // nothing.
 inline void (*g_typing_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
+// Session 67 (src\mouse_menu.h): the mouse's UP / DOWN / A in the list menus. Null = nothing.
+inline void (*g_mouse_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
+// Session 67 (src\mouse_menu.h): each text id the game's text manager looks up, with the caller (GetString hook in
+// src\gfx_menu.h): the button legend's icons. Null = nothing.
+inline void (*g_text_fetch_observer)(uint32_t id, uint32_t lr) = nullptr;
 // Session 33: photo mode's per-frame step (VdSwap, kernel_overrides.h). Null = nothing.
 inline void (*g_photo_frame_hook)(uint8_t* base) = nullptr;
 // Session 34: the 30 Years of WrestleMania jump's per-frame step (src/wm30_jump.h, VdSwap). Null = nothing.
@@ -2051,6 +2056,9 @@ inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
   if (g_typing_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
       (!(flags & 0xFF) || (flags & 0x01)))
     g_typing_pad_filter(&*state);
+  if (g_mouse_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
+      (!(flags & 0xFF) || (flags & 0x01)))
+    g_mouse_pad_filter(&*state);
   return result;
 }
 

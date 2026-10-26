@@ -10,9 +10,15 @@ Build {{VERSION}} (commit {{COMMIT}}).
 - Windows 10 or 11, 64-bit.
 - A graphics card with Vulkan support (any recent NVIDIA, AMD or Intel GPU with up-to-date drivers).
 - Nothing else to install: the Microsoft Visual C++ runtime files the game needs are included (next to the game).
-- An Xbox-compatible controller is recommended. A keyboard mode exists (Settings -> Advanced) but is untested; change
-  its keys with F4 in the game (your changes are kept). When the game shows its on-screen keyboard (a name to enter),
-  you can simply type on your PC keyboard.
+- An Xbox-compatible controller is recommended. To play on the keyboard, turn on Settings -> Advanced -> KEYBOARD
+  CONTROLS; MAP KEYS beside it shows which keys press each controller button and lets you change them (F4 in the game
+  does too; your changes are kept). When the game shows its on-screen keyboard (a name to enter), you can simply type
+  on your PC keyboard. The mouse works in the menus too: point at an item to highlight it, click to select it, roll
+  the wheel to move or scroll, right-click to go back. That covers the menu lists (main menu, PLAY, CREATIONS,
+  OPTIONS, ...) and the whole road to a match: superstar select (portraits, tabs, the 1P / COM slots), the PLAY /
+  MATCH RULES / SELECT ARENA screen and its ENTRANCE and MATCH PACE, MATCH RULES (rows, the arrows beside a setting,
+  LB / RB and the page marks) and SELECT ARENA (all three tabs). Everywhere else, the button bar's A and B and a right
+  click work. The mouse is never used in a match.
 - Your own WWE 2K14 Xbox 360 disc, copied to your PC as a folder or a disc image (below).
 
 ## Copying your disc

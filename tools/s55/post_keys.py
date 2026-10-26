@@ -3,6 +3,8 @@ anyone at the keyboard.
 
     py tools\\s55\\post_keys.py PID TEXT [--gap-ms 60] [--focus]   (PID = the game's process id; TEXT: {BS} {ENTER}
                                                                   {ESC} {LEFT} {RIGHT} for those keys)
+    py tools\\s55\\post_keys.py PID "" --focus --hold BS:1500      (Session 67: hold a key that long, sent again
+                                                                  every --repeat-ms like Windows' key repeat)
 
 Without --focus the keys are posted as window messages; SDL drops them while the window has no keyboard focus (it
 routes key events to the focused window only), so that only shows nothing leaks. --focus brings the game forward for
@@ -69,6 +71,8 @@ def main():
     ap.add_argument("text")
     ap.add_argument("--gap-ms", type=int, default=60)
     ap.add_argument("--focus", action="store_true")
+    ap.add_argument("--hold", default="", help="KEY:MS (BS, ENTER, ESC, LEFT, RIGHT): hold that key, after TEXT")
+    ap.add_argument("--repeat-ms", type=int, default=33, help="the held key's repeat interval (Windows' fastest ~33)")
     a = ap.parse_args()
     hwnd = find_window(a.pid)
     if not hwnd:
@@ -101,6 +105,20 @@ def main():
         if shift:
             key(hwnd, VK_SHIFT, False)
         time.sleep(a.gap_ms / 2000)
+    if a.hold:
+        name, ms = a.hold.split(":")
+        vk = SPECIAL[name]
+        end = time.perf_counter() + int(ms) / 1000
+        downs = 0
+        while True:  # a key down again without its up = a repeat (SDL's key.repeat)
+            key(hwnd, vk, True)
+            downs += 1
+            if time.perf_counter() >= end:
+                break
+            time.sleep(a.repeat_ms / 1000)
+        key(hwnd, vk, False)
+        print(f"held {name} {ms} ms: {downs} key downs (1 press + {downs - 1} repeats), released "
+              f"{time.strftime('%H:%M:%S')}")
     if previous:
         time.sleep(0.2)
         user32.keybd_event(0x12, 0, 0, 0)

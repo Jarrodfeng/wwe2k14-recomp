@@ -18,6 +18,7 @@ evidence = "states.toml smart_menu (db/menu_ui.json g_smart_menu, high; live run
 cursor = "+352 u32 | cursor index in the open list | states.toml cursor (db/menu_ui.json SM+352, high); Session 29 scanner ground truth (run 2201)"
 menu = "+364 u32 | the open list: 1 main, 2 PLAY, 3 CREATIONS, 4 OPTIONS, 7 next PLAY level, 2000 setup screens | states.toml menu (run 239); 2 / 4 seen live in run 2236 (Session 30)"
 target = "+368 u32 | the highlighted item's target: a menu id below 1000, else a code; main menu: PLAY 2, 30 YEARS 1500, UNIVERSE 1497, CREATIONS 3, Xbox Live -1, MY WWE 6, OPTIONS 4 | states.toml target (run 239); main-menu values from the recording of run 2243 (Session 30)"
+scroll = "+1388 u32 | the item shown in the list panel's first row (0 at the top; the main menu: 1 with QUIT TO DESKTOP highlighted) | Session 67 probe run 042 (cursor 0 / 7 / 8), used by src/mouse_menu.h (runs 4342-4349)"
 
 [MessageManager]
 base = "0x839294BC"

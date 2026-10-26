@@ -62,6 +62,7 @@
 #include "direct_start.h"   // Session 53: a release started without the launcher (hand-off, settings file, message)
 #include "keybinds_save.h"  // Session 53: the keyboard binds saved in the save folder (--wwe2k14_save_keybinds)
 #include "keyboard_typing.h"  // Session 55: --wwe2k14_keyboard_typing (the PC keyboard types into the game's keyboard)
+#include "mouse_menu.h"  // Session 67: --wwe2k14_mouse_menus (the mouse points, clicks and scrolls in the list menus)
 #include "create_readback.h"  // Session 57: --wwe2k14_readback_sequences (exact readback in the create modes, default on)
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
@@ -588,6 +589,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::cinecam::Install(window(), drawer);  // Session 13 CineCam free camera; no-op unless --wwe2k14_cinecam
     wwe2k14::photo::Install();  // Session 33 photo mode; no-op unless --wwe2k14_photo_mode
     wwe2k14::typing::Install(window());  // Session 55; no-op unless --wwe2k14_keyboard_typing
+    wwe2k14::mouse_menu::Install(window());  // Session 67 (the cvar is checked per event: live switchable)
     wwe2k14::wm30::Install();   // Session 34; no-op unless --wwe2k14_wm30
     // Session 37: a failed FSR is turned off with a notice (no-op unless --wwe2k14_fsr).
     wwe2k14::upscale_guard::Install(
