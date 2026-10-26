@@ -40,9 +40,11 @@ def marks(run):
     out = []
     if not path:
         return out
-    with open(path, encoding='utf-8', errors='replace') as f:
+    # newline='\n': a route with CRLF line endings logs its labels with a '\r' on the phone (no text-mode read there);
+    # Python's universal newlines would split those log lines before their frame number (Session 69).
+    with open(path, encoding='utf-8', errors='replace', newline='\n') as f:
         for line in f:
-            m = re.search(r'\[input\]\S* (?:line \d+: )?(.*?) \(frame (\d+)\)', line)
+            m = re.search(r'\[input\]\S* (?:line \d+: )?(.*?)\r? \(frame (\d+)\)', line)
             if m and not m.group(1).startswith(('waiting for', 'saw ')):  # the route's own log lines only
                 out.append((m.group(1).strip(), int(m.group(2))))
     return out

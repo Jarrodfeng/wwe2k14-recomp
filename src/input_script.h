@@ -734,7 +734,8 @@ class InputScript {
     kScan,                  // Session 29: text = scan command, value = its arguments (src/mem_scan.h)
     kLogText, kWaitText, kAssertText,  // Session 30: screen text (src/screen_text.h); text = TEXT, frames = N / timeout
     kDumpStruct,                       // Session 30: text = struct name (structs.toml), frames = address (0 = its base)
-    kPlugin                            // Session 30: text = load / reload / unload, value = PATH (src/probe_plugin.h)
+    kPlugin,                           // Session 30: text = load / reload / unload, value = PATH (src/probe_plugin.h)
+    kDumpMem                           // Session 69: frames = physical address, hold = length, text = output file
   };
   struct Step {
     Op op;
@@ -1280,6 +1281,19 @@ class InputScript {
           why = "no struct named '" + name + "' in tools/input_scripts/structs.toml";
         }
         step.text = name;
+      } else if (cmd == "dump_mem") {  // Session 69: dump_mem PHYS_ADDR LENGTH FILE (guest physical memory to a file)
+        step.op = Op::kDumpMem;
+        std::string addr, len;
+        uint32_t a = 0, n = 0;
+        ok = bool(words >> addr >> len) &&
+             game_state_detail::ParseUnsigned(addr.rfind("0x", 0) == 0 ? addr : "0x" + addr, &a) &&
+             game_state_detail::ParseUnsigned(len, &n) && n > 0 && n <= (64u << 20);
+        std::getline(words >> std::ws, step.text);
+        while (!step.text.empty() && std::isspace((unsigned char)step.text.back())) step.text.pop_back();
+        ok = ok && !step.text.empty();
+        step.frames = a;
+        step.hold = n;
+        if (!ok) why = "dump_mem PHYS_ADDR LENGTH FILE (length up to 64 MB)";
       } else if (cmd == "include") {  // Session 30
         emit = false;
         std::string name;
@@ -1749,6 +1763,15 @@ class InputScript {
               REXLOG_INFO("[wwe2k14][input] line {}: {}", L(step), line);
             }
           }
+          break;
+        }
+        case Op::kDumpMem: {  // Session 69
+          const auto* p = REX_KERNEL_MEMORY()->TranslatePhysical<const uint8_t*>(uint32_t(step.frames));
+          std::FILE* f = std::fopen(step.text.c_str(), "wb");
+          const size_t n = f ? std::fwrite(p, 1, step.hold, f) : 0;
+          if (f) std::fclose(f);
+          REXLOG_INFO("[wwe2k14][input] line {}: dump_mem 0x{:08X} {} bytes -> {} ({})", L(step), uint32_t(step.frames),
+                      step.hold, step.text, n == step.hold ? "ok" : "FAILED");
           break;
         }
         case Op::kWaitText:

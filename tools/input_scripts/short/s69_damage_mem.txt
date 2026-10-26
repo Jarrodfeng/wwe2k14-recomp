@@ -1,0 +1,24 @@
+# Session 69: the two 1024x512 format-15 load targets that truth frames leave 3.53% non-zero (s69_attire_hash 4384 /
+# 4385: dest 0x1EDCA000 and 0x1EC6D000, ~320 frames after CH103.PAC, read back into guest memory by the load window),
+# dumped from guest memory 400 frames after CH103.PAC with dump_mem -> out\s69\dump\map_<dest>_<tag>.bin. Pass the tag
+# in the path by copying this route or renaming the files after the run. Same flags as s69_attire_hash. Local only.
+on_fail quit
+log bench: start s69_damage_mem (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+wait_file CH103.PAC 3600
+wait_frames 400
+dump_mem 0x1EDCA000 1048576 C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\map_1EDCA000.bin
+dump_mem 0x1EC6D000 1048576 C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\map_1EC6D000.bin
+screenshot m_1
+wait_frames 60
+quit

@@ -1,0 +1,546 @@
+# ReXGlue SDK changes for WWE 2K14 (session69-redblock-stutter): 12af82b49813..0bdef435e92b on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  0bdef43 wwe2k14 Session 69 (review): ext_bits Known only when the epilogue specialisation was on at store time; TexMaskKnown keeps a draw's real 0 texture-sign mask at prewarm; draw jobs ahead of the prewarm backlog; worker count capped at 8
+#  bbccb5c wwe2k14 Session 69: a stored record without the epilogue bit (older stores, the shipped list) prewarms both variants while the epilogue specialisation is on
+#  3c46d61 wwe2k14 Session 69: a pool of NATIVE pipeline workers (gpu_native_pipeline_workers, 0 = a third of the CPU threads, 1-3); a key a worker is making is waited for, not made twice (the Intel tester's stutter)
+#  4588842 wwe2k14 Session 69: stored NATIVE pipeline records keep the draw's epilogue ext bit (the spare byte; older records still predicted) - a prewarm predicted it on for every record, so every draw with an alpha test / gamma epilogue made its pipeline again in every run (the Intel tester's stutter)
+#  06adec4 wwe2k14 Session 69: gpu_native_clip_disable_clamp (default true; false = the old clipped pipelines) for A/B checks
+#  df4f03a wwe2k14 Session 69 (review): the clamp bit only where the device has depthClamp; comments
+#  979d9f4 wwe2k14 Session 69: NATIVE pipelines clamp depth when the guest's clipping is off (PA_CL_CLIP_CNTL clip_disable), as the emulated pipeline does - the testers' red block: a colour-only clear with z a hair below 0 was depth-clipped whole in truth frames (RenderDoc pixel history)
+#  bfe300b wwe2k14 Session 69: diagnostic gpu_native_truth_debug_renderdoc - a RenderDoc capture from the red block's strip clear to two frames later
+#  219a1d7 wwe2k14 Session 69: red-block diagnostic - the span's TruthStoreMany decisions
+#  14990a6 wwe2k14 Session 69: red-block diagnostic - mask, blend, viewport, scissor, pipeline of the logged draws
+#  1525aae wwe2k14 Session 69: the red-block diagnostic also logs the draws of a pass of that pitch (rect, images, touched / new tiles, tile column 12)
+#  bf0d7dc wwe2k14 Session 69: diagnostic gpu_native_truth_debug_span_pitch - a staged span's tile owners (the red block's resolve)
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 8ef7960a7fa436f9c6cbd09385b322d7902165a1..f530ffe533f596c8aadc839a5cb5066290c6b5d4 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -76,8 +76,8 @@ struct DrawRaster {
+   // (xenos::StencilOp / CompareFunction: VkStencilOp / VkCompareOp in the same order); back = front without
+   // backface_enable.
+   uint32_t stencil_ops = 0;
+-  // Session 43 (review): PA_CL_CLIP_CNTL clip_disable - the emulated pipeline clamps depth then (depthClampEnable),
+-  // our pipelines do not.
++  // Session 43 (review): PA_CL_CLIP_CNTL clip_disable - the emulated pipeline clamps depth then (depthClampEnable);
++  // Session 69: ours too (RasterKey bit 14), where the device has depthClamp.
+   bool clip_disable = false;
+   // Session 42: rectangle / quad lists the emulated pipeline expands with this geometry shader (topology: what the
+   // geometry shader takes). Drawn natively as post-processing draws only (supported stays false).
+@@ -488,7 +488,8 @@ class NativeRenderer {
+     VkShaderModule vertex_shader;
+     VkShaderModule pixel_shader;  // VK_NULL_HANDLE: our clay shading
+     VkPipelineLayout layout;
+-    uint32_t state;  // topology, restart, cull, front face, depth test / write / compare, depth bias, colour mask
++    uint32_t state;  // topology, restart, cull, front face, depth test / write / compare, depth bias, depth clamp
++                     // (Session 69: clip_disable, bit 14), colour mask
+     uint32_t blend_control;
+     uint64_t tint_hash;
+     VkShaderModule geometry_shader;  // Session 42
+@@ -1001,13 +1002,18 @@ class NativeRenderer {
+     Draw draw;
+     float spec[3];
+   };
+-  std::thread pipeline_thread_;
++  // Session 69 (gpu_native_pipeline_workers): a pool of workers, not one (slow drivers: the Intel tester's 50-740 ms
++  // compiles queued behind each other).
++  std::vector<std::thread> pipeline_threads_;
+   std::mutex pipeline_mutex_;
+   std::condition_variable pipeline_cv_, pipeline_idle_cv_;
+   std::deque<PipelineJob> pipeline_jobs_;
+   std::vector<std::pair<PipelineKey, VkPipeline>> pipeline_done_;
+   std::unordered_set<PipelineKey, PipelineKeyHasher> pipeline_pending_;
+-  bool pipeline_busy_ = false, pipeline_quit_ = false;
++  std::unordered_set<PipelineKey, PipelineKeyHasher> pipeline_running_;  // Session 69: being made by a worker now
++  uint32_t pipeline_busy_ = 0;  // Session 69: workers making a pipeline now (was a bool: one worker)
++  bool pipeline_quit_ = false;
++  void StartPipelineWorkersLocked();  // Session 69: the pool, once (pipeline_mutex_ held)
+   std::atomic<uint32_t> pipeline_done_count_{0};
+   std::atomic<uint32_t> pipeline_worker_failed_{0};
+   void PipelineWorker();
+@@ -1034,10 +1040,15 @@ class NativeRenderer {
+     uint8_t flags;  // kRecordNativePixel, kRecordFloat24, kRecordTwin, kRecordGeometry
+     uint8_t quantize;
+     uint8_t host_primitive;  // xenos::PrimitiveType (kRecordGeometry)
+-    uint8_t pad = 0;
++    // Session 69 (was padding, 0 in older records): the draw's own NATIVE ext bits the settings cannot predict -
++    // kRecordExtKnown, kRecordExtEpilogueIdle. 0 = an older record: predicted from the settings as before.
++    uint8_t ext_bits = 0;
+   };
+   static_assert(sizeof(PipelineRecord) == 64);
+   static constexpr uint8_t kRecordNativePixel = 1, kRecordFloat24 = 2, kRecordTwin = 4, kRecordGeometry = 8;
++  // Session 69 (ext_bits): Known = stored with the epilogue specialisation on (EpilogueIdle is then the draw's own);
++  // TexMaskKnown = stored with the texture-sign specialisation on (a 0 tex_unsigned_mask is the draw's own, not unset).
++  static constexpr uint8_t kRecordExtKnown = 1, kRecordExtEpilogueIdle = 2, kRecordExtTexMaskKnown = 4;
+   // The record of a pipeline GetPipeline is about to make, checked by making its key again from it (only a record that
+   // gives the same key is stored).
+   void StorePipelineRecord(const Draw& draw, const PipelineKey& key);
+diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
+index f058a5de925805498598c3846a03d6febfc96d96..bf4e78d97d4f4c9f4f7bd049409e6d87b3cd62e8 100644
+--- a/include/rex/graphics/vulkan/pipeline_cache.h
++++ b/include/rex/graphics/vulkan/pipeline_cache.h
+@@ -154,7 +154,9 @@ class VulkanPipelineCache {
+   uint32_t GetNativeVertexMulKey() const;
+   bool VertexMulKeyChanged(uint32_t recorded_key) const;
+   static void ApplyNativeVertexSpec(SpirvShaderTranslator::Modification& modification, uint32_t key);
+-  uint64_t ConformStoredNativePixelModification(VulkanShader& pixel_shader, uint64_t modification, bool* converted);
++  // (Session 69: mask_known - the record was stored with the texture-sign specialisation on, so a 0 mask is its own.)
++  uint64_t ConformStoredNativePixelModification(VulkanShader& pixel_shader, uint64_t modification, bool* converted,
++                                                bool mask_known = false);
+   // The emulated path's modification of a NATIVE record's one (a stored record holds the native bits).
+   static void StripNativePixelSpec(SpirvShaderTranslator::Modification& modification);
+   SpirvShaderTranslator::Modification GetCurrentPixelShaderModification(
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index e3ead3a3a3e3d991a59a4285b75c7e2e18cc4c75..09320b12b6eb46ac55fef6966f2602ff7ee3828a 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -23,6 +23,12 @@
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include <rex/graphics/vulkan/pipeline_cache.h>
+ #include <rex/ui/vulkan/util.h>
++#include <rex/ui/renderdoc_api.h>  // Session 69 (gpu_native_truth_debug_renderdoc)
++#include <rex/ui/vulkan/instance.h>
++
++// Session 69 (gpu_native_truth_debug_renderdoc, native_truth.cpp): the strip clear's RenderDoc capture.
++extern bool g_truth_rdc_active, g_truth_rdc_done;
++extern uint64_t g_truth_rdc_frame;
+ 
+ // ---------------------------------------------------------------------------------------------------------------
+ // Settings. All of them can be changed while the game runs (`cvar NAME VALUE` from a script or the live channel).
+@@ -184,6 +190,11 @@ REXCVAR_DEFINE_BOOL(gpu_native_defer_writeback, false, "GPU/Native",
+                     "and it saves nothing in 2K14 (37 of 40 deferred colour write-backs a match frame are written later "
+                     "anyway: every pass at EDRAM base 0 overlaps the next); measurement only")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_clip_disable_clamp, true, "GPU/Native",
++                    "Session 69 (the testers' red block): a draw with the guest's clipping off (PA_CL_CLIP_CNTL "
++                    "clip_disable) gets a depth-clamping NATIVE pipeline, as the emulated pipeline does (false: "
++                    "clipped - the old behaviour that dropped a damage-map clear whose z was a hair below 0)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_native_segment_log, 0, "GPU/Native",
+                      "With gpu_native 2 (Session 45, a diagnostic): a [native][seg] line for each native segment, load "
+                      "and write-back of the next N replaced frames (target, size, why it loads, draws, rectangle)")
+@@ -283,6 +294,10 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_async_pipelines, true, "GPU/Native",
+ // wwe2k14 patch (Session 55, the red blocks): a 2-core laptop (i3-6100U, HD 520) skipped 109,595 truth draws while
+ // their pipelines were made, this PC ~1,400. Diagnostic: the worker waits this long before each pipeline, as a slow
+ // driver compiles, so the draws skipped meanwhile can be studied here.
++REXCVAR_DEFINE_INT32(gpu_native_pipeline_workers, 0, "GPU/Native",
++                     "Session 69 (the Intel tester's stutter): worker threads making NATIVE pipelines (stored ones at "
++                     "start, truth draws' new ones); 0 = a third of the CPU threads, 1 to 3. Read when the first job "
++                     "starts them");
+ REXCVAR_DEFINE_INT32(gpu_native_truth_debug_pipeline_delay_ms, 0, "GPU/Native",
+                      "Diagnostic (Session 55): every native pipeline creation (the worker thread's and the command "
+                      "thread's) waits this many milliseconds first (a slow laptop's compile time); 0 = none")
+@@ -1140,6 +1155,11 @@ uint32_t RasterKey(const DrawRaster& raster) {
+   key |= uint32_t(raster.depth_write) << 9;
+   key |= (uint32_t(raster.depth_compare) & 7) << 10;
+   key |= uint32_t(raster.depth_bias_constant != 0.0f || raster.depth_bias_slope != 0.0f) << 13;
++  // wwe2k14 patch (Session 69, the testers' red block): clipping off on the guest (PA_CL_CLIP_CNTL clip_disable) -
++  // the pipeline clamps depth instead of clipping, as the emulated pipeline does (pipeline_cache.cpp
++  // depth_clamp_enable). Without it a colour-only clear whose z lands a hair below 0 (Undertaker's damage-map strip
++  // clear, z -1e-7) was depth-clipped whole: every fragment dropped (RenderDoc pixel history, Session 69).
++  key |= uint32_t(raster.clip_disable) << 14;
+   return key;
+ }
+ 
+@@ -1897,6 +1917,10 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+   PipelineKey key = {draw.vertex_shader, pixel_shader, draw.layout, RasterKey(draw.raster) | (color_mask << 16),
+                      blend, game_shading ? 0 : Mix64(draw.vertex_shader_hash), geometry_shader,
+                      post ? 1u + post_class + (draw.truth ? 8u : 0u) : 0u};  // Session 46: truth (no coverage marks)
++  // (Session 69 review: without depthClamp the clamp bit changes nothing - not a separate pipeline.)
++  if (!command_processor_.GetVulkanDevice()->properties().depthClamp || !REXCVAR_GET(gpu_native_clip_disable_clamp)) {
++    key.state &= ~(1u << 14);
++  }
+   if (post && draw.truth && draw.raster.stencil) key.variant |= (1u | (draw.raster.stencil_ops << 1)) << 4;
+   // Session 47 (CPU): a truth draw's pipeline is mostly the last one's (one comparison instead of the map's hash).
+   if (draw.truth && last_truth_valid_ && key == last_truth_key_) return last_truth_pipeline_;
+@@ -1920,26 +1944,40 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+     *pending = true;
+     std::lock_guard<std::mutex> lock(pipeline_mutex_);
+     if (pipeline_pending_.insert(key).second) {
+-      if (!pipeline_thread_.joinable()) pipeline_thread_ = std::thread([this]() { PipelineWorker(); });
+-      pipeline_jobs_.push_back({key, draw, {spec_values[0], spec_values[1], spec_values[2]}});
++      StartPipelineWorkersLocked();
++      // (Session 69 review: a draw's own job ahead of the stored pipelines' backlog - it is skipped until made.)
++      pipeline_jobs_.push_front({key, draw, {spec_values[0], spec_values[1], spec_values[2]}});
+       pipeline_cv_.notify_one();
+     }
+     return VK_NULL_HANDLE;
+   }
+   // Session 55 (review): made at once while the worker may have it - its finished pipelines first, and a job for this
+   // key it has not started yet goes (made here instead of twice).
+-  if (pipeline_thread_.joinable()) {
++  // Session 69: a key a worker is making right now is waited for (not made a second time alongside it).
++  if (!pipeline_threads_.empty()) {
+     DrainPipelineJobs();
+     found = pipelines_.find(key);
+     if (found != pipelines_.end()) return found->second;
+-    std::lock_guard<std::mutex> lock(pipeline_mutex_);
+-    for (auto job = pipeline_jobs_.begin(); job != pipeline_jobs_.end(); ++job) {
+-      if (job->key == key) {
+-        pipeline_jobs_.erase(job);
+-        pipeline_pending_.erase(key);
+-        break;
++    bool waited = false;
++    {
++      std::unique_lock<std::mutex> lock(pipeline_mutex_);
++      for (auto job = pipeline_jobs_.begin(); job != pipeline_jobs_.end(); ++job) {
++        if (job->key == key) {
++          pipeline_jobs_.erase(job);
++          pipeline_pending_.erase(key);
++          break;
++        }
++      }
++      if (pipeline_running_.count(key)) {
++        pipeline_idle_cv_.wait(lock, [&]() { return !pipeline_running_.count(key); });
++        waited = true;
+       }
+     }
++    if (waited) {
++      DrainPipelineJobs();
++      found = pipelines_.find(key);
++      if (found != pipelines_.end()) return found->second;
++    }
+   }
+   const VkPipeline pipeline = CreatePipeline(draw, key, spec_values);
+   if (pipeline == VK_NULL_HANDLE && pipelines_failed_++ < 8) {
+@@ -1958,7 +1996,8 @@ void NativeRenderer::PipelineWorker() {
+     if (pipeline_jobs_.empty()) break;  // (quit with nothing left)
+     PipelineJob job = std::move(pipeline_jobs_.front());
+     pipeline_jobs_.pop_front();
+-    pipeline_busy_ = true;
++    ++pipeline_busy_;
++    pipeline_running_.insert(job.key);  // Session 69: the command thread waits for it rather than making it twice
+     lock.unlock();
+     const VkPipeline pipeline = CreatePipeline(job.draw, job.key, job.spec);
+     if (pipeline == VK_NULL_HANDLE && pipeline_worker_failed_++ < 8) {
+@@ -1968,13 +2007,25 @@ void NativeRenderer::PipelineWorker() {
+     lock.lock();
+     pipeline_done_.emplace_back(job.key, pipeline);
+     pipeline_done_count_.fetch_add(1, std::memory_order_release);
+-    pipeline_busy_ = false;
+-    if (pipeline_jobs_.empty()) pipeline_idle_cv_.notify_all();
++    pipeline_running_.erase(job.key);
++    --pipeline_busy_;
++    // (Session 69: every finished job wakes the waiters - a waiter for this key, or WaitPipelineJobs at the last one.)
++    pipeline_idle_cv_.notify_all();
+   }
+-  pipeline_busy_ = false;
+   pipeline_idle_cv_.notify_all();
+ }
+ 
++// Session 69 (gpu_native_pipeline_workers): the pool, made once with the first job (0 = a third of the CPU threads,
++// 1 to 3 - the game's own threads keep the rest).
++void NativeRenderer::StartPipelineWorkersLocked() {
++  if (!pipeline_threads_.empty()) return;
++  int32_t workers = REXCVAR_GET(gpu_native_pipeline_workers);
++  if (workers <= 0) workers = std::clamp(int32_t(std::thread::hardware_concurrency() / 3), 1, 3);
++  workers = std::min(workers, 8);  // (review: a typo of 64 is not 64 threads)
++  for (int32_t i = 0; i < workers; ++i) pipeline_threads_.emplace_back([this]() { PipelineWorker(); });
++  REXGPU_INFO("[native] {} pipeline worker thread(s)", workers);
++}
++
+ void NativeRenderer::DrainPipelineJobs() {
+   if (!pipeline_done_count_.load(std::memory_order_acquire)) return;
+   std::lock_guard<std::mutex> lock(pipeline_mutex_);
+@@ -2001,15 +2052,16 @@ void NativeRenderer::DropPipelineJobsLocked() {
+ }
+ 
+ void NativeRenderer::StopPipelineWorker() {
+-  if (!pipeline_thread_.joinable()) return;
++  if (pipeline_threads_.empty()) return;
+   {
+     std::lock_guard<std::mutex> lock(pipeline_mutex_);
+     pipeline_quit_ = true;
+     DropPipelineJobsLocked();  // Session 61 (review): a quit does not wait for the stored pipelines' backlog
+   }
+   pipeline_cv_.notify_all();
+-  pipeline_thread_.join();
+-  pipeline_quit_ = false;  // (a later truth pipeline starts a new worker)
++  for (std::thread& t : pipeline_threads_) t.join();
++  pipeline_threads_.clear();
++  pipeline_quit_ = false;  // (a later truth pipeline starts new workers)
+   DrainPipelineJobs();
+ }
+ 
+@@ -2111,7 +2163,8 @@ bool NativeRenderer::KeyFromRecord(const PipelineRecord& record, PipelineKey& ke
+     vertex_modification =
+         cache.ConformStoredVertexModification(*vertex_shader, vertex_modification, converted, /*native=*/true);
+     if (pixel_shader && (record.flags & kRecordNativePixel)) {
+-      pixel_modification = cache.ConformStoredNativePixelModification(*pixel_shader, pixel_modification, converted);
++      pixel_modification = cache.ConformStoredNativePixelModification(
++          *pixel_shader, pixel_modification, converted, (record.ext_bits & kRecordExtTexMaskKnown) != 0);
+     }
+   }
+   // wwe2k14 patch (Session 66, native_ext): the NATIVE specialisation words - predicted for a stored record, the
+@@ -2120,6 +2173,10 @@ bool NativeRenderer::KeyFromRecord(const PipelineRecord& record, PipelineKey& ke
+   if (convert) {
+     pixel_ext = (pixel_shader && (record.flags & kRecordNativePixel)) ? cache.PredictNativePixelExt() : 0;
+     vertex_ext = cache.PredictNativeVertexExt(vertex_modification);
++    // Session 69: with the epilogue specialisation on, the stored draw's own bit (the prediction sets it for all).
++    if ((record.ext_bits & kRecordExtKnown) && !(record.ext_bits & kRecordExtEpilogueIdle)) {
++      pixel_ext &= ~uint32_t(SpirvShaderTranslator::kNativeExtEpilogueIdle);
++    }
+   } else if (exts) {
+     pixel_ext = exts[0];
+     vertex_ext = exts[1];
+@@ -2190,6 +2247,20 @@ void NativeRenderer::StorePipelineRecord(const Draw& draw, const PipelineKey& ke
+     record.flags |= kRecordGeometry;
+     record.host_primitive = draw.host_primitive;
+   }
++  // wwe2k14 patch (Session 69, the Intel tester's stutter): the draw's own epilogue bit - a prewarm predicted it from the
++  // setting alone (on for every record), so every draw with an alpha test / gamma epilogue made its pipeline again in
++  // every run (warm store 4421: 68 of a match's pipelines again). Older records (0) are still predicted.
++  // (Review: only what the draw's latch actually worked out - a setting off leaves the bit unknown, 0.)
++  const VulkanPipelineCache::NativeSpecLatch& spec = command_processor_.NativePipelineCache().NativeSpec();
++  record.ext_bits = 0;
++  if (spec.ps_epilogue) {
++    record.ext_bits |= kRecordExtKnown;
++    if (key.pixel_shader != VK_NULL_HANDLE && (draw.pixel_ext & SpirvShaderTranslator::kNativeExtEpilogueIdle)) {
++      record.ext_bits |= kRecordExtEpilogueIdle;
++    }
++  }
++  // (Review: a 0 texture-sign mask is a real per-draw value with the specialisation on - the prewarm keeps it.)
++  if (spec.ps_texture && key.pixel_shader != VK_NULL_HANDLE) record.ext_bits |= kRecordExtTexMaskKnown;
+   const uint64_t hash = XXH3_64bits(&record, sizeof(record));
+   if (!storage_hashes_.insert(hash).second) return;  // stored (or checked) before
+   // Only a record that makes this very key again is stored (its shaders and objects exist now: lookups only).
+@@ -2254,24 +2325,33 @@ void NativeRenderer::StorageOnFrameEnd() {
+       prewarm_retry_.push_back(record);
+       continue;
+     }
+-    PipelineKey key;
+-    bool converted = false;
+-    if ((post && post_class >= kPostTargetClasses) || !KeyFromRecord(record, key, true, &converted, nullptr)) {
+-      ++prewarm_skipped_;
+-    } else if (!pipelines_.count(key)) {
+-      prewarm_converted_ += converted ? 1 : 0;
+-      // (Its shaders into the shader storage: a record from before StoreShader may name shaders it lacks.)
+-      cache.StoreShader(*cache.FindShader(record.vertex_shader_hash));
+-      if (record.pixel_shader_hash) cache.StoreShader(*cache.FindShader(record.pixel_shader_hash));
+-      std::lock_guard<std::mutex> lock(pipeline_mutex_);
+-      if (pipeline_pending_.insert(key).second) {
+-        if (!pipeline_thread_.joinable()) pipeline_thread_ = std::thread([this]() { PipelineWorker(); });
+-        Draw draw;  // (CreatePipeline reads the key only)
+-        draw.vertex_shader = key.vertex_shader;
+-        draw.layout = key.layout;
+-        pipeline_jobs_.push_back({key, draw, {spec_values[0], spec_values[1], spec_values[2]}});
+-        pipeline_cv_.notify_one();
+-        ++prewarm_queued_;
++    // Session 69: a record from before the epilogue bit was stored (ext_bits 0) with the epilogue specialisation on -
++    // both variants (the prediction gave every one the bit; the draws without it made theirs again in every run).
++    PipelineRecord variants[2] = {record, record};
++    const bool both = !(record.ext_bits & kRecordExtKnown) && (record.flags & kRecordNativePixel) &&
++                      record.pixel_shader_hash &&
++                      (cache.PredictNativePixelExt() & SpirvShaderTranslator::kNativeExtEpilogueIdle);
++    if (both) variants[1].ext_bits |= kRecordExtKnown;  // (known: no epilogue bit)
++    for (uint32_t v = 0; v < (both ? 2u : 1u); ++v) {
++      PipelineKey key;
++      bool converted = false;
++      if ((post && post_class >= kPostTargetClasses) || !KeyFromRecord(variants[v], key, true, &converted, nullptr)) {
++        ++prewarm_skipped_;
++      } else if (!pipelines_.count(key)) {
++        prewarm_converted_ += converted ? 1 : 0;
++        // (Its shaders into the shader storage: a record from before StoreShader may name shaders it lacks.)
++        cache.StoreShader(*cache.FindShader(record.vertex_shader_hash));
++        if (record.pixel_shader_hash) cache.StoreShader(*cache.FindShader(record.pixel_shader_hash));
++        std::lock_guard<std::mutex> lock(pipeline_mutex_);
++        if (pipeline_pending_.insert(key).second) {
++          StartPipelineWorkersLocked();
++          Draw draw;  // (CreatePipeline reads the key only)
++          draw.vertex_shader = key.vertex_shader;
++          draw.layout = key.layout;
++          pipeline_jobs_.push_back({key, draw, {spec_values[0], spec_values[1], spec_values[2]}});
++          pipeline_cv_.notify_one();
++          ++prewarm_queued_;
++        }
+       }
+     }
+   }
+@@ -2356,6 +2436,9 @@ VkPipeline NativeRenderer::CreatePipeline(const Draw& draw, const PipelineKey& k
+   raster.cullMode = cull_mode;
+   raster.frontFace = front_face_clockwise ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+   raster.depthBiasEnable = (key.state >> 13) & 1 ? VK_TRUE : VK_FALSE;
++  // Session 69: the guest's clipping off -> depth clamped, not clipped (RasterKey bit 14; as the emulated pipeline).
++  raster.depthClampEnable =
++      ((key.state >> 14) & 1) && command_processor_.GetVulkanDevice()->properties().depthClamp ? VK_TRUE : VK_FALSE;
+   raster.lineWidth = 1.0f;
+   VkPipelineMultisampleStateCreateInfo multisample = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+   multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+@@ -5423,6 +5506,17 @@ void NativeRenderer::OnResolve(uint32_t copy_source, uint32_t surface_info, uint
+ }
+ 
+ void NativeRenderer::OnFrameEnd(CommandProcessor::NativeCensus& census) {
++  // wwe2k14 patch (Session 69, gpu_native_truth_debug_renderdoc): the capture started at the strip clear ends here, two
++  // frames later (its submissions are in by then).
++  if (g_truth_rdc_active && frame_ >= g_truth_rdc_frame + 2) {
++    if (const ui::RenderDocAPI* rd = command_processor_.GetVulkanDevice()->vulkan_instance()->renderdoc_api();
++        rd && rd->api_1_0_0()) {
++      const uint32_t ok = rd->api_1_0_0()->EndFrameCapture(nullptr, nullptr);
++      REXGPU_INFO("[native][truth][span] frame {}: RenderDoc capture ended ({})", frame_, ok ? "saved" : "FAILED");
++    }
++    g_truth_rdc_active = false;
++    g_truth_rdc_done = true;
++  }
+   const bool ended_truth = truth();  // Session 46: this frame ended as a truth frame (no fallback)
+   // The census (any draws, gpu_native on or off).
+   if (census_frames_left_ > 0) {
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index e0aaa9419c1070cca9bcc3ed33c8c58f500fce90..acf34567dcbb93838cb19aea19e95d1b9c26660f 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -26,6 +26,8 @@
+ #include <rex/logging.h>
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include <rex/ui/vulkan/util.h>
++#include <rex/ui/renderdoc_api.h>   // Session 69 (gpu_native_truth_debug_renderdoc)
++#include <rex/ui/vulkan/instance.h>
+ 
+ REXCVAR_DECLARE(int32_t, gpu_native_truth_debug_draws);
+ REXCVAR_DECLARE(int32_t, gpu_native);
+@@ -151,6 +153,19 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_fill_direct_small, false, "GPU/Native",
+                     "one texel an invocation, not into the staging buffer and a buffer-to-image copy (the same bits)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ // Session 52 (step 0, diagnostic: where the truth passes' GPU time goes).
++// (Session 69 diagnostic: TruthStoreMany logs its decisions while a logged span is staged.)
++static bool g_truth_debug_store = false;
++REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_renderdoc, false, "GPU/Native",
++                    "Diagnostic (Session 69, red block): with RenderDoc attached, a frame capture starts right before "
++                    "the first colour fast clear at x 960 of a gpu_native_truth_debug_span_pitch pass and ends two "
++                    "frames later (NativeRenderer::OnFrameEnd); once a run");
++// (Session 69: the capture's state, read by OnFrameEnd in native_renderer.cpp.)
++bool g_truth_rdc_active = false, g_truth_rdc_done = false;
++uint64_t g_truth_rdc_frame = 0;
++REXCVAR_DEFINE_INT32(gpu_native_truth_debug_span_pitch, 0, "GPU/Native",
++                     "Diagnostic (Session 69, red block): a staged span this many tiles wide (and pitch) logs its tile "
++                     "owners - an image index per tile or E (the EDRAM buffer) - and the owners; at most 8 spans. 0 = off")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_direct_resolve_full_1x, false, "GPU/Native",
+                     "Session 59: at 1x, full k_8 / k_4_4_4_4 copies of an RGBA8 truth image straight into memory (no "
+                     "staging stores, no stock copy); the texture fill after it is unchanged")
+@@ -1928,6 +1943,10 @@ void NativeRenderer::TruthStoreMany(const int16_t* indices, size_t count, const
+     const int16_t index = indices[k];
+     if (index < 0 || size_t(index) >= truth_images_.size()) continue;
+     TruthImage& t = truth_images_[index];
++    if (g_truth_debug_store) {  // wwe2k14 patch (Session 69, gpu_native_truth_debug_span_pitch)
++      REXGPU_INFO("[native][truth][span]   store image {}: initialized {} image {} owned in tiles {} staging {}", index,
++                  t.initialized, t.image != VK_NULL_HANDLE, (t.owned & tiles).count(), staging);
++    }
+     if (!t.initialized || t.image == VK_NULL_HANDLE) continue;
+     const std::bitset<2048> owned = t.owned & tiles;  // (Session 47)
+     if (owned.none()) continue;
+@@ -1941,8 +1960,15 @@ void NativeRenderer::TruthStoreMany(const int16_t* indices, size_t count, const
+     } else {
+       TruthTileRects(t, owned, job.rects);
+     }
++    if (g_truth_debug_store) {
++      REXGPU_INFO("[native][truth][span]   store image {}: rects {} stencil rects {}", index, job.rects.size(),
++                  job.stencil_rects.size());
++    }
+     if (job.rects.empty() && job.stencil_rects.empty()) continue;
+-    if (TruthStoreSet(t, staging, buffer) == VK_NULL_HANDLE) continue;
++    if (TruthStoreSet(t, staging, buffer) == VK_NULL_HANDLE) {
++      if (g_truth_debug_store) REXGPU_INFO("[native][truth][span]   store image {}: NO STORE SET", index);
++      continue;
++    }
+     ++job_count;
+   }
+   if (!job_count) return;
+@@ -2066,6 +2092,29 @@ VkDescriptorSet NativeRenderer::TruthStageSpan(uint32_t base, uint32_t row_lengt
+   for (size_t i = 0; i < truth_images_.size(); ++i) {
+     if ((span & truth_images_[i].owned).any()) owners.push_back(int16_t(i));
+   }
++  // wwe2k14 patch (Session 69, gpu_native_truth_debug_span_pitch): the span's owner map (the red block's resolve).
++  static int debug_spans_logged = 0;
++  if (const int32_t dp = REXCVAR_GET(gpu_native_truth_debug_span_pitch);
++      dp > 0 && uint32_t(dp) == pitch && row_length == pitch && debug_spans_logged < 8) {
++    ++debug_spans_logged;
++    g_truth_debug_store = true;  // (the stores below log, until the span's TruthStoreMany is done)
++    REXGPU_INFO("[native][truth][span] frame {}: base {} row_length {} rows {} pitch {}; owners {}", frame_, base,
++                row_length, rows, pitch, owners.size());
++    for (int16_t o : owners) {
++      const TruthImage& t = truth_images_[o];
++      REXGPU_INFO("[native][truth][span]   image {}: base {} pitch {} kind {} format {} {}x{} owned in span {}", o,
++                  t.base, t.pitch_tiles, t.kind, t.format, t.width, t.height, (span & t.owned).count());
++    }
++    for (uint32_t r = 0; r < rows; ++r) {
++      std::string line;
++      for (uint32_t c = 0; c < row_length; ++c) {
++        const uint32_t tile = (base + r * pitch + c) & 2047u;
++        const int16_t o = TruthOwnerOf(tile);
++        line += o < 0 ? 'E' : char(o < 10 ? '0' + o : 'a' + (o - 10) % 26);
++      }
++      REXGPU_INFO("[native][truth][span]   row {:2}: {}", r, line);
++    }
++  }
+   DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
+   if (from_edram.any() && command_processor_.NativeEdramBuffer() != VK_NULL_HANDLE) {
+     uint32_t scale_x = 1, scale_y = 1;
+@@ -2097,6 +2146,7 @@ VkDescriptorSet NativeRenderer::TruthStageSpan(uint32_t base, uint32_t row_lengt
+     truth_counts_.staged_edram += uint32_t(from_edram.count());
+   }
+   TruthStoreMany(owners.data(), owners.size(), span, true);
++  g_truth_debug_store = false;  // (Session 69 diagnostic)
+   ++truth_counts_.staged;
+   return truth_staging_resolve_set_;
+ }
+@@ -5037,6 +5087,40 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+                                       : std::bitset<2048>();
+   // Newly owned tiles hold no stencil of this image's (until a clear gives them one, below).
+   if (d_new.any()) truth_images_[depth].stencil_valid &= ~d_new;
++  // wwe2k14 patch (Session 69, gpu_native_truth_debug_span_pitch): the draws of a pass of that pitch (at most 64).
++  static int debug_draws_logged = 0;
++  if (const int32_t dp = REXCVAR_GET(gpu_native_truth_debug_span_pitch);
++      dp > 0 && uint32_t(dp) == pitch && REXCVAR_GET(gpu_native_truth_debug_renderdoc) && !g_truth_rdc_active &&
++      !g_truth_rdc_done && draw.fast_clear && writes_color && rect[0] == 960) {
++    // (Session 69: before this draw is recorded - the deferred commands become Vulkan ones at the submission's end.)
++    const ui::RenderDocAPI* rd = command_processor_.GetVulkanDevice()->vulkan_instance()->renderdoc_api();
++    if (rd && rd->api_1_0_0()) {
++      rd->api_1_0_0()->StartFrameCapture(nullptr, nullptr);
++      g_truth_rdc_active = true;
++      g_truth_rdc_frame = frame_;
++      REXGPU_INFO("[native][truth][span] frame {}: RenderDoc capture started (the strip clear)", frame_);
++    } else {
++      g_truth_rdc_done = true;
++      REXGPU_WARN("[native][truth][span] gpu_native_truth_debug_renderdoc: RenderDoc is not attached");
++    }
++  }
++  if (const int32_t dp = REXCVAR_GET(gpu_native_truth_debug_span_pitch);
++      dp > 0 && uint32_t(dp) == pitch && debug_draws_logged < 64) {
++    ++debug_draws_logged;
++    REXGPU_INFO("[native][truth][span] frame {} draw: rect {},{}-{},{} colour image {} (base {} kind {}) depth image {} "
++                "(base {} kind {}) writes_colour {} uses_depth {} depth_write {} fast_clear {} cover {},{}-{},{}; "
++                "touch c {} d {}, new c {} d {}, col12 c_touch {} d_touch {} owner {}; mask 0x{:X} blend 0x{:08X} "
++                "screen_space {} viewport {:.1f},{:.1f} {:.1f}x{:.1f} scissor {},{} {}x{} pipeline {}",
++                frame_, rect[0], rect[1], rect[2], rect[3], color, truth_images_[color].base, truth_images_[color].kind,
++                depth, truth_images_[depth].base, truth_images_[depth].kind, writes_color, uses_depth,
++                draw.raster.depth_write, draw.fast_clear, draw.cover[0], draw.cover[1], draw.cover[2], draw.cover[3],
++                c_touch.count(), d_touch.count(), c_new.count(), d_new.count(),
++                c_touch.test((truth_images_[color].base + 12) & 2047u), d_touch.test((truth_images_[depth].base + 12) & 2047u),
++                TruthOwnerOf((truth_images_[depth].base + 12) & 2047u), draw.color_write_mask, draw.blend_control,
++                draw.screen_space, draw.viewport.x, draw.viewport.y, draw.viewport.width, draw.viewport.height,
++                draw.scissor.offset.x, draw.scissor.offset.y, draw.scissor.extent.width, draw.scissor.extent.height,
++                draw.pipeline != VK_NULL_HANDLE);
++  }
+   if (c_new.any() || d_new.any()) {
+     TruthSetOwners(c_new, color, d_new, depth);
+     truth_pass_c_owned_ = (truth_pass_c_owned_ | c_new) & ~d_new;
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index c32b15b684c6aafe01f3d37d9ce5442b0ecb5a58..c2ab5d81e7b42a4e11e06c5200b9a245755a715a 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -1415,12 +1415,12 @@ bool VulkanPipelineCache::NativeExtStale(uint32_t recorded_pixel_ext, uint32_t r
+ }
+ 
+ uint64_t VulkanPipelineCache::ConformStoredNativePixelModification(VulkanShader& pixel_shader, uint64_t modification,
+-                                                                   bool* converted) {
++                                                                   bool* converted, bool mask_known) {
+   SpirvShaderTranslator::Modification out(modification);
+   AnalyzeShaderUcode(pixel_shader);
+   if (!REXCVAR_GET(gpu_native_ps_texture_spec)) {
+     out.pixel.tex_unsigned_mask = 0;
+-  } else if (!out.pixel.tex_unsigned_mask) {
++  } else if (!out.pixel.tex_unsigned_mask && !mask_known) {  // (Session 69 review: a known 0 is the draw's own)
+     size_t bindings = 0;
+     for (const Shader::TextureBinding& binding : pixel_shader.texture_bindings()) {
+       bindings = std::max(bindings, binding.binding_index + 1);

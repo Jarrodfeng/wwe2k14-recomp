@@ -8,9 +8,13 @@
   one doesn't show up, please send a report (launcher: Report a problem lists your packs, never their files).
 - Discord status needs an application id (Settings -> Game) until the project has its own.
 - Our own menu items in the game (QUIT TO DESKTOP, GRAPHICS, PHOTO MODE) stay in English in every language.
-- Red patches on wrestlers' skin / a wrestler drawn glowing white (Intel laptops): this build closes one more
-  possible cause, and we can no longer make them appear here. If you still see them, please send a report with your logs
+- Superstars looking shiny or sparkly (seen on Intel Iris Xe): being looked into. If you see it, please try the extra
+  flags `--gpu_native_ps_mul_mode=0 --gpu_native_fma=0 --gpu_native_ps_implicit_lod=false` (Settings -> Advanced) and
+  tell us whether it goes away.
+- A black screen at the start or at 1080p (reported on an Intel laptop): we need a log from a run where it happens
   (launcher: Report a problem).
+- The first time you meet a superstar, arena or match type the shipped pipeline list does not cover, its loading screen
+  can pause while the graphics driver prepares it (longest on integrated graphics); after that it is remembered.
 - A custom wrestler added to a save with an outside tool freezes (and so does his opponent) when he starts a custom
   finisher that the save does not have. Create that finisher in your save (CREATIONS > SPECIAL MOVE) or give him one
   of the game's own finishers. The freeze happens with all of our changes turned off too.

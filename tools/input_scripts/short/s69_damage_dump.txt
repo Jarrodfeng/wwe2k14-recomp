@@ -1,0 +1,123 @@
+# Session 69: dump the damage-map resolves (1024x512, format 15, EDRAM base 0) that truth frames leave 3.5% non-zero
+# (s69_attire_hash runs 4384 / 4385: about 315-320 frames after CH103.PAC). gpu_depth_dump (depth and pitch >= 1000 /
+# height >= 500 colour resolves until the next guest swap) re-armed every frame every 3 frames from 300 to 450 after CH103.PAC
+# -> out\s69\dump\aNN_K.bin + .json. Same flags as s69_attire_hash. Dumps are local only. on_fail quit.
+on_fail quit
+log bench: start s69_damage_dump (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+wait_file CH103.PAC 3600
+wait_frames 300
+log bench: dump window
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a00
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a01
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a02
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a03
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a04
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a05
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a06
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a07
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a08
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a09
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a10
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a11
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a12
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a13
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a14
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a15
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a16
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a17
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a18
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a19
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a20
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a21
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a22
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a23
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a24
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a25
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a26
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a27
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a28
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a29
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a30
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a31
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a32
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a33
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a34
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a35
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a36
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a37
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a38
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a39
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a40
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a41
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a42
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a43
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a44
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a45
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a46
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a47
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a48
+wait_frames 3
+cvar gpu_depth_dump C:\Users\Jarrod\wwe2k14-recomp\out\s69\dump\a49
+wait_frames 3
+log bench: dump window end
+wait_frames 60
+quit

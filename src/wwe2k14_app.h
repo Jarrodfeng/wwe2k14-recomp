@@ -252,7 +252,12 @@ class Wwe2k14App : public rex::ReXApp {
     // here until Jarrod picks the phone's picture (ANDROID_PLAN F5). Each only if left at default.
     if (rex::cvar::GetFlagSource("resolution_scale") == rex::cvar::Source::kDefault)
       rex::cvar::SetFlagByName("resolution_scale", "1");
+    // Session 69: except readback_resolve_batch (Session 66, H1.1; exact on the PC). On the phone it leaves holes in
+    // Undertaker's back, white and see-through, in every b37 match (runs 059, 061, 063-064, 066-067); off, clean (068).
+    // Same bytes, later copy: either ARM's weaker store ordering or a guest read the batch's flush points miss
+    // (unconfirmed). It stays off on Android until that is found.
     for (const auto& [name, value] : wwe2k14::gfxs::NativeRendererFlags()) {
+      if (name == "readback_resolve_batch") continue;
       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
     }
     wwe2k14::light::ApplyFixes();

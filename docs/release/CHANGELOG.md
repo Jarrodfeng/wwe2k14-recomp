@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.8
+
+The red squares on wrestlers are fixed, and much less stutter on slower graphics (Intel laptops especially).
+
+- **No more red squares on wrestlers' backs.** The long-reported red (or dark red) block on a wrestler's back, from the
+  start of a match, is fixed. The game clears each wrestler's damage map at the start of a match partly with a tiny
+  clear that our renderer dropped: the edge of that map kept old picture data, which the skin shading then showed as
+  red. It happened on every graphics card, but was easiest to see on dark gear (The Undertaker's singlet).
+- **Far less stutter on slower graphics.** The renderer remembers the graphics pipelines it prepared, so the next
+  session can prepare them at start-up instead of mid-match. About half of a match's pipelines were remembered wrongly
+  and prepared again in every session - on an integrated GPU that took up to two seconds each, in the middle of the
+  action. They are now remembered exactly (what you have stored already still works), and several CPU threads prepare
+  them at once instead of one. In our tests with an integrated GPU's preparation times, a match that froze for seconds
+  now runs without a single hitch from the second session on. Advanced: `--gpu_native_pipeline_workers=N` sets the
+  number of threads (0 = automatic).
+
 ## v0.2.7
 
 Map your keyboard in the launcher, a fix for runaway Backspace, and the mouse in the menus.

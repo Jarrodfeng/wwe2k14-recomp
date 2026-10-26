@@ -1,0 +1,55 @@
+# Session 69: the phone's red block on Undertaker's back (NATIVE only; the old renderer is clean, phone run 072), on the
+# PC. John Cena vs The Undertaker, WrestleMania XXX (BG56), CPU vs CPU, entrances skipped - the phone bench
+# bench_cena_taker_match.txt with screenshots. Use with run_list.ps1 -ScriptExtras
+#   "--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=139,103 --wwe2k14_launch_skip_entrances=true"
+# plus the renderer settings under test (e.g. --gpu_native_truth_host_rt=true: the phone's no-interlock path).
+# Screenshots t_1 .. t_16 (every 150 frames) are local only.
+on_fail quit
+log bench: start s69_taker_back (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+wait_file CH103.PAC 3600
+wait_frames 600
+log match: start
+screenshot t_1
+wait_frames 150
+screenshot t_2
+wait_frames 150
+screenshot t_3
+wait_frames 150
+screenshot t_4
+wait_frames 150
+screenshot t_5
+wait_frames 150
+screenshot t_6
+wait_frames 150
+screenshot t_7
+wait_frames 150
+screenshot t_8
+wait_frames 150
+screenshot t_9
+wait_frames 150
+screenshot t_10
+wait_frames 150
+screenshot t_11
+wait_frames 150
+screenshot t_12
+wait_frames 150
+screenshot t_13
+wait_frames 150
+screenshot t_14
+wait_frames 150
+screenshot t_15
+wait_frames 150
+screenshot t_16
+wait_frames 150
+quit
