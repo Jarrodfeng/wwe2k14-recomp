@@ -1,6 +1,24 @@
 # Changelog
 
-## v0.2.9
+## v0.2.10
+
+Two fixes from player reports: entrances that froze for good on 2-core PCs, and Superstar Threads outfits that came
+out wrong in matches.
+
+- **No more entrances freezing for good on 2-core PCs.** On a PC with few CPU threads (reported on an Intel Core i3
+  with 2 cores / 4 threads), the game could stop about a second into an entrance and never recover; turning entrances
+  off was the only way around it. The cause was the order in which the game hands a job to one of its helper threads:
+  it wakes the helper first and only then marks the job "not done yet". On the Xbox 360 that is always in time; on a
+  PC with few cores, Windows can let the helper run the whole job first, and the late mark then wipes out its "done"
+  signal, so the game waits forever. The game now marks the job before waking the helper. In my tests with the game
+  held to 4 CPU threads, the same match froze 3 times out of 6 before the fix and 0 times out of 7 after it.
+- **Superstar Threads outfits look right in matches.** A saved Superstar Threads outfit could come out garbled, or
+  still in its original colours, once the superstar was in a match, even though the editor showed it correctly. The
+  game builds a saved outfit on the graphics card over several frames and then reads the finished picture back; a
+  loading speed-up of mine (v0.2.4) skipped reading back anything redrawn more than 4 frames in a row, and a Threads
+  outfit takes 5 or more, so its last, finished frame was the one skipped. The limit is now 32 frames: outfits are
+  read back whole, and the speed-up still skips the copies the game redraws every frame (those run 130+ frames).
+- **Gameplay is unchanged** otherwise.
 
 Smooth entrances again on slower PCs: the game now prepares its graphics before you play.
 

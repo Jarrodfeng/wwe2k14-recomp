@@ -28,6 +28,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $AndroidSdk  = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { "$env:LOCALAPPDATA\Android\Sdk" }
 $Pkg         = "io.github.jarrodfeng.wwe2k14"
+$GameProc    = "${Pkg}:game"   # Session 71: the game runs in its own process (GameActivity, android:process=":game")
 $PhoneFiles  = "/sdcard/Android/data/$Pkg/files"
 $ApiLevel    = 36
 $MinApi      = 28

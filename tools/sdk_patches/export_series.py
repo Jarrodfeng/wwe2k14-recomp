@@ -59,6 +59,7 @@ STEPS = [
     ('session66-native2', '12af82b49813c74787e7cf4a96910a5a6522b31c'),
     ('session69-redblock-stutter', '0bdef435e92b7a58faba341258300d7c2e293cef'),
     ('session70-precompile', 'f3d44bdd38c2ad06c2f59ba7aaf0d90e0fc152e1'),
+    ('session71-android', 'd8053f39911e0bd7b7de2ef0ee2f01ea4b1b0015'),
 ]
 
 

@@ -102,4 +102,37 @@ inline bool LoadGameFont(GameFiles& files, GameFont& font) {
   return true;
 }
 
+// Session 71 (the Android launcher, SDL's renderer has no BC3 textures): the sheet as straight-alpha RGBA (DXT5 = BC3:
+// per 4x4 block, 8 bytes of alpha - two 8-bit ends and 3-bit indices - then 8 bytes of colour - two RGB565 ends and
+// 2-bit indices, always the four-colour mode in BC3).
+inline std::vector<uint8_t> DecodeBc3(const std::vector<uint8_t>& bc3, int w, int h) {
+  std::vector<uint8_t> out(size_t(w) * size_t(h) * 4);
+  const uint8_t* b = bc3.data();
+  for (int by = 0; by < h / 4; ++by)
+    for (int bx = 0; bx < w / 4; ++bx, b += 16) {
+      uint8_t a[8] = {b[0], b[1]};
+      if (a[0] > a[1])
+        for (int i = 1; i < 7; ++i) a[i + 1] = uint8_t(((7 - i) * a[0] + i * a[1]) / 7);
+      else {
+        for (int i = 1; i < 5; ++i) a[i + 1] = uint8_t(((5 - i) * a[0] + i * a[1]) / 5);
+        a[6] = 0, a[7] = 255;
+      }
+      uint64_t ai = 0;
+      for (int i = 0; i < 6; ++i) ai |= uint64_t(b[2 + i]) << (8 * i);
+      const uint16_t c0 = uint16_t(b[8] | b[9] << 8), c1 = uint16_t(b[10] | b[11] << 8);
+      int c[4][3] = {{(c0 >> 11) * 255 / 31, (c0 >> 5 & 63) * 255 / 63, (c0 & 31) * 255 / 31},
+                     {(c1 >> 11) * 255 / 31, (c1 >> 5 & 63) * 255 / 63, (c1 & 31) * 255 / 31}};
+      for (int k = 0; k < 3; ++k) c[2][k] = (2 * c[0][k] + c[1][k]) / 3, c[3][k] = (c[0][k] + 2 * c[1][k]) / 3;
+      const uint32_t ci = uint32_t(b[12] | b[13] << 8 | b[14] << 16 | uint32_t(b[15]) << 24);
+      for (int py = 0; py < 4; ++py)
+        for (int px = 0; px < 4; ++px) {
+          const int i = py * 4 + px;
+          uint8_t* o = &out[(size_t(by * 4 + py) * size_t(w) + size_t(bx * 4 + px)) * 4];
+          const int* col = c[ci >> (2 * i) & 3];
+          o[0] = uint8_t(col[0]), o[1] = uint8_t(col[1]), o[2] = uint8_t(col[2]), o[3] = a[ai >> (3 * i) & 7];
+        }
+    }
+  return out;
+}
+
 }  // namespace launcher

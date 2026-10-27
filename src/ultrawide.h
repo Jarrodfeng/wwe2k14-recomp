@@ -57,6 +57,8 @@ inline void Configure() {
   if (a == "auto") aspect = ScreenAspect();
   else if (a == "21:9") aspect = 21.0 / 9.0;
   else if (a == "32:9") aspect = 32.0 / 9.0;
+  else if (double w = 0, h = 0; std::sscanf(a.c_str(), "%lf:%lf", &w, &h) == 2 && w > 0 && h > 0)
+    aspect = w / h;  // Session 71: any W:H (the phone launcher passes the screen's own, e.g. 3168:1440)
   const double k = std::clamp(aspect / (16.0 / 9.0), 1.0, 4.0);
   if (k < 1.01) {
     if (a != "16:9") REXLOG_INFO("[wwe2k14][wide] aspect {} = {:.3f}: not wider than 16:9, nothing changed", a, aspect);

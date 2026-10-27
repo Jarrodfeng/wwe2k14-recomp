@@ -6329,6 +6329,34 @@
           "size": 11408384
         }
       ]
+    },
+    {
+      "id": "pin-d8053f3-1028-0301",
+      "sdk_commit": "d8053f39911e0bd7b7de2ef0ee2f01ea4b1b0015",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-28",
+      "built": "build_sdk.ps1 -Run s71, 2026-10-28T03:01:02 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s71.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 71: s71-android merged (virtual pads synthetic; Android-only surface and picked-file fixes)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "0f6ecbb79fd7f9a33b277c2d93e9b66f838346b8a50f671cd44bd058f19ee8d7",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "1014bbfd34f662ddab7f8b2de6cd8d4c95e11a6521c83563e2a50386c84705d9",
+          "size": 15308288
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "104a92a8015e85f3a8847e98a9b08ebc142395b058786ce53269950444af1b31",
+          "size": 11409408
+        }
+      ]
     }
   ]
 }

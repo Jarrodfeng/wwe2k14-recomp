@@ -1,0 +1,32 @@
+# Session 71: the Superstar Threads garble (v0.2.9 player). Boot, let --wwe2k14_launch=s71_cena_threads fire (Cena in
+# his saved Threads "ATTIRE 1", entrance T-shirt recoloured black, vs Undertaker; captured in run 4487), screenshot
+# Cena's entrance at four moments after the first titantron opens, quit. Needs -Data userdata_s71_threads (a copy of
+# Jarrod's save with that outfit; out\bench, local only). Normal speed (screenshots). Shots t_* are local only.
+on_fail quit
+log thr: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log thr: main menu reached
+wait_file INGAMELUA.PAC 1800
+log thr: in-game sequence loading
+wait_file titantron 3000
+log thr: first entrance
+wait_frames 300
+screenshot t_0300
+wait_frames 300
+screenshot t_0600
+wait_frames 300
+screenshot t_0900
+wait_frames 300
+screenshot t_1200
+wait_frames 60
+log thr: end
+quit

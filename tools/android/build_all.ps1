@@ -1,4 +1,4 @@
-# The whole Android chain in one go: SDK (incremental) -> game library -> APK [-> install]. Stops at the first failure.
+# The whole Android chain in one go: SDK (incremental) -> game library -> launcher -> APK [-> install]. Stops at the first failure.
 #   pwsh -File tools\android\build_all.ps1 -Run b01 [-Install]
 # The game's precompiled headers are thrown away when the SDK install changed headers (CMake does not track the
 # installed SDK's headers: a stale PCH fails with "has been modified since the precompiled header was built").
@@ -14,6 +14,8 @@ if ($before -ne $after) {
     "SDK headers changed: the game's precompiled headers will be rebuilt"
 }
 pwsh -NoProfile -File "$PSScriptRoot\build_game_android.ps1" -Run "$Run-game"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+pwsh -NoProfile -File "$PSScriptRoot\build_launcher.ps1" -Target android  # Session 71: the launcher (liblauncher.so)
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $apkArgs = @()
 if ($Install) { $apkArgs += '-Install' }

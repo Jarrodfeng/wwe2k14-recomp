@@ -31,7 +31,7 @@ if ($PushGame) {
 }
 if (-not $Run) { "run.ps1: -Run NNN is required"; exit 2 }
 
-if ((Adb shell pidof $Pkg) -match '\d') { "run.ps1: $Pkg is already running (one phone run at a time)"; exit 3 }
+if ((Adb shell pidof $Pkg $GameProc) -match '\d') { "run.ps1: $Pkg is already running (one phone run at a time)"; exit 3 }
 $out = "$($AndroidDirs.Runs)\$Run"
 if (Test-Path $out) { "run.ps1: $out exists (pick a new run number)"; exit 2 }
 [void](New-Item -ItemType Directory -Force $out)
@@ -86,7 +86,7 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
         Adb pull /sdcard/wwe2k14_shot.png "$out\shot_$shot.png" | Out-Null
     }
     if ($Until -and (Select-String -Path "$out\logcat.txt" -SimpleMatch $Until -Quiet)) { $marker = $true; break }
-    if (-not ((Adb shell pidof $Pkg) -match '\d') -and $el -gt 5) { $ended = $true; break }
+    if (-not ((Adb shell pidof $GameProc) -match '\d') -and $el -gt 5) { $ended = $true; break }
 }
 if ($marker) {
     Adb shell screencap -p /sdcard/wwe2k14_shot.png | Out-Null

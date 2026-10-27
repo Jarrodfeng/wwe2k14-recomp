@@ -13,7 +13,7 @@ $file = "$out\samples.txt"
 $t0 = Get-Date
 $appPid = ''
 while (-not $appPid -and ((Get-Date) - $t0).TotalSeconds -lt $WaitSeconds) {
-    $appPid = ((& $Adb shell pidof $Pkg) -as [string]).Trim()
+    $appPid = ((& $Adb shell pidof $GameProc) -as [string]).Trim()
     if (-not $appPid) { Start-Sleep -Seconds 1 }
 }
 if (-not $appPid) { "sample.ps1: $Pkg did not start within $WaitSeconds s"; exit 3 }
@@ -25,7 +25,7 @@ if (-not $appPid) { "sample.ps1: $Pkg did not start within $WaitSeconds s"; exit
 $cmd = "echo ==== `$(date +%s.%N); top -H -b -n 1 -d 1 -p $appPid -o TID,%CPU,CPU,CMD -s 2 | grep -E '^ *[0-9]' | head -n $Threads; " +
        "echo freq `$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq) `$(cat /sys/devices/system/cpu/cpufreq/policy6/scaling_cur_freq); " +
        "dumpsys thermalservice | grep -E 'Thermal Status|HAL:|mName=(CPU[0-7]|GPU[0-7]|skin|socd),' | sed -n '/temperatures from HAL/,/cooling devices/p;/Thermal Status/p' | grep -E 'Status|mName' | head -n 24"
-while (((& $Adb shell pidof $Pkg) -as [string]) -match '\d') {
+while (((& $Adb shell pidof $GameProc) -as [string]) -match '\d') {
     $s = Get-Date
     & $Adb shell $cmd | Add-Content -Path $file -Encoding utf8
     $wait = $Every - ((Get-Date) - $s).TotalSeconds

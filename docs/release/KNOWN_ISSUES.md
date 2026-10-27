@@ -18,6 +18,8 @@
   the next "Preparing shaders" includes it.
 - "Preparing shaders" (new in v0.2.9) was timed on my PC, also with slowed-down compiles to stand in for a laptop
   (about 20 seconds there); how long it takes on integrated graphics has not been measured on real hardware yet.
+- Superstar Threads (fixed in v0.2.10): checked with a recoloured T-shirt. If an outfit with more edits (designs,
+  logos) still looks wrong in a match, please send a report with a screenshot of the editor and of the match.
 - A custom wrestler added to a save with an outside tool freezes (and so does his opponent) when he starts a custom
   finisher that the save does not have. Create that finisher in your save (CREATIONS > SPECIAL MOVE) or give him one
   of the game's own finishers. The freeze happens with all of my changes turned off too.

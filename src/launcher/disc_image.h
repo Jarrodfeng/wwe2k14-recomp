@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +19,12 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace launcher {
 
@@ -34,10 +41,22 @@ class DiscImage {
 
   // False with `error` set (plain English) if this isn't a readable disc image.
   bool Open(const fs::path& path, std::string& error) {
+#ifdef _WIN32
     f_.open(path, std::ios::binary);
     std::error_code ec;
     size_ = fs::file_size(path, ec);
     if (!f_ || ec) return error = "can't open the file", false;
+#else
+    // Session 71 (Android): a file picked with Android's file picker arrives as /proc/self/fd/N; opening that path
+    // again is refused for files outside the app's folder (b46: "can't open the file"), so read through a duplicate
+    // of the descriptor the process already holds.
+    const std::string p = path.string();
+    if (p.rfind("/proc/self/fd/", 0) == 0) fd_ = fcntl(std::atoi(p.c_str() + 14), F_DUPFD_CLOEXEC, 0);
+    else fd_ = open(p.c_str(), O_RDONLY | O_CLOEXEC);
+    struct stat st {};
+    if (fd_ < 0 || fstat(fd_, &st) != 0) return error = "can't open the file", false;
+    size_ = uint64_t(st.st_size);
+#endif
     static constexpr uint64_t kOffsets[] = {0x00000000, 0x0000FB20, 0x00020600, 0x02080000, 0x0FD90000};
     uint8_t head[28];
     bool found = false;
@@ -99,9 +118,19 @@ class DiscImage {
 
   bool Read(uint64_t pos, void* out, size_t n) {
     if (pos + n > size_) return false;
+#ifdef _WIN32
     f_.clear();
     f_.seekg(std::streamoff(pos));
     return bool(f_.read(static_cast<char*>(out), std::streamsize(n)));
+#else
+    auto* dst = static_cast<uint8_t*>(out);
+    while (n) {
+      const ssize_t got = pread(fd_, dst, n, off_t(pos));
+      if (got <= 0) return false;
+      dst += got, pos += uint64_t(got), n -= size_t(got);
+    }
+    return true;
+#endif
   }
 
   // A damaged image is refused, never looped over: every table is read once, every entry visited once, the depth
@@ -145,7 +174,21 @@ class DiscImage {
   }
 
   static constexpr int kMaxDepth = 1024;
+#ifdef _WIN32
   std::ifstream f_;
+#else
+  int fd_ = -1;
+
+ public:
+  ~DiscImage() {
+    if (fd_ >= 0) close(fd_);
+  }
+  DiscImage() = default;
+  DiscImage(const DiscImage&) = delete;
+  DiscImage& operator=(const DiscImage&) = delete;
+
+ private:
+#endif
   uint64_t size_ = 0, base_ = 0;
   uint64_t files_ = 0, past_end_ = 0, table_bytes_ = 0;
   std::vector<uint64_t> tables_;
@@ -182,7 +225,7 @@ class GameFiles {
   bool Exists(const std::string& rel) const {
     if (is_image()) return image_ && image_->Find(rel);
     std::error_code ec;
-    return !root_.empty() && fs::exists(root_ / rel, ec);
+    return !root_.empty() && fs::exists(root_ / Rel(rel), ec);
   }
 
   // Up to n bytes from the start; empty if missing.
@@ -195,7 +238,7 @@ class GameFiles {
       if (!image_->ReadFile(*e, 0, out.data(), out.size())) out.clear();
       return out;
     }
-    std::ifstream f(root_ / rel, std::ios::binary);
+    std::ifstream f(root_ / Rel(rel), std::ios::binary);
     out.resize(n);
     f.read(reinterpret_cast<char*>(out.data()), std::streamsize(n));
     out.resize(size_t(std::max<std::streamsize>(0, f.gcount())));
@@ -216,7 +259,7 @@ class GameFiles {
       }
       return true;
     }
-    std::ifstream f(root_ / rel, std::ios::binary);
+    std::ifstream f(root_ / Rel(rel), std::ios::binary);
     if (!f) return false;
     while (f) {
       f.read(reinterpret_cast<char*>(buf.data()), std::streamsize(buf.size()));
@@ -236,12 +279,22 @@ class GameFiles {
       return names;
     }
     std::error_code ec;
-    for (const auto& e : fs::directory_iterator(root_ / rel_dir, ec))
+    for (const auto& e : fs::directory_iterator(root_ / Rel(rel_dir), ec))
       if (e.is_regular_file(ec)) names.push_back(e.path().filename().string());
     return names;
   }
 
  private:
+  // Session 71 (Android launcher): the relative paths use the game's backslashes; a POSIX folder needs slashes.
+  static fs::path Rel(const std::string& rel) {
+#ifdef _WIN32
+    return fs::path(rel);
+#else
+    std::string s = rel;
+    std::replace(s.begin(), s.end(), '\\', '/');
+    return fs::path(s);
+#endif
+  }
   fs::path root_;
   bool opened_ = false;
   std::unique_ptr<DiscImage> image_;

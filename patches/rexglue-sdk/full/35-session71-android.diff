@@ -1,0 +1,123 @@
+# ReXGlue SDK changes for WWE 2K14 (session71-android): f3d44bdd38c2..d8053f39911e on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  d8053f3 Merge s71-android: Session 71 - virtual pads synthetic (Android touch controls), Android surface re-created on resume, picked game file mapped through its held descriptor
+
+diff --git a/include/rex/ui/window_sdl.h b/include/rex/ui/window_sdl.h
+index 71e74732360a55bebae436bde0c0f104d8de09bd..c179b7c94669576cbcc48abdfffe4c65d0c4c6ae 100644
+--- a/include/rex/ui/window_sdl.h
++++ b/include/rex/ui/window_sdl.h
+@@ -42,6 +42,8 @@ class WindowSDL final : public Window {
+   void HandleMouseEvent(SDL_Event& event);
+   void HandleDropEvent(SDL_Event& event);
+   void HandlePaintEvent();
++  // wwe2k14 Session 71 (Android): the app went to the background (false) or came back (true); see the .cpp.
++  void HandleAndroidSurfaceEvent(bool foreground);
+ 
+  protected:
+   uint32_t GetLatestDpiImpl() const override;
+diff --git a/src/core/mapped_memory_posix.cpp b/src/core/mapped_memory_posix.cpp
+index 8ee8e34d77d675d071d511f83bf1b5739bc4eb99..079572e9e54ba48fc0726a77ab74339b2376b2a1 100644
+--- a/src/core/mapped_memory_posix.cpp
++++ b/src/core/mapped_memory_posix.cpp
+@@ -9,7 +9,10 @@
+  * @modified    Tom Clay & Rien Gupta, 2026 - Adapted for ReXGlue runtime (POSIX + macOS)
+  */
+ 
++#include <cstdlib>
+ #include <memory>
++#include <string>
++#include <string_view>
+ 
+ #include <fcntl.h>
+ #include <sys/mman.h>
+@@ -114,7 +117,19 @@ std::unique_ptr<MappedMemory> MappedMemory::Open(const std::filesystem::path& pa
+       open_flags |= O_RDWR;
+       break;
+   }
+-  int file_descriptor = open(path.c_str(), open_flags);
++  int file_descriptor = -1;
++#if REX_PLATFORM_ANDROID
++  // wwe2k14 Session 71: a file the player picked with Android's file picker reaches the game as /proc/self/fd/N (the
++  // activity opened it through the content resolver). Opening that path again is refused for a file outside the app's
++  // own folder (scoped storage checks the target), so map a duplicate of the descriptor the process already holds.
++  static constexpr std::string_view kFdPrefix = "/proc/self/fd/";
++  const std::string path_string = path.string();
++  if (path_string.rfind(kFdPrefix, 0) == 0) {
++    const int held = std::atoi(path_string.c_str() + kFdPrefix.size());
++    if (held >= 0) file_descriptor = fcntl(held, F_DUPFD_CLOEXEC, 0);
++  } else
++#endif
++  file_descriptor = open(path.c_str(), open_flags);
+   if (file_descriptor < 0) {
+     return nullptr;
+   }
+diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
+index c7c440ddf57536478a1c0e24efc554b93a06fe09..f53512cc61e55398e567f03d82f80ea972d5e02b 100644
+--- a/src/input/sdl/sdl_input_driver.cpp
++++ b/src/input/sdl/sdl_input_driver.cpp
+@@ -161,7 +161,10 @@ void SDLInputDriver::EnumerateDevices(std::vector<DeviceInfo>& out) {
+     SDL_GUIDToString(SDL_GetJoystickGUID(SDL_GetGamepadJoystick(controller.sdl)), guid_text,
+                      static_cast<int>(sizeof(guid_text)));
+     info.guid = guid_text;
+-    info.synthetic = false;
++    // wwe2k14 Session 71 (Android touch controls): an SDL virtual pad (the on-screen buttons) is synthetic, like the
++    // keyboard: it joins guest user 0 next to a real pad and takes no ordinal, so a controller connected later is
++    // still player 1. No virtual pads exist on the PC.
++    info.synthetic = SDL_IsJoystickVirtual(SDL_GetJoystickID(SDL_GetGamepadJoystick(controller.sdl)));
+     out.push_back(info);
+   }
+ }
+diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
+index e3e12c2bfbb9d3fb6ea2f09f0a2bc83a187854f9..e43947bd77edb403dac4fa36e3516552d82921c6 100644
+--- a/src/ui/window_sdl.cpp
++++ b/src/ui/window_sdl.cpp
+@@ -478,6 +478,26 @@ void WindowSDL::HandlePaintEvent() {
+   OnPaint();
+ }
+ 
++// wwe2k14 Session 71 (Android, ANDROID_PLAN F10: the black screen after leaving the app and coming back). Android
++// destroys the window's ANativeWindow while the app is in the background and makes a new one on return; SDL then
++// points SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER at the new one, but nothing told the presenter, which kept presenting
++// to the old surface (VK_ERROR_SURFACE_LOST / OUT_OF_DATE: "dropped as outdated", a black screen). Background: let go
++// of the surface (the VkSurfaceKHR holds its own reference to the old window, so this is safe after it is gone).
++// Foreground: attach a surface made from the current window. SDL only resumes the app (DID_ENTER_FOREGROUND) once the
++// new surface is ready (SDLActivity.handleNativeState waits for mIsSurfaceReady), so the pointer is the new one.
++// Untested on the phone at the time of writing (Session 71 had no phone).
++void WindowSDL::HandleAndroidSurfaceEvent(bool foreground) {
++  if (phase() != Phase::kOpen) {
++    return;
++  }
++  REXLOG_INFO("WindowSDL: app {} the background: {} the presentation surface", foreground ? "left" : "went to",
++              foreground ? "re-creating" : "releasing");
++  OnSurfaceChanged(foreground);
++  if (foreground) {
++    RequestPaint();
++  }
++}
++
+ void WindowSDL::HandleWindowEvent(SDL_Event& event) {
+   WindowDestructionReceiver destruction_receiver(this);
+   switch (event.type) {
+diff --git a/src/ui/windowed_app_context_sdl.cpp b/src/ui/windowed_app_context_sdl.cpp
+index dc0b4c2ead4c0b61a160f2f59329ccc19ee3a07a..c33d6461717b2f2b8ff76897ff37dc8e5117e1cd 100644
+--- a/src/ui/windowed_app_context_sdl.cpp
++++ b/src/ui/windowed_app_context_sdl.cpp
+@@ -175,6 +175,18 @@ void SDLWindowedAppContext::ProcessEvent(SDL_Event& event) {
+       }
+       break;
+     }
++#if REX_PLATFORM_ANDROID
++    // wwe2k14 Session 71: the app's window surface goes away in the background (WindowSDL::HandleAndroidSurfaceEvent).
++    case SDL_EVENT_DID_ENTER_BACKGROUND:
++    case SDL_EVENT_DID_ENTER_FOREGROUND: {
++      std::vector<WindowSDL*> windows;
++      for (const auto& [id, window] : windows_) windows.push_back(window);
++      for (WindowSDL* window : windows) {
++        window->HandleAndroidSurfaceEvent(event.type == SDL_EVENT_DID_ENTER_FOREGROUND);
++      }
++      break;
++    }
++#endif
+     default:
+       break;
+   }

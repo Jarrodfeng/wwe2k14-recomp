@@ -56,6 +56,8 @@
 #include "vulkan_layers.h"  // Session 36 (GitHub issue 1): Overwolf's Vulkan layers kept out (they crashed the game)
 #include "gpu_pick.h"       // Session 31: the dedicated GPU by default, --wwe2k14_gpu=NAME (the launcher's chooser)
 #include "light_renderer.h" // Session 37: --wwe2k14_light_renderer (weak GPUs), --wwe2k14_fbo_fallback_fix (default off)
+#include "android_touch.h"  // Session 71 (Android): the touch controls' virtual pad (TouchOverlay.java)
+#include "job_dispatch_fix.h"  // Session 71: --wwe2k14_job_reset_first (the entrance freeze on 4-thread CPUs, default on)
 #include "photo_mode.h"     // --wwe2k14_photo_mode (Session 33 item 4, default off)
 #include "ultrawide.h"      // --wwe2k14_aspect (Session 33 item 6, default 16:9 = off)
 #include "wm30_jump.h"      // --wwe2k14_wm30 (Session 34: jump into a 30 Years of WrestleMania match, default off)

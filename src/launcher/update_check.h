@@ -9,18 +9,21 @@
 // Versions: "vMAJOR.MINOR.PATCH[-suffix][+dev]". Newer = a higher number; at the same number a release without a
 // suffix is newer than one with it (v0.1.5 after v0.1.5-playtest), as in semantic versioning.
 
+// Session 71 (the Android launcher): the version rules and ReadRelease are shared; only CheckForUpdate (WinHTTP) is
+// Windows. The phone asks GitHub through Java (src\launcher_mobile\platform_android.cpp) and reads the answer here.
 #pragma once
 
+#ifdef _WIN32
 #include <windows.h>
 #include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
+#endif
 
 #include <array>
 #include <cstdio>
 #include <string>
 
 #include <nlohmann/json.hpp>
-
-#pragma comment(lib, "winhttp.lib")
 
 namespace launcher {
 
@@ -71,6 +74,7 @@ inline UpdateInfo ReadRelease(const std::string& body, const std::string& curren
   return u;
 }
 
+#ifdef _WIN32
 // Asks GitHub (blocking, a few seconds at most: run it off the UI thread).
 inline UpdateInfo CheckForUpdate(const std::string& current) {
   UpdateInfo u;
@@ -106,5 +110,6 @@ inline UpdateInfo CheckForUpdate(const std::string& current) {
   if (status != 200) return u.error = status ? "GitHub answered " + std::to_string(status) : "GitHub could not be reached", u;
   return ReadRelease(body, current);
 }
+#endif  // _WIN32
 
 }  // namespace launcher

@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- wwe2k14 Android port (Session 63, ANDROID_PLAN.md 4.1). Package: Jarrod's Q1 answer (2026-10-25, permanent).
-     Built by tools/android/build_apk.ps1 (no Gradle). android:debuggable is set in development builds only: the build
-     script adds it (run-as, lldb and simpleperf need it). -->
+<!-- wwe2k14 Android port (Session 63, ANDROID_PLAN.md 4.1; Session 71: the launcher). Package: Jarrod's Q1 answer
+     (2026-10-25, permanent). Built by tools/android/build_apk.ps1 (no Gradle). android:debuggable is set in development
+     builds only: the build script adds it (run-as, lldb and simpleperf need it).
+     Session 71: LauncherActivity (src/launcher_mobile, liblauncher.so) is the app's entry point and turns with the
+     phone; GameActivity runs the game in its own process (":game"), landscape. Name and icon: F13 ("WWE 2K14 +
+     game_logo.png"). INTERNET: the launcher's update check only (GitHub's latest-release address). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.jarrodfeng.wwe2k14"
-    android:versionCode="1"
-    android:versionName="0.3.0-android-dev"
+    android:versionCode="4"
+    android:versionName="android-v0.1.1"
     android:installLocation="auto">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="36" />
@@ -16,20 +19,39 @@
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
-    <!-- Rumble on the phone (ANDROID_PLAN F2). -->
+    <!-- Rumble on the phone (ANDROID_PLAN F2) and the touch controls' vibrate-on-press (F1). -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="WWE 2K14"
+        android:icon="@mipmap/ic_launcher"
         android:isGame="true"
         android:appCategory="game"
         android:extractNativeLibs="true"
         android:hasCode="true"
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true">
 
         <activity
+            android:name=".LauncherActivity"
+            android:exported="true"
+            android:label="WWE 2K14"
+            android:screenOrientation="fullUser"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Exported for the phone test harness (tools/android/run.ps1 starts it with adb). -->
+        <activity
             android:name=".GameActivity"
+            android:process=":game"
             android:exported="true"
             android:label="WWE 2K14"
             android:screenOrientation="sensorLandscape"
@@ -37,11 +59,12 @@
             android:preferMinimalPostProcessing="true"
             android:resizeableActivity="false"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
-            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+
+        <provider
+            android:name=".FileShareProvider"
+            android:authorities="io.github.jarrodfeng.wwe2k14.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

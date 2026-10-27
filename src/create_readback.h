@@ -62,12 +62,19 @@ REXCVAR_DEFINE_INT32(wwe2k14_readback_loads_mode, 3, "wwe2k14",
                      "windows: 1 fast (previous frame, every resolve), 2 some (previous frame, on a cache miss), 3 full "
                      "(at once, a GPU wait each). The create modes always use 3")
     .range(1, 3);
-REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring, 4, "wwe2k14",
+// Session 71 (a v0.2.9 player's garbled Superstar Threads outfit): 4 -> 32. A saved Threads attire is built over more
+// frames than a stock one: Cena's recoloured shirt wrote its 2048-wide build target 5 frames in a row (run 4488,
+// 0x1E257000 frames 4806-4810), so the 5th - the finished outfit - was skipped as "recurring" and the CPU kept the
+// stale texture (stock yellow here; noise for the player). Stock builds: 1-3 frames (runs 4488, the tester's six
+// wrestlers); the frame's own copies run 136-181 frames, still skipped after 32. --wwe2k14_readback_skip_recurring=0
+// fixed it too (run 4497, the shirt black in the close-up); 32 keeps Session 59's speed-up for the long copies.
+REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring, 32, "wwe2k14",
                      "Session 59: in the load and character windows (not the create modes), resolves whose destination "
                      "was also resolved in this many earlier frames in a row are not read back (SDK "
                      "readback_resolve_override_skip_recurring): the frame's own copies, which the CPU never reads; the "
                      "one-off attire builds still are (run 4034: both 2048-wide attire builds of Session 58 read back 4 / 4). 0 = every resolve (4: a character's "
-                     "first 300 frames no longer run at half speed, A/B 3975)")
+                     "first 300 frames no longer run at half speed, A/B 3975). Session 71: 32 (a Superstar Threads "
+                     "attire builds over 5+ frames; with 4 its finished texture was skipped and came out stale)")
     .range(0, 60);
 REXCVAR_DEFINE_INT32(wwe2k14_readback_create_skip_recurring, 4, "wwe2k14",
                      "Session 61 (players: CAW very slow): in the create modes too, resolves whose destination was "
