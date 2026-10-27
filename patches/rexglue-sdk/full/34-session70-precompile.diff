@@ -1,0 +1,858 @@
+# ReXGlue SDK changes for WWE 2K14 (session70-precompile): 0bdef435e92b..f3d44bdd38c2 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  f3d44bd wwe2k14 Session 70: the optimised SPIR-V store logs how many modules came from it
+#  daea803 wwe2k14 Session 70: the optimised SPIR-V store (TITLE.spvopt) - the precompile (vulkan_spirv_optimize_collect) optimises the code not stored yet on a pool of threads and stores it; every run makes its modules from the stored code (vulkan_spirv_optimize_store, default on; exact: check_item s70_spirv_opt); the precompile waits for the optimiser and reports what it stored
+#  daec775 wwe2k14 Session 70: the crowd cull judges the match crowd's shader too (0x183CC64A4C4E96AC, the lit entrance shader's position math); the lit shaders only while c255 is (0, 1)
+#  9499935 wwe2k14 Session 70: the crowd cull logs each vertex shader it cannot judge once
+#  8d22e4b wwe2k14 Session 70: gpu_scene_crowd_cull (1 count, 2 leave out) - the queued crowd members entirely outside the view of the draw taking their run (its own c56-c59, each member's c76-c78, the mesh box from its vertex buffer; the two known crowd vertex shaders, clipping on, a 1% margin); [scene][crowd] cull lines
+#  765f886 wwe2k14 Session 70: an older record with any known sibling is left out whole again (per variant kept the never-used half of each pair in every warm-up; the rare second draw makes its variant once and stores it)
+#  078a969 wwe2k14 Session 70 (review): warm-up jobs below normal priority, a draw's own job at normal; the command thread raises only the worker it waits for (a real handle); older records skipped per epilogue variant; the precompile is done when the native renderer turned itself off
+#  105645a wwe2k14 Session 70: the precompile takes gpu_native_pipeline_workers when set (a test of an 8-thread CPU)
+#  53e0c36 wwe2k14 Session 70: gpu_native_precompile (the launcher's precompile: stored NATIVE pipelines made at once on a worker per CPU thread at normal priority, retries every 10 frames, progress in gpu_native_precompile_status)
+#  953f381 wwe2k14 Session 70: an older NATIVE record's guessed variant is stored by the first draw that uses it, and an older record with a known sibling is not expanded (v0.2.8 prewarmed both epilogue variants every run, for good); pipeline workers below normal priority (gpu_native_pipeline_workers_quiet), normal while the command thread waits for one
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 52abb088e61cbbf6dc28de94a0320cb0c98dbffc..c9f086942dec5c2da048e59e9cdcb6b2686452fa 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -526,6 +526,23 @@ class CommandProcessor {
+   };
+   SceneCrowdStats scene_crowd_stats_;
+   uint32_t scene_crowd_logged_ = 0;
++  // wwe2k14 patch (Session 70, CROWD CULL; gpu_scene_crowd_cull): the queued members entirely outside the view of
++  // the draw that takes their run (its own c56-c59 view-projection, each member's c76-c78 world matrix, the mesh's
++  // bounding box from its vertex buffer) - counted (1) or not drawn (2). Returns the members kept (`kept`, 12 dwords
++  // each) and false when the draw is not one this can judge (another shader, clipping off, ...).
++  bool SceneCrowdCull(const std::vector<uint32_t>& members, std::vector<uint32_t>& kept);
++  struct SceneCrowdMesh {
++    uint32_t base = 0, bytes = 0, stride = 0, endian = 0;
++    bool ok = false;
++    float min[3] = {}, max[3] = {};
++  };
++  std::vector<SceneCrowdMesh> scene_crowd_meshes_;  // this frame's mesh boxes (a few: one per crowd mesh)
++  struct SceneCrowdCullStats {
++    uint64_t runs = 0, judged = 0, members = 0, outside = 0, not_judged_shader = 0, not_judged_state = 0;
++    uint64_t not_judged_mesh = 0;
++  };
++  SceneCrowdCullStats scene_crowd_cull_stats_;
++  std::vector<uint64_t> scene_crowd_cull_unknown_;  // vertex shaders not judged, logged once each
+   void SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint32_t index_count, IndexBufferInfo* index_buffer_info,
+                            bool major_mode_explicit, uint32_t library_kind);
+   void SceneCrowdFrameEnd();
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index f530ffe533f596c8aadc839a5cb5066290c6b5d4..686181a0df1c32d21aff5952462c8d3266fccd4e 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -1001,6 +1001,7 @@ class NativeRenderer {
+     PipelineKey key;
+     Draw draw;
+     float spec[3];
++    bool prewarm = false;  // Session 70: a stored record's (the precompile's progress counts these)
+   };
+   // Session 69 (gpu_native_pipeline_workers): a pool of workers, not one (slow drivers: the Intel tester's 50-740 ms
+   // compiles queued behind each other).
+@@ -1010,7 +1011,9 @@ class NativeRenderer {
+   std::deque<PipelineJob> pipeline_jobs_;
+   std::vector<std::pair<PipelineKey, VkPipeline>> pipeline_done_;
+   std::unordered_set<PipelineKey, PipelineKeyHasher> pipeline_pending_;
+-  std::unordered_set<PipelineKey, PipelineKeyHasher> pipeline_running_;  // Session 69: being made by a worker now
++  // Session 69: being made by a worker now. Session 70: -> that worker's thread handle (Windows; the command thread
++  // raises it to normal priority while it waits for the key - gpu_native_pipeline_workers_quiet).
++  std::unordered_map<PipelineKey, void*, PipelineKeyHasher> pipeline_running_;
+   uint32_t pipeline_busy_ = 0;  // Session 69: workers making a pipeline now (was a bool: one worker)
+   bool pipeline_quit_ = false;
+   void StartPipelineWorkersLocked();  // Session 69: the pool, once (pipeline_mutex_ held)
+@@ -1071,6 +1074,19 @@ class NativeRenderer {
+   uint32_t prewarm_queued_ = 0, prewarm_skipped_ = 0, storage_written_ = 0, storage_mismatch_ = 0;
+   uint32_t prewarm_converted_ = 0;  // wwe2k14 patch (Session 66): records converted to the current specialisation settings
+   bool prewarm_logged_ = false;
++  // wwe2k14 patch (Session 70, v0.2.8's doubled warm-up): an older record (no ext bits) is prewarmed in both epilogue
++  // variants, and a prewarmed pipeline was never stored again - so every run made both, for good. Now the first draw
++  // that uses a guessed variant stores its own record (with the bits), and an older record whose known sibling is in
++  // the file (the same record but for the ext bits) is not expanded at all.
++  std::unordered_set<PipelineKey, PipelineKeyHasher> prewarm_guessed_;  // keys made from an older record's guesses
++  // XXH3 of each known record with its ext bits cleared -> the variants known (1 epilogue idle, 2 not); an older record
++  // with any is not expanded (StorageOnFrameEnd: why not per variant).
++  std::unordered_map<uint64_t, uint8_t> storage_known_siblings_;
++  uint32_t prewarm_old_skipped_ = 0, prewarm_guessed_stored_ = 0;
++  // Session 70 (gpu_native_precompile): prewarm jobs the workers finished; the status for the game's precompile mode.
++  std::atomic<uint32_t> prewarm_made_{0};
++  std::string precompile_status_;
++  void PrecompileStatus();
+   VkQueryPool query_pool_ = VK_NULL_HANDLE;
+   float timestamp_period_ns_ = 0.0f;
+ 
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index abe6a4a3d32bf6ebad37efa46be2dec9e074c512..de8ca5f44ff5bb51b8c910f4ac8c42ba24ab8b48 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -56,6 +56,13 @@ REXCVAR_DEFINE_BOOL(gpu_scene_crowd_batch, true, "GPU",
+                     "wwe2k14 (Session 60): the crowd members the game queued (wwe2k14_scene_crowd 1) are added as "
+                     "instances of their run's first draw in one go (their constants uploaded, nothing else derived "
+                     "again) instead of one draw dispatch each; false = Session 50's one dispatch per member");
++REXCVAR_DEFINE_INT32(gpu_scene_crowd_cull, 0, "GPU",
++                     "wwe2k14 (Session 70): the crowd members the game queued (wwe2k14_scene_crowd 1) that lie "
++                     "entirely outside the view of the draw that takes their run (its own camera, so every pass and "
++                     "camera: cuts, CineCam, photo mode) - 1 counted only ([scene][crowd] cull lines), 2 not drawn "
++                     "(exact: only the two known crowd vertex shaders, clipping on, a 1% margin)")
++    .range(0, 2)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ REXCVAR_DEFINE_BOOL(gpu_wait_reg_mem_spin, false, "GPU",
+                     "WAIT_REG_MEM: yield-spin while the condition is unmet instead of sleeping "
+@@ -2847,22 +2854,31 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+     scene_crowd_verify_active_ = true;
+     return;
+   }
++  // wwe2k14 patch (Session 70, CROWD CULL): the members entirely outside this draw's view left out (mode 2) or only
++  // counted (mode 1). (The registers then end on the last member drawn; the game's closing op-21 record, next in the
++  // stream, writes the last member's matrix as before.)
++  const std::vector<uint32_t>* list = &run.others;
++  std::vector<uint32_t> kept;
++  if (const int32_t cull = REXCVAR_GET(gpu_scene_crowd_cull)) {
++    if (SceneCrowdCull(run.others, kept) && cull == 2) list = &kept;
++  }
+   // The omitted members: each one's c76-c78 written as its op-21 record would have left them (the library's flush
+   // writes the whole group c76-c79; c79 is unchanged), then its draw as the packet's would be issued.
+-  const uint32_t members = uint32_t(run.others.size() / 12);
++  const uint32_t members = uint32_t(list->size() / 12);
++  if (!members) return;
+   // wwe2k14 patch (Session 60, CROWD BATCH): one member through the draw dispatch (it starts a new instanced run: right
+   // after a run's first draw its other constant uploads lie between, so no member can follow it as an instance), then
+   // as many as fit straight as instances of that run, and again.
+   const bool batch = REXCVAR_GET(gpu_scene_crowd_batch);
+   for (uint32_t m = 0; m < members;) {
+     if (batch && m) {
+-      const uint32_t b = AppendCrowdInstances(run.others.data() + 12 * size_t(m), members - m);
++      const uint32_t b = AppendCrowdInstances(list->data() + 12 * size_t(m), members - m);
+       m += b;
+       st.members += b;
+       st.batched += b;
+       if (m >= members) break;
+     }
+-    for (uint32_t i = 0; i < 12; ++i) WriteRegister(kSceneCrowdRegister + i, run.others[12 * size_t(m) + i]);
++    for (uint32_t i = 0; i < 12; ++i) WriteRegister(kSceneCrowdRegister + i, (*list)[12 * size_t(m) + i]);
+     bool ok = false;
+     if (!IssueDrawLean(prim_type, index_count, index_buffer_info, major_mode_explicit, library_kind, ok)) {
+       ok = IssueDraw(prim_type, index_count, index_buffer_info, major_mode_explicit);
+@@ -2873,7 +2889,145 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+   }
+ }
+ 
++// wwe2k14 patch (Session 70, CROWD CULL). The crowd vertex shaders (T_Audience / _LightMap in the entrances, ucode
++// out\s60\shader_dump; the match's 0x183CC64A4C4E96AC, out\s70\shader_dump) place a vertex p of the member mesh (vf
++// position, 32_32_32 float, offset 0) at world (c76 . p, c77 . p, c78 . p) and clip position c56..c59 x (world, 1) -
++// nothing else moves it (no time, no skinning: the waving / signs are texture-side).
++// So clip_i = M_i . p with M_i = sum_j c(56+i)[j] * c(76+j) + (0,0,0,c(56+i).w),
++// and a member whose whole mesh box is on the outer side of one of the four side planes (w +- x, w +- y; with 1%
++// more w: a margin for the host's pixel offsets) is clipped away entirely: drawing it changes no pixel. Judged only
++// with clipping on and the usual viewport transform; the lit shaders only while c255 is (0, 1) (their cndeq passes the
++// world position with w 1 then). Every draw judges with its own c56-c59, so every pass and camera is covered.
++bool CommandProcessor::SceneCrowdCull(const std::vector<uint32_t>& members, std::vector<uint32_t>& kept) {
++  SceneCrowdCullStats& cs = scene_crowd_cull_stats_;
++  ++cs.runs;
++  const RegisterFile& regs = *register_file_;
++  const Shader* vs = active_vertex_shader();
++  // (The lit ones - entrances 0xC1028A64EFCF8229, the match 0x183CC64A4C4E96AC - pass the world position through
++  // `cndeq r, c255.xxxy, world.yxzz, c255.yyyy`: the world position with w = c255.y while c255.x is 0; judged only
++  // while c255 is (0, 1).)
++  constexpr uint64_t kCrowdVs = 0xD5E2FCC9F76BC40Cull, kCrowdLitVs = 0xC1028A64EFCF8229ull,
++                     kCrowdMatchVs = 0x183CC64A4C4E96ACull;
++  const auto fbits = [](uint32_t v) {
++    float f;
++    std::memcpy(&f, &v, 4);
++    return double(f);
++  };
++  constexpr uint32_t kVsConst = 0x4000;  // VS float constant c0 (SQ_VS_CONST base 0)
++  const uint64_t vs_hash = vs ? vs->ucode_data_hash() : 0;
++  const bool lit = vs_hash == kCrowdLitVs || vs_hash == kCrowdMatchVs;
++  if (!vs || (vs_hash != kCrowdVs && !lit) ||
++      (lit && (fbits(regs[kVsConst + 4 * 255]) != 0.0 || fbits(regs[kVsConst + 4 * 255 + 1]) != 1.0))) {
++    ++cs.not_judged_shader;
++    // (The other crowd shaders, once each: the next ones to map.)
++    if (vs && scene_crowd_cull_unknown_.size() < 8 &&
++        std::find(scene_crowd_cull_unknown_.begin(), scene_crowd_cull_unknown_.end(), vs->ucode_data_hash()) ==
++            scene_crowd_cull_unknown_.end()) {
++      scene_crowd_cull_unknown_.push_back(vs->ucode_data_hash());
++      REXGPU_INFO("[scene][crowd] cull: vertex shader {:016X} not judged (not a mapped crowd shader)",
++                  vs->ucode_data_hash());
++    }
++    return false;
++  }
++  const auto clip = regs.Get<reg::PA_CL_CLIP_CNTL>();
++  const auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
++  if (clip.clip_disable || vte.vtx_xy_fmt || !vte.vtx_w0_fmt) {
++    ++cs.not_judged_state;
++    return false;
++  }
++  // The mesh's box: the position binding's whole buffer (every vertex an index can reach), read this frame.
++  const Shader::VertexBinding* pos = nullptr;
++  for (const Shader::VertexBinding& b : vs->vertex_bindings()) {
++    for (const Shader::VertexBinding::Attribute& a : b.attributes) {
++      if (a.fetch_instr.attributes.offset == 0 && a.fetch_instr.attributes.data_format == xenos::VertexFormat::k_32_32_32_FLOAT) {
++        pos = &b;
++      }
++    }
++  }
++  if (!pos || pos->stride_words < 3) {
++    ++cs.not_judged_mesh;
++    return false;
++  }
++  const xenos::xe_gpu_vertex_fetch_t fetch = regs.GetVertexFetch(pos->fetch_constant);
++  const uint32_t base = uint32_t(fetch.address) << 2, bytes = uint32_t(fetch.size) << 2;
++  const uint32_t stride = pos->stride_words * 4, endian = uint32_t(fetch.endian);
++  const SceneCrowdMesh* mesh = nullptr;
++  for (const SceneCrowdMesh& m : scene_crowd_meshes_) {
++    if (m.base == base && m.bytes == bytes && m.stride == stride && m.endian == endian) mesh = &m;
++  }
++  if (!mesh) {
++    SceneCrowdMesh m;
++    m.base = base, m.bytes = bytes, m.stride = stride, m.endian = endian;
++    const uint32_t count = stride ? bytes / stride : 0;
++    if (count && bytes <= (64u << 20) && uint64_t(base) + bytes <= 0x20000000ull) {
++      const uint8_t* p = memory_->TranslatePhysical(base);
++      m.ok = true;
++      for (int k = 0; k < 3; ++k) m.min[k] = INFINITY, m.max[k] = -INFINITY;
++      for (uint32_t v = 0; v < count && m.ok; ++v) {
++        for (int k = 0; k < 3; ++k) {
++          uint32_t word;
++          std::memcpy(&word, p + size_t(v) * stride + 4 * k, 4);
++          word = xenos::GpuSwap(word, xenos::Endian(endian));
++          float f;
++          std::memcpy(&f, &word, 4);
++          if (!std::isfinite(f)) {
++            m.ok = false;
++            break;
++          }
++          m.min[k] = std::min(m.min[k], f), m.max[k] = std::max(m.max[k], f);
++        }
++      }
++    }
++    scene_crowd_meshes_.push_back(m);
++    mesh = &scene_crowd_meshes_.back();
++  }
++  if (!mesh->ok) {
++    ++cs.not_judged_mesh;
++    return false;
++  }
++  ++cs.judged;
++  double vp[4][4];
++  for (int i = 0; i < 4; ++i)
++    for (int j = 0; j < 4; ++j) vp[i][j] = fbits(regs[kVsConst + 4 * (56 + i) + j]);
++  const size_t n = members.size() / 12;
++  kept.clear();
++  kept.reserve(members.size());
++  constexpr double kMargin = 1.01;
++  for (size_t m = 0; m < n; ++m) {
++    const uint32_t* w = members.data() + 12 * m;
++    double M[4][4];
++    bool finite = true;
++    for (int i = 0; i < 4; ++i) {
++      for (int k = 0; k < 4; ++k) {
++        double s = k == 3 ? vp[i][3] : 0.0;
++        for (int j = 0; j < 3; ++j) s += vp[i][j] * fbits(w[4 * j + k]);
++        M[i][k] = s;
++        finite = finite && std::isfinite(s);
++      }
++    }
++    bool outside = false;
++    for (int plane = 0; plane < 4 && finite && !outside; ++plane) {
++      const int axis = plane >> 1;
++      const double sign = (plane & 1) ? -1.0 : 1.0;
++      double pmax = kMargin * M[3][3] + sign * M[axis][3];
++      for (int k = 0; k < 3; ++k) {
++        const double c = kMargin * M[3][k] + sign * M[axis][k];
++        pmax += c * (c > 0 ? mesh->max[k] : mesh->min[k]);
++      }
++      outside = pmax < 0.0;
++    }
++    ++cs.members;
++    if (outside) {
++      ++cs.outside;
++    } else {
++      kept.insert(kept.end(), w, w + 12);
++    }
++  }
++  return true;
++}
++
+ void CommandProcessor::SceneCrowdFrameEnd() {
++  scene_crowd_meshes_.clear();  // wwe2k14 patch (Session 70, CROWD CULL): the mesh boxes are this frame's
+   SceneCrowdStats& st = scene_crowd_stats_;
+   // (Review: ageing.) Runs pushed before the frame end 3 frame ends ago were for frames already drawn: dropped. The
+   // game records up to ~2 frames ahead of the command processor.
+@@ -2907,6 +3061,16 @@ void CommandProcessor::SceneCrowdFrameEnd() {
+                 st.failed,
+                 st.verify_ok, st.verify_bad);
+   }
++  // wwe2k14 patch (Session 70, CROWD CULL): what the cull judged in this window.
++  if (SceneCrowdCullStats& cs = scene_crowd_cull_stats_; cs.runs) {
++    const double n = double(frame - st.first_frame);
++    REXGPU_INFO("[scene][crowd] cull ({}): frames {}-{}, per frame: runs {:.1f} (judged {:.1f}; not judged: shader "
++                "{:.1f}, clipping / viewport {:.1f}, mesh {:.1f}), members {:.1f}, outside the view {:.1f} ({:.1f}%)",
++                REXCVAR_GET(gpu_scene_crowd_cull) == 2 ? "not drawn" : "counted", st.first_frame, frame, cs.runs / n,
++                cs.judged / n, cs.not_judged_shader / n, cs.not_judged_state / n, cs.not_judged_mesh / n,
++                cs.members / n, cs.outside / n, cs.members ? 100.0 * double(cs.outside) / double(cs.members) : 0.0);
++    cs = SceneCrowdCullStats();
++  }
+   st = SceneCrowdStats();
+   st.first_frame = frame;
+ }
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 09320b12b6eb46ac55fef6966f2602ff7ee3828a..21aa16c2cfa732f84216ae6af820e2b61e2eec5c 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -9,6 +9,7 @@
+ #include <rex/graphics/vulkan/native/native_renderer.h>
+ #include "../s58_stats.h"  // wwe2k14 patch (Session 58)
+ #include "../disk_pipeline_cache.h"  // Session 63
++#include "../spirv_opt_store.h"     // Session 70 (the precompile waits for its optimiser)
+ 
+ #include <algorithm>
+ #include <chrono>
+@@ -25,6 +26,7 @@
+ #include <rex/ui/vulkan/util.h>
+ #include <rex/ui/renderdoc_api.h>  // Session 69 (gpu_native_truth_debug_renderdoc)
+ #include <rex/ui/vulkan/instance.h>
++#include <rex/platform.h>  // Session 70: <windows.h> on Windows (SetThreadPriority)
+ 
+ // Session 69 (gpu_native_truth_debug_renderdoc, native_truth.cpp): the strip clear's RenderDoc capture.
+ extern bool g_truth_rdc_active, g_truth_rdc_done;
+@@ -298,6 +300,17 @@ REXCVAR_DEFINE_INT32(gpu_native_pipeline_workers, 0, "GPU/Native",
+                      "Session 69 (the Intel tester's stutter): worker threads making NATIVE pipelines (stored ones at "
+                      "start, truth draws' new ones); 0 = a third of the CPU threads, 1 to 3. Read when the first job "
+                      "starts them");
++REXCVAR_DEFINE_BOOL(gpu_native_pipeline_workers_quiet, true, "GPU/Native",
++                    "Session 70 (v0.2.8's slow entrances): the NATIVE pipeline workers run below normal priority, so "
++                    "the warm-up of stored pipelines never takes CPU time from the game's own threads; raised to "
++                    "normal while the command thread waits for one of them. Windows; read when the workers start");
++REXCVAR_DEFINE_BOOL(gpu_native_precompile, false, "GPU/Native",
++                    "Session 70 (the launcher's precompile): the stored NATIVE pipelines made as fast as the PC allows "
++                    "- no per-frame budget, a worker per CPU thread at normal priority, retries every 10 frames; "
++                    "progress in gpu_native_precompile_status. Read when the workers start");
++REXCVAR_DEFINE_STRING(gpu_native_precompile_status, "", "GPU/Native",
++                      "Session 70: written with gpu_native_precompile, every frame: 'made M of T, waiting W, done D, optimised O' "
++                      "(D 1 = nothing left to make or to wait for)");
+ REXCVAR_DEFINE_INT32(gpu_native_truth_debug_pipeline_delay_ms, 0, "GPU/Native",
+                      "Diagnostic (Session 55): every native pipeline creation (the worker thread's and the command "
+                      "thread's) waits this many milliseconds first (a slow laptop's compile time); 0 = none")
+@@ -1926,6 +1939,11 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+   if (draw.truth && last_truth_valid_ && key == last_truth_key_) return last_truth_pipeline_;
+   auto found = pipelines_.find(key);
+   if (found != pipelines_.end()) {
++    // Session 70: the first draw using a variant prewarmed from an older record's guess stores its own record.
++    if (!prewarm_guessed_.empty() && prewarm_guessed_.erase(key) && storage_file_) [[unlikely]] {
++      ++prewarm_guessed_stored_;
++      StorePipelineRecord(draw, key);
++    }
+     if (draw.truth && found->second != VK_NULL_HANDLE) {
+       last_truth_key_ = key;
+       last_truth_pipeline_ = found->second;
+@@ -1934,6 +1952,7 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+     return found->second;
+   }
+   if (storage_file_) StorePipelineRecord(draw, key);  // Session 61 (a key not made yet in this run)
++  if (!prewarm_guessed_.empty() && prewarm_guessed_.erase(key)) ++prewarm_guessed_stored_;  // (Session 70: still queued)
+   const float spec_values[3] = {float(target_height_) * 1.2f, float(target_width_) * 0.5f,
+                                 float(target_height_) * 0.5f};
+   // Session 47 (CPU): queued for the worker thread (a truth draw is skipped until its pipeline is made).
+@@ -1968,7 +1987,12 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+           break;
+         }
+       }
+-      if (pipeline_running_.count(key)) {
++      if (auto running = pipeline_running_.find(key); running != pipeline_running_.end()) {
++#if REX_PLATFORM_WIN32
++        // Session 70: a quiet worker making this key at normal priority while the command thread waits for it (no
++        // priority inversion; the worker sets its own priority again at its next job).
++        if (running->second) SetThreadPriority(static_cast<HANDLE>(running->second), THREAD_PRIORITY_NORMAL);
++#endif
+         pipeline_idle_cv_.wait(lock, [&]() { return !pipeline_running_.count(key); });
+         waited = true;
+       }
+@@ -1990,6 +2014,14 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+ 
+ // Session 47: the worker thread of gpu_native_truth_async_pipelines.
+ void NativeRenderer::PipelineWorker() {
++  // Session 70 (gpu_native_pipeline_workers_quiet): the stored pipelines' warm-up runs below the game's threads (a
++  // 4-core player's warm-up competed with the game during entrances); a draw's own job (it is skipped until made) at
++  // normal priority (review). A real handle, so the command thread can raise this worker while it waits for its key.
++  void* self = nullptr;
++#if REX_PLATFORM_WIN32
++  self = OpenThread(THREAD_SET_INFORMATION | THREAD_QUERY_INFORMATION, FALSE, GetCurrentThreadId());
++#endif
++  const bool quiet = REXCVAR_GET(gpu_native_pipeline_workers_quiet) && !REXCVAR_GET(gpu_native_precompile);
+   std::unique_lock<std::mutex> lock(pipeline_mutex_);
+   for (;;) {
+     pipeline_cv_.wait(lock, [this]() { return pipeline_quit_ || !pipeline_jobs_.empty(); });
+@@ -1997,13 +2029,19 @@ void NativeRenderer::PipelineWorker() {
+     PipelineJob job = std::move(pipeline_jobs_.front());
+     pipeline_jobs_.pop_front();
+     ++pipeline_busy_;
+-    pipeline_running_.insert(job.key);  // Session 69: the command thread waits for it rather than making it twice
++    pipeline_running_[job.key] = self;  // Session 69: the command thread waits for it rather than making it twice
+     lock.unlock();
++#if REX_PLATFORM_WIN32
++    if (quiet) {
++      SetThreadPriority(GetCurrentThread(), job.prewarm ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_NORMAL);
++    }
++#endif
+     const VkPipeline pipeline = CreatePipeline(job.draw, job.key, job.spec);
+     if (pipeline == VK_NULL_HANDLE && pipeline_worker_failed_++ < 8) {
+       REXGPU_WARN("[native] pipeline creation failed (worker) for vertex shader {:016X}, pixel shader {:016X}",
+                   job.draw.vertex_shader_hash, job.draw.pixel_shader_hash);
+     }
++    if (job.prewarm) prewarm_made_.fetch_add(1, std::memory_order_relaxed);  // Session 70 (precompile progress)
+     lock.lock();
+     pipeline_done_.emplace_back(job.key, pipeline);
+     pipeline_done_count_.fetch_add(1, std::memory_order_release);
+@@ -2013,6 +2051,9 @@ void NativeRenderer::PipelineWorker() {
+     pipeline_idle_cv_.notify_all();
+   }
+   pipeline_idle_cv_.notify_all();
++#if REX_PLATFORM_WIN32
++  if (self) CloseHandle(static_cast<HANDLE>(self));  // (no job of this worker is in pipeline_running_ any more)
++#endif
+ }
+ 
+ // Session 69 (gpu_native_pipeline_workers): the pool, made once with the first job (0 = a third of the CPU threads,
+@@ -2022,6 +2063,12 @@ void NativeRenderer::StartPipelineWorkersLocked() {
+   int32_t workers = REXCVAR_GET(gpu_native_pipeline_workers);
+   if (workers <= 0) workers = std::clamp(int32_t(std::thread::hardware_concurrency() / 3), 1, 3);
+   workers = std::min(workers, 8);  // (review: a typo of 64 is not 64 threads)
++  // Session 70 (gpu_native_precompile): nothing else runs - a worker per CPU thread (or the count set: a test).
++  if (REXCVAR_GET(gpu_native_precompile)) {
++    workers = REXCVAR_GET(gpu_native_pipeline_workers) > 0 ? REXCVAR_GET(gpu_native_pipeline_workers)
++                                                            : int32_t(std::thread::hardware_concurrency());
++    workers = std::clamp(workers, 1, 32);
++  }
+   for (int32_t i = 0; i < workers; ++i) pipeline_threads_.emplace_back([this]() { PipelineWorker(); });
+   REXGPU_INFO("[native] {} pipeline worker thread(s)", workers);
+ }
+@@ -2105,6 +2152,12 @@ void NativeRenderer::InitializeStorage(const std::filesystem::path& shareable_ro
+       if (XXH3_64bits(&record, sizeof(record)) != hash) break;
+       valid += sizeof(hash) + sizeof(record);
+       if (storage_hashes_.insert(hash).second) prewarm_.push_back(record);
++      if (record.ext_bits & kRecordExtKnown) {  // Session 70: the older record it supersedes (ext bits 0), per variant
++        PipelineRecord sibling = record;
++        sibling.ext_bits = 0;
++        storage_known_siblings_[XXH3_64bits(&sibling, sizeof(sibling))] |=
++            (record.ext_bits & kRecordExtEpilogueIdle) ? uint8_t(1) : uint8_t(2);
++      }
+     }
+     rex::filesystem::TruncateStdioFile(storage_file_, valid);
+   } else {
+@@ -2117,6 +2170,14 @@ void NativeRenderer::InitializeStorage(const std::filesystem::path& shareable_ro
+ }
+ 
+ void NativeRenderer::ShutdownStorage() {
++  if (storage_file_ && (prewarm_guessed_stored_ || prewarm_old_skipped_)) {
++    REXGPU_INFO("[native][storage] this run: {} new records ({} for a guessed variant a draw used; {} guessed variants "
++                "unused), {} older records left out for a known one",
++                storage_written_, prewarm_guessed_stored_, prewarm_guessed_.size(), prewarm_old_skipped_);
++  }
++  prewarm_guessed_.clear();
++  storage_known_siblings_.clear();
++  prewarm_old_skipped_ = prewarm_guessed_stored_ = 0;
+   if (storage_file_) {
+     fflush(storage_file_);
+     fclose(storage_file_);
+@@ -2289,20 +2350,52 @@ void NativeRenderer::StorePipelineRecord(const Draw& draw, const PipelineKey& ke
+   if ((++storage_written_ & 63) == 0) REXGPU_INFO("[native][storage] {} new native pipelines stored", storage_written_);
+ }
+ 
++// Session 70 (gpu_native_precompile): "made M of T, waiting W, done D, optimised O" into gpu_native_precompile_status
++// for the game's precompile mode (src\precompile.h). Done = nothing queued, made or waiting (records still waiting
++// after the 20 retry passes are given up: the game makes them when it meets them; the shader optimiser's queue
++// empty), and the native renderer on - or not used at all. O = shaders the optimiser stored in this run.
++void NativeRenderer::PrecompileStatus() {
++  uint32_t jobs = 0, busy = 0;
++  {
++    std::lock_guard<std::mutex> lock(pipeline_mutex_);
++    jobs = uint32_t(pipeline_jobs_.size());
++    busy = pipeline_busy_;
++  }
++  // (Session 70: and the shader optimiser's queue - vulkan_spirv_optimize_collect - must be empty.)
++  const size_t waiting = (prewarm_.size() - std::min(prewarm_next_, prewarm_.size())) +
++                         (prewarm_retries_ < 20 ? prewarm_retry_.size() : 0) + spirv_opt_store::Pending();
++  // (Review: with gpu_native set but the renderer off - it refused this PC or a setting, or its objects failed - the
++  // stored records are never made: done once 600 frames show it off.)
++  const bool native_off = REXCVAR_GET(gpu_native) == 0 || (!enabled_ && frame_ >= 600);
++  const bool done = native_off ? frame_ >= 30 && spirv_opt_store::Pending() == 0
++                               : enabled_ && frame_ >= 30 && waiting == 0 && jobs == 0 && busy == 0;
++  std::string status = fmt::format("made {} of {}, waiting {}, done {}, optimised {}",
++                                   prewarm_made_.load(std::memory_order_relaxed), prewarm_queued_, waiting,
++                                   done ? 1 : 0, spirv_opt_store::Collected());
++  if (status != precompile_status_) {
++    precompile_status_ = status;
++    rex::cvar::SetFlagByName("gpu_native_precompile_status", status);
++  }
++}
++
+ void NativeRenderer::StorageOnFrameEnd() {
+   if (storage_dirty_ && storage_file_) {
+     fflush(storage_file_);
+     storage_dirty_ = false;
+   }
+-  const int32_t budget_ms = REXCVAR_GET(gpu_native_pipeline_prewarm_ms);
++  // Session 70 (gpu_native_precompile): everything at once, retries every 10 frames, the progress for the game.
++  const bool precompile = REXCVAR_GET(gpu_native_precompile);
++  const int32_t budget_ms = precompile ? 2000 : REXCVAR_GET(gpu_native_pipeline_prewarm_ms);
+   // Records whose shaders were not loaded yet (the D3D library's own, met in the first frames, are not in the shader
+   // list) are tried again every 120 frames, 20 times at most.
+-  if (prewarm_next_ >= prewarm_.size() && !prewarm_retry_.empty() && prewarm_retries_ < 20 && frame_ % 120 == 0) {
++  if (prewarm_next_ >= prewarm_.size() && !prewarm_retry_.empty() && prewarm_retries_ < 20 &&
++      frame_ % (precompile ? 10 : 120) == 0) {
+     ++prewarm_retries_;
+     prewarm_.swap(prewarm_retry_);
+     prewarm_retry_.clear();
+     prewarm_next_ = 0;
+   }
++  if (precompile) PrecompileStatus();
+   if (!enabled_ || budget_ms <= 0 || prewarm_next_ >= prewarm_.size()) return;
+   VulkanPipelineCache& cache = command_processor_.NativePipelineCache();
+   const auto t0 = std::chrono::steady_clock::now();
+@@ -2327,10 +2420,23 @@ void NativeRenderer::StorageOnFrameEnd() {
+     }
+     // Session 69: a record from before the epilogue bit was stored (ext_bits 0) with the epilogue specialisation on -
+     // both variants (the prediction gave every one the bit; the draws without it made theirs again in every run).
++    // Session 70: an older record whose known record of the same draw is in the file is left to that record. (Review
++    // considered: per variant would keep the never-used other variant of every such pair in each warm-up - most of the
++    // doubling. An older record standing for two draws with different epilogue bits is rare; its other variant is then
++    // made once on first use and stored. Session 70: 156 of 792 guessed variants were used in a Brock / Bryan session.)
++    uint8_t known = 0;
++    if (!(record.ext_bits & kRecordExtKnown)) {
++      if (auto s = storage_known_siblings_.find(XXH3_64bits(&record, sizeof(record))); s != storage_known_siblings_.end())
++        known = s->second;
++    }
+     PipelineRecord variants[2] = {record, record};
+     const bool both = !(record.ext_bits & kRecordExtKnown) && (record.flags & kRecordNativePixel) &&
+                       record.pixel_shader_hash &&
+                       (cache.PredictNativePixelExt() & SpirvShaderTranslator::kNativeExtEpilogueIdle);
++    if (known) {
++      ++prewarm_old_skipped_;
++      continue;
++    }
+     if (both) variants[1].ext_bits |= kRecordExtKnown;  // (known: no epilogue bit)
+     for (uint32_t v = 0; v < (both ? 2u : 1u); ++v) {
+       PipelineKey key;
+@@ -2348,9 +2454,10 @@ void NativeRenderer::StorageOnFrameEnd() {
+           Draw draw;  // (CreatePipeline reads the key only)
+           draw.vertex_shader = key.vertex_shader;
+           draw.layout = key.layout;
+-          pipeline_jobs_.push_back({key, draw, {spec_values[0], spec_values[1], spec_values[2]}});
++          pipeline_jobs_.push_back({key, draw, {spec_values[0], spec_values[1], spec_values[2]}, true});
+           pipeline_cv_.notify_one();
+           ++prewarm_queued_;
++          if (both) prewarm_guessed_.insert(key);  // Session 70: the draw that uses it stores its own record
+         }
+       }
+     }
+@@ -2362,9 +2469,10 @@ void NativeRenderer::StorageOnFrameEnd() {
+     prewarm_logged_retries_ = prewarm_retries_;
+     REXGPU_INFO("[native][storage] stored pipelines queued: {} in all (frame {}, pass {}); {} waiting for their "
+                 "shaders / truth frames / a render pass, {} skipped (a translation or object failed); converted to "
+-                "the current specialisation settings: {}",
++                "the current specialisation settings: {}; older records left out for a known one: {}, guessed "
++                "variants queued: {}",
+                 prewarm_queued_, frame_, prewarm_retries_, prewarm_retry_.size(), prewarm_skipped_,
+-                prewarm_converted_);
++                prewarm_converted_, prewarm_old_skipped_, prewarm_guessed_.size());
+   }
+ }
+ 
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index c2ab5d81e7b42a4e11e06c5200b9a245755a715a..f34d69a4f38f5200747daf224a23dd30803c1dec 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include "disk_pipeline_cache.h"  // wwe2k14 patch (Session 63)
++#include "spirv_opt_store.h"     // wwe2k14 patch (Session 70)
+ 
+ #include <algorithm>
+ #include <array>
+@@ -527,6 +528,9 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+   // wwe2k14 patch (Session 63): the on-disk VkPipelineCache (vulkan_disk_pipeline_cache; Android by default).
+   disk_pipeline_cache::Open(command_processor_.GetVulkanDevice(),
+                             shader_storage_shareable_root / fmt::format("{:08X}.vkpc", title_id));
++  // wwe2k14 patch (Session 70): the precompile's optimised SPIR-V (before any module is made: the stored pipelines
++  // below come from it too).
++  spirv_opt_store::Open(shader_storage_shareable_root / fmt::format("{:08X}.spvopt", title_id));
+ 
+   bool edram_fragment_shader_interlock =
+       render_target_cache_.GetPath() == RenderTargetCache::Path::kPixelShaderInterlock;
+@@ -863,6 +867,7 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+ 
+ void VulkanPipelineCache::ShutdownShaderStorage() {
+   disk_pipeline_cache::Close();  // wwe2k14 patch (Session 63)
++  spirv_opt_store::Close();      // wwe2k14 patch (Session 70)
+   if (storage_write_thread_) {
+     {
+       std::lock_guard<std::mutex> lock(storage_write_request_lock_);
+diff --git a/src/graphics/vulkan/shader.cpp b/src/graphics/vulkan/shader.cpp
+index 8b203cc29b47254ba998a2be7b4de218a6fc2491..d1fb35ff0a4e1112ac3a35e2248ced60076477ce 100644
+--- a/src/graphics/vulkan/shader.cpp
++++ b/src/graphics/vulkan/shader.cpp
+@@ -11,11 +11,21 @@
+ 
+ #include <atomic>
+ #include <chrono>
++#include <condition_variable>
+ #include <cstdint>
++#include <cstdio>
++#include <deque>
++#include <mutex>
++#include <thread>
++#include <unordered_map>
++#include <unordered_set>
+ #include <vector>
+ 
+ #include <rex/assert.h>
+ #include <rex/cvar.h>
++#include <rex/filesystem.h>
++#include <rex/hash.h>  // XXH3 (Session 70: the optimised SPIR-V store)
++#include "spirv_opt_store.h"
+ #include <rex/graphics/vulkan/shader.h>
+ #include <rex/logging.h>
+ #include <rex/ui/vulkan/provider.h>
+@@ -31,6 +41,13 @@ REXCVAR_DEFINE_BOOL(vulkan_spirv_optimize, false, "GPU",
+                     "Session 61: run SPIRV-Tools' performance passes (spirv-opt -O) on each translated shader before "
+                     "its Vulkan module is made (slower translation; for GPU A/Bs). The unoptimised code is used if "
+                     "the optimiser fails");
++REXCVAR_DEFINE_BOOL(vulkan_spirv_optimize_store, true, "GPU",
++                    "Session 70: make each Vulkan shader module from the optimised code the precompile stored "
++                    "(<cache>/shaders/shareable/TITLE.spvopt) when there is one (exact: the same passes as "
++                    "vulkan_spirv_optimize; no cost in the game); false = always the translator's own code");
++REXCVAR_DEFINE_BOOL(vulkan_spirv_optimize_collect, false, "GPU",
++                    "Session 70 (set by the game's precompile): every module made from code not stored yet is "
++                    "optimised on a pool of threads and stored for the next runs (spirv_opt_store.h)");
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -77,6 +94,147 @@ std::vector<uint32_t> OptimizeSpirv(const uint32_t* words, size_t count, uint64_
+ #endif
+ }  // namespace
+ 
++// wwe2k14 patch (Session 70): the precompile's optimised SPIR-V (spirv_opt_store.h).
++namespace spirv_opt_store {
++namespace {
++constexpr uint32_t kMagic = 0x4F505358;  // 'XSPO'
++constexpr uint32_t kVersion = 1;
++struct Header {
++  uint32_t magic, version;
++};
++struct RecordHead {
++  uint64_t key, check;
++  uint32_t count;
++};
++std::mutex g_mutex;
++std::condition_variable g_cv;
++std::unordered_map<uint64_t, std::vector<uint32_t>> g_map;
++std::unordered_set<uint64_t> g_queued;
++std::deque<std::pair<uint64_t, std::vector<uint32_t>>> g_jobs;
++std::vector<std::thread> g_pool;
++bool g_quit = false;
++uint32_t g_running = 0, g_collected = 0;
++FILE* g_file = nullptr;
++
++#if REX_HAS_SPIRV_OPT
++void Worker() {
++  std::unique_lock<std::mutex> lock(g_mutex);
++  for (;;) {
++    g_cv.wait(lock, [] { return g_quit || !g_jobs.empty(); });
++    if (g_quit) break;
++    auto job = std::move(g_jobs.front());
++    g_jobs.pop_front();
++    ++g_running;
++    lock.unlock();
++    std::vector<uint32_t> out = OptimizeSpirv(job.second.data(), job.second.size(), job.first);
++    lock.lock();
++    if (!out.empty() && !g_map.count(job.first)) {
++      if (g_file) {
++        const RecordHead head = {job.first, XXH3_64bits(out.data(), out.size() * 4), uint32_t(out.size())};
++        std::fwrite(&head, sizeof(head), 1, g_file);
++        std::fwrite(out.data(), 4, out.size(), g_file);
++        std::fflush(g_file);
++      }
++      g_map.emplace(job.first, std::move(out));
++      ++g_collected;
++    }
++    --g_running;
++    g_cv.notify_all();
++  }
++}
++#endif
++
++void CloseLocked(std::unique_lock<std::mutex>& lock) {
++  g_quit = true;
++  g_jobs.clear();
++  g_cv.notify_all();
++  std::vector<std::thread> pool = std::move(g_pool);
++  g_pool.clear();
++  lock.unlock();
++  for (std::thread& t : pool) t.join();
++  lock.lock();
++  g_quit = false;
++  g_queued.clear();
++  if (g_file) std::fclose(g_file), g_file = nullptr;
++}
++}  // namespace
++
++void Open(const std::filesystem::path& file) {
++  std::unique_lock<std::mutex> lock(g_mutex);
++  CloseLocked(lock);
++  g_map.clear();
++  g_collected = 0;
++  // Records until the end or the first bad one (a torn write: the file is cut there).
++  uint64_t valid = sizeof(Header);
++  bool header_ok = false;
++  if (FILE* f = rex::filesystem::OpenFile(file, "rb")) {
++    Header h = {};
++    header_ok = std::fread(&h, sizeof(h), 1, f) == 1 && h.magic == kMagic && h.version == kVersion;
++    RecordHead r;
++    while (header_ok && std::fread(&r, sizeof(r), 1, f) == 1 && r.count && r.count < (1u << 24)) {
++      std::vector<uint32_t> words(r.count);
++      if (std::fread(words.data(), 4, words.size(), f) != words.size() ||
++          XXH3_64bits(words.data(), words.size() * 4) != r.check) {
++        break;
++      }
++      valid += sizeof(r) + words.size() * 4;
++      g_map.emplace(r.key, std::move(words));
++    }
++    std::fclose(f);
++  }
++  g_file = rex::filesystem::OpenFile(file, header_ok ? "r+b" : "wb");
++  if (g_file) {
++    if (header_ok) {
++      rex::filesystem::TruncateStdioFile(g_file, valid);
++      std::fseek(g_file, 0, SEEK_END);
++    } else {
++      const Header h = {kMagic, kVersion};
++      std::fwrite(&h, sizeof(h), 1, g_file);
++      std::fflush(g_file);
++    }
++  }
++  REXGPU_INFO("[spirv_opt] store {}: {} optimised shaders", rex::path_to_utf8(file), g_map.size());
++}
++
++void Close() {
++  std::unique_lock<std::mutex> lock(g_mutex);
++  CloseLocked(lock);
++}
++
++bool Find(uint64_t key, std::vector<uint32_t>& out) {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  auto it = g_map.find(key);
++  if (it == g_map.end()) return false;
++  out = it->second;
++  return true;
++}
++
++void Collect(uint64_t key, const uint32_t* words, size_t count) {
++#if REX_HAS_SPIRV_OPT
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (!g_file || g_map.count(key) || !g_queued.insert(key).second) return;
++  g_jobs.emplace_back(key, std::vector<uint32_t>(words, words + count));
++  if (g_pool.empty()) {
++    const uint32_t n = std::max(1u, std::thread::hardware_concurrency());
++    for (uint32_t i = 0; i < n; ++i) g_pool.emplace_back(Worker);
++  }
++  g_cv.notify_one();
++#else
++  (void)key, (void)words, (void)count;
++#endif
++}
++
++uint32_t Pending() {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  return uint32_t(g_jobs.size()) + g_running;
++}
++
++uint32_t Collected() {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  return g_collected;
++}
++}  // namespace spirv_opt_store
++
+ VulkanShader::VulkanTranslation::~VulkanTranslation() {
+   if (shader_module_) {
+     const ui::vulkan::VulkanDevice* const vulkan_device =
+@@ -105,9 +263,27 @@ VkShaderModule VulkanShader::VulkanTranslation::GetOrCreateShaderModule() {
+   // wwe2k14 patch (Session 61, vulkan_spirv_optimize): the module from the optimised copy (translated_binary(), and
+   // with it --dump_shaders, stays the translator's output).
+   std::vector<uint32_t> optimized;
+-  if (REXCVAR_GET(vulkan_spirv_optimize) && translated_binary().size() % 4 == 0) {
+-    optimized = OptimizeSpirv(reinterpret_cast<const uint32_t*>(translated_binary().data()),
+-                              translated_binary().size() / 4, shader().ucode_data_hash());
++  // wwe2k14 patch (Session 70): the optimised code the precompile stored for this very translator output, if any
++  // (vulkan_spirv_optimize_store); in the precompile (vulkan_spirv_optimize_collect) code not stored yet is optimised
++  // on its pool for the next runs - this module stays the translator's own.
++  const bool use_store = REXCVAR_GET(vulkan_spirv_optimize_store), collect = REXCVAR_GET(vulkan_spirv_optimize_collect);
++  if ((use_store || collect || REXCVAR_GET(vulkan_spirv_optimize)) && translated_binary().size() % 4 == 0) {
++    const uint32_t* words = reinterpret_cast<const uint32_t*>(translated_binary().data());
++    const size_t count = translated_binary().size() / 4;
++    const uint64_t key = XXH3_64bits(words, count * 4);
++    const bool hit = use_store && spirv_opt_store::Find(key, optimized);
++    if (use_store) {  // (how much of a run's code came from the store: every 128 modules)
++      static std::atomic<uint32_t> hits{0}, misses{0};
++      const uint32_t h = hits.fetch_add(hit ? 1 : 0) + (hit ? 1 : 0), m = misses.fetch_add(hit ? 0 : 1) + (hit ? 0 : 1);
++      if (((h + m) & 127) == 0) REXGPU_INFO("[spirv_opt] modules from the store: {} of {}", h, h + m);
++    }
++    if (!hit) {
++      if (REXCVAR_GET(vulkan_spirv_optimize)) {
++        optimized = OptimizeSpirv(words, count, shader().ucode_data_hash());
++      } else if (collect) {
++        spirv_opt_store::Collect(key, words, count);
++      }
++    }
+     if (!optimized.empty()) {
+       shader_module_create_info.codeSize = optimized.size() * sizeof(uint32_t);
+       shader_module_create_info.pCode = optimized.data();
+diff --git a/src/graphics/vulkan/spirv_opt_store.h b/src/graphics/vulkan/spirv_opt_store.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..cf96f30bbf5becb994ad2f832dc32410bd2d618c
+--- /dev/null
++++ b/src/graphics/vulkan/spirv_opt_store.h
+@@ -0,0 +1,40 @@
++/**
++ * @file        graphics/vulkan/spirv_opt_store.h
++ * @brief       The precompile's optimised SPIR-V, kept on disk (wwe2k14 Session 70)
++ *
++ * @license     BSD 3-Clause License
++ *              See LICENSE file in the project root for full license text.
++ *
++ * SPIRV-Tools' performance passes (vulkan_spirv_optimize) make the translated shaders ~76% of their size and are
++ * exact here (Session 70 check_item s70_spirv_opt: pictures 6 / 6, resolve hashes 467 / 467, gameplay identical;
++ * Brock's entrance up to -14% GPU on the 4090), but cost ~75 ms of CPU a shader - too slow for the game itself. The
++ * launcher's precompile (gpu_native_precompile + vulkan_spirv_optimize_collect) pays that once: every module it makes
++ * from code not stored yet is optimised on a pool of threads (one per CPU thread) and stored in
++ * <cache>/shaders/shareable/TITLE.spvopt, keyed by the XXH3 of the translator's own output. From then on every run
++ * makes its modules from the stored optimised code (vulkan_spirv_optimize_store, default on) at no cost; code not
++ * stored stays unoptimised. Made from the player's own game files, in their own folder: never shipped.
++ * File: 'XSPO', version; records {XXH3 of the input, XXH3 of the words, word count, words}; a bad record ends it.
++ */
++
++#pragma once
++
++#include <cstddef>
++#include <cstdint>
++#include <filesystem>
++#include <vector>
++
++namespace rex::graphics::vulkan::spirv_opt_store {
++
++// Loads (or re-opens) the store from `file`.
++void Open(const std::filesystem::path& file);
++// Waits for nothing: queued jobs are dropped (the precompile waits for Pending() == 0 before it quits).
++void Close();
++// The optimised words stored for this input (the XXH3 of the translator's output) into `out`; false if none.
++bool Find(uint64_t key, std::vector<uint32_t>& out);
++// The precompile: optimises these words on the pool and stores the result (nothing if stored or queued already).
++void Collect(uint64_t key, const uint32_t* words, size_t count);
++// Jobs queued or running; shaders this run optimised and stored.
++uint32_t Pending();
++uint32_t Collected();
++
++}  // namespace rex::graphics::vulkan::spirv_opt_store

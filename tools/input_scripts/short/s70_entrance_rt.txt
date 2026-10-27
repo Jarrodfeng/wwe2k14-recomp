@@ -1,0 +1,25 @@
+# harness: realtime (Session 70: entrances timed at normal speed, as players see them)
+# Session 70 (v0.2.8's slow entrances): a release exe's Quick Match with both entrances, in real time. Use with
+#   --game_data_root=<repo>\game_data\extracted --wwe2k14_settings_file=<test file> --wwe2k14_launch=@quick
+#   --wwe2k14_quick_type=0 --wwe2k14_launch_participants=343,324 --gpu_session_stats_frames=60
+# (Brock Lesnar vs Daniel Bryan, both entrances, then 600 frames of the match). Boots through the title like
+# release_smoke.txt. Analyse with py tools\perf\s70_entrance_report.py LOG (per entrance: frames over 20 / 50 / 100 ms,
+# time lost, pipelines made, draws skipped). No screenshots. on_fail quit.
+on_fail quit
+log s70: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log s70: main menu reached
+wait_state match_clock !=0 14400 2
+log s70: match started
+wait_frames 600
+log s70: end
+quit

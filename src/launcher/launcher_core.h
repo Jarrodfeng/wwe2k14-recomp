@@ -108,6 +108,9 @@ struct Settings {
   bool discord = false;        // Session 33: Discord status (off by default)
   int aspect = 0;              // Session 33: 0 = 16:9 (the game's own), 1 = auto (the monitor's: ultrawide Hor+)
   bool photo_mode = false;     // Session 33: photo mode (F10 / L3 + R3 in a match)
+  // Session 70 (Jarrod: "every pipeline built before the game starts"): before a Play, the game's precompile run
+  // (src\precompile.h) when this build, the graphics card, its driver or a pipeline setting changed.
+  bool precompile = true;
   std::string discord_app_id;  // the Discord application id (empty = kDiscordAppId below)
   std::string dlss_dir;
   bool arena_override = false;
@@ -173,7 +176,7 @@ inline void to_json(json& j, const Settings& s) {
            {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"dlss_dir", s.dlss_dir},
            {"fsr_note", s.fsr_note}, {"renderer", s.renderer}, {"settings_version", s.settings_version},
            {"discord", s.discord}, {"discord_app_id", s.discord_app_id}, {"aspect", s.aspect},
-           {"photo_mode", s.photo_mode},
+           {"photo_mode", s.photo_mode}, {"precompile", s.precompile},
            {"arena_override", s.arena_override}, {"arena", s.arena}, {"participants", s.participants},
            {"replay_name", s.replay_name}, {"replay_record", s.replay_record}, {"replay_play", s.replay_play},
            {"reshoot_shots", s.reshoot_shots}, {"reshoot_anchor", s.reshoot_anchor}, {"seed", s.seed},
@@ -213,7 +216,7 @@ inline void from_json(const json& j, Settings& s) {
   s.loaded_version = version;  // Session 54 (the launcher's device moves, MigrateForDevice)
   s.settings_version = wwe2k14::gfxs::kSettingsVersion;
   Get(j, "discord", s.discord), Get(j, "discord_app_id", s.discord_app_id), Get(j, "aspect", s.aspect);
-  Get(j, "photo_mode", s.photo_mode);
+  Get(j, "photo_mode", s.photo_mode), Get(j, "precompile", s.precompile);
   Get(j, "arena", s.arena), Get(j, "participants", s.participants), Get(j, "replay_name", s.replay_name);
   Get(j, "replay_record", s.replay_record), Get(j, "replay_play", s.replay_play);
   Get(j, "reshoot_shots", s.reshoot_shots), Get(j, "reshoot_anchor", s.reshoot_anchor), Get(j, "seed", s.seed);

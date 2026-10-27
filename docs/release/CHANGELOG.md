@@ -1,18 +1,43 @@
 # Changelog
 
+## v0.2.9
+
+Smooth entrances again on slower PCs: the game now prepares its graphics before you play.
+
+- **No more freezes at the start of entrances.** Since v0.2.6, some players saw the game freeze for a few seconds as
+  an entrance began (Brock Lesnar's was the worst: up to 4-5 seconds in my tests), or entrances that felt slow and
+  jerky. The cause: v0.2.6 made the graphics faster by building each shader in several tailored versions, and the
+  game had to build the ones it was missing the moment an entrance first needed them - dozens at once, each taking
+  a noticeable moment on a slower PC or graphics card. Built in the middle of an entrance, they stalled it. v0.2.8
+  already removed most of this; v0.2.9 removes the rest of the cause: the versions are now all built before you play.
+- **New: "Preparing shaders" before the first Play.** When you press PLAY after updating (or after a graphics driver
+  update, or changing the resolution), the launcher first builds every graphics pipeline the game knows about, using
+  your whole CPU, with a progress bar. It's a one-time wait: on my PC about 10-20 seconds; a slower PC may take a
+  minute or two. Your graphics driver keeps the result, so later sessions start straight away. SKIP is always there
+  (the game then builds what it needs as you play, as before). Settings -> Game -> PREPARE SHADERS turns it off.
+- **Less competition for the CPU while you play.** The background threads that prepare graphics now run at a lower
+  priority than the game's own threads, so they no longer take CPU time from an entrance or a match on a 4-core PC.
+- **Less repeated work at start-up over time.** Since v0.2.8 the game prepared two versions of many older remembered
+  pipelines at every start, because it couldn't tell which one you use. Now, once you've used one, it remembers that
+  exactly and drops the guess, so this extra work shrinks as you play.
+- **Gameplay is unchanged:** replays play out identically, and pictures are the same (checked frame by frame).
+
+**What to expect on your first launch after updating:** the "PREPARING SHADERS" window, then the game. The first
+match may still build a few new pipelines (content you haven't played since updating); those are remembered too.
+
 ## v0.2.8
 
 The red squares on wrestlers are fixed, and much less stutter on slower graphics (Intel laptops especially).
 
 - **No more red squares on wrestlers' backs.** The long-reported red (or dark red) block on a wrestler's back, from the
   start of a match, is fixed. The game clears each wrestler's damage map at the start of a match partly with a tiny
-  clear that our renderer dropped: the edge of that map kept old picture data, which the skin shading then showed as
+  clear that the renderer dropped: the edge of that map kept old picture data, which the skin shading then showed as
   red. It happened on every graphics card, but was easiest to see on dark gear (The Undertaker's singlet).
 - **Far less stutter on slower graphics.** The renderer remembers the graphics pipelines it prepared, so the next
   session can prepare them at start-up instead of mid-match. About half of a match's pipelines were remembered wrongly
   and prepared again in every session - on an integrated GPU that took up to two seconds each, in the middle of the
   action. They are now remembered exactly (what you have stored already still works), and several CPU threads prepare
-  them at once instead of one. In our tests with an integrated GPU's preparation times, a match that froze for seconds
+  them at once instead of one. In my tests with an integrated GPU's preparation times, a match that froze for seconds
   now runs without a single hitch from the second session on. Advanced: `--gpu_native_pipeline_workers=N` sets the
   number of threads (0 = automatic).
 

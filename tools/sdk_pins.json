@@ -6301,6 +6301,34 @@
           "size": 11408384
         }
       ]
+    },
+    {
+      "id": "pin-f3d44bd-1027-2213",
+      "sdk_commit": "f3d44bdd38c2ad06c2f59ba7aaf0d90e0fc152e1",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-27",
+      "built": "build_sdk.ps1 -Run s70pin, 2026-10-27T22:13:03 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s70pin.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 70: the precompile (gpu_native_precompile), quiet pipeline workers, older NATIVE records stop doubling, crowd cull (off), the optimised SPIR-V store (collect off); patch step session70-precompile",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "5d1a4fb330ce0144e5087b5e6f7c5dec640695092702e29689f9e3d07ff3a50a",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "30adce28024c6220f715b5d674aa1a688778d3e5a45501294f1ca0861b5554ca",
+          "size": 15308288
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "9923831fbc0e55dcd7d0c39ab74197f7917509bf751b1607dfae90276672429a",
+          "size": 11408384
+        }
+      ]
     }
   ]
 }

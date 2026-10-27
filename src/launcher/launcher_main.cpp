@@ -1005,6 +1005,7 @@ class App {
   void Frame() {
     CollectThumbs();
     PollGame();
+    PollPrecompile();  // Session 70
     DirectStartPoll();  // Session 53
     hover_video_.clear();
     const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -1034,6 +1035,7 @@ class App {
     ImGui::EndChild();
     Wizard();
     CrashPopup();
+    PrecompilePopup();  // Session 70
     QuickStartPopup();  // Session 53
     PerfTestPopup();  // Session 39
     UpdatePopup();
@@ -1053,6 +1055,7 @@ class App {
   // closes, or shows itself when the game crashed (the crash window) or when something needs the player (no game
   // files yet, the game already running).
   bool start_game_ = false, quick_pending_ = false, exit_with_game_ = false;
+  bool direct_after_precompile_ = false;  // Session 70: a direct / quick start waiting for the precompile
   std::chrono::steady_clock::time_point quick_at_{};
   static constexpr int kQuickStartSeconds = 3;
 
@@ -1061,6 +1064,12 @@ class App {
       if (gd_.ok) {
         want_wizard_ = false;  // the files are there: the player asked for the game, not the wizard
         LaunchPlain();
+        if (precompile_proc_) {  // Session 70 (review): the precompile first - the window shows its SKIP
+          direct_after_precompile_ = true;
+          ShowWindow(hwnd_, SW_SHOWDEFAULT);
+          Log("direct start: preparing shaders first, the game follows");
+          return;
+        }
         if (game_proc_) {
           exit_with_game_ = true;
           Log("direct start: the game started, the window stays hidden");
@@ -1107,6 +1116,7 @@ class App {
       quick_pending_ = false;
       ImGui::CloseCurrentPopup();
       LaunchPlain();
+      if (precompile_proc_) direct_after_precompile_ = true, Log("quick start: preparing shaders first");  // Session 70
       if (game_proc_) exit_with_game_ = true, ShowWindow(hwnd_, SW_HIDE), Log("quick start: the game started");
     }
     ImGui::EndPopup();
@@ -1114,7 +1124,7 @@ class App {
 
   // Each frame: a hidden launcher closes with the game, or comes back for a crash.
   void DirectStartPoll() {
-    if (!exit_with_game_ || game_proc_) return;
+    if (!exit_with_game_ || game_proc_ || precompile_proc_) return;
     exit_with_game_ = false;
     if (want_crash_popup_) {
       ShowWindow(hwnd_, SW_SHOWDEFAULT), SetForegroundWindow(hwnd_);
@@ -2115,10 +2125,17 @@ class App {
 
   void StartGame(const Command& cmd_in, const std::string& ok_msg) {
     const Command cmd = WithSettingsFile(cmd_in);
-    if (game_proc_ || (cmd.exe == paths_.game_exe.wstring() && GameRunning())) {
+    if (game_proc_ || precompile_proc_ || (cmd.exe == paths_.game_exe.wstring() && GameRunning())) {
       Status("The game is already running");
       return;
     }
+    // Session 70: the precompile first, when this build / card / driver / pipeline settings have not had one.
+    if (cmd.exe == paths_.game_exe.wstring() && s.precompile && !s.harness && perf_step_ < 0 && !importing_ &&
+        !precompile_skip_once_ && PrecompileKey() != ReadPrecompileStamp()) {
+      StartPrecompile(cmd, ok_msg);
+      return;
+    }
+    precompile_skip_once_ = false;
     HANDLE h = nullptr;
     const std::string err = StartProcess(cmd, &h);
     if (!err.empty()) {
@@ -2137,6 +2154,165 @@ class App {
       launch_graphics_set_ = true;
     }
   }
+
+  // Session 70 (Jarrod: "every pipeline built before the game starts"; src\precompile.h): a pipeline the PC has not
+  // compiled before stalls the game when an entrance meets it (v0.2.6 / v0.2.7 froze 4.6 s at Brock's entrance with
+  // cold compiles). Before a Play the game runs once in its precompile mode with the same graphics settings (a plain
+  // boot: every stored pipeline made on all CPU threads, then it quits), with a progress window and SKIP. Again only
+  // when this key changes: this build (the exe's size and time), the graphics card and driver, the settings that change
+  // pipelines (resolution, draw height, upscaler, original look) and the Extra flags.
+  std::string PrecompileKey() {
+    const wwe2k14::vkdev::Device dev = ChosenDevice(s.gpu);
+    // (Review: the SDK's DLLs too - a release may change only them - and the renderer.)
+    std::string files;
+    for (const char* f : {"wwe2k14.exe", "rexgpu-xenos.dll", "rexruntime.dll"}) {
+      std::error_code ec;
+      const fs::path p = paths_.game_exe.parent_path() / f;
+      files += std::string(f) + " " + std::to_string(fs::file_size(p, ec)) + " " +
+               std::to_string(fs::last_write_time(p, ec).time_since_epoch().count()) + "; ";
+    }
+    return files + "gpu " + dev.name + " driver " + std::to_string(dev.driver_version) + "; renderer " +
+           std::to_string(s.renderer) + " resolution " + std::to_string(s.resolution) + " draw_height " +
+           std::to_string(s.draw_height) + " upscale " + std::to_string(s.upscale) + " original_look " +
+           std::to_string(int(s.original_look)) + "; extra " + s.extra;
+  }
+  fs::path PrecompileStampPath() const { return fs::path(settings_path).parent_path() / "precompile_stamp.txt"; }
+  std::string ReadPrecompileStamp() const {
+    std::ifstream f(PrecompileStampPath());
+    std::string line;
+    std::getline(f, line);
+    return line;
+  }
+  void StartPrecompile(const Command& next, const std::string& next_msg) {
+    precompile_next_ = next, precompile_next_msg_ = next_msg;
+    precompile_pass_ = 1;
+    precompile_all_t0_ = std::chrono::steady_clock::now();
+    if (StartPrecompileRun()) want_precompile_popup_ = true;
+  }
+  // One run of the game in its precompile mode; false (and the game started) when it cannot start.
+  bool StartPrecompileRun() {
+    std::error_code ec;
+    precompile_progress_ = fs::path(settings_path).parent_path() / "precompile_progress.json";
+    fs::remove(precompile_progress_, ec);
+    Command c = WithSettingsFile(BuildCommand(PlainSettings(), paths_));
+    // (Review: no performance report or Discord status from this run.)
+    const std::string f = " --wwe2k14_precompile=" + Quote(PathStr(precompile_progress_)) +
+                          " --window_activate_when_shown=false --window_show_behind=true" +
+                          " --wwe2k14_perf_report=false --wwe2k14_discord=false";
+    c.args += Widen(f), c.display += f;
+    HANDLE h = nullptr;
+    if (const std::string err = StartProcess(c, &h); !err.empty()) {
+      Log("precompile: could not start (" + err + "); starting the game without it");
+      precompile_skip_once_ = true;
+      StartGame(precompile_next_, precompile_next_msg_);
+      precompile_skip_once_ = false;
+      return false;
+    }
+    Log("precompile (pass " + std::to_string(precompile_pass_) + "): " + c.display);
+    precompile_proc_ = h;
+    precompile_t0_ = std::chrono::steady_clock::now();
+    precompile_made_ = precompile_total_ = precompile_optimised_ = 0, precompile_state_ = "starting";
+    return true;
+  }
+  // Once per frame: the precompile's progress file; when the run has ended, the stamp (done only) and the game.
+  void ReadPrecompileProgress() {
+    std::ifstream f(precompile_progress_);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    try {
+      const json j = json::parse(ss.str());
+      precompile_state_ = j.value("state", precompile_state_);
+      precompile_made_ = j.value("made", 0), precompile_total_ = j.value("total", 0);
+      precompile_optimised_ = j.value("optimised", 0);
+    } catch (...) {
+    }
+  }
+  void PollPrecompile() {
+    if (!precompile_proc_) return;
+    const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - precompile_t0_).count();
+    if (WaitForSingleObject(precompile_proc_, 0) != WAIT_OBJECT_0) {
+      ReadPrecompileProgress();
+      // (Review: our own deadline - the game's timeout counts only once it draws; a boot that never gets there ends here.)
+      if (secs > kPrecompileDeadlineS) {
+        Log("precompile: no end after " + std::to_string(int(secs)) + " s; stopped");
+        TerminateProcess(precompile_proc_, 0);
+      }
+      return;
+    }
+    DWORD code = 0;
+    GetExitCodeProcess(precompile_proc_, &code);
+    CloseHandle(precompile_proc_);
+    precompile_proc_ = nullptr;
+    ReadPrecompileProgress();  // (review: the last state, written just before the run ended)
+    // Session 70 (the shader optimiser): the first pass stored optimised shaders but made its pipelines from the
+    // unoptimised code - a second pass makes the pipelines the game will ask for (from the stored code).
+    if (code == 0 && precompile_state_ == "done" && precompile_optimised_ > 0 && precompile_pass_ == 1) {
+      Log("precompile: " + std::to_string(precompile_optimised_) + " shaders optimised in " + std::to_string(int(secs)) +
+          " s; the second pass makes their pipelines");
+      precompile_pass_ = 2;
+      StartPrecompileRun();
+      return;
+    }
+    const double all = std::chrono::duration<double>(std::chrono::steady_clock::now() - precompile_all_t0_).count();
+    // A run that gave up at its own timeout is marked too: what it made is in the driver's cache, and a PC that cannot
+    // finish would otherwise wait the whole timeout before every Play.
+    if (code == 0 && (precompile_state_ == "done" || precompile_state_ == "timeout")) {
+      std::ofstream o(PrecompileStampPath(), std::ios::trunc);
+      o << PrecompileKey() << "\n" << precompile_state_ << ": " << precompile_made_ << " of " << precompile_total_
+        << " pipelines, " << precompile_pass_ << " pass(es) in " << int(all) << " s, " << NowStamp("%Y-%m-%d %H:%M")
+        << "\n";
+      Log("precompile: " + precompile_state_ + ", " + std::to_string(precompile_made_) + " of " +
+          std::to_string(precompile_total_) + " pipelines, " + std::to_string(precompile_pass_) + " pass(es) in " +
+          std::to_string(int(all)) + " s");
+    } else {
+      Log("precompile: ended (" + precompile_state_ + ", " + ExitCodeText(code) + "): not marked done");
+    }
+    precompile_skip_once_ = true;
+    StartGame(precompile_next_, precompile_next_msg_);
+    precompile_skip_once_ = false;  // (review: also when StartGame returned early)
+    if (direct_after_precompile_) {  // a direct / quick start: hidden with the game, as without the precompile
+      direct_after_precompile_ = false;
+      if (game_proc_) {
+        exit_with_game_ = true;
+        ShowWindow(hwnd_, SW_HIDE);
+        Log("direct start: the game started after the precompile");
+      }
+    }
+  }
+  static constexpr double kPrecompileDeadlineS = 660;  // the game's own timeout (600 s) + a minute
+  void PrecompilePopup() {
+    if (want_precompile_popup_) ImGui::OpenPopup("precompile"), want_precompile_popup_ = false;
+    if (!BeginGameModal("precompile", "PREPARING SHADERS", 640 * Dpi())) return;
+    if (!precompile_proc_) {
+      ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+      return;
+    }
+    ImGui::TextWrapped("Building the graphics for this PC before the game starts, so entrances and matches don't "
+                       "stutter. This happens once after an update, a new graphics driver or a graphics setting change.");
+    ImGui::Dummy(ImVec2(0, 8 * Dpi()));
+    // (Session 70: the second pass - the pipelines from the shaders the first one optimised.)
+    if (precompile_pass_ == 2) ImGui::TextDisabled("Step 2 of 2: the optimised shaders");
+    const float frac = precompile_total_ ? float(precompile_made_) / float(precompile_total_) : 0.0f;
+    const std::string label = precompile_state_ == "starting" || !precompile_total_
+                                  ? std::string("Starting...")
+                                  : std::to_string(precompile_made_) + " / " + std::to_string(precompile_total_);
+    ImGui::ProgressBar(frac, ImVec2(-1, 0), label.c_str());
+    ImGui::Dummy(ImVec2(0, 12 * Dpi()));
+    if (ModalMainButton("SKIP")) {
+      Log("precompile: skipped by the player");
+      TerminateProcess(precompile_proc_, 0);  // (PollPrecompile starts the game when it has ended: not marked done)
+    }
+    ImGui::NewLine();
+    ImGui::EndPopup();
+  }
+  HANDLE precompile_proc_ = nullptr;
+  Command precompile_next_;
+  std::string precompile_next_msg_, precompile_state_;
+  fs::path precompile_progress_;
+  std::chrono::steady_clock::time_point precompile_t0_, precompile_all_t0_;
+  int precompile_made_ = 0, precompile_total_ = 0, precompile_optimised_ = 0, precompile_pass_ = 1;
+  bool precompile_skip_once_ = false, want_precompile_popup_ = false;
 
   // The game's own GRAPHICS screen (Options) writes the Upscaling / Resolution / Frame rate keys of this same file:
   // take them over when the game closes, or the next Play (and this window's own exit) would put the old values back.
@@ -3433,6 +3609,15 @@ class App {
     if (OptionToggle("PERFORMANCE REPORT", pr, true,
                      "Frame and load times per scene when the game closes; it goes into Report a problem."))
       s.perf_report = pr ? 1 : 0;
+    // Session 70: src\precompile.h, PrecompileKey above.
+    OptionToggle("PREPARE SHADERS", s.precompile, true,
+                 "Before playing, build the graphics for this PC once (after an update, a new driver or a graphics "
+                 "change), so entrances don't stutter. Takes a minute or less; SKIP is always there.");
+    if (ImGui::Button("Prepare again on the next Play")) {
+      std::error_code ec;
+      fs::remove(PrecompileStampPath(), ec);
+      Status("The shaders will be prepared again on the next Play");
+    }
     ImGui::Dummy(ImVec2(0, 8 * Dpi()));
     SubHeading("UPDATES");
     OptionToggle("CHECK FOR UPDATES", s.check_updates, true,

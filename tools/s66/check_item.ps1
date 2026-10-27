@@ -12,7 +12,9 @@
 # differs, 3 = a run failed. -MaxOver8: largest share (%) of pixels more than 8 levels apart still called exact
 # (replay frames are near-identical, not byte-identical).
 param([Parameter(Mandatory)] [string]$Name, [Parameter(Mandatory)] [string]$Flag, [string]$Base = '',
-      [string[]]$Hot = @(), [string[]]$Skip = @(), [double]$MaxOver8 = 0.05, [switch]$NoCache)
+      [string[]]$Hot = @(), [string[]]$Skip = @(), [double]$MaxOver8 = 0.05, [switch]$NoCache,
+      [string]$Data = '')  # Session 70: another user data folder under out\bench (run_list -Data); not cached
+if ($Data) { $NoCache = $true }
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $runList = "$R\tools\bench\run_list.ps1"
 $short = "$R\tools\input_scripts\short"
@@ -40,7 +42,9 @@ function Save-Cache { $cache | ConvertTo-Json | Set-Content $cacheFile }
 
 # Runs scripts (parallel lanes) with per-script flags; returns @{ script-name = run number }.
 function Invoke-Runs([string[]]$scripts, [string[]]$extras) {
-    $out = & $runList -Scripts $scripts -ScriptExtras $extras -Parallel $scripts.Count -WaitSeconds 900 2>&1
+    $dataArg = @{}
+    if ($Data) { $dataArg.Data = $Data }
+    $out = & $runList -Scripts $scripts -ScriptExtras $extras -Parallel $scripts.Count -WaitSeconds 900 @dataArg 2>&1
     $runs = @{}
     foreach ($l in $out) {
         # one run: 'X.txt -> wwe2k14_N'; -Parallel: 'X.txt > wwe2k14_N' (PowerShell names ignore case: never $r here)

@@ -45,6 +45,7 @@
 #include "tron_shim.h"
 #include "logo_import.h"    // --wwe2k14_logo_import (Session 18, logo importer v0, default off)
 #include "audio_capture.h"  // --wwe2k14_audio_capture (Session 18, sound for re-shoots, default off)
+#include "precompile.h"     // --wwe2k14_precompile (Session 70: the launcher's precompile, default off)
 #include "tron_export.h"    // --wwe2k14_tron_export (Session 17 launcher previews, default off)      // MP4 / MOV / MKV titantrons via Media Foundation (Session 17 item 1B; needs --wwe2k14_mods)
 #include "motion_fix.h"     // --wwe2k14_fix_secondary_motion (Session 27.5: Cena's title at 60 fps, default off)
 #include "gfx_menu.h"       // GRAPHICS menu in the Options (Session 28)
@@ -562,6 +563,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::runin::Install();         // no-op unless --wwe2k14_runin (Session 16)
     wwe2k14::director::Install();
     wwe2k14::tron_export::Install();  // no-op unless --wwe2k14_tron_export      // Session 17: --wwe2k14_director (after runin: its handler runs run-ins)
+    wwe2k14::precompile::Install();   // no-op unless --wwe2k14_precompile (Session 70: the launcher's precompile)
     wwe2k14::audio_capture::Install();  // no-op unless --wwe2k14_audio_capture (Session 18)
     wwe2k14::g_input_script.Init();
     wwe2k14::live::Install();  // no-op unless --wwe2k14_live (Session 29)
