@@ -1,3 +1,7 @@
+- The entrance savings (new in v0.2.12) were checked on my NVIDIA card at 720p and 1440p. If an entrance looks wrong
+  after the update (a missing or frozen background, wrong colours behind the wrestler), the extra flags
+  `--gpu_native_truth_skip_restores=false --gpu_native_truth_skip_repeat_resolves=false` (Settings -> Advanced) bring
+  back the old behaviour; please send a report too (launcher: Report a problem).
 - POST EFFECTS does nothing yet with DLSS, DLAA or FSR on (the game's own post effects run there; the option is greyed
   out).
 - POST EFFECTS (new in v0.2.11) was checked on my NVIDIA card at 720p and 1440p on two entrances and a match. If the

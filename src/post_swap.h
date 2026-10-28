@@ -39,6 +39,10 @@ inline constexpr uint8_t kMatchCombineFloats[] = {20, 21, 27, 29, 30, 250, 251, 
 // The entrance's: the same plus bloom (c31) and the star glare (c32).
 inline constexpr uint64_t kEntranceCombine = 0x4E2CD8031D93DE3Eull;
 inline constexpr uint8_t kEntranceCombineFloats[] = {20, 21, 27, 29, 30, 31, 32, 250, 251, 252, 253, 254, 255};
+// Session 72 part 4 (gpu_native_truth_skip_restores): the restore that writes back a colour and a depth resolve
+// (microcode: colour target 0 = fetch constant 1, depth = fetch constant 0's x). In entrances it runs right after the
+// scene's own two resolves into the same two images (run 4560's segment log): NATIVE leaves it out there.
+inline constexpr uint64_t kRestoreColorDepth = 0x9A836B68E3F8F0B0ull;
 
 template <size_t N, size_t M>
 inline bool Register(rex::graphics::CommandProcessor* cp, uint64_t hash, const uint32_t (&words)[N],
@@ -53,6 +57,7 @@ inline void Install() {
     REXLOG_WARN("[wwe2k14][post_swap] no command processor yet: no replacement shaders registered");
     return;
   }
+  cp->RegisterNativeRestoreShader(kRestoreColorDepth, 1, 0, "colour + depth restore");
   const bool probe = REXCVAR_GET(wwe2k14_post_swap_probe) == 1;
   const bool enhanced = REXCVAR_GET(wwe2k14_post_enhanced);
   int ok = 0;

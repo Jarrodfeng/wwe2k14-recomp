@@ -1,0 +1,80 @@
+# harness: fastforward
+# Session 72 part 4 (pass / copy overhead): upper bounds of the work between NATIVE truth passes, in-run. At Bryan's
+# entrance +440 and the match +900: 3 pass-logged frames each with nothing changed, then with each diagnostic (the
+# picture is WRONG with them; only GPU times count): no resolve work (gpu_native_truth_debug_skip_resolves), no
+# stores / alias loads (_skip_alias), no subpass dependencies (_pass_no_deps), then nothing changed again. Run with
+# --wwe2k14_replay_play=s21_lb --wwe2k14_use_launcher_settings=true --gpu_native_gpu_timers=true and a NATIVE test
+# settings file; read with py -I tools\native\pass_log.py RUN.
+on_fail quit
+log bench: start s72_gap_ceiling (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+log passlog: e_base
+cvar gpu_native_truth_pass_log 3
+wait_frames 6
+cvar gpu_native_truth_debug_skip_resolves 1
+wait_frames 2
+log passlog: e_noresolve
+cvar gpu_native_truth_pass_log 3
+wait_frames 6
+cvar gpu_native_truth_debug_skip_resolves 0
+cvar gpu_native_truth_debug_skip_alias 1
+wait_frames 2
+log passlog: e_noalias
+cvar gpu_native_truth_pass_log 3
+wait_frames 6
+cvar gpu_native_truth_debug_skip_alias 0
+cvar gpu_native_truth_debug_pass_no_deps 1
+wait_frames 2
+log passlog: e_nodeps
+cvar gpu_native_truth_pass_log 3
+wait_frames 6
+cvar gpu_native_truth_debug_pass_no_deps 0
+wait_frames 2
+log passlog: e_base2
+cvar gpu_native_truth_pass_log 3
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 900
+log passlog: m_base
+cvar gpu_native_truth_pass_log 3
+wait_frames 6
+cvar gpu_native_truth_debug_skip_resolves 1
+wait_frames 2
+log passlog: m_noresolve
+cvar gpu_native_truth_pass_log 3
+wait_frames 6
+cvar gpu_native_truth_debug_skip_resolves 0
+cvar gpu_native_truth_debug_skip_alias 1
+wait_frames 2
+log passlog: m_noalias
+cvar gpu_native_truth_pass_log 3
+wait_frames 6
+cvar gpu_native_truth_debug_skip_alias 0
+cvar gpu_native_truth_debug_pass_no_deps 1
+wait_frames 2
+log passlog: m_nodeps
+cvar gpu_native_truth_pass_log 3
+wait_frames 6
+cvar gpu_native_truth_debug_pass_no_deps 0
+wait_frames 2
+log passlog: m_base2
+cvar gpu_native_truth_pass_log 3
+wait_frames 120
+log bench: done
+quit

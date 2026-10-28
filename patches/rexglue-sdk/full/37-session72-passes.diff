@@ -1,0 +1,570 @@
+# ReXGlue SDK changes for WWE 2K14 (session72-passes): e1abce8b4fb2..49465d381ad6 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  49465d3 wwe2k14 Session 72 part 4: gpu_native_truth_skip_repeat_resolves (a direct copy repeated with the same registers from an untouched image records no GPU work)
+#  a6bbc2c wwe2k14 Session 72 part 4: gpu_native_truth_skip_restores - the early check in IssueDraw (before the restore's textures are requested or loaded), no draw claimed since the copies
+#  49dc87d wwe2k14 Session 72 part 4: gpu_native_truth_skip_restores (leave out a registered restore shader's draw when its colour and depth textures were resolved this frame from the very images it draws into, untouched since)
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 300653c49cf9f5990a4eab9a7beaeac634ee9a3d..0cd47010ff15599e685dc59f097145bdc6b237fd 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -441,6 +441,12 @@ class CommandProcessor {
+   virtual bool RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words, size_t word_count,
+                                         const uint8_t* float_registers, size_t float_register_count,
+                                         const char* name);
++  // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a guest pixel shader that only writes back what
++  // two resolves took out - colour target 0 = the texture of fetch constant color_fetch, depth = fetch constant
++  // depth_fetch's - so NATIVE may leave out its draws when those textures still hold its own images' pixels; false
++  // where the backend has no NATIVE renderer.
++  virtual bool RegisterNativeRestoreShader(uint64_t guest_pixel_shader_hash, uint32_t color_fetch,
++                                           uint32_t depth_fetch, const char* name);
+ 
+  protected:
+   std::atomic<int32_t> half2_mode_{0};
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index c8a8690507cf076decfe5f100fc861867fab1009..9f3abf609c1f0c3f85bac83467b53ee28b77bdfe 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -74,6 +74,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words, size_t word_count,
+                                 const uint8_t* float_registers, size_t float_register_count,
+                                 const char* name) override;
++  // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): CommandProcessor's.
++  bool RegisterNativeRestoreShader(uint64_t guest_pixel_shader_hash, uint32_t color_fetch, uint32_t depth_fetch,
++                                   const char* name) override;
+   // wwe2k14 patch (Session 24, DLSS): gpu_dlss_lod_bias for this draw's pixel shader (scene draws only), in quarters.
+   uint32_t DlssLodBiasQuarters() const;
+ 
+@@ -481,6 +484,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool NativeTruthResolveFull1x(const draw_util::ResolveInfo& info, uint32_t dest_base, uint32_t dest_coordinate_info,
+                                 uint32_t dest_info, VkDescriptorSet dest_set);  // Session 59
+   void NativeTruthAfterResolveMarked(const draw_util::ResolveInfo& info);
++  // wwe2k14 patch (Session 72 part 4): NativeRenderer::TruthResolveRedundant (false without a native renderer).
++  bool NativeTruthResolveRedundant(const draw_util::ResolveInfo& info);
+   uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false) const;
+   // wwe2k14 patch (Session 56, gpu_native_truth_skip_writeback_scaled): the scaled resolve buffer, a guest range's
+   // scaled range (32bpp), marking a range written by compute, and the scaled loads' materialize entry.
+@@ -1674,6 +1679,14 @@ class VulkanCommandProcessor : public CommandProcessor {
+     uint64_t native_modification = 0;
+     VkShaderModule module = VK_NULL_HANDLE;
+   } native_vs_cache_;
++  // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): the registered restore shaders (an entry is
++  // written before the count that publishes it; the command thread reads up to the count).
++  struct NativeRestoreShader {
++    uint64_t hash = 0;
++    uint32_t color_fetch = 0, depth_fetch = 0;
++  };
++  std::array<NativeRestoreShader, 8> native_restore_shaders_{};
++  std::atomic<uint32_t> native_restore_shader_count_{0};
+   void NativeDescribeDraw(native::Draw& draw, const VulkanShader& vertex_shader, const VulkanShader* pixel_shader,
+                           const VulkanShader::VulkanTranslation& vertex_translation,
+                           SpirvShaderTranslator::Modification pixel_modification,
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 52162a043cc2b2403e960b397183efffdf16659f..28c98e9a2fba280c9602a76c9fa83b1e091a4a16 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -193,6 +193,10 @@ struct Draw {
+   // feedback buffer range the truth draw writes while it is drawn (VK_NULL_HANDLE: none). Never a lean base.
+   VkBuffer xfb_buffer = VK_NULL_HANDLE;
+   VkDeviceSize xfb_offset = 0, xfb_size = 0;
++  // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a registered restore shader's draw - the guest
++  // pages (address >> 12) of the textures it writes back as colour and as depth.
++  bool restore = false;
++  uint32_t restore_color_page = 0, restore_depth_page = 0;
+ };
+ 
+ class NativeRenderer {
+@@ -269,6 +273,18 @@ class NativeRenderer {
+   // Session 46 (gpu_native_truth, latched per frame): a truth frame - our images are the picture and the EDRAM buffer
+   // is neither read nor written (docs\native\NO_EDRAM_DESIGN.md in the wwe2k14-recomp repository).
+   bool truth() const { return replacing_ && truth_; }
++  // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): before a registered restore draw is prepared
++  // (its textures requested): true when it would write back exactly what its target images hold - the textures copied
++  // this frame from those images' origins, no draw claimed since, the images untouched and still owning the copied
++  // tiles. The caller has checked the draw's state (a plain copy: RT0 colour whole, no blending, depth written always,
++  // no stencil, 1x k_8_8_8_8 colour, 20e4 depth); it then leaves the draw out.
++  bool TruthRestoreRedundantEarly(uint32_t surface_pitch, uint32_t color_base, uint32_t depth_base,
++                                  uint32_t color_page, uint32_t depth_page);
++  // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_repeat_resolves): this resolve's copy is one a direct path
++  // did this frame with every register the same, from an image no truth draw went into since and that still owns the
++  // copied tiles, and nothing has copied into its destination since: the destination holds it already (not in a
++  // readback window). The caller records no GPU work and no marks for the copy (its clear still runs).
++  bool TruthResolveRedundant(const draw_util::ResolveInfo& info);
+   // Session 54 (gpu_native_truth_draw_height, docs\native\RESOLUTION_S54.md in the wwe2k14-recomp repository): the
+   // truth passes' draw size relative to the images' (1: the images' own; below 1: they draw into smaller "draw twins").
+   // Decided once (the native pixel shaders are translated for it).
+@@ -1317,6 +1333,26 @@ class NativeRenderer {
+   };
+   static constexpr uint32_t kTruthScratchBase = 0xFFFF;
+   std::vector<TruthImage> truth_images_;
++  // Session 72 part 4 (gpu_native_truth_skip_restores): per truth image, the truth draws recorded into it (bumped by
++  // TruthRecordDraw, never reset), and the last direct resolves' sources: the destination page, the image read, its
++  // draw count then, the frame, the copied size (host pixels, from the image's and the texture's origin).
++  std::vector<uint64_t> truth_image_writes_;
++  struct RestoreSource {
++    uint32_t page = 0;
++    int16_t image = -1;
++    uint64_t writes = 0, frame = UINT64_MAX;
++    uint32_t width = 0, height = 0;
++    uint64_t extent_start = 0, extent_end = 0;  // the copy's destination bytes (a later copy into them drops it)
++    int32_t claims = 0;  // truth_frame_draws_ at the copy (TruthRestoreRedundantEarly: no draw claimed since)
++    bool at_origin = false;  // from the image's origin into the texture's (the restore checks need it)
++    uint64_t key = 0;        // ResolveKey of the copy (gpu_native_truth_skip_repeat_resolves)
++  };
++  std::array<RestoreSource, 8> restore_sources_{};
++  uint32_t restore_source_next_ = 0;
++  int32_t restore_source_fresh_ = -1;  // the entry the resolve being marked wrote (TruthAfterResolveMarked keeps it)
++  void TruthNoteRestoreSource(const draw_util::ResolveInfo& info, int16_t index, bool at_origin, uint32_t width,
++                              uint32_t height);
++  bool TruthRestoreRedundant(const Draw& draw, int16_t color, int16_t depth, const int32_t* rect);
+   // The owner of each EDRAM tile: the truth image whose `owned` has it (Session 47: no per-tile array any more), else
+   // the EDRAM.
+   std::bitset<2048> truth_owned_any_;  // Session 47: the tiles some image owns (the others: the EDRAM's)
+@@ -1383,6 +1419,9 @@ class NativeRenderer {
+     uint32_t twin_blits[2] = {};  // Session 54: draw twins made from their images (0), images from twins (1)
+     uint32_t early_sampled = 0;
+     uint32_t depth_renames = 0;
++    // Session 72 part 4 (gpu_native_truth_skip_restores): restore draws left out, and those looked at but drawn.
++    uint32_t restores_skipped = 0, restores_drawn = 0;
++    uint32_t repeat_resolves_skipped = 0;  // (gpu_native_truth_skip_repeat_resolves)
+     uint32_t dont_care_color = 0, dont_care_depth = 0;  // Session 66 (G2.1): passes opened without loading them
+     uint32_t clear_attachments = 0;  // Session 56: fast clears' depth / stencil also cleared by vkCmdClearAttachments  // Session 56: depth images renamed with their pass's colour (gpu_native_truth_rename_depth)  // Session 56: written textures moved to the sampled layout before a pass opened
+     uint32_t renames = 0;  // Session 52: images renamed for a deferred resolve  // Session 52: packed fills, of them straight into the texture  // Session 47 (M6): textures filled by TruthFillTexture, refusals
+diff --git a/src/graphics/half2_log.cpp b/src/graphics/half2_log.cpp
+index 63b4eb8adb4a38646f29c7f46f01abc14c0a52cf..639026739b8c12aff1d9a8947596aeadb72263f9 100644
+--- a/src/graphics/half2_log.cpp
++++ b/src/graphics/half2_log.cpp
+@@ -972,6 +972,7 @@ bool CommandProcessor::RegisterNativeShaderSwap(uint64_t, const uint32_t*, size_
+                                                 const char*) {
+   return false;
+ }
++bool CommandProcessor::RegisterNativeRestoreShader(uint64_t, uint32_t, uint32_t, const char*) { return false; }
+ 
+ bool CommandProcessor::half2_detached_wanted() const {
+   const Half2Log* log = half2_log_.load(std::memory_order_acquire);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0dccb6004352e255a66a74603f5389e4a643f353..9c51ee13dca5c1549fa5b0b22dfc24ed30686b77 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -85,6 +85,7 @@ REXCVAR_DECLARE(int32_t, readback_resolve_override);  // wwe2k14 patch (Session
+ REXCVAR_DECLARE(bool, gpu_native_vertex_endian_spec);
+ REXCVAR_DECLARE(bool, gpu_native_ps_epilogue_spec);  // wwe2k14 patch (Session 66, native_ext)
+ REXCVAR_DECLARE(bool, gpu_native_shader_swap);       // wwe2k14 patch (Session 72, native/shader_swap.cpp)
++REXCVAR_DECLARE(bool, gpu_native_truth_skip_restores);  // wwe2k14 patch (Session 72 part 4, native/native_truth.cpp)
+ REXCVAR_DECLARE(int32_t, gpu_native_fma);
+ REXCVAR_DEFINE_INT32(gpu_native_ps_census, 0, "GPU/Native",
+                      "Session 66 (PS spec 1, diagnostic, log only): for this many frames, count per pixel shader the "
+@@ -7255,6 +7256,9 @@ bool VulkanCommandProcessor::NativeTruthFillOnly(const draw_util::ResolveInfo& i
+ void VulkanCommandProcessor::NativeTruthAfterResolveMarked(const draw_util::ResolveInfo& info) {
+   if (native_) native_->TruthAfterResolveMarked(info);
+ }
++bool VulkanCommandProcessor::NativeTruthResolveRedundant(const draw_util::ResolveInfo& info) {
++  return native_ && native_->TruthResolveRedundant(info);
++}
+ 
+ uint32_t VulkanCommandProcessor::NativeTextureReadable(void* handle, bool allow_scaled) const {
+   return texture_cache_ ? texture_cache_->NativeTextureReadable(handle, allow_scaled) : 0u;
+@@ -7451,6 +7455,16 @@ bool VulkanCommandProcessor::RegisterNativeShaderSwap(uint64_t guest_pixel_shade
+                                                       size_t float_register_count, const char* name) {
+   return shader_swap::Register(guest_pixel_shader_hash, words, word_count, float_registers, float_register_count, name);
+ }
++bool VulkanCommandProcessor::RegisterNativeRestoreShader(uint64_t guest_pixel_shader_hash, uint32_t color_fetch,
++                                                         uint32_t depth_fetch, const char* name) {
++  const uint32_t n = native_restore_shader_count_.load(std::memory_order_relaxed);
++  if (n >= native_restore_shaders_.size() || color_fetch >= 32 || depth_fetch >= 32) return false;
++  native_restore_shaders_[n] = {guest_pixel_shader_hash, color_fetch, depth_fetch};
++  native_restore_shader_count_.store(n + 1, std::memory_order_release);
++  REXGPU_INFO("[native] restore shader {:016X} registered ({}): colour from fetch constant {}, depth from {}",
++              guest_pixel_shader_hash, name ? name : "", color_fetch, depth_fetch);
++  return true;
++}
+ uint32_t VulkanCommandProcessor::NativeVertexExt() const {
+   const VulkanPipelineCache::NativeSpecLatch& spec = pipeline_cache_->NativeSpec();
+   return (spec.native && (spec.fma & 2)) ? uint32_t(SpirvShaderTranslator::kNativeExtFma) : 0u;
+@@ -7472,6 +7486,19 @@ void VulkanCommandProcessor::NativeDescribeDraw(native::Draw& draw, const Vulkan
+   VulkanPipelineCache::ApplyNativePixelSpec(pixel_modification, draw.pixel_spec_key);
+   draw.vertex_shader_hash = vertex_shader.ucode_data_hash();
+   draw.pixel_shader_hash = pixel_shader ? pixel_shader->ucode_data_hash() : 0;
++  // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a registered restore shader's textures.
++  draw.restore = false;
++  if (pixel_shader && REXCVAR_GET(gpu_native_truth_skip_restores)) {
++    const uint32_t n = native_restore_shader_count_.load(std::memory_order_acquire);
++    for (uint32_t i = 0; i < n; ++i) {
++      const NativeRestoreShader& r = native_restore_shaders_[i];
++      if (r.hash != draw.pixel_shader_hash) continue;
++      draw.restore = true;
++      draw.restore_color_page = regs.GetTextureFetch(r.color_fetch).base_address;
++      draw.restore_depth_page = regs.GetTextureFetch(r.depth_fetch).base_address;
++      break;
++    }
++  }
+   draw.vertex_shader = vertex_translation.shader_module();
+   // wwe2k14 patch (Session 66, VS mul gpu_native_vs_mul_mode): a kVertex draw gets NATIVE's own translation of the vertex
+   // shader (the emulated draw keeps the one it has); the key is kept for the fast paths whether or not it applied.
+@@ -9300,6 +9327,40 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     repeat_prev_.valid = false;
+     return true;
+   }
++  // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a registered restore of what the truth images
++  // still hold is left out here, before its textures are requested (or loaded) - NativeRenderer::
++  // TruthRestoreRedundantEarly; TruthRecordDraw checks the rest again (the late check).
++  if (!memexport_used_vertex && active_pixel_shader() &&
++      native_restore_shader_count_.load(std::memory_order_acquire) && REXCVAR_GET(gpu_native_truth_skip_restores) &&
++      native_ && native_->truth()) {
++    const uint64_t hash = active_pixel_shader()->ucode_data_hash();
++    const uint32_t n = native_restore_shader_count_.load(std::memory_order_acquire);
++    for (uint32_t i = 0; i < n; ++i) {
++      const NativeRestoreShader& r = native_restore_shaders_[i];
++      if (r.hash != hash) continue;
++      const auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++      const auto color_info = regs.Get<reg::RB_COLOR_INFO>();
++      const auto depth_info = regs.Get<reg::RB_DEPTH_INFO>();
++      const auto depth_control = regs.Get<reg::RB_DEPTHCONTROL>();
++      // A plain copy into a 1x k_8_8_8_8 colour target and a 20e4 depth target: RT0's colour whole, no blending,
++      // depth written always, no stencil.
++      if (surface_info.msaa_samples == xenos::MsaaSamples::k1X &&
++          color_info.color_format == xenos::ColorRenderTargetFormat::k_8_8_8_8 &&
++          depth_info.depth_format == xenos::DepthRenderTargetFormat::kD24FS8 &&
++          (regs[XE_GPU_REG_RB_COLOR_MASK] & 0xFu) == 0xFu && regs[XE_GPU_REG_RB_BLENDCONTROL0] == 0x00010001u &&
++          !depth_control.stencil_enable && depth_control.z_write_enable &&
++          (!depth_control.z_enable || depth_control.zfunc == xenos::CompareFunction::kAlways) &&
++          native_->TruthRestoreRedundantEarly(surface_info.surface_pitch, color_info.color_base,
++                                              depth_info.depth_base,
++                                              regs.GetTextureFetch(r.color_fetch).base_address,
++                                              regs.GetTextureFetch(r.depth_fetch).base_address)) {
++        anatomy_skip_reason_ = kAnatomySkipOther;
++        repeat_prev_.valid = false;
++        return true;
++      }
++      break;
++    }
++  }
+   // wwe2k14 patch (Session 27.5, DRAWPROBE, debug): gpu_debug_draw_probe / gpu_debug_skip_index_base.
+   if (DrawProbeActive() && !memexport_used_vertex &&
+       DrawProbe(*vertex_shader, uint32_t(prim_type), index_count, index_buffer_info)) {
+@@ -11808,6 +11869,7 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+   if (!native_lean_draw_) native_lean_draw_ = std::make_unique<native::Draw>();
+   native::Draw& native_draw = *native_lean_draw_;
+   native_draw = *native_repeat_draw_;
++  native_draw.restore = false;  // (Session 72 part 4: its textures may differ from the base's)
+   std::copy(std::begin(current_graphics_descriptor_sets_), std::end(current_graphics_descriptor_sets_),
+             native_draw.sets);
+   native_draw.sets_bound = native_sets_needed_;
+@@ -16310,6 +16372,7 @@ bool VulkanCommandProcessor::RepeatDrawFast(const Shader* vertex_shader, uint64_
+       return false;
+     }
+     native_repeat = *native_repeat_draw_;
++    native_repeat.restore = false;  // (Session 72 part 4: its textures may differ from the base's)
+     native_repeat.occlusion_query = active_occlusion_query_.valid;
+     // wwe2k14 patch (Session 45, NATIVE SYNC): its own constants may move it: no proven coverage.
+     std::fill(std::begin(native_repeat.cover), std::end(native_repeat.cover), 0);
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 84259ca8a341a4060673631fdf7fe51810534075..24e9ae7efd02ce4bd23dd6b8ab1847af5554767a 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -192,6 +192,21 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_batch_fills, false, "GPU/Native",
+                     "barrier pair for the batch instead of one per fill, and the batch is no longer flushed by every "
+                     "fill)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_skip_restores, false, "GPU/Native",
++                    "Session 72 part 4: in truth frames, a draw of a registered restore shader "
++                    "(CommandProcessor::RegisterNativeRestoreShader: it writes back the colour and depth two resolves "
++                    "took out) is left out when its two textures were resolved this frame, at the origin, from the very "
++                    "images it draws into, nothing has drawn into those images since, and the draw is a plain copy "
++                    "(whole colour mask, no blending, depth written always, no stencil write): the images still hold "
++                    "those pixels (depth at its full precision - the restore would round it to 20e4)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_skip_repeat_resolves, false, "GPU/Native",
++                    "Session 72 part 4: in truth frames, a resolve whose copy a direct path already did this frame with "
++                    "every register the same, from an image no truth draw went into since (and that still owns the "
++                    "copied tiles), with nothing copied into the destination since, records no GPU work (its clear "
++                    "still runs; not in readback windows) - entrances copy the scene's colour and depth twice around a "
++                    "restore gpu_native_truth_skip_restores leaves out")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_skip_alias, false, "GPU/Native",
+                     "Diagnostic (Session 59), the picture is WRONG with it on: tiles another truth image owns are not "
+                     "brought in (no staging stores, no alias loads) - the upper bound of loading them straight from "
+@@ -935,6 +950,7 @@ void NativeRenderer::RetireTruthAll() {
+   truth_spares_.clear();
+   truth_images_.clear();
+   truth_tile_color_ = truth_tile_depth_ = -1;  // (image indices start again)
++  for (RestoreSource& s : restore_sources_) s.frame = UINT64_MAX;  // Session 72 part 4 (their indices are gone)
+   TruthClearOwners();
+ }
+ 
+@@ -2436,6 +2452,12 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+   if (scaled && texture_set != VK_NULL_HANDLE && REXCVAR_GET(gpu_native_truth_debug_scaled_texture_only)) {
+     pc[9] |= 0x400u;
+   }
++  // Session 72 part 4 (gpu_native_truth_skip_restores): from here on the copy is recorded (deferred or now).
++  TruthNoteRestoreSource(info, index,
++                         pc[5] == 0 && pc[6] == 0 && info.copy_dest_coordinate_info.offset_x_div_8 == 0 &&
++                             info.copy_dest_coordinate_info.offset_y_div_8 == 0,
++                         scale_x * uint32_t(info.coordinate_info.width_div_8) * 8,
++                         scale_y * uint32_t(info.height_div_8) * 8);
+   // Session 52 (gpu_native_truth_batch_resolves): a texture-only resolve is deferred (see TruthFlushDeferredSlow).
+   {
+     bool same_texture = false;
+@@ -3334,6 +3356,8 @@ bool NativeRenderer::TruthResolveDepth1x(const draw_util::ResolveInfo& info, uin
+   b.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+   std::swap(b.oldLayout, b.newLayout);
+   cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, kDepthStages, 0, 0, nullptr, 0, nullptr, 1, &b);
++  // Session 72 part 4 (gpu_native_truth_skip_restores).
++  TruthNoteRestoreSource(info, index, src_x == 0 && src_y == 0 && ((dest_coordinate_info >> 20) & 0xFFu) == 0, w, h);
+   ++truth_counts_.direct;
+   ++truth_counts_.direct_depth;
+   if (segment_log_frames_ > 0) {
+@@ -4482,8 +4506,180 @@ bool NativeRenderer::TruthFillOnly(const draw_util::ResolveInfo& info,
+   return true;
+ }
+ 
++// Session 72 part 4 (gpu_native_truth_skip_repeat_resolves): every register of a resolve that decides what its copy
++// writes and where (FNV-1a over them).
++static uint64_t ResolveKey(const draw_util::ResolveInfo& info) {
++  const uint32_t v[] = {info.rb_copy_control.value,       info.depth_edram_info.packed,
++                        info.color_edram_info.packed,     info.depth_original_base,
++                        info.color_original_base,         info.coordinate_info.packed,
++                        info.height_div_8,                info.copy_dest_info.value,
++                        info.copy_dest_coordinate_info.packed, info.copy_dest_base,
++                        info.copy_dest_extent_start,      info.copy_dest_extent_length,
++                        info.copy_dest_texture_base,      info.copy_dest_base_x,
++                        info.copy_dest_base_y};
++  uint64_t h = 1469598103934665603ull;
++  for (const uint32_t x : v) {
++    h ^= x;
++    h *= 1099511628211ull;
++  }
++  return h;
++}
++
++bool NativeRenderer::TruthResolveRedundant(const draw_util::ResolveInfo& info) {
++  if (!enabled_ || !truth_ || !replacing_ || truth_failed_ || !REXCVAR_GET(gpu_native_truth_skip_repeat_resolves) ||
++      command_processor_.NativeResolveReadback()) {
++    return false;
++  }
++  const uint64_t key = ResolveKey(info);
++  for (const RestoreSource& s : restore_sources_) {
++    if (s.frame != frame_ || s.key != key || s.image < 0 || size_t(s.image) >= truth_images_.size()) continue;
++    const uint64_t writes = size_t(s.image) < truth_image_writes_.size() ? truth_image_writes_[s.image] : 0;
++    if (s.writes != writes) return false;
++    uint32_t base = 0, row_length = 0, rows = 0, pitch = 0;
++    info.GetCopyEdramTileSpan(base, row_length, rows, pitch);
++    if (!rows || !row_length) return false;
++    const std::bitset<2048>& owned = truth_images_[s.image].owned;
++    for (uint32_t r = 0; r < rows; ++r) {
++      for (uint32_t c = 0; c < row_length; ++c) {
++        if (!owned.test((base + r * pitch + c) & 2047u)) return false;
++      }
++    }
++    ++truth_counts_.repeat_resolves_skipped;
++    if (segment_log_frames_ > 0) {
++      REXGPU_INFO("[native][seg] frame {} truth resolve into page 0x{:05X} from image {}: the same copy as before, "
++                  "left out",
++                  frame_, info.copy_dest_base >> 12, s.image);
++    }
++    return true;
++  }
++  return false;
++}
++
++void NativeRenderer::TruthNoteRestoreSource(const draw_util::ResolveInfo& info, int16_t index, bool at_origin,
++                                            uint32_t width, uint32_t height) {
++  if (!REXCVAR_GET(gpu_native_truth_skip_restores) && !REXCVAR_GET(gpu_native_truth_skip_repeat_resolves)) return;
++  restore_source_fresh_ = -1;
++  if (index < 0) return;
++  const uint32_t page = info.copy_dest_base >> 12;
++  // (One entry a page: a later copy into the page replaces it.)
++  uint32_t slot = restore_source_next_;
++  for (uint32_t i = 0; i < restore_sources_.size(); ++i) {
++    if (restore_sources_[i].page == page && restore_sources_[i].frame != UINT64_MAX) {
++      slot = i;
++      break;
++    }
++  }
++  if (slot == restore_source_next_) restore_source_next_ = (restore_source_next_ + 1) % uint32_t(restore_sources_.size());
++  RestoreSource& s = restore_sources_[slot];
++  s.page = page;
++  s.image = index;
++  s.writes = size_t(index) < truth_image_writes_.size() ? truth_image_writes_[index] : 0;
++  s.frame = frame_;
++  s.width = width;
++  s.height = height;
++  s.extent_start = info.copy_dest_extent_start;
++  s.extent_end = info.copy_dest_extent_start + info.copy_dest_extent_length;
++  s.claims = truth_frame_draws_;
++  s.at_origin = at_origin;
++  s.key = ResolveKey(info);
++  restore_source_fresh_ = int32_t(slot);
++}
++
++bool NativeRenderer::TruthRestoreRedundantEarly(uint32_t surface_pitch, uint32_t color_base, uint32_t depth_base,
++                                                uint32_t color_page, uint32_t depth_page) {
++  if (!enabled_ || !truth_ || !replacing_ || truth_failed_) return false;
++  const int16_t color = TruthOwnerOf(color_base & 2047u), depth = TruthOwnerOf(depth_base & 2047u);
++  if (color < 0 || depth < 0) return false;
++  const TruthImage& c = truth_images_[color];
++  const TruthImage& d = truth_images_[depth];
++  const uint32_t pitch_tiles = std::max(1u, (surface_pitch + 79) / 80);
++  if (c.kind != 1 || c.format != 0 || c.base != color_base || c.pitch_tiles != pitch_tiles || !c.initialized ||
++      d.kind != 3 || d.base != depth_base || d.pitch_tiles != pitch_tiles || !d.initialized ||
++      TruthTwinPitch(c.pitch_tiles)) {
++    return false;
++  }
++  const RestoreSource* sources[2] = {};
++  const uint32_t pages[2] = {color_page, depth_page};
++  const int16_t images[2] = {color, depth};
++  for (int i = 0; i < 2; ++i) {
++    const uint64_t writes = size_t(images[i]) < truth_image_writes_.size() ? truth_image_writes_[images[i]] : 0;
++    for (const RestoreSource& s : restore_sources_) {
++      if (s.frame == frame_ && s.at_origin && s.page == pages[i] && s.image == images[i] && s.writes == writes &&
++          s.claims == truth_frame_draws_) {
++        sources[i] = &s;
++        break;
++      }
++    }
++    if (!sources[i]) return false;
++  }
++  // The copied rectangle (both from the origin; the smaller one) still the images' own, tile by tile.
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  const uint32_t w = std::min(sources[0]->width, sources[1]->width) / scale_x;
++  const uint32_t h = std::min(sources[0]->height, sources[1]->height) / scale_y;
++  if (!w || !h) return false;
++  if ((EdramTiles(c.base, c.pitch_tiles, c.is_64bpp(), 0, 0, w, h) & ~c.owned).any() ||
++      (EdramTiles(d.base, d.pitch_tiles, false, 0, 0, w, h) & ~d.owned).any()) {
++    return false;
++  }
++  ++truth_counts_.restores_skipped;
++  if (segment_log_frames_ > 0) {
++    REXGPU_INFO("[native][seg] frame {} truth restore into colour {} depth {} (textures 0x{:05X} / 0x{:05X}): left out "
++                "before its textures were requested",
++                frame_, color, depth, color_page, depth_page);
++  }
++  return true;
++}
++
++bool NativeRenderer::TruthRestoreRedundant(const Draw& draw, int16_t color, int16_t depth, const int32_t* rect) {
++  if (draw.instance_count != 1 || draw.truth_color != color || draw.truth_depth != depth || color < 0 || depth < 0) {
++    return false;
++  }
++  const TruthImage& c = truth_images_[color];
++  const TruthImage& d = truth_images_[depth];
++  if (c.base == kTruthScratchBase || d.base == kTruthScratchBase || c.kind != 1 || d.kind != 3) return false;
++  // A plain copy: every colour channel written, nothing blended; depth written wherever it draws; stencil untouched.
++  if ((draw.color_write_mask & 0xF) != 0xF || PostNeedsDst(draw) || !draw.raster.depth_write ||
++      (draw.raster.depth_test && draw.raster.depth_compare != VK_COMPARE_OP_ALWAYS) ||
++      (draw.raster.stencil && (draw.stencil_write_masks[0] || draw.stencil_write_masks[1]))) {
++    return false;
++  }
++  // Both textures copied this frame, from the image's origin into the texture's, at least the drawn rectangle, out of
++  // the very image the draw writes, no truth draw into that image since.
++  const auto from = [&](uint32_t page, int16_t index) {
++    const uint64_t writes = size_t(index) < truth_image_writes_.size() ? truth_image_writes_[index] : 0;
++    for (const RestoreSource& s : restore_sources_) {
++      if (s.frame == frame_ && s.at_origin && s.page == page && s.image == index && s.writes == writes && rect[0] >= 0 &&
++          rect[1] >= 0 && uint32_t(rect[2]) <= s.width && uint32_t(rect[3]) <= s.height) {
++        return true;
++      }
++    }
++    return false;
++  };
++  if (!from(draw.restore_color_page, color) || !from(draw.restore_depth_page, depth)) return false;
++  // And the images still own every tile the draw covers (another image drawing there takes a tile over).
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  const uint32_t gx0 = uint32_t(rect[0]) / scale_x, gy0 = uint32_t(rect[1]) / scale_y;
++  const uint32_t gx1 = (uint32_t(rect[2]) + scale_x - 1) / scale_x, gy1 = (uint32_t(rect[3]) + scale_y - 1) / scale_y;
++  return (EdramTiles(c.base, c.pitch_tiles, c.is_64bpp(), gx0, gy0, gx1, gy1) & ~c.owned).none() &&
++         (EdramTiles(d.base, d.pitch_tiles, false, gx0, gy0, gx1, gy1) & ~d.owned).none();
++}
++
+ void NativeRenderer::TruthAfterResolveMarked(const draw_util::ResolveInfo& info) {
+   if (alias_frames_left_ > 0 && enabled_) AliasNoteResolve(info);  // wwe2k14 patch (Session 66, G1.0)
++  // Session 72 part 4 (gpu_native_truth_skip_restores): a copy into a recorded page (other than the record this copy
++  // made itself) - the texture no longer holds that image's pixels.
++  if (REXCVAR_GET(gpu_native_truth_skip_restores)) {
++    const uint64_t start = info.copy_dest_extent_start, end = start + info.copy_dest_extent_length;
++    for (uint32_t i = 0; i < restore_sources_.size(); ++i) {
++      RestoreSource& s = restore_sources_[i];
++      if (int32_t(i) != restore_source_fresh_ && s.frame != UINT64_MAX && s.extent_end > start && s.extent_start < end) {
++        s.frame = UINT64_MAX;
++      }
++    }
++    restore_source_fresh_ = -1;
++  }
+   if (!truth_wb_skipped_) return;
+   truth_wb_skipped_ = false;
+   VulkanSharedMemory* shared_memory = command_processor_.NativeSharedMemory();
+@@ -4696,6 +4892,21 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   rect[0] = std::clamp(rect[0], 0, int32_t(fb_width)), rect[1] = std::clamp(rect[1], 0, int32_t(fb_height));
+   rect[2] = std::clamp(rect[2], rect[0], int32_t(fb_width)), rect[3] = std::clamp(rect[3], rect[1], int32_t(fb_height));
+   if (rect[2] <= rect[0] || rect[3] <= rect[1]) return;  // nothing to draw
++  // Session 72 part 4 (gpu_native_truth_skip_restores): a restore of what the images still hold is left out.
++  if (draw.restore && REXCVAR_GET(gpu_native_truth_skip_restores)) {
++    const bool redundant = !twins && TruthRestoreRedundant(draw, color, depth, rect);
++    ++(redundant ? truth_counts_.restores_skipped : truth_counts_.restores_drawn);
++    if (segment_log_frames_ > 0) {
++      REXGPU_INFO("[native][seg] frame {} truth restore {:016X} into colour {} depth {} (textures 0x{:05X} / 0x{:05X}) "
++                  "rect {},{}-{},{}: {}",
++                  frame_, draw.pixel_shader_hash, color, depth, draw.restore_color_page, draw.restore_depth_page,
++                  rect[0], rect[1], rect[2], rect[3], redundant ? "left out" : "drawn");
++    }
++    if (redundant) {
++      add_time(slot);
++      return;
++    }
++  }
+   // Session 52 (gpu_native_truth_batch_rename): a draw outside a renamed image's rectangle needs its other pixels.
+   for (const int16_t index : {color, depth}) {  // (Session 56: a renamed depth image too)
+     if (truth_images_[index].rename_source == VK_NULL_HANDLE) continue;
+@@ -5114,6 +5325,12 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     ++truth_counts_.clear_attachments;
+   }
+   if (twins) truth_images_[color].draw_dirty = truth_images_[depth].draw_dirty = true;  // Session 54
++  // Session 72 part 4 (gpu_native_truth_skip_restores): the images this draw went into.
++  if (size_t(std::max(color, depth)) >= truth_image_writes_.size()) {
++    truth_image_writes_.resize(size_t(std::max(color, depth)) + 1, 0);
++  }
++  ++truth_image_writes_[color];
++  ++truth_image_writes_[depth];
+   // Session 47 (review): not a draw cut to its proven coverage (a merged repeat may be elsewhere: repeats have none).
+   truth_last_recorded_ = draw.instance_count == 1 &&
+                          !(draw.screen_space && draw.cover[2] > draw.cover[0] && draw.cover[3] > draw.cover[1]);
+@@ -5577,14 +5794,16 @@ void NativeRenderer::LogTruthCensus() {
+                 "{:.1f}), direct copies {:.1f} (depth {:.1f}), store dispatches {:.1f}, alias reads {:.1f}; images {}{}; skipped "
+                 "while their pipeline was made {} (made at once instead, not the screen: {}); textures filled by copy {:.1f} (refused {:.1f}; packed {:.1f}, of them "
+                 "into the texture's storage view {:.1f}, deferred {:.1f}); resolves deferred {:.1f} in {:.1f} batches, renames {:.1f}, textures made sampleable before a pass {:.1f}, depth renames {:.1f}, real depth clears {:.1f}, passes not loading colour {:.1f} / depth {:.1f}; draw twins: made {:.2f}, read {:.1f}; lazy passes "
+-                "{:.1f} with no barrier, {:.1f} with one",
++                "{:.1f} with no barrier, {:.1f} with one; restores left out {:.2f}, drawn {:.2f}; repeated copies "
++                "left out {:.2f}",
+                 frame_ + 1 - report_.frames, frame_, c.frames, c.fallbacks, reasons.empty() ? "none" : reasons,
+                 pf(c.passes), pf(c.draws), pf(c.loads), pf(c.writeouts), pf(c.staged), pf(c.staged_edram), pf(c.direct),
+                 pf(c.direct_depth), pf(c.store_dispatches), pf(c.alias_reads), truth_images_.size(), gpu, c.compiling, c.waited, pf(c.filled),
+                 pf(c.fill_refused), pf(c.fill_packed), pf(c.fill_direct), pf(c.fills_deferred), pf(c.deferred), pf(c.deferred_batches), pf(c.renames), pf(c.early_sampled), pf(c.depth_renames), pf(c.clear_attachments), pf(c.dont_care_color), pf(c.dont_care_depth),
+                 pf(c.twin_blits[0]), pf(c.twin_blits[1]),
+                 double(command_processor_.deferred_command_buffer().lazy_begins_free() - truth_lazy_free_) / frames,
+-                double(command_processor_.deferred_command_buffer().lazy_begins_synced() - truth_lazy_synced_) / frames);
++                double(command_processor_.deferred_command_buffer().lazy_begins_synced() - truth_lazy_synced_) / frames,
++                pf(c.restores_skipped), pf(c.restores_drawn), pf(c.repeat_resolves_skipped));
+     truth_lazy_free_ = command_processor_.deferred_command_buffer().lazy_begins_free();
+     truth_lazy_synced_ = command_processor_.deferred_command_buffer().lazy_begins_synced();
+     {  // Session 66 (G1.1, gpu_native_truth_drop_dead_resolves): dropped entries, flushes of the deferred batch by reason
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index ebee89c7f755730eb6b7da50a408329741972450..3a79c39aa567a2961f8c018f65bdbf8d7e6b4dfc 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1200,7 +1200,13 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+         resolve_info.GetCopyShader(draw_resolution_scale_x(), draw_resolution_scale_y(),
+                                    copy_shader_constants, copy_group_count_x, copy_group_count_y);
+     assert_true(copy_group_count_x && copy_group_count_y);
+-    if (copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown) {
++    // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_repeat_resolves): the very copy a direct path did this
++    // frame, from an image nothing has drawn into since: its destination holds it already - no GPU work, no new marks
++    // (the clear below still runs).
++    if (copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown &&
++        command_processor_.NativeTruthResolveRedundant(resolve_info)) {
++      copied = true;
++    } else if (copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown) {
+       const draw_util::ResolveCopyShaderInfo& copy_shader_info =
+           draw_util::resolve_copy_shader_info[size_t(copy_shader)];
+       bool direct_resolved = false;

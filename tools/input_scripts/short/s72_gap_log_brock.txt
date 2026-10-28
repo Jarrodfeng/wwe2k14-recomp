@@ -1,0 +1,31 @@
+# harness: fastforward
+# Session 72 part 4 (pass / copy overhead): what fills the GPU time between NATIVE truth passes. As s72_pass_log.txt
+# (Brock's entrance +300 only), with the segment log (gpu_native_segment_log)
+# on for the same frame as the pass log, so each pass's "before it" gap can be matched to the resolves, fills and
+# stores recorded before it. Run with --wwe2k14_replay_play=s21_lb --wwe2k14_use_launcher_settings=true and a NATIVE
+# test settings file (out\s72\settings_native1440.json); read with py -I tools\native\pass_log.py RUN --frames.
+on_fail quit
+log bench: start s72_gap_log_brock (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 300
+log passlog: tron_343
+cvar gpu_native_segment_log 1
+cvar gpu_native_truth_pass_log 1
+wait_frames 120
+log bench: done
+quit

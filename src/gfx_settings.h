@@ -583,6 +583,16 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // of pixels identical, the rest ~1 level; 1440p 4090: match 0.126 -> 0.078 ms, entrance 0.18-0.20 -> 0.08-0.11 ms,
       // runs 4533 / 4534), Enhanced with post_effects 1 (GraphicsFlags). docs\systems\post_effects.md.
       {"gpu_native_shader_swap", "true"},
+      // Session 72 part 4 (pass / copy overhead, Jarrod at work: "keep working on it"): the colour + depth restore that
+      // follows the scene's own two resolves in entrances (src\post_swap.h kRestoreColorDepth) is left out when the
+      // truth images still hold those pixels - before its textures are requested. Bryan's entrance at 1440p: 2 of its 3
+      // restores a frame (two full-screen colour + depth writes, two 14.7 MB depth texture reloads); Brock's: 1.
+      // check_item skip_restores_early_1440 / skip_restores_720: pictures 6 / 6, hashes 467 / 467 (4584-4587, 4579-4582).
+      {"gpu_native_truth_skip_restores", "true"},
+      // Session 72 part 4: a direct copy repeated with every register the same from an image nothing drew into since
+      // records no GPU work (1-2 a frame in Brock's entrance once its restore is left out). check_item skip_repeat_1440
+      // / _720: pictures 6 / 6, hashes 467 / 467 (4590-4597); pass-log A/B 4598: Brock -3.4%.
+      {"gpu_native_truth_skip_repeat_resolves", "true"},
   };
 }
 

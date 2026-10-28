@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.2.12
+
+Entrances are lighter on the graphics card: two steps the game needed on the Xbox 360 but a PC doesn't are now left out.
+
+- **Entrances cost the graphics card less, same picture.** During entrances the game copies the finished scene (its
+  colours and its depth) out into textures and then immediately draws those textures back over the very same picture.
+  On the Xbox 360 the scene had to leave its fast video memory to be copied, so drawing it back was necessary; on a PC
+  the picture never went anywhere, so the redraw changes nothing. The game now skips it when that's the case, and also
+  skips a copy that repeats one it just made from an unchanged picture. In my tests the pictures came out identical
+  pixel for pixel (and every copy the game makes byte for byte), and entrances took 7-10% less graphics card time at
+  1440p (3-5% at 720p). Matches are unchanged. It's on for everyone with the NATIVE renderer (the default).
+- **Gameplay is unchanged.**
+
 ## v0.2.11
 
 The game's post effects (depth of field, haze, bloom) now run on a faster shader of my own, and there is a new

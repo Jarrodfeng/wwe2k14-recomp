@@ -1,0 +1,184 @@
+# harness: fastforward
+# Session 72 part 4, written by tools\native\passab_route.py: the restore draws (9A836B68) skipped (A) vs drawn (B).
+# A = gpu_debug_skip_pixel_shader=9A836B68E3F8F0B0; B = gpu_debug_skip_pixel_shader=0000000000000001.
+# 5 cycles x 4 pass-logged frames each, labels <scene>_a / <scene>_b.
+on_fail quit
+log bench: start s72_skip_restore_passab (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 300
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: brock_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: brock_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: brock_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: brock_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: brock_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: brock_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: brock_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: brock_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: brock_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: brock_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 440
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: bryan_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: bryan_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: bryan_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: bryan_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: bryan_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: bryan_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: bryan_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: bryan_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: bryan_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: bryan_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 900
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: match_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: match_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: match_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: match_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: match_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: match_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: match_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: match_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 9A836B68E3F8F0B0
+wait_frames 2
+log passlog: match_a
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 2
+log passlog: match_b
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_pixel_shader 0000000000000001
+wait_frames 60
+log bench: done
+quit
