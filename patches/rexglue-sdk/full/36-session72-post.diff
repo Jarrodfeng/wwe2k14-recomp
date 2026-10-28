@@ -1,0 +1,622 @@
+# ReXGlue SDK changes for WWE 2K14 (session72-post): d8053f39911e..e1abce8b4fb2 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  e1abce8 wwe2k14 Session 72: gpu_debug_skip_pixel_shader (skip draws by guest pixel shader hash, as gpu_debug_skip_vertex_shader)
+#  10bb27c wwe2k14 Session 72: NATIVE shader swap (gpu_native_shader_swap) and the per-pass GPU log (gpu_native_truth_pass_log)
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index c9f086942dec5c2da048e59e9cdcb6b2686452fa..300653c49cf9f5990a4eab9a7beaeac634ee9a3d 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -435,6 +435,12 @@ class CommandProcessor {
+   virtual bool half2_detached_wanted() const;
+   virtual void Half2DetachedSwitch(bool on, uint32_t write_position_virtual);
+   virtual void Half2DetachedPace();
++  // wwe2k14 patch (Session 72, gpu_native_shader_swap): the title's own fragment shader (SPIR-V, the interface in
++  // vulkan/native/shader_swap.h) for NATIVE's draws of one guest pixel shader, written for the float constant registers
++  // given (ascending); false where the backend has no NATIVE renderer or the code is not SPIR-V.
++  virtual bool RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words, size_t word_count,
++                                        const uint8_t* float_registers, size_t float_register_count,
++                                        const char* name);
+ 
+  protected:
+   std::atomic<int32_t> half2_mode_{0};
+@@ -707,6 +713,8 @@ class CommandProcessor {
+   // wwe2k14 patch (Session 16, MATTE): the whole comma-separated list (up to 64 hashes; [0] = the first).
+   uint64_t debug_skip_vertex_shader_hashes_[64] = {};
+   uint32_t debug_skip_vertex_shader_count_ = 0;
++  uint64_t debug_skip_pixel_shader_hashes_[64] = {};  // wwe2k14 patch (Session 72): gpu_debug_skip_pixel_shader
++  uint32_t debug_skip_pixel_shader_count_ = 0;
+   // wwe2k14 patch (Session 27.5, DRAWPROBE, debug): gpu_debug_draw_probe* / gpu_debug_skip_index_base, latched at
+   // each swap (DrawProbeLatch). The backend calls DrawProbe for a draw while draw_probe_frames_left_ > 0 or the
+   // skip list is set; it writes one CSV row per listed draw (swap number, draw number in the frame, shader, index
+diff --git a/include/rex/graphics/pipeline/shader/shader.h b/include/rex/graphics/pipeline/shader/shader.h
+index 22f5b9d513a278611d692dfb4c2eed6225ffc803..c2801965d19e95ffcdae15cfec21d401f564cb5b 100644
+--- a/include/rex/graphics/pipeline/shader/shader.h
++++ b/include/rex/graphics/pipeline/shader/shader.h
+@@ -802,6 +802,10 @@ class Shader {
+     std::pair<std::filesystem::path, std::filesystem::path> Dump(
+         const std::filesystem::path& base_path, const char* path_prefix) const;
+ 
++    // wwe2k14 patch (Session 72, gpu_native_shader_swap): another binary with the same interface in place of the
++    // translator's (before the module is made).
++    void ReplaceTranslatedBinary(std::vector<uint8_t> binary) { translated_binary_ = std::move(binary); }
++
+    protected:
+     Translation(Shader& shader, uint64_t modification)
+         : shader_(shader), modification_(modification) {}
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index 45d28f8661ac94fd63fb92d2c482c4266499515d..8d6503f9e03dcc5671b4eb42d67b51adbee499a1 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -30,6 +30,9 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   enum NativeExtBits : uint32_t {
+     kNativeExtEpilogueIdle = UINT32_C(1) << 0,
+     kNativeExtFma = UINT32_C(1) << 1,
++    // wwe2k14 patch (Session 72, gpu_native_shader_swap): the title's replacement module instead of the translation's
++    // (vulkan/native/shader_swap.h); the translator itself ignores it.
++    kNativeExtSwap = UINT32_C(1) << 2,
+   };
+   union Modification {
+     // If anything in this is structure is changed in a way not compatible with
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 2bedc9cb8b487d4c66b336e490d39e5ef247bc8d..c8a8690507cf076decfe5f100fc861867fab1009 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -70,6 +70,10 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool ObjmvLatched() const { return objmv_latched_; }
+   // wwe2k14 patch (Session 66, PS spec): whether the native renderer is on (the pixel shader specialisation is NATIVE's).
+   bool NativeRendererEnabled() const;
++  // wwe2k14 patch (Session 72, gpu_native_shader_swap): native/shader_swap.h.
++  bool RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words, size_t word_count,
++                                const uint8_t* float_registers, size_t float_register_count,
++                                const char* name) override;
+   // wwe2k14 patch (Session 24, DLSS): gpu_dlss_lod_bias for this draw's pixel shader (scene draws only), in quarters.
+   uint32_t DlssLodBiasQuarters() const;
+ 
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 686181a0df1c32d21aff5952462c8d3266fccd4e..52162a043cc2b2403e960b397183efffdf16659f 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -811,6 +811,12 @@ class NativeRenderer {
+       // Session 43: 0 a scene pass (with its load), 1 the scene's write-back, 2 a post pass (with its load), 3 a
+       // post write-back.
+       uint32_t kind = 0;
++      // Session 72 (gpu_native_truth_pass_log): a truth pass's size, pitch, colour image kind, whether it has a real
++      // depth image, its draws and the shaders of the draw that opened it.
++      uint16_t pass_width = 0, pass_height = 0, pass_pitch = 0;
++      uint8_t pass_color_kind = 0, pass_depth = 0;
++      uint32_t pass_draws = 0;
++      uint64_t pass_vs = 0, pass_ps = 0;
+     };
+     std::vector<Segment> segments;
+     bool parity = false, color_parity = false;
+@@ -925,6 +931,12 @@ class NativeRenderer {
+   bool AllOn(uint32_t part) const { return all_native_ && !(all_exclude_ & part); }
+   bool all_native_ = false;  // Session 45: gpu_native_all, latched per frame
+   int32_t segment_log_frames_ = 0;  // Session 45: gpu_native_segment_log frames left
++  // Session 72 (gpu_native_truth_pass_log): frames whose passes are still to be logged at readback, and the draws
++  // recorded into the open truth pass.
++  int32_t pass_log_frames_ = 0;
++  uint32_t truth_pass_draws_ = 0;
++  // Session 72 (gpu_native_truth_pass_log): one frame's timed segments, a line each, from its read timestamps.
++  void LogTruthPasses(uint64_t frame, const FrameSlot& slot, const std::vector<uint64_t>& stamps, double ms);
+   bool replace_failed_ = false;  // the load / write-back objects could not be made: side-car from then on
+   bool no_edram_logged_ = false;  // gpu_native 2 without the interlock path: logged once
+   // Replacing: our targets hold draws the EDRAM does not have yet / the EDRAM holds changes our targets do not have.
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index 5b7e33191009a3c15c4a303f7e4a361e8b3babdf..be74d60ae5e4eae13f8dde96741a98bf329b0ed4 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -57,6 +57,7 @@ set(REXGPU_XENOS_VULKAN_SOURCES
+     vulkan/texture_cache.cpp
+     vulkan/native/native_renderer.cpp
+     vulkan/native/native_truth.cpp
++    vulkan/native/shader_swap.cpp
+ )
+ 
+ # D3D12 backend
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index de8ca5f44ff5bb51b8c910f4ac8c42ba24ab8b48..e1c503eefe06462920f120f39005e05fa8b0c677 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -100,6 +100,9 @@ REXCVAR_DEFINE_STRING(gpu_debug_draw_probe_path, "", "GPU",
+ REXCVAR_DEFINE_STRING(gpu_debug_draw_probe_consts, "", "GPU",
+                       "Debug (Session 27.5): vertex float constants A-B (float4 registers, inclusive) written per "
+                       "probed draw (empty = none)");
++REXCVAR_DEFINE_STRING(gpu_debug_skip_pixel_shader, "", "GPU",
++                      "Debug (Session 72): skip draws whose guest pixel shader ucode hash is in this comma-separated "
++                      "hex list (up to 64; empty = off), as gpu_debug_skip_vertex_shader");
+ REXCVAR_DEFINE_STRING(gpu_debug_skip_index_base, "", "GPU",
+                       "Debug (Session 27.5): skip draws whose index buffer guest address is in this comma-separated "
+                       "hex list (up to 64; empty = off)");
+@@ -1918,6 +1921,15 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+       if (h) debug_skip_vertex_shader_hashes_[debug_skip_vertex_shader_count_++] = h;
+       pos = end + 1;
+     }
++    // wwe2k14 patch (Session 72, debug): gpu_debug_skip_pixel_shader, the same for the pixel shader.
++    const std::string skip_ps = rex::cvar::Query<std::string>("gpu_debug_skip_pixel_shader");
++    debug_skip_pixel_shader_count_ = 0;
++    for (size_t pos = 0; pos < skip_ps.size() && debug_skip_pixel_shader_count_ < 64;) {
++      const size_t end = std::min(skip_ps.find(',', pos), skip_ps.size());
++      const uint64_t h = std::strtoull(skip_ps.substr(pos, end - pos).c_str(), nullptr, 16);
++      if (h) debug_skip_pixel_shader_hashes_[debug_skip_pixel_shader_count_++] = h;
++      pos = end + 1;
++    }
+   }
+   DrawProbeLatch();  // wwe2k14 patch (Session 27.5, DRAWPROBE)
+   // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split summary.
+diff --git a/src/graphics/half2_log.cpp b/src/graphics/half2_log.cpp
+index 5afb1be8d318ee028f6e94fe849ad09e1a71e07e..63b4eb8adb4a38646f29c7f46f01abc14c0a52cf 100644
+--- a/src/graphics/half2_log.cpp
++++ b/src/graphics/half2_log.cpp
+@@ -967,6 +967,12 @@ void CommandProcessor::Half2DetachedPace() {
+   }
+ }
+ 
++// wwe2k14 patch (Session 72): no NATIVE renderer here (VulkanCommandProcessor overrides it).
++bool CommandProcessor::RegisterNativeShaderSwap(uint64_t, const uint32_t*, size_t, const uint8_t*, size_t,
++                                                const char*) {
++  return false;
++}
++
+ bool CommandProcessor::half2_detached_wanted() const {
+   const Half2Log* log = half2_log_.load(std::memory_order_acquire);
+   return log && half2_logging() && REXCVAR_GET(gpu_native_detached) >= 2 &&
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 5f7dd60c5fb415a039996be89fd77209b3bd47c2..0dccb6004352e255a66a74603f5389e4a643f353 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -57,6 +57,7 @@
+ #include <rex/hash.h>  // wwe2k14 patch (Session 59): XXH3 for the lean multi-base census
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include "s58_stats.h"  // wwe2k14 patch (Session 58)
++#include "native/shader_swap.h"  // wwe2k14 patch (Session 72, gpu_native_shader_swap)
+ #include <rex/graphics/vulkan/native/native_renderer.h>  // wwe2k14 patch (Session 38, NATIVE)
+ #include <rex/graphics/vulkan/pipeline_cache.h>
+ #include <rex/graphics/vulkan/render_target_cache.h>
+@@ -83,6 +84,7 @@ REXCVAR_DECLARE(int32_t, readback_resolve_override);  // wwe2k14 patch (Session
+ // wwe2k14 patch (Session 66, B2.0 / B2.1): see VulkanPipelineCache::GetVertexFetchEndianKey and VertexCensusDraw.
+ REXCVAR_DECLARE(bool, gpu_native_vertex_endian_spec);
+ REXCVAR_DECLARE(bool, gpu_native_ps_epilogue_spec);  // wwe2k14 patch (Session 66, native_ext)
++REXCVAR_DECLARE(bool, gpu_native_shader_swap);       // wwe2k14 patch (Session 72, native/shader_swap.cpp)
+ REXCVAR_DECLARE(int32_t, gpu_native_fma);
+ REXCVAR_DEFINE_INT32(gpu_native_ps_census, 0, "GPU/Native",
+                      "Session 66 (PS spec 1, diagnostic, log only): for this many frames, count per pixel shader the "
+@@ -7436,8 +7438,19 @@ uint32_t VulkanCommandProcessor::NativePixelExt(const Shader* pixel_shader, bool
+   if (!census && (spec.fma & 1)) {
+     ext |= SpirvShaderTranslator::kNativeExtFma;
+   }
++  // wwe2k14 patch (Session 72, gpu_native_shader_swap): the title's replacement, for a draw whose colour epilogue does
++  // nothing (the replacement writes its colour as it is: no alpha test, exponent bias or gamma of its own).
++  if (!census && (ext & SpirvShaderTranslator::kNativeExtEpilogueIdle) && REXCVAR_GET(gpu_native_shader_swap) &&
++      shader_swap::Has(pixel_shader->ucode_data_hash())) {
++    ext |= SpirvShaderTranslator::kNativeExtSwap;
++  }
+   return ext;
+ }
++bool VulkanCommandProcessor::RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words,
++                                                      size_t word_count, const uint8_t* float_registers,
++                                                      size_t float_register_count, const char* name) {
++  return shader_swap::Register(guest_pixel_shader_hash, words, word_count, float_registers, float_register_count, name);
++}
+ uint32_t VulkanCommandProcessor::NativeVertexExt() const {
+   const VulkanPipelineCache::NativeSpecLatch& spec = pipeline_cache_->NativeSpec();
+   return (spec.native && (spec.fma & 2)) ? uint32_t(SpirvShaderTranslator::kNativeExtFma) : 0u;
+@@ -9278,6 +9291,15 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     repeat_prev_.valid = false;  // wwe2k14 patch (Session 23, REPEAT)
+     return true;
+   }
++  // wwe2k14 patch (Session 72, debug): gpu_debug_skip_pixel_shader (the guest pixel shader's ucode hash).
++  if (debug_skip_pixel_shader_count_ && !memexport_used_vertex && active_pixel_shader() &&
++      std::find(debug_skip_pixel_shader_hashes_, debug_skip_pixel_shader_hashes_ + debug_skip_pixel_shader_count_,
++                active_pixel_shader()->ucode_data_hash()) !=
++          debug_skip_pixel_shader_hashes_ + debug_skip_pixel_shader_count_) {
++    anatomy_skip_reason_ = kAnatomySkipOther;
++    repeat_prev_.valid = false;
++    return true;
++  }
+   // wwe2k14 patch (Session 27.5, DRAWPROBE, debug): gpu_debug_draw_probe / gpu_debug_skip_index_base.
+   if (DrawProbeActive() && !memexport_used_vertex &&
+       DrawProbe(*vertex_shader, uint32_t(prim_type), index_count, index_buffer_info)) {
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 21aa16c2cfa732f84216ae6af820e2b61e2eec5c..197979cedb7088ef28717b4af70e4e2316a3f4b3 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -27,6 +27,7 @@
+ #include <rex/ui/renderdoc_api.h>  // Session 69 (gpu_native_truth_debug_renderdoc)
+ #include <rex/ui/vulkan/instance.h>
+ #include <rex/platform.h>  // Session 70: <windows.h> on Windows (SetThreadPriority)
++#include "shader_swap.h"   // Session 72 (gpu_native_shader_swap)
+ 
+ // Session 69 (gpu_native_truth_debug_renderdoc, native_truth.cpp): the strip clear's RenderDoc capture.
+ extern bool g_truth_rdc_active, g_truth_rdc_done;
+@@ -391,6 +392,8 @@ REXCVAR_DEFINE_INT32(gpu_native_alias_census, 0, "GPU/Native",
+ 
+ // Session 46 (gpu_native_truth): what a truth frame turns on, and what refuses it (defined in command_processor.cpp).
+ REXCVAR_DECLARE(bool, gpu_native_lean);
++REXCVAR_DECLARE(int32_t, gpu_native_truth_pass_log);  // Session 72 (native_truth.cpp)
++REXCVAR_DECLARE(bool, gpu_native_shader_swap);        // Session 72 (shader_swap.cpp)
+ REXCVAR_DECLARE(bool, gpu_edram_rename);
+ REXCVAR_DECLARE(bool, gpu_dlss);
+ REXCVAR_DECLARE(bool, gpu_dlaa);
+@@ -2238,6 +2241,11 @@ bool NativeRenderer::KeyFromRecord(const PipelineRecord& record, PipelineKey& ke
+     if ((record.ext_bits & kRecordExtKnown) && !(record.ext_bits & kRecordExtEpilogueIdle)) {
+       pixel_ext &= ~uint32_t(SpirvShaderTranslator::kNativeExtEpilogueIdle);
+     }
++    // Session 72: the title's replacement, as NativePixelExt adds it for the draw (an idle epilogue, the switch on).
++    if ((pixel_ext & SpirvShaderTranslator::kNativeExtEpilogueIdle) && REXCVAR_GET(gpu_native_shader_swap) &&
++        shader_swap::Has(record.pixel_shader_hash)) {
++      pixel_ext |= SpirvShaderTranslator::kNativeExtSwap;
++    }
+   } else if (exts) {
+     pixel_ext = exts[0];
+     vertex_ext = exts[1];
+@@ -5809,6 +5817,11 @@ void NativeRenderer::OnFrameEnd(CommandProcessor::NativeCensus& census) {
+   } else if (segment_log_frames_ > 0) {
+     --segment_log_frames_;
+   }
++  // Session 72 (gpu_native_truth_pass_log): counted down where the frames' timestamps are read.
++  if (const int32_t n = REXCVAR_GET(gpu_native_truth_pass_log); n > 0) {
++    pass_log_frames_ = n;
++    rex::cvar::SetFlagByName("gpu_native_truth_pass_log", "0");
++  }
+   cover_stats_ = mode == 2 && REXCVAR_GET(gpu_native_cover_stats);
+   // Session 43 (review): the post objects exist before the first post claim, so PostReason knows the depth format
+   // (a frame whose only post draws test depth would otherwise never make them).
+@@ -5945,6 +5958,7 @@ void NativeRenderer::ReadFinishedFrames() {
+             }
+           }
+         }
++        if (pass_log_frames_ > 0) LogTruthPasses(f, slot, stamps, ms);  // Session 72
+       }
+     }
+     if (slot.dump) WriteDump(f);
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index acf34567dcbb93838cb19aea19e95d1b9c26660f..84259ca8a341a4060673631fdf7fe51810534075 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -155,6 +155,12 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_fill_direct_small, false, "GPU/Native",
+ // Session 52 (step 0, diagnostic: where the truth passes' GPU time goes).
+ // (Session 69 diagnostic: TruthStoreMany logs its decisions while a logged span is staged.)
+ static bool g_truth_debug_store = false;
++REXCVAR_DEFINE_INT32(gpu_native_truth_pass_log, 0, "GPU/Native",
++                     "Diagnostic (Session 72): the next N frames' truth passes logged one line each when their GPU "
++                     "timestamps are read ([native][pass]: size, pitch, draws, the opening draw's shaders, GPU ms of the "
++                     "pass and of the work before it); resets itself to 0 (live: cvar gpu_native_truth_pass_log N)")
++    .range(0, 64)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_renderdoc, false, "GPU/Native",
+                     "Diagnostic (Session 69, red block): with RenderDoc attached, a frame capture starts right before "
+                     "the first colour fast clear at x 960 of a gpu_native_truth_debug_span_pitch pass and ends two "
+@@ -4153,6 +4159,38 @@ void NativeRenderer::TruthTimer(uint32_t kind, bool begin) {
+   cb.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_, query_base + segment.native_end);
+ }
+ 
++void NativeRenderer::LogTruthPasses(uint64_t frame, const FrameSlot& slot, const std::vector<uint64_t>& stamps,
++                                    double ms) {
++  // Session 72: the frame's segments in recording order - each pass's own time, and the GPU work between the end of
++  // the previous timed segment and its start (resolves, copies, stores and barriers recorded outside the passes).
++  --pass_log_frames_;
++  uint64_t first = UINT64_MAX, last = 0, prev_end = UINT64_MAX;
++  double passes_ms = 0.0, between_ms = 0.0;
++  uint32_t n = 0;
++  for (const FrameSlot::Segment& s : slot.segments) {
++    if (s.native_begin == UINT32_MAX || s.native_end == UINT32_MAX || s.native_begin >= stamps.size() ||
++        s.native_end >= stamps.size()) {
++      continue;
++    }
++    const uint64_t b = stamps[s.native_begin], e = stamps[s.native_end];
++    if (e < b) continue;
++    const double own = double(e - b) * ms;
++    const double before = prev_end != UINT64_MAX && b >= prev_end ? double(b - prev_end) * ms : 0.0;
++    first = std::min(first, b);
++    last = std::max(last, e);
++    prev_end = e;
++    passes_ms += own;
++    between_ms += before;
++    REXGPU_INFO("[native][pass] frame {} #{} kind {} {}x{} pitch {} colour kind {} depth {} draws {} vs {:016X} ps "
++                "{:016X}: {:.3f} ms (before it {:.3f} ms)",
++                frame, n++, s.kind, s.pass_width, s.pass_height, s.pass_pitch, s.pass_color_kind, s.pass_depth,
++                s.pass_draws, s.pass_vs, s.pass_ps, own, before);
++  }
++  REXGPU_INFO("[native][pass] frame {}: {} timed segments, {:.3f} ms in them, {:.3f} ms between them, {:.3f} ms first "
++              "to last",
++              frame, n, passes_ms, between_ms, last > first ? double(last - first) * ms : 0.0);
++}
++
+ void NativeRenderer::TruthNoteWriteBack(bool direct, uint32_t bytes) {
+   if (!ram_stats_ || !truth_ || !replacing_ || truth_wb_skipped_) return;  // (Session 49: texture-only: none)
+   if (direct) {
+@@ -4571,6 +4609,7 @@ void NativeRenderer::EndTruthPass() {
+   FrameSlot& slot = slots_[SlotOf(frame_)];
+   if (truth_pass_segment_index_ < slot.segments.size() && slot.queries < QueryLimit()) {
+     FrameSlot::Segment& segment = slot.segments[truth_pass_segment_index_];
++    segment.pass_draws = truth_pass_draws_;  // Session 72 (gpu_native_truth_pass_log)
+     segment.native_end = slot.queries++;
+     cb.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_,
+                            SlotOf(frame_) * kQueriesPerFrame + segment.native_end);
+@@ -4810,6 +4849,13 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     if (query_pool_ && slot_queries_ok_ && slot.queries + 2 <= QueryLimit()) {
+       FrameSlot::Segment& segment = slot.segments.emplace_back();
+       segment.kind = 4;
++      segment.pass_width = uint16_t(pass_width);  // Session 72 (gpu_native_truth_pass_log)
++      segment.pass_height = uint16_t(pass_height);
++      segment.pass_pitch = uint16_t(pitch);
++      segment.pass_color_kind = uint8_t(c_image.kind);
++      segment.pass_depth = d_real ? 1 : 0;
++      segment.pass_vs = draw.vertex_shader_hash;
++      segment.pass_ps = draw.pixel_shader_hash;
+       segment.native_begin = slot.queries++;
+       cb.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_,
+                              SlotOf(frame_) * kQueriesPerFrame + segment.native_begin);
+@@ -4877,6 +4923,7 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     }
+     truth_pass_lazy_ = lazy;
+     truth_pass_open_ = true;
++    truth_pass_draws_ = 0;  // Session 72 (gpu_native_truth_pass_log)
+     truth_pass_color_ = color;
+     truth_pass_depth_ = depth;
+     truth_pass_class_ = draw.truth_class;
+@@ -5048,6 +5095,7 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     cb.CmdVkDraw(vertex_count, instance_count, 0, 0);
+   }
+   if (xfb) command_processor_.NativeXfbEnd();
++  ++truth_pass_draws_;  // Session 72 (gpu_native_truth_pass_log)
+   // Session 56 (gpu_native_truth_clear_attachments): a fast clear's depth and stencil cleared again, for real.
+   if (debug_gpu_work != 2 && draw.fast_clear && draw.clear_depth >= 0.0f && uses_depth && draw.raster.depth_test &&
+       draw.raster.depth_write && draw.raster.depth_compare == VK_COMPARE_OP_ALWAYS &&
+diff --git a/src/graphics/vulkan/native/shader_swap.cpp b/src/graphics/vulkan/native/shader_swap.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..59125f6bc9a46f745505dee227b4b2a0a9a9c56f
+--- /dev/null
++++ b/src/graphics/vulkan/native/shader_swap.cpp
+@@ -0,0 +1,160 @@
++// wwe2k14 patch (Session 72, gpu_native_shader_swap): see shader_swap.h.
++
++#include "shader_swap.h"
++
++#include <atomic>
++#include <cstring>
++#include <memory>
++#include <mutex>
++#include <string>
++#include <unordered_set>
++
++#include <rex/cvar.h>
++#include <rex/graphics/pipeline/shader/spirv.h>
++#include <rex/logging.h>
++
++REXCVAR_DEFINE_BOOL(gpu_native_shader_swap, false, "GPU/Native",
++                    "Session 72: NATIVE's draws use the title's own fragment shaders in place of the guest pixel "
++                    "shaders it registered (CommandProcessor::RegisterNativeShaderSwap; the same passes, textures and "
++                    "constants); false = the translated guest shaders. Live: the next draws make their own pipelines")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++namespace rex::graphics::vulkan::shader_swap {
++
++namespace {
++struct Entry {
++  uint64_t hash = 0;
++  std::vector<uint32_t> words;
++  uint64_t float_bitmap[4] = {};
++  std::string name;
++};
++// Copy on write: readers take the current table without a lock; replaced tables are kept (a handful a run).
++struct Table {
++  std::vector<std::shared_ptr<const Entry>> entries;
++};
++std::mutex g_mutex;
++std::atomic<const Table*> g_table{nullptr};
++std::vector<std::unique_ptr<Table>> g_tables;
++std::unordered_set<uint64_t> g_logged;
++
++std::shared_ptr<const Entry> Find(uint64_t hash) {
++  const Table* table = g_table.load(std::memory_order_acquire);
++  if (!table) return nullptr;
++  for (const auto& e : table->entries) {
++    if (e->hash == hash) return e;
++  }
++  return nullptr;
++}
++
++// Once per shader and reason.
++bool Refuse(uint64_t hash, const char* name, const char* why) {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (g_logged.insert(hash).second) {
++    REXGPU_WARN("[native][swap] pixel shader {:016X} ('{}'): not swapped - {}", hash, name, why);
++  }
++  return false;
++}
++}  // namespace
++
++bool Register(uint64_t guest_hash, const uint32_t* words, size_t count, const uint8_t* float_registers,
++              size_t float_register_count, const char* name) {
++  if (!words || count < 5 || words[0] != 0x07230203u) {
++    REXGPU_WARN("[native][swap] '{}': not SPIR-V, not registered", name ? name : "");
++    return false;
++  }
++  auto entry = std::make_shared<Entry>();
++  entry->hash = guest_hash;
++  entry->words.assign(words, words + count);
++  for (size_t i = 0; i < float_register_count; ++i) {
++    entry->float_bitmap[float_registers[i] >> 6] |= uint64_t(1) << (float_registers[i] & 63);
++  }
++  entry->name = name ? name : "";
++  std::lock_guard<std::mutex> lock(g_mutex);
++  auto table = std::make_unique<Table>();
++  if (const Table* old = g_table.load(std::memory_order_relaxed)) {
++    for (const auto& e : old->entries) {
++      if (e->hash != guest_hash) table->entries.push_back(e);
++    }
++  }
++  table->entries.push_back(entry);
++  g_table.store(table.get(), std::memory_order_release);
++  g_tables.push_back(std::move(table));
++  g_logged.erase(guest_hash);
++  REXGPU_INFO("[native][swap] pixel shader {:016X}: '{}' registered ({} words, {} float constants)", guest_hash,
++              entry->name, count, float_register_count);
++  return true;
++}
++
++bool Has(uint64_t guest_hash) {
++  const Table* table = g_table.load(std::memory_order_acquire);
++  if (!table) return false;
++  for (const auto& e : table->entries) {
++    if (e->hash == guest_hash) return true;
++  }
++  return false;
++}
++
++bool Build(const SpirvShader& shader, std::vector<uint8_t>& out) {
++  const uint64_t hash = shader.ucode_data_hash();
++  const std::shared_ptr<const Entry> entry = Find(hash);
++  if (!entry) return false;
++  const char* name = entry->name.c_str();
++  const Shader::ConstantRegisterMap& constants = shader.constant_register_map();
++  if (constants.float_dynamic_addressing) return Refuse(hash, name, "the guest shader indexes its constants");
++  for (int i = 0; i < 4; ++i) {
++    if (constants.float_bitmap[i] != entry->float_bitmap[i]) {
++      return Refuse(hash, name, "the guest shader uses other float constants than the replacement was written for");
++    }
++  }
++  const auto& textures = shader.GetTextureBindingsAfterTranslation();
++  const auto& samplers = shader.GetSamplerBindingsAfterTranslation();
++  std::vector<uint32_t> words = entry->words;
++  // The canonical set-3 bindings to the translation's: images first (in the translation's order), then samplers.
++  const auto remap = [&](uint32_t value, uint32_t& binding) {
++    if (value >= kSampler && value < kSampler + 32) {
++      for (size_t j = 0; j < samplers.size(); ++j) {
++        if (samplers[j].fetch_constant == value - kSampler) {
++          binding = uint32_t(textures.size() + j);
++          return true;
++        }
++      }
++      return false;
++    }
++    const bool is_signed = value >= kImageSigned && value < kImageSigned + 32;
++    if (!is_signed && !(value >= kImage && value < kImage + 32)) return true;  // (not ours: left as it is)
++    const uint32_t fc = value - (is_signed ? kImageSigned : kImage);
++    for (size_t i = 0; i < textures.size(); ++i) {
++      if (textures[i].fetch_constant == fc && textures[i].dimension == xenos::FetchOpDimension::k2D &&
++          bool(textures[i].is_signed) == is_signed) {
++        binding = uint32_t(i);
++        return true;
++      }
++    }
++    return false;
++  };
++  for (size_t at = 5; at < words.size();) {
++    const uint32_t word_count = words[at] >> 16, opcode = words[at] & 0xFFFF;
++    if (!word_count || at + word_count > words.size()) return Refuse(hash, name, "the replacement's code is cut");
++    // OpDecorate %target Binding N
++    if (opcode == 71 && word_count == 4 && words[at + 2] == 33) {
++      uint32_t binding = words[at + 3];
++      if (!remap(words[at + 3], binding)) {
++        return Refuse(hash, name, "it samples a texture or sampler the guest shader does not have");
++      }
++      words[at + 3] = binding;
++    }
++    at += word_count;
++  }
++  out.resize(words.size() * sizeof(uint32_t));
++  std::memcpy(out.data(), words.data(), out.size());
++  {
++    std::lock_guard<std::mutex> lock(g_mutex);
++    if (g_logged.insert(hash ^ 0x5357415050454421ull).second) {
++      REXGPU_INFO("[native][swap] pixel shader {:016X}: '{}' in place of the translation ({} textures, {} samplers)",
++                  hash, name, textures.size(), samplers.size());
++    }
++  }
++  return true;
++}
++
++}  // namespace rex::graphics::vulkan::shader_swap
+diff --git a/src/graphics/vulkan/native/shader_swap.h b/src/graphics/vulkan/native/shader_swap.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb0400ab653e351254aa84dea9c211e2d790964a
+--- /dev/null
++++ b/src/graphics/vulkan/native/shader_swap.h
+@@ -0,0 +1,34 @@
++#pragma once
++// wwe2k14 patch (Session 72, gpu_native_shader_swap): the title's own fragment shaders in place of a guest pixel shader
++// on NATIVE's draws. The pass, the pipeline layout, the textures and the float constants stay the translated shader's;
++// only the module differs (its own NATIVE translation and pipeline: SpirvShaderTranslator::kNativeExtSwap).
++//
++// A replacement is SPIR-V for a fragment shader with the translated shader's interface: input location 0 = the guest's
++// first interpolator, output location 0 = colour target 0, set 1 binding 2 = the float constants the guest shader uses,
++// packed in register order (the registers it was written for are given at registration and must match), set 3 = the
++// textures and samplers under the canonical bindings below, which the swap remaps to the translation's own.
++
++#include <cstddef>
++#include <cstdint>
++#include <vector>
++
++namespace rex::graphics {
++class SpirvShader;
++}
++
++namespace rex::graphics::vulkan::shader_swap {
++
++// Set 3: the unsigned 2D image of fetch constant fc at kImage + fc, the signed one at kImageSigned + fc, the first
++// sampler of fc at kSampler + fc.
++constexpr uint32_t kImage = 1000, kImageSigned = 1100, kSampler = 1200;
++
++// Thread-safe; a later registration of the same guest shader replaces the earlier one for modules made after it.
++bool Register(uint64_t guest_hash, const uint32_t* words, size_t count, const uint8_t* float_registers,
++              size_t float_register_count, const char* name);
++// Cheap (every NATIVE draw with a pixel shader asks while the switch is on).
++bool Has(uint64_t guest_hash);
++// The replacement for the shader with its set-3 bindings remapped; false (logged once per shader) when there is none
++// or it does not fit: other float constants than it was written for, or a texture / sampler the translation lacks.
++bool Build(const SpirvShader& shader, std::vector<uint8_t>& out);
++
++}  // namespace rex::graphics::vulkan::shader_swap
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index f34d69a4f38f5200747daf224a23dd30803c1dec..f8ca78c1241f67253911649478abb5fe7779486b 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -55,6 +55,7 @@
+ #include <rex/math.h>
+ #include <rex/types.h>
+ #include <rex/ui/vulkan/util.h>
++#include "native/shader_swap.h"  // wwe2k14 patch (Session 72, gpu_native_shader_swap)
+ 
+ REXCVAR_DEFINE_INT32(
+     vulkan_pipeline_creation_threads, -1, "GPU/Vulkan",
+@@ -63,6 +64,7 @@ REXCVAR_DEFINE_INT32(
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
+ REXCVAR_DECLARE(bool, gpu_dlss);  // wwe2k14 patch (Session 24, DLSS)
++REXCVAR_DECLARE(bool, gpu_native_shader_swap);  // wwe2k14 patch (Session 72, native/shader_swap.cpp)
+ // wwe2k14 patch (Session 66, B2.1): see VulkanPipelineCache::GetVertexFetchEndianKey.
+ REXCVAR_DEFINE_BOOL(gpu_native_vertex_endian_spec, false, "GPU/Native",
+                     "Session 66 (B2.1): the vertex shaders get the endian mode of each of their (up to 8) vertex fetch "
+@@ -1405,6 +1407,10 @@ bool VulkanPipelineCache::NativeExtStale(uint32_t recorded_pixel_ext, uint32_t r
+   if ((recorded_pixel_ext & SpirvShaderTranslator::kNativeExtEpilogueIdle) && !spec.ps_epilogue) {
+     return true;
+   }
++  // wwe2k14 patch (Session 72): the shader swap turned off (turned on, the next full draw picks it up).
++  if ((recorded_pixel_ext & SpirvShaderTranslator::kNativeExtSwap) && !REXCVAR_GET(gpu_native_shader_swap)) {
++    return true;
++  }
+   // FMA: a function of the settings only (and of the native renderer being on, as the ext words are set only for its
+   // draws).
+   const bool native = spec.native;
+@@ -1487,8 +1493,15 @@ VulkanShader::VulkanTranslation* VulkanPipelineCache::GetNativePixelShaderTransl
+     const size_t textures = shader.GetTextureBindingsAfterTranslation().size();
+     const size_t samplers = shader.GetSamplerBindingsAfterTranslation().size();
+     shader.AnalyzeUcode(ucode_disasm_buffer_);
+-    if (!native_shader_translator_->TranslateAnalyzedShader(*translation) ||
+-        translation->GetOrCreateShaderModule() == VK_NULL_HANDLE) {
++    const bool translated = native_shader_translator_->TranslateAnalyzedShader(*translation);
++    // wwe2k14 patch (Session 72, gpu_native_shader_swap): the title's replacement as this translation's code, before
++    // its module is made (the translator's code stays if the replacement does not fit - logged once). The translation
++    // above still ran: it sets up the shader's bindings and constants, which the replacement uses as they are.
++    if (translated && (native_ext & SpirvShaderTranslator::kNativeExtSwap)) {
++      std::vector<uint8_t> replacement;
++      if (shader_swap::Build(shader, replacement)) translation->ReplaceTranslatedBinary(std::move(replacement));
++    }
++    if (!translated || translation->GetOrCreateShaderModule() == VK_NULL_HANDLE) {
+       REXGPU_WARN("[native] pixel shader {:016X}: no host render target translation", shader.ucode_data_hash());
+       return nullptr;
+     }

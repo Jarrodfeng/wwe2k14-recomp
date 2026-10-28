@@ -68,6 +68,7 @@
 #include "mouse_menu.h"  // Session 67: --wwe2k14_mouse_menus (the mouse points, clicks and scrolls in the list menus)
 #include "create_readback.h"  // Session 57: --wwe2k14_readback_sequences (exact readback in the create modes, default on)
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
+#include "post_swap.h"  // Session 72: our post-effect shaders (gpu_native_shader_swap)
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
 #include "replay_watch.h"  // Session 63 (Android only): log a runaway render-command replay (diagnosis)
 #include "native_skin.h"   // Session 64: the game's CPU vertex-skinning loop sub_82508738 natively (S66: every platform, via native_fn.h)
@@ -261,6 +262,8 @@ class Wwe2k14App : public rex::ReXApp {
     // (unconfirmed). It stays off on Android until that is found.
     for (const auto& [name, value] : wwe2k14::gfxs::NativeRendererFlags()) {
       if (name == "readback_resolve_batch") continue;
+      // (Session 72, Jarrod: "build into the android version": gpu_native_shader_swap included - our copy of the post
+      // pass; first run on a phone GPU is his, android-v0.1.2.)
       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
     }
     wwe2k14::light::ApplyFixes();
@@ -536,6 +539,7 @@ class Wwe2k14App : public rex::ReXApp {
     // Session 58: native BPE only in the in-game sequence (9) unless --wwe2k14_native_bpe_menus (src/decode_probe.h).
     wwe2k14::decode_probe::g_native_bpe_in_game = [] { return wwe2k14::load_probe::CurrentSequence() == 9; };
     wwe2k14::load_pipeline_wait::Install();  // Session 57 (tester bug 1): no skipped draws during in-game loads
+    wwe2k14::post_swap::Install();  // Session 72: our post-effect shaders (used with gpu_native_shader_swap)
     // Session 58: the session timeline for Report a problem (snapshots off in harness runs unless asked for).
     wwe2k14::session_log::Install(!REXCVAR_GET(wwe2k14_input_script).empty() || !REXCVAR_GET(wwe2k14_live).empty());
     wwe2k14::StartTimelineIfRequested();

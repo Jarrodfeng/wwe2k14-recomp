@@ -105,6 +105,7 @@ struct Settings {
   int settings_version = wwe2k14::gfxs::kSettingsVersion;  // Session 51: the old default renderer moved to NATIVE (gfx_settings.h)
   int loaded_version = 0;  // Session 54: the file's settings_version as read (not saved; 0 = no file / none)
   int texture_filter = 0;      // Session 33: 0 standard (4x), 1 8x, 2 16x anisotropic filtering
+  int post_effects = 0;        // Session 72: 0 original (our cheaper copy of the game's pass), 1 enhanced (gfx_settings.h)
   bool discord = false;        // Session 33: Discord status (off by default)
   int aspect = 0;              // Session 33: 0 = 16:9 (the game's own), 1 = auto (the monitor's: ultrawide Hor+)
   bool photo_mode = false;     // Session 33: photo mode (F10 / L3 + R3 in a match)
@@ -173,7 +174,8 @@ struct Settings {
 inline void to_json(json& j, const Settings& s) {
   j = json{{"game_exe", s.game_exe}, {"mods_dir", s.mods_dir}, {"scenario", s.scenario}, {"preset", s.preset},
            {"mods", s.mods}, {"skip_entrances", s.skip_entrances}, {"logo_legacy_route", s.logo_legacy_route}, {"quick_mode", s.quick_mode}, {"quick_type", s.quick_type}, {"quick_arena", s.quick_arena}, {"quick_ids", s.quick_ids}, {"quick_cpu_only", s.quick_cpu_only}, {"cinecam", s.cinecam}, {"look", s.look},
-           {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"dlss_dir", s.dlss_dir},
+           {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"post_effects", s.post_effects},
+           {"dlss_dir", s.dlss_dir},
            {"fsr_note", s.fsr_note}, {"renderer", s.renderer}, {"settings_version", s.settings_version},
            {"discord", s.discord}, {"discord_app_id", s.discord_app_id}, {"aspect", s.aspect},
            {"photo_mode", s.photo_mode}, {"precompile", s.precompile},
@@ -204,6 +206,7 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "quick_ids", s.quick_ids), Get(j, "quick_cpu_only", s.quick_cpu_only);
   Get(j, "cinecam", s.cinecam), Get(j, "look", s.look), Get(j, "arena_override", s.arena_override);
   Get(j, "upscale", s.upscale), Get(j, "texture_filter", s.texture_filter), Get(j, "dlss_dir", s.dlss_dir);
+  Get(j, "post_effects", s.post_effects);  // Session 72
   Get(j, "fsr_note", s.fsr_note), Get(j, "renderer", s.renderer);
   // Session 51 (Jarrod, 2026-10-22: "NATIVE for everyone"): a file from before it with the old default renderer
   // (ACCURATE) moves to NATIVE once; the next save writes the version, so a renderer picked after that stays.
@@ -998,6 +1001,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     c.draw_height = s.draw_height;  // Session 54
     c.original_look = s.original_look;
     c.texture_filter = s.texture_filter;  // Session 33
+    c.post_effects = s.post_effects;      // Session 72
     c.renderer = s.renderer;              // Session 37 (Session 61: NATIVE, or the performance test's own run)
     // Session 61: the advanced flag --wwe2k14_renderer=light|accurate in Extra flags picks the renderer's flags.
     if (const int r = wwe2k14::gfxs::RendererFromFlags(s.extra); r >= 0) c.renderer = r;

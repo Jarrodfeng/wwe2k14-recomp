@@ -1,0 +1,85 @@
+# Session 72 (post effects): the combine probes over time - with --gpu_native_shader_swap=true
+# --wwe2k14_post_swap_probe=1, a screenshot every 120 frames through Brock's and Bryan's entrances (s21_lb
+# replay; launch flags as s72_swap_shots.txt), decoded with tools\post\read_probe.py --entrance (finds the frames
+# with bloom / glare, c31 / c32). on_fail quit.
+on_fail quit
+log bench: start s72_probe_scan (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 120
+screenshot s72_scan_343_00
+wait_frames 120
+screenshot s72_scan_343_01
+wait_frames 120
+screenshot s72_scan_343_02
+wait_frames 120
+screenshot s72_scan_343_03
+wait_frames 120
+screenshot s72_scan_343_04
+wait_frames 120
+screenshot s72_scan_343_05
+wait_frames 120
+screenshot s72_scan_343_06
+wait_frames 120
+screenshot s72_scan_343_07
+wait_frames 120
+screenshot s72_scan_343_08
+wait_frames 120
+screenshot s72_scan_343_09
+wait_frames 120
+screenshot s72_scan_343_10
+wait_frames 120
+screenshot s72_scan_343_11
+wait_frames 120
+screenshot s72_scan_343_12
+wait_frames 120
+screenshot s72_scan_343_13
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 120
+screenshot s72_scan_324_00
+wait_frames 120
+screenshot s72_scan_324_01
+wait_frames 120
+screenshot s72_scan_324_02
+wait_frames 120
+screenshot s72_scan_324_03
+wait_frames 120
+screenshot s72_scan_324_04
+wait_frames 120
+screenshot s72_scan_324_05
+wait_frames 120
+screenshot s72_scan_324_06
+wait_frames 120
+screenshot s72_scan_324_07
+wait_frames 120
+screenshot s72_scan_324_08
+wait_frames 120
+screenshot s72_scan_324_09
+wait_frames 120
+screenshot s72_scan_324_10
+wait_frames 120
+screenshot s72_scan_324_11
+wait_frames 120
+screenshot s72_scan_324_12
+wait_frames 120
+screenshot s72_scan_324_13
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 120
+log bench: done
+quit

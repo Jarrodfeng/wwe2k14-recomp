@@ -1,3 +1,9 @@
+- POST EFFECTS does nothing yet with DLSS, DLAA or FSR on (the game's own post effects run there; the option is greyed
+  out).
+- POST EFFECTS (new in v0.2.11) was checked on my NVIDIA card at 720p and 1440p on two entrances and a match. If the
+  picture looks wrong after the update (a blurry or blocky background, missing glare), the extra flag
+  `--gpu_native_shader_swap=false` (Settings -> Advanced) brings back the game's own shader; please send a report too
+  (launcher: Report a problem).
 - CineCam's timeline is keyboard and mouse only for now (the controller still flies the camera in photo mode). There
   is no undo: K at a key's time replaces that key. Clicking the timeline moves the camera to the shot's pose at that
   time, so choose the time first, then fly.

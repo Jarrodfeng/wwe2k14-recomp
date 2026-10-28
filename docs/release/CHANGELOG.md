@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.11
+
+The game's post effects (depth of field, haze, bloom) now run on a faster shader of my own, and there is a new
+optional look for them.
+
+- **Faster post effects, same picture.** The last step of every frame (the game's anti-aliasing, the background blur,
+  the blue-grey haze on the far crowd and, in entrances, bloom and the star glare) was running as the game's own
+  Xbox 360 shader, translated for the PC. I rewrote that step by hand to do the same maths. In my same-frame tests 92-95%
+  of the pixels come out identical and nearly all the rest differ by one shade, and the step takes 38% (matches) to
+  50% (entrances) less graphics card time at 1440p. It's on for everyone with the NATIVE renderer (the default).
+- **New: Settings -> Graphics -> POST EFFECTS: ENHANCED.** A lens-like background blur instead of the game's soft
+  one: the wrestlers stay sharp while the crowd and the stage fall properly out of focus, and lights in the
+  background spread into round discs, like a real camera lens ("bokeh"). It follows the game's own focus, which
+  changes during entrances. ORIGINAL (the default) keeps the game's look. ENHANCED costs about as much as the game's
+  own shader did in entrances and a little more in matches (about 0.05 ms a frame on my RTX 4090 at 1440p).
+  Not with upscaling yet: with DLSS, DLAA or FSR on, the game's own post effects run as before (the option is greyed
+  out there).
+- **Gameplay is unchanged.**
+
 ## v0.2.10
 
 Two fixes from player reports: entrances that froze for good on 2-core PCs, and Superstar Threads outfits that came
@@ -19,6 +38,8 @@ out wrong in matches.
   outfit takes 5 or more, so its last, finished frame was the one skipped. The limit is now 32 frames: outfits are
   read back whole, and the speed-up still skips the copies the game redraws every frame (those run 130+ frames).
 - **Gameplay is unchanged** otherwise.
+
+## v0.2.9
 
 Smooth entrances again on slower PCs: the game now prepares its graphics before you play.
 

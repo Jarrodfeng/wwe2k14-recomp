@@ -21,6 +21,9 @@
 //                (Jarrod, 2026-10-22: "NATIVE for everyone"): 2 is the default; ACCURATE and LIGHT are fallbacks
 //   settings_version  Session 51: 2 = the file has had the one-time move of the old default renderer (0) to NATIVE
 //   dlss_dir     the player's own NVIDIA folder (empty = the files next to the game)
+//   post_effects Session 72 (Jarrod, 2026-10-28: "cheaper copy default and then enhanced as an extra option in the
+//                launcher"): NATIVE's final post pass, 0 original (our cheaper copy of the game's, the default), 1
+//                enhanced (the disc-blur depth of field; src\post_swap.h). The launcher only
 //
 // GraphicsFlags() is the mapping from those values to the game's own settings; the launcher puts the result on the
 // command line and the game applies it to itself when it is started without the launcher (wwe2k14_app.h).
@@ -63,6 +66,7 @@ struct Choice {
   int renderer = 2;        // Session 37: 0 accurate, 1 light (--wwe2k14_light_renderer); Session 41: 2 native
                            // (the accurate renderer with the native renderer drawing the scene, --gpu_native=2);
                            // Session 51: 2 by default (Jarrod: "NATIVE for everyone")
+  int post_effects = 0;    // Session 72: 0 original (our copy of the game's pass), 1 enhanced; NATIVE only
   std::string dlss_dir;
   bool operator==(const Choice& o) const {
     return upscale == o.upscale && resolution == o.resolution && draw_height == o.draw_height &&
@@ -198,6 +202,8 @@ inline Present Parse(const std::string& json, Choice& c) {
   GetInt(json, "renderer", c.renderer);  // Session 37 (the launcher's Settings -> Graphics; not in the game's menu)
   c.renderer = MigrateRenderer(json, c.renderer);  // Session 51
   GetString(json, "dlss_dir", c.dlss_dir);
+  GetInt(json, "post_effects", c.post_effects);  // Session 72 (the launcher's Settings -> Graphics)
+  c.post_effects = std::clamp(c.post_effects, 0, 1);
   c.upscale = std::clamp(c.upscale, 0, 7);
   c.resolution = std::clamp(c.resolution, 0, 2);
   c.draw_height = ValidDrawHeight(c.resolution, c.draw_height);
@@ -572,6 +578,11 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // gamma epilogue when the draw has none of them (~8% of pixel-shader work by RGA). check_item ps_epilogue: pictures
       // 6 / 6, hashes 467 / 467, gameplay identical (4287-4292); A/B within noise on the 4090.
       {"gpu_native_ps_epilogue_spec", "true"},
+      // Session 72 (Jarrod, 2026-10-28: "cheaper copy default"): the final post pass (match and entrance combines) runs
+      // our own shader in place of the game's translated one - a copy of it step for step by default (same frame 92-95%
+      // of pixels identical, the rest ~1 level; 1440p 4090: match 0.126 -> 0.078 ms, entrance 0.18-0.20 -> 0.08-0.11 ms,
+      // runs 4533 / 4534), Enhanced with post_effects 1 (GraphicsFlags). docs\systems\post_effects.md.
+      {"gpu_native_shader_swap", "true"},
   };
 }
 
@@ -623,6 +634,8 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
   if (c.renderer == 1) f.push_back({"wwe2k14_light_renderer", "true"});  // Session 37
   if (c.renderer == 2)
     for (const auto& [name, value] : NativeRendererFlags()) f.push_back({name, value});
+  // Session 72: Enhanced post effects (the default, original, is our copy of the game's pass: no flag).
+  if (c.renderer == 2 && c.post_effects == 1) f.push_back({"wwe2k14_post_enhanced", "true"});
   // Session 54: NATIVE drawing below the whole size (no upscaler: DLAA / DLSS / FSR turn truth frames off; the SDK
   // logs and ignores a height it cannot draw).
   if (c.renderer == 2 && c.upscale == 0 && !c.original_look && ValidDrawHeight(c.resolution, c.draw_height))

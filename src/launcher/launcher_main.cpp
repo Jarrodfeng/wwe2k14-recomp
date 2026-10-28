@@ -2160,7 +2160,7 @@ class App {
   // cold compiles). Before a Play the game runs once in its precompile mode with the same graphics settings (a plain
   // boot: every stored pipeline made on all CPU threads, then it quits), with a progress window and SKIP. Again only
   // when this key changes: this build (the exe's size and time), the graphics card and driver, the settings that change
-  // pipelines (resolution, draw height, upscaler, original look) and the Extra flags.
+  // pipelines (resolution, draw height, upscaler, original look, post effects) and the Extra flags.
   std::string PrecompileKey() {
     const wwe2k14::vkdev::Device dev = ChosenDevice(s.gpu);
     // (Review: the SDK's DLLs too - a release may change only them - and the renderer.)
@@ -2174,7 +2174,8 @@ class App {
     return files + "gpu " + dev.name + " driver " + std::to_string(dev.driver_version) + "; renderer " +
            std::to_string(s.renderer) + " resolution " + std::to_string(s.resolution) + " draw_height " +
            std::to_string(s.draw_height) + " upscale " + std::to_string(s.upscale) + " original_look " +
-           std::to_string(int(s.original_look)) + "; extra " + s.extra;
+           std::to_string(int(s.original_look)) + " post_effects " + std::to_string(s.post_effects) + "; extra " +
+           s.extra;  // Session 72: the post effects choice swaps two pipelines
   }
   fs::path PrecompileStampPath() const { return fs::path(settings_path).parent_path() / "precompile_stamp.txt"; }
   std::string ReadPrecompileStamp() const {
@@ -3853,6 +3854,23 @@ class App {
                                               "16x anisotropic filtering: the sharpest floors and ramps at an angle."};
     s.texture_filter = std::clamp(s.texture_filter, 0, 2);
     OptionRow("TEXTURE FILTERING", s.texture_filter, kTf, 3, true, kTfNote[s.texture_filter]);
+    // Session 72 (Jarrod: "cheaper copy default and then enhanced as an extra option in the launcher"): the final post
+    // pass (src\post_swap.h): our copy of the game's, or Enhanced.
+    static constexpr const char* kPost[] = {"ORIGINAL", "ENHANCED"};
+    static constexpr const char* kPostNote[] = {
+        "The game's own depth of field, haze and bloom, redrawn by a faster shader of our own. Looks the same.",
+        "A lens-like background blur (bokeh) in place of the game's soft blur: wrestlers stay sharp, the crowd and "
+        "stage fall out of focus, lights spread into discs. Costs a little more on the graphics card."};
+    s.post_effects = std::clamp(s.post_effects, 0, 1);
+    // With DLSS / DLAA / FSR the NATIVE renderer draws without its truth frames, where the swap does not act yet (run
+    // 4558): the game's own post pass runs, so the choice is shown as not available.
+    if (s.upscale == 0) {
+      OptionRow("POST EFFECTS", s.post_effects, kPost, 2, true, kPostNote[s.post_effects]);
+    } else {
+      int shown = s.post_effects;
+      OptionRow("POST EFFECTS", shown, kPost, 2, false,
+                "Not with upscaling yet: with DLSS, DLAA or FSR the game's own post effects are used.");
+    }
     OptionToggle("ORIGINAL LOOK", s.original_look, true,
                  "The Xbox 360 picture: 720p, the game's 4x MSAA, 30 fps entrances.");
   }
