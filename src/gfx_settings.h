@@ -544,6 +544,11 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // gameplay identical (4176 / 4177), no new validation-layer message (4183); in-run A/B (4178, 720p) GPU -0.6 /
       // -1.2 / -2.0% (Brock / Bryan / match, within noise on the 4090).
       {"gpu_native_truth_pass_dont_care", "true"},
+      // Session 73 (tile GPUs, Jarrod's item 5): ~10 of a match frame's 28 truth passes draw only depth into a real
+      // colour image, which was loaded and stored whole each time (validation best practices
+      // "redundant-attachment-on-tile"); they keep it with LOAD_OP_NONE / STORE_OP_NONE where the driver has
+      // VK_EXT_load_store_op_none (the Adreno 830 does). Same-frame replay byte-identical; no validation message.
+      {"gpu_native_truth_color_none", "true"},
       // Session 66 (B2.1): the vertex fetch's endian swap fixed in the shader from the draw's fetch constants (the
       // census: every draw 8-in-32, one key per shader, so no extra translations). check_item b2_endian: pictures 6 / 6
       // pixel-identical (4180), hashes 467 / 467 (4179), gameplay identical (4181); A/B (4182) GPU -8.2 / +1.3 / -3.3%.

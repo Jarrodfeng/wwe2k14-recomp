@@ -1,0 +1,27 @@
+# Session 75: open Create-an-Entrance's editor (CREATIONS > ENTRANCE > SUPERSTAR > the first superstar, AJ LEE >
+# EASY CREATION) 8 times and leave it again: a crash check for the editor's loads (run 050 crashed on the loader
+# thread entering the editor, sub_82C359E8 from the load-completion trampoline sub_82C37C08, the pattern of the
+# Session 12 / 14 Create-a-Wrestler fast-loader crash). Untimed; normal speed so no menu press is dropped.
+# harness: realtime (menu presses must not drop)
+on_fail quit
+include boot_to_menu
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+repeat 8
+wait_frames 60
+press A
+wait_text SELECT SUPERSTAR 900
+wait_frames 90
+press A
+wait_frames 45
+press A
+wait_text CUSTOM ENTRANCE 1800
+wait_frames 120
+log cae_loop: editor open
+press B
+wait_text CREATE-AN-ENTRANCE 900
+end_repeat
+log cae_loop: PASS
+quit

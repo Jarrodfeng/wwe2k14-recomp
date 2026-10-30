@@ -132,6 +132,7 @@ class LoadTurbo {
       Start("ingame", frame);
     }
     if (seq_ok) last_seq_ = seq;
+    if (seq_ok) g_in_game_sequence.store(seq == 9, std::memory_order_relaxed);  // Session 73 (keep-warm)
     // scene word (states.toml [scene_word]): 1 -> 4 while the entrances are set up, 4 -> 1 when they are over and the
     // match loading screen comes up (run 859: frame 3546, loading screen visible 3536-3650, M3.PAC 3598).
     uint32_t scene = 0;
@@ -281,6 +282,8 @@ class LoadTurbo {
     REXLOG_INFO("[wwe2k14][turbo] {} off at frame {} ({}; {} frames, {:.0f} ms)", window_, frame, reason,
                 frame - start_frame_, ms);
     if (g_load_window_done && (window_ == "ingame" || window_ == "match")) g_load_window_done(window_, ms);
+    // Session 73: the CSV's scene marker (frame_stats.h) - the moment the player sees the scene.
+    NoteScene(window_ == "ingame" ? "entrance start" : window_ == "match" ? "match start" : window_ + " screen");
     window_.clear();
     restore_vsync_ = false;
     hold_only_ = false;

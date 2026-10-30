@@ -1,0 +1,41 @@
+# Session 73: s72_swap_shots.txt without its realtime header - the same replay fast-forwarded (det frames: the same pictures?).
+# Session 72 (shader swap pictures): as s72_pass_log.txt, but screenshots at Brock +300 and +600 (bloom and glare on),
+# Bryan +440 and the match +900 instead of the pass log; run once with --gpu_native_shader_swap=false and once =true for a
+# same-frame pair.
+# Session 72: per-pass GPU times of NATIVE truth frames (gpu_native_truth_pass_log) in Brock's entrance, Bryan's
+# entrance and the match. Run with --wwe2k14_replay_play=s21_lb --gpu_native_gpu_timers=true (NATIVE's list turns
+# the timers off) --wwe2k14_use_launcher_settings=true and a NATIVE test settings file
+# (out\s72\settings_native720.json); read with py -I tools\native\pass_log.py RUN. on_fail quit.
+on_fail quit
+log bench: start s72_pass_log (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 300
+screenshot s72_tron_343
+wait_frames 300
+screenshot s72_tron_343b
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+screenshot s72_tron_324
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 900
+screenshot s72_match
+wait_frames 120
+log bench: done
+quit

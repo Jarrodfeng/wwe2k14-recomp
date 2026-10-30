@@ -7,8 +7,8 @@
      game_logo.png"). INTERNET: the launcher's update check only (GitHub's latest-release address). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.jarrodfeng.wwe2k14"
-    android:versionCode="6"
-    android:versionName="android-v0.1.3"
+    android:versionCode="13"
+    android:versionName="android-v0.2.0"
     android:installLocation="auto">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="36" />
@@ -58,6 +58,15 @@
             android:launchMode="singleTask"
             android:preferMinimalPostProcessing="true"
             android:resizeableActivity="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+
+        <!-- Session 74: the launcher's MOVE THE CONTROLS screen (the touch controls' edit mode), the launcher's process. -->
+        <activity
+            android:name=".TouchEditActivity"
+            android:exported="false"
+            android:label="WWE 2K14"
+            android:screenOrientation="sensorLandscape"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
 

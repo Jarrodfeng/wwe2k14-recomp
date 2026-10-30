@@ -273,7 +273,11 @@ inline bool ToUi(int32_t x, int32_t y, float& ux, float& uy) {
   if (!w) return false;
   const float ww = float(w->GetActualPhysicalWidth()), wh = float(w->GetActualPhysicalHeight());
   if (ww <= 0 || wh <= 0) return false;
-  if (rex::cvar::GetFlagByName("present_letterbox") == "false") {
+  // Session 72 part 9: with --wwe2k14_aspect wider / taller than 16:9 (src\ultrawide.h) the presenter stretches the
+  // frame, but the menus are squeezed into it first: on screen they are the centred 16:9 again.
+  auto factor = [](const char* n) { return std::strtod(rex::cvar::GetFlagByName(n).c_str(), nullptr); };
+  if (rex::cvar::GetFlagByName("present_letterbox") == "false" && factor("gpu_wide_factor") <= 1.001 &&
+      factor("gpu_tall_factor") <= 1.001) {
     ux = float(x) * kUiW / ww, uy = float(y) * kUiH / wh;
   } else {
     const float k = std::min(ww / kUiW, wh / kUiH), ox = (ww - kUiW * k) / 2, oy = (wh - kUiH * k) / 2;

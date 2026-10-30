@@ -1,0 +1,4 @@
+# Session 73 part 7 (Jarrod's ten performance ideas): same-frame picture checks on the s21_lb replay.
+base
+crowd_merge	--vulkan_repeat_draw_merge_shaders=D5E2FCC9F76BC40C,C1028A64EFCF8229,183CC64A4C4E96AC
+fp16_prewarm	--gpu_native_ps_relaxed_precision=true --gpu_native_truth_prewarm_file=C:\Users\Jarrod\wwe2k14-recomp\out\s73\truth_replay.txt

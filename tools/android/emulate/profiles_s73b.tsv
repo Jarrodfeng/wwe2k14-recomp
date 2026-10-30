@@ -1,0 +1,2 @@
+val_base	--vulkan_validation_enabled=true
+nogs	--vulkan_require_geometry_shader=false --vulkan_emulate_disable=geometryShader,shaderCullDistance,shaderClipDistance,fullDrawIndexUint32

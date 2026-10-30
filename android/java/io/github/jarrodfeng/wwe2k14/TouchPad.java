@@ -7,6 +7,17 @@
 // (coloured rings: Y yellow, X blue, B red, A green), the right stick below and inward, R3 in the bottom corner; View
 // and Start at the top centre ("Top centre is smart") (the picture's curved background bands left out at Jarrod's word). Positions are in
 // units of the screen's height, measured from the nearer side edge, so the clusters stay at the edges on any width.
+//
+// Session 72 part 8 (a playtester's unfolded Honor Magic V6, about 1.1:1: the two sides met in the middle, the d-pad
+// on the right stick): each side reaches 0.735 units in from its edge, so the layout needs a screen at least
+// kMinAspect times as wide as tall. On a squarer screen the unit is the width / kMinAspect instead of the height; the
+// top row (triggers, bumpers, View / Start) keeps its place from the top, everything else from the bottom (the thumbs'
+// corners). Phones (2:1 and wider) are unchanged.
+//
+// Session 74 (players asked to move the controls): an edit mode where a finger drags a control to a new place (the
+// face buttons move as one), with CANCEL / RESET / DONE in the middle. Each control keeps an offset from its default
+// place in units, so a layout made on one screen lands the same way on another; a control never leaves the screen.
+// Size still shrinks to what fits the default layout, and the offsets come on top. Saved as text (layoutText).
 package io.github.jarrodfeng.wwe2k14;
 
 public final class TouchPad {
@@ -23,7 +34,8 @@ public final class TouchPad {
     public static final int A = 0, B = 1, X = 2, Y = 3, BACK = 4, START = 6, L3 = 7, R3 = 8, LB = 9, RB = 10,
             UP = 11, DOWN = 12, LEFT = 13, RIGHT = 14;
     // Controls that are not buttons in SDL's sense.
-    private static final int LT = 100, RT = 101, LSTICK = 102, RSTICK = 103, DPAD = 104;
+    public static final int LT = 100, RT = 101, LSTICK = 102, RSTICK = 103, DPAD = 104;
+    static final float kMinAspect = 1.65f;
 
     private static final int GREEN = 0xFF6CC24A, RED = 0xFFE5533D, BLUE = 0xFF3B8EDE, YELLOW = 0xFFE8C23A;
 
@@ -34,7 +46,10 @@ public final class TouchPad {
         final int color;
         float cx, cy, r;   // centre; r = radius (round controls) or half height (pills)
         float hw;          // pills: half width (0 = round)
+        float offX, offY;  // Session 74: moved this far from the default place (units)
         Control(int id, String label, int color) { this.id = id; this.label = label; this.color = color; }
+        float halfWidth() { return hw > 0 ? hw : r; }
+        String name() { return !label.isEmpty() ? label : id == LSTICK ? "LSTICK" : id == RSTICK ? "RSTICK" : "DPAD"; }
         boolean hit(float x, float y, float slack) {
             if (hw > 0) return Math.abs(x - cx) <= hw * slack && Math.abs(y - cy) <= r * slack;
             float dx = x - cx, dy = y - cy, rr = r * slack;
@@ -49,7 +64,7 @@ public final class TouchPad {
         new Control(L3, "L3", 0), new Control(R3, "R3", 0), new Control(BACK, "VIEW", 0), new Control(START, "START", 0),
     };
 
-    private float width, height, scale = 1f, alpha = 0.7f;
+    private float width, height, unit, scale = 1f, alpha = 0.7f;
 
     // Pad state.
     private int buttons;
@@ -66,9 +81,24 @@ public final class TouchPad {
     public void layout(float w, float h, int sizePercent, int opacityPercent) {
         width = w;
         height = h;
-        scale = Math.max(0.6f, Math.min(1.5f, sizePercent / 100f));
+        unit = Math.min(h, w / kMinAspect);
         alpha = Math.max(0.2f, Math.min(1f, opacityPercent / 100f));
-        float H = h, s = scale;
+        // Part 8: the chosen Size, or the largest below it that fits (at 150% the face buttons ran into the right stick
+        // and RB and B went off the edge, on phones too): 5% steps down until no two controls overlap.
+        for (scale = Math.max(0.6f, Math.min(1.5f, sizePercent / 100f)); ; scale -= 0.05f) {
+            placeDefaults();
+            if (scale <= 0.6f || fits()) break;
+        }
+        applyOffsets();
+    }
+
+    private void place() {
+        placeDefaults();
+        applyOffsets();
+    }
+
+    private void placeDefaults() {
+        float w = width, H = unit, s = scale;
         for (Control c : controls) {
             switch (c.id) {
                 case LT: pill(c, left(0.12f), 0.20f, 0.075f * s, 0.045f * s); break;
@@ -90,11 +120,215 @@ public final class TouchPad {
             }
         }
     }
-    private float left(float u) { return u * height; }
-    private float right(float u) { return width - u * height; }
-    private void round(Control c, float x, float yu, float ru) { c.cx = x; c.cy = yu * height; c.r = ru * height; c.hw = 0; }
-    private void pill(Control c, float x, float yu, float hwu, float hhu) { c.cx = x; c.cy = yu * height; c.hw = hwu * height; c.r = hhu * height; }
+    /** Every control on the screen and none overlapping another (boxes: a round control's square). */
+    private boolean fits() {
+        java.util.List<Object[]> b = boxes();
+        for (int i = 0; i < b.size(); i++) {
+            float[] p = (float[]) b.get(i)[1];
+            if (p[0] < 0 || p[1] < 0 || p[2] > width || p[3] > height) return false;
+            for (int j = i + 1; j < b.size(); j++) {
+                float[] q = (float[]) b.get(j)[1];
+                if (p[0] < q[2] && q[0] < p[2] && p[1] < q[3] && q[1] < p[3]) return false;
+            }
+        }
+        return true;
+    }
+    /** The Size in use after layout (percent): the chosen one, or the largest below it that fits. */
+    public int sizeUsed() { return Math.round(scale * 100); }
+    private float left(float u) { return u * unit; }
+    private float right(float u) { return width - u * unit; }
+    // A height in units: the top row (yu <= 0.25) from the top edge, the rest from the bottom (the same on a phone,
+    // where the unit is the height).
+    private float y(float yu) { return yu <= 0.25f || unit == height ? yu * unit : height - (1 - yu) * unit; }
+    private void round(Control c, float x, float yu, float ru) { c.cx = x; c.cy = y(yu); c.r = ru * unit; c.hw = 0; }
+    private void pill(Control c, float x, float yu, float hwu, float hhu) { c.cx = x; c.cy = y(yu); c.hw = hwu * unit; c.r = hhu * unit; }
     private Control find(int id) { for (Control c : controls) if (c.id == id) return c; return null; }
+    /** A control's centre in pixels (after layout), for the PC preview's checks; null for an unknown id. */
+    public float[] centre(int id) { Control c = find(id); return c == null ? null : new float[] {c.cx, c.cy}; }
+    /** The layout's unit in pixels: the height, or the width / kMinAspect on a squarer screen. */
+    public float unit() { return unit; }
+    /** Every control's box (left, top, right, bottom) in pixels with its label ("" for sticks / d-pad), for the checks. */
+    public java.util.List<Object[]> boxes() {
+        java.util.List<Object[]> out = new java.util.ArrayList<>();
+        for (Control c : controls) {
+            float hx = c.halfWidth();
+            out.add(new Object[] {c.name(), new float[] {c.cx - hx, c.cy - c.r, c.cx + hx, c.cy + c.r}});
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------------ moving the controls (Session 74)
+
+    /** What a tap in the edit mode's middle row did (editUp). RESET has already put the controls back. */
+    public static final int EDIT_NONE = 0, EDIT_DONE = 1, EDIT_RESET = 2, EDIT_CANCEL = 3;
+    private static final String[] kEditLabels = {"", "DONE", "RESET", "CANCEL"};
+    private boolean editing;
+    private float[] editStart;  // the offsets when editing began (CANCEL puts them back)
+    // Each finger in the edit mode: the edit button it went down on, or (pointerControl) the control it drags, where
+    // the finger started and the control's offset then.
+    private final int[] pointerEdit = new int[16];
+    private final float[] dragX0 = new float[16], dragY0 = new float[16], dragOffX0 = new float[16], dragOffY0 = new float[16];
+
+    private static boolean face(int id) { return id == A || id == B || id == X || id == Y; }
+
+    // The face buttons move as one (by A's offset), every other control on its own; each group is held wholly on the
+    // screen, and the offset it ended up with is kept.
+    private void applyOffsets() {
+        java.util.List<Control> faceButtons = new java.util.ArrayList<>();
+        for (Control c : controls) {
+            if (face(c.id)) faceButtons.add(c);
+            else shift(java.util.Collections.singletonList(c));
+        }
+        if (!faceButtons.isEmpty()) shift(faceButtons);
+    }
+    private void shift(java.util.List<Control> group) {
+        Control lead = null;
+        for (Control c : group) if (lead == null || c.id == A) lead = c;
+        float dx = lead.offX * unit, dy = lead.offY * unit;
+        float l = Float.MAX_VALUE, t = Float.MAX_VALUE, r = -Float.MAX_VALUE, b = -Float.MAX_VALUE;
+        for (Control c : group) {
+            float hx = c.halfWidth();
+            l = Math.min(l, c.cx - hx); r = Math.max(r, c.cx + hx); t = Math.min(t, c.cy - c.r); b = Math.max(b, c.cy + c.r);
+        }
+        dx = Math.max(-l, Math.min(width - r, dx));
+        dy = Math.max(-t, Math.min(height - b, dy));
+        for (Control c : group) {
+            c.cx += dx; c.cy += dy;
+            c.offX = unit > 0 ? dx / unit : 0; c.offY = unit > 0 ? dy / unit : 0;
+        }
+    }
+
+    public boolean editing() { return editing; }
+    /** True when any control is away from its default place. */
+    public boolean moved() {
+        for (Control c : controls) if (c.offX != 0 || c.offY != 0) return true;
+        return false;
+    }
+    /** The edit mode: the pad lets go of everything (nothing reaches the game while editing). */
+    public void startEdit() {
+        cancel();
+        editing = true;
+        editStart = new float[controls.length * 2];
+        for (int i = 0; i < controls.length; i++) { editStart[2 * i] = controls[i].offX; editStart[2 * i + 1] = controls[i].offY; }
+        java.util.Arrays.fill(pointerEdit, EDIT_NONE);
+    }
+    /** Leaves the edit mode: keep = the new places stay (DONE), else the ones from before editing (CANCEL). */
+    public void endEdit(boolean keep) {
+        if (!keep && editStart != null) {
+            for (int i = 0; i < controls.length; i++) { controls[i].offX = editStart[2 * i]; controls[i].offY = editStart[2 * i + 1]; }
+            place();
+        }
+        editing = false;
+        java.util.Arrays.fill(pointerControl, -1);
+        java.util.Arrays.fill(pointerEdit, EDIT_NONE);
+    }
+    /** Every control back to its default place. */
+    public void resetLayout() {
+        for (Control c : controls) { c.offX = 0; c.offY = 0; }
+        place();
+    }
+
+    // The edit mode's buttons in the middle of the screen (between the sticks on a phone; the free band between the top
+    // row and the thumbs' controls on a fold): CANCEL, RESET, DONE.
+    private float[] editButton(int k) {
+        float cx = width / 2 + (k == EDIT_CANCEL ? -0.23f : k == EDIT_RESET ? 0 : 0.23f) * unit, cy = height / 2;
+        float hw = 0.1f * unit, hh = 0.05f * unit;
+        return new float[] {cx - hw, cy - hh, cx + hw, cy + hh};
+    }
+    /** An edit button's centre in pixels, for the PC preview's checks. */
+    public float[] editButtonCentre(int k) { float[] b = editButton(k); return new float[] {(b[0] + b[2]) / 2, (b[1] + b[3]) / 2}; }
+    private int editButtonAt(float x, float y) {
+        for (int k = EDIT_DONE; k <= EDIT_CANCEL; k++) {
+            float[] b = editButton(k);
+            if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]) return k;
+        }
+        return EDIT_NONE;
+    }
+
+    /** A finger went down in the edit mode (true = redraw). */
+    public boolean editDown(int pointer, float x, float y) {
+        if (!editing || pointer < 0 || pointer >= pointerControl.length) return false;
+        // A control and a button both under the finger (a control dropped on a button): a tap is the button, a drag
+        // moves the control (one dropped wholly under a button stays reachable). A button alone: the button; else a
+        // control within a little more reach.
+        pointerEdit[pointer] = editButtonAt(x, y);
+        int best = nearestControl(x, y, 1f);
+        if (best < 0 && pointerEdit[pointer] == EDIT_NONE) best = nearestControl(x, y, 1.15f);
+        pointerControl[pointer] = best;
+        if (best < 0) return pointerEdit[pointer] != EDIT_NONE;
+        pointerControl[pointer] = best;
+        dragX0[pointer] = x; dragY0[pointer] = y;
+        dragOffX0[pointer] = controls[best].offX; dragOffY0[pointer] = controls[best].offY;
+        return true;
+    }
+    private int nearestControl(float x, float y, float slack) {
+        int best = -1;
+        float bestD = Float.MAX_VALUE;
+        for (int i = 0; i < controls.length; i++) {
+            Control c = controls[i];
+            if (!c.hit(x, y, slack)) continue;
+            float d = (x - c.cx) * (x - c.cx) + (y - c.cy) * (y - c.cy);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        return best;
+    }
+    /** A finger moved in the edit mode (true = a control moved). */
+    public boolean editMove(int pointer, float x, float y) {
+        if (!editing || pointer < 0 || pointer >= pointerControl.length || pointerControl[pointer] < 0 || unit <= 0) return false;
+        Control dragged = controls[pointerControl[pointer]];
+        if (pointerEdit[pointer] != EDIT_NONE) {  // a tap on a button until the finger has really moved
+            float mx = x - dragX0[pointer], my = y - dragY0[pointer], still = 0.025f * unit;
+            if (mx * mx + my * my < still * still) return false;
+            pointerEdit[pointer] = EDIT_NONE;
+        }
+        float ox = dragOffX0[pointer] + (x - dragX0[pointer]) / unit, oy = dragOffY0[pointer] + (y - dragY0[pointer]) / unit;
+        for (Control c : controls) {
+            if (c == dragged || (face(dragged.id) && face(c.id))) { c.offX = ox; c.offY = oy; }
+        }
+        place();
+        return true;
+    }
+    /** A finger went up in the edit mode: the edit button tapped (the finger went down and up on it), else EDIT_NONE. */
+    public int editUp(int pointer, float x, float y) {
+        if (!editing || pointer < 0 || pointer >= pointerControl.length) return EDIT_NONE;
+        int k = pointerEdit[pointer] != EDIT_NONE && editButtonAt(x, y) == pointerEdit[pointer] ? pointerEdit[pointer] : EDIT_NONE;
+        pointerEdit[pointer] = EDIT_NONE;
+        pointerControl[pointer] = -1;
+        if (k == EDIT_RESET) resetLayout();
+        return k;
+    }
+
+    /** The moved controls as text (the file touch_layout.txt): a first line, then "NAME dx dy" in units per control. */
+    public String layoutText() {
+        StringBuilder sb = new StringBuilder("wwe2k14 touch layout 1\n");
+        for (Control c : controls) {
+            if (c.offX == 0 && c.offY == 0) continue;
+            sb.append(c.name()).append(String.format(java.util.Locale.ROOT, " %.4f %.4f\n", c.offX, c.offY));
+        }
+        return sb.toString();
+    }
+    /** Places the controls from layoutText's text (unknown names and broken lines are skipped; null = defaults). */
+    public void setLayoutText(String text) {
+        for (Control c : controls) { c.offX = 0; c.offY = 0; }
+        if (text != null) {
+            for (String line : text.split("\n")) {
+                String[] f = line.trim().split("\\s+");
+                if (f.length != 3) continue;
+                for (Control c : controls) {
+                    if (!c.name().equals(f[0])) continue;
+                    try {
+                        float x = Float.parseFloat(f[1]), y = Float.parseFloat(f[2]);
+                        if (Float.isFinite(x) && Float.isFinite(y)) {
+                            c.offX = Math.max(-3f, Math.min(3f, x));
+                            c.offY = Math.max(-3f, Math.min(3f, y));
+                        }
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+        }
+        if (unit > 0) place();
+    }
 
     // ------------------------------------------------------------------ touches
 
@@ -191,10 +425,11 @@ public final class TouchPad {
     }
 
     public void draw(Painter p) {
-        float H = height, stroke = Math.max(1.5f, 0.0055f * H * scale);
+        float H = unit, stroke = Math.max(1.5f, 0.0055f * H * scale);
         // (No background bands: b44 drew rings of light from the bottom corners; Jarrod, 2026-10-28: "a little extreme
         // we should remove them".)
         int line = a(0xE6FFFFFF, 1), pressedFill = a(0x55FFFFFF, 1);
+        if (editing) p.roundRect(0, 0, width, height, 0, 0x73000000, true, 0);  // the game dimmed behind the edit mode
         for (Control c : controls) {
             switch (c.id) {
                 case LSTICK: case RSTICK: {
@@ -233,6 +468,47 @@ public final class TouchPad {
                 }
                 default: break;
             }
+        }
+        if (editing) drawEdit(p, stroke);
+    }
+
+    // The edit mode on top: an outline per control (yellow while dragged, red where it overlaps another control or the
+    // edit buttons), a hint, and CANCEL / RESET / DONE. Not faded by the Opacity setting.
+    private void drawEdit(Painter p, float stroke) {
+        java.util.List<Object[]> b = boxes();
+        for (int i = 0; i < controls.length; i++) {
+            Control c = controls[i];
+            float[] q = (float[]) b.get(i)[1];
+            boolean clash = false;
+            for (int j = 0; j < controls.length && !clash; j++) {
+                if (j == i || (face(c.id) && face(controls[j].id))) continue;
+                float[] o = (float[]) b.get(j)[1];
+                clash = q[0] < o[2] && o[0] < q[2] && q[1] < o[3] && o[1] < q[3];
+            }
+            for (int k = EDIT_DONE; k <= EDIT_CANCEL && !clash; k++) {
+                float[] o = editButton(k);
+                clash = q[0] < o[2] && o[0] < q[2] && q[1] < o[3] && o[1] < q[3];
+            }
+            boolean dragged = false;
+            for (int pc : pointerControl) {
+                if (pc < 0) continue;
+                if (pc == i || (face(c.id) && face(controls[pc].id))) dragged = true;
+            }
+            int color = dragged ? 0xFFFFD54A : clash ? 0xFFFF4D4D : 0x99FFFFFF;
+            float pad = 0.012f * unit, hx = c.halfWidth() + pad, hy = c.r + pad;
+            if (c.hw > 0) p.roundRect(c.cx - hx, c.cy - hy, c.cx + hx, c.cy + hy, hy * 0.6f, color, false, stroke * 1.3f);
+            else p.circle(c.cx, c.cy, c.r + pad, color, false, stroke * 1.3f);
+        }
+        p.text("DRAG A CONTROL TO MOVE IT", width / 2, height / 2 - 0.12f * unit, 0.04f * unit, 0xFFFFFFFF);
+        for (int k = EDIT_DONE; k <= EDIT_CANCEL; k++) {
+            float[] r = editButton(k);
+            boolean down = false;
+            for (int pe : pointerEdit) down |= pe == k;
+            int fill = k == EDIT_DONE ? (down ? 0xFFBF2630 : 0xFF8C1C21) : (down ? 0xFF4A4E57 : 0xE62A2D33);
+            float rad = (r[3] - r[1]) * 0.3f;
+            p.roundRect(r[0], r[1], r[2], r[3], rad, fill, true, 0);
+            p.roundRect(r[0], r[1], r[2], r[3], rad, 0xE6FFFFFF, false, stroke);
+            p.text(kEditLabels[k], (r[0] + r[2]) / 2, (r[1] + r[3]) / 2, 0.04f * unit, 0xFFFFFFFF);
         }
     }
 

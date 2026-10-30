@@ -8,6 +8,8 @@
 // each game starts fresh and the launcher's memory is free for it.
 package io.github.jarrodfeng.wwe2k14;
 
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.content.ClipData;
 import android.content.Intent;
 import android.database.Cursor;
@@ -31,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 import org.libsdl.app.SDLActivity;
@@ -39,8 +42,8 @@ public class LauncherActivity extends SDLActivity {
     private static final String TAG = "wwe2k14";
     // mobile_platform.h Event::Kind
     static final int EV_GAME_PICKED = 0, EV_DLC_ADDED = 1, EV_SAVES_EXPORTED = 2, EV_SAVES_IMPORTED = 3, EV_UPDATE = 4,
-            EV_BACK = 5, EV_MESSAGE = 6;
-    private static final int REQ_GAME = 7101, REQ_DLC = 7102, REQ_EXPORT = 7103, REQ_IMPORT = 7104;
+            EV_BACK = 5, EV_MESSAGE = 6, EV_DRIVER_IMPORTED = 7;
+    private static final int REQ_GAME = 7101, REQ_DLC = 7102, REQ_EXPORT = 7103, REQ_IMPORT = 7104, REQ_DRIVER = 7105;
 
     static native void nativeEvent(int kind, boolean ok, String a, String b);
 
@@ -55,6 +58,7 @@ public class LauncherActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        writeLastGameExit();  // Session 73: before the native launcher starts (it reads the file at its start)
         super.onCreate(savedInstanceState);
         // Back = the launcher's own page back (the main page leaves the app). Android 13+ with predictive back
         // (the manifest opts in) sends it here; older versions send the Back key to SDL, which the native side reads.
@@ -81,6 +85,64 @@ public class LauncherActivity extends SDLActivity {
         }
     }
 
+    // Session 73: how Android says the last game process (":game") ended - a native crash, a low-memory kill, not
+    // responding, killed... (ApplicationExitInfo, Android 11+) - into logs/last_game_exit.txt for the native launcher
+    // (phone_check.h LastRun) and the shared logs; a native crash's tombstone / an ANR's traces as
+    // logs/last_game_exit_trace.bin. Each exit written once (its time kept in logs/last_game_exit.seen).
+    private void writeLastGameExit() {
+        if (Build.VERSION.SDK_INT < 30) return;
+        try {
+            ActivityManager am = getSystemService(ActivityManager.class);
+            List<ApplicationExitInfo> exits = am.getHistoricalProcessExitReasons(getPackageName(), 0, 8);
+            ApplicationExitInfo game = null;
+            for (ApplicationExitInfo e : exits) {
+                if (e.getProcessName() != null && e.getProcessName().endsWith(":game")) {
+                    game = e;
+                    break;
+                }
+            }
+            if (game == null) return;
+            File logs = new File(filesDir(), "logs");
+            if (!logs.isDirectory() && !logs.mkdirs()) return;
+            File seen = new File(logs, "last_game_exit.seen");
+            String stamp = Long.toString(game.getTimestamp());
+            if (seen.isFile() && stamp.equals(new String(java.nio.file.Files.readAllBytes(seen.toPath()),
+                    StandardCharsets.UTF_8).trim())) {
+                return;
+            }
+            String[] reasons = {"UNKNOWN", "EXIT_SELF", "SIGNALED", "LOW_MEMORY", "CRASH", "CRASH_NATIVE", "ANR",
+                    "INITIALIZATION_FAILURE", "PERMISSION_CHANGE", "EXCESSIVE_RESOURCE_USAGE", "USER_REQUESTED",
+                    "USER_STOPPED", "DEPENDENCY_DIED", "OTHER", "FREEZER", "PACKAGE_STATE_CHANGE", "PACKAGE_UPDATED"};
+            int r = game.getReason();
+            String text = "time: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date(game.getTimestamp()))
+                    + "\nreason: " + (r >= 0 && r < reasons.length ? reasons[r] : "REASON_" + r)
+                    + "\nstatus: " + game.getStatus()
+                    + "\ndescription: " + game.getDescription()
+                    + "\nimportance: " + game.getImportance()
+                    + "\npss_kb: " + game.getPss() + "\nrss_kb: " + game.getRss() + "\n";
+            try (OutputStream out = new FileOutputStream(new File(logs, "last_game_exit.txt"))) {
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+            }
+            File trace = new File(logs, "last_game_exit_trace.bin");
+            if (trace.isFile() && !trace.delete()) Log.w(TAG, "could not delete " + trace);
+            try (InputStream in = game.getTraceInputStream()) {
+                if (in != null) {
+                    try (OutputStream out = new FileOutputStream(trace)) {
+                        byte[] buffer = new byte[65536];
+                        int n;
+                        while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                    }
+                }
+            }
+            try (OutputStream out = new FileOutputStream(seen)) {
+                out.write(stamp.getBytes(StandardCharsets.UTF_8));
+            }
+            Log.i(TAG, "last game exit: " + text.replace("\n", "; "));
+        } catch (Exception e) {
+            Log.w(TAG, "could not read the last game exit", e);
+        }
+    }
+
     private File filesDir() {
         File f = getExternalFilesDir(null);
         return f != null ? f : getFilesDir();
@@ -89,6 +151,17 @@ public class LauncherActivity extends SDLActivity {
     // ------------------------------------------------------------------ called by the native launcher
 
     public String jFilesDir() { return filesDir().getAbsolutePath(); }
+
+    // Session 72 part 8: the player's own drivers, in internal storage (DriverImport: external storage is noexec).
+    public String jDriversDir() { return new File(getFilesDir(), "drivers").getAbsolutePath(); }
+
+    public void jImportDriver(String dir) {
+        runOnUiThread(() -> {
+            pendingDir = dir;
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+            startActivityForResult(i, REQ_DRIVER);
+        });
+    }
 
     public int[] jScreenSize() {
         android.graphics.Rect r = Build.VERSION.SDK_INT >= 30 ? getWindowManager().getMaximumWindowMetrics().getBounds() : null;
@@ -146,7 +219,8 @@ public class LauncherActivity extends SDLActivity {
                 event(EV_MESSAGE, false, "No log to share yet", null);
                 return;
             }
-            Intent send = new Intent(Intent.ACTION_SEND_MULTIPLE).setType("text/plain")
+            boolean zip = uris.size() == 1 && uris.get(0).getPath() != null && uris.get(0).getPath().endsWith(".zip");
+            Intent send = new Intent(Intent.ACTION_SEND_MULTIPLE).setType(zip ? "application/zip" : "text/plain")
                     .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                     .putExtra(Intent.EXTRA_SUBJECT, "WWE 2K14 log")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -228,6 +302,12 @@ public class LauncherActivity extends SDLActivity {
         });
     }
 
+    /** Session 74: MOVE THE CONTROLS (TouchEditActivity) with the launcher's Size and Opacity. */
+    public void jEditTouch(int[] look) {
+        runOnUiThread(() -> startActivity(new Intent(this, TouchEditActivity.class)
+                .putExtra(TouchEditActivity.EXTRA_LOOK, look)));
+    }
+
     public void jQuit() {
         runOnUiThread(this::finish);
     }
@@ -298,6 +378,26 @@ public class LauncherActivity extends SDLActivity {
                         event(EV_SAVES_IMPORTED, false, "Import failed: " + e.getMessage(), null);
                     }
                 }, "wwe2k14-import").start();
+                return;
+            }
+            case REQ_DRIVER: {
+                if (!ok || data.getData() == null) return;
+                final Uri uri = data.getData();
+                final File dir = new File(pendingDir);
+                final String name = displayName(uri);
+                event(EV_MESSAGE, true, "Adding " + name + "...", null);
+                new Thread(() -> {
+                    DriverImport.Result r;
+                    try (InputStream in = getContentResolver().openInputStream(uri)) {
+                        if (in == null) throw new java.io.IOException("cannot read");
+                        r = DriverImport.run(in, name, dir);
+                    } catch (Exception e) {
+                        Log.w(TAG, "launcher: driver import failed", e);
+                        r = new DriverImport.Result();
+                        r.message = "Could not read " + name + ": " + e.getMessage();
+                    }
+                    event(EV_DRIVER_IMPORTED, r.ok, r.message, r.folder);
+                }, "wwe2k14-driver").start();
                 return;
             }
             default:

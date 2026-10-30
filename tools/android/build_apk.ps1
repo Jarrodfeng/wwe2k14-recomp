@@ -26,8 +26,15 @@ $libs = [ordered]@{
     'librexgpu-xenos.so' = "$($AndroidDirs.SdkInstall)\lib\librexgpu-xenos.so"
     'libmain.so'         = "$($AndroidDirs.Game)\libmain.so"
     'liblauncher.so'     = "$AndroidOut\launcher-arm64\liblauncher.so"
+    # Session 72 (Android drivers, src\android_driver.h): libadrenotools' hook libraries, built with the game.
+    'libhook_impl.so'    = "$($AndroidDirs.Game)\adrenotools\src\hook\libhook_impl.so"
+    'libmain_hook.so'    = "$($AndroidDirs.Game)\adrenotools\src\hook\libmain_hook.so"
 }
 foreach ($k in $libs.Keys) { if (-not (Test-Path $libs[$k])) { "build_apk.ps1: missing $k ($($libs[$k]))"; exit 2 } }
+# Session 72: the custom Vulkan drivers built from source (tools\android\drivers\build_drivers.ps1); optional.
+foreach ($d in @(Get-ChildItem "$AndroidOut\drivers" -Filter 'libvulkan_*.so' -ErrorAction SilentlyContinue)) {
+    $libs[$d.Name] = $d.FullName
+}
 
 function Run([string]$What, [scriptblock]$Cmd) {
     $out = & $Cmd 2>&1
@@ -50,6 +57,14 @@ Run 'd8' { & "$BuildTools\d8.bat" --release --min-api $MinApi --lib $AndroidJar 
 # 2. Manifest (+ assets, + the icon) -> base APK
 if (Test-Path "$ProjectRoot\db\shaders\shader_list.txt") { Copy-Item "$ProjectRoot\db\shaders\shader_list.txt" "$obj\assets\" }
 Copy-Item "$ProjectRoot\assets\launcher\wwe2k14_logo.png" "$obj\assets\"  # the launcher's logo (SDL reads assets)
+# Session 72: the notices, with the licence texts of the bundled drivers and their loader. Flat in assets/: aapt2 on
+# Windows keeps a subfolder's backslash in the entry name.
+Copy-Item "$ProjectRoot\docs\release\THIRD_PARTY_NOTICES.md" "$obj\assets\"
+foreach ($l in @(@{ n = 'LICENSE_mesa.txt'; p = "$ProjectRoot\thirdparty\mesa\docs\license.rst" },
+                 @{ n = 'LICENSE_mali-panvk.txt'; p = "$ProjectRoot\thirdparty\mali-panvk\LICENSE" },
+                 @{ n = 'LICENSE_libadrenotools.txt'; p = "$ProjectRoot\thirdparty\libadrenotools\LICENSE" })) {
+    if (Test-Path $l.p) { Copy-Item $l.p "$obj\assets\$($l.n)" }
+}
 # The launcher icon in Android's five densities, from game_logo.png (512 x 512).
 Add-Type -AssemblyName System.Drawing
 $icon = [System.Drawing.Image]::FromFile("$ProjectRoot\game_logo.png")
@@ -91,6 +106,8 @@ try {
 
 # 4. Align (16 KB for .so files) and sign
 Run 'zipalign' { & "$BuildTools\zipalign.exe" -f -P 16 4 "$obj\base.apk" "$obj\aligned.apk" }
+# Session 73: every library's LOAD segments 16 KB-aligned (phones with 16 KB pages refuse to load the rest).
+Run '16 KB alignment' { & py "$ProjectRoot\tools\android\check_page_align.py" "$obj\aligned.apk" }
 if (-not (Test-Path $keystore)) {
     [void](New-Item -ItemType Directory -Force (Split-Path $keystore))
     Run 'keytool' { & "$Jdk\bin\keytool.exe" -genkeypair -keystore $keystore -storepass android -keypass android `

@@ -71,6 +71,19 @@ inline void Configure() {
 // OnPreSetup, after gpu_pick::Choose (the chosen device is known).
 inline void ConfigureFallback() {
   if (!gpu_pick::g_known) return;
+#if defined(__ANDROID__)
+  // Session 73: phones stay on the host render target path. Session 63 assumed "Adreno has no interlock" (true of
+  // Jarrod's 830 on its driver 512.800), but newer Qualcomm drivers offer it (Adreno 710 / 725 / 830 on 512.863+,
+  // vulkan.gpuinfo.org), and there the game took the accurate path (EDRAM work in every pixel shader under interlock),
+  // never run on a phone and the worst fit for a tiling GPU. Unless the path is set on the command line.
+  if (gpu_pick::g_chosen.interlock &&
+      rex::cvar::GetFlagSource("render_target_path_vulkan") != rex::cvar::Source::kCommandLine) {
+    REXLOG_INFO("[wwe2k14][light] phone GPU with interlock ({}): host render target path, as on every phone",
+                gpu_pick::g_chosen.name);
+    gpu_pick::g_chosen.interlock = false;
+    rex::cvar::SetFlagByName("render_target_path_vulkan", "fbo");
+  }
+#endif
   if (REXCVAR_GET(wwe2k14_test_no_interlock)) {  // Session 54 (test)
     gpu_pick::g_chosen.interlock = false;
     rex::cvar::SetFlagByName("render_target_path_vulkan", "fbo");  // (the app set fsi as its default before this)

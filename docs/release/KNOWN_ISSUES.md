@@ -1,3 +1,11 @@
+- New songs (new in v0.2.13) are silent in the entrance editor's PREVIEW: they play in matches only. They are also
+  silent in replays and re-shoots, as theme replacements are. A superstar given a new song walks out in silence if the
+  song's file is gone or USE MY MUSIC is off (the editor then shows USER PLAYLIST for him); nothing breaks.
+- I saw one crash while entering the entrance editor (CREATIONS > ENTRANCE) in my tests, and it did not come back in
+  72 more tries. If it happens to you, please send a report (launcher: Report a problem).
+- The 16:10 / 4:3 fill and the ultrawide red-patch fix (new in v0.2.13) were checked on my PC with a test window of
+  that shape and with a phone's screen shape, not on such monitors. The ultrawide mouse fix was worked out from the
+  code, not tried on an ultrawide monitor yet.
 - The entrance savings (new in v0.2.12) were checked on my NVIDIA card at 720p and 1440p. If an entrance looks wrong
   after the update (a missing or frozen background, wrong colours behind the wrestler), the extra flags
   `--gpu_native_truth_skip_restores=false --gpu_native_truth_skip_repeat_resolves=false` (Settings -> Advanced) bring

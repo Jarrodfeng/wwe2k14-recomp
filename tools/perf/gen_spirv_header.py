@@ -3,6 +3,7 @@ vulkan_spirv header in the format of the Session 7c direct-load headers (comment
 SPIR-V words as a uint32_t array, 8 per line).
 
     py tools/perf/gen_spirv_header.py SOURCE.glsl NAME DEFINE[,DEFINE...] OUT.h [--compare EXISTING.h]
+        [--stage comp|frag|vert] [--session 'Session NN']
 
 --compare: only check that the words equal EXISTING.h's array (proves the toolchain reproduces a header)."""
 import argparse
@@ -26,11 +27,14 @@ def main():
     ap.add_argument('defines')
     ap.add_argument('out')
     ap.add_argument('--compare')
+    # Session 73 (SGSR present effect): other shader stages; the default keeps the Session 22 compute headers.
+    ap.add_argument('--stage', default='comp', choices=['comp', 'frag', 'vert'])
+    ap.add_argument('--session', default='Session 22')
     a = ap.parse_args()
     defs = [d for d in a.defines.split(',') if d]
     with tempfile.TemporaryDirectory() as td:
         spv = os.path.join(td, 'out.spv')
-        cmd = [GLSLANG, '-V', '--target-env', 'vulkan1.0'] + [f'-D{d}' for d in defs] + ['-S', 'comp', '-H', '-o',
+        cmd = [GLSLANG, '-V', '--target-env', 'vulkan1.0'] + [f'-D{d}' for d in defs] + ['-S', a.stage, '-H', '-o',
                                                                                            spv, a.source]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
@@ -47,8 +51,8 @@ def main():
     disasm = lines[start:]
     while disasm and not disasm[-1].strip():
         disasm.pop()
-    out = [f'// wwe2k14 patch (Session 22): generated from ../{os.path.basename(a.source)} with',
-           f'// glslangValidator -V --target-env vulkan1.0 {" ".join("-D" + d for d in defs)} -S comp (glslang 11.0.0 from '
+    out = [f'// wwe2k14 patch ({a.session}): generated from ../{os.path.basename(a.source)} with',
+           f'// glslangValidator -V --target-env vulkan1.0 {" ".join("-D" + d for d in defs)} -S {a.stage} (glslang 11.0.0 from '
            f'the', "// SDK's thirdparty/glslang submodule, built out of tree, no spirv-opt; tools\\perf\\gen_spirv_header.py);",
            '// disassembly from its -H option.', '#if 0'] + disasm + ['#endif', '', f'const uint32_t {a.name}[] = {{']
     for i in range(0, len(words), 8):

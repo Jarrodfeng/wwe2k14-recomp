@@ -61,6 +61,18 @@ if(ANDROID)
     # main.cpp holds all our headers in one file: report every error of a pass, not the first 20.
     target_compile_options(wwe2k14 PRIVATE -ferror-limit=0)
     target_link_libraries(wwe2k14 PRIVATE android log)
+    # Session 72 (Android drivers, src/android_driver.h): libadrenotools (BSD-2-Clause, thirdparty/libadrenotools) loads a
+    # bundled custom Vulkan driver; its hook libraries (libhook_impl.so, libmain_hook.so) go into the APK beside libmain.so.
+    set(WWE2K14_ADRENOTOOLS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libadrenotools")
+    if(NOT EXISTS "${WWE2K14_ADRENOTOOLS}/CMakeLists.txt")
+        message(FATAL_ERROR "thirdparty/libadrenotools is missing (git clone --recursive https://github.com/bylaws/libadrenotools)")
+    endif()
+    if(NOT CMAKE_ANDROID_ARCH_ABI)
+        set(CMAKE_ANDROID_ARCH_ABI ${ANDROID_ABI})
+    endif()
+    add_subdirectory("${WWE2K14_ADRENOTOOLS}" adrenotools EXCLUDE_FROM_ALL)
+    target_link_libraries(wwe2k14 PRIVATE adrenotools)
+    add_dependencies(wwe2k14 hook_impl main_hook)
 endif()
 # Only main.cpp (our code): a target-wide define would rebuild all the generated code on every version change.
 set_property(SOURCE src/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"")

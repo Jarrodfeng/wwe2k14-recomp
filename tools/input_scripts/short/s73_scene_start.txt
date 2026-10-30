@@ -1,0 +1,12 @@
+# Session 73 (Jarrod: "the first second or two of everything, entrances, matches starting, runs in slow motion"): a
+# launched match WITH entrances at normal speed, through the first entrance's start and into the match start, for the
+# frame times and pacing lines around each scene start (tools\android\scene_start_speed.py). Use with
+# --wwe2k14_launch=lesnar_bryan. ~70 s.
+# harness: realtime (frame times at real speed are the point)
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+wait_frames 1500
+press_until_file START m3.pac 30 3000
+wait_frames 600
+quit

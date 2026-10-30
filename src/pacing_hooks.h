@@ -1,6 +1,7 @@
 // wwe2k14 - frame pacing, Step 0 of docs/systems/frame_pacing.md "Safe experiment for 60 fps entrances".
-// LOG ONLY: no hook changes a register, guest memory or control flow (none of them returns a value, so the
-// generated code cannot return or jump on them). Hooks: config/s7_pacing_hooks.toml.
+// Mostly log only. Two hooks change the game: the entrance-60 skip of the halve call at 0x82331778
+// (--wwe2k14_entrance_60fps) and the late-frame threshold (--wwe2k14_late_frame_threshold, Session 73: r4 replaced).
+// Hooks: config/s7_pacing_hooks.toml.
 //
 // Goal: name the exact call that sets the frame-rate word to 30 in entrances, with guest frame numbers to line up
 // against logs/timeline_NNN.csv and logs/frames_NNN.csv.
@@ -33,6 +34,7 @@
 #pragma once
 
 #include <rex/cvar.h>
+#include <rex/det.h>  // Session 73: the late-frame threshold stays the game's in replay mode
 #include <rex/logging.h>
 #include <rex/memory/utils.h>
 #include <rex/perf/timeline.h>
@@ -40,6 +42,7 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 
@@ -158,9 +161,25 @@ void wwe2k14_pacing_fps_word(PPCRegister& r9, PPCRegister& r10) {
   }
 }
 
+// Session 73 (Jarrod: "the first second or two of everything, entrances, matches starting, runs in slow motion"):
+// the game sets its D3D late-frame threshold to 0 at boot, so every frame that misses its vblank waits a whole extra
+// one (docs/systems/frame_pacing.md finding 3): a scene start's slightly late frames become 33.3 ms each, half speed.
+// >= 0 replaces the value the game passes (percent of a vblank period a frame may be late and still flip at once).
+// DEFAULT 100 (Session 73, PC A/B runs 4685-4689, normal speed, one lane): a late frame flips when it is ready (20-25
+// ms) instead of at the next vblank (33.3 ms); the entrance start's first 0.5 s 0.82-0.86 -> 0.95 of real time, frames
+// of 30-40 ms over a run 34-36 -> 9. The presenter shows whole frames, so no tearing. Replay mode (det) keeps the
+// game's 0: its flips are on the det vblank grid, and the replays' picture references were taken that way.
+REXCVAR_DEFINE_INT32(wwe2k14_late_frame_threshold, 100, "wwe2k14",
+                     "Session 73: the D3D late-frame threshold (percent, 0-127) instead of the game's own 0, so a "
+                     "slightly late frame flips at once instead of a whole vblank later; -1 = the game's "
+                     "(src/pacing_hooks.h)");
+
 // sub_82CAA838 at its first instruction: r3 = D3D device, r4 = new late-frame threshold (percent, low 7 bits).
 void wwe2k14_pacing_threshold(PPCRegister& r3, PPCRegister& r4) {
   using namespace wwe2k14::pacing;
+  if (const int32_t forced = REXCVAR_GET(wwe2k14_late_frame_threshold); forced >= 0 && !rex::det::Enabled()) {
+    r4.u32 = (r4.u32 & ~0x7Fu) | (uint32_t(std::min(forced, 127)) & 0x7Fu);
+  }
   const uint32_t value = r4.u32;
   const uint32_t n = g_threshold_calls.fetch_add(1, std::memory_order_relaxed) + 1;
   const uint32_t previous = g_last_threshold.exchange(value, std::memory_order_relaxed);

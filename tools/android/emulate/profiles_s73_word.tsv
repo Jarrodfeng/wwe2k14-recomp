@@ -1,0 +1,2 @@
+ctrl_60	--wwe2k14_dynamic_res=true --wwe2k14_launch_skip_entrances=false
+ctrl_30	--wwe2k14_dynamic_res=true --wwe2k14_step_hz=30 --wwe2k14_step_hz_entrance=60 --wwe2k14_entrance_60fps=false

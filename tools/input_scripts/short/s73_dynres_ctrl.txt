@@ -1,0 +1,10 @@
+# Session 73 (dynamic resolution controller, T1): a launched match 4000 frames long (fast-forwarded), for the
+# controller (src\dynamic_res.h; force steps with --wwe2k14_dynamic_res_target_ms). Use with --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true (tools\android\emulate\run_profiles.ps1 -Route ...). Untimed. on_fail quit.
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+wait_frames 4000
+screenshot dyn_720
+quit

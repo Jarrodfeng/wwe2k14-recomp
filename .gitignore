@@ -37,3 +37,10 @@ thirdparty/
 
 # Session 29: personal Claude Code settings (the PLAYBOOK upload hook names a personal address)
 .claude/settings.local.json
+
+# Session 75: songs Jarrod drops in for the new music slots (never committed)
+*.mp3
+*.m4a
+*.flac
+*.wma
+*.aac

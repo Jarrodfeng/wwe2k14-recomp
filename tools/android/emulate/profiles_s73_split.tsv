@@ -1,0 +1,2 @@
+# Session 73 part 7: Fast shaders with the characters' pixel shaders at full precision (fp16 everywhere was run 4711).
+fp16_chars_full	--gpu_native_ps_relaxed_precision=true

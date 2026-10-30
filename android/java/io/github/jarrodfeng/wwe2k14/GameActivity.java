@@ -23,6 +23,7 @@ import android.window.OnBackInvokedDispatcher;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -55,6 +56,13 @@ public class GameActivity extends SDLActivity {
         super.onCreate(savedInstanceState);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // Session 72 part 9: the picture reaches the screen's edges past the camera cut-out. By default a landscape
+        // window stops short of a cut-out on the short edge (a black strip on that side) before Android 15; SDL sets
+        // the mode on its full-screen switch but only on the window's copy of its parameters, which never reaches the
+        // window manager (SDLActivity COMMAND_CHANGE_WINDOW_STYLE: no setAttributes).
+        WindowManager.LayoutParams lp = getWindow().getAttributes();
+        lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        getWindow().setAttributes(lp);
 
         // Touch controls (the launcher's choices; test runs started with args.txt get none).
         int[] touch = getIntent().getIntArrayExtra(EXTRA_TOUCH);
@@ -95,14 +103,21 @@ public class GameActivity extends SDLActivity {
         askQuit();
     }
 
+    // Session 74: the same menu moves the touch controls while they are on the screen (Back while moving them = CANCEL).
     private void askQuit() {
+        if (overlay != null && overlay.editing()) {
+            overlay.cancelEdit();
+            return;
+        }
         if (quitDialog != null && quitDialog.isShowing()) return;
-        quitDialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        AlertDialog.Builder b = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Quit to the launcher?")
                 .setMessage("Anything not saved in the game is lost.")
                 .setPositiveButton("Quit", (d, w) -> quitToLauncher())
-                .setNegativeButton("Keep playing", null)
-                .create();
+                .setNegativeButton("Keep playing", null);
+        if (overlay != null && overlay.controlsShown())
+            b.setNeutralButton("Move touch controls", (d, w) -> overlay.startEdit(null));
+        quitDialog = b.create();
         quitDialog.show();
     }
 
@@ -110,6 +125,7 @@ public class GameActivity extends SDLActivity {
     // ANDROID_PLAN known issues, cannot happen this way). finish() first so Android does not bring this activity back.
     private void quitToLauncher() {
         Log.i(TAG, "quit to the launcher");
+        blackBoxNote("the player quit to the launcher");  // Session 73: a normal end (phone_check.h LastRun)
         startActivity(new Intent(this, LauncherActivity.class));
         finish();
         overridePendingTransition(0, 0);
@@ -146,6 +162,7 @@ public class GameActivity extends SDLActivity {
                 Log.e(TAG, "reading " + args + " failed", e);
             }
             if (!args.delete()) Log.w(TAG, "could not delete " + args);
+            addDriverDirs(list);
             Log.i(TAG, "arguments from args.txt: " + list);
             return list.toArray(new String[0]);
         }
@@ -160,8 +177,41 @@ public class GameActivity extends SDLActivity {
             }
             list.add(a);
         }
+        addDriverDirs(list);
         Log.i(TAG, "arguments from the launcher: " + list);
         return list.toArray(new String[0]);
+    }
+
+    // Session 73 (low memory): Android's warnings while the game runs go to the game's log and black box
+    // (src/blackbox.h, src/android_memory.h: it also hands freed memory back), so a report shows them and the launcher
+    // can say why Android closed the game.
+    private static native void nativeTrimMemory(int level);
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        Log.w(TAG, "onTrimMemory " + level);
+        try {
+            nativeTrimMemory(level);
+        } catch (UnsatisfiedLinkError e) {
+            blackBoxNote("memory low (Android trim level " + level + ")");
+        }
+    }
+
+    // A line in logs/startup.txt from this side (the native side writes it while the game runs; appended either way).
+    private void blackBoxNote(String text) {
+        try (FileOutputStream out = new FileOutputStream(new File(new File(filesDir(), "logs"), "startup.txt"), true)) {
+            out.write(("    java  " + text + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            Log.w(TAG, "black box note failed", e);
+        }
+    }
+
+    // Session 72 (Android drivers, src/android_driver.h): where libadrenotools' hooks and the bundled custom drivers are
+    // (the app's native library folder) and a writable folder it needs on Android 9. Unused unless a driver is chosen.
+    private void addDriverDirs(List<String> list) {
+        list.add("--wwe2k14_android_lib_dir=" + getApplicationInfo().nativeLibraryDir + "/");
+        list.add("--wwe2k14_android_tmp_dir=" + getCacheDir().getAbsolutePath() + "/");
     }
 
     // The picked game file, opened by this process (the launcher keeps lasting read access to it): /proc/self/fd/N.

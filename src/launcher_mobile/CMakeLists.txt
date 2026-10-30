@@ -33,6 +33,8 @@ set(SOURCES
 # The Android port's own version (android\VERSION, e.g. android-v0.1.0; Jarrod 2026-10-28: "call it android 0.1.0"),
 # separate from the PC's VERSION; its releases are tagged with it.
 file(STRINGS "${REPO}/android/VERSION" WWE2K14_VERSION LIMIT_COUNT 1)
+# Session 72: re-run CMake when it changes (without this an incremental build kept the old version: 0.1.3 showed 0.1.2).
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${REPO}/android/VERSION")
 
 if(ANDROID)
     add_library(launcher SHARED ${SOURCES} platform_android.cpp)
@@ -50,5 +52,6 @@ else()
                 "$<TARGET_FILE_DIR:wwe2k14_launcher_mobile>/wwe2k14_logo.png")
     set(TARGET wwe2k14_launcher_mobile)
 endif()
-target_include_directories(${TARGET} PRIVATE ${IMGUI} ${IMGUI}/backends "${TP}/stb" "${TP}/inja/third_party/include")
+target_include_directories(${TARGET} PRIVATE ${IMGUI} ${IMGUI}/backends "${TP}/stb" "${TP}/inja/third_party/include"
+                           "${TP}/vulkan-headers/include")  # Session 73: phone_check.h
 target_compile_definitions(${TARGET} PRIVATE "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"")

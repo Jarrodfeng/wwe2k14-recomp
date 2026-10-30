@@ -1,0 +1,19 @@
+# Session 73 (dynamic resolution, T1): the draw height changed while a match runs (SDK gpu_native_truth_draw_height at a
+# frame end): 720 -> 540 -> 432 -> 720 with a screenshot after each. Run with --wwe2k14_launch=lesnar_bryan
+# --wwe2k14_launch_skip_entrances=true (tools\android\emulate\run_profiles.ps1 -Route ...). Untimed. on_fail quit.
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+wait_frames 400
+screenshot dyn_720
+cvar gpu_native_truth_draw_height 540
+wait_frames 90
+screenshot dyn_540
+cvar gpu_native_truth_draw_height 432
+wait_frames 90
+screenshot dyn_432
+cvar gpu_native_truth_draw_height 0
+wait_frames 90
+screenshot dyn_720b
+quit

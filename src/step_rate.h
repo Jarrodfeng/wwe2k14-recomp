@@ -39,6 +39,7 @@
 
 #include "decode_probe.h"  // GuestPtr
 #include "frame_stats.h"
+#include "frame_word.h"  // Session 73: g_frame_word
 #include "load_turbo.h"  // g_load_turbo_ingame_window
 
 REXCVAR_DEFINE_INT32(wwe2k14_step_hz, 0, "wwe2k14",
@@ -212,6 +213,12 @@ inline void ApplyFastForwardVblank(uint64_t frame) {
 inline void OnFrameInner(uint8_t* base, uint64_t frame);
 inline void OnFrame(uint8_t* base, uint64_t frame) {
   OnFrameInner(base, frame);
+  // Session 73 (frame_word.h): the frame-rate word for the code that judges frame times; each change logged.
+  const uint32_t word = LoadU32(base, kWord);
+  if (g_frame_word.exchange(word, std::memory_order_relaxed) != word && word >= 25 && word <= 1000) {
+    REXLOG_INFO("[wwe2k14][step] frame-rate word {} at frame {} (frame budget {:.1f} ms)", word, frame,
+                1000.0 / double(word));
+  }
   SyncDetTime(base);
   ApplyFastForwardVblank(frame);
 }

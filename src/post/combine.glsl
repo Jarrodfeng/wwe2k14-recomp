@@ -43,25 +43,32 @@ layout(set = 1, binding = 2, std140) uniform XeFloatConstants { vec4 c[11]; } fc
 #define C29 fc.c[3]
 #define C30 fc.c[4]
 
-layout(set = 3, binding = 1000) uniform texture2D t_scene;   // fetch constant 0: the scene's colour
-layout(set = 3, binding = 1002) uniform texture2D t_blur_a;  // 2: quarter-size blur for what is right at the camera
-layout(set = 3, binding = 1003) uniform texture2D t_depth;   // 3: the scene's depth (larger = nearer)
-layout(set = 3, binding = 1006) uniform texture2D t_blur_b;  // 6: quarter-size blur for the background
+layout(set = 3, binding = 1000) uniform texture2DArray t_scene;   // fetch constant 0: the scene's colour
+layout(set = 3, binding = 1002) uniform texture2DArray t_blur_a;  // 2: quarter-size blur for what is right at the camera
+layout(set = 3, binding = 1003) uniform texture2DArray t_depth;   // 3: the scene's depth (larger = nearer)
+layout(set = 3, binding = 1006) uniform texture2DArray t_blur_b;  // 6: quarter-size blur for the background
 layout(set = 3, binding = 1200) uniform sampler s_scene;
 layout(set = 3, binding = 1202) uniform sampler s_blur_a;
 layout(set = 3, binding = 1203) uniform sampler s_depth;
 layout(set = 3, binding = 1206) uniform sampler s_blur_b;
 #ifdef ENTRANCE
-layout(set = 3, binding = 1007) uniform texture2D t_bloom;   // 7: bloom
-layout(set = 3, binding = 1008) uniform texture2D t_glare;   // 8: the star glare
+layout(set = 3, binding = 1007) uniform texture2DArray t_bloom;   // 7: bloom
+layout(set = 3, binding = 1008) uniform texture2DArray t_glare;   // 8: the star glare
 layout(set = 3, binding = 1207) uniform sampler s_bloom;
 layout(set = 3, binding = 1208) uniform sampler s_glare;
 #endif
 
+// Session 73: the texture cache binds every 2D texture as a 2D *array* view (layer 0), as the translated shaders
+// declare them; reading one through a plain 2D type is undefined (validation VUID-vkCmdDraw-viewType-07752: worked
+// on NVIDIA and the Adreno 830 by luck). These read layer 0 of the array.
+vec4 Lod(texture2DArray t, sampler s, vec2 uv) { return textureLod(sampler2DArray(t, s), vec3(uv, 0.0), 0.0); }
+ivec2 Size(texture2DArray t, sampler s) { return textureSize(sampler2DArray(t, s), 0).xy; }
+vec4 Fetch(texture2DArray t, sampler s, ivec2 p) { return texelFetch(sampler2DArray(t, s), ivec3(p, 0), 0); }
+
 layout(location = 0) in vec4 in_texcoord;
 layout(location = 0) out vec4 out_color;
 
-vec3 Tap(vec2 p) { return textureLod(sampler2D(t_scene, s_scene), p, 0.0).rgb; }
+vec3 Tap(vec2 p) { return Lod(t_scene, s_scene, p).rgb; }
 // The game's luma: c252 holds the weights for blue, red, green.
 float Luma(vec3 rgb) { return dot(rgb, C252.yzx); }
 
@@ -114,7 +121,7 @@ vec3 Bokeh(vec2 uv, vec3 centre, float blur) {
   // The game's own quarter-size background blur (already made each frame) stands in for the disc's inside, so few
   // full-size taps are enough; its alpha is 1 where it holds blurred background (0 at in-focus pixels it passed
   // through).
-  vec4 inside = textureLod(sampler2D(t_blur_b, s_blur_b), uv, 0.0);
+  vec4 inside = Lod(t_blur_b, s_blur_b, uv);
   sum += inside.rgb * (kBokehInside * inside.a);
   weights += kBokehInside * inside.a;
   // Golden-angle spiral: each tap turns by the golden angle and steps out so the taps cover the disc evenly.
@@ -133,7 +140,7 @@ vec3 Bokeh(vec2 uv, vec3 centre, float blur) {
     vec2 p = uv * size + dir * r;
     // Colour through the game's (linear) sampler: each tap averages its 2x2 texels, which keeps the disc smooth.
     vec3 c = Tap(p / size);
-    float tapBlur = FarBlur(texelFetch(sampler2D(t_depth, s_depth), clamp(ivec2(p), ivec2(0), g_size - 1), 0).x);
+    float tapBlur = FarBlur(Fetch(t_depth, s_depth, clamp(ivec2(p), ivec2(0), g_size - 1)).x);
     // A tap counts where its own blur reaches this pixel: the in-focus wrestlers (no blur) stay out of the background.
     float w = clamp(tapBlur * maxRadius - r + 1.0, 0.0, 1.0);
     w *= 1.0 + kBokehHighlight * max(Luma(c) - 0.6, 0.0);
@@ -146,8 +153,8 @@ vec3 Bokeh(vec2 uv, vec3 centre, float blur) {
 
 // Cubic B-spline scaling up of a small texture through its linear sampler: four bilinear taps placed so their blend
 // gives the 4x4 texel B-spline (smooth, no texel grid).
-vec3 BSpline(texture2D t, sampler s, vec2 uv) {
-  vec2 size = vec2(textureSize(sampler2D(t, s), 0));
+vec3 BSpline(texture2DArray t, sampler s, vec2 uv) {
+  vec2 size = vec2(Size(t, s));
   vec2 p = uv * size - 0.5;
   vec2 i = floor(p);
   vec2 f = p - i;
@@ -161,10 +168,10 @@ vec3 BSpline(texture2D t, sampler s, vec2 uv) {
   vec2 g1 = w2 + w3;
   vec2 c0 = (i - 0.5 + w1 / g0) / size;
   vec2 c1 = (i + 1.5 + w3 / g1) / size;
-  return g0.y * (g0.x * textureLod(sampler2D(t, s), vec2(c0.x, c0.y), 0.0).rgb +
-                 g1.x * textureLod(sampler2D(t, s), vec2(c1.x, c0.y), 0.0).rgb) +
-         g1.y * (g0.x * textureLod(sampler2D(t, s), vec2(c0.x, c1.y), 0.0).rgb +
-                 g1.x * textureLod(sampler2D(t, s), vec2(c1.x, c1.y), 0.0).rgb);
+  return g0.y * (g0.x * Lod(t, s, vec2(c0.x, c0.y)).rgb +
+                 g1.x * Lod(t, s, vec2(c1.x, c0.y)).rgb) +
+         g1.y * (g0.x * Lod(t, s, vec2(c0.x, c1.y)).rgb +
+                 g1.x * Lod(t, s, vec2(c1.x, c1.y)).rgb);
 }
 #endif
 
@@ -172,15 +179,15 @@ void main() {
   vec2 uv = in_texcoord.xy;
   vec3 color = ConsoleFxaa(uv, in_texcoord.zw);
   float one = C252.w;
-  float depth = textureLod(sampler2D(t_depth, s_depth), uv, 0.0).x;
+  float depth = Lod(t_depth, s_depth, uv).x;
   float z = one - depth;
   if (C21.x > z) {
     // Right in front of the camera: toward the near blur.
     float f = clamp((C21.x - z) * C20.x + C21.z, C21.z, one);
-    color += (textureLod(sampler2D(t_blur_a, s_blur_a), uv, 0.0).rgb - color) * f;
+    color += (Lod(t_blur_a, s_blur_a, uv).rgb - color) * f;
   } else {
 #ifdef ENHANCED
-    g_size = textureSize(sampler2D(t_scene, s_scene), 0);
+    g_size = Size(t_scene, s_scene);
     float blur = FarBlur(depth);
     if (blur > 0.0) {
       // Fades in over the first pixel of radius, so the edge of the blurred range does not step.
@@ -189,7 +196,7 @@ void main() {
 #else
     // The background: toward the far blur, capped (c20.w).
     float f = clamp((z - C21.y) * C20.y + C21.z, C21.z, C20.w);
-    color += (textureLod(sampler2D(t_blur_b, s_blur_b), uv, 0.0).rgb - color) * f;
+    color += (Lod(t_blur_b, s_blur_b, uv).rgb - color) * f;
 #endif
   }
   // The depth tint toward c27, by a ramp on depth.
@@ -203,8 +210,8 @@ void main() {
   if (C31.x != 0.0) color += BSpline(t_bloom, s_bloom, uv) * C31.x;
   if (C32.x != 0.0) color += BSpline(t_glare, s_glare, uv) * C32.x;
 #else
-  if (C31.x != 0.0) color += textureLod(sampler2D(t_bloom, s_bloom), uv, 0.0).rgb * C31.x;
-  if (C32.x != 0.0) color += textureLod(sampler2D(t_glare, s_glare), uv, 0.0).rgb * C32.x;
+  if (C31.x != 0.0) color += Lod(t_bloom, s_bloom, uv).rgb * C31.x;
+  if (C32.x != 0.0) color += Lod(t_glare, s_glare, uv).rgb * C32.x;
 #endif
 #endif
   out_color = vec4(color, 1.0);

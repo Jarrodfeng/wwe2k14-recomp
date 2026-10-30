@@ -6525,6 +6525,986 @@
           "size": 11409408
         }
       ]
+    },
+    {
+      "id": "pin-af1f1cc-1029-0508",
+      "sdk_commit": "af1f1cc2f6156ef72bc3e30c1933e452847fcc28",
+      "sdk_branch": "s72-drivers",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s72p9, 2026-10-29T05:08:00 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s72p9.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s72 part 9 gpu_tall_factor (s72-drivers, test)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "27966be5586a0f3a95b0f9268268f33e82165a3b2f98fd5dd579798e4b391e81",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "bdf02433ffe692fd81f1344494b8b9a2840642300fef8762eb458e9d3ea21bef",
+          "size": 15366144
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "921dc2e08a488f3186448a0429eae9945b996015b37210cde4bfdb5036da00fe",
+          "size": 11415040
+        }
+      ]
+    },
+    {
+      "id": "pin-9dcc38f-1029-1355",
+      "sdk_commit": "9dcc38fa08be9f25cccb18439071d21a1f467bc0",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73a, 2026-10-29T13:55:11 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73a.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 vulkan_emulate",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "bfa5a622187705c75a3fa81370bd669bfadb26bad1a6b3adf2ae099d817879c7",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "cfa58656ee8ce34284a4a260ff3fa9b71ec1dc01c0017cecf3ecfe3f4cd54e89",
+          "size": 15366144
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "3f51fad0f318b47a1a04ac8ea313c4c73f2d57798fedcc0c5eaa3b0691046221",
+          "size": 11474944
+        }
+      ]
+    },
+    {
+      "id": "pin-806be8d-1029-1403",
+      "sdk_commit": "806be8d58293d916d61ba1d3dcc713a1878496b2",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73c, 2026-10-29T14:03:22 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73c.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 kill diag",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "bfa5a622187705c75a3fa81370bd669bfadb26bad1a6b3adf2ae099d817879c7",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "abc71b2f4ca83b1eb9262566d4f6ba0d0817f940f1359091f5765d6266e17fd4",
+          "size": 15376896
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "3f51fad0f318b47a1a04ac8ea313c4c73f2d57798fedcc0c5eaa3b0691046221",
+          "size": 11474944
+        }
+      ]
+    },
+    {
+      "id": "pin-52cf8fa-1029-1411",
+      "sdk_commit": "52cf8fa2cf990697ae62defebf29de5319902173",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73d, 2026-10-29T14:11:48 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73d.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 mali vs stores",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "b07da38185f97e03b6b2a17ee5162e3e4fbe61d089113e2135e2982930b651b7",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "1d70cc4e5159650b6abee63d591417926d842206e1d566e52bd50ee5063cf08f",
+          "size": 15377920
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "a81eb9c99e4162ec4122e7517b8b97b3a11de66723ec91334151559c5e28998b",
+          "size": 11475456
+        }
+      ]
+    },
+    {
+      "id": "pin-27654ca-1029-1416",
+      "sdk_commit": "27654ca6985097d9c9e291dad33dde80e3473505",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73e, 2026-10-29T14:16:49 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73e.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 present semaphores",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "c23438814464aba3a6c76148eaa9d154ea2568605fa9ce8c2ee7677b39f37dd8",
+          "size": 3636736
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "53f6cf8ceee9022d093d93bcb6865b7e8a76e20b74c79d4baae1743063d5046c",
+          "size": 15377920
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "af1686958c13c6811a0db308fef7be8094052b039d40f63556a3858731a4a262",
+          "size": 11475968
+        }
+      ]
+    },
+    {
+      "id": "pin-e6e313e-1029-1426",
+      "sdk_commit": "e6e313e69c87470af5309dfdb0b06c2f58fa61cd",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73f, 2026-10-29T14:26:29 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73f.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 ppc barriers",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "9ea0540587786c13da25779547d2237c6e55870225bf227b60ed40adb746d018",
+          "size": 3637760
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "53f6cf8ceee9022d093d93bcb6865b7e8a76e20b74c79d4baae1743063d5046c",
+          "size": 15377920
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "af1686958c13c6811a0db308fef7be8094052b039d40f63556a3858731a4a262",
+          "size": 11475968
+        }
+      ]
+    },
+    {
+      "id": "pin-273df02-1029-1504",
+      "sdk_commit": "273df021e496482fa38c2f7524a34a026be6608b",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73g, 2026-10-29T15:04:21 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73g.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 arm float semantics",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "89faccc974032bf2435bc4fc242401a735d5e731874ccdfbc0a968aa20647bc5",
+          "size": 3637760
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "b76c9d7b1a35b02fc237f4ceaf918de8aa98f0f8ff5889774cab31e678c72400",
+          "size": 15377920
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "7005fee3211a917c6c08aa507558e23f7638a9f25b8ef9db61fe30cec2af3848",
+          "size": 11475968
+        }
+      ]
+    },
+    {
+      "id": "pin-1cb4934-1029-1549",
+      "sdk_commit": "1cb4934fb2026b9e6d67ea09130298c09ba0e471",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73h, 2026-10-29T15:49:23 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73h.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 compat fence ub",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "660b4706eb276507abd9f5ac1b65759f9b093ee9278708aa3b50104bead37db8",
+          "size": 3640832
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "071e082cfa68114d1bedc24d95a1f36b380fcf95a4b97a768c99ba23fe86af2c",
+          "size": 15378432
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "b47d51ab3800a0af647226a34be59b1fcab8acc6a97e858c5066294034141bdc",
+          "size": 11475968
+        }
+      ]
+    },
+    {
+      "id": "pin-c1a8f7a-1029-1609",
+      "sdk_commit": "c1a8f7ae7596c1ceaf4e73da633f76482d90ca97",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73m, 2026-10-29T16:09:31 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73m.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 color none",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "7afaa2720d64c1fd1128171b14c8ef2383930d46852347708e8f77ffca90aac2",
+          "size": 3640832
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "64729e85f9705590bdabc47f0714936c78c44fe2ac3729a4490a1f1d8354f054",
+          "size": 15383552
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "1b5ab7d08f283b83f8a83a457264ae9af1c29d7c2c43a654e759e8cffcd8bf4c",
+          "size": 11480576
+        }
+      ]
+    },
+    {
+      "id": "pin-7385da0-1029-1618",
+      "sdk_commit": "7385da0490c84dfeb98fa48fd85be69a701cceb2",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73o, 2026-10-29T16:18:21 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73o.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 dynres",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "7afaa2720d64c1fd1128171b14c8ef2383930d46852347708e8f77ffca90aac2",
+          "size": 3640832
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "7b6ac3fc297d2173181171406445af11ebba01fd9f4c2b1e8270109b06a38332",
+          "size": 15385600
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "1b5ab7d08f283b83f8a83a457264ae9af1c29d7c2c43a654e759e8cffcd8bf4c",
+          "size": 11480576
+        }
+      ]
+    },
+    {
+      "id": "pin-e833ef0-1029-1632",
+      "sdk_commit": "e833ef0cb1a32beba80126f09ca692d244e823aa",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73q, 2026-10-29T16:32:17 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73q.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 emulate api",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "7935504a3a5b2743c4ad48638fc483061e83e96caea56bb9c5673e25f9ae8f94",
+          "size": 3640832
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "a2951202fa1222b4658dba602d2f85b7c1d01ac7e217d459e053e6565fc784b9",
+          "size": 15385600
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "89cd71e06db9dd4ad76b23ba5b1fa4ece426f5c55ed1004a231cde5e77feef56",
+          "size": 11484160
+        }
+      ]
+    },
+    {
+      "id": "pin-376e1f8-1029-1648",
+      "sdk_commit": "376e1f8113945572d45ff7e2e381641128c780a2",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73r, 2026-10-29T16:48:37 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73r.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 signal chain",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "7935504a3a5b2743c4ad48638fc483061e83e96caea56bb9c5673e25f9ae8f94",
+          "size": 3640832
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "a2951202fa1222b4658dba602d2f85b7c1d01ac7e217d459e053e6565fc784b9",
+          "size": 15385600
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "89cd71e06db9dd4ad76b23ba5b1fa4ece426f5c55ed1004a231cde5e77feef56",
+          "size": 11484160
+        }
+      ]
+    },
+    {
+      "id": "pin-376e1f8-1029-2050",
+      "sdk_commit": "376e1f8113945572d45ff7e2e381641128c780a2",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73u, 2026-10-29T20:50:28 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73u.log)",
+      "verified": "WARNING: SDK tree had 13 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/native/native_renderer.h;  M include/rex/ui/presenter.h;  M include/rex/ui/vulkan/presenter.h;  M src/graphics/CMakeLists.txt;  M src/graphics/vulkan/native/native_renderer.cpp",
+      "note": "s73 dev: truth image prewarm (uncommitted, agents' work in progress)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "30d3eccb12c04c298c6d5709993abca6476350c3ec41423726a9adc77bffffac",
+          "size": 3640832
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "29aa16aad73ce67eab31942195bd1a19382e1f0c4c9bc1dd2918f8772f2bd85d",
+          "size": 15453696
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "d9706d8d83b684eca51cbf42fa640d145bdd602ec28694c45735149d9bb8b096",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-376e1f8-1029-2053",
+      "sdk_commit": "376e1f8113945572d45ff7e2e381641128c780a2",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73w, 2026-10-29T20:53:54 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73w.log)",
+      "verified": "WARNING: SDK tree had 13 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/native/native_renderer.h;  M include/rex/ui/presenter.h;  M include/rex/ui/vulkan/presenter.h;  M src/graphics/CMakeLists.txt;  M src/graphics/vulkan/native/native_renderer.cpp",
+      "note": "s73 dev: prewarm + sgsr + fp16 (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "d263d663d7639eb7389f1621444fabd16dd206e129e3017f29aa500ee2cde8a7",
+          "size": 3640832
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "700301b594646ee180ae967e4f1f4c66632f8fa8c107be3e8a4af3a8519fe4a9",
+          "size": 15453696
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-376e1f8-1029-2108",
+      "sdk_commit": "376e1f8113945572d45ff7e2e381641128c780a2",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73x, 2026-10-29T21:08:25 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73x.log)",
+      "verified": "WARNING: SDK tree had 17 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/command_processor.h;  M include/rex/graphics/vulkan/native/native_renderer.h;  M include/rex/ppc/intrinsics.h;  M include/rex/ui/presenter.h;  M include/rex/ui/vulkan/presenter.h",
+      "note": "s73 dev: part 7 (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c54bbaa11cba3db984458aa482eae9a707ec6fce7e44d88ce7d1ab8d65b39c5a",
+          "size": 15459840
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-91ade08-1029-2146",
+      "sdk_commit": "91ade0841215ae38f1b8f4bad373c270f4884646",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73z, 2026-10-29T21:46:01 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73z.log)",
+      "verified": "WARNING: SDK tree had 4 uncommitted change(s) at pin time (allowed: dev test build):  M src/graphics/pipeline/shader/spirv_relaxed_precision.cpp;  M src/graphics/pipeline/shader/spirv_relaxed_precision.h;  M src/graphics/vulkan/command_processor.cpp;  M src/graphics/vulkan/native/native_renderer.cpp",
+      "note": "s73 dev: fp16 characters full (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "3a56bb77cafd250a0f299eab3fce41b3a1b7e2e8e4482a7f403007c1ce1e59ef",
+          "size": 15474176
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-91ade08-1029-2209",
+      "sdk_commit": "91ade0841215ae38f1b8f4bad373c270f4884646",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73za, 2026-10-29T22:09:28 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73za.log)",
+      "verified": "WARNING: SDK tree had 4 uncommitted change(s) at pin time (allowed: dev test build):  M src/graphics/pipeline/shader/spirv_relaxed_precision.cpp;  M src/graphics/pipeline/shader/spirv_relaxed_precision.h;  M src/graphics/vulkan/command_processor.cpp;  M src/graphics/vulkan/native/native_renderer.cpp",
+      "note": "s73 dev: fp16 skin list (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "7fa8b8fecf4e19f7aaad5a0b9b40ee7f303beae7cbee2b4f941ba83f410bb811",
+          "size": 15474176
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-91ade08-1029-2220",
+      "sdk_commit": "91ade0841215ae38f1b8f4bad373c270f4884646",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73zb, 2026-10-29T22:19:59 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73zb.log)",
+      "verified": "WARNING: SDK tree had 4 uncommitted change(s) at pin time (allowed: dev test build):  M src/graphics/pipeline/shader/spirv_relaxed_precision.cpp;  M src/graphics/pipeline/shader/spirv_relaxed_precision.h;  M src/graphics/vulkan/command_processor.cpp;  M src/graphics/vulkan/native/native_renderer.cpp",
+      "note": "s73 dev: fp16 skin shader (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "16643baf52d67bd9196a247f7e7c6ab677031317550727ebc7c866206e403e52",
+          "size": 15474176
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-839ca32-1029-2229",
+      "sdk_commit": "839ca326ff7fe9e5f80ee5f341fa9286e913d40e",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73zc, 2026-10-29T22:29:14 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73zc.log)",
+      "verified": "WARNING: SDK tree had 1 uncommitted change(s) at pin time (allowed: dev test build):  M src/graphics/vulkan/command_processor.cpp",
+      "note": "s73 dev: wide min width (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c403cbe89d88837d0993d7ff8c7ff1ef2b609a1056096cabdbb18fbbe177cf50",
+          "size": 15476224
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-2e7c7cf-1029-2243",
+      "sdk_commit": "2e7c7cf6cce307ee39d4b6a4434bbd31300fb1a3",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73zd, 2026-10-29T22:43:23 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73zd.log)",
+      "verified": "WARNING: SDK tree had 1 uncommitted change(s) at pin time (allowed: dev test build):  M src/graphics/vulkan/native/native_truth.cpp",
+      "note": "s73 dev: stencil export opt-in (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c481fe3c70a72a0a82f9dbd9866149ceb38c08f302654b54d54a08e5abebd27a",
+          "size": 15478272
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-e5652e1-1029-2305",
+      "sdk_commit": "e5652e1439f52beb73ecf19b0dbe4667eff7e511",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73ze, 2026-10-29T23:05:54 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73ze.log)",
+      "verified": "WARNING: SDK tree had 2 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/native/native_renderer.h;  M src/graphics/vulkan/native/native_renderer.cpp",
+      "note": "s73 dev: prewarm retries all run (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "56b5a50c69acdfe011726251ec4eaa9aeaaae4113039a2dd28a5ab89b8ec9a1a",
+          "size": 15481344
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-b30dced-1029-2311",
+      "sdk_commit": "b30dced93737b16f7903dbe2b462150a568d06fa",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73zf, 2026-10-29T23:10:57 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73zf.log)",
+      "verified": "WARNING: SDK tree had 1 uncommitted change(s) at pin time (allowed: dev test build):  M src/graphics/command_processor.cpp",
+      "note": "s73 dev: crowd cull wide (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "346467fd801dbfcaf38545228a3776c836f50e4c98eace22a75cdceda88d0e89",
+          "size": 15481344
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-5d5ffad-1029-2322",
+      "sdk_commit": "5d5ffadf41dbee21daa4be5f4ca0d99e80dd2802",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73zg, 2026-10-29T23:22:13 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73zg.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 dev: storage seek",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "9d15d8abfac5c899eb90aa3bafbff1b1fac7e6c23fb1af5703babe634989aa36",
+          "size": 15481344
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-5d5ffad-1029-2337",
+      "sdk_commit": "5d5ffadf41dbee21daa4be5f4ca0d99e80dd2802",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73zh, 2026-10-29T23:37:48 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73zh.log)",
+      "verified": "WARNING: SDK tree had 3 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/native/native_renderer.h;  M src/graphics/vulkan/native/native_renderer.cpp;  M src/graphics/vulkan/native/native_truth.cpp",
+      "note": "s73 dev: spare prewarm (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "d38eb68adc5ab2233483e185b1dbf421bdd02ff3832a398e0aa48f4161fa9c08",
+          "size": 15485952
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-5d5ffad-1029-2343",
+      "sdk_commit": "5d5ffadf41dbee21daa4be5f4ca0d99e80dd2802",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-29",
+      "built": "build_sdk.ps1 -Run s73zj, 2026-10-29T23:43:24 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73zj.log)",
+      "verified": "WARNING: SDK tree had 3 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/native/native_renderer.h;  M src/graphics/vulkan/native/native_renderer.cpp;  M src/graphics/vulkan/native/native_truth.cpp",
+      "note": "s73 dev: small spares kept (uncommitted)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "6cd5495b1c12fac176475c445dd13ad2235969036c13234e5c97c2f95829a09e",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "4c5dae49cbbb94fd1c3382782c6461aa6893a469230bb9a8e3824f71d5d31b0c",
+          "size": 15485952
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6c0043108ac829dd2cc2d857e520ab2a9e43bd9227bde6ac7eb83fb901e7a874",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-b5c6a92-1030-0006",
+      "sdk_commit": "b5c6a92ad1fc423cbcfcd9ec13a44a1579fb641e",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73logs, 2026-10-30T00:06:38 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73logs.log)",
+      "verified": "WARNING: SDK tree had 9 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/command_processor.h;  M src/core/CMakeLists.txt;  M src/graphics/vulkan/command_processor.cpp;  M src/graphics/vulkan/native/native_renderer.cpp;  M src/graphics/vulkan/native/native_truth.cpp",
+      "note": "s73 logging dev",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "3d27e4946f09c5a17a510490ab888425a09aa5be1df2cec5728aa59b4abeabbd",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "f8915cfb74c2c208bccd74b4900df8f59b46df3707221e53ce28a38cb7e4498b",
+          "size": 15486464
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "715deab3ecbe9e9cb1e6c6410390d60ff2fce792e48ed90aa67dd0c21b78aaf6",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-f71d52d-1030-0016",
+      "sdk_commit": "f71d52d00a997012b2262b12242c8ad71bf55d16",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73logs2, 2026-10-30T00:16:42 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73logs2.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 logging counters",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "3d27e4946f09c5a17a510490ab888425a09aa5be1df2cec5728aa59b4abeabbd",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "f8915cfb74c2c208bccd74b4900df8f59b46df3707221e53ce28a38cb7e4498b",
+          "size": 15486464
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "715deab3ecbe9e9cb1e6c6410390d60ff2fce792e48ed90aa67dd0c21b78aaf6",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-f71d52d-1030-0027",
+      "sdk_commit": "f71d52d00a997012b2262b12242c8ad71bf55d16",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73warm, 2026-10-30T00:27:47 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73warm.log)",
+      "verified": "WARNING: SDK tree had 4 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/command_processor.h;  M include/rex/perf/frame_events.h;  M src/graphics/vulkan/command_processor.cpp;  M src/graphics/vulkan/texture_cache.cpp",
+      "note": "s73 keep warm dev",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "cd245d66130423b94103602542b2355bec195964e5fe223ef315027571c32c72",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "224cb81596d583dc5e1a53715b1fcef86a8391d3aced8b40e6126d3ad83e97ca",
+          "size": 15488512
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "a393620bf619c352856ea1470f2fc398deffaab83e9070ac4950c3af884fdb28",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-fd0c0bc-1030-0039",
+      "sdk_commit": "fd0c0bcda3b25adc0e143281f8ba62523e61f3da",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73warm3, 2026-10-30T00:39:02 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73warm3.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 keep warm",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "cd245d66130423b94103602542b2355bec195964e5fe223ef315027571c32c72",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "224cb81596d583dc5e1a53715b1fcef86a8391d3aced8b40e6126d3ad83e97ca",
+          "size": 15488512
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "a393620bf619c352856ea1470f2fc398deffaab83e9070ac4950c3af884fdb28",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-fd0c0bc-1030-0051",
+      "sdk_commit": "fd0c0bcda3b25adc0e143281f8ba62523e61f3da",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73b78, 2026-10-30T00:51:33 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73b78.log)",
+      "verified": "WARNING: SDK tree had 3 uncommitted change(s) at pin time (allowed: dev test build):  M include/rex/graphics/vulkan/command_processor.h;  M include/rex/perf/frame_events.h;  M src/graphics/vulkan/command_processor.cpp",
+      "note": "s73 b78 dev",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "369335bdb534905fc8f2317255d80d9e5e3c188f0b4e8d1e4bbf29040792e2a6",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "e8ed2c12f766eda56de66d0b27fb1785b1148971afe35459ade0e4984a15a715",
+          "size": 15491072
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "9a36bdeec5dfa8a29d6fb5b6bcf88ee0550649b46a73eff230c2f118b39f9117",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-b4ab135-1030-0102",
+      "sdk_commit": "b4ab1351c3dc3925983ee3734c48f2ef1a8feb86",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73b78p, 2026-10-30T01:02:10 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73b78p.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 b78",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "369335bdb534905fc8f2317255d80d9e5e3c188f0b4e8d1e4bbf29040792e2a6",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "e8ed2c12f766eda56de66d0b27fb1785b1148971afe35459ade0e4984a15a715",
+          "size": 15491072
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "9a36bdeec5dfa8a29d6fb5b6bcf88ee0550649b46a73eff230c2f118b39f9117",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-b4ab135-1030-0132",
+      "sdk_commit": "b4ab1351c3dc3925983ee3734c48f2ef1a8feb86",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73fence, 2026-10-30T01:32:46 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73fence.log)",
+      "verified": "WARNING: SDK tree had 1 uncommitted change(s) at pin time (allowed: dev test build):  M src/graphics/vulkan/command_processor.cpp",
+      "note": "s73 fence dev",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "369335bdb534905fc8f2317255d80d9e5e3c188f0b4e8d1e4bbf29040792e2a6",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "2466ab5204987bce2f5c780e2686251f352f68dfb15e7ea9c6cc47474be9d894",
+          "size": 15491072
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "9a36bdeec5dfa8a29d6fb5b6bcf88ee0550649b46a73eff230c2f118b39f9117",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-7a04d14-1030-0135",
+      "sdk_commit": "7a04d14e9e53d4afb4e50797b3cbdc41c71b40fd",
+      "sdk_branch": "s73-gpu",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73fencep, 2026-10-30T01:35:13 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73fencep.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s73 fence",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "369335bdb534905fc8f2317255d80d9e5e3c188f0b4e8d1e4bbf29040792e2a6",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "2466ab5204987bce2f5c780e2686251f352f68dfb15e7ea9c6cc47474be9d894",
+          "size": 15491072
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "9a36bdeec5dfa8a29d6fb5b6bcf88ee0550649b46a73eff230c2f118b39f9117",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-aa1fd81-1030-1140",
+      "sdk_commit": "aa1fd81859b7211c2805e1c92a328acb6ce13d99",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s73merge, 2026-10-30T11:40:40 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s73merge.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 73 end: wwe2k14-local merge of s73-gpu (tree = 7a04d14)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "3830d0ad96055f31256de9f4f852694dcc4965349b9ceb0ff0e3626cdb6f42ba",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "5480f9bfb8a1c62273b1c8998bf881ceaf1beae5d920cf5c6d00bbe1d216f2a1",
+          "size": 15491072
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "79485f50c37d3fe25fddac04528c14004dd93a30a24951118ef74d0620005ffc",
+          "size": 11507200
+        }
+      ]
+    },
+    {
+      "id": "pin-a0a1d56-1030-1604",
+      "sdk_commit": "a0a1d5646a2eee31fa6fc6ebcc0212257caf4c74",
+      "sdk_branch": "s74-batch-idle",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s74, 2026-10-30T16:04:39 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s74.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 74 s74-batch-idle: scratch flush before the register store + readback_resolve_batch_min_bytes",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "3830d0ad96055f31256de9f4f852694dcc4965349b9ceb0ff0e3626cdb6f42ba",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "e70e2c9a85680e1e396f2354a286c3b9801559ae3902ca260f9d137cc9d400a7",
+          "size": 15493120
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "79485f50c37d3fe25fddac04528c14004dd93a30a24951118ef74d0620005ffc",
+          "size": 11507200
+        }
+      ]
     }
   ]
 }

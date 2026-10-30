@@ -15,7 +15,7 @@
 // Dear ImGui on Win32 + Direct3D 11 (both part of Windows) and the static C runtime: nothing extra to install.
 //
 // Command-line automation (used for unattended checks; each does what the matching button does):
-//   --page play|mods|settings    --mods-tab trons|titles|logos    --advanced (open the Advanced sections)
+//   --page play|mods|settings    --mods-tab trons|titles|logos|music    --advanced (open the Advanced sections)
 //   --game-data DIR  --user-data DIR (this run only; implies --no-save)    --wizard | --no-wizard   --rtx (show DLSS)
 //   --fake-igpu (Session 37: the choices for integrated graphics: light renderer, 720p, no FSR)
 //   --fake-no-interlock (Session 54: a card without fragment shader interlock)
@@ -930,12 +930,13 @@ class App {
     if (st.op == "tab") {  // Sessions 17-24 tab names
       if (st.a == "play") s.page = 0;
       else if (st.a == "settings") s.page = 2;
-      else s.page = 1, want_mods_tab_ = st.a == "titles" ? 1 : st.a == "logos" ? 2 : 0;
+      else s.page = 1, want_mods_tab_ = st.a == "titles" ? 1 : st.a == "logos" ? 2 : st.a == "music" ? 3 : 0;
     } else if (st.op == "page") {  // Session 31: + about, quick (Play -> Quick Match), advanced (Play -> Advanced)
       GoPage(st.a == "mods" ? 1 : st.a == "settings" ? 2 : st.a == "about" ? 3 : 0);
       play_view_ = st.a == "quick" ? 1 : st.a == "advanced" ? 2 : st.a == "wm30" ? 3 : 0;
     }
-    else if (st.op == "mods_tab") s.page = 1, want_mods_tab_ = st.a == "titles" ? 1 : st.a == "logos" ? 2 : 0;
+    else if (st.op == "mods_tab")
+      s.page = 1, want_mods_tab_ = st.a == "titles" ? 1 : st.a == "logos" ? 2 : st.a == "music" ? 3 : 0;
     else if (st.op == "logo_add") {  // PNG or PNG@SLOT (a test: that slot, 1-20, instead of the first free one)
       const size_t at = st.a.rfind('@');
       const bool forced = at != std::string::npos && at + 1 < st.a.size() &&
@@ -2984,28 +2985,199 @@ class App {
     return sel != before;
   }
 
-  static constexpr const char* kModsTabs[] = {"TRONS", "TITLES", "LOGOS"};
+  static constexpr const char* kModsTabs[] = {"TRONS", "TITLES", "LOGOS", "MUSIC"};  // Session 75: MUSIC (Jarrod)
 
   void ModsPage() {
     const float d = Dpi();
     if (want_mods_tab_ >= 0) s.mods_tab = want_mods_tab_, want_mods_tab_ = -1;
-    s.mods_tab = std::clamp(s.mods_tab, 0, 2);
+    s.mods_tab = std::clamp(s.mods_tab, 0, 3);
     Heading("MODS", 1.6f);
     ImGui::SameLine(0, 28 * d);
-    GameTabs(kModsTabs, 3, s.mods_tab);
-    if (s.mods_tab < 2) {
-      // Trons and titles are both read from the mods folder by --wwe2k14_mods: one switch, on both tabs.
-      const float w = 470 * d;
-      ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - w));
-      OptionToggle("USE MY VIDEOS", s.mods, true, nullptr, w);
+    GameTabs(kModsTabs, 4, s.mods_tab);
+    if (s.mods_tab != 2) {
+      // Trons, titles and music are all read from the mods folder by --wwe2k14_mods: one switch, on each of their
+      // tabs (named for what the tab holds).
+      // Session 75: right-aligned after the four tabs, narrower when the window is (it covered MUSIC at 1264 wide).
+      ImGui::SameLine(0, 24 * d);
+      const float x = ImGui::GetCursorPosX(), room = ImGui::GetContentRegionMax().x - x;
+      const float w = std::min(470 * d, room);
+      if (w < 330 * d) ImGui::NewLine();  // too narrow beside the tabs: its own row
+      else ImGui::SameLine(ImGui::GetContentRegionMax().x - w);
+      OptionToggle(s.mods_tab == 3 ? "USE MY MUSIC" : "USE MY VIDEOS", s.mods, true, nullptr, w < 330 * d ? 470 * d : w);
       if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(s.mods ? "On: your replacement trons and title reveals play in the game."
+        ImGui::SetTooltip(s.mods ? "On: your trons, title reveals and music play in the game (one switch for all)."
                                  : "Off: every original plays; your files stay in the mods folder.");
     }
     ImGui::Spacing();
     if (s.mods_tab == 0) TronsTab();
     else if (s.mods_tab == 1) TitlesTab();
-    else LogosTab();
+    else if (s.mods_tab == 2) LogosTab();
+    else MusicTab();
+  }
+
+  // ---------------- Music (Session 75, Jarrod: "music be its own tab")
+  // Left: NEW SONGS (extra entries in the game's MUSIC list, src\music_slots.h) and WRESTLERS' THEMES (a replacement
+  // for one wrestler's own theme, Session 33, src\entrance_music.h). Right: the selected song or wrestler.
+  void MusicTab() {
+    const float dpi = Dpi(), right_w = 430 * dpi;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - songs_checked_ > std::chrono::seconds(2)) songs_ = ReadNewSongs(paths_), songs_checked_ = now;
+    const float list_h = -ImGui::GetFrameHeightWithSpacing() * 1.4f;
+    ImGui::BeginChild("music_lists", ImVec2(-right_w - 8, list_h), ImGuiChildFlags_Borders);
+    Heading("NEW SONGS", 1.15f);
+    ImGui::TextDisabled("Extra entries at the end of the game's MUSIC list; any wrestler can have one.");
+    const float songs_h = std::max(90 * dpi, ImGui::GetContentRegionAvail().y * 0.38f);
+    if (ImGui::BeginTable("songs", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
+                          ImVec2(0, songs_h))) {
+      ImGui::TableSetupScrollFreeze(0, 1);
+      ImGui::TableSetupColumn("Name in the game", ImGuiTableColumnFlags_WidthStretch, 2.4f);
+      ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthStretch, 2.4f);
+      ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+      ImGui::TableHeadersRow();
+      int shown = 0;
+      for (int i = 0; i < int(songs_.size()); ++i) {
+        const NewSong& sg = songs_[size_t(i)];
+        if (!sg.present) continue;
+        ++shown;
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        const bool sel = music_kind_ == 1 && music_sel_ == i;
+        if (ImGui::Selectable((sg.name + "##song" + std::to_string(sg.id)).c_str(), sel,
+                              ImGuiSelectableFlags_SpanAllColumns)) {
+          music_kind_ = 1, music_sel_ = i, song_name_edit_ = sg.name;
+        }
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(sg.file.c_str());
+        ImGui::TableNextColumn();
+        ImGui::Text("%d", sg.id);
+      }
+      if (!shown) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("No new songs yet: Add a song...");
+      }
+      ImGui::EndTable();
+    }
+    if (ImGui::Button("Add a song...")) {
+      if (auto f = PickAudio(hwnd_)) {
+        const std::string err = AddNewSong(paths_, *f);
+        Status(err.empty() ? "New song added: " + PathStr(f->filename()) : "Song not added: " + err);
+        songs_ = ReadNewSongs(paths_), songs_checked_ = now;
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Open the songs folder")) {
+      std::error_code ec;
+      fs::create_directories(NewSongsDir(paths_), ec);
+      ShellExecuteW(hwnd_, L"explore", NewSongsDir(paths_).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", PathStr(NewSongsDir(paths_)).c_str());
+    ImGui::Spacing();
+    ImGui::Separator();
+    Heading("WRESTLERS' THEMES", 1.15f);
+    ImGui::TextDisabled("Replace one wrestler's own theme: yours plays at his entrance instead.");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##music_search", "Search name or id", &music_search_);
+    if (ImGui::BeginTable("themes", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp)) {
+      ImGui::TableSetupScrollFreeze(0, 1);
+      ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+      ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+      ImGui::TableSetupColumn("Theme", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+      ImGui::TableHeadersRow();
+      const std::string q = Lower(music_search_);
+      for (int i = 0; i < int(chars_.size()); ++i) {
+        const Character& c = chars_[size_t(i)];
+        if (!q.empty() && Lower(c.name).find(q) == std::string::npos && std::to_string(c.id).find(q) == std::string::npos)
+          continue;
+        const fs::path mu = MusicFor(paths_, c.id);
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        const bool sel = music_kind_ == 2 && music_sel_ == i;
+        if (ImGui::Selectable((c.name + "##theme" + std::to_string(i)).c_str(), sel, ImGuiSelectableFlags_SpanAllColumns))
+          music_kind_ = 2, music_sel_ = i;
+        ImGui::TableNextColumn();
+        ImGui::Text("%d", c.id);
+        ImGui::TableNextColumn();
+        if (mu.empty()) ImGui::TextDisabled("original");
+        else ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "%s", PathStr(mu.filename()).c_str());
+      }
+      ImGui::EndTable();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginChild("music_detail", ImVec2(right_w, list_h), ImGuiChildFlags_Borders);
+    if (music_kind_ == 1 && music_sel_ >= 0 && music_sel_ < int(songs_.size()) && songs_[size_t(music_sel_)].present) {
+      const NewSong sg = songs_[size_t(music_sel_)];
+      Heading(sg.name.c_str(), 1.25f);
+      ImGui::Text("Music id %d", sg.id);
+      ImGui::TextDisabled("File: %s", sg.file.c_str());
+      ImGui::Separator();
+      ImGui::TextUnformatted("Name in the game's MUSIC list:");
+      ImGui::SetNextItemWidth(-1);
+      ImGui::InputText("##song_name", &song_name_edit_);
+      if (ImGui::Button("Rename", ImVec2(-1, 0))) {
+        const std::string err = RenameNewSong(paths_, sg.id, song_name_edit_);
+        songs_ = ReadNewSongs(paths_), songs_checked_ = now;
+        for (const auto& x : songs_)
+          if (x.id == sg.id) song_name_edit_ = x.name;
+        Status(err.empty() ? "Renamed: " + song_name_edit_ : "Not renamed: " + err);
+      }
+      ImGui::Spacing();
+      if (ImGui::Button("Remove this song...", ImVec2(-1, 0))) ImGui::OpenPopup("remove_song");
+      if (ImGui::BeginPopupModal("remove_song", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Remove %s from the songs folder?", sg.file.c_str());
+        ImGui::TextDisabled("A wrestler who has it will have no entrance music until you pick another.");
+        if (ImGui::Button("Remove")) {
+          const std::string err = RemoveNewSong(paths_, sg.file);
+          songs_ = ReadNewSongs(paths_), songs_checked_ = now, music_kind_ = 0, music_sel_ = -1;
+          Status(err.empty() ? "Removed: " + sg.file : "Not removed: " + err);
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+      }
+      ImGui::Spacing();
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+      ImGui::TextWrapped("In the game: CREATIONS > ENTRANCE > pick a superstar > MUSIC: this song is at the end of the "
+                         "list. Give it to the wrestler there and save; it plays at his entrance. It keeps its id, so "
+                         "adding or removing other songs never changes whose song is whose. Needs USE MY MUSIC on.");
+      ImGui::PopStyleColor();
+    } else if (music_kind_ == 2 && music_sel_ >= 0 && music_sel_ < int(chars_.size())) {
+      const Character& c = chars_[size_t(music_sel_)];
+      Heading(Upper(c.name).c_str(), 1.25f);
+      ImGui::Text("Character id %d", c.id);
+      ImGui::Separator();
+      const fs::path mu = MusicFor(paths_, c.id);
+      if (mu.empty()) ImGui::TextUnformatted("Entrance music: the original");
+      else ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "Entrance music: %s", PathStr(mu.filename()).c_str());
+      if (ImGui::Button("Assign music...", ImVec2(-1, 0))) {
+        if (auto f = PickAudio(hwnd_)) {
+          const std::string err = AssignMusic(paths_, c.id, *f);
+          Status(err.empty() ? "Entrance music assigned: " + PathStr(f->filename()) : "Music not assigned: " + err);
+        }
+      }
+      ImGui::BeginDisabled(mu.empty());
+      if (ImGui::Button("Original music", ImVec2(-1, 0))) RevertMusic(paths_, c.id), Status("Original entrance music");
+      ImGui::EndDisabled();
+      ImGui::Spacing();
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+      ImGui::TextWrapped("MP3 / M4A / WAV / FLAC / WMA / AAC. Plays in normal play (not in replays); copied into the "
+                         "mods folder as music\\%d. To give a wrestler a song without losing anyone's theme, add it "
+                         "as a new song instead. Needs USE MY MUSIC on.", c.id);
+      ImGui::PopStyleColor();
+    } else {
+      Heading("MUSIC", 1.25f);
+      ImGui::TextWrapped("New songs are extra entries in the game's own MUSIC list (CREATIONS > ENTRANCE > pick a "
+                         "superstar > MUSIC), named after their files; nothing is replaced. Wrestlers' themes replace "
+                         "one wrestler's own theme.");
+      ImGui::Spacing();
+      ImGui::TextDisabled("Pick a song or a wrestler on the left.");
+    }
+    ImGui::EndChild();
+    ImGui::TextDisabled("%zu new song(s); MP3 / M4A / WAV / FLAC / WMA / AAC", std::count_if(songs_.begin(), songs_.end(),
+                                                                                         [](const NewSong& x) { return x.present; }));
   }
 
   // ---------------- Logos (Session 25 item 1)
@@ -5102,25 +5274,11 @@ class App {
       ImGui::TextWrapped("MP4 / MOV / MKV: any size (shown up to 1024 wide), looped, no sound. "
                          ".bik2: played by the game's own Bink decoder.");
       ImGui::PopStyleColor();
-      // Session 33: this wrestler's entrance music (the game's theme is muted while yours plays).
+      // Session 33's entrance music moved to the MUSIC tab (Session 75, Jarrod: music on its own tab).
       if (c) {
         ImGui::Separator();
         const fs::path mu = MusicFor(paths_, c->id);
-        if (mu.empty()) ImGui::TextUnformatted("Entrance music: the original");
-        else ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "Entrance music: %s", PathStr(mu.filename()).c_str());
-        if (ImGui::Button("Assign music...", ImVec2(-1, 0))) {
-          if (auto f = PickAudio(hwnd_)) {
-            const std::string err = AssignMusic(paths_, c->id, *f);
-            Status(err.empty() ? "Entrance music assigned: " + PathStr(f->filename()) : "Music not assigned: " + err);
-          }
-        }
-        ImGui::BeginDisabled(mu.empty());
-        if (ImGui::Button("Original music", ImVec2(-1, 0))) RevertMusic(paths_, c->id), Status("Original entrance music");
-        ImGui::EndDisabled();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("MP3 / M4A / WAV / FLAC / WMA / AAC. Plays in normal play (not in replays); copied into "
-                           "the mods folder as music\\%d. Needs USE MY VIDEOS on.", c->id);
-        ImGui::PopStyleColor();
+        ImGui::TextDisabled("Entrance music: %s (MUSIC tab)", mu.empty() ? "the original" : PathStr(mu.filename()).c_str());
       }
     }
     ImGui::EndChild();
@@ -5578,6 +5736,11 @@ class App {
   std::vector<Scenario> scenarios_;
   std::vector<std::string> replays_, directors_, shots_, routes_;
   std::map<int, fs::path> overrides_;
+  // Session 75: the MUSIC tab (new songs in <mods>\music\new, wrestlers' replacement themes).
+  std::vector<NewSong> songs_;
+  std::chrono::steady_clock::time_point songs_checked_{};
+  int music_kind_ = 0, music_sel_ = -1;  // selection: 1 = songs_[music_sel_], 2 = chars_[music_sel_]
+  std::string music_search_, song_name_edit_;
   std::vector<SeedRow> seeds_;
   std::string seeds_scenario_ = "\x01";
   std::string search_, pick_search_, status_;

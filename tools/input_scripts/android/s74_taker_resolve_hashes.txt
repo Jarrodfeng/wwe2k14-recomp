@@ -1,0 +1,26 @@
+# Session 74 (Undertaker's white marks with readback_resolve_batch on the phone): bench_cena_taker_match.txt with every
+# resolve from the match launch on logged with a hash of its bytes ([resolve_stats], read-back resolves only), to
+# compare batch on vs off by destination; a shorter match (900 frames: Jarrod judges the back by eye). Use with
+#   pwsh -File tools\android\run.ps1 -Run NNN -Seconds 120 -Route tools\input_scripts\android\s74_taker_resolve_hashes.txt -Scenario lesnar_bryan -GameArgs "--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=139,103 --wwe2k14_launch_skip_entrances=true [--readback_resolve_batch=true]"
+on_fail quit
+log bench: start cena_taker_match (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+cvar gpu_resolve_log 30000
+wait_file CH103.PAC 3600
+wait_frames 600
+log match: start
+wait_frames 900
+log bench: end
+quit

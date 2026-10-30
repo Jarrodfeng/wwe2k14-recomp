@@ -8,8 +8,11 @@
 // (platform_desktop.cpp) so the pages can be checked in a phone-shaped window without a phone:
 //   wwe2k14_launcher_mobile.exe [--window WxH] [--scale S] [--files DIR] [--screen WxH]
 //                               [--page N] [--shot FILE.png] [--frames N] [--scroll PX] [--select N]
+//                               [--tap X,Y] [--quit-ms N] [--check] [--share-test]
 // --shot draws --frames frames (default 4) of page N, saves the window as a PNG and quits (tools\android\
-// launcher_shots.ps1 uses it).
+// launcher_shots.ps1 uses it). --tap sends a touch tap at the 3rd frame, --quit-ms quits after N ms (Session 72: the
+// frame pacing check; launcher.log shows when the page came and how many frames were drawn). --share-test makes
+// SHARE's zip (<files>/logs/share/wwe2k14_report_NNN.zip, its path in launcher.log) without a share sheet and quits.
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
@@ -43,6 +46,9 @@
 #include "../launcher/wm30_list.h"
 #include "mobile_platform.h"
 #include "mobile_settings.h"
+#include "phone_check.h"  // Session 73: CHECK THIS PHONE and how the last game run ended
+#include "share_report.h"  // Session 73: report.txt in the shared zip
+#include "zip_writer.h"
 
 namespace mlauncher {
 
@@ -78,15 +84,27 @@ struct Texture {
   ImTextureRef Ref() const { return ImTextureRef(ImTextureID(reinterpret_cast<intptr_t>(tex))); }
 };
 
-Texture MakeTexture(SDL_Renderer* r, const std::vector<uint8_t>& rgba, int w, int h) {
+Texture MakeTexture(SDL_Renderer* r, const std::vector<uint8_t>& rgba, int w, int h,
+                    SDL_BlendMode blend = SDL_BLENDMODE_BLEND) {
   Texture t;
+  if (w <= 0 || h <= 0 || rgba.size() < size_t(w) * size_t(h) * 4) return t;
   t.tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);  // bytes R, G, B, A
   if (!t.tex) return t;
   SDL_UpdateTexture(t.tex, nullptr, rgba.data(), w * 4);
-  SDL_SetTextureBlendMode(t.tex, SDL_BLENDMODE_BLEND);
+  SDL_SetTextureBlendMode(t.tex, blend);
   SDL_SetTextureScaleMode(t.tex, SDL_SCALEMODE_LINEAR);
   t.w = w, t.h = h;
   return t;
+}
+
+// New pixels for `t`: into the texture it has when the size matches (Session 72: no new texture per page change).
+void SetPixels(SDL_Renderer* r, Texture& t, const std::vector<uint8_t>& rgba, int w, int h, SDL_BlendMode blend) {
+  if (t.tex && t.w == w && t.h == h && rgba.size() >= size_t(w) * size_t(h) * 4) {
+    SDL_UpdateTexture(t.tex, nullptr, rgba.data(), w * 4);
+    return;
+  }
+  t.Reset();
+  t = MakeTexture(r, rgba, w, h, blend);
 }
 
 // What the PC test build was asked to do (--page / --shot ...).
@@ -95,6 +113,10 @@ struct TestSteps {
   bool drawer = false;  // --drawer: the sidebar open
   float scroll = 0;
   std::string shot;
+  float tap_x = -1, tap_y = -1;  // --tap X,Y: a touch tap there (position, down, up in one batch) at the 3rd frame
+  int quit_ms = 0;               // --quit-ms N: quit N ms after start
+  bool check = false;            // --check: CHECK THIS PHONE at start (Session 73)
+  bool share = false;            // --share-test: SHARE's zip and report, no share sheet, then quit (Session 73)
 };
 
 class App {
@@ -109,9 +131,22 @@ class App {
     log_.open(files_ / "logs" / "launcher.log", std::ios::trunc);
     Log("wwe2k14 phone launcher %s on %s, files %s, ui scale %.2f", kVersion, platform::Name(), U8(files_).c_str(), ui_);
     s_ = LoadSettings(SettingsPath());
+    ScanDrivers();
+    CheckDriver();
+    for (const auto& d : kDrivers) driver_bundled_.push_back(DriverBundled(d.file));
+    if (!driver_ask_.empty()) page_ = kGraphics;  // Session 73: the question at the top of GRAPHICS
     RefreshGame();
-    if (s_.check_updates && test_.shot.empty()) CheckUpdate();
+    // Session 73: how the last game run ended (src\blackbox.h; LauncherActivity wrote Android's reason first).
+    last_run_ = check::LastRun(files_);
+    if (!last_run_.empty()) {
+      Log("last game run: %s", last_run_.c_str());
+      ShowToast(last_run_, 10000);
+    }
+    if (s_.check_updates && test_.shot.empty() && !test_.share) CheckUpdate();
+    if (test_.check) RunCheck();
+    if (test_.share) ShareLogs(false);
     if (test_.page >= 0 && test_.page < kPageCount) page_ = Page(test_.page);
+    if (page_ == kSaves) ScanSaves();
     if (test_.select >= 0) wm30_pick_ = test_.select;
     if (test_.drawer) drawer_open_ = true;
   }
@@ -156,6 +191,23 @@ class App {
   }
 
   const TestSteps& test() const { return test_; }
+  const char* PageName() const { return kPageNames[page_]; }
+
+  // Session 72: the next frame must come at once: the sidebar is sliding, ImGui still holds input it has not used (it
+  // spreads a tap's finger position, down and up over three frames), or a gamepad button is held (the menus repeat).
+  bool Busy() const {
+    if (!test_.drawer && drawer_t_ != (drawer_open_ ? 1.f : 0.f)) return true;
+    if (ImGui::GetCurrentContext()->InputEventsQueue.Size > 0) return true;
+    for (int k = ImGuiKey_GamepadStart; k <= ImGuiKey_GamepadRStickDown; ++k)
+      if (ImGui::IsKeyDown(ImGuiKey(k))) return true;
+    return false;
+  }
+  // How long the launcher may sleep with no input: until the note at the bottom goes, else until the next event (-1).
+  int IdleWaitMs() const {
+    const uint64_t now = SDL_GetTicks();
+    if (!toast_.empty() && now <= toast_until_) return int(toast_until_ - now) + 1;
+    return -1;
+  }
 
   void Log(const char* fmt, ...) {
     char buf[2048];
@@ -164,12 +216,15 @@ class App {
     std::vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     SDL_Log("wwe2k14 launcher: %s", buf);
-    if (log_) log_ << buf << "\n", log_.flush();
+    char at[24];
+    std::snprintf(at, sizeof(at), "%8.3f ", double(SDL_GetTicks()) / 1000.0);  // seconds since the launcher started
+    if (log_) log_ << at << buf << "\n", log_.flush();
   }
 
   // The renderer lost its textures (Android may drop the GL context while the app is in the background).
   void DeviceReset() {
-    bg_.Reset(), logo_.Reset(), gfont_tex_.Reset(), bg_key_ = {};
+    bg_.Reset(), logo_.Reset(), gfont_tex_.Reset();
+    for (Band& b : bands_) b.tex.Reset(), b.made = false;
     font_tried_ = logo_tried_ = false;
   }
 
@@ -187,10 +242,12 @@ class App {
   }
 
   void GoPage(Page p) {
+    if (p != page_) Log("page: %s", kPageNames[p]);
     page_ = p;
     drawer_open_ = false;
     scroll_reset_ = true;
     if (p == kDlc && !dlc_scanned_) ScanDlc();
+    if (p == kSaves) ScanSaves();
   }
 
   // ---------------------------------------------------------------- game files
@@ -328,17 +385,33 @@ class App {
     return ImVec2(float(w), float(h));
   }
 
-  // One picture for the whole screen (dots + the red panel), remade when the size or the panel changes.
-  void DrawBackground(ImVec2 size, const theme::Panel& p) {
+  // The dots: one opaque picture for the whole screen, made once per screen size. The red band: a picture of just its
+  // box, blended over the dots (theme::PanelPicture), one kept for the main page and one for the sections, so a page
+  // change remakes at most a header-sized picture. Session 72: before, every page change remade the whole screen's
+  // picture (1440 x 3168 on Jarrod's phone, 18 MB) and a new texture for it.
+  enum BandSlot { kBandHome, kBandSection, kBandSlots };
+  void DrawBackground(ImVec2 size, const theme::Panel& p, BandSlot slot) {
     const int w = int(size.x), h = int(size.y);
     if (w <= 0 || h <= 0) return;
-    const std::array<float, 7> key{size.x, size.y, p.x0, p.y0, p.w, p.h, p.slant};
-    if (!bg_.tex || key != bg_key_) {
-      bg_.Reset();
-      bg_ = MakeTexture(renderer_, theme::Background(w, h, ui_ * 0.9f, p), w, h);
-      bg_key_ = key;
+    const float dpi = ui_ * 0.9f;
+    if (!bg_.tex || bg_.w != w || bg_.h != h) {
+      const uint64_t t0 = SDL_GetTicksNS();
+      SetPixels(renderer_, bg_, theme::Background(w, h, dpi, theme::Panel{}), w, h, SDL_BLENDMODE_NONE);
+      Log("background: %d x %d made in %.1f ms", w, h, double(SDL_GetTicksNS() - t0) / 1e6);
     }
-    if (bg_.tex) ImGui::GetWindowDrawList()->AddImage(bg_.Ref(), ImVec2(0, 0), size);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (bg_.tex) dl->AddImage(bg_.Ref(), ImVec2(0, 0), ImVec2(float(w), float(h)));
+    Band& b = bands_[slot];
+    const std::array<float, 8> key{size.x, size.y, p.x0, p.y0, p.w, p.h, p.slant, p.straight_left ? 1.f : 0.f};
+    if (!b.made || key != b.key) {
+      int bw = 0, bh = 0;
+      const std::vector<uint8_t> px = theme::PanelPicture(w, h, dpi, p, b.x, b.y, bw, bh);
+      if (bw > 0 && bh > 0) SetPixels(renderer_, b.tex, px, bw, bh, SDL_BLENDMODE_BLEND);
+      else b.tex.Reset();
+      b.key = key, b.made = true;
+    }
+    if (b.tex.tex)
+      dl->AddImage(b.tex.Ref(), ImVec2(float(b.x), float(b.y)), ImVec2(float(b.x + b.tex.w), float(b.y + b.tex.h)));
   }
 
   // A slanted button (the PC's PLAY GAME tile): red, white rim, the label in the menu font, shrunk to fit.
@@ -395,7 +468,7 @@ class App {
       band.y0 = size.y - band.h, band.w = size.x, band.slant = 0;
       hero_min = safe_min_, hero_max = ImVec2(safe_max_.x, band.y0);
     }
-    DrawBackground(size, band);
+    DrawBackground(size, band, kBandHome);
     // The red band's top edge leans in portrait (the game's panels): a dark wedge over its right end.
     if (!landscape_) {
       const ImVec2 wedge[3] = {{size.x * 0.35f, band.y0 - 1}, {size.x + 1, band.y0 - 1}, {size.x + 1, band.y0 + D(40)}};
@@ -473,7 +546,7 @@ class App {
     const float room = size.x - title_x - band.slant - D(16);
     if (title_w > room) title_px *= room / title_w, title_w = room;
     band.w = std::clamp(title_x + title_w + D(28) + band.slant, std::min(size.x, D(300)), size.x);
-    DrawBackground(size, band);
+    DrawBackground(size, band, kBandSection);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddLine(ImVec2(band.w, 0), ImVec2(band.w - band.slant, band.h), IM_COL32(255, 255, 255, 170), D(1.6f));
 
@@ -727,7 +800,121 @@ class App {
     if (Button("LOOK AGAIN")) RefreshGame();
   }
 
+  // Session 72 (Android drivers): the chosen driver must still be in the app (an update can drop one), and a trial
+  // file left from the last PLAY means the game never got going with it: back to the phone's own driver.
+  fs::path DriverTrialPath() const { return files_ / "driver_trial"; }
+  // Session 73: the custom driver of the last PLAY, until the player has said whether it looked right.
+  fs::path DriverAskPath() const { return files_ / "driver_ask"; }
+  std::string driver_ask_;  // asked on GRAPHICS: the game got going with it last time
+  bool DriverBundled(const std::string& file) const {
+    const fs::path dir = platform::NativeLibDir();
+    std::error_code ec;
+    return !dir.empty() && fs::is_regular_file(dir / file, ec);
+  }
+  std::string DriverName(const std::string& id) const {
+    for (const auto& d : kDrivers)
+      if (id == d.file) return d.name;
+    if (const UserDriver* u = FindUserDriver(id)) return u->name;
+    return "the custom driver";
+  }
+
+  // Part 8 (a player: "upload their own drivers from their storage"): the drivers the player imported, one folder each
+  // under platform::DriversDir() with the wwe2k14_driver.json DriverImport.java writes.
+  struct UserDriver {
+    std::string folder, name, library, description, version, author;
+  };
+  void ScanDrivers() {
+    user_drivers_.clear();
+    std::error_code ec;
+    const fs::path root = platform::DriversDir();
+    if (root.empty()) return;
+    for (const auto& e : fs::directory_iterator(root, ec)) {
+      const std::string folder = U8(e.path().filename());
+      if (!e.is_directory(ec) || folder.empty() || folder[0] == '.') continue;
+      UserDriver d;
+      d.folder = folder;
+      try {
+        std::ifstream f(e.path() / "wwe2k14_driver.json", std::ios::binary);
+        if (!f) continue;
+        const nlohmann::json j = nlohmann::json::parse(f);
+        Get(j, "name", d.name), Get(j, "library", d.library), Get(j, "description", d.description);
+        Get(j, "version", d.version), Get(j, "author", d.author);
+      } catch (...) {
+        continue;
+      }
+      if (d.library.empty() || !fs::is_regular_file(e.path() / fs::u8path(d.library), ec)) continue;
+      if (d.name.empty()) d.name = d.folder;
+      user_drivers_.push_back(std::move(d));
+    }
+    std::sort(user_drivers_.begin(), user_drivers_.end(),
+              [](const UserDriver& a, const UserDriver& b) { return a.folder < b.folder; });
+  }
+  const UserDriver* FindUserDriver(const std::string& id) const {
+    if (id.rfind(kUserDriverPrefix, 0) != 0) return nullptr;
+    const std::string folder = id.substr(std::string(kUserDriverPrefix).size());
+    for (const auto& d : user_drivers_)
+      if (d.folder == folder) return &d;
+    return nullptr;
+  }
+  void RemoveUserDriver(const UserDriver& d) {
+    const std::string name = d.name, id = kUserDriverPrefix + d.folder;
+    std::error_code ec;
+    fs::remove_all(platform::DriversDir() / fs::u8path(d.folder), ec);
+    Log("driver: removed %s (%s)%s", d.folder.c_str(), name.c_str(), ec ? (" - " + ec.message()).c_str() : "");
+    if (s_.driver == id) s_.driver.clear(), Save();
+    ScanDrivers();
+    ShowToast(ec ? "Could not remove " + name : "Removed " + name);
+  }
+  void CheckDriver() {
+    std::error_code ec;
+    const bool trial_left = fs::exists(DriverTrialPath(), ec);
+    if (fs::exists(DriverAskPath(), ec)) {
+      std::string id;
+      std::getline(std::ifstream(DriverAskPath()), id);
+      fs::remove(DriverAskPath(), ec);
+      if (!trial_left && id == s_.driver && !IdListHas(s_.drivers_ok, id) && !IdListHas(s_.drivers_bad, id)) {
+        driver_ask_ = id;
+        Log("driver: asking whether %s looked right", id.c_str());
+      }
+    }
+    if (trial_left) {
+      fs::remove(DriverTrialPath(), ec);
+      if (!s_.driver.empty()) {
+        Log("driver: %s did not get the game running last time: back to the phone's driver", s_.driver.c_str());
+        ShowToast(std::string(DriverName(s_.driver)) + " did not start the game: back to your phone's own driver");
+        s_.driver.clear();
+        Save();
+      }
+    }
+    const bool user = s_.driver.rfind(kUserDriverPrefix, 0) == 0;
+    if (!s_.driver.empty() && (user ? !FindUserDriver(s_.driver) : !DriverBundled(s_.driver))) {
+      Log("driver: %s is not in this app: the phone's driver", s_.driver.c_str());
+      s_.driver.clear();
+      Save();
+    }
+  }
+
   void GraphicsPage() {
+    if (!driver_ask_.empty()) {  // Session 73 (idea 10)
+      GroupTitle("YOUR LAST GAME");
+      Note(("Did the game look right with " + DriverName(driver_ask_) +
+            "? White or missing textures, wrong colours or broken models mean this driver draws wrongly on this phone.")
+               .c_str());
+      if (Button("YES, IT LOOKED RIGHT")) {
+        IdListAdd(s_.drivers_ok, driver_ask_);
+        Log("driver: %s looked right (the player)", driver_ask_.c_str());
+        driver_ask_.clear();
+        Save();
+      }
+      if (Button("NO, IT LOOKED BROKEN")) {
+        IdListAdd(s_.drivers_bad, driver_ask_);
+        Log("driver: %s looked broken (the player): back to the phone's driver", driver_ask_.c_str());
+        ShowToast(DriverName(driver_ask_) + " is marked as drawing wrongly here: back to your phone's own driver", 8000);
+        if (s_.driver == driver_ask_) s_.driver.clear();
+        driver_ask_.clear();
+        Save();
+      }
+    }
     GroupTitle("RESOLUTION");
     for (int i = 0; i < kResolutionCount; ++i) {
       const std::string label = std::string(kResolutions[i].name) + (i == kDefaultResolution ? "  (default)" : "") +
@@ -735,13 +922,24 @@ class App {
       if (Choice(label.c_str(), s_.resolution == i)) s_.resolution = i, Save();
     }
     Note("What the game draws at. Lower is faster and cooler; 720p is what this phone was tested at.");
+    if (Toggle("Performance mode", s_.performance, "540p at most, sharp upscaling, less crowd work")) Save();
+    Note("For phones that drop frames in matches: the scene is drawn at 540p at most and sharpened up to the screen. "
+         "Turn it off for the sharpest picture.");
+    if (Toggle("Sharp upscaling (Snapdragon GSR)", s_.sgsr, "A sharper picture on the screen than a plain stretch"))
+      Save();
+    if (Toggle("Dynamic resolution", s_.dynamic_res, "Sharper when it can, smoother when it must")) Save();
+    Note("When the phone cannot keep up (heat, busy entrances) the game draws a little smaller for a while, then "
+         "goes back up.");
     GroupTitle("FRAME RATE");
     for (const auto& f : kFrameRates)
       if (Choice(f.name, s_.frame_rate == f.value)) s_.frame_rate = f.value, Save();
+    if (Toggle("Big cores (test)", s_.big_cores, "The game's busiest work on the fast CPU cores only")) Save();
+    Note("A test: does the game run smoother on your phone with it on?");
     GroupTitle("SCREEN SHAPE");
     if (Choice("16:9 WITH BARS (the game's own)", s_.aspect == 0)) s_.aspect = 0, Save();
-    if (Choice("FILL THE SCREEN (wider view)", s_.aspect == 1)) s_.aspect = 1, Save();
-    Note("Fill the screen shows more at the sides in matches; menus stay 16:9. Not tested on a phone yet.");
+    if (Choice("FILL THE SCREEN (more of the arena)", s_.aspect == 1)) s_.aspect = 1, Save();
+    Note("Fill the screen shows more of the arena in matches: at the sides on a long phone, above and below on a fold "
+         "or tablet. Menus stay 16:9.");
     GroupTitle("TEXTURE FILTERING");
     static constexpr const char* kFilters[] = {"STANDARD", "8X", "16X"};
     for (int i = 0; i < 3; ++i)
@@ -749,6 +947,39 @@ class App {
     GroupTitle("LANGUAGE");
     for (const auto& l : kLanguages)
       if (Choice(l.name, s_.language == l.id)) s_.language = l.id, Save();
+    GroupTitle("IF THE PICTURE IS BROKEN");
+    if (Toggle("Safe shaders", s_.safe_shaders, "Plain shaders, a little slower")) Save();
+    Note("Spiky or stretched models, smeared faces? Try this, then another driver below, and send the game log "
+         "(LOGS AND UPDATES) with what you saw.");
+    GroupTitle("GRAPHICS DRIVER");
+    if (Choice("YOUR PHONE'S OWN DRIVER  (default)", s_.driver.empty())) s_.driver.clear(), Save();
+    for (size_t i = 0; i < std::size(kDrivers); ++i) {
+      const auto& d = kDrivers[i];
+      if (i >= driver_bundled_.size() || !driver_bundled_[i]) continue;
+      if (Choice(d.name, s_.driver == d.file)) s_.driver = d.file, Save();
+      Note(d.note);
+      if (IdListHas(s_.drivers_bad, d.file)) Note("You said it drew wrongly on this phone.");
+    }
+    // Part 8: the player's own drivers.
+    const UserDriver* remove = nullptr;
+    for (const auto& d : user_drivers_) {
+      const std::string id = kUserDriverPrefix + d.folder;
+      ImGui::PushID(d.folder.c_str());
+      if (Choice((d.name + "  (yours)").c_str(), s_.driver == id)) s_.driver = id, Save();
+      std::string about = d.description;
+      if (!d.version.empty()) about += (about.empty() ? "" : " ") + std::string("(") + d.version + ")";
+      if (!d.author.empty()) about += (about.empty() ? "By " : ". By ") + d.author;
+      Note(((about.empty() ? std::string() : about + ". ") + "You added this one; it is not tested by the project.").c_str());
+      if (s_.driver == id && Button("REMOVE THIS DRIVER")) remove = &d;
+      ImGui::PopID();
+    }
+    if (remove) RemoveUserDriver(*remove);
+    if (Button("ADD YOUR OWN DRIVER (.ZIP OR .SO)")) platform::ImportDriver(platform::DriversDir());
+    Note("A driver package as Android emulators' driver managers use them (a .zip with the driver and its meta.json), "
+         "or the driver's .so on its own, for 64-bit ARM. It is copied into the app.");
+    Note("Try another driver if the picture is wrong or slow. One that does not suit your phone is skipped "
+         "(the game uses your phone's own driver), and if the game does not start with it, the launcher goes back "
+         "to your phone's own driver next time.");
   }
 
   void TouchPage() {
@@ -760,6 +991,15 @@ class App {
     if (Slider("Size", s_.touch_size, 60, 150, "%d%%")) Save();
     if (Slider("Opacity", s_.touch_opacity, 20, 100, "%d%%")) Save();
     if (Toggle("Vibrate on press", s_.touch_vibrate, "A short buzz for each button")) Save();
+    // Session 74 (players asked for it): drag the controls to new places (TouchEditActivity saves the file; in a game,
+    // Back -> MOVE TOUCH CONTROLS does the same).
+    GroupTitle("POSITIONS");
+    if (Button("MOVE THE CONTROLS")) platform::EditTouchLayout(s_.touch_size, s_.touch_opacity);
+    std::error_code ec;
+    const fs::path layout = files_ / "touch_layout.txt";
+    if (fs::exists(layout, ec) && Button("PUT THE CONTROLS BACK")) fs::remove(layout, ec);
+    Note("Drag a control to where your thumb wants it (A B X Y move together), then DONE. In a game, Back opens the "
+         "same editor (MOVE TOUCH CONTROLS).");
     Note("An Xbox layout drawn over the game: sticks, d-pad, A B X Y, bumpers, triggers, stick clicks, and Start / "
          "View at the top centre. A connected controller hides it (automatic).");
   }
@@ -864,29 +1104,52 @@ class App {
       Play(wm30_.matches[size_t(wm30_pick_)].index);
   }
 
+  // The save folder's size, counted when the page opens and after an import (Session 72: it was counted every frame).
+  void ScanSaves() {
+    std::error_code ec;
+    save_exists_ = fs::is_directory(SaveDir(), ec);
+    save_bytes_ = 0, save_files_ = 0;
+    if (!save_exists_) return;
+    for (const auto& e : fs::recursive_directory_iterator(SaveDir(), ec))
+      if (e.is_regular_file(ec) && U8(e.path()).find("/cache") == std::string::npos)
+        save_bytes_ += e.file_size(ec), ++save_files_;
+  }
+
   void SavesPage() {
     GroupTitle("YOUR SAVE");
-    std::error_code ec;
-    if (fs::is_directory(SaveDir(), ec)) {
-      uintmax_t bytes = 0;
-      int count = 0;
-      for (const auto& e : fs::recursive_directory_iterator(SaveDir(), ec))
-        if (e.is_regular_file(ec) && U8(e.path()).find("/cache") == std::string::npos) bytes += e.file_size(ec), ++count;
-      ImGui::Text("%d files, %.1f MB", count, double(bytes) / (1024.0 * 1024.0));
-    } else {
-      Note("No save yet (the game makes one the first time it saves).");
-    }
+    if (save_exists_) ImGui::Text("%d files, %.1f MB", save_files_, double(save_bytes_) / (1024.0 * 1024.0));
+    else Note("No save yet (the game makes one the first time it saves).");
     Note("Saves live in the app's own folder: uninstalling the app deletes them. Export a copy first.");
     ImGui::Dummy(ImVec2(0, D(6)));
-    if (Button("EXPORT SAVE (.ZIP)", fs::is_directory(SaveDir(), ec))) platform::ExportSaves(SaveDir());
+    if (Button("EXPORT SAVE (.ZIP)", save_exists_)) platform::ExportSaves(SaveDir());
     if (Button("IMPORT SAVE (.ZIP)")) platform::ImportSaves(SaveDir());
     Note("Import replaces the current save; the old one is kept next to it as a backup.");
   }
 
   void HelpPage() {
     GroupTitle("PROBLEM REPORTS");
+    // Session 73: how the last game run ended, and the phone check.
+    if (!last_run_.empty()) {
+      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.55f, 0.45f, 1.0f));
+      ImGui::TextWrapped("%s", last_run_.c_str());
+      ImGui::PopStyleColor();
+    }
     if (Button("SHARE THE LAST GAME LOG")) ShareLogs();
-    Note("Sends the newest game log and the launcher's log through Android's share menu (Discord, email...).");
+    Note("Sends one .zip through Android's share menu (Discord, email...): a short report, the newest game log, its "
+         "start-up record, the launcher's log and settings and this phone's check.");
+    if (Button("CHECK THIS PHONE")) RunCheck();
+    for (const auto& line : check_) {
+      static const ImVec4 kColors[3] = {ImVec4(0.55f, 0.9f, 0.55f, 1.0f), ImVec4(1.0f, 0.8f, 0.35f, 1.0f),
+                                        ImVec4(1.0f, 0.45f, 0.4f, 1.0f)};
+      static const char* const kMarks[3] = {"OK", "!", "X"};
+      ImGui::PushStyleColor(ImGuiCol_Text, kColors[std::clamp(line.level, 0, 2)]);
+      ImGui::TextWrapped("%s  %s", kMarks[std::clamp(line.level, 0, 2)], line.text.c_str());
+      ImGui::PopStyleColor();
+    }
+    if (check_.empty()) {
+      Note("Tests what stops the game before its first picture: the game files, storage, memory, the game's memory "
+           "block and the phone's Vulkan driver.");
+    }
     GroupTitle("UPDATES");
     if (Toggle("Check for updates", s_.check_updates, "Asks GitHub when the app opens")) {
       Save();
@@ -916,7 +1179,15 @@ class App {
     platform::CheckForUpdate(kVersion);
   }
 
-  void ShareLogs() {
+  // Session 73: CHECK THIS PHONE.
+  void RunCheck() {
+    check_ = check::CheckPhone(files_, game_ok_, game_error_, s_.game_name);
+    for (const auto& line : check_) Log("phone check %s: %s", line.level == 0 ? "ok" : line.level == 1 ? "warn" : "FAIL",
+                                        line.text.c_str());
+  }
+
+  // hand_over false (--share-test): makes the zip, no share sheet.
+  void ShareLogs(bool hand_over = true) {
     std::vector<fs::path> out;
     std::error_code ec;
     fs::path newest;
@@ -924,13 +1195,95 @@ class App {
     for (const auto& e : fs::directory_iterator(files_ / "logs", ec)) {
       const std::string n = U8(e.path().filename());
       if (n.rfind("wwe2k14_", 0) != 0 || e.path().extension() != ".log") continue;
+      if (U8(e.path().stem()).find('.') != std::string::npos) continue;  // a rotated part (below)
       const auto wt = e.last_write_time(ec);
       if (newest.empty() || wt > t) newest = e.path(), t = wt;
     }
     if (!newest.empty()) out.push_back(newest);
+    // Part 8: a long run's log rotates every 5 MB (SDK log_max_file_size_mb): wwe2k14_004.log is its newest part,
+    // wwe2k14_004.N.log older ones. The oldest kept (the highest N) has the run's start - the GPU, its driver and
+    // features - which a tester's log lacked: that one goes too.
+    if (!newest.empty()) {
+      const std::string base = U8(newest.stem()) + ".";
+      fs::path oldest;
+      long most = 0;
+      for (const auto& e : fs::directory_iterator(files_ / "logs", ec)) {
+        const std::string n = U8(e.path().filename());
+        // wwe2k14_004.N.log: the name minus base and ".log" (wwe2k14_004.log itself starts with base too).
+        if (n.rfind(base, 0) != 0 || n.size() <= base.size() + 4 || e.path().extension() != ".log") continue;
+        const std::string mid = n.substr(base.size(), n.size() - base.size() - 4);
+        if (mid.empty() || mid.find_first_not_of("0123456789") != std::string::npos || mid.size() > 6) continue;
+        if (const long k = std::stol(mid); k > most) most = k, oldest = e.path();
+      }
+      if (!oldest.empty()) out.push_back(oldest);
+    }
+    // Session 73 (Jarrod: testers send ONE file): everything goes into logs/share/wwe2k14_report_NNN.zip, report.txt
+    // first (share_report.h). The files one by one, as before, only when the zip cannot be written.
+    if (!newest.empty()) Log("share: game log %s", U8(newest.filename()).c_str());
+    const fs::path zip = ShareZip(newest, out.size() > 1 ? out[1] : fs::path());
     out.push_back(files_ / "logs" / "launcher.log");
+    // Session 73: the last run's start-up record and Android's reason for its end (and its native crash record).
+    for (const char* extra : {"startup.txt", "last_game_exit.txt", "last_game_exit_trace.bin"}) {
+      if (fs::is_regular_file(files_ / "logs" / extra, ec)) out.push_back(files_ / "logs" / extra);
+    }
+    if (!zip.empty()) out = {zip};
+    if (!hand_over) return;
     if (newest.empty()) ShowToast("No game log yet: sharing the launcher's log");
     platform::Share(out);
+  }
+
+  // The zip SHARE sends: report.txt, the game log (and its oldest kept part), frames_NNN.csv, the start-up record,
+  // Android's exit record, the launcher's log and settings, phone.txt (CHECK THIS PHONE). Empty when it failed.
+  fs::path ShareZip(const fs::path& game_log, const fs::path& oldest_part) {
+    std::error_code ec;
+    const fs::path logs = files_ / "logs", dir = logs / "share";
+    fs::create_directories(dir, ec);
+    // NNN: wwe2k14_116.log -> 116.
+    std::string num;
+    if (!game_log.empty()) num = U8(game_log.stem()).substr(8);
+    const fs::path frames = num.empty() ? fs::path() : logs / fs::u8path("frames_" + num + ".csv");
+    const fs::path path = dir / fs::u8path("wwe2k14_report_" + (num.empty() ? std::string("none") : num) + ".zip");
+    // Only the newest report stays (they are copies of the logs).
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+      const std::string n = U8(e.path().filename());
+      if (n.rfind("wwe2k14_report_", 0) == 0 && e.path() != path) fs::remove(e.path(), ec);
+    }
+    if (check_.empty()) RunCheck();
+    report::Inputs in;
+    in.launcher_version = kVersion;
+    in.last_run = last_run_;
+    in.logs_dir = logs;
+    if (!oldest_part.empty()) in.game_logs.push_back(oldest_part);
+    if (!game_log.empty()) in.game_logs.push_back(game_log);
+    in.frames_csv = frames;
+    const std::string text = report::Build(in);
+    std::string phone;
+    static const char* const kMarks[3] = {"OK", "!", "X"};
+    for (const auto& line : check_) phone += std::string(kMarks[std::clamp(line.level, 0, 2)]) + "  " + line.text + "\n";
+
+    zip::Writer z(path);
+    bool ok = z.ok() && z.AddText("report.txt", text);
+    auto add = [&](const fs::path& f) {
+      if (ok && !f.empty() && fs::is_regular_file(f, ec)) ok = z.AddFile(U8(f.filename()), f);
+    };
+    add(game_log);
+    add(oldest_part);
+    add(frames);
+    for (const char* extra : {"startup.txt", "last_game_exit.txt", "last_game_exit_trace.bin"}) add(logs / extra);
+    Log("share: report zip %s", U8(path).c_str());  // before the copy, so the zip's launcher.log has it
+    add(logs / "launcher.log");
+    add(SettingsPath());
+    if (ok) ok = z.AddText("phone.txt", phone);
+    const size_t entries = z.count();
+    ok = z.Finish() && ok;
+    if (!ok) {
+      Log("share: could not write %s: sharing the files one by one", U8(path).c_str());
+      fs::remove(path, ec);
+      return {};
+    }
+    Log("share: %s written, %zu files, %llu bytes", U8(path).c_str(), entries,
+        static_cast<unsigned long long>(fs::file_size(path, ec)));
+    return path;
   }
 
   void Play(int wm30 = -1) {
@@ -939,12 +1292,30 @@ class App {
       ShowToast("Choose your game files first");
       return;
     }
+    // Session 73: 16 KB memory pages would break the game's memory (phone_check.h PageSizeProblem): say so instead.
+    if (const std::string pages = check::PageSizeProblem(); !pages.empty()) {
+      Log("PLAY refused: %s", pages.c_str());
+      ShowToast(pages, 10000);
+      return;
+    }
     LaunchContext c;
     c.game_path = address_.rfind("content://", 0) == 0 ? kGameFdToken : read_path_;
     std::error_code ec;
     if (fs::is_directory(DlcDir(), ec)) c.dlc_dir = U8(DlcDir());
     platform::ScreenSize(c.screen_w, c.screen_h);
     c.wm30 = wm30;
+    if (const UserDriver* u = FindUserDriver(s_.driver)) {  // part 8: an imported driver, from its own folder
+      c.driver_library = u->library;
+      c.driver_dir = U8(platform::DriversDir() / fs::u8path(u->folder)) + "/";
+    }
+    if (!s_.driver.empty()) {  // Session 72: the game removes it once it has drawn a few hundred frames
+      std::ofstream(DriverTrialPath(), std::ios::trunc) << s_.driver << "\n";
+      c.driver_trial = U8(DriverTrialPath());
+      // Session 73: asked once, after the first game that gets going with it.
+      if (!IdListHas(s_.drivers_ok, s_.driver) && !IdListHas(s_.drivers_bad, s_.driver)) {
+        std::ofstream(DriverAskPath(), std::ios::trunc) << s_.driver << "\n";
+      }
+    }
     const std::vector<std::string> args = GameArgs(s_, c);
     Save();
     std::string line;
@@ -969,8 +1340,17 @@ class App {
         ShowToast(e.a);
         ScanDlc();
         break;
-      case E::kSavesExported:
+      case E::kDriverImported:
+        Log("driver import: %s %s", e.ok ? "ok" : "failed", e.a.c_str());
+        ScanDrivers();
+        if (e.ok && FindUserDriver(kUserDriverPrefix + e.b)) s_.driver = kUserDriverPrefix + e.b, Save();
+        if (!e.a.empty()) ShowToast(e.a);
+        break;
       case E::kSavesImported:
+        ScanSaves();
+        if (!e.a.empty()) ShowToast(e.a);
+        break;
+      case E::kSavesExported:
       case E::kMessage:
         if (!e.a.empty()) ShowToast(e.a);
         break;
@@ -983,9 +1363,9 @@ class App {
     }
   }
 
-  void ShowToast(const std::string& text) {
+  void ShowToast(const std::string& text, uint64_t ms = 4000) {
     toast_ = text;
-    toast_until_ = SDL_GetTicks() + 4000;
+    toast_until_ = SDL_GetTicks() + ms;
     Log("note: %s", text.c_str());
   }
   void Toast(ImVec2 size) {
@@ -1009,6 +1389,8 @@ class App {
   float ui_;
   TestSteps test_;
   fs::path files_;
+  std::string last_run_;               // Session 73: the last game run's end in plain words, empty when normal
+  std::vector<check::Line> check_;     // Session 73: CHECK THIS PHONE's results
   std::ofstream log_;
   Settings s_;
   Page page_ = kHome;
@@ -1030,8 +1412,19 @@ class App {
   int logo_w_ = 0, logo_h_ = 0;
   bool logo_tried_ = false;
   Texture logo_, bg_;
-  std::array<float, 7> bg_key_{};
+  struct Band {
+    Texture tex;
+    int x = 0, y = 0;
+    std::array<float, 8> key{};
+    bool made = false;
+  };
+  Band bands_[kBandSlots];
 
+  bool save_exists_ = false;
+  uintmax_t save_bytes_ = 0;
+  int save_files_ = 0;
+  std::vector<bool> driver_bundled_;  // per kDrivers entry, looked up once (Start)
+  std::vector<UserDriver> user_drivers_;
   std::vector<wwe2k14::dlc::Pack> packs_;
   std::vector<std::string> pack_names_;
   bool dlc_scanned_ = false;
@@ -1083,7 +1476,8 @@ TestSteps ParseTest(int argc, char** argv, int& win_w, int& win_h, float& scale)
   TestSteps t;
   for (int i = 1; i + 1 < argc; ++i) {
     const std::string a = argv[i];
-    if (a == "--page") t.page = std::atoi(argv[++i]);
+    if (a == "--check") t.check = true;
+    else if (a == "--page") t.page = std::atoi(argv[++i]);
     else if (a == "--shot") t.shot = argv[++i];
     else if (a == "--frames") t.frames = std::max(1, std::atoi(argv[++i]));
     else if (a == "--scroll") t.scroll = float(std::atof(argv[++i]));
@@ -1091,9 +1485,39 @@ TestSteps ParseTest(int argc, char** argv, int& win_w, int& win_h, float& scale)
     else if (a == "--drawer") t.drawer = std::atoi(argv[++i]) != 0;
     else if (a == "--window") std::sscanf(argv[++i], "%dx%d", &win_w, &win_h);
     else if (a == "--scale") scale = float(std::atof(argv[++i]));
+    else if (a == "--tap") std::sscanf(argv[++i], "%f,%f", &t.tap_x, &t.tap_y);
+    else if (a == "--quit-ms") t.quit_ms = std::atoi(argv[++i]);
+  }
+  for (int i = 1; i < argc; ++i) {  // flags without a value (the loop above misses one given last)
+    const std::string a = argv[i];
+    if (a == "--share-test") t.share = true;
+    else if (a == "--check") t.check = true;
   }
   return t;
 }
+
+// Session 72: how the launcher draws, in its log (players share it from LOGS AND UPDATES): per ~10 s of drawing, the
+// frames, their rate while drawing (the screen's refresh rate when all is well) and a frame's own work before the
+// wait for the screen; a frame whose work takes over 50 ms gets a line of its own.
+struct DrawStats {
+  int frames = 0, slow_lines = 0;
+  double work_ms = 0, worst_ms = 0, total_ms = 0;
+  uint64_t start_ns = 0;
+  void Add(App& app, double work, double total) {
+    const uint64_t now = SDL_GetTicksNS();
+    if (!frames) start_ns = now;
+    ++frames, work_ms += work, total_ms += total, worst_ms = std::max(worst_ms, work);
+    if (work > 50 && slow_lines < 40) ++slow_lines, app.Log("slow frame: %.0f ms (%s)", work, app.PageName());
+    if (now - start_ns >= 10'000'000'000ull) Flush(app);
+  }
+  void Flush(App& app) {
+    if (!frames) return;
+    app.Log("drawing: %d frames in %.1f s, %.0f fps while drawing; a frame's work %.2f ms on average, %.1f ms at most",
+            frames, double(SDL_GetTicksNS() - start_ns) / 1e9, total_ms > 0 ? frames * 1000.0 / total_ms : 0.0,
+            work_ms / frames, worst_ms);
+    frames = 0, work_ms = worst_ms = total_ms = 0;
+  }
+};
 
 bool SaveShot(SDL_Renderer* r, const std::string& path) {
   SDL_Surface* s = SDL_RenderReadPixels(r, nullptr);
@@ -1122,7 +1546,7 @@ int main(int argc, char** argv) {
   // likely cause of Jarrod's two-Back report, unconfirmed); the layout keeps to the safe area.
   const SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 #else
-  const SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | (test.shot.empty() ? 0 : SDL_WINDOW_HIDDEN);
+  const SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | (test.shot.empty() && !test.share ? 0 : SDL_WINDOW_HIDDEN);
 #endif
   SDL_Window* window = SDL_CreateWindow("WWE 2K14", win_w, win_h, flags);
   SDL_Renderer* renderer = window ? SDL_CreateRenderer(window, nullptr) : nullptr;
@@ -1150,14 +1574,43 @@ int main(int argc, char** argv) {
   ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
   ImGui_ImplSDLRenderer3_Init(renderer);
   app.Start(test);
+  app.Log("renderer: %s, %d x %d pixels", SDL_GetRendererName(renderer), pw, ph);
 
-  bool running = true;
+  bool running = !test.share;  // --share-test: Start made the zip; nothing to draw
   int frame = 0;
+  // Session 72 (players: "the launcher runs at about 15 fps"): it drew one frame per batch of input, else one every
+  // 100 ms, while ImGui spreads a tap over three frames (finger position, down, up: imgui.cpp's input trickling), so
+  // a tap's page came 200-300 ms late and the sidebar slid at ~10 fps; and it drew 10 frames a second doing nothing.
+  // Now: after input it draws at the screen's rate until ImGui has used it all and the page has settled
+  // (kSettleFrames), then sleeps until the next event (SDL wakes on touch, keys, the activity's events; a note at the
+  // bottom wakes it when it goes).
+  constexpr int kSettleFrames = 6;
+  int settle = kSettleFrames;
+  DrawStats stats;
+  int drawn = 0;
   while (running) {
     SDL_Event e;
-    // Idle: wait for input (the launcher sits on a page most of the time; a phone should not draw 120 frames a second
-    // for that). A toast or the update check redraws within 100 ms.
-    if (SDL_WaitEventTimeout(&e, test.shot.empty() ? 100 : 1)) {
+    if (test.tap_x >= 0 && drawn == 3) {  // the PC test's tap, as a phone's touch arrives (SDL_TOUCH_MOUSEID)
+      SDL_Event m{};
+      m.type = SDL_EVENT_MOUSE_MOTION, m.motion.windowID = SDL_GetWindowID(window), m.motion.which = SDL_TOUCH_MOUSEID;
+      m.motion.x = test.tap_x, m.motion.y = test.tap_y;
+      SDL_PushEvent(&m);
+      SDL_Event b{};
+      b.type = SDL_EVENT_MOUSE_BUTTON_DOWN, b.button.windowID = m.motion.windowID, b.button.which = SDL_TOUCH_MOUSEID;
+      b.button.button = SDL_BUTTON_LEFT, b.button.down = true, b.button.clicks = 1, b.button.x = test.tap_x, b.button.y = test.tap_y;
+      SDL_PushEvent(&b);
+      b.type = SDL_EVENT_MOUSE_BUTTON_UP, b.button.down = false;
+      SDL_PushEvent(&b);
+      app.Log("test: tap at %.0f, %.0f", test.tap_x, test.tap_y);
+    }
+    if (test.quit_ms && SDL_GetTicks() >= uint64_t(test.quit_ms)) break;
+    if (app.Busy()) settle = std::max(settle, 2);
+    int wait = app.IdleWaitMs();
+    if (test.quit_ms) wait = int(std::clamp<int64_t>(int64_t(test.quit_ms) - int64_t(SDL_GetTicks()), 1, wait < 0 ? INT32_MAX : wait));
+    const bool got = (!test.shot.empty() || settle > 0) ? SDL_PollEvent(&e) : SDL_WaitEventTimeout(&e, wait);
+    if (!got && settle > 0) --settle;
+    if (got) {
+      settle = kSettleFrames;
       do {
         ImGui_ImplSDL3_ProcessEvent(&e);
         if (e.type == SDL_EVENT_QUIT) running = false;
@@ -1168,6 +1621,7 @@ int main(int argc, char** argv) {
         }
       } while (SDL_PollEvent(&e));
     }
+    const uint64_t t0 = SDL_GetTicksNS();
     ImGui_ImplSDLRenderer3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
@@ -1181,8 +1635,12 @@ int main(int argc, char** argv) {
       app.Log("shot %s: %s", test.shot.c_str(), ok ? "saved" : SDL_GetError());
       running = false;
     }
+    const uint64_t t1 = SDL_GetTicksNS();
     SDL_RenderPresent(renderer);
+    stats.Add(app, double(t1 - t0) / 1e6, double(SDL_GetTicksNS() - t0) / 1e6);
+    ++drawn;
   }
+  stats.Flush(app);
   ImGui_ImplSDLRenderer3_Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();

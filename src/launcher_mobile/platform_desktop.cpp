@@ -37,6 +37,11 @@ void Init(int argc, char** argv) {
 
 fs::path FilesDir() { return g_files; }
 const char* Name() { return "desktop"; }
+fs::path NativeLibDir() { return {}; }
+fs::path DriversDir() { return g_files / "drivers"; }
+void ImportDriver(const fs::path&) {
+  Message("PC test build: driver import works on the phone only (put a folder with wwe2k14_driver.json in files/drivers)");
+}
 
 void PickGameFile() {
   static const SDL_DialogFileFilter filters[] = {{"Xbox 360 disc image", "iso"}, {"Game executable", "xex"}};
@@ -109,6 +114,8 @@ void StartGame(const std::vector<std::string>& args, const std::string& game_add
   for (const auto& a : args) f << a << "\n";
   Message("PC test build: the game's command line is in last_launch.txt");
 }
+
+void EditTouchLayout(int, int) { Message("PC test build: moving the touch controls works on the phone only"); }
 
 void Quit() {
   SDL_Event e{};

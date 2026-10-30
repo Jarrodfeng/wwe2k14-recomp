@@ -1,4 +1,6 @@
 // wwe2k14 phone launcher - the event queue both platforms share (Session 71).
+#include <SDL3/SDL.h>
+
 #include <deque>
 #include <mutex>
 
@@ -20,8 +22,14 @@ bool PollEvent(Event& e) {
 }
 
 void Post(Event e) {
-  std::lock_guard lock(g_mutex);
-  g_events.push_back(std::move(e));
+  {
+    std::lock_guard lock(g_mutex);
+    g_events.push_back(std::move(e));
+  }
+  // Session 72: wakes the launcher's loop, which sleeps until an event when nothing moves.
+  SDL_Event wake{};
+  wake.type = SDL_EVENT_USER;
+  SDL_PushEvent(&wake);
 }
 
 }  // namespace mlauncher::platform

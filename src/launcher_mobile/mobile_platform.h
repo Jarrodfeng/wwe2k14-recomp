@@ -33,6 +33,7 @@ struct Event {
     kUpdate,         // update = GitHub's answer
     kBack,           // Android's Back gesture
     kMessage,        // a = text to show
+    kDriverImported, // a = what happened (shown), b = the new driver's folder; ok = false: not imported
   } kind = kMessage;
   bool ok = true;
   std::string a, b;
@@ -50,6 +51,15 @@ void Init(int argc, char** argv);
 fs::path FilesDir();
 // A name for the platform's log lines ("android" / "desktop").
 const char* Name();
+// Session 72 (Android drivers): the app's native library folder, where the bundled custom Vulkan drivers are
+// (empty on the PC test build: no drivers to offer).
+fs::path NativeLibDir();
+// Session 72 part 8 (a player: "upload their own drivers from their storage"): where the player's own drivers are, one
+// folder each with wwe2k14_driver.json (the phone: internal storage, getFilesDir()/drivers; the external files folder
+// cannot hold loadable code). ImportDriver lets the player pick a driver .zip or .so and copies it there
+// (DriverImport.java), answering with kDriverImported; the PC test build has no import (make the folders by hand).
+fs::path DriversDir();
+void ImportDriver(const fs::path& drivers_dir);
 
 void PickGameFile();
 // A path the launcher can read the picked game file through (the phone: /proc/self/fd/N of a file it opened from the
@@ -68,6 +78,9 @@ void OpenUrl(const std::string& url);
 // Starts the game with these arguments (game_address: the picked file, opened by the game's own process) and closes
 // the launcher.
 void StartGame(const std::vector<std::string>& args, const std::string& game_address, const TouchChoice& touch);
+// Session 74: the touch controls' edit screen (TouchEditActivity) at this Size / Opacity; it saves
+// FilesDir()/touch_layout.txt (no file = the default places).
+void EditTouchLayout(int size, int opacity);
 // Leaves the app (Back on the main page).
 void Quit();
 // The screen's size in pixels, landscape (width >= height).

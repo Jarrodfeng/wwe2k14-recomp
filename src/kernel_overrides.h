@@ -95,6 +95,7 @@ inline uint32_t MmAllocatePhysicalMemoryExOverride(uint32_t flags, uint32_t regi
                                                    uint32_t protect_bits, uint32_t min_addr,
                                                    uint32_t max_addr, uint32_t alignment) {
   ++g_phys_alloc_calls;
+  g_frame_mem_probes.fetch_add(1, std::memory_order_relaxed);  // Session 73 (frame_stats.h)
   uint32_t call_min = min_addr, call_max = max_addr;
   // Same condition as Xenia (xboxkrnl_memory.cc): only ranged allocations with both bounds set.
   if (min_addr && max_addr && REXCVAR_GET(wwe2k14_ignore_offset_for_ranged_allocations)) {
@@ -185,6 +186,7 @@ inline std::string GuestObjectPath(ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES> a
 inline void LogFileOpen(const char* call, ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES> attrs,
                         uint32_t disposition, uint32_t access, uint32_t result, mapped_u32 handle_out) {
   const std::string path = GuestObjectPath(attrs);
+  g_frame_file_opens.fetch_add(1, std::memory_order_relaxed);  // Session 73 (frame_stats.h)
   if (result == 0) g_input_script.OnFileOpened(path);  // wait_file sync points / recording comments
   if (result == 0) bookmark::NoteFileOpen(g_guest_frame);  // Session 29: no automatic bookmark right after a load
   if (result == 0) g_load_turbo.OnFileOpened(path);    // no-op unless --wwe2k14_load_turbo*

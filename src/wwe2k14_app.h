@@ -19,6 +19,8 @@
 #include <string>
 #include <string_view>
 
+#include "blackbox.h"  // Session 73: logs/startup.txt (start-up steps, crashes, low memory)
+#include "android_memory.h"  // Session 73: Android's memory warnings (GameActivity.onTrimMemory)
 #include "crash_handler.h"
 #include "gpu_timeline.h"
 #include "pacing_hooks.h"
@@ -70,7 +72,7 @@
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
 #include "post_swap.h"  // Session 72: our post-effect shaders (gpu_native_shader_swap)
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
-#include "replay_watch.h"  // Session 63 (Android only): log a runaway render-command replay (diagnosis)
+#include "replay_watch.h"  // Session 63: log a runaway render-command replay; S73 b78: end it (default on Android)
 #include "native_skin.h"   // Session 64: the game's CPU vertex-skinning loop sub_82508738 natively (S66: every platform, via native_fn.h)
 #include "nf/all.h"        // Session 66 (F2): the native function factory's functions (off until verified)
 #include "shader_list.h"  // Session 61: --wwe2k14_shader_list (the shipped shader list into the shader storage)
@@ -182,7 +184,12 @@ class Wwe2k14App : public rex::ReXApp {
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {
+    wwe2k14::blackbox::Step("set-up: settings");
     wwe2k14::vulkan_layers::Apply();  // Session 36: before anything starts Vulkan (GitHub issue 1)
+#if defined(__ANDROID__)
+    wwe2k14::android_driver::Install();  // Session 72: a custom Vulkan driver chosen in the launcher
+    wwe2k14::blackbox::Step("set-up: Vulkan driver chosen (src/android_driver.h)");
+#endif
     // Session 16 item 1: replay mode preset and a playback file's seed / settings, before anything reads them.
     wwe2k14::gfx_menu::ApplyLauncherSettings();  // Session 28: graphics settings from the launcher's file (release builds)
     if (REXCVAR_GET(wwe2k14_use_launcher_settings))  // Session 32: the DLC switches too
@@ -194,6 +201,7 @@ class Wwe2k14App : public rex::ReXApp {
 
     // Load the GPU plugin here (the SDK would do the same right after this hook)
     // so its cvars are registered before graphics initialises.
+    wwe2k14::blackbox::Step("set-up: loading the GPU plugin");
     if (!config.graphics) {
       const std::string backend = REXCVAR_GET(wwe2k14_gpu_backend);
       config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin, backend);
@@ -256,17 +264,50 @@ class Wwe2k14App : public rex::ReXApp {
     // here until Jarrod picks the phone's picture (ANDROID_PLAN F5). Each only if left at default.
     if (rex::cvar::GetFlagSource("resolution_scale") == rex::cvar::Source::kDefault)
       rex::cvar::SetFlagByName("resolution_scale", "1");
-    // Session 69: except readback_resolve_batch (Session 66, H1.1; exact on the PC). On the phone it leaves holes in
-    // Undertaker's back, white and see-through, in every b37 match (runs 059, 061, 063-064, 066-067); off, clean (068).
-    // Same bytes, later copy: either ARM's weaker store ordering or a guest read the batch's flush points miss
-    // (unconfirmed). It stays off on Android until that is found.
+    // Session 69: readback_resolve_batch (Session 66, H1.1; exact on the PC) was left out here: on the phone it left
+    // holes in Undertaker's back, white and see-through, in every b37 match (runs 059, 061, 063-064, 066-067); off,
+    // clean (068). Same bytes, later copy: either ARM's weaker store ordering or a guest read the batch's flush points
+    // miss (unconfirmed).
+    // Session 73, b79 (Jarrod: "Try 1"): back on. Without it every resolve in a readback window (a character file
+    // loaded, the in-game loads: create_readback.h) waits for the whole GPU: Jarrod's b78 log (report 119) has every
+    // slow stretch at an entrance / match start inside such a window, each frame a "copy" wait (37 frames at the first
+    // entrance, 172 at the second with 4.4 s waited), ending when the waits end. Since part 1 the PPC sync / lwsync /
+    // eieio are real fences on ARM (they were no-ops: the suspected store-ordering cause). Watch Undertaker's back.
+    // b80 (Jarrod's b79 run: "White marks present on taker"): the guest fences were not the cause; off again.
+    // b81: on again with the SDK's host-side fence (FlushPendingReadbacks): the batch's copies and the signal written
+    // right after them were plain stores, in order on x86, not on ARM. The PC with its GPU side lagging
+    // (gpu_debug_swap_delay_ms 20, batch on, run 4780) shows no marks: no copy is read before its signal.
+    // Jarrod's b81 run: "white patches still present" - off again (= b80); the cause is Session 74's (on the phone).
+    // Session 74: gpu_native_truth_color_none (LOAD_OP_NONE / STORE_OP_NONE truth passes) left out too. The phone
+    // launcher has passed =false since b71 (the static with fill-the-screen), but adb test runs (args.txt) got it on:
+    // on the Adreno 830 it gave white patches on Undertaker's back and black flashes through the match (phone runs
+    // 076-080 white; 081, only it off, clean). Off here so test runs and players' runs match.
+    // Session 74 (phone on adb, Jarrod judging): the batch on again, with small one-off resolves read back as before
+    // (SDK readback_resolve_batch_min_bytes 16385). With the whole batch, the game's per-character cube maps (six 64x64
+    // faces, 16 KB each, one copy per slot at the end of the load) had faces 2-6 holding the scratch cube's last
+    // pixels instead of their own renders (resolve hashes, runs 087 vs 088; why the batch changes those renders is not
+    // known) - Taker's white marks. batch_max=1 was clean (090) but brought the hitches back; all small copies
+    // synchronous was clean but kept ~20 frames of 35-45 ms from the 924 recurring small copies (098). One-off only:
+    // clean, and the load window's frames as with the whole batch: 4 over 33 ms vs 70 without it (099 / 100).
+    for (auto [name, value] : {std::pair{"readback_resolve_batch", "true"},
+                               std::pair{"readback_resolve_batch_min_bytes", "16385"}}) {
+      if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
+    }
     for (const auto& [name, value] : wwe2k14::gfxs::NativeRendererFlags()) {
-      if (name == "readback_resolve_batch") continue;
+      if (name == "readback_resolve_batch" || name == "gpu_native_truth_color_none") continue;
       // (Session 72, Jarrod: "build into the android version": gpu_native_shader_swap included - our copy of the post
       // pass; first run on a phone GPU is his, android-v0.1.2.)
       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
     }
     wwe2k14::light::ApplyFixes();
+    // Session 73: Mali GPUs on their own drivers have no vertex shader stores and no line / point fill modes
+    // (vulkan.gpuinfo.org, every Mali report), and the SDK refused them outright, so Mali phones could not start the
+    // game. Neither is needed here: no vertex shader of the boot or a match exports memory (emulated Mali on the PC,
+    // runs 4634 / 4635: no [vs-memexport] line, clean match) and line / point fills fall back to solid.
+    for (auto [name, value] : {std::pair{"vulkan_require_vertex_pipeline_stores_and_atomics", "false"},
+                               std::pair{"vulkan_require_fill_mode_non_solid", "false"}}) {
+      if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
+    }
     REXLOG_INFO("[wwe2k14][android] PC defaults built in: gpu_native={}, truth={}, truth_host_rt={}, resolution_scale={}",
                 rex::cvar::GetFlagByName("gpu_native"), rex::cvar::GetFlagByName("gpu_native_truth"),
                 rex::cvar::GetFlagByName("gpu_native_truth_host_rt"), rex::cvar::GetFlagByName("resolution_scale"));
@@ -440,10 +481,14 @@ class Wwe2k14App : public rex::ReXApp {
     // (-1.1 in the heavy shot); 165 holds on the whole profile route; frame hashes identical. The merge setting and
     // its shader list are latched when the GPU starts. --wwe2k14_s23_defaults=false turns them off; each can also be
     // turned off alone. Only if left at default.
+    // Session 73 (Jarrod's idea 6, a tester's phone at 23 fps in matches): the match's crowd shader 183CC64A4C4E96AC
+    // (a third of a match frame's draws, docs/systems/frame_anatomy.md) was never on the list, so the scene crowd's
+    // batching made no instances in matches (every member refused: "no merge stride"). With it: 70-74 of ~92 queued
+    // members a frame batched in the match, same-frame replay pixel-identical (run 4709 vs 4664).
     if (REXCVAR_GET(wwe2k14_s23_defaults)) {
       for (auto [name, value] :
            {std::pair{"vulkan_repeat_draw_fast", "true"}, std::pair{"vulkan_repeat_draw_merge", "true"},
-            std::pair{"vulkan_repeat_draw_merge_shaders", "D5E2FCC9F76BC40C,C1028A64EFCF8229"}}) {
+            std::pair{"vulkan_repeat_draw_merge_shaders", "D5E2FCC9F76BC40C,C1028A64EFCF8229,183CC64A4C4E96AC"}}) {
         if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
       }
     }
@@ -484,6 +529,10 @@ class Wwe2k14App : public rex::ReXApp {
   }
 
   void OnPostInitLogging() override {
+    // Session 73: the black box first, and its crash recorder before the SDK's fault handler (runtime set-up).
+    wwe2k14::blackbox::Open();
+    wwe2k14::blackbox::InstallCrashRecorder();
+    wwe2k14::blackbox::Step("logging up");
 #if defined(__ANDROID__)
     // Session 63: --wwe2k14_android_pin_cpu=N runs the game on CPU core N only (this thread now; every thread made
     // after it inherits). A diagnosis switch: on one core the CPU's memory ordering cannot show (phone run 013's freeze).
@@ -515,6 +564,7 @@ class Wwe2k14App : public rex::ReXApp {
 
   // Record the effective settings in every run's log.
   void OnPostSetup() override {
+    wwe2k14::blackbox::Step("set-up done: memory, kernel, GPU device, game files mounted");
     REXLOG_INFO("[wwe2k14] game_data_root: {} ({})", game_data_root().string(),
                 std::filesystem::is_regular_file(game_data_root()) ? "disc image" : "folder");
     REXLOG_INFO("[wwe2k14] user_data_root: {}", user_data_root().string());  // Session 53: the save folder in use
@@ -618,6 +668,7 @@ class Wwe2k14App : public rex::ReXApp {
 
   // Image is loaded and functions registered, guest code not started yet.
   void OnPreLaunchModule() override {
+    wwe2k14::blackbox::Step("the game's code loaded; preparing its first thread");
     wwe2k14::ScanForUnregisteredFunctionPointers(runtime(), PPCImageConfig, 2000);
     DumpRequestedWords();
     wwe2k14::DumpGuestImage(runtime(), PPCImageConfig, REXCVAR_GET(wwe2k14_dump_image));  // empty = off

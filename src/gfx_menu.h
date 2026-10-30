@@ -36,6 +36,7 @@
 #include "gfx_settings.h"
 #include "gpu_pick.h"      // Session 37: the chosen card (no FSR on integrated graphics)
 #include "input_script.h"  // g_request_quit (the clean quit)
+#include "music_slots.h"   // Session 75: names of the new songs in the MUSIC list
 
 namespace wwe2k14::gfx_menu {
 // A "+dev" version string marks a development build (CMakeLists.txt); a release applies the launcher's settings to
@@ -932,6 +933,11 @@ inline void QuitPoll(uint8_t* base) {
 REX_HOOK_RAW(sub_822563F8) {
   using namespace wwe2k14::gfx_menu;
   const uint32_t id = ctx.r4.u32, lr = uint32_t(ctx.lr);
+  if (const uint32_t s = wwe2k14::music_slots::NameFor(id)) {  // Session 75: the new songs' names (src/music_slots.h)
+    ctx.r3.u64 = s;
+    if (wwe2k14::screen_text::Enabled()) wwe2k14::screen_text::Note(id, GuestStr(base, s, 120));
+    return;
+  }
   if (REXCVAR_GET(wwe2k14_gfx_menu) || REXCVAR_GET(wwe2k14_quit_item) || g_photo_pause_item) {
     uint32_t want = id;
     if (id >= kTextBase && id < kTextBase + 0x100) {

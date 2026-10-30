@@ -1,0 +1,4 @@
+gs	--vulkan_require_geometry_shader=false --vulkan_emulate_disable=geometryShader
+cull	--vulkan_emulate_disable=shaderCullDistance
+clip	--vulkan_emulate_disable=shaderClipDistance
+idx32	--vulkan_emulate_disable=fullDrawIndexUint32

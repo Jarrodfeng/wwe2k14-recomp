@@ -145,7 +145,7 @@ struct Settings {
   int perf_report = -1;        // write logs\perf_report_NNN.txt: 1 on, 0 off, -1 the build's default (playtest: on)
   bool original_look = false;  // the original 720p / 4x MSAA / 30 fps entrance look (Advanced)
   int page = 0;                // 0 Play, 1 Mods, 2 Settings, 3 About (Session 31)
-  int mods_tab = 0;            // 0 Trons, 1 Titles, 2 Logos
+  int mods_tab = 0;            // 0 Trons, 1 Titles, 2 Logos, 3 Music (Session 75)
   bool runin = false;          // run-ins: F9 in a match (Session 16 experiment)
   bool keyboard = false;       // ReXGlue's keyboard-as-controller driver (mnk_mode; untested in this project)
   // Session 31 (a playtester's suggestion): the game's language (0 = automatic: Windows' language when the disc has it,
@@ -767,6 +767,143 @@ inline std::string AssignMusic(const Paths& p, int id, const fs::path& src) {
 inline void RevertMusic(const Paths& p, int id) {
   std::error_code ec;
   for (const char* e : kMusicExts) fs::remove(p.mods / "music" / (std::to_string(id) + e), ec);
+}
+
+// Session 75: new songs, <mods>\music\new\*.ext: extra entries at the end of the game's MUSIC list
+// (Create-an-Entrance), for any wrestler; nothing is replaced (src\music_slots.h). slots.txt there keeps each file's
+// music id ("6001<TAB>Kingdom.mp3[<TAB>SHOWN NAME]"). The game and the launcher follow the same rules (keep them in
+// step with src\music_slots.h): a file without a line gets the lowest free id from 6001, files taken in name order
+// (case-insensitive); a line whose file is gone keeps its id; the shown name is the file name in capitals unless the
+// third column gives one.
+struct NewSong {
+  int id = 0;
+  std::string file, name;  // file name in the folder, name shown in the game
+  bool present = false;
+};
+inline constexpr int kFirstSongId = 6001, kLastSongId = 9000;
+inline fs::path NewSongsDir(const Paths& p) { return p.mods / "music" / "new"; }
+inline std::string SongCleanName(const std::string& text) {
+  std::string out;
+  for (char c : text) {
+    if (c == '_') c = ' ';
+    if (c < 32 || c > 126) continue;
+    out += char(std::toupper(static_cast<unsigned char>(c)));
+  }
+  while (!out.empty() && out.back() == ' ') out.pop_back();
+  while (!out.empty() && out.front() == ' ') out.erase(out.begin());
+  if (out.size() > 40) out.resize(40);
+  return out.empty() ? "NEW SONG" : out;
+}
+inline std::string SongFileName(const std::string& file) { return SongCleanName(PathStr(fs::path(file).stem())); }
+inline bool IsSongFile(const fs::path& f) {
+  const std::string ext = Lower(PathStr(f.extension()));
+  return std::find(std::begin(kMusicExts), std::end(kMusicExts), ext) != std::end(kMusicExts);
+}
+inline bool WriteSongSlots(const Paths& p, const std::vector<NewSong>& songs) {
+  std::vector<NewSong> v = songs;
+  std::sort(v.begin(), v.end(), [](const NewSong& a, const NewSong& b) { return a.id < b.id; });
+  std::ofstream out(NewSongsDir(p) / "slots.txt", std::ios::trunc);
+  out << "# WWE 2K14 recomp: new entrance-music slots. Music id <TAB> file name [<TAB> shown name]. Written by the\n"
+         "# game when it finds a new song in this folder. A song keeps its id, so wrestlers keep the songs you gave\n"
+         "# them; a line whose file is gone keeps its id. Edit the shown name in the third column if you like.\n";
+  for (const auto& s : v) {
+    if (s.id <= 0) continue;
+    out << s.id << '\t' << s.file;
+    if (s.name != SongFileName(s.file)) out << '\t' << s.name;
+    out << '\n';
+  }
+  return bool(out);
+}
+// slots.txt and the folder, ids given to new files (slots.txt rewritten then). Sorted by id.
+inline std::vector<NewSong> ReadNewSongs(const Paths& p) {
+  const fs::path dir = NewSongsDir(p);
+  std::vector<NewSong> v;
+  std::map<std::string, size_t> by_file;
+  std::set<int> ids;
+  {
+    std::ifstream in(dir / "slots.txt");
+    std::string line;
+    while (std::getline(in, line)) {
+      while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) line.pop_back();
+      if (line.empty() || line[0] == '#') continue;
+      std::vector<std::string> cols;
+      std::stringstream ss(line);
+      std::string col;
+      while (std::getline(ss, col, '\t')) {
+        while (!col.empty() && col.back() == ' ') col.pop_back();
+        while (!col.empty() && col.front() == ' ') col.erase(col.begin());
+        cols.push_back(col);
+      }
+      if (cols.size() < 2 || cols[1].empty()) continue;
+      const int id = std::atoi(cols[0].c_str());
+      if (id < kFirstSongId || id > kLastSongId || ids.count(id) || by_file.count(Lower(cols[1]))) continue;
+      NewSong s;
+      s.id = id, s.file = cols[1];
+      s.name = cols.size() >= 3 && !cols[2].empty() ? SongCleanName(cols[2]) : SongFileName(cols[1]);
+      ids.insert(id);
+      by_file[Lower(s.file)] = v.size();
+      v.push_back(s);
+    }
+  }
+  std::vector<std::string> files;
+  std::error_code ec;
+  for (const auto& e : fs::directory_iterator(dir, ec))
+    if (e.is_regular_file(ec) && IsSongFile(e.path())) files.push_back(PathStr(e.path().filename()));
+  std::sort(files.begin(), files.end(), [](const std::string& a, const std::string& b) { return Lower(a) < Lower(b); });
+  bool added = false;
+  for (const auto& f : files) {
+    auto it = by_file.find(Lower(f));
+    if (it != by_file.end()) {
+      v[it->second].present = true;
+      continue;
+    }
+    int id = kFirstSongId;
+    while (ids.count(id) && id <= kLastSongId) ++id;
+    if (id > kLastSongId) break;
+    NewSong s;
+    s.id = id, s.file = f, s.name = SongFileName(f), s.present = true;
+    ids.insert(id);
+    by_file[Lower(f)] = v.size();
+    v.push_back(s);
+    added = true;
+  }
+  if (added) WriteSongSlots(p, v);
+  std::sort(v.begin(), v.end(), [](const NewSong& a, const NewSong& b) { return a.id < b.id; });
+  return v;
+}
+inline std::string AddNewSong(const Paths& p, const fs::path& src) {
+  std::error_code ec;
+  if (!fs::is_regular_file(src, ec)) return "file not found: " + PathStr(src);
+  if (!IsSongFile(src)) return "use a .mp3, .m4a, .wav, .flac, .wma or .aac file";
+  const fs::path dir = NewSongsDir(p), dst = dir / src.filename(), tmp = dir / (PathStr(src.filename()) + ".part");
+  fs::create_directories(dir, ec);
+  if (fs::exists(dst, ec)) return "a song named " + PathStr(src.filename()) + " is already there";
+  fs::copy_file(src, tmp, fs::copy_options::overwrite_existing, ec);
+  if (ec) return "copy failed: " + ec.message();
+  fs::rename(tmp, dst, ec);
+  if (ec) {
+    fs::remove(tmp, ec);
+    return "rename failed: " + ec.message();
+  }
+  ReadNewSongs(p);  // gives it its id in slots.txt now
+  return "";
+}
+// The shown name (slots.txt's third column; empty = the file name again).
+inline std::string RenameNewSong(const Paths& p, int id, const std::string& name) {
+  std::vector<NewSong> v = ReadNewSongs(p);
+  for (auto& s : v)
+    if (s.id == id) {
+      s.name = name.empty() ? SongFileName(s.file) : SongCleanName(name);
+      return WriteSongSlots(p, v) ? "" : "could not write slots.txt";
+    }
+  return "no song with id " + std::to_string(id);
+}
+// Deletes the file; its line (and id) stays, so a wrestler who had it plays nothing rather than another song.
+inline std::string RemoveNewSong(const Paths& p, const std::string& file) {
+  std::error_code ec;
+  if (file.empty() || file.find_first_of("\\/") != std::string::npos) return "bad file name";
+  if (!fs::remove(NewSongsDir(p) / file, ec)) return ec ? "remove failed: " + ec.message() : "file not found";
+  return "";
 }
 
 inline int RevertTron(const Paths& p, int tron) {

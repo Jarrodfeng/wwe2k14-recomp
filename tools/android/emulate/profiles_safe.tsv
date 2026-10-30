@@ -1,0 +1,1 @@
+safe	--gpu_native_vs_mul_mode=0 --gpu_native_ps_mul_mode=0 --gpu_native_fma=0 --gpu_native_vs_mul_fetch_finite=false --gpu_native_vertex_endian_spec=false --gpu_native_ps_texture_spec=false --gpu_native_ps_epilogue_spec=false --gpu_native_ps_implicit_lod=false

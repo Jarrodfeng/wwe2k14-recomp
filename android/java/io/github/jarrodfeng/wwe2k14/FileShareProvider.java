@@ -57,7 +57,10 @@ public class FileShareProvider extends ContentProvider {
         return c;
     }
 
-    @Override public String getType(Uri uri) { return "text/plain"; }
+    // Session 73: the SHARE button sends one report zip.
+    @Override public String getType(Uri uri) {
+        return uri.getPath() != null && uri.getPath().endsWith(".zip") ? "application/zip" : "text/plain";
+    }
     @Override public Uri insert(Uri uri, ContentValues values) { return null; }
     @Override public int delete(Uri uri, String selection, String[] args) { return 0; }
     @Override public int update(Uri uri, ContentValues values, String selection, String[] args) { return 0; }

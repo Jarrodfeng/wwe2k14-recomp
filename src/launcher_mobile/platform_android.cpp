@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <dlfcn.h>
 #include <unistd.h>
 
 #include "mobile_platform.h"
@@ -120,6 +121,28 @@ void Init(int, char**) {
 
 fs::path FilesDir() { return g_files; }
 const char* Name() { return "android"; }
+// liblauncher.so sits in the app's native library folder: its own path tells where (no JNI call needed).
+fs::path NativeLibDir() {
+  Dl_info info{};
+  if (!dladdr(reinterpret_cast<void*>(&NativeLibDir), &info) || !info.dli_fname) return {};
+  return fs::path(info.dli_fname).parent_path();
+}
+
+fs::path DriversDir() {
+  static fs::path dir;  // asked once: it does not change while the app runs
+  if (dir.empty()) {
+    Java j;
+    if (j)
+      if (jmethodID m = j.Method("jDriversDir", "()Ljava/lang/String;")) {
+        jstring s = static_cast<jstring>(j.env->CallObjectMethod(j.activity, m));
+        dir = fs::u8path(j.Utf8(s));
+        if (s) j.env->DeleteLocalRef(s);
+      }
+  }
+  return dir;
+}
+
+void ImportDriver(const fs::path& drivers_dir) { Java().CallStr("jImportDriver", U8(drivers_dir)); }
 
 void PickGameFile() { Java().CallVoid("jPickGame"); }
 
@@ -180,6 +203,18 @@ void StartGame(const std::vector<std::string>& args, const std::string& game_add
   j.env->DeleteLocalRef(ta);
   j.env->DeleteLocalRef(g);
   j.env->DeleteLocalRef(a);
+}
+
+void EditTouchLayout(int size, int opacity) {
+  Java j;
+  if (!j) return;
+  jmethodID m = j.Method("jEditTouch", "([I)V");
+  if (!m) return;
+  const jint t[2] = {size, opacity};
+  jintArray ta = j.env->NewIntArray(2);
+  j.env->SetIntArrayRegion(ta, 0, 2, t);
+  j.env->CallVoidMethod(j.activity, m, ta);
+  j.env->DeleteLocalRef(ta);
 }
 
 void Quit() { Java().CallVoid("jQuit"); }

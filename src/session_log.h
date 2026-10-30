@@ -126,6 +126,7 @@ inline void Change(const std::string& what, uint64_t frame) {
   const auto now = std::chrono::steady_clock::now();
   const double part_s = std::chrono::duration<double>(now - s.part_time).count();
   const uint64_t frames = frame - s.part_frame;
+  NoteScene(what);  // Session 73 (frame_stats.h: the CSV's scene marker)
   REXLOG_INFO("[wwe2k14][scene] {} at frame {}, {:.1f} s after start (the part before: {} frames in {:.1f} s, {:.1f} fps)",
               what, frame, std::chrono::duration<double>(now - s.start).count(), frames, part_s,
               part_s > 0 ? double(frames) / part_s : 0.0);

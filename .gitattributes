@@ -1,3 +1,5 @@
 # Patches must stay byte-exact for git apply (no CRLF conversion).
 *.patch -text
 *.diff -text
+# Session 72: shell scripts run in the Linux container (tools/android/drivers): LF on every checkout.
+*.sh text eol=lf

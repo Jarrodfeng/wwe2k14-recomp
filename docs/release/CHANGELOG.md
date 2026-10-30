@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.2.13
+
+Your own songs as new entrance themes, and entrances that start smoothly.
+
+- **New: add your own songs as new entrance themes.** The game's own way to use your music (USER PLAYLIST) needs the
+  Xbox 360's music library, so it never worked on the PC, and until now a song of yours could only replace a
+  superstar's theme. Now every song you add becomes a new entry of its own at the end of the game's MUSIC list, next to
+  the game's themes, and no theme is replaced. Add songs in the launcher under MODS > MUSIC > Add a song... (MP3, M4A,
+  WAV, FLAC, WMA or AAC), or copy them into the folder that Open the songs folder shows. Then in the game: CREATIONS >
+  ENTRANCE > pick a superstar > EASY CREATION > MUSIC, pick your song (it's named after its file, in capitals), and
+  ACCEPT. That superstar now walks out to it in matches. Each song keeps its own number (in `slots.txt` in the same
+  folder), so adding or removing other songs never changes who has which song. You can change the name the game shows
+  on the MUSIC tab. Needs USE MY MUSIC on (the same switch as USE MY VIDEOS; on by default).
+- **Music has its own tab in the launcher.** MODS > MUSIC holds your new songs and the per-superstar theme replacements
+  that used to be on the TRONS tab.
+- **Entrances and matches start smoothly.** The first second of an entrance or a match could run in slow motion
+  before it reached full speed. The game tells the graphics driver to hold back any frame that is even slightly late
+  until the next screen refresh, so a frame that misses by 1 ms waits a whole extra refresh, and at the start of a
+  scene, where a few frames run late, the game ran at half speed for a moment. A late frame is now shown as soon as
+  it's ready (whole frames, no tearing). In my tests the first half second of an entrance ran at 95% of full speed
+  instead of 82-86%, and frames of 30-40 ms over a whole run went from 34-36 to 9. Also, the graphics the game
+  remembers from your earlier runs are now all prepared before you play (some were left until first use before),
+  which on my PC halved the longest pause as an entrance starts (80 to 37 ms) and shortened the match start's (49 to
+  32 ms). The extra flag `--wwe2k14_late_frame_threshold=-1` (Settings -> Advanced) brings back the game's own frame
+  timing.
+- **ASPECT: AUTO now fills 16:10 and 4:3 screens too.** Such monitors used to get the game's 16:9 picture with bars
+  above and below. Matches and entrances now show more above and below to fill the screen; the menus and the HUD stay
+  a centred 16:9, as on ultrawide monitors. 16:9 stays the default.
+- **Ultrawide: no more red patches on the superstars.** With ASPECT: AUTO on an ultrawide monitor, blood and marks
+  could be painted in the wrong places on a superstar's skin and show up as red patches. The widening for the wider
+  screen also caught the step where the game paints those marks onto the skin (an off-screen picture almost as wide as
+  the screen) and squeezed it. That step is now left alone. Also on ultrawide, the mouse in the menus now clicks what
+  it points at: the menus are a centred 16:9, but the mouse was mapped across the whole screen.
+- **Gameplay is unchanged.**
+
 ## v0.2.12
 
 Entrances are lighter on the graphics card: two steps the game needed on the Xbox 360 but a PC doesn't are now left out.

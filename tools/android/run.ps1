@@ -77,9 +77,11 @@ Adb shell am start -n "$Pkg/.GameActivity" | Out-Null
 # Wait: the seconds, an -Until marker in logcat, or the app ending
 $shotTimes = if ($Shots -gt 0) { 1..$Shots | ForEach-Object { [int]($Seconds * $_ / $Shots) } } else { @() }
 $shot = 0; $ended = $false; $marker = $false
+$ourPid = ''  # Session 74: the game process this run started (the end only stops that one)
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     Start-Sleep -Seconds 2
     $el = ((Get-Date) - $t0).TotalSeconds
+    if (-not $ourPid) { $ourPid = "$(Adb shell pidof $GameProc)".Trim() }
     if ($shot -lt $shotTimes.Count -and $el -ge $shotTimes[$shot] - 2) {
         $shot++
         Adb shell screencap -p /sdcard/wwe2k14_shot.png | Out-Null
@@ -96,7 +98,11 @@ $elapsed = [int]((Get-Date) - $t0).TotalSeconds
 
 # Collect and stop
 Adb pull "$PhoneFiles/logs" "$out" 2>&1 | Out-Null
-if (-not $KeepRunning) { Adb shell am force-stop $Pkg | Out-Null }
+# Session 74: only while this run's own game is still the one running - a run started right after this one's game
+# quit (while its logs were still being pulled) was killed here twice (phone runs 082, 096).
+$nowPid = "$(Adb shell pidof $GameProc)".Trim()
+if (-not $KeepRunning -and (-not $nowPid -or $nowPid -eq $ourPid)) { Adb shell am force-stop $Pkg | Out-Null }
+elseif (-not $KeepRunning) { "run.ps1: another run's game is running (pid $nowPid) - not stopped" }
 Start-Sleep -Milliseconds 500
 Stop-Process -Id $logcat.Id -ErrorAction SilentlyContinue
 Adb shell rm -f /sdcard/wwe2k14_shot.png | Out-Null

@@ -49,6 +49,7 @@
 #include "frame_stats.h"  // g_guest_frame
 #include "guest_read.h"
 #include "mods.h"
+#include "music_slots.h"  // Session 75: new songs in the MUSIC list (their ids play through this player)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_entrance_music, false, "wwe2k14",
                     "Session 33: custom entrance music from the mods folder (<mods>\\music\\ID.mp3, .m4a, .wav, .flac, "
@@ -80,6 +81,7 @@ inline std::filesystem::path FindMusic(int id) {
   return {};  // Session 63 (Android port): no player there, so no theme is muted (ANDROID_PLAN F9)
 #endif
   if (!mods::g_on || id < 0) return {};
+  if (music_slots::IsSlotId(id)) return music_slots::FileFor(id);  // Session 75: a new song's own id
   static std::mutex m;
   static int last_id = -1;
   static std::filesystem::path last_path;
@@ -212,7 +214,8 @@ REX_HOOK_RAW(sub_82ACFDE0) {
   const uint32_t name = ctx.r3.u32, lr = uint32_t(ctx.lr);
   __imp__sub_82ACFDE0(ctx, base);
   const bool on = REXCVAR_GET(wwe2k14_entrance_music), probe = REXCVAR_GET(wwe2k14_music_probe);
-  if ((!on && !probe) || !name || ctx.r3.u32 == 0) return;
+  const bool slots = wwe2k14::music_slots::Active();  // Session 75: the new songs play without --wwe2k14_entrance_music
+  if ((!on && !probe && !slots) || !name || ctx.r3.u32 == 0) return;
   // All four call sites pass a 256-byte stack buffer; 48 bytes are plenty for "Play_MUS_0343_0_0" (review fix).
   char buf[48] = {};
   std::memcpy(buf, base + name, sizeof(buf) - 1);
@@ -227,10 +230,11 @@ REX_HOOK_RAW(sub_82ACFDE0) {
                   wwe2k14::g_guest_frame.load());
     }
   }
-  if (!on) return;
+  if (!on && !slots) return;
   const int id = MusicIdOf(buf);
   if (play && id != g_playing_id.load() && g_playing_id.load() >= 0) Stop();  // the next theme: ours ends
   if (id < 0 || ReplayLike()) return;
+  if (!on && !wwe2k14::music_slots::IsSlotId(id)) return;  // slots alone: only the new songs' ids
   const auto file = FindMusic(id);
   if (file.empty()) return;
   base[name] = 0;  // as the game's own "do not play" path: no name, return 0

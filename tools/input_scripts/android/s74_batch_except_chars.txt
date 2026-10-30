@@ -1,0 +1,31 @@
+# Session 74 (Jarrod: "Can we try batch for everything but the character model maybe?"): bench_cena_taker_match.txt with
+# readback_resolve_batch on (game flag), switched off when Cena's character file opens and on again 300 frames after
+# Undertaker's (the outfit builds), so the rest of the load and the match keep it. Run with Jarrod's launcher flags:
+#   pwsh -File tools\android\run.ps1 -Run NNN -Seconds 150 -Route tools\input_scripts\android\s74_batch_except_chars.txt -Scenario lesnar_bryan -GameArgs "--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=139,103 --wwe2k14_launch_skip_entrances=true --present_effect=sgsr --wwe2k14_android_big_cores=true --wwe2k14_gpu_keep_warm=true --wwe2k14_phys_alloc_fast_fail=true --gpu_scene_crowd_cull=2 --gpu_native_truth_draw_height=540 --gpu_native_truth_color_none=false --readback_resolve_batch=true"
+on_fail quit
+log bench: start cena_taker_match (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file CH139.PAC 3600
+cvar readback_resolve_batch false
+log batch: off for the character builds
+wait_file CH103.PAC 3600
+wait_frames 300
+cvar readback_resolve_batch true
+log batch: on again
+wait_frames 300
+log match: start
+wait_frames 2400
+log bench: end
+quit

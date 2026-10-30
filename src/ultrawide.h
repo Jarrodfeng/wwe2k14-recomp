@@ -9,6 +9,9 @@
 // --wwe2k14_aspect=auto takes the monitor's aspect (or the window's, with --fullscreen=false and a window size),
 // 21:9 / 32:9 force one. Known limit (unconfirmed how much it shows): the game still culls to its own 16:9 view, so
 // things at the far left / right can be missing.
+// Session 72 part 9: a screen taller than 16:9 (an unfolded fold ~1.1:1, 16:10 / 4:3 tablets) gets the same along y
+// (anamorphic Vert+, SDK gpu_tall_factor = (16/9) / aspect): more above and below, the HUD and menus a centred 16:9.
+// Before, such a screen kept the game's 16:9 with bars (the phone launcher's "fill the screen" did nothing there).
 #pragma once
 
 #include <rex/cvar.h>
@@ -60,17 +63,23 @@ inline void Configure() {
   else if (double w = 0, h = 0; std::sscanf(a.c_str(), "%lf:%lf", &w, &h) == 2 && w > 0 && h > 0)
     aspect = w / h;  // Session 71: any W:H (the phone launcher passes the screen's own, e.g. 3168:1440)
   const double k = std::clamp(aspect / (16.0 / 9.0), 1.0, 4.0);
-  if (k < 1.01) {
-    if (a != "16:9") REXLOG_INFO("[wwe2k14][wide] aspect {} = {:.3f}: not wider than 16:9, nothing changed", a, aspect);
-    return;
-  }
+  const double t = std::clamp((16.0 / 9.0) / aspect, 1.0, 4.0);  // Session 72 part 9: taller than 16:9
   auto set = [](const char* name, const std::string& value) {
     if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
   };
-  set("gpu_wide_factor", std::to_string(k));
-  set("present_letterbox", "false");
-  REXLOG_INFO("[wwe2k14][wide] aspect {} = {:.3f}: Hor+ factor {:.3f} (gpu_wide_factor {}, present_letterbox {})", a,
-              aspect, k, rex::cvar::GetFlagByName("gpu_wide_factor"), rex::cvar::GetFlagByName("present_letterbox"));
+  if (k >= 1.01) {
+    set("gpu_wide_factor", std::to_string(k));
+    set("present_letterbox", "false");
+    REXLOG_INFO("[wwe2k14][wide] aspect {} = {:.3f}: Hor+ factor {:.3f} (gpu_wide_factor {}, present_letterbox {})", a,
+                aspect, k, rex::cvar::GetFlagByName("gpu_wide_factor"), rex::cvar::GetFlagByName("present_letterbox"));
+  } else if (t >= 1.01) {
+    set("gpu_tall_factor", std::to_string(t));
+    set("present_letterbox", "false");
+    REXLOG_INFO("[wwe2k14][wide] aspect {} = {:.3f}: Vert+ factor {:.3f} (gpu_tall_factor {}, present_letterbox {})", a,
+                aspect, t, rex::cvar::GetFlagByName("gpu_tall_factor"), rex::cvar::GetFlagByName("present_letterbox"));
+  } else if (a != "16:9") {
+    REXLOG_INFO("[wwe2k14][wide] aspect {} = {:.3f}: 16:9 already, nothing changed", a, aspect);
+  }
 }
 
 // The game's frame (VdSwap): outside the in-game sequence (menus, Create modes) every draw is squeezed into a centred
@@ -79,7 +88,10 @@ inline void OnFrame(uint8_t* base, uint64_t frame) {
   static int on = -1;
   if (on == 0 || frame % 15 != 0) return;
   if (on < 0) {
-    on = std::strtod(rex::cvar::GetFlagByName("gpu_wide_factor").c_str(), nullptr) > 1.001 ? 1 : 0;
+    on = std::strtod(rex::cvar::GetFlagByName("gpu_wide_factor").c_str(), nullptr) > 1.001 ||
+                 std::strtod(rex::cvar::GetFlagByName("gpu_tall_factor").c_str(), nullptr) > 1.001
+             ? 1
+             : 0;
     if (!on) return;
   }
   auto rd = [base](uint32_t a, uint32_t* out) {

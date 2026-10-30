@@ -52,5 +52,12 @@ if ((Get-ChildItem $nv -Recurse -File -ErrorAction SilentlyContinue | Measure-Ob
   Write-Host 'entrance check: FAIL: the driver wrote no cache to the test folder (the cold cache did not take)'
   exit 1
 }
+$runNo = $Matches[1]
 py "$R\tools\perf\s70_entrance_report.py" $log --check --max-frame-ms $MaxFrameMs --max-lost-s $MaxLostS
-exit $LASTEXITCODE
+$code = $LASTEXITCODE
+# Session 72: a PASS at the default limits is remembered for release.ps1 (tools\release\entrance_check_reuse.py), which
+# leaves the check out while nothing that changes the game has changed since. A dev build's PASS counts too.
+if ($code -eq 0 -and $MaxFrameMs -le 500 -and $MaxLostS -le 2.0 -and -not $Extra) {
+  py -I "$R\tools\release\entrance_check_reuse.py" record --exe $Exe --run $runNo
+}
+exit $code

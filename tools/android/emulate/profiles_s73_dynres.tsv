@@ -1,0 +1,2 @@
+ctrl_forced	--wwe2k14_dynamic_res=true --wwe2k14_dynamic_res_target_ms=2
+ctrl_auto	--wwe2k14_dynamic_res=true

@@ -62,6 +62,8 @@ STEPS = [
     ('session71-android', 'd8053f39911e0bd7b7de2ef0ee2f01ea4b1b0015'),
     ('session72-post', 'e1abce8b4fb2f41afc8e0d52ccb0c2430748994b'),
     ('session72-passes', '49465d381ad6f5631a6101a7ee4a14d707be04f9'),
+    ('session73-gpu', 'aa1fd81859b7211c2805e1c92a328acb6ce13d99'),
+    ('session74-batch', 'a0a1d5646a2eee31fa6fc6ebcc0212257caf4c74'),
 ]
 
 

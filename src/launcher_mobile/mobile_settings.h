@@ -70,7 +70,54 @@ struct Settings {
   int touch_opacity = 70;
   bool touch_vibrate = false;
   bool check_updates = true;
+  // Session 73: the NATIVE renderer's shader shortcuts off (SafeShaderFlags), for a tester to tell whether a broken
+  // picture comes from them.
+  bool safe_shaders = false;
+  // Session 73: dynamic resolution (src\dynamic_res.h): a step smaller while the phone cannot keep up.
+  bool dynamic_res = true;
+  // Session 73: the busy game threads kept off the slowest CPU cores (srcndroid_perf_hint.h); a test switch.
+  bool big_cores = false;
+  // Session 73 (Jarrod's ideas 1, 2, 4 of the fourth ten): Snapdragon Game Super Resolution 1 from the game's picture
+  // to the screen (SDK present_effect=sgsr) instead of a plain stretch; PERFORMANCE MODE (the scene drawn at 540p at
+  // most + SGSR + the crowd members out of view left out, gpu_scene_crowd_cull 2, exact); FAST SHADERS (the pixel
+  // shaders' colour maths at half precision, gpu_native_ps_relaxed_precision; a test).
+  bool sgsr = true;
+  bool performance = false;
+  bool fast_shaders = false;
+  // Session 72 (Android drivers, src\android_driver.h): a bundled custom Vulkan driver's file name, or (part 8) one the
+  // player imported: kUserDriverPrefix + its folder under platform::DriversDir(); empty = the phone's own driver.
+  std::string driver;
+  // Session 73 (Jarrod's idea 10 of the fourth ten, a tester's Turnip 26.2.5 drew white surfaces and orange ropes): the
+  // custom drivers the player said looked right / looked broken on this phone (comma-separated ids), asked once after
+  // the first game that got going with one.
+  std::string drivers_ok, drivers_bad;
 };
+
+inline bool IdListHas(const std::string& list, const std::string& id) {
+  return !id.empty() && ("," + list + ",").find("," + id + ",") != std::string::npos;
+}
+inline void IdListAdd(std::string& list, const std::string& id) {
+  if (id.empty() || IdListHas(list, id)) return;
+  list += (list.empty() ? "" : ",") + id;
+}
+
+// Session 72 (Jarrod: "we should have many drivers for all the most common android devices"): the custom drivers
+// the APK can carry, built from source by tools\android\drivers\build_drivers.ps1. The launcher offers the ones it
+// finds in the app's library folder.
+struct BundledDriver {
+  const char* file;  // in the app's native library folder
+  const char* name;  // shown
+  const char* note;  // which phones
+};
+inline constexpr BundledDriver kDrivers[] = {
+    // Session 73: + upstream Mesa's Adreno 710 / 720 / 722 entries (tools\android\drivers\mesa_patches).
+    {"libvulkan_freedreno.so", "TURNIP (Mesa 26.2.5)",
+     "Snapdragon phones: Adreno 6xx, 7xx (now also 710, 720 and 722) and 8xx."},
+    {"libvulkan_panfrost.so", "PANVK (Mesa 27, experimental)",
+     "Exynos, MediaTek and Tensor phones with a Mali GPU (G52 to G720), Android 12 or newer."},
+};
+
+inline constexpr const char* kUserDriverPrefix = "user:";
 
 template <class T>
 inline void Get(const nlohmann::json& j, const char* k, T& v) {
@@ -98,6 +145,12 @@ inline Settings LoadSettings(const fs::path& p) {
     Get(j, "touch_mode", s.touch_mode), Get(j, "touch_size", s.touch_size);
     Get(j, "touch_opacity", s.touch_opacity), Get(j, "touch_vibrate", s.touch_vibrate);
     Get(j, "check_updates", s.check_updates);
+    Get(j, "driver", s.driver);
+    Get(j, "drivers_ok", s.drivers_ok), Get(j, "drivers_bad", s.drivers_bad);
+    Get(j, "safe_shaders", s.safe_shaders);
+    Get(j, "dynamic_res", s.dynamic_res);
+    Get(j, "big_cores", s.big_cores);
+    Get(j, "sgsr", s.sgsr), Get(j, "performance", s.performance), Get(j, "fast_shaders", s.fast_shaders);
   } catch (...) {
   }
   if (s.frame_rate != 0 && s.frame_rate != 1 && s.frame_rate != 3) s.frame_rate = 1;
@@ -118,7 +171,11 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"dlc", s.dlc},                     {"dlc_off", s.dlc_off},
                             {"touch_mode", s.touch_mode},       {"touch_size", s.touch_size},
                             {"touch_opacity", s.touch_opacity}, {"touch_vibrate", s.touch_vibrate},
-                            {"check_updates", s.check_updates}};
+                            {"check_updates", s.check_updates}, {"driver", s.driver},
+                            {"safe_shaders", s.safe_shaders},   {"dynamic_res", s.dynamic_res},
+                            {"big_cores", s.big_cores},         {"sgsr", s.sgsr},
+                            {"performance", s.performance},     {"fast_shaders", s.fast_shaders},
+                            {"drivers_ok", s.drivers_ok},       {"drivers_bad", s.drivers_bad}};
   std::error_code ec;
   fs::create_directories(p.parent_path(), ec);
   const fs::path tmp = p.string() + ".tmp";
@@ -152,6 +209,9 @@ struct LaunchContext {
   std::string dlc_dir;    // the DLC folder (<files>/dlc); empty = none
   int screen_w = 0, screen_h = 0;  // the screen in landscape (for "fill the screen")
   int wm30 = -1;          // a 30 Years of WrestleMania match to jump into (this launch only)
+  std::string driver_trial;  // Session 72: the trial file for a custom driver (the game deletes it once running)
+  // Session 72 part 8: an imported driver - its library's file name and its folder (with a trailing /).
+  std::string driver_library, driver_dir;
 };
 // Replaced by GameActivity with /proc/self/fd/N for the file it opened from game_uri (the open file stays with the
 // game's process; the launcher's process cannot hand it over).
@@ -163,7 +223,25 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   // Graphics (gfx_settings.h GraphicsFlags with the NATIVE renderer, no upscaler, the phone's choices).
   const Resolution& r = kResolutions[std::clamp(s.resolution, 0, kResolutionCount - 1)];
   if (r.resolution == 1) f.push_back("--resolution_scale=2");  // the Android build defaults to 1 (720p)
-  if (r.draw_height) f.push_back("--gpu_native_truth_draw_height=" + std::to_string(r.draw_height));
+  // Session 73: PERFORMANCE MODE draws the scene at 540p at most (the copies stay at the chosen size).
+  const int draw_height = s.performance && r.resolution == 0 && (r.draw_height == 0 || r.draw_height > 540)
+                              ? 540
+                              : r.draw_height;
+  if (draw_height) f.push_back("--gpu_native_truth_draw_height=" + std::to_string(draw_height));
+  if (s.sgsr || s.performance) f.push_back("--present_effect=sgsr");
+  if (s.performance) f.push_back("--gpu_scene_crowd_cull=2");
+  // Session 73: Fast shaders off for now (on Jarrod's Adreno 830 the title and the match went black, only the ring's
+  // banner left: half precision breaks values the PC's driver never runs at 16 bits). The setting stays, unused.
+  // Session 73 (static in the background with fill-the-screen, Jarrod's phone only): truth passes keep colour with
+  // LOAD_OP_NONE (gpu_native_truth_color_none, part 3) off on phones while it is the suspect - areas a frame does not
+  // redraw (fill-the-screen's sides) showed noise; never measured faster on a phone.
+  f.push_back("--gpu_native_truth_color_none=false");
+  // Session 73 (a 221 ms frame between Jarrod's two entrances, during ~5,500 failed pool-size probes - 357 MB asked
+  // for in a 3.5 MB range - each a search of the physical heap's 131,072 pages on a phone CPU): Session 15's fast-fail
+  // for requests bigger than their whole range (the same result, no search; its checks passed then).
+  f.push_back("--wwe2k14_phys_alloc_fast_fail=true");
+  // Session 73, b77: GPU busy work through loads, so each entrance does not start at the lowest GPU clock.
+  f.push_back("--wwe2k14_gpu_keep_warm=true");
   if (s.frame_rate == 0 || s.frame_rate == 3) f.push_back("--wwe2k14_entrance_60fps=false");
   if (s.frame_rate == 3) {
     f.push_back("--wwe2k14_step_hz=30");
@@ -177,6 +255,17 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
     f.push_back("--wwe2k14_aspect=" + std::to_string(std::max(c.screen_w, c.screen_h)) + ":" +
                 std::to_string(std::min(c.screen_w, c.screen_h)));
   if (s.language > 0) f.push_back("--user_language=" + std::to_string(s.language));
+  if (s.dynamic_res) f.push_back("--wwe2k14_dynamic_res=true");  // Session 73
+  if (s.big_cores) f.push_back("--wwe2k14_android_big_cores=true");  // Session 73
+  // Session 73: SAFE SHADERS - the shaders as the emulator translates them, without NATIVE's shortcuts (the Xbox 360's
+  // multiply rule kept, no fused multiply-add, no baked-in endian / texture sign / epilogue variants). Only the 4090
+  // and Jarrod's Adreno 830 have run the shortcuts; a phone's driver may build them wrongly.
+  if (s.safe_shaders)
+    for (const char* flag : {"--gpu_native_vs_mul_mode=0", "--gpu_native_ps_mul_mode=0", "--gpu_native_fma=0",
+                             "--gpu_native_vs_mul_fetch_finite=false", "--gpu_native_vertex_endian_spec=false",
+                             "--gpu_native_ps_texture_spec=false", "--gpu_native_ps_epilogue_spec=false",
+                             "--gpu_native_ps_implicit_lod=false"})
+      f.push_back(flag);
   // DLC (launcher_core.h DlcFlags).
   if (s.dlc && !c.dlc_dir.empty()) {
     f.push_back("--wwe2k14_dlc=true");
@@ -185,6 +274,15 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
     if (!off.empty()) f.push_back("--wwe2k14_dlc_off=" + off);
   }
   if (c.wm30 >= 0) f.push_back("--wwe2k14_wm30=" + std::to_string(c.wm30));
+  // Session 72: a custom Vulkan driver (src\android_driver.h; GameActivity adds the library folder).
+  // Part 8: an imported one from its own folder (the hooks stay in the library folder).
+  if (!c.driver_dir.empty() && !c.driver_library.empty()) {
+    f.push_back("--wwe2k14_android_driver=" + c.driver_library);
+    f.push_back("--wwe2k14_android_driver_dir=" + c.driver_dir);
+  } else if (!s.driver.empty() && s.driver.rfind(kUserDriverPrefix, 0) != 0) {
+    f.push_back("--wwe2k14_android_driver=" + s.driver);
+  }
+  if (!s.driver.empty() && !c.driver_trial.empty()) f.push_back("--wwe2k14_android_driver_trial=" + c.driver_trial);
   // The launcher's choices are the whole picture (launcher_core.h: the game must not apply a settings file on top).
   f.push_back("--wwe2k14_use_launcher_settings=false");
   return f;
