@@ -1,0 +1,32 @@
+# ReXGlue SDK changes for WWE 2K14 (session76-ftz-diag): 898fdc87b819..102f2d9b226b on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  102f2d9 Session 76: gpu_debug_force_denorm_flush_to_zero (diagnostic, off): translated shaders get DenormFlushToZero on any GPU (the 4090 ignores it: inconclusive for the Intel black eyes)
+
+diff --git a/src/graphics/pipeline/shader/spirv_translator.cpp b/src/graphics/pipeline/shader/spirv_translator.cpp
+index d8a73ac55deeaca2a21f05b32718ee430502fa36..da903bec4c7788acaaa36d79c5f6e4601533b129 100644
+--- a/src/graphics/pipeline/shader/spirv_translator.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator.cpp
+@@ -44,6 +44,13 @@ REXCVAR_DEFINE_BOOL(gpu_vertex_kill_nan_xyzw, false, "GPU/Shader",
+                     "Session 73: a vertex killed in OR mode gets NaN in x, y, z and w (not only w; PPSSPP's workaround "
+                     "for drivers that clip a NaN-w vertex instead of dropping the primitive)")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++// wwe2k14 patch (Session 76, an Intel HD 520 tester's black eyes in entrances): drivers that report
++// shaderDenormFlushToZeroFloat32 (the tester's Intel; not the 4090) get the DenormFlushToZero execution mode, so the
++// same shader computes differently there. This asks for it on any GPU, to see on the 4090 what such a GPU draws.
++REXCVAR_DEFINE_BOOL(gpu_debug_force_denorm_flush_to_zero, false, "GPU/Shader",
++                    "Diagnostic (Session 76): translated shaders get the DenormFlushToZero mode even where the driver "
++                    "does not report shaderDenormFlushToZeroFloat32 (the driver may ignore it there)")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ 
+ namespace rex::graphics {
+ 
+@@ -74,7 +81,8 @@ SpirvShaderTranslator::Features::Features(const ui::vulkan::VulkanDevice* const
+       image_view_format_swizzle(vulkan_device->properties().imageViewFormatSwizzle),
+       signed_zero_inf_nan_preserve_float32(
+           vulkan_device->properties().shaderSignedZeroInfNanPreserveFloat32),
+-      denorm_flush_to_zero_float32(vulkan_device->properties().shaderDenormFlushToZeroFloat32),
++      denorm_flush_to_zero_float32(vulkan_device->properties().shaderDenormFlushToZeroFloat32 ||
++                                   REXCVAR_GET(gpu_debug_force_denorm_flush_to_zero)),
+       rounding_mode_rte_float32(vulkan_device->properties().shaderRoundingModeRTEFloat32),
+       fragment_shader_sample_interlock(vulkan_device->properties().fragmentShaderSampleInterlock),
+       demote_to_helper_invocation(vulkan_device->properties().shaderDemoteToHelperInvocation),

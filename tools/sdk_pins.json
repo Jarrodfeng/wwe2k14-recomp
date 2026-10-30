@@ -7505,6 +7505,62 @@
           "size": 11507200
         }
       ]
+    },
+    {
+      "id": "pin-898fdc8-1030-2302",
+      "sdk_commit": "898fdc87b8191844d6f252cc15f5774c970df515",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s76, 2026-10-30T23:01:56 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s76.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 76: silent audio driver when no playback device opens (boot crash on PCs whose audio device fails)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "63055866473860746e2144b7e41682407bea884ff9b2ea8670c56da22cb7e03b",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "61a743596e18edbea8f2f98731ea4ad8918dc64c7691a911620234ea45995cdc",
+          "size": 15493120
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "3100077872daf0196efb80af9747f4dda37eb06a919304b87fe9cceab9276250",
+          "size": 11510784
+        }
+      ]
+    },
+    {
+      "id": "pin-102f2d9-1030-2341",
+      "sdk_commit": "102f2d9b226b4eb1c3f5ad4b8016a438c141e82a",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-10-30",
+      "built": "build_sdk.ps1 -Run s76c, 2026-10-30T23:41:02 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s76c.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 76: + gpu_debug_force_denorm_flush_to_zero (diagnostic, off)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "63055866473860746e2144b7e41682407bea884ff9b2ea8670c56da22cb7e03b",
+          "size": 3640320
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "4da31de8b0fcf8a84c67ce1d26ac9175e896d7bccb8efa5da7ccbe8ec5c60b84",
+          "size": 15496192
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "3100077872daf0196efb80af9747f4dda37eb06a919304b87fe9cceab9276250",
+          "size": 11510784
+        }
+      ]
     }
   ]
 }

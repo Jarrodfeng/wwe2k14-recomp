@@ -48,6 +48,8 @@
 //                                 (logged) while that setting is empty; any script end stops the clip and a quit
 //                                 (also on_fail quit) waits for clips to finish (src/clip_capture.h)
 //   log TEXT                      write TEXT to the log
+//   renderdoc_capture             (Session 76) RenderDoc captures the next frame (run with RenderDoc on the PATH and
+//                                 ENABLE_VULKAN_RENDERDOC_CAPTURE=1; captures land in %TEMP%\RenderDoc)
 //   mark ID [TEXT]                log a numbered marker (ID decimal) and record timeline event "mark"
 //                                 (a = ID, b = guest frame) so analysis tools can cut runs at it
 //   cvar NAME VALUE               set a ReXGlue/app setting now (rex::cvar::SetFlagByName), e.g. to toggle a
@@ -164,6 +166,7 @@
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <wincodec.h>
+#include <renderdoc/renderdoc_app.h>  // Session 76: renderdoc_capture
 #endif
 #if defined(_WIN32)  // Session 63 (Android port): Windows libraries
 #pragma comment(lib, "windowscodecs.lib")
@@ -735,7 +738,8 @@ class InputScript {
     kLogText, kWaitText, kAssertText,  // Session 30: screen text (src/screen_text.h); text = TEXT, frames = N / timeout
     kDumpStruct,                       // Session 30: text = struct name (structs.toml), frames = address (0 = its base)
     kPlugin,                           // Session 30: text = load / reload / unload, value = PATH (src/probe_plugin.h)
-    kDumpMem                           // Session 69: frames = physical address, hold = length, text = output file
+    kDumpMem,                          // Session 69: frames = physical address, hold = length, text = output file
+    kRenderDoc                         // Session 76: RenderDoc captures the next frame
   };
   struct Step {
     Op op;
@@ -1281,6 +1285,8 @@ class InputScript {
           why = "no struct named '" + name + "' in tools/input_scripts/structs.toml";
         }
         step.text = name;
+      } else if (cmd == "renderdoc_capture") {  // Session 76
+        step.op = Op::kRenderDoc;
       } else if (cmd == "dump_mem") {  // Session 69: dump_mem PHYS_ADDR LENGTH FILE (guest physical memory to a file)
         step.op = Op::kDumpMem;
         std::string addr, len;
@@ -1765,6 +1771,21 @@ class InputScript {
           }
           break;
         }
+        case Op::kRenderDoc: {  // Session 76: through renderdoc.dll, loaded by ENABLE_VULKAN_RENDERDOC_CAPTURE=1
+#if defined(_WIN32)
+          RENDERDOC_API_1_0_0* api = nullptr;
+          if (HMODULE m = GetModuleHandleW(L"renderdoc.dll"))
+            if (auto get = reinterpret_cast<pRENDERDOC_GetAPI>(GetProcAddress(m, "RENDERDOC_GetAPI")))
+              get(eRENDERDOC_API_Version_1_0_0, reinterpret_cast<void**>(&api));
+          if (api) {
+            api->TriggerCapture();
+            REXLOG_INFO("[wwe2k14][input] line {}: RenderDoc captures the next frame (frame {})", L(step), frame_);
+          } else {
+            REXLOG_WARN("[wwe2k14][input] line {}: renderdoc_capture: RenderDoc is not attached", L(step));
+          }
+#endif
+          break;
+        }
         case Op::kDumpMem: {  // Session 69
           const auto* p = REX_KERNEL_MEMORY()->TranslatePhysical<const uint8_t*>(uint32_t(step.frames));
           std::FILE* f = std::fopen(step.text.c_str(), "wb");
@@ -2053,6 +2074,12 @@ inline void (*g_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
 inline void (*g_typing_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
 // Session 67 (src\mouse_menu.h): the mouse's UP / DOWN / A in the list menus. Null = nothing.
 inline void (*g_mouse_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
+// Session 76 (src\keyboard_player.h): the player the keyboard (and so the mouse) is, 0 = player 1: the mouse's presses
+// go to that player's reads.
+inline std::atomic<int> g_mouse_user{0};
+// Session 76 (src\keyboard_player.h): every player's reads on the title screen (who pressed Start becomes player 1).
+// Null = nothing.
+inline void (*g_title_pad_filter)(uint32_t user, rex::input::X_INPUT_STATE* state) = nullptr;
 // Session 67 (src\mouse_menu.h): each text id the game's text manager looks up, with the caller (GetString hook in
 // src\gfx_menu.h): the button legend's icons. Null = nothing.
 inline void (*g_text_fetch_observer)(uint32_t id, uint32_t lr) = nullptr;
@@ -2073,13 +2100,18 @@ inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
                                          ppc_ptr_t<rex::input::X_INPUT_STATE> state) {
   const uint32_t result = replay::g_replay.State(user_index, flags, state,
                                                  [&] { return g_input_script.GetState(user_index, flags, state); });
+  if (g_title_pad_filter && result == 0 && state && (!(flags & 0xFF) || (flags & 0x01)))
+    g_title_pad_filter(user_index & 0xFF, &*state);
   if (g_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
       (!(flags & 0xFF) || (flags & 0x01)))
     g_pad_filter(&*state);
   if (g_typing_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
       (!(flags & 0xFF) || (flags & 0x01)))
     g_typing_pad_filter(&*state);
-  if (g_mouse_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
+  // Session 76: the mouse is the keyboard's player (player 1 unless the keyboard is a player of its own).
+  const uint32_t mouse_user = uint32_t(g_mouse_user.load(std::memory_order_relaxed));
+  if (g_mouse_pad_filter && result == 0 && state &&
+      ((user_index & 0xFF) == mouse_user || (mouse_user == 0 && (user_index & 0xFF) == 0xFF)) &&
       (!(flags & 0xFF) || (flags & 0x01)))
     g_mouse_pad_filter(&*state);
   return result;

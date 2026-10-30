@@ -64,6 +64,8 @@ STEPS = [
     ('session72-passes', '49465d381ad6f5631a6101a7ee4a14d707be04f9'),
     ('session73-gpu', 'aa1fd81859b7211c2805e1c92a328acb6ce13d99'),
     ('session74-batch', 'a0a1d5646a2eee31fa6fc6ebcc0212257caf4c74'),
+    ('session76-silent-audio', '898fdc87b8191844d6f252cc15f5774c970df515'),
+    ('session76-ftz-diag', '102f2d9b226b4eb1c3f5ad4b8016a438c141e82a'),
 ]
 
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.2.14
+
+Two players on one controller and the keyboard, a fix for PCs whose sound device won't start, and a fix attempt for
+black eyes on Intel graphics.
+
+- **New: the keyboard is a player of its own.** With KEYBOARD CONTROLS on and a controller plugged in, the keyboard
+  used to drive the same player as the controller, so two people with one controller couldn't play each other. Now
+  the keyboard is the next player after the controllers: player 2 next to one controller, player 1 with none. On the
+  superstar select screen, press up on the keyboard (W) to join with your own cursor, as a second controller would.
+  Whoever presses Start first on the title screen is player 1 and plays with your save. The mouse in the menus goes
+  with the keyboard player. To go back to one shared player, turn off SEPARATE PLAYER in the launcher's KEYBOARD
+  CONTROLS window (SETTINGS > ADVANCED > MAP KEYS).
+- **Fixed: the game crashing as it starts on some PCs (0xC0000005).** When Windows' default sound device couldn't be
+  opened, the game crashed a moment after it started, every time. The Xbox 360's sound never fails to start, so the
+  game didn't expect it. The game now starts without sound instead, and its log says why ("no audio device could be
+  opened"). If you have no sound, check the default playback device in Windows' sound settings.
+- **Intel graphics: a fix attempt for black eyes in entrances.** On Intel graphics (reported on an HD 520) the
+  superstars' eyes could turn all black during entrances, while matches looked fine. I couldn't reproduce it on my PC.
+  My best lead is a speed shortcut in the NATIVE renderer's maths that Intel's driver handles differently: it rounds
+  tiny numbers to zero, and that can end in a black pixel. On Intel graphics the game now does those multiplications
+  exactly as the Xbox 360 does. If the eyes are still black, or the game got slower for you, please send a report
+  (launcher: Report a problem).
+- **Gameplay is unchanged.**
+
 ## v0.2.13
 
 Your own songs as new entrance themes, and entrances that start smoothly.

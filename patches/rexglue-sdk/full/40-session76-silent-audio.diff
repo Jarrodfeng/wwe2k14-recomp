@@ -1,0 +1,109 @@
+# ReXGlue SDK changes for WWE 2K14 (session76-silent-audio): a0a1d5646a2e..898fdc87b819 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  898fdc8 Session 76: a silent audio driver when no playback device opens (the game's audio registration failed and it crashed at boot on a null sound object)
+
+diff --git a/src/audio/sdl/sdl_audio_system.cpp b/src/audio/sdl/sdl_audio_system.cpp
+index 288a235c9c4a80c8f2ac5403f63c684243c424dc..29576916332bbd1416e0bbabe9ae5f696a3dbe24 100644
+--- a/src/audio/sdl/sdl_audio_system.cpp
++++ b/src/audio/sdl/sdl_audio_system.cpp
+@@ -16,6 +16,11 @@
+ #include <rex/logging.h>
+ #include <SDL3/SDL.h>
+ 
++#include <chrono>
++#include <condition_variable>
++#include <mutex>
++#include <thread>
++
+ // wwe2k14 patch (Session 27): SDL's audio subsystem is started here, on the UI thread, before the guest runs.
+ // SDL_PumpEvents (UI thread) calls SDL_UpdateAudio on every pump, which read-locks and unlocks
+ // current_audio.subsystem_rwlock, reading the pointer twice. SDL_InitAudio sets that pointer (and zeroes
+@@ -28,6 +33,59 @@ REXCVAR_DEFINE_BOOL(audio_sdl_init_on_ui_thread, true, "Audio",
+ 
+ namespace rex::audio::sdl {
+ 
++namespace {
++
++// wwe2k14 patch (Session 76): a player's PC whose default playback device would not open (SDL_OpenAudioDeviceStream:
++// "WASAPI can't initialize audio client") crashed at boot: CreateDriver failed, so XAudioRegisterRenderDriverClient
++// returned an error (a 360 never does) and the game went on to lock a sound object it had never made
++// (RtlEnterCriticalSection on a null pointer; reproduced with SDL_AUDIO_DRIVER set to a missing driver). With no
++// device the game now gets this driver: each submitted frame is handed back at the device's pace (one 256-sample
++// frame per 5.33 ms at 48 kHz, as SDLAudioDriver::SDLCallback does), so the game runs without sound.
++class SilentAudioDriver final : public AudioDriver {
++ public:
++  SilentAudioDriver(memory::Memory* memory, rex::thread::Semaphore* semaphore)
++      : AudioDriver(memory), semaphore_(semaphore), thread_([this] { Run(); }) {}
++  ~SilentAudioDriver() override {
++    {
++      std::lock_guard lock(mutex_);
++      quit_ = true;
++    }
++    cv_.notify_all();
++    thread_.join();
++  }
++  void SubmitFrame(uint32_t /*frame_ptr*/) override {
++    std::lock_guard lock(mutex_);
++    ++queued_;
++  }
++
++ private:
++  void Run() {
++    using clock = std::chrono::steady_clock;
++    const auto period = std::chrono::nanoseconds(1'000'000'000LL * 256 / 48000);
++    auto next = clock::now();
++    std::unique_lock lock(mutex_);
++    while (!quit_) {
++      next += period;
++      if (clock::now() - next > std::chrono::milliseconds(100)) next = clock::now();  // after a stall: no burst
++      cv_.wait_until(lock, next, [this] { return quit_; });
++      if (quit_ || !queued_) continue;
++      --queued_;
++      lock.unlock();
++      semaphore_->Release(1, nullptr);
++      lock.lock();
++    }
++  }
++
++  rex::thread::Semaphore* semaphore_;
++  std::mutex mutex_;
++  std::condition_variable cv_;
++  uint32_t queued_ = 0;
++  bool quit_ = false;
++  std::thread thread_;  // last: starts once the members above exist
++};
++
++}  // namespace
++
+ std::unique_ptr<AudioSystem> SDLAudioSystem::Create(
+     runtime::FunctionDispatcher* function_dispatcher) {
+   return std::make_unique<SDLAudioSystem>(function_dispatcher);
+@@ -74,7 +132,10 @@ X_STATUS SDLAudioSystem::CreateDriver([[maybe_unused]] size_t index,
+   if (!driver->Initialize()) {
+     driver->Shutdown();
+     delete driver;
+-    return X_STATUS_UNSUCCESSFUL;
++    // wwe2k14 patch (Session 76): no device: run silent instead of failing the game's registration (above).
++    REXAPU_WARN("no audio device could be opened (client {}): the game runs without sound", index);
++    *out_driver = new SilentAudioDriver(memory_, semaphore);
++    return X_STATUS_SUCCESS;
+   }
+ 
+   *out_driver = driver;
+@@ -83,10 +144,12 @@ X_STATUS SDLAudioSystem::CreateDriver([[maybe_unused]] size_t index,
+ 
+ void SDLAudioSystem::DestroyDriver(AudioDriver* driver) {
+   assert_not_null(driver);
+-  auto sdldriver = dynamic_cast<SDLAudioDriver*>(driver);
+-  assert_not_null(sdldriver);
+-  sdldriver->Shutdown();
+-  delete sdldriver;
++  if (auto sdldriver = dynamic_cast<SDLAudioDriver*>(driver)) {
++    sdldriver->Shutdown();
++    delete sdldriver;
++    return;
++  }
++  delete driver;  // wwe2k14 patch (Session 76): the SilentAudioDriver
+ }
+ 
+ }  // namespace rex::audio::sdl

@@ -1,3 +1,8 @@
+- The keyboard as its own player (new in v0.2.14) was tested with a simulated second controller, not by two people
+  yet. With four controllers the keyboard shares player 1 again. Not tried yet: a controller switching off in the
+  middle of a match (with no controller left, the keyboard becomes player 1 until the controller is back).
+- The black-eyes fix for Intel graphics (new in v0.2.14) has not been tried on Intel hardware by me, and how much it
+  slows Intel laptops is not measured. Please tell me whether the eyes look right now (launcher: Report a problem).
 - New songs (new in v0.2.13) are silent in the entrance editor's PREVIEW: they play in matches only. They are also
   silent in replays and re-shoots, as theme replacements are. A superstar given a new song walks out in silence if the
   song's file is gone or USE MY MUSIC is off (the editor then shows USER PLAYLIST for him); nothing breaks.
@@ -26,9 +31,10 @@
   one doesn't show up, please send a report (launcher: Report a problem lists your packs, never their files).
 - Discord status needs an application id (Settings -> Game) until the project has its own.
 - My own menu items in the game (QUIT TO DESKTOP, GRAPHICS, PHOTO MODE) stay in English in every language.
-- Superstars looking shiny or sparkly (seen on Intel Iris Xe): being looked into. If you see it, please try the extra
-  flags `--gpu_native_ps_mul_mode=0 --gpu_native_fma=0 --gpu_native_ps_implicit_lod=false` (Settings -> Advanced) and
-  tell me whether it goes away.
+- Superstars looking shiny or sparkly (seen on Intel Iris Xe): being looked into. Since v0.2.14 Intel graphics already
+  use the exact multiplications (the first of the flags I asked about before). If you still see it, please try the
+  extra flags `--gpu_native_fma=0 --gpu_native_ps_implicit_lod=false` (Settings -> Advanced) and tell me whether it
+  goes away.
 - A black screen at the start or at 1080p (reported on an Intel laptop): I need a log from a run where it happens
   (launcher: Report a problem).
 - The first time you meet a superstar, arena or match type the shipped pipeline list does not cover, its loading screen

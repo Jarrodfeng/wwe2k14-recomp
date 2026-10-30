@@ -148,6 +148,7 @@ struct Settings {
   int mods_tab = 0;            // 0 Trons, 1 Titles, 2 Logos, 3 Music (Session 75)
   bool runin = false;          // run-ins: F9 in a match (Session 16 experiment)
   bool keyboard = false;       // ReXGlue's keyboard-as-controller driver (mnk_mode; untested in this project)
+  bool keyboard_own_player = true;  // Session 76: the keyboard is a player of its own (wwe2k14_keyboard_own_player)
   // Session 31 (a playtester's suggestion): the game's language (0 = automatic: Windows' language when the disc has it,
   // else English; else the runtime's user_language id: 1 English, 3 German, 4 French, 5 Spanish, 6 Italian), the
   // graphics card (empty = automatic: the game picks the dedicated GPU, src\gpu_pick.h; else part of its name), and
@@ -191,6 +192,7 @@ inline void to_json(json& j, const Settings& s) {
            {"refresh_hz", s.refresh_hz},
            {"perf_report", s.perf_report}, {"original_look", s.original_look}, {"page", s.page},
            {"mods_tab", s.mods_tab}, {"runin", s.runin}, {"keyboard", s.keyboard},
+           {"keyboard_own_player", s.keyboard_own_player},
            {"language", s.language}, {"gpu", s.gpu}, {"windowed", s.windowed}, {"titles_view", s.titles_view}, {"check_updates", s.check_updates},
            {"dlc", s.dlc}, {"dlc_dir", s.dlc_dir}, {"dlc_off", s.dlc_off}, {"quick_start", s.quick_start}, {"logo_size", s.logo_size}};
 }
@@ -231,6 +233,7 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "first_run_done", s.first_run_done), Get(j, "resolution", s.resolution), Get(j, "frame_rate", s.frame_rate);
   Get(j, "refresh_hz", s.refresh_hz), Get(j, "perf_report", s.perf_report), Get(j, "original_look", s.original_look);
   Get(j, "page", s.page), Get(j, "mods_tab", s.mods_tab), Get(j, "runin", s.runin), Get(j, "keyboard", s.keyboard);
+  Get(j, "keyboard_own_player", s.keyboard_own_player);
   Get(j, "language", s.language), Get(j, "gpu", s.gpu), Get(j, "windowed", s.windowed), Get(j, "titles_view", s.titles_view), Get(j, "check_updates", s.check_updates);
   Get(j, "dlc", s.dlc), Get(j, "dlc_dir", s.dlc_dir), Get(j, "dlc_off", s.dlc_off);
   Get(j, "quick_start", s.quick_start), Get(j, "logo_size", s.logo_size);
@@ -1123,6 +1126,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
   }
   if (s.runin) f.push_back("--wwe2k14_runin=true");
   if (s.keyboard) f.push_back("--mnk_mode=true");
+  if (s.keyboard && !s.keyboard_own_player) f.push_back("--wwe2k14_keyboard_own_player=false");  // Session 76
   // Session 31: language, graphics card, window.
   f.push_back("--user_language=" + std::to_string(s.language > 0 ? s.language : AutoLanguage()));
   if (!s.gpu.empty()) f.push_back("--wwe2k14_gpu=" + Quote(s.gpu));

@@ -16,8 +16,13 @@
 #   (-CheckOnly with -AllowUnpinnedSdk reports "WOULD BE OVERRIDDEN" and writes nothing to the override log.)
 #   -PinFile FILE                use another pin list (testing)
 # Pin a new SDK build: pwsh -File tools\build_sdk.ps1 -Run NAME -Pin "what this build is".
+# Session 76 (Jarrod: "maybe set a timeout in builds? 3 minutes for PC ones since they're quite quick"; a build had
+# queued 7 min behind a live game nobody would quit): the run lock must be free within -LockWaitMinutes (default 3),
+# else nothing is built and the build exits 4 (the waiting line above says who holds it). A build meant to queue
+# behind a sweep passes a longer wait.
 param([string]$Run = '002', [string]$Preset = 'win-amd64-release', [string]$AllowUnpinnedSdk = '',
-      [switch]$CheckOnly, [string]$ExeDir = '', [string[]]$SdkBin = @(), [string]$PinFile = '')
+      [switch]$CheckOnly, [string]$ExeDir = '', [string[]]$SdkBin = @(), [string]$PinFile = '',
+      [double]$LockWaitMinutes = 3)
 $repo = 'C:\Users\Jarrod\wwe2k14-recomp'
 . "$repo\tools\sdk_pins.ps1"
 $overrideGiven = $PSBoundParameters.ContainsKey('AllowUnpinnedSdk')
@@ -102,7 +107,12 @@ if ($CheckOnly) {
 . "$repo\tools\runlock.ps1"
 $ErrorActionPreference = 'Continue'
 Set-Location $repo
-$lock = Enter-RunLock -Name "build.ps1 $Preset $Run"
+try { $lock = Enter-RunLock -Name "build.ps1 $Preset $Run" -TimeoutMinutes $LockWaitMinutes }
+catch {
+    "build.ps1: NOT BUILT, the run lock was not free within $LockWaitMinutes min ($($_.Exception.Message)). Quit the " +
+        "game that holds it (a live game: game_quit), or wait longer with -LockWaitMinutes N."
+    exit 4
+}
 $buildExit = 0
 try {
 # Checked inside the lock: no other build / SDK build / restage can change these files until we release it.

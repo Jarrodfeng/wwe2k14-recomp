@@ -57,6 +57,7 @@
 #include "check_prompt.h"   // input-script `check TEXT` (Session 29: on-screen question, harness runs only)
 #include "vulkan_layers.h"  // Session 36 (GitHub issue 1): Overwolf's Vulkan layers kept out (they crashed the game)
 #include "gpu_pick.h"       // Session 31: the dedicated GPU by default, --wwe2k14_gpu=NAME (the launcher's chooser)
+#include "intel_exact_mul.h"  // Session 76: on Intel GPUs NATIVE keeps the 360's multiply rule (--wwe2k14_intel_exact_mul)
 #include "light_renderer.h" // Session 37: --wwe2k14_light_renderer (weak GPUs), --wwe2k14_fbo_fallback_fix (default off)
 #include "android_touch.h"  // Session 71 (Android): the touch controls' virtual pad (TouchOverlay.java)
 #include "job_dispatch_fix.h"  // Session 71: --wwe2k14_job_reset_first (the entrance freeze on 4-thread CPUs, default on)
@@ -67,6 +68,7 @@
 #include "direct_start.h"   // Session 53: a release started without the launcher (hand-off, settings file, message)
 #include "keybinds_save.h"  // Session 53: the keyboard binds saved in the save folder (--wwe2k14_save_keybinds)
 #include "keyboard_typing.h"  // Session 55: --wwe2k14_keyboard_typing (the PC keyboard types into the game's keyboard)
+#include "keyboard_player.h"  // Session 76: --wwe2k14_keyboard_own_player (the keyboard is a player of its own)
 #include "mouse_menu.h"  // Session 67: --wwe2k14_mouse_menus (the mouse points, clicks and scrolls in the list menus)
 #include "create_readback.h"  // Session 57: --wwe2k14_readback_sequences (exact readback in the create modes, default on)
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
@@ -516,6 +518,7 @@ class Wwe2k14App : public rex::ReXApp {
     }
     // Session 31: vulkan_device = the dedicated GPU (or --wwe2k14_gpu), if not set (after the plugin registered it).
     if (REXCVAR_GET(wwe2k14_gpu_backend) != "d3d12") wwe2k14::gpu_pick::Choose();
+    wwe2k14::intel_exact_mul::Configure();  // Session 76: an Intel tester's black eyes in entrances (unconfirmed cause)
     wwe2k14::light::ConfigureFallback();  // Session 37: the card's render path in the log (+ --wwe2k14_fbo_fallback_fix)
     wwe2k14::low_power::Configure();      // Session 37: --wwe2k14_low_power (default off)
     wwe2k14::SlowFrameOnPreSetup();  // Session 8 task 12: nothing unless --wwe2k14_slowframe_ms > 0
@@ -569,6 +572,7 @@ class Wwe2k14App : public rex::ReXApp {
                 std::filesystem::is_regular_file(game_data_root()) ? "disc image" : "folder");
     REXLOG_INFO("[wwe2k14] user_data_root: {}", user_data_root().string());  // Session 53: the save folder in use
     wwe2k14::keybinds_save::Install(user_data_root());  // Session 53 item 2.6: keyboard binds kept between starts
+    wwe2k14::keyboard_player::Install(runtime());  // Session 76: the keyboard as its own player (P2 beside one pad)
     for (const char* name : {"gpu_plugin", "wwe2k14_gpu_backend", "readback_resolve",
                              "gpu_allow_invalid_fetch_constants", "vsync",
                              "wwe2k14_ignore_offset_for_ranged_allocations", "log_max_file_size_mb",

@@ -4599,6 +4599,21 @@ class App {
       keys::SetMouse(keys_, mouse);
       SaveKeys(mouse ? "The mouse moves the right stick. Saved." : "The mouse is off. Saved.");
     }
+    // Session 76 (a player: "add Keyboard as a Separate controller"; Jarrod: on by default).
+    OptionToggle("SEPARATE PLAYER", s.keyboard_own_player, s.keyboard, nullptr, half);
+    ImGui::SameLine(0, 16 * d);
+    {
+      const ImVec2 at = ImGui::GetCursorScreenPos();
+      ImGui::SetCursorScreenPos(ImVec2(at.x + 6 * d, at.y + 2 * d));
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + half - 10 * d);
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+      ImGui::TextWrapped("%s", s.keyboard_own_player
+                                   ? "The keyboard is the next player after the controllers: player 2 with one "
+                                     "controller, player 1 with none."
+                                   : "The keyboard and controller 1 are the same player.");
+      ImGui::PopStyleColor();
+      ImGui::PopTextWrapPos();
+    }
     static constexpr double kSpeeds[] = {0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0};
     static constexpr const char* kSpeedNames[] = {"0.25x", "0.5x", "0.75x", "1x", "1.5x", "2x", "3x", "4x"};
     int si = 0;

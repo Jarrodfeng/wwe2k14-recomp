@@ -333,7 +333,7 @@ struct Grid {
   std::atomic<uint16_t> buttons{0};
   bool jump_pending = false;
   int jump_col = 0, jump_row = 0, active_col = -1, active_row = -1, tries = 0;
-  uint32_t jump_screen = 0;
+  uint32_t jump_screen = 0, jump_side = 0;
 };
 
 inline Grid& G() {
@@ -398,13 +398,21 @@ inline bool CellSelectable(PPCContext& ctx, uint8_t* base, uint32_t w, int col, 
   return id != kEmptyCell && CallGuest(ctx, base, sub_8282C298, model, id) != 0;
 }
 
+// Session 76 (two players, the keyboard as player 2): each side choosing has a grid of its own, [W+232] = the side
+// (the participant: run 4815, 2P on the left = 0 and 1P on the right = 1, then swapped; the move sub_8282F550 gets the
+// same as r4). The mouse drives only the grid of the side its controller holds (PlayerSlot, below).
+constexpr uint32_t kGridSideOffset = 232;
+inline int MouseSide();
+
 // Game thread, once a frame while the grid has the input (sub_82856B40's hook): the next step toward the target.
 inline void OnGridFrame(PPCContext& ctx, uint8_t* base, uint32_t w) {
   Grid& g = G();
   const uint64_t frame = g_guest_frame.load(std::memory_order_relaxed);
+  const int side = MouseSide();
+  if (side >= 0 ? Read32(w + kGridSideOffset) != uint32_t(side) : g_mouse_user.load() != 0) return;
   if (!GridUp())  // (it had not run for 150 ms: the grid got the input again)
-    REXLOG_INFO("[wwe2k14][mouse] superstar grid has the input (widget {:08X}, column {}, row {})", w,
-                int(Read32(w + kGridColOffset)), int(Read32(w + kGridRowOffset)));
+    REXLOG_INFO("[wwe2k14][mouse] superstar grid has the input (widget {:08X}, side {}, column {}, row {})", w,
+                int32_t(Read32(w + kGridSideOffset)), int(Read32(w + kGridColOffset)), int(Read32(w + kGridRowOffset)));
   g.widget = w;
   g.seen_ms = NowMs();
   if (frame < g.next_frame) return;
@@ -436,6 +444,7 @@ inline void OnGridFrame(PPCContext& ctx, uint8_t* base, uint32_t w) {
     g.jump_col = tc;
     g.jump_row = tr;
     g.jump_screen = Read32(w + kGridScreenOffset);
+    g.jump_side = Read32(w + kGridSideOffset);
     g.jump_pending = true;
     press = kPadRight;
   }
@@ -539,14 +548,23 @@ inline const SlotLayout* CurrentLayout() {
   return l && l->count == SL().panels.load() ? l : nullptr;
 }
 
-// The participant the player's controller (0) drives, or -1.
+// The participant the mouse's controller drives (0; Session 76: the keyboard's, g_mouse_user), or -1.
 inline int PlayerSlot(int count) {
   const uint32_t mgr = Read32(kParticipantManagerPtr);
   if (!mgr) return -1;
   const uint32_t first = mgr + Read32(mgr + kParticipantBlockOffset) * kParticipantBlockStride;
+  const uint32_t pad = uint32_t(g_mouse_user.load(std::memory_order_relaxed));
   for (int i = 0; i < count; ++i)
-    if (Read32(first + uint32_t(i + 1) * kParticipantStride + kParticipantControllerOffset) == 0) return i;
+    if (Read32(first + uint32_t(i + 1) * kParticipantStride + kParticipantControllerOffset) == pad) return i;
   return -1;
+}
+
+// Session 76: the side the mouse's controller holds on a select screen with a measured layout, else -1. By the setup
+// menu alone: CurrentLayout's drawn-panel check fails while the grids have the input (run 4816).
+inline int MouseSide() {
+  const uint32_t sm = SmartMenu();
+  const SlotLayout* layout = sm ? LayoutForMenu(Read32(sm + kMenuOffset)) : nullptr;
+  return layout ? PlayerSlot(layout->count) : -1;
 }
 
 // Game thread, once a frame while the slot choice has the input: the next press toward the target.
@@ -1591,7 +1609,8 @@ REX_HOOK_RAW(sub_82856B40) {
 REX_HOOK_RAW(sub_8282F550) {
   using namespace wwe2k14::mouse_menu;
   Grid& g = G();
-  if (g.jump_pending && ctx.r3.u32 == g.jump_screen && ctx.r5.u32 && ctx.r6.u32) {
+  // Session 76: only the move of the side the jump was armed for (two players: the other side's move is its own).
+  if (g.jump_pending && ctx.r3.u32 == g.jump_screen && ctx.r4.u32 == g.jump_side && ctx.r5.u32 && ctx.r6.u32) {
     g.jump_pending = false;
     rex::memory::store_and_swap<uint32_t>(Guest(ctx.r5.u32), uint32_t(g.jump_col));
     rex::memory::store_and_swap<uint32_t>(Guest(ctx.r6.u32), uint32_t(g.jump_row));
