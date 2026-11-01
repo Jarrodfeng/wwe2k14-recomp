@@ -1,0 +1,53 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-readbackgap): 892e60c03c62..c4519efdd469 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  c4519ef Merge s79-rblog: Session 79 readback_resolve_override_skip_recurring_narrow_gap (0 = off; with the narrow rule a narrow copy's run survives gaps of up to N frames - the reflection cubes' faces: read-backs per character window 3,693 -> 423 / 3,294 -> 732, run 5124) + readback_resolve_log_all diagnostic
+
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index c4a408810cdd0b7909e017c6b34f98e990ca722d..23de5a3482b9e7182b01105d52b33b592a1534bc 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -356,6 +356,17 @@ REXCVAR_DEFINE_INT32(readback_resolve_override_skip_recurring_narrow, 0, "GPU/Vu
+                      "frames in a row instead (when lower). 0 = the same limit for every copy")
+     .range(0, 60)
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(readback_resolve_override_skip_recurring_narrow_gap, 0, "GPU/Vulkan",
++                     "Session 79: with readback_resolve_override_skip_recurring_narrow on, a narrow copy's run of frames "
++                     "in a row survives gaps of up to this many frames (the reflection cubes' faces are copied 5 frames, "
++                     "then not for 2: with the usual 2 their run restarted and 4 of every 7 were read back). 0 = 2, as "
++                     "for every other copy")
++    .range(0, 16)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(readback_resolve_log_all, false, "GPU/Vulkan",
++                    "Diagnostic (Session 79): with readback_resolve_override_skip_recurring, log the read-back decision "
++                    "of every copy, not only those 1024 or more wide ([s79][readback] lines)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ // wwe2k14 patch (Session 66, H1.1): see VulkanCommandProcessor::FlushPendingReadbacks.
+ REXCVAR_DEFINE_BOOL(readback_resolve_batch, false, "GPU/Vulkan",
+@@ -13200,7 +13211,13 @@ bool VulkanCommandProcessor::IssueCopy() {
+     ReadbackDestHistory scratch;
+     ReadbackDestHistory& h = copies ? readback_dest_history_[dest] : scratch;
+     if (copies && h.last_frame != frame_current_) {
+-      h.streak = (h.streak && frame_current_ - h.last_frame <= 2) ? h.streak + 1 : 1;
++      // (Session 79, readback_resolve_override_skip_recurring_narrow_gap: a longer gap for narrow copies.)
++      const int32_t narrow_gap = REXCVAR_GET(readback_resolve_override_skip_recurring_narrow_gap);
++      const uint64_t gap = narrow_gap > 0 && REXCVAR_GET(readback_resolve_override_skip_recurring_narrow) > 0 &&
++                                   (matte_regs_[3] & 0x3FFFu) < 2048u
++                               ? uint64_t(narrow_gap)
++                               : 2u;
++      h.streak = (h.streak && frame_current_ - h.last_frame <= gap) ? h.streak + 1 : 1;
+       h.last_frame = frame_current_;
+     }
+     if (readback_dest_history_.size() > 1024 && readback_dest_pruned_frame_ != frame_current_) {
+@@ -13227,6 +13244,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+       if (copies && (matte_regs_[3] & 0x3FFFu) >= 1024u) {
+         REXGPU_INFO("[s59][readback] wide resolve dest 0x{:08X} pitch {} {} (streak {}) frame {}", dest,
+                     matte_regs_[3] & 0x3FFFu, skip ? "NOT read back" : "read back", h.streak, frame_current_);
++      } else if (copies && REXCVAR_GET(readback_resolve_log_all)) {
++        // wwe2k14 patch (Session 79, diagnostic): the narrower ones too.
++        REXGPU_INFO("[s79][readback] resolve dest 0x{:08X} pitch {} height {} {} (streak {}) frame {}", dest,
++                    matte_regs_[3] & 0x3FFFu, (matte_regs_[3] >> 16) & 0x3FFFu, skip ? "NOT read back" : "read back",
++                    h.streak, frame_current_);
+       }
+       if (((readback_recurring_skipped_ + readback_recurring_kept_) & 1023) == 0) {
+         REXGPU_INFO("[s59][readback] recurring resolves not read back {}, read back {} (since start)",

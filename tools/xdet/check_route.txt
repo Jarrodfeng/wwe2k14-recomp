@@ -1,0 +1,105 @@
+# Session 77 (XDET_PLAN.md "P7 testers", step 2): the tester determinism check's route - Cena (controller 1) vs
+# Undertaker (CPU), Quick Match, arena 3, entrances skipped (tools\xdet\scenario_check.flags), from a FRESH save (the
+# check runs with an empty user folder: the tester's own save is never used). With --wwe2k14_xdet_check
+# (src\xdet_check.h). Record: tools\xdet\run_stageA.ps1 -Record xdet_check -Scenario check -FlagsFile check.flags
+# -Data userdata_empty -Route tools\xdet\check_route.txt.
+# The fresh-save boot (live run 4959): title "Press START button" -> START -> the ATTENTION storage notice -> A ->
+# "There is no ... save data ... create a new ... save data?" (cursor on NO) -> A (NO: no save is written) ->
+# "You have not selected to save ... Are you sure you want to start ...?" (cursor on NO) -> LEFT, A (YES) -> the main
+# menu, where the Quick Match launcher fires after its idle frames. Each press waits for the next screen's own text
+# (press_until_text: a dropped press is pressed again). The match part is tools\xdet\cena_taker_a.txt's (marks every
+# 300 match frames). In playback the script's pad is ignored (the recording answers every controller call): only its
+# waits, marks and quit matter, and they follow the same game state.
+# Self-contained (phones and testers have no tools\input_scripts\states.toml; phone run 160 could not parse the named
+# state 'seq' and played the recording with no route): the title wait reads seq's chain inline.
+on_fail quit
+log xdet: check start (fresh save)
+wait_state 0x839400F8>0>48 3 36000
+wait_text Press START 36000
+press_until_text START 10 120 5 ATTENTION
+press_until_text A 10 120 5 There is no
+press_until_text A 10 120 5 You have not selected
+wait_frames 30
+press LEFT 5 30
+press_until_text A 10 180 5 YEARS OF WRESTLEMANIA
+log xdet: main menu (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 36000
+log xdet: in-game sequence loading
+wait_file M3.PAC 72000
+log scene=match
+wait_frames 300
+log xdet: match 300
+# walk right, up, left (left stick), 50 frames each
+set 0x0000 0 0 24000 0 0 0
+wait_frames 50
+set 0x0000 0 0 0 24000 0 0
+wait_frames 50
+set 0x0000 0 0 -24000 0 0 0
+wait_frames 50
+set 0x0000 0 0 0 0 0 0
+wait_frames 150
+log xdet: match 600
+# strikes (X) and a grapple (A), then a grapple move (A + left stick up)
+press X 6 20
+press X 6 20
+press X 6 40
+press A 6 60
+set 0x1000 0 0 0 24000 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 82
+log xdet: match 900
+# run (RT) towards the opponent and strike
+set 0x0000 0 255 24000 0 0 0
+wait_frames 40
+set 0x0000 0 0 0 0 0 0
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 -24000 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 82
+log xdet: match 1200
+wait_frames 300
+log xdet: match 1500
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 24000 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 170
+log xdet: match 1800
+# walk down, then strikes and a grapple again
+set 0x0000 0 0 0 -24000 0 0
+wait_frames 60
+set 0x0000 0 0 0 0 0 0
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 0 -24000 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 122
+log xdet: match 2100
+wait_frames 300
+log xdet: match 2400
+press X 6 20
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 -24000 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 162
+log xdet: match 2700
+wait_frames 300
+log xdet: match 3000
+wait_frames 300
+log xdet: match 3300
+wait_frames 300
+log xdet: match 3600
+wait_frames 60
+log xdet: check done
+quit

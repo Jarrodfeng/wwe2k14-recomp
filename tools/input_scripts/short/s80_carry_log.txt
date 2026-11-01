@@ -1,0 +1,37 @@
+# harness: fastforward
+# Session 80 (frame structure: carrying copies over the frame end): as s72_gap_log.txt, with the segment log on for
+# TWO frames in a row (Bryan's entrance +440 and the match +900), so a copy's texture can be followed from one frame's
+# copy to the next frame's copy into it (the batch flush lines: reason and entries). Run with
+# --wwe2k14_replay_play=s21_lb --wwe2k14_use_launcher_settings=true --wwe2k14_native_frame=true and a NATIVE test
+# settings file (out\s78\settings_native720.json).
+on_fail quit
+log bench: start s80_carry_log (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+log passlog: tron_324
+cvar gpu_native_segment_log 2
+cvar gpu_native_truth_pass_log 2
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 900
+log passlog: match
+cvar gpu_native_segment_log 2
+cvar gpu_native_truth_pass_log 2
+wait_frames 120
+log bench: done
+quit

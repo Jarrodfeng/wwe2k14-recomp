@@ -20,6 +20,9 @@ $log = "$ProjectRoot\logs\android\game_$Run.log"
 $stamp = Get-Item "$ProjectRoot\generated\default\codegen.build.stamp" -ErrorAction SilentlyContinue
 if (-not $stamp) { "build_game_android.ps1: no generated code (run the PC build first: tools\build.ps1)"; exit 2 }
 $inputs = @(Get-Item "$ProjectRoot\wwe2k14_manifest.toml") + @(Get-ChildItem "$ProjectRoot\config\*.toml")
+# Session 77 (review): the codegen tool too - a changed instruction builder must regenerate before this build (the
+# fctid / fctidz fix was first compiled with the old generated statements).
+$inputs += @(Get-Item "$ProjectRoot\thirdparty\rexglue-sdk-vulkan\bin\rexglue.exe", "$ProjectRoot\thirdparty\rexglue-sdk-vulkan\bin\rexruntime.dll" -ErrorAction SilentlyContinue)
 # 5 s slack: a release build writes the manifest and the stamp in the same second (16:01:04, v0.2.5: 10 ms apart).
 $newer = @($inputs | Where-Object { $_.LastWriteTime -gt $stamp.LastWriteTime.AddSeconds(5) })
 if ($newer) { "build_game_android.ps1: codegen is stale ($($newer.Name -join ', ') newer than the stamp): run the PC build first"; exit 2 }

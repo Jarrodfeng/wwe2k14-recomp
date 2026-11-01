@@ -1,0 +1,87 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-crowd): 3426e5f62b7a..38a27fb99266 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  38a27fb Merge s79-crowd: Session 79 - look lever gpu_scene_crowd_thin (every other far crowd member not drawn; off by default)
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index ed2fa520c3f78e28ee28322507b864928567cce0..09bb2d5faad88b6b281b32804da12e9c0ae5447d 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -631,6 +631,7 @@ class CommandProcessor {
+   struct SceneCrowdCullStats {
+     uint64_t runs = 0, judged = 0, members = 0, outside = 0, not_judged_shader = 0, not_judged_state = 0;
+     uint64_t not_judged_mesh = 0;
++    uint64_t thinned = 0;  // Session 79 (gpu_scene_crowd_thin): far members left out
+   };
+   SceneCrowdCullStats scene_crowd_cull_stats_;
+   std::vector<uint64_t> scene_crowd_cull_unknown_;  // vertex shaders not judged, logged once each
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index a19eaedd0805ff408e4e1d22ab2baa9ed15f01bb..ce8ceabb4a78620c46866e5a118a74adcc238c69 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -94,6 +94,10 @@ REXCVAR_DEFINE_INT32(gpu_scene_crowd_cull, 0, "GPU",
+                      "(exact: only the two known crowd vertex shaders, clipping on, a 1% margin)")
+     .range(0, 2)
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(gpu_scene_crowd_thin, 0, "GPU",
++                     "wwe2k14 (Session 79, HD 520 arc look lever): with gpu_scene_crowd_cull 2, of the crowd members "
++                     "farther than N/100 x their run's median view depth, every other one is not drawn (a thinner "
++                     "distant crowd; the same members each frame). 0 = off (default); e.g. 100 = the farther half");
+ 
+ REXCVAR_DECLARE(double, gpu_wide_factor);  // Session 73: the crowd cull's view (vulkan/command_processor.cpp)
+ REXCVAR_DECLARE(double, gpu_tall_factor);
+@@ -3354,6 +3358,10 @@ bool CommandProcessor::SceneCrowdCull(const std::vector<uint32_t>& members, std:
+   const size_t n = members.size() / 12;
+   kept.clear();
+   kept.reserve(members.size());
++  // (Session 79) gpu_scene_crowd_thin: the kept members' view depths.
++  const int32_t thin = REXCVAR_GET(gpu_scene_crowd_thin);
++  std::vector<double> kept_w;
++  if (thin) kept_w.reserve(n);
+   constexpr double kMargin = 1.01;
+   // Session 73 (Jarrod: in fill-the-screen "crowd members outside of the 16:9 box getting culled"): the scene draws see
+   // clip x / gpu_wide_factor (y / gpu_tall_factor), so the visible area reaches that much further than the game's own
+@@ -3389,8 +3397,29 @@ bool CommandProcessor::SceneCrowdCull(const std::vector<uint32_t>& members, std:
+       ++cs.outside;
+     } else {
+       kept.insert(kept.end(), w, w + 12);
++      if (thin) kept_w.push_back(M[3][3]);
+     }
+   }
++  // wwe2k14 patch (Session 79, HD 520 arc look lever, gpu_scene_crowd_thin N): of the members farther than N/100 x the
++  // run's median view depth (clip w at the member's origin), every other one left out - picked by a hash of its
++  // position, so the same members stay from frame to frame. Not exact (a thinner distant crowd): off by default.
++  if (thin && kept_w.size() >= 8) {
++    std::vector<double> sorted = kept_w;
++    std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
++    const double limit = sorted[sorted.size() / 2] * double(thin) / 100.0;
++    std::vector<uint32_t> thinned;
++    thinned.reserve(kept.size());
++    for (size_t k = 0; k < kept_w.size(); ++k) {
++      const uint32_t* w = kept.data() + 12 * k;
++      const uint32_t h = (w[3] * 0x9E3779B1u) ^ (w[7] * 0x85EBCA77u) ^ (w[11] * 0xC2B2AE3Du);
++      if (kept_w[k] > limit && ((h >> 7) & 1)) {
++        ++cs.thinned;
++        continue;
++      }
++      thinned.insert(thinned.end(), w, w + 12);
++    }
++    kept.swap(thinned);
++  }
+   return true;
+ }
+ 
+@@ -3433,10 +3462,12 @@ void CommandProcessor::SceneCrowdFrameEnd() {
+   if (SceneCrowdCullStats& cs = scene_crowd_cull_stats_; cs.runs) {
+     const double n = double(frame - st.first_frame);
+     REXGPU_INFO("[scene][crowd] cull ({}): frames {}-{}, per frame: runs {:.1f} (judged {:.1f}; not judged: shader "
+-                "{:.1f}, clipping / viewport {:.1f}, mesh {:.1f}), members {:.1f}, outside the view {:.1f} ({:.1f}%)",
++                "{:.1f}, clipping / viewport {:.1f}, mesh {:.1f}), members {:.1f}, outside the view {:.1f} ({:.1f}%), "
++                "thinned (gpu_scene_crowd_thin) {:.1f}",
+                 REXCVAR_GET(gpu_scene_crowd_cull) == 2 ? "not drawn" : "counted", st.first_frame, frame, cs.runs / n,
+                 cs.judged / n, cs.not_judged_shader / n, cs.not_judged_state / n, cs.not_judged_mesh / n,
+-                cs.members / n, cs.outside / n, cs.members ? 100.0 * double(cs.outside) / double(cs.members) : 0.0);
++                cs.members / n, cs.outside / n, cs.members ? 100.0 * double(cs.outside) / double(cs.members) : 0.0,
++                cs.thinned / n);
+     cs = SceneCrowdCullStats();
+   }
+   st = SceneCrowdStats();

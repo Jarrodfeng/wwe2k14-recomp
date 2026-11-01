@@ -70,7 +70,7 @@ foreach ($s in @((Join-Path $gen 'ppc_test_functions.cpp'), (Join-Path $out 'ppc
 if ($LASTEXITCODE) { throw 'link failed' }
 
 "== x86-64"
-& (Join-Path $sdk 'out\win-amd64\Release\ppc_tests.exe') --reporter compact 2>&1 | Select-Object -Last 3
+& (Join-Path $sdk 'out\tests-x64\Release\ppc_tests.exe')  # Session 77: build_ppc_tests.ps1's own output folder --reporter compact 2>&1 | Select-Object -Last 3
 "== arm64 (QEMU)"
 docker run --rm --platform linux/arm64 -v "${out}:/t" alpine:3.20 /t/ppc_tests_arm64 --reporter compact 2>&1 |
   Tee-Object -FilePath (Join-Path $out 'arm64_results.txt') | Select-String -Pattern 'FAILED|failed|passed' | Select-Object -Last 60

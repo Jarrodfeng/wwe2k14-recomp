@@ -219,6 +219,10 @@ $files = [ordered]@{
 if (Test-Path -LiteralPath (Join-Path $R 'db\shaders\shader_list.txt')) {
     $files['shader_list.txt'] = Join-Path $R 'db\shaders\shader_list.txt'
 }
+# Session 77 (XDET_PLAN.md "P7 testers": every build, Jarrod's interview 2026-10-31 ~15:30): the launcher's
+# Determinism check (ABOUT) plays this recording (controller inputs only: CLAUDE.md rule 1 exception) with this route.
+$files['xdet\xdet_check.rec'] = Join-Path $R 'tools\xdet\refs\xdet_check.rec'
+$files['xdet\check_route.txt'] = Join-Path $R 'tools\xdet\check_route.txt'
 if ($LocalTest) {  # our route: the launcher's performance test
     $files['perf_test.txt'] = Join-Path $R 'tools\input_scripts\short\s41_perf_breakdown.txt'  # Session 41
     $files['PERFORMANCE_TEST.txt'] = Join-Path $R 'tools\native\PERFORMANCE_TEST.txt'  # the steps for the tester

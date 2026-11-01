@@ -45,7 +45,7 @@ SAW_RE = re.compile(r"\[wwe2k14\]\[input\] line (\d+)(?: \([^)]*\))?: saw '([^']
 PSAW_RE = re.compile(r"\[wwe2k14\]\[input\] line (\d+)(?: \([^)]*\))?: saw '([^']*)' (\d+) frames after press (\d+)")
 FRAME_TAIL_RE = re.compile(r"\(frame (\d+)\)\s*$")
 FILE_RE = re.compile(r"\[wwe2k14\]\[file\] \S+ '([^']*)' .* frame=(\d+)")
-HASH_RE = re.compile(r'^(?:[0-9a-f]{16}|-)$')
+HASH_RE = re.compile(r'^(?:[0-9a-f]{16}|-|0|!)$')  # Session 77 (--wwe2k14_det_hash_v2): '0' null link, '!' unreadable
 
 
 def fail(msg):
@@ -65,42 +65,50 @@ def read_log(run, exe_dir=None):
     path = os.path.join(exe_dir, 'logs', 'wwe2k14_%03d.log' % run)
     if not os.path.exists(path):
         fail('no log for run %d: %s' % (run, path))
+    return read_log_path(path)
+
+
+def read_log_path(path):
+    """read_log for a file path (Session 77: cross-device bundles), or a list of the log's parts, oldest first."""
     events, files, wait_start = [], [], {}
-    with open(path, encoding='utf-8', errors='replace') as f:
-        for line in f:
-            m = SAW_RE.search(line)
-            if m:
-                ln, text, n = m.group(1), m.group(2), int(m.group(3))
-                tail = FRAME_TAIL_RE.search(line)
-                if tail:
-                    events.append(('line %s: saw %s' % (ln, text), int(tail.group(1))))
-                elif ln in wait_start:
-                    events.append(('line %s: saw %s' % (ln, text), wait_start[ln] + n))
-                continue
-            m = PSAW_RE.search(line)
-            if m:
-                ln, text = m.group(1), m.group(2)
-                tail = FRAME_TAIL_RE.search(line)
-                if tail:
-                    events.append(('line %s: saw %s (press)' % (ln, text), int(tail.group(1))))
-                else:
-                    opened = [fr for p, fr in reversed(files) if text in p]
-                    if opened:
-                        events.append(('line %s: saw %s (press)' % (ln, text), opened[0] + 1))
-                continue
-            m = EVENT_RE.search(line)
-            if m:
-                text = m.group(2)
-                w = WAIT_RE.search(line)
-                if w:
-                    wait_start[w.group(1)] = int(w.group(3))
-                if text.startswith('waiting for') or text.startswith('screenshot') or 'scene=' in text \
-                        or text.startswith('bench:') or text.startswith('pressing'):
-                    events.append(('line %s: %s' % (m.group(1), text), int(m.group(3))))
-                continue
-            m = FILE_RE.search(line)
-            if m:
-                files.append((m.group(1).lower(), int(m.group(2))))
+    lines = []
+    for p in ([path] if isinstance(path, str) else path):
+        with open(p, encoding='utf-8', errors='replace') as f:
+            lines.extend(f.readlines())
+    for line in lines:
+        m = SAW_RE.search(line)
+        if m:
+            ln, text, n = m.group(1), m.group(2), int(m.group(3))
+            tail = FRAME_TAIL_RE.search(line)
+            if tail:
+                events.append(('line %s: saw %s' % (ln, text), int(tail.group(1))))
+            elif ln in wait_start:
+                events.append(('line %s: saw %s' % (ln, text), wait_start[ln] + n))
+            continue
+        m = PSAW_RE.search(line)
+        if m:
+            ln, text = m.group(1), m.group(2)
+            tail = FRAME_TAIL_RE.search(line)
+            if tail:
+                events.append(('line %s: saw %s (press)' % (ln, text), int(tail.group(1))))
+            else:
+                opened = [fr for p, fr in reversed(files) if text in p]
+                if opened:
+                    events.append(('line %s: saw %s (press)' % (ln, text), opened[0] + 1))
+            continue
+        m = EVENT_RE.search(line)
+        if m:
+            text = m.group(2)
+            w = WAIT_RE.search(line)
+            if w:
+                wait_start[w.group(1)] = int(w.group(3))
+            if text.startswith('waiting for') or text.startswith('screenshot') or 'scene=' in text \
+                    or text.startswith('bench:') or text.startswith('pressing'):
+                events.append(('line %s: %s' % (m.group(1), text), int(m.group(3))))
+            continue
+        m = FILE_RE.search(line)
+        if m:
+            files.append((m.group(1).lower(), int(m.group(2))))
     return events, files
 
 
@@ -110,6 +118,11 @@ def read_csv(run, exe_dir=None):
     if not os.path.exists(path):
         fail('no hash CSV for run %d: %s (was the run made with --wwe2k14_det_hash, and with this --exe-dir?)'
              % (run, path))
+    return read_csv_path(path)
+
+
+def read_csv_path(path):
+    """read_csv for a file path (Session 77: cross-device bundles)."""
     meta, header, rows, dropped = '', None, {}, 0
     with open(path, encoding='utf-8') as f:
         for line in f:
@@ -131,7 +144,10 @@ def read_csv(run, exe_dir=None):
 
 
 def read_bin(run, exe_dir=None):
-    path = os.path.join(DET, det_stem(run, exe_dir or EXE_DIR) + '.bin')
+    return read_bin_path(os.path.join(DET, det_stem(run, exe_dir or EXE_DIR) + '.bin'))
+
+
+def read_bin_path(path):
     out = {}
     if not os.path.exists(path):
         return out
@@ -207,8 +223,14 @@ def frame_ranges(frames):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0], epilog=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('a', type=int)
-    ap.add_argument('b', type=int)
+    ap.add_argument('a')
+    ap.add_argument('b')
+    ap.add_argument('--allow', default='',
+                    help='with --cross: a regex of settings allowed to differ (renderer variants of the invariance gate); '
+                         'the differences are still listed')
+    ap.add_argument('--cross', action='store_true',
+                    help='Session 77: strict cross-device verdict (frame against frame, layers, INVALID checks); A and '
+                         'B may also be a folder or .zip holding det_*.csv + wwe2k14_*.log [+ det_serial*.txt, det_*.bin]')
     ap.add_argument('--out', default=None)
     ap.add_argument('--bytes', type=int, default=8, help='byte ranges to show per region')
     ap.add_argument('--no-shots', action='store_true')
@@ -225,6 +247,12 @@ def main():
         else os.path.join(BUILD, args.exe_dir)
     if not os.path.isdir(exe_dir):
         fail('exe folder not found: %s' % exe_dir)
+    if args.cross:
+        import det_cross  # Session 77: tools/determinism/det_cross.py
+        return det_cross.main(args, exe_dir)
+    if not (args.a.isdigit() and args.b.isdigit()):
+        fail('A and B are run numbers (folders and zips need --cross)')
+    args.a, args.b = int(args.a), int(args.b)
     lines = []
 
     def say(s=''):
@@ -491,4 +519,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

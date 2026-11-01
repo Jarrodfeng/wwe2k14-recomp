@@ -1,0 +1,212 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-deferdepth): c4519efdd469..6aa7858ab64d on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  6aa7858 Merge s79-deferdepth: Session 79 gpu_native_truth_defer_depth_resolves (off; on under the game's arc switch) - depth copies into memory and their depth fills join the deferred batch (Bryan's entrance 4 + 4 a frame, batches 34 -> 32); shots 4/4 (5132), validation 0 errors (5133), stage A MATCH (5136), entrances MATCH + 14/14 shots (5137)
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 11637d30ee4fbb8c12d991b8d3d2c8f65cf35517..91cfc39d9c630921dd31e331957b9e9d1e967377 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -727,6 +727,9 @@ class NativeRenderer {
+     // rectangles of one surface write separate bytes though their extents interleave; base 0: unknown.)
+     uint32_t mem_base = 0, mem_pitch = 0, mem_format = 0;
+     int32_t mem_rect[4] = {};
++    // wwe2k14 patch (Session 79, gpu_native_truth_defer_depth_resolves): `image` is a depth truth image (read in
++    // DEPTH_STENCIL_READ_ONLY_OPTIMAL, the store set's layout).
++    bool depth = false;
+   };
+   std::vector<DeferredResolve> truth_deferred_;
+   // wwe2k14 patch (Session 79): whether a deferred resolve writes guest memory in [start, end) - with `info`, other
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 0cc6ab6e7d9cf3938050c88406abde4c44325d41..13847b23ea4796a3e5cc6a640128109ac2d2fbf1 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -323,6 +323,11 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_memory_resolves, false, "GPU/Native",
+                     "(texture, vertex, index, memexport) or a later resolve over them flushes the batch first. Not in "
+                     "readback windows")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_depth_resolves, false, "GPU/Native",
++                    "Session 79 (HD 520 arc): with gpu_native_truth_batch_resolves, a 1x direct depth copy (into memory) "
++                    "and its depth texture fill join the deferred batch too, instead of flushing it and running alone "
++                    "with their own barriers (as gpu_native_truth_defer_memory_resolves; not in readback windows)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_alias_direct, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): a pass's tiles another RGBA8 or depth image owns are loaded straight from "
+                     "that image (the fragment shader packs them as the store would, then converts them as the load "
+@@ -3800,11 +3805,22 @@ bool NativeRenderer::TruthResolveDepth1x(const draw_util::ResolveInfo& info, uin
+   const uint32_t w = scale_x * uint32_t(info.coordinate_info.width_div_8) * 8;
+   const uint32_t h = scale_y * uint32_t(info.height_div_8) * 8;
+   if (!w || !h || src_x + w > t.width || src_y + h > t.height) return false;
+-  TruthFlushDeferred(kDeferFlushOtherResolve);
++  // Session 79 (gpu_native_truth_defer_depth_resolves): deferred with the batch, as a 1x memory-writing colour copy
++  // (TruthResolveDirect's memory_defer) - its destination use held, outside readback windows, writing no memory a
++  // deferred entry writes. Else the batch first, as before.
++  VulkanSharedMemory* const shared_memory = command_processor_.NativeSharedMemory();
++  const bool defer =
++      REXCVAR_GET(gpu_native_truth_defer_depth_resolves) && REXCVAR_GET(gpu_native_truth_batch_resolves) && !scaled &&
++      shared_memory && !command_processor_.NativeResolveReadback() && command_processor_.held_dest_use_ &&
++      !command_processor_.held_dest_scaled_ && info.copy_dest_extent_length &&
++      !TruthDeferredWritesMemory(info.copy_dest_extent_start,
++                                 uint64_t(info.copy_dest_extent_start) + info.copy_dest_extent_length, &info);
++  if (!defer) TruthFlushDeferred(kDeferFlushOtherResolve);
+   if (!EnsureTruthStaging() || !EnsureResolveScaledFullPipeline()) return false;  // (its layout)
+   VkPipeline& depth_pipeline = scaled ? resolve_depth_scaled_pipeline_ : resolve_depth_1x_pipeline_;
+   bool& depth_failed = scaled ? resolve_depth_scaled_failed_ : resolve_depth_1x_failed_;
+   if (depth_pipeline == VK_NULL_HANDLE) {
++    if (defer) TruthFlushDeferred(kDeferFlushOtherResolve);  // (Session 79: the batch before any refusal below)
+     if (depth_failed) return false;
+     depth_failed = true;
+     const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
+@@ -3838,9 +3854,74 @@ bool NativeRenderer::TruthResolveDepth1x(const draw_util::ResolveInfo& info, uin
+   }
+   // (The store set: binding 1 the depth, binding 2 the stencil.)
+   const VkDescriptorSet source_set = TruthStoreSet(t, true, truth_staging_);
+-  if (source_set == VK_NULL_HANDLE) return false;
++  if (source_set == VK_NULL_HANDLE) {
++    if (defer) TruthFlushDeferred(kDeferFlushOtherResolve);  // (Session 79: as without deferring)
++    return false;
++  }
+   // (Texture-only records this copy overlaps go into memory before it writes - as the stock copy's.)
+   TruthResolveOverlaps(info, nullptr);
++  const uint32_t mode = (t.format & 1u) | (all_stencil ? 2u : (t.stencil & 0xFFu) << 8);
++  // (1x: kNativeResolveFull1xComputeShader's constants; at a scale kNativeResolveScaledFullComputeShader's - the gap,
++  // the destination from the binding's start, endian | scale_x << 4 | scale_y << 8.)
++  const uint32_t gap = scaled && edram.fill_half_pixel_offset ? (scale_x / 2) | ((scale_y / 2) << 8) : 0u;
++  const uint32_t pc[10] = {src_x,
++                           src_y,
++                           w,
++                           h,
++                           mode,
++                           scaled ? gap : dest_base,
++                           ((dest_coordinate_info >> 20) & 0xFu) * 8u,
++                           ((dest_coordinate_info >> 24) & 0xFu) * 8u,
++                           (dest_coordinate_info & 1023u) << 5,
++                           (dest_info & 7u) | (scaled ? (scale_x << 4) | (scale_y << 8) : 0u)};
++  if (defer) {
++    // Session 79 (gpu_native_truth_defer_depth_resolves): the copy recorded at the batch's flush (TruthFlushDeferredSlow
++    // takes the image to DEPTH_STENCIL_READ_ONLY_OPTIMAL and back); its destination use and skipped pages as
++    // TruthResolveDirect's memory_defer. A pass into the image flushes the batch first (TruthDeferredSource).
++    TruthSyncRead(index);  // Session 54 (draw twins)
++    DeferredResolve& d = truth_deferred_.emplace_back();
++    d.texture_image = VK_NULL_HANDLE;  // (no texture: the depth fill after it is an entry of its own)
++    d.pipeline = depth_pipeline;
++    d.layout = resolve_scaled_full_layout_;
++    d.sets[0] = source_set;
++    d.sets[1] = dest_set;
++    d.sets[2] = VK_NULL_HANDLE;
++    d.set_count = 2;
++    std::fill(std::begin(d.pc), std::end(d.pc), 0u);
++    std::memcpy(d.pc, pc, sizeof(pc));
++    d.pc_size = sizeof(pc);
++    d.group_count_x = (w + 7) / 8;
++    d.group_count_y = (h + 7) / 8;
++    d.image = t.image;
++    d.index = index;
++    d.depth = true;
++    d.texture = nullptr;
++    d.mem_start = command_processor_.held_dest_start_;
++    d.mem_length = command_processor_.held_dest_length_;
++    command_processor_.held_dest_use_ = false;  // (taken: recorded at the flush)
++    d.extent_start = info.copy_dest_extent_start;
++    d.extent_length = info.copy_dest_extent_length;
++    if (!info.copy_dest_info.copy_dest_array && info.copy_dest_texture_base) {
++      d.mem_base = info.copy_dest_texture_base;
++      d.mem_pitch = uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32);
++      d.mem_format = uint32_t(info.copy_dest_info.copy_dest_format);
++      d.mem_rect[0] = int32_t(info.copy_dest_base_x + uint32_t(info.copy_dest_coordinate_info.offset_x_div_8) * 8);
++      d.mem_rect[1] = int32_t(info.copy_dest_base_y + uint32_t(info.copy_dest_coordinate_info.offset_y_div_8) * 8);
++      d.mem_rect[2] = d.mem_rect[0] + int32_t(info.coordinate_info.width_div_8) * 8;
++      d.mem_rect[3] = d.mem_rect[1] + int32_t(info.height_div_8) * 8;
++    }
++    shared_memory->SetRangeSkipped(d.extent_start, d.extent_length, true);
++    ++truth_counts_.deferred_memory;
++    ++truth_counts_.deferred;
++    TruthNoteRestoreSource(info, index, src_x == 0 && src_y == 0 && ((dest_coordinate_info >> 20) & 0xFFu) == 0, w, h);
++    ++truth_counts_.direct;
++    ++truth_counts_.direct_depth;
++    if (segment_log_frames_ > 0) {
++      REXGPU_INFO("[native][seg] frame {} truth depth resolve direct: {}x{} from image {} at {},{} (stencil {}), deferred",
++                  frame_, w, h, index, src_x, src_y, all_stencil ? "the image's" : "its last clear's");
++    }
++    return true;
++  }
+   EndTruthPass();
+   TruthSyncRead(index);  // Session 54 (draw twins)
+   DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
+@@ -3860,20 +3941,6 @@ bool NativeRenderer::TruthResolveDepth1x(const draw_util::ResolveInfo& info, uin
+   command_processor_.BindExternalComputePipeline(depth_pipeline);
+   const VkDescriptorSet sets[2] = {source_set, dest_set};
+   cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, resolve_scaled_full_layout_, 0, 2, sets, 0, nullptr);
+-  const uint32_t mode = (t.format & 1u) | (all_stencil ? 2u : (t.stencil & 0xFFu) << 8);
+-  // (1x: kNativeResolveFull1xComputeShader's constants; at a scale kNativeResolveScaledFullComputeShader's - the gap,
+-  // the destination from the binding's start, endian | scale_x << 4 | scale_y << 8.)
+-  const uint32_t gap = scaled && edram.fill_half_pixel_offset ? (scale_x / 2) | ((scale_y / 2) << 8) : 0u;
+-  const uint32_t pc[10] = {src_x,
+-                           src_y,
+-                           w,
+-                           h,
+-                           mode,
+-                           scaled ? gap : dest_base,
+-                           ((dest_coordinate_info >> 20) & 0xFu) * 8u,
+-                           ((dest_coordinate_info >> 24) & 0xFu) * 8u,
+-                           (dest_coordinate_info & 1023u) << 5,
+-                           (dest_info & 7u) | (scaled ? (scale_x << 4) | (scale_y << 8) : 0u)};
+   cb.CmdVkPushConstants(resolve_scaled_full_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), pc);
+   command_processor_.NativeFlushResolveDestUse();  // (the destination's use: this dispatch writes it)
+   command_processor_.SubmitBarriers(true);
+@@ -4059,7 +4126,7 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+                                                 : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                           false, depth});
+   };
+-  for (const DeferredResolve& d : truth_deferred_) find(d.image).read = true;
++  for (const DeferredResolve& d : truth_deferred_) find(d.image, d.depth).read = true;
+   std::vector<VkImageMemoryBarrier>& barriers = truth_deferred_barriers_;
+   const auto transition = [&](Involved& e, VkImageLayout layout) {
+     if (e.layout == layout) return;
+@@ -4087,6 +4154,8 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+   // (Session 56: the fragment-test stages only when a renamed depth image is involved - review.)
+   bool any_depth = false;
+   for (const TruthImage& t : truth_images_) any_depth = any_depth || (t.rename_source != VK_NULL_HANDLE && t.kind == 3);
++  // (Session 79: or a deferred depth copy / fill reading a depth image.)
++  for (const DeferredResolve& d : truth_deferred_) any_depth = any_depth || d.depth;
+   const VkPipelineStageFlags kStages =
+       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+       VK_PIPELINE_STAGE_TRANSFER_BIT |
+@@ -4142,7 +4211,9 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+   // 2. The dispatch sources readable, the others back to their attachment layout; the dispatches.
+   barriers.clear();
+   for (Involved& e : involved) {
+-    transition(e, e.read                ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
++    // (Session 79: a depth source in the depth store set's layout.)
++    transition(e, e.read && e.depth     ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
++                  : e.read              ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                   : e.depth             ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                                         : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+   }
+@@ -4515,7 +4586,9 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+   // copy-path texture's barrier is pushed at once by the texture cache: it joins the flush's barriers, before the
+   // batch's dispatches - an entry writing that texture is flushed by the texture cache before it.)
+   const bool hold_refused = REXCVAR_GET(gpu_native_truth_defer_memory_resolves);
+-  const bool hold = batch_fills && !texture_written_ && ((storage_bytes && !depth) || hold_refused);
++  // (Session 79, gpu_native_truth_defer_depth_resolves: a depth fill into its storage view deferred too.)
++  const bool defer_depth = REXCVAR_GET(gpu_native_truth_defer_depth_resolves);
++  const bool hold = batch_fills && !texture_written_ && ((storage_bytes && (!depth || defer_depth)) || hold_refused);
+   // (Review: a fill that cannot be deferred flushes the batch before its texture's barrier, as without batching.)
+   if (batch_fills && !hold && !texture_written_) TruthFlushDeferred(kDeferFlushOtherResolve);
+   if (hold) command_processor_.NativeHoldTextureBarrier(true);
+@@ -4524,7 +4597,7 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+       uint32_t(dest.copy_dest_endian), format, texture, texture_w, texture_h, level, has_mips, handle, why,
+       storage_bytes, &storage_set);
+   // (Session 59: not deferred after all - the held barrier pushed now, recorded as before.)
+-  bool deferring = hold && got && storage_set != VK_NULL_HANDLE && storage_bytes && !depth;
++  bool deferring = hold && got && storage_set != VK_NULL_HANDLE && storage_bytes && (!depth || defer_depth);
+   if (hold && !deferring && (got || !hold_refused)) {
+     TruthFlushDeferred(kDeferFlushOtherResolve);  // (review: as above, before the barrier is pushed)
+   }
+@@ -4630,6 +4703,7 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+     d.group_count_y = (uint32_t(h) + 7) / 8;
+     d.image = t.image;
+     d.index = index;
++    d.depth = depth;  // Session 79 (gpu_native_truth_defer_depth_resolves)
+     d.texture = handle;
+     d.texture_rect[0] = dst_x, d.texture_rect[1] = dst_y, d.texture_rect[2] = dst_x + w, d.texture_rect[3] = dst_y + h;
+     std::copy(d.texture_rect, d.texture_rect + 4, d.drop_rect);  // Session 66 (G1.1)

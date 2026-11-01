@@ -21,7 +21,8 @@
 // --wwe2k14_replay_dir=DIR        where .rec files live (default: <repo>\out\replays, i.e. two folders above the exe
 //                                 folder + "replays"; the exe folder's "replays" when the exe is not under out\build).
 //
-// Recording format (text; game-derived: stays under out\, never committed):
+// Recording format (text, LF line ends on every platform since Session 77; controller states, a seed and settings, no
+// memory bytes: may be committed and shipped as a diagnostic reference, CLAUDE.md hard rule 1, Jarrod 2026-10-31):
 //   # comments ...
 //   name NAME / seed N / flag SETTING VALUE (one per setting applied on playback)
 //   S F K U FL RET HEX      XamInputGetState(user U, flags FL), K-th call of frame F for that (U, FL): result RET,
@@ -63,6 +64,7 @@
 #include <vector>
 
 #include "frame_stats.h"
+#include "xdet_check.h"  // Session 77 (P7): the check profile's pins (Want)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_replay_mode, false, "wwe2k14",
                     "Replay mode (Session 16): det_frames + det_serial on, load turbo / fast loader / boot-screen "
@@ -94,9 +96,21 @@ inline bool CarriedSetting(const std::string& n) {
                                     "wwe2k14_det_boot_alloc", "det_frames", "det_serial", "wwe2k14_s6_defaults",
                                     "wwe2k14_s7_defaults", "wwe2k14_quick_",  // Session 27: @quick's type / pace
                                     "wwe2k14_fix_secondary_motion",  // Session 27.5: can change root motion
-                                    "wwe2k14_replay_time_follows_step"};  // Session 27.5: guest time per frame
+                                    "wwe2k14_replay_time_follows_step",  // Session 27.5: guest time per frame
+                                    "wwe2k14_step_",  // Session 77: the update step (the phone's FRAME RATE 30)
+                                    // Session 77 (cross-device): which code runs and what the game is told
+                                    "wwe2k14_nf_", "occlusion_query_enable", "wwe2k14_phys_alloc_fast_fail",
+                                    "wwe2k14_dynamic_res", "user_language",
+                                    // Session 77 (P7): the crowd pass (it skips the game's own recorder calls) and
+                                    // the tester check's constant clocks / file answers (include/rex/det.h)
+                                    "wwe2k14_scene_crowd", "det_time_constant", "det_fs_constant"};
   // Session 27.5: the log option, and det_frames_time_hz, which step_rate.h sets every frame (not a recording's).
   if (n == "wwe2k14_fix_secondary_motion_log" || n == "det_frames_time_hz") return false;
+  // Session 77: the scheduler's trace folder and wall-clock tunables are the host's, not the game's (a PC path carried
+  // into a recording conflicted with the phone's own folder).
+  if (n == "det_serial_trace" || n == "det_serial_stall_ms" || n == "det_serial_vblank_timeout_ms" ||
+      n == "det_frames_timeout_ms" || n == "det_frames_settle_us")
+    return false;
   for (const char* p : kPrefixes) {
     if (n.rfind(p, 0) == 0) {
       // Not the diagnosis options of those families.
@@ -225,6 +239,14 @@ class Replay {
   }
 
   bool Playing() const { return playing_; }
+  // Session 77: v2 recordings hold the input after the host pad filters (input_script.h ApplyPadFilters), so playback
+  // skips the filters; a v1 recording (before Session 77) held it before them, so its playback still runs them on the
+  // recorded bytes, as it did when it was checked.
+  bool FiltersOnPlayback() {
+    if (!on_) return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return playing_ && file_version_ < 2;
+  }
   // Session 32: a playback that cannot run (its DLC packs are not on): the reason; the app shows it and closes.
   const std::string& StopReason() const { return stop_reason_; }
 
@@ -308,6 +330,10 @@ class Replay {
         REXLOG_INFO("[wwe2k14][replay] recording ended at frame {}: the script / real controller take over. "
                     "summary: calls {}, answered {}, misses {}, slips {} (0 / 0 = frame-exact)",
                     frame, calls_, answered_, misses_, slips_);
+        // Session 77 (cov_long 4938): the comparers need this line, and a route that quits on the recording's last
+        // frame hard-exits before the logger writes it (the recording ends one frame past the quit when the quit
+        // falls on the last frame of a 60-frame block): flush it now.
+        rex::FlushLogging();
       }
     }
   }
@@ -415,6 +441,27 @@ class Replay {
   }
 
   void Want(const std::string& name, const std::string& value) {
+    // Session 77 (phone session): a runtime-loaded library's setting (the GPU library's occlusion_query_enable) is not
+    // registered yet at PreSetup: queue the value for when it registers (the command line still wins; a different
+    // command-line value is the same conflict as below).
+    if (!rex::cvar::GetFlagInfo(name)) {
+      // Session 77 (P7, review): the check profile pins it when the library loads (xdet_check::AfterGpuPlugin), over
+      // any command-line value: the pin decides.
+      if (const char* pin = xdet_check::PinnedValue(name)) {
+        if (value != pin)
+          notes_.push_back("WARNING: " + name + "=" + pin + " given explicitly; replay mode wants " + value +
+                           " (pinned by the check profile: the run may not repeat)");
+        return;
+      }
+      if (const auto given = rex::cvar::PendingCommandLineValue(name); given && *given != value) {
+        notes_.push_back("WARNING: " + name + "=" + *given + " given explicitly; replay mode wants " + value +
+                         " (kept as given: the run may not repeat)");
+      } else if (!given) {
+        if (rex::cvar::DeferFlagValue(name, value)) applied_.push_back(name + "=" + value + " (when it registers)");
+        else notes_.push_back("WARNING: could not set " + name + "=" + value + " (registered meanwhile?)");
+      }
+      return;
+    }
     const std::string cur = rex::cvar::GetFlagByName(name);
     if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) {
       if (cur != value) {
@@ -434,20 +481,35 @@ class Replay {
     auto path = dir_ / (record_name_ + ".rec");
     for (int i = 2; std::filesystem::exists(path) && i < 1000; ++i)
       path = dir_ / (record_name_ + "_" + std::to_string(i) + ".rec");
-    record_ = _fsopen(path.string().c_str(), "w", _SH_DENYNO);
+    // Session 77: binary, so Windows writes LF like every other platform (a CRLF file played on Android kept a '\r'
+    // on every flag value: "true\r" parsed as false).
+    record_ = _fsopen(path.string().c_str(), "wb", _SH_DENYNO);
     if (!record_) {
       REXLOG_ERROR("[wwe2k14][replay] FAILED to open {} for recording", path.string());
       return;
     }
     record_path_ = path;
-    std::fprintf(record_, "# wwe2k14 replay v1 (src/replay.h): controller calls per guest frame (VdSwap count)\n");
+    std::fprintf(record_,
+                 "# wwe2k14 replay v2 (src/replay.h): controller calls per guest frame (VdSwap count), after the "
+                 "host pad filters\n");
     std::fprintf(record_, "name %s\n", record_name_.c_str());
     std::fprintf(record_, "seed %s\n", rex::cvar::GetFlagByName("wwe2k14_fixed_seed").c_str());
     std::fprintf(record_, "dlc %s\n", g_dlc_offered.empty() ? "none" : g_dlc_offered.c_str());  // Session 32
-    for (const std::string& name : rex::cvar::ListModifiedFlags()) {
+    std::vector<std::string> names = rex::cvar::ListModifiedFlags();
+    // Session 77 (phone session): carried settings whose compiled default differs by platform are written even at
+    // this platform's default (nf_skin_3bone: "on" on x86-64 = not "modified" there, "off" on ARM; a PC recording
+    // played on a phone ran it off). Keep in step with det_cross.py PLATFORM_DEFAULTS.
+    for (const char* n : {"wwe2k14_nf_skin_3bone"}) {
+      if (rex::cvar::GetFlagInfo(n) && std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
+    }
+    for (const std::string& name : names) {
       const std::string value = rex::cvar::GetFlagByName(name);
+      // Session 77: recordings may be shipped (CLAUDE.md rule 1): the comment lines name no host folders (a user's
+      // name is in them), only that a path was set.
+      const bool host_path = value.find(":\\") != std::string::npos || value.find(":/") != std::string::npos ||
+                             (!value.empty() && (value[0] == '/' || value[0] == '\\'));
       if (CarriedSetting(name)) std::fprintf(record_, "flag %s %s\n", name.c_str(), value.c_str());
-      else std::fprintf(record_, "# modified: %s = %s\n", name.c_str(), value.c_str());
+      else std::fprintf(record_, "# modified: %s = %s\n", name.c_str(), host_path ? "<path>" : value.c_str());
     }
     std::fflush(record_);
     REXLOG_INFO("[wwe2k14][replay] recording controller calls to {}", path.string());
@@ -458,6 +520,8 @@ class Replay {
     if (!in) return false;
     std::string line;
     while (std::getline(in, line)) {
+      if (!line.empty() && line.back() == '\r') line.pop_back();  // Session 77: CRLF recordings from before it
+      if (line.rfind("# wwe2k14 replay v", 0) == 0) file_version_ = std::atoi(line.c_str() + 18);  // Session 77
       if (line.empty() || line[0] == '#') continue;
       std::istringstream ss(line);
       std::string tag;
@@ -513,6 +577,7 @@ class Replay {
   std::vector<std::string> notes_, applied_;
   std::vector<std::pair<std::string, std::string>> file_flags_;
   int64_t file_seed_ = -1;
+  int file_version_ = 1;      // Session 77: the "# wwe2k14 replay vN" header line (none = v1)
   std::string file_dlc_;      // Session 32: the recording's "dlc" line
   std::string stop_reason_;   // Session 32: why playback could not start (empty = it could)
   bool has_dlc_line_ = false;  // recordings before Session 32 have none

@@ -1,0 +1,57 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-bootpipes): 3123f634c23b..895cc9045ed8 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  895cc90 Merge s80-bootpipes: vulkan_stored_pipelines_at_boot (Session 80; Jarrod: everyone on NATIVE) - the stored emulated pipelines' records kept, none made at boot; resolve hashes 500/500 (5196 vs 5188), T2 PASS (5197/5198)
+
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index f1c282fabc905f7b5f4a160330aacb8222767ad0..26e0004e1996cc7bb03fc5173d00c46980178d9a 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -157,6 +157,14 @@ REXCVAR_DEFINE_INT32(vulkan_pipeline_debug_delay_ms, 0, "GPU/Vulkan",
+                      "own, placeholders) waits this many milliseconds first (a slow laptop's compile time); 0 = none")
+     .range(0, 10000)
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// wwe2k14 patch (Session 80, HD 520 arc): the stored pipelines are made at boot, blocking, before the game's first frame.
++// With the native renderer's truth frames the emulated path draws nothing (the Surface's UHD 620, run 001: "emulated
++// 0.0" in every frame summary, no emulated pipeline made after boot), and there the 406 stored ones took 2.6 s each, ~3
++// minutes with the window "not responding". false keeps their records (the storage file is not trimmed) but makes none
++// at boot; one needed later is made on first use like any new pipeline. The game turns it off with truth frames.
++REXCVAR_DEFINE_BOOL(vulkan_stored_pipelines_at_boot, true, "GPU/Vulkan",
++                    "wwe2k14 (Session 80): make the stored pipelines (and translate their shaders) at boot, before the "
++                    "first frame. false = their records are kept but none is made at boot (made on first use)");
+ REXCVAR_DEFINE_BOOL(vulkan_pipeline_sync_offscreen, true, "GPU/Vulkan",
+                     "Session 55: with async_shader_compilation, a draw into a surface narrower than the screen (under "
+                     "1280 pixels) whose pipeline is not ready waits for it instead of being skipped (it may build a "
+@@ -698,10 +706,21 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+            shader_storage_file_);
+   }
+ 
++  // wwe2k14 patch (Session 80, vulkan_stored_pipelines_at_boot false): the records stay (the trim below keeps them),
++  // nothing is translated or made for them now.
++  const bool make_stored = REXCVAR_GET(vulkan_stored_pipelines_at_boot);
++  if (!make_stored) {
++    if (!pipeline_stored_descriptions.empty()) {
++      REXGPU_INFO("VulkanPipelineCache: {} stored pipelines kept, not made at boot (vulkan_stored_pipelines_at_boot)",
++                  pipeline_stored_descriptions.size());
++    }
++    shader_translations_needed.clear();
++  }
++
+   // wwe2k14 patch (Session 66, B2.1): the stored vertex modifications were made with the settings of the run that
+   // stored them. Converted to the current gpu_native_vertex_endian_spec before translating and creating, so a shipped
+   // or older storage still prewarms (a record whose converted description is already loaded is skipped below).
+-  {
++  if (make_stored) {
+     size_t converted = 0;
+     shader_translations_needed.clear();
+     for (PipelineStoredDescription& stored : pipeline_stored_descriptions) {
+@@ -749,8 +768,9 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+   // Create the pipelines.
+   std::vector<PipelineCreationArguments> pipeline_creations;
+   pipeline_creations.reserve(pipeline_stored_descriptions.size());
++  static const std::vector<PipelineStoredDescription> kNoStoredPipelines;
+   for (const PipelineStoredDescription& pipeline_stored_description :
+-       pipeline_stored_descriptions) {
++       make_stored ? pipeline_stored_descriptions : kNoStoredPipelines) {
+     const PipelineDescription& pipeline_description = pipeline_stored_description.description;
+ 
+     auto find_it = pipelines_.find(pipeline_description);

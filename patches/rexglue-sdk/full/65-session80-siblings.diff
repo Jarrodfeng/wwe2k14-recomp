@@ -1,0 +1,76 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-siblings): f7190db59e14..e799310c06be on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  e799310 Merge s80-siblings: older native pipeline records matched to their known records after converting their modifications (Session 80; Jarrod: "Yes, adopt both") - precompile 761 -> 561 with the updated list; unvisited arenas 1 -> 8 draws skipped once (5229-5231); T2 PASS
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 91cfc39d9c630921dd31e331957b9e9d1e967377..874be2d5dd1381983700390896d5084003035b0f 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -1156,6 +1156,7 @@ class NativeRenderer {
+   // with any is not expanded (StorageOnFrameEnd: why not per variant).
+   std::unordered_map<uint64_t, uint8_t> storage_known_siblings_;
+   uint32_t prewarm_old_skipped_ = 0, prewarm_guessed_stored_ = 0;
++  uint32_t prewarm_old_conformed_ = 0;  // Session 80: of those, matched only after converting their modifications
+   // Session 70 (gpu_native_precompile): prewarm jobs the workers finished; the status for the game's precompile mode.
+   std::atomic<uint32_t> prewarm_made_{0};
+   std::string precompile_status_;
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index c875c208e48c084349da464795432cd42bd32ecf..d7df1ce76a5d157b6efed2d972d9a95dfa9b8b80 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -2212,7 +2212,7 @@ void NativeRenderer::ShutdownStorage() {
+   truth_spare_prewarm_.clear();
+   prewarm_guessed_.clear();
+   storage_known_siblings_.clear();
+-  prewarm_old_skipped_ = prewarm_guessed_stored_ = 0;
++  prewarm_old_skipped_ = prewarm_guessed_stored_ = prewarm_old_conformed_ = 0;
+   if (storage_file_) {
+     fflush(storage_file_);
+     fclose(storage_file_);
+@@ -2482,6 +2482,32 @@ void NativeRenderer::StorageOnFrameEnd() {
+     if (!(record.ext_bits & kRecordExtKnown)) {
+       if (auto s = storage_known_siblings_.find(XXH3_64bits(&record, sizeof(record))); s != storage_known_siblings_.end())
+         known = s->second;
++      // wwe2k14 patch (Session 80, HD 520 arc first launch): an older record from before Session 66's encodings (the
++      // shipped list's: Session 61) never equals its known record as stored, so both its guesses were made beside the
++      // known one (the precompile: 761 pipelines from 399 records). Compared again with its modifications converted as
++      // KeyFromRecord converts them: the same variant as a known record = that record stands for it. (A variant only
++      // the old record had - another texture-sign mask, another byte order - still differs, and is still made.)
++      if (!known && !storage_known_siblings_.empty()) {
++        VulkanShader* vertex_shader = cache.FindShader(record.vertex_shader_hash);
++        VulkanShader* pixel_shader = record.pixel_shader_hash ? cache.FindShader(record.pixel_shader_hash) : nullptr;
++        if (vertex_shader) {
++          PipelineRecord conformed = record;
++          bool changed = false;
++          conformed.vertex_modification =
++              cache.ConformStoredVertexModification(*vertex_shader, record.vertex_modification, &changed, true);
++          if (pixel_shader && (record.flags & kRecordNativePixel)) {
++            conformed.pixel_modification =
++                cache.ConformStoredNativePixelModification(*pixel_shader, record.pixel_modification, &changed);
++          }
++          if (changed) {
++            if (auto s = storage_known_siblings_.find(XXH3_64bits(&conformed, sizeof(conformed)));
++                s != storage_known_siblings_.end()) {
++              known = s->second;
++              ++prewarm_old_conformed_;
++            }
++          }
++        }
++      }
+     }
+     PipelineRecord variants[2] = {record, record};
+     const bool both = !(record.ext_bits & kRecordExtKnown) && (record.flags & kRecordNativePixel) &&
+@@ -2523,10 +2549,10 @@ void NativeRenderer::StorageOnFrameEnd() {
+     prewarm_logged_retries_ = prewarm_retries_;
+     REXGPU_INFO("[native][storage] stored pipelines queued: {} in all (frame {}, pass {}); {} waiting for their "
+                 "shaders / truth frames / a render pass, {} skipped (a translation or object failed); converted to "
+-                "the current specialisation settings: {}; older records left out for a known one: {}, guessed "
+-                "variants queued: {}",
++                "the current specialisation settings: {}; older records left out for a known one: {} ({} after "
++                "converting their modifications), guessed variants queued: {}",
+                 prewarm_queued_, frame_, prewarm_retries_, prewarm_retry_.size(), prewarm_skipped_,
+-                prewarm_converted_, prewarm_old_skipped_, prewarm_guessed_.size());
++                prewarm_converted_, prewarm_old_skipped_, prewarm_old_conformed_, prewarm_guessed_.size());
+   }
+   // Session 73: the later passes that made something (the scene loads), with why the rest still wait.
+   if (prewarm_next_ >= prewarm_.size() && prewarm_retries_ > 20 &&

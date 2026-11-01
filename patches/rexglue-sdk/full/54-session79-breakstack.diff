@@ -1,0 +1,120 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-breakstack): 647b4595196b..b9bccc407c86 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  b9bccc4 Merge s79-breakstack: Session 79 diagnostics - the stack of the command that broke each lazy pass chain (segment log; tools\perf\pass_ends.py --breaks), gpu_native_truth_debug_skip_alias_restore (measurement only)
+
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 62ff569cc42f4e9d4abbe63faf6e22093b2f0bb0..dd02657638cb78bdb866257a70b4a630869925e9 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -491,6 +491,11 @@ class DeferredCommandBuffer {
+   uint32_t lazy_last_reason() const { return lazy_last_reason_; }
+   // (Session 59, diagnostic: the command that last broke a lazy chain - Command as a number.)
+   uint32_t lazy_break_command() const { return lazy_break_command_; }
++  // wwe2k14 patch (Session 79, diagnostic): with capture_break_stack set (the native renderer's segment log), the call
++  // stack (5 return addresses, and the module base) of the command that last broke a lazy chain.
++  bool capture_break_stack = false;
++  const uintptr_t* lazy_break_stack() const { return lazy_break_stack_; }
++  uintptr_t lazy_break_base() const { return lazy_break_base_; }
+   // (Session 59, diagnostic: set by the command processor from vulkan_debug_skip_constants_rebind.)
+   bool debug_skip_constants_rebind = false;
+   VkDescriptorSet debug_last_constants_set_ = VK_NULL_HANDLE;
+@@ -967,6 +972,9 @@ class DeferredCommandBuffer {
+   uint64_t lazy_begins_free_ = 0, lazy_begins_synced_ = 0;
+   uint32_t lazy_last_reason_ = 0;
+   uint32_t lazy_break_command_ = UINT32_MAX;  // wwe2k14 patch (Session 59, diagnostic)
++  uintptr_t lazy_break_stack_[5] = {};        // wwe2k14 patch (Session 79, diagnostic)
++  uintptr_t lazy_break_base_ = 0;
++  void CaptureBreakStack();
+   bool barrier_pending_ = false;
+   VkPipelineStageFlags pending_src_stage_mask_ = 0, pending_dst_stage_mask_ = 0;
+   std::vector<VkMemoryBarrier> pending_memory_barriers_;
+diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
+index f526bde61d8e628244365461acf720eebd11e919..b759fc5fae87dfc794806c5eff933f9ef66987e1 100644
+--- a/src/graphics/vulkan/deferred_command_buffer.cpp
++++ b/src/graphics/vulkan/deferred_command_buffer.cpp
+@@ -695,7 +695,10 @@ void DeferredCommandBuffer::CmdVkPipelineBarrier(
+     const VkBufferMemoryBarrier* buffer_memory_barriers, uint32_t image_memory_barrier_count,
+     const VkImageMemoryBarrier* image_memory_barriers) {
+   // wwe2k14 patch (Session 56): the barrier held after lazy render passes goes first (joined with this one).
+-  if (lazy_chain_) lazy_break_command_ = uint32_t(Command::kVkPipelineBarrier);  // (Session 59, diagnostic)
++  if (lazy_chain_) {
++    lazy_break_command_ = uint32_t(Command::kVkPipelineBarrier);  // (Session 59, diagnostic)
++    if (capture_break_stack) CaptureBreakStack();                 // (Session 79, diagnostic)
++  }
+   lazy_chain_ = false;
+   if (lazy_sync_pending_ && !in_lazy_pass_) FlushLazySync();
+   BeforeEventCommand();  // wwe2k14 patch (Session 7c, CAUSES)
+@@ -1011,11 +1014,21 @@ void DeferredCommandBuffer::CmdVkBeginRendering(const VkRenderingInfo* rendering
+   }
+ }
+ 
++// wwe2k14 patch (Session 79, diagnostic): see the header. (Skips this function and its caller in this file.)
++void DeferredCommandBuffer::CaptureBreakStack() {
++  uintptr_t frames[7] = {};
++  lazy_break_base_ = VulkanCommandProcessor::DebugCaptureStack(frames, 7, 1);
++  for (uint32_t i = 0; i < 5; ++i) lazy_break_stack_[i] = frames[i + 1];
++}
++
+ void* DeferredCommandBuffer::WriteCommand(Command command, size_t arguments_size_bytes) {
+   // wwe2k14 patch (Session 56): the barrier after lazy render passes goes before GPU work outside a lazy pass.
+   if (command != Command::kVkPipelineBarrier && !KeepsLazyChain(command)) {
+     if (lazy_sync_pending_ && !in_lazy_pass_) FlushLazySync();
+-    if (lazy_chain_) lazy_break_command_ = uint32_t(command);  // wwe2k14 patch (Session 59, diagnostic)
++    if (lazy_chain_) {
++      lazy_break_command_ = uint32_t(command);       // wwe2k14 patch (Session 59, diagnostic)
++      if (capture_break_stack) CaptureBreakStack();  // (Session 79, diagnostic)
++    }
+     lazy_chain_ = false;
+   }
+   // wwe2k14 patch (Session 52): a held-back barrier goes before any command that is not a bind or state.
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index fdf1c65febc9011c35ea2b3612e4bbcd6966c594..0cc6ab6e7d9cf3938050c88406abde4c44325d41 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -311,6 +311,11 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_scaled_texture_only, false, "GPU/Nati
+                     "resolve that also writes its scaled texture does not write the scaled resolve buffer (what the "
+                     "scaled write-backs cost - the ceiling of texture-only resolves at a scale)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_skip_alias_restore, false, "GPU/Native",
++                    "Diagnostic (Session 79; wrong image layouts, measurement only): the direct alias loads' owner "
++                    "images are not put back into their attachment layouts - the ceiling of a lazy restore (how many "
++                    "lazy pass chains the restore barrier breaks)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_memory_resolves, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): with gpu_native_truth_batch_resolves, a 1x direct resolve that writes "
+                     "guest memory (no texture holds all it writes) joins the deferred batch too, so it shares the "
+@@ -5417,6 +5422,11 @@ void NativeRenderer::EndTruthPass() {
+ // Session 79 (gpu_native_truth_alias_direct): the images the pass's loads read, back in their attachment layouts (also
+ // when no pass opened after they were made readable).
+ void NativeRenderer::TruthRestoreAliasOwners() {
++  // (Diagnostic, wrong layouts: the restore left out - how many pass chains it breaks, gpu_native_truth_debug_skip_*.)
++  if (!truth_alias_read_owners_.empty() && REXCVAR_GET(gpu_native_truth_debug_skip_alias_restore)) {
++    truth_alias_read_owners_.clear();
++    return;
++  }
+   if (!truth_alias_read_owners_.empty()) {
+     DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
+     std::vector<VkImageMemoryBarrier>& barriers = truth_store_barriers_;
+@@ -5443,6 +5453,8 @@ void NativeRenderer::TruthRestoreAliasOwners() {
+ }
+ 
+ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
++  // wwe2k14 patch (Session 79, diagnostic): who breaks the lazy pass chains, while the segment log runs.
++  command_processor_.deferred_command_buffer().capture_break_stack = segment_log_frames_ > 0;
+   // wwe2k14 patch (Session 79, NF-D look-ahead diagnostic, gpu_native_frame_batch_log N): which native-frame catch-up
+   // batch the star glare's draws (75641266549A40C0, 9C84E33D39058FB0) and the entrance combine (4E2CD8031D93DE3E) land
+   // in, the first N such draws (shader hashes are our identifiers).
+@@ -5871,8 +5883,11 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+       if (segment_log_frames_ > 0) {  // (diagnostic: why the lazy pass needed a barrier)
+         static const char* const kWhy[] = {"none", "other work", "colour image", "depth image"};
+         // (Session 59: with the command that broke the chain - DeferredCommandBuffer::Command as a number.)
+-        REXGPU_INFO("[native][seg] frame {} lazy pass barrier: {} (chain broken by command {})", frame_,
+-                    kWhy[std::min(cb.lazy_last_reason(), 3u)], int32_t(cb.lazy_break_command()));
++        // (Session 79: and who recorded it - base + stack, tools\perf\pass_ends.py --breaks.)
++        const uintptr_t* s = cb.lazy_break_stack();
++        REXGPU_INFO("[native][seg] frame {} lazy pass barrier: {} (chain broken by command {}) base {:X} stack {:X} {:X} "
++                    "{:X} {:X} {:X}", frame_, kWhy[std::min(cb.lazy_last_reason(), 3u)],
++                    int32_t(cb.lazy_break_command()), cb.lazy_break_base(), s[0], s[1], s[2], s[3], s[4]);
+       }
+     } else {
+       cb.CmdVkBeginRenderPass(&begin_info, VK_SUBPASS_CONTENTS_INLINE);

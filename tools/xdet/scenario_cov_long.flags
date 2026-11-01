@@ -1,0 +1,8 @@
+# Session 77 wider coverage (XDET_PLAN.md): singles (type 0), the long route: Ziggler (275, pad 1) vs Del Rio (322), Over the Limit (4). Quick Match from numbers (no capture), entrances skipped.
+# Record with tools\xdet\run_stageA.ps1 -Record xdet_cov_long -Scenario cov_long (route: cover_3600.txt, or
+# cover_12000.txt for cov_long / cov_rumble).
+--wwe2k14_launch=@quick
+--wwe2k14_quick_type=0
+--wwe2k14_launch_participants=275:0,322
+--wwe2k14_launch_arena=4
+--wwe2k14_launch_skip_entrances=true

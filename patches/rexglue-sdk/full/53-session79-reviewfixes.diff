@@ -1,0 +1,156 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-reviewfixes): 4b81d3e0133f..647b4595196b on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  647b459 Merge s79-aliasfix: Session 79 review fixes for patch steps 49-52 (renamed owners flushed first; shared memory use handed back after a flush's memory writes; no separate-rectangle exception for read-back resolves; cube faces only when the copy fits; face refusals fall through to 2D). Shots byte-identical 5078; stage A 5079 = 5070 shots + comparer MATCH
+
+diff --git a/include/rex/graphics/vulkan/shared_memory.h b/include/rex/graphics/vulkan/shared_memory.h
+index afae006d27da857706521d573b7e3a9c42b5dc9f..49177acdfc6378ec3d167011f6635d89e3f7cdb0 100644
+--- a/include/rex/graphics/vulkan/shared_memory.h
++++ b/include/rex/graphics/vulkan/shared_memory.h
+@@ -55,6 +55,10 @@ class VulkanSharedMemory : public SharedMemory {
+   // them - the next barrier commits all of them (the written range grows to cover both). Use() if the last use was
+   // another one.
+   void UseAlsoComputeWrite(std::pair<uint32_t, uint32_t> written_range);
++  // (Session 79 review fix: the tracked use, so a write recorded in the middle of another use - a deferred batch
++  // flushed inside a draw - can hand the tracking back to it: Use(last_usage(), last_written_range()) afterwards.)
++  Usage last_usage() const { return last_usage_; }
++  std::pair<uint32_t, uint32_t> last_written_range() const { return last_written_range_; }
+ 
+   // wwe2k14 patch (Session 7b, BARNARROW): access_stages for a guest draw: vertex input (a guest DMA index
+   // buffer in the shared memory) and every guest vertex-side stage (vertex fetch, index loads in the vertex /
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index f35cba7b741d50accd99635ae513356e7a407944..fdf1c65febc9011c35ea2b3612e4bbcd6966c594 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -2694,6 +2694,19 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+         info.copy_dest_base >> 12, uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32),
+         uint32_t(info.copy_dest_info.copy_dest_endian), texture_w, texture_h, texture_handle, scaled_texture,
+         xenos::TextureFormat::k_8_8_8_8, !scaled, &texture_layer);
++    // (Review fix: a cube face only when the copy stays inside it - a taller or wider copy writes the next face's
++    // memory, which the face's fill would not hold, and the cube would be marked up to date. The texture's state the
++    // call set - compute-write usage, its barrier - is consistent either way: its next sampling moves it back.)
++    if (texture_layer >= 0 && texture_set != VK_NULL_HANDLE &&
++        (uint32_t(info.copy_dest_coordinate_info.offset_x_div_8) * 8 + uint32_t(info.coordinate_info.width_div_8) * 8 >
++             texture_w ||
++         uint32_t(info.copy_dest_coordinate_info.offset_y_div_8) * 8 + group_count_y * 8 > texture_h)) {
++      texture_set = VK_NULL_HANDLE;
++      texture_handle = nullptr;
++      texture_layer = -1;
++      // (A held barrier pushed now, so the image's layout follows its usage whatever happens to this copy.)
++      if (hold) command_processor_.NativeHoldTextureBarrier(false);
++    }
+   }
+   const auto release_held_barrier = [&]() { command_processor_.NativeHoldTextureBarrier(false); };
+   uint32_t pc[12] = {constants.dest_relative.edram_info.packed,
+@@ -4150,6 +4163,14 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+   // Session 79 (gpu_native_truth_defer_memory_resolves): the entries writing guest memory - its compute-write use.
+   VulkanSharedMemory* const shared_memory = command_processor_.NativeSharedMemory();
+   bool wrote_memory = false;
++  // (Review fix: the use the shared memory had before - a draw's own, when the batch is flushed inside a draw after
++  // the draw recorded it - given back after the dispatches, so its reads / writes are tracked for the next barrier.)
++  VulkanSharedMemory::Usage saved_usage = VulkanSharedMemory::Usage::kRead;
++  std::pair<uint32_t, uint32_t> saved_range;
++  if (shared_memory) {
++    saved_usage = shared_memory->last_usage();
++    saved_range = shared_memory->last_written_range();
++  }
+   for (const DeferredResolve& d : truth_deferred_) {
+     if (!d.mem_length || !shared_memory) continue;
+     // (The batch's writes into memory never overlap - an overlapping one flushes the batch first: one barrier.)
+@@ -4168,6 +4189,7 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+     cb.CmdVkPushConstants(d.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, d.pc_size, d.pc);
+     cb.CmdVkDispatch(d.group_count_x, d.group_count_y, 1);
+   }
++  if (wrote_memory) shared_memory->Use(saved_usage, saved_range);  // (review fix, above)
+   // (Their pages are the texture-only records' again only where a record holds them.)
+   if (wrote_memory) {
+     for (const DeferredResolve& d : truth_deferred_) {
+@@ -4914,10 +4936,12 @@ void NativeRenderer::TruthDropRecords() {
+ void NativeRenderer::TruthBeforeResolveWrite(const draw_util::ResolveInfo& info) {
+   if (alias_frames_left_ > 0) AliasBeginResolve();  // wwe2k14 patch (Session 66, G1.0)
+   // Session 79 (gpu_native_truth_defer_memory_resolves): a resolve over memory a deferred one writes - that one first.
+-  // (Into a separate rectangle of the same surface: separate bytes, no order needed.)
++  // (Into a separate rectangle of the same surface: separate bytes, no order needed - unless this resolve is read
++  // back: the readback copies its whole extent, which interleaves with the deferred one's bytes. Review fix.)
+   if (info.copy_dest_extent_length &&
+       TruthDeferredWritesMemory(info.copy_dest_extent_start,
+-                                uint64_t(info.copy_dest_extent_start) + info.copy_dest_extent_length, &info)) {
++                                uint64_t(info.copy_dest_extent_start) + info.copy_dest_extent_length,
++                                command_processor_.NativeResolveReadback() ? nullptr : &info)) {
+     TruthFlushDeferred(kDeferFlushOtherResolve);
+   }
+   truth_wb_skipped_ = false;
+@@ -5725,11 +5749,10 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     }
+     if (!stored_owners.empty()) TruthStoreMany(stored_owners.data(), stored_owners.size(), aliased, true);
+     if (!direct_owners.empty()) {
+-      // (As TruthStoreMany: a deferred resolve reading one goes first; the images in their read layouts until the
+-      // pass ends - TruthRestoreAliasOwners.)
+-      bool deferred_source = false;
+-      for (const int16_t o : direct_owners) deferred_source = deferred_source || TruthDeferredSource(o);
+-      if (deferred_source) TruthFlushDeferred(kDeferFlushStores);
++      // (As TruthStoreMany: the deferred batch first - a deferred resolve may read an owner, and a renamed owner gets
++      // its pixels outside its rename rectangle only at the flush (TruthDeferredSource sees the slot's new image, not
++      // the one the batch reads); the images in their read layouts until the pass ends - TruthRestoreAliasOwners.)
++      TruthFlushDeferred(kDeferFlushStores);
+       EndTruthPass();
+       for (const int16_t o : direct_owners) TruthSyncRead(o);  // (draw twins)
+       std::vector<VkImageMemoryBarrier>& barriers = truth_store_barriers_;
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index e01b8e4a8e3c01c1c14ae3e284d46a9a4cbdba33..702a09e3af3ed4dda8910e1299c5d9b65e9af6c1 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2794,23 +2794,42 @@ VkDescriptorSet VulkanTextureCache::NativeTextureForResolve(uint32_t base_page,
+   // must be up to date before (the write covers one face: no cover shortcut); afterwards it holds what memory holds.
+   if (allow_layer && REXCVAR_GET(gpu_native_truth_fill_cube_faces)) {
+     auto face = native_resolve_layer_keys_.find(base_page);
++    // (Review fix: a face that cannot be filled falls through to the 2D lookup below - a 2D texture may be over the
++    // page by now - and the entry of a cube that is gone is dropped.)
++    const char* face_why = nullptr;
++    VulkanTexture* face_texture = nullptr;
++    VkDescriptorSet face_set = VK_NULL_HANDLE;
++    TextureKey key;
++    uint32_t layer = 0;
+     if (face != native_resolve_layer_keys_.end()) {
+-      const TextureKey& key = face->second.key;
+-      const uint32_t layer = face->second.layer;
++      key = face->second.key;
++      layer = face->second.layer;
+       if (key.format != format || format != xenos::TextureFormat::k_8_8_8_8 || key.scaled_resolve ||
+           uint32_t(key.endianness) != endianness || key.pitch != pitch_div_32) {
+-        return refuse("cube face key", &key);
++        face_why = "cube face key";
++      } else if (Texture* found = NativeFindTexture(key); !found) {
++        face_why = "cube gone";
++        native_resolve_layer_keys_.erase(face);
++      } else {
++        face_texture = static_cast<VulkanTexture*>(found);
++        if (face_texture->direct_load_creation() != VulkanTexture::DirectLoadCreation::kCapable ||
++            face_texture->direct_load_format() != VK_FORMAT_R32_UINT) {
++          face_why = "cube without the R32_UINT storage view";
++        } else if (!NativeTextureBaseUpToDate(*face_texture)) {
++          face_why = "cube not up to date";
++        } else if ((face_set = face_texture->GetLayerStorageDescriptorSet(layer)) == VK_NULL_HANDLE) {
++          face_why = "no storage set for the face";
++        }
+       }
+-      Texture* found = NativeFindTexture(key);
+-      if (!found) return refuse("cube gone", &key);
+-      VulkanTexture& texture = static_cast<VulkanTexture&>(*found);
+-      if (texture.direct_load_creation() != VulkanTexture::DirectLoadCreation::kCapable ||
+-          texture.direct_load_format() != VK_FORMAT_R32_UINT) {
+-        return refuse("cube without the R32_UINT storage view", &key);
++      if (face_why && command_processor_.NativeSegmentLogActive()) {
++        REXGPU_INFO("[native][seg] texture fill refused: cube face page 0x{:05X}: {} (texture format {} {}x{} pitch {} "
++                    "array {}) - trying a 2D texture", base_page, face_why, uint32_t(key.format), key.GetWidth(),
++                    key.GetHeight(), uint32_t(key.pitch), uint32_t(key.depth_or_array_size_minus_1));
+       }
+-      if (!NativeTextureBaseUpToDate(texture)) return refuse("cube not up to date", &key);
+-      const VkDescriptorSet set = texture.GetLayerStorageDescriptorSet(layer);
+-      if (set == VK_NULL_HANDLE) return VK_NULL_HANDLE;
++    }
++    if (face_texture && !face_why) {
++      VulkanTexture& texture = *face_texture;
++      const VkDescriptorSet set = face_set;
+       texture.MarkAsUsed();
+       VulkanTexture::Usage old_usage = texture.SetUsage(VulkanTexture::Usage::kComputeStorageWrite);
+       VkPipelineStageFlags src_stage_mask;

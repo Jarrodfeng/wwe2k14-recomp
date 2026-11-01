@@ -14,7 +14,9 @@ code_base = int(re.search(r"REX_CODE_BASE (0x[0-9A-Fa-f]+)", pch).group(1), 16)
 code_end = code_base + int(re.search(r"REX_CODE_SIZE (0x[0-9A-Fa-f]+)", pch).group(1), 16)
 
 reg = open(os.path.join(GEN, "wwe2k14_register.cpp"), encoding="utf-8").read()
-name_at = {int(a, 16): n for a, n in re.findall(r"SetFunction\(0x([0-9A-Fa-f]+),\s*(\w+)\)", reg)}
+name_at = {int(a, 16): n for a, n in re.findall(r"(?:SetFunction|REX_REGISTER_ENTRY)\(0x([0-9A-Fa-f]+),\s*(\w+)\)", reg)}
+if not name_at:
+    raise SystemExit("no function entries in the register file (format changed?)")
 starts = sorted(name_at)
 
 sizes, refs = {}, {}

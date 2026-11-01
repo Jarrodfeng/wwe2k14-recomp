@@ -35,6 +35,11 @@
 //                                 that come much sooner than a file open (an entrance skip: the step word resets).
 //                                 Session 30: with 'if_needed' (after the numbers, like 'unreadable') nothing is
 //                                 pressed when the state already meets COND (e.g. a menu cursor the game remembers)
+//   press_until_text TARGETS TRIES INTERVAL HOLD TEXT...
+//                                 (Session 77, the tester check's fresh-save boot) as press_until_state, but done when
+//                                 a string containing TEXT (any case, may hold spaces; the numbers come first) is on
+//                                 screen after the press is released: the next screen's own text as the "press
+//                                 accepted" signal, where no state is mapped (the storage notices and save prompts)
 //   set BUTTONS LT RT LX LY RX RY set the full pad state until the next set/press (what recordings use);
 //                                 settings are changed with `cvar`, not `set`
 //   screenshot LABEL              save the current guest output to captures/NNN_LABEL.png
@@ -739,7 +744,8 @@ class InputScript {
     kDumpStruct,                       // Session 30: text = struct name (structs.toml), frames = address (0 = its base)
     kPlugin,                           // Session 30: text = load / reload / unload, value = PATH (src/probe_plugin.h)
     kDumpMem,                          // Session 69: frames = physical address, hold = length, text = output file
-    kRenderDoc                         // Session 76: RenderDoc captures the next frame
+    kRenderDoc,                        // Session 76: RenderDoc captures the next frame
+    kPressUntilText                    // Session 77: text = TEXT (src/screen_text.h)
   };
   struct Step {
     Op op;
@@ -1068,6 +1074,19 @@ class InputScript {
         step.tries = uint32_t(tries);
         step.hold = uint32_t(hold);
         ToLower(step.text);
+      } else if (cmd == "press_until_text") {  // Session 77 (P7): press TARGETS until TEXT is on screen
+        std::string buttons;
+        int64_t tries = 0, interval = 0, hold = 0;
+        ok = bool(words >> buttons) && ParsePress(buttons, step.pad) && bool(words >> tries) &&
+             bool(words >> interval) && bool(words >> hold) && tries > 0 && tries <= 100 && hold > 0 &&
+             interval > hold;
+        std::getline(words >> std::ws, step.text);
+        while (!step.text.empty() && std::isspace((unsigned char)step.text.back())) step.text.pop_back();
+        ok = ok && !step.text.empty();
+        step.op = Op::kPressUntilText;
+        step.frames = uint64_t(interval);
+        step.tries = uint32_t(tries);
+        step.hold = uint32_t(hold);
       } else if (cmd == "press_until_state") {
         std::string buttons, name, value;
         int64_t tries = 0, interval = 0, hold = 0;
@@ -1517,6 +1536,46 @@ class InputScript {
           }
           REXLOG_INFO("[wwe2k14][input] line {}: saw '{}' {} frames after press {}", L(step), step.text,
                       frame_ - press_t0_, press_attempt_);
+          sync_mark_ = frame_;
+          break;
+        }
+        case Op::kPressUntilText: {
+          // Session 77 (P7): press, then after the release look for TEXT on screen once per frame.
+          auto start_press = [&] {
+            ++press_attempt_;
+            press_t0_ = frame_;
+            press_released_ = false;
+            pad_ = step.pad;
+            ++packet_;
+            sync_mark_ = frame_;
+          };
+          if (press_attempt_ == 0) {
+            start_press();
+            return;
+          }
+          if (!press_released_) {
+            if (frame_ - press_t0_ < step.hold) return;
+            pad_ = {};
+            ++packet_;
+            press_released_ = true;
+          }
+          const std::string found = screen_text::Find(step.text);
+          if (found.empty()) {
+            if (frame_ - press_t0_ < step.frames) return;
+            if (press_attempt_ < step.tries) {
+              REXLOG_WARN("[wwe2k14][input] line {}: '{}' not on screen within {} frames of press {}; pressing again "
+                          "(screen text: {}, frame {})", L(step), step.text, step.frames, press_attempt_,
+                          screen_text::Joined(), frame_);
+              start_press();
+              return;
+            }
+            REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: '{}' not on screen after {} presses (screen "
+                         "text: {})", L(step), step.text, press_attempt_, screen_text::Joined());
+            FailWithScreenshot(fmt::format("text_fail_l{}", Tag(step)));
+            return;
+          }
+          REXLOG_INFO("[wwe2k14][input] line {}: '{}' on screen {} frames after press {} ('{}')", L(step), step.text,
+                      frame_ - press_t0_, press_attempt_, found);
           sync_mark_ = frame_;
           break;
         }
@@ -2096,10 +2155,10 @@ inline void (*g_readback_file_hook)(const std::string& path, uint64_t frame) = n
 // Session 57: no skipped draws during the in-game loads (src/load_pipeline_wait.h, VdSwap). Null = nothing.
 inline void (*g_pipeline_wait_frame_hook)(uint64_t frame) = nullptr;
 
-inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
-                                         ppc_ptr_t<rex::input::X_INPUT_STATE> state) {
-  const uint32_t result = replay::g_replay.State(user_index, flags, state,
-                                                 [&] { return g_input_script.GetState(user_index, flags, state); });
+// The host pad filters (keyboard player on the title, photo mode, typing, the menu mouse) on one XamInputGetState
+// answer.
+inline void ApplyPadFilters(uint32_t user_index, uint32_t flags, ppc_ptr_t<rex::input::X_INPUT_STATE> state,
+                            uint32_t result) {
   if (g_title_pad_filter && result == 0 && state && (!(flags & 0xFF) || (flags & 0x01)))
     g_title_pad_filter(user_index & 0xFF, &*state);
   if (g_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
@@ -2114,6 +2173,20 @@ inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
       ((user_index & 0xFF) == mouse_user || (mouse_user == 0 && (user_index & 0xFF) == 0xFF)) &&
       (!(flags & 0xFF) || (flags & 0x01)))
     g_mouse_pad_filter(&*state);
+}
+
+inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
+                                         ppc_ptr_t<rex::input::X_INPUT_STATE> state) {
+  // Session 77: the filters are part of what the game sees without a replay, so a v2 recording holds the filtered
+  // state and its playback (which does not call this lambda) skips them: the playback host's keyboard, mouse or
+  // photo mode cannot change replayed input. A v1 recording (before Session 77, recorded before the filters) still
+  // gets them on playback, as when it was checked.
+  const uint32_t result = replay::g_replay.State(user_index, flags, state, [&] {
+    const uint32_t r = g_input_script.GetState(user_index, flags, state);
+    ApplyPadFilters(user_index, flags, state, r);
+    return r;
+  });
+  if (replay::g_replay.FiltersOnPlayback()) ApplyPadFilters(user_index, flags, state, result);
   return result;
 }
 

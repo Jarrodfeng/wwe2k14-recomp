@@ -1,0 +1,30 @@
+# Session 77 (XDET_PLAN.md stage A): the game flags every stage A run gets, on the PC (tools\xdet\run_stageA.ps1,
+# controls.ps1, invariance.ps1) and on a phone (tools\android\run.ps1 -StageA). One flag per line; '#' lines are
+# comments. The scenario is NOT here: a recording carries its launch flags (applied on playback), and
+# run_stageA.ps1 -Record adds tools\xdet\scenario_<NAME>.flags. Per-device flags (paths: --game_data_root,
+# --det_serial_trace, --wwe2k14_det_hash_dir, --wwe2k14_replay_dir, user data) are added by the run scripts.
+# Hashes: values (default), objects with their heap pointers (layout), the cross-device additions (sim); v2 cells
+# ('0' null link, '!' unreadable), the '# xdet' platform / settings lines and the 'vb' column.
+--wwe2k14_det_hash=default,objects,sim
+--wwe2k14_det_hash_v2=true
+# Pinned to the same value on both devices (each differs by platform or launcher otherwise; XDET_PLAN.md gap 12):
+--wwe2k14_step_hz=0
+--wwe2k14_step_hz_entrance=0
+--wwe2k14_entrance_60fps=true
+--user_language=1
+--wwe2k14_dlc=false
+--wwe2k14_dynamic_res=false
+--wwe2k14_phys_alloc_fast_fail=true
+--occlusion_query_enable=false
+--resolution_scale=1
+# The det_serial vblank timeout (default 10 s; firing makes a run INVALID) raised for slow hosts: a phone's first
+# pipeline builds can hold one guest turn for seconds (the PC with an older Adreno's limits emulated held one over
+# 3 s, run 4865). A host-only setting (det_cross.py HOST_ONLY): it changes nothing unless it fires.
+--det_serial_vblank_timeout_ms=60000
+# Stage A runs the same recompiled code on both devices: the hand-written native replacements off (stage B: on).
+--wwe2k14_native_skin=false
+--wwe2k14_nf_skin_3bone=off
+# Session 77 (comparer skeptic): the crowd pass skips the game's own draw-recorder calls for crowd members (its render
+# lists then differ); the phone's NATIVE settings file turns it on. The command line wins over the settings file
+# (gfx_menu.h ApplyLauncherSettings: by flag source), so this pins it off on every device.
+--wwe2k14_scene_crowd=0

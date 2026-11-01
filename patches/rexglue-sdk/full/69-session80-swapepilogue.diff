@@ -1,0 +1,213 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-swapepilogue): e0b6ee238fac..6aa9e602c459 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  6aa9e60 Merge s80-swapepilogue: swap replacements with their own colour epilogue (Session 80, SCENE_SHADERS_PLAN.md; Jarrod: "Our own scene shaders")
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 45c16e10d39400feaa2172cbabca83c90615334c..15f3cc94684f7bb6dc042c64120972f64c254bf7 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -534,10 +534,11 @@ class CommandProcessor {
+   virtual void Half2DetachedPace();
+   // wwe2k14 patch (Session 72, gpu_native_shader_swap): the title's own fragment shader (SPIR-V, the interface in
+   // vulkan/native/shader_swap.h) for NATIVE's draws of one guest pixel shader, written for the float constant registers
+-  // given (ascending); false where the backend has no NATIVE renderer or the code is not SPIR-V.
++  // given (ascending); false where the backend has no NATIVE renderer or the code is not SPIR-V. flags (Session 80):
++  // shader_swap::kFlagOwnEpilogue = 1, the replacement does the colour epilogue itself.
+   virtual bool RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words, size_t word_count,
+                                         const uint8_t* float_registers, size_t float_register_count,
+-                                        const char* name);
++                                        const char* name, uint32_t flags = 0);
+   // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a guest pixel shader that only writes back what
+   // two resolves took out - colour target 0 = the texture of fetch constant color_fetch, depth = fetch constant
+   // depth_fetch's - so NATIVE may leave out its draws when those textures still hold its own images' pixels; false
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 16a35812cba40473d559ae936d7fe3332f73fb54..94e40478502caccca67394a3c0e1f690cb2111e5 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -73,7 +73,7 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // wwe2k14 patch (Session 72, gpu_native_shader_swap): native/shader_swap.h.
+   bool RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words, size_t word_count,
+                                 const uint8_t* float_registers, size_t float_register_count,
+-                                const char* name) override;
++                                const char* name, uint32_t flags) override;
+   // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): CommandProcessor's.
+   bool RegisterNativeRestoreShader(uint64_t guest_pixel_shader_hash, uint32_t color_fetch, uint32_t depth_fetch,
+                                    const char* name) override;
+diff --git a/src/graphics/half2_log.cpp b/src/graphics/half2_log.cpp
+index 3841774a65c328befa626b1cd121f7320b04447c..2690389b09a6e96090459318bc409c6368eb40d3 100644
+--- a/src/graphics/half2_log.cpp
++++ b/src/graphics/half2_log.cpp
+@@ -969,7 +969,7 @@ void CommandProcessor::Half2DetachedPace() {
+ 
+ // wwe2k14 patch (Session 72): no NATIVE renderer here (VulkanCommandProcessor overrides it).
+ bool CommandProcessor::RegisterNativeShaderSwap(uint64_t, const uint32_t*, size_t, const uint8_t*, size_t,
+-                                                const char*) {
++                                                const char*, uint32_t) {
+   return false;
+ }
+ bool CommandProcessor::RegisterNativeRestoreShader(uint64_t, uint32_t, uint32_t, const char*) { return false; }
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 030363a288cb918e752937c4affc253c59fef9ce..0f266dc7effaf20fdfb02d0b71c4a4c30dd9146d 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7536,17 +7536,21 @@ uint32_t VulkanCommandProcessor::NativePixelExt(const Shader* pixel_shader, bool
+     ext |= SpirvShaderTranslator::kNativeExtFma;
+   }
+   // wwe2k14 patch (Session 72, gpu_native_shader_swap): the title's replacement, for a draw whose colour epilogue does
+-  // nothing (the replacement writes its colour as it is: no alpha test, exponent bias or gamma of its own).
+-  if (!census && (ext & SpirvShaderTranslator::kNativeExtEpilogueIdle) && REXCVAR_GET(gpu_native_shader_swap) &&
+-      shader_swap::Has(pixel_shader->ucode_data_hash())) {
++  // nothing (the replacement writes its colour as it is: no alpha test, exponent bias or gamma of its own) - or
++  // (Session 80) any draw without alpha to coverage when the replacement does the epilogue itself.
++  if (!census && REXCVAR_GET(gpu_native_shader_swap) &&
++      shader_swap::Takes(pixel_shader->ucode_data_hash(), (ext & SpirvShaderTranslator::kNativeExtEpilogueIdle) != 0,
++                         system_constants_.alpha_to_mask != 0)) {
+     ext |= SpirvShaderTranslator::kNativeExtSwap;
+   }
+   return ext;
+ }
+ bool VulkanCommandProcessor::RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words,
+                                                       size_t word_count, const uint8_t* float_registers,
+-                                                      size_t float_register_count, const char* name) {
+-  return shader_swap::Register(guest_pixel_shader_hash, words, word_count, float_registers, float_register_count, name);
++                                                      size_t float_register_count, const char* name,
++                                                      uint32_t flags) {
++  return shader_swap::Register(guest_pixel_shader_hash, words, word_count, float_registers, float_register_count, name,
++                               flags);
+ }
+ bool VulkanCommandProcessor::RegisterNativeRestoreShader(uint64_t guest_pixel_shader_hash, uint32_t color_fetch,
+                                                          uint32_t depth_fetch, const char* name) {
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index aac7e2ccf2d8885b48f625673192bbd1a307a925..db37b93dfc44504e8efb6b1ef74c68214ca7ceb8 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -2302,9 +2302,13 @@ bool NativeRenderer::KeyFromRecord(const PipelineRecord& record, PipelineKey& ke
+     if ((record.ext_bits & kRecordExtKnown) && !(record.ext_bits & kRecordExtEpilogueIdle)) {
+       pixel_ext &= ~uint32_t(SpirvShaderTranslator::kNativeExtEpilogueIdle);
+     }
+-    // Session 72: the title's replacement, as NativePixelExt adds it for the draw (an idle epilogue, the switch on).
+-    if ((pixel_ext & SpirvShaderTranslator::kNativeExtEpilogueIdle) && REXCVAR_GET(gpu_native_shader_swap) &&
+-        shader_swap::Has(record.pixel_shader_hash)) {
++    // Session 72: the title's replacement, as NativePixelExt adds it for the draw (an idle epilogue, the switch on;
++    // Session 80: or a replacement with its own epilogue - a stored record does not say whether its draw had alpha to
++    // coverage, so this predicts the usual case).
++    uint32_t swap_flags = 0;
++    if (REXCVAR_GET(gpu_native_shader_swap) && shader_swap::Has(record.pixel_shader_hash, &swap_flags) &&
++        ((pixel_ext & SpirvShaderTranslator::kNativeExtEpilogueIdle) ||
++         (swap_flags & shader_swap::kFlagOwnEpilogue))) {
+       pixel_ext |= SpirvShaderTranslator::kNativeExtSwap;
+     }
+   } else if (exts) {
+diff --git a/src/graphics/vulkan/native/shader_swap.cpp b/src/graphics/vulkan/native/shader_swap.cpp
+index 59125f6bc9a46f745505dee227b4b2a0a9a9c56f..e465a4eab359a7aca811275d7f4cef05b9e20ab1 100644
+--- a/src/graphics/vulkan/native/shader_swap.cpp
++++ b/src/graphics/vulkan/native/shader_swap.cpp
+@@ -27,6 +27,7 @@ struct Entry {
+   std::vector<uint32_t> words;
+   uint64_t float_bitmap[4] = {};
+   std::string name;
++  uint32_t flags = 0;
+ };
+ // Copy on write: readers take the current table without a lock; replaced tables are kept (a handful a run).
+ struct Table {
+@@ -36,6 +37,7 @@ std::mutex g_mutex;
+ std::atomic<const Table*> g_table{nullptr};
+ std::vector<std::unique_ptr<Table>> g_tables;
+ std::unordered_set<uint64_t> g_logged;
++std::unordered_set<uint64_t> g_logged_not_taken;  // (Session 80)
+ 
+ std::shared_ptr<const Entry> Find(uint64_t hash) {
+   const Table* table = g_table.load(std::memory_order_acquire);
+@@ -57,7 +59,7 @@ bool Refuse(uint64_t hash, const char* name, const char* why) {
+ }  // namespace
+ 
+ bool Register(uint64_t guest_hash, const uint32_t* words, size_t count, const uint8_t* float_registers,
+-              size_t float_register_count, const char* name) {
++              size_t float_register_count, const char* name, uint32_t flags) {
+   if (!words || count < 5 || words[0] != 0x07230203u) {
+     REXGPU_WARN("[native][swap] '{}': not SPIR-V, not registered", name ? name : "");
+     return false;
+@@ -69,6 +71,7 @@ bool Register(uint64_t guest_hash, const uint32_t* words, size_t count, const ui
+     entry->float_bitmap[float_registers[i] >> 6] |= uint64_t(1) << (float_registers[i] & 63);
+   }
+   entry->name = name ? name : "";
++  entry->flags = flags;
+   std::lock_guard<std::mutex> lock(g_mutex);
+   auto table = std::make_unique<Table>();
+   if (const Table* old = g_table.load(std::memory_order_relaxed)) {
+@@ -80,16 +83,33 @@ bool Register(uint64_t guest_hash, const uint32_t* words, size_t count, const ui
+   g_table.store(table.get(), std::memory_order_release);
+   g_tables.push_back(std::move(table));
+   g_logged.erase(guest_hash);
+-  REXGPU_INFO("[native][swap] pixel shader {:016X}: '{}' registered ({} words, {} float constants)", guest_hash,
+-              entry->name, count, float_register_count);
++  g_logged_not_taken.erase(guest_hash);
++  REXGPU_INFO("[native][swap] pixel shader {:016X}: '{}' registered ({} words, {} float constants{})", guest_hash,
++              entry->name, count, float_register_count, (flags & kFlagOwnEpilogue) ? ", its own epilogue" : "");
+   return true;
+ }
+ 
+-bool Has(uint64_t guest_hash) {
++bool Has(uint64_t guest_hash, uint32_t* flags) {
+   const Table* table = g_table.load(std::memory_order_acquire);
+   if (!table) return false;
+   for (const auto& e : table->entries) {
+-    if (e->hash == guest_hash) return true;
++    if (e->hash == guest_hash) {
++      if (flags) *flags = e->flags;
++      return true;
++    }
++  }
++  return false;
++}
++
++bool Takes(uint64_t guest_hash, bool epilogue_idle, bool alpha_to_coverage) {
++  uint32_t flags = 0;
++  if (!Has(guest_hash, &flags)) return false;
++  if (epilogue_idle || ((flags & kFlagOwnEpilogue) && !alpha_to_coverage)) return true;
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (g_logged_not_taken.insert(guest_hash).second) {
++    REXGPU_INFO("[native][swap] pixel shader {:016X}: a draw keeps the translation - {}", guest_hash,
++                (flags & kFlagOwnEpilogue) ? "alpha to coverage"
++                                           : "its epilogue is not idle (register the replacement with its own)");
+   }
+   return false;
+ }
+diff --git a/src/graphics/vulkan/native/shader_swap.h b/src/graphics/vulkan/native/shader_swap.h
+index cb0400ab653e351254aa84dea9c211e2d790964a..677fdaa22a17f6b86aba05f03433c8cb7e7cf98e 100644
+--- a/src/graphics/vulkan/native/shader_swap.h
++++ b/src/graphics/vulkan/native/shader_swap.h
+@@ -7,6 +7,12 @@
+ // first interpolator, output location 0 = colour target 0, set 1 binding 2 = the float constants the guest shader uses,
+ // packed in register order (the registers it was written for are given at registration and must match), set 3 = the
+ // textures and samplers under the canonical bindings below, which the swap remaps to the translation's own.
++//
++// Session 80 (kFlagOwnEpilogue, SCENE_SHADERS_PLAN.md): by default a replacement takes only draws whose colour epilogue
++// does nothing (no alpha test, exponent bias or gamma: the replacement's colour is written as it is). A replacement
++// registered with kFlagOwnEpilogue does the epilogue itself from the system constants (set 1 binding 0: alpha test
++// function in flags bits kSysFlag_AlphaPassIfLess_Shift.., alpha_test_reference, color_exp_bias, the gamma flag), so
++// it takes every draw of its shader except those with alpha to coverage.
+ 
+ #include <cstddef>
+ #include <cstdint>
+@@ -22,11 +28,17 @@ namespace rex::graphics::vulkan::shader_swap {
+ // sampler of fc at kSampler + fc.
+ constexpr uint32_t kImage = 1000, kImageSigned = 1100, kSampler = 1200;
+ 
++// Registration flags.
++constexpr uint32_t kFlagOwnEpilogue = 1;
++
+ // Thread-safe; a later registration of the same guest shader replaces the earlier one for modules made after it.
+ bool Register(uint64_t guest_hash, const uint32_t* words, size_t count, const uint8_t* float_registers,
+-              size_t float_register_count, const char* name);
+-// Cheap (every NATIVE draw with a pixel shader asks while the switch is on).
+-bool Has(uint64_t guest_hash);
++              size_t float_register_count, const char* name, uint32_t flags = 0);
++// Cheap (every NATIVE draw with a pixel shader asks while the switch is on); flags = the registration's.
++bool Has(uint64_t guest_hash, uint32_t* flags = nullptr);
++// Whether a draw of a registered shader takes the replacement: its epilogue is idle, or the replacement does its own
++// and the draw has no alpha to coverage. Logs once per shader when a registered shader's draw does not.
++bool Takes(uint64_t guest_hash, bool epilogue_idle, bool alpha_to_coverage);
+ // The replacement for the shader with its set-3 bindings remapped; false (logged once per shader) when there is none
+ // or it does not fit: other float constants than it was written for, or a texture / sampler the translation lacks.
+ bool Build(const SpirvShader& shader, std::vector<uint8_t>& out);

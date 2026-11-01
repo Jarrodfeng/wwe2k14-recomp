@@ -1,0 +1,49 @@
+# Session 80 (Jarrod: "With these probes could you not skip the entrances? Not entirely, just hitting start say 10s
+# after Step 5"): the short A/B route for the Surface bench's levers and probes - profile_lesnar_bryan.txt's start
+# (--wwe2k14_launch=lesnar_bryan), then each entrance until 300 frames (5 s) after the wrestler's step 15 (step 5 = his own
+# segment), START until his step word resets (launch_six_skip_fast.txt), then 1,200 match frames from M3.PAC.
+# (Jarrod: "Can you not detect step 15 and then hit start then?" - the game takes START only from a later step of the
+# entrance: step 15 in run 5413, ~1,800 frames after step 5; so each entrance plays until its step 15 + 5 s, then START;
+# Jarrod: "wait 5 seconds instead of 10, 10 was a start allowance".) Run 5415 took Brock's START only ~1,200 frames
+# after his step 15 + 5 s (the 40th press), near his entrance's own end - little in fast-forwarded runs, ~20 s in real
+# time (Jarrod: "in realtime runs skipping after 5s is still handy"); so up to 100 presses (an entrance that ends by
+# itself resets the step word too). Bryan's took the first press: ~2,900 of his frames saved, plus 800 match frames.
+# Every run of a comparison takes the same frames (fast-forwarded, frame-locked waits). Scene marks: tron_343 (Brock),
+# tron_324 (Bryan), match. Needs the frozen user data. on_fail quit.
+on_fail quit
+log bench: start s80_probe_short (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_state entrance_step_0 >=5 2400 2 optional
+log bench: Brock step 5
+wait_state entrance_step_0 >=15 3600 2 optional
+log bench: Brock step 15
+wait_frames 300
+press_until_state START entrance_step_0 <5 100 30 5 unreadable
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_state entrance_step_1 >=5 2400 2 optional
+log bench: Bryan step 5
+wait_state entrance_step_1 >=15 3600 2 optional
+log bench: Bryan step 15
+wait_frames 300
+press_until_state START entrance_step_1 <5 40 30 5 unreadable
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 1200
+log bench: done
+quit

@@ -1,0 +1,6 @@
+# harness: fast-forward ok (Session 80, HD 520 arc item 3: the Surface bench's precompile step). The launcher's PREPARING
+# SHADERS run (--wwe2k14_precompile=FILE) quits by itself once every stored NATIVE pipeline is made; this route only
+# waits (no presses) and quits after ~20 minutes if it never does.
+log bench: start precompile (idle)
+wait_frames 72000
+quit

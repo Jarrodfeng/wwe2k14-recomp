@@ -1,0 +1,2163 @@
+# harness: fastforward
+# Session 80, written by tools\native\passab_multi.py: the HD 520 arc's GPU parts on Intel: all on (today), all off (the arc's start for GPU work), and the biggest ones off one at a time.
+#   arm now: gpu_native_truth_alias_direct=true, gpu_native_truth_alias_direct_rgba16=true, gpu_native_truth_alias_direct_lazy_flush=true, gpu_native_truth_defer_memory_resolves=true, gpu_native_truth_defer_depth_resolves=true, gpu_native_truth_defer_full_resolves=true, gpu_native_truth_texture_only_cube_faces=true, gpu_native_truth_fill_cube_faces=true, gpu_native_frame_dead_glare=1, gpu_native_truth_clear_attachments=true, gpu_native_truth_dedupe_state=true, gpu_scene_crowd_thin=100, gpu_scene_crowd_cull=2
+#   arm arc_off: gpu_native_truth_alias_direct=false, gpu_native_truth_alias_direct_rgba16=false, gpu_native_truth_alias_direct_lazy_flush=false, gpu_native_truth_defer_memory_resolves=false, gpu_native_truth_defer_depth_resolves=false, gpu_native_truth_defer_full_resolves=false, gpu_native_truth_texture_only_cube_faces=false, gpu_native_truth_fill_cube_faces=false, gpu_native_frame_dead_glare=0, gpu_native_truth_clear_attachments=false, gpu_native_truth_dedupe_state=false, gpu_scene_crowd_thin=0, gpu_scene_crowd_cull=0
+#   arm no_alias: gpu_native_truth_alias_direct=false, gpu_native_truth_alias_direct_rgba16=false, gpu_native_truth_alias_direct_lazy_flush=true, gpu_native_truth_defer_memory_resolves=true, gpu_native_truth_defer_depth_resolves=true, gpu_native_truth_defer_full_resolves=true, gpu_native_truth_texture_only_cube_faces=true, gpu_native_truth_fill_cube_faces=true, gpu_native_frame_dead_glare=1, gpu_native_truth_clear_attachments=true, gpu_native_truth_dedupe_state=true, gpu_scene_crowd_thin=100, gpu_scene_crowd_cull=2
+#   arm no_batch: gpu_native_truth_alias_direct=true, gpu_native_truth_alias_direct_rgba16=true, gpu_native_truth_alias_direct_lazy_flush=true, gpu_native_truth_defer_memory_resolves=false, gpu_native_truth_defer_depth_resolves=false, gpu_native_truth_defer_full_resolves=false, gpu_native_truth_texture_only_cube_faces=true, gpu_native_truth_fill_cube_faces=true, gpu_native_frame_dead_glare=1, gpu_native_truth_clear_attachments=true, gpu_native_truth_dedupe_state=true, gpu_scene_crowd_thin=100, gpu_scene_crowd_cull=2
+#   arm no_cubes: gpu_native_truth_alias_direct=true, gpu_native_truth_alias_direct_rgba16=true, gpu_native_truth_alias_direct_lazy_flush=true, gpu_native_truth_defer_memory_resolves=true, gpu_native_truth_defer_depth_resolves=true, gpu_native_truth_defer_full_resolves=true, gpu_native_truth_texture_only_cube_faces=false, gpu_native_truth_fill_cube_faces=false, gpu_native_frame_dead_glare=1, gpu_native_truth_clear_attachments=true, gpu_native_truth_dedupe_state=true, gpu_scene_crowd_thin=100, gpu_scene_crowd_cull=2
+#   arm no_crowd_cut: gpu_native_truth_alias_direct=true, gpu_native_truth_alias_direct_rgba16=true, gpu_native_truth_alias_direct_lazy_flush=true, gpu_native_truth_defer_memory_resolves=true, gpu_native_truth_defer_depth_resolves=true, gpu_native_truth_defer_full_resolves=true, gpu_native_truth_texture_only_cube_faces=true, gpu_native_truth_fill_cube_faces=true, gpu_native_frame_dead_glare=1, gpu_native_truth_clear_attachments=true, gpu_native_truth_dedupe_state=true, gpu_scene_crowd_thin=0, gpu_scene_crowd_cull=0
+# Per scene: warm-up 60 frames per arm, then 6 cycles x 4 pass-logged frames per arm; labels <scene>_<arm>.
+on_fail quit
+log bench: start s80_arc_multi (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 0
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 60
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: brock_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: brock_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 80
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 60
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: bryan_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: bryan_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 540
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 60
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 60
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_now
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush false
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 0
+cvar gpu_native_truth_clear_attachments false
+cvar gpu_native_truth_dedupe_state false
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_arc_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct false
+cvar gpu_native_truth_alias_direct_rgba16 false
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_alias
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves false
+cvar gpu_native_truth_defer_depth_resolves false
+cvar gpu_native_truth_defer_full_resolves false
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_batch
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces false
+cvar gpu_native_truth_fill_cube_faces false
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 2
+log passlog: match_no_cubes
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 0
+cvar gpu_scene_crowd_cull 0
+wait_frames 2
+log passlog: match_no_crowd_cut
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_alias_direct true
+cvar gpu_native_truth_alias_direct_rgba16 true
+cvar gpu_native_truth_alias_direct_lazy_flush true
+cvar gpu_native_truth_defer_memory_resolves true
+cvar gpu_native_truth_defer_depth_resolves true
+cvar gpu_native_truth_defer_full_resolves true
+cvar gpu_native_truth_texture_only_cube_faces true
+cvar gpu_native_truth_fill_cube_faces true
+cvar gpu_native_frame_dead_glare 1
+cvar gpu_native_truth_clear_attachments true
+cvar gpu_native_truth_dedupe_state true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_cull 2
+wait_frames 60
+log bench: done
+quit

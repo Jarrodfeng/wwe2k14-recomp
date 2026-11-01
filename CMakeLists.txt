@@ -60,6 +60,15 @@ if(ANDROID)
     endforeach()
     # main.cpp holds all our headers in one file: report every error of a pass, not the first 20.
     target_compile_options(wwe2k14 PRIVATE -ferror-limit=0)
+    # Session 77 (XDET_PLAN.md gap 17): no floating-point contraction. clang's default (-ffp-contract=on) fuses a*b+c
+    # into one FMA on ARM64 but cannot on the PC (built without FMA), so our hooks (motion_fix, cinecam, dlaa: 138 float
+    # fused ops in APK x77b, tools/xdet/fused_scan.py) computed different bits per device. Explicit std::fma (the
+    # guest's fmadd: all of the generated code's fused ops) is unchanged; the PC build is not affected.
+    foreach(_wwe2k14_t wwe2k14 wwe2k14_recomp)
+        if(TARGET ${_wwe2k14_t})
+            target_compile_options(${_wwe2k14_t} PRIVATE -ffp-contract=off)
+        endif()
+    endforeach()
     target_link_libraries(wwe2k14 PRIVATE android log)
     # Session 72 (Android drivers, src/android_driver.h): libadrenotools (BSD-2-Clause, thirdparty/libadrenotools) loads a
     # bundled custom Vulkan driver; its hook libraries (libhook_impl.so, libmain_hook.so) go into the APK beside libmain.so.

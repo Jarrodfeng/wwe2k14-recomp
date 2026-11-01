@@ -24,7 +24,9 @@ for line in open(log_path, encoding="utf-8", errors="replace"):
         cands.append((int(m.group(2), 16), int(m.group(3), 16), m.group(1)))
 
 reg = open(os.path.join(GEN, "wwe2k14_register.cpp"), encoding="utf-8").read()
-starts_by_name = {n: int(a, 16) for a, n in re.findall(r"SetFunction\(0x([0-9A-Fa-f]+),\s*(\w+)\)", reg)}
+starts_by_name = {n: int(a, 16) for a, n in re.findall(r"(?:SetFunction|REX_REGISTER_ENTRY)\(0x([0-9A-Fa-f]+),\s*(\w+)\)", reg)}
+if not starts_by_name:
+    raise SystemExit("no function entries in the register file (format changed?)")
 sizes = {}
 for path in glob.glob(os.path.join(GEN, "wwe2k14_recomp.*.cpp")):
     text = open(path, encoding="utf-8").read()

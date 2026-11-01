@@ -1,0 +1,218 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-deadpass): cab86cb01537..0af816bdd6d6 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  0af816b Merge s80-deadpass: the frame structure, part 3 (Session 80, OWN_RENDERER_PLAN.md) - gpu_native_truth_drop_dead_passes (off; on under the game's arc switch): a truth pass that only drew colour pixels whose colour the next pass's first draw clears whole, with nothing recorded in between that reads an image, becomes no-ops (its state commands and timestamps kept; Bryan's entrance: pass 55, Surface 0.705 -> 0.001 ms, frame -2.1%; validation 0, shots byte-identical, T2 PASS); and the color_none fix (a pass's touched flags set once its pass is open: one-draw passes writing colour no longer get STORE_OP_NONE)
+
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 2242b4085509ced5c51e9c6152344416116b2e98..57929e34a07aaadb288c18049d7500d2693fa9e4 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -73,6 +73,51 @@ class DeferredCommandBuffer {
+     }
+     return true;
+   }
++  // wwe2k14 patch (Session 80, gpu_native_truth_drop_dead_passes): whether only commands that read and write no image
++  // or buffer (state commands, timestamps, checkpoints, barriers, no-ops) were recorded from `offset` (a command
++  // boundary) to the stream's end.
++  bool OnlyStateSince(size_t offset) const {
++    size_t at = offset;
++    while (at < command_stream_.size()) {
++      const auto& header = *reinterpret_cast<const CommandHeader*>(command_stream_.data() + at);
++      if (!KeepsLazyChain(header.command) && header.command != Command::kVkPipelineBarrier &&
++          header.command != Command::kNop) {
++        return false;
++      }
++      at += kCommandHeaderSizeElements + header.arguments_size_elements;
++    }
++    return at == command_stream_.size();
++  }
++  // wwe2k14 patch (Session 80, gpu_native_truth_drop_dead_passes): the render pass recorded from the vkCmdBeginRenderPass
++  // whose arguments are at `begin_args_offset` (last_begin_render_pass_offset) to `end_offset` (right after its end)
++  // turned off: its begin, draws and end become kNop; its state commands, timestamps and checkpoints stay (later
++  // commands were recorded relying on the state it set). False (nothing changed) if the range holds anything else
++  // (a barrier, a clear, a query) or is not on command boundaries.
++  bool NopRenderPass(size_t begin_args_offset, size_t end_offset) {
++    if (begin_args_offset == SIZE_MAX || begin_args_offset < kCommandHeaderSizeElements) return false;
++    const size_t begin = begin_args_offset - kCommandHeaderSizeElements;
++    if (begin >= end_offset || end_offset > command_stream_.size()) return false;
++    const auto off = [](Command c) {
++      return c == Command::kVkBeginRenderPass || c == Command::kVkEndRenderPass || c == Command::kVkDraw ||
++             c == Command::kVkDrawIndexed;
++    };
++    size_t at = begin;
++    Command first = Command::kNop, last = Command::kNop;
++    while (at < end_offset) {
++      const auto& header = *reinterpret_cast<const CommandHeader*>(command_stream_.data() + at);
++      if (!off(header.command) && !KeepsLazyChain(header.command) && header.command != Command::kNop) return false;
++      if (at == begin) first = header.command;
++      if (off(header.command)) last = header.command;
++      at += kCommandHeaderSizeElements + header.arguments_size_elements;
++    }
++    if (at != end_offset || first != Command::kVkBeginRenderPass || last != Command::kVkEndRenderPass) return false;
++    for (at = begin; at < end_offset;) {
++      auto& header = *reinterpret_cast<CommandHeader*>(command_stream_.data() + at);
++      at += kCommandHeaderSizeElements + header.arguments_size_elements;
++      if (off(header.command)) header.command = Command::kNop;
++    }
++    return true;
++  }
+   bool PatchBeginRenderPass(size_t offset, VkRenderPass expected, VkRenderPass replacement) {
+     if (offset == SIZE_MAX || offset < kCommandHeaderSizeElements || offset >= command_stream_.size()) return false;
+     const CommandHeader& header =
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index a24ce353dbaa5353a09a25e6f03b4fa1243896d4..1bfb89bf8b491f3f27f6044998333c03cf57ad5f 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -787,6 +787,21 @@ class NativeRenderer {
+     bool depth = false;
+   };
+   std::vector<DeadCopyCandidate> dead_candidates_;
++  // wwe2k14 patch (Session 80, gpu_native_truth_drop_dead_passes): the open truth pass - nothing but colour pixels in its
++  // draws' rectangles (no loads, no draw twins, no memexport, occlusion query, captured positions or own draw) - and the
++  // last such pass that ended, until the next pass opens: its colour image, rectangle and commands' place.
++  bool truth_pass_dead_ok_ = false;
++  int32_t truth_pass_rect_[4] = {};
++  struct DeadPassCandidate {
++    bool valid = false;
++    int16_t color = -1;
++    VkImage image = VK_NULL_HANDLE;
++    int32_t rect[4] = {};
++    size_t begin = SIZE_MAX, end = SIZE_MAX;  // its vkCmdBeginRenderPass's arguments; the stream right after its end
++    uint64_t submission = 0, frame = 0;
++    uint32_t segment = UINT32_MAX;  // its pass log segment
++  };
++  DeadPassCandidate dead_pass_;
+   // wwe2k14 patch (Session 79): whether a deferred resolve writes guest memory in [start, end) - with `info`, other
+   // than into separate rectangles of the same surface.
+   bool TruthDeferredWritesMemory(uint64_t start, uint64_t end, const draw_util::ResolveInfo* info = nullptr) const {
+@@ -1554,6 +1569,9 @@ class NativeRenderer {
+     // Session 80 (gpu_native_truth_drop_dead_copies): copies turned into no-ops (colour, depth), candidates kept because
+     // the texture was used, and no-op attempts refused (not on command boundaries).
+     uint32_t dead_copies[2] = {}, dead_kept_touched = 0, dead_nop_failed = 0;
++    // (gpu_native_truth_drop_dead_passes: passes turned into no-ops; candidates whose next pass cleared their colour but
++    // something was recorded in between, or the no-op was refused.)
++    uint32_t dead_passes = 0, dead_pass_kept = 0;
+     uint32_t dont_care_color = 0, dont_care_depth = 0;  // Session 66 (G2.1): passes opened without loading them
+     // Session 73: passes none of whose draws touched the colour image / the (real) depth image - loaded and stored
+     // for nothing (a tile GPU's bandwidth: validation best practices "redundant-attachment-on-tile").
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index c30f0d7c6a97bc8932cdd90825f7717a1dd2174d..cecede161e00b54f8aee73b2b0df8b892326995c 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -351,6 +351,13 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_drop_dead_copies, false, "GPU/Native",
+                     "turned into no-ops before the submission is replayed - it was read by nothing (Bryan's entrance: "
+                     "the scene saved for a restore NATIVE leaves out, 4 full-screen copies a frame)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_drop_dead_passes, false, "GPU/Native",
++                    "Session 80 (frame structure): a truth pass that loads nothing, leaves its depth alone and has no "
++                    "other effect (memexport, occlusion queries, captured positions) whose colour the next pass's first "
++                    "draw clears whole, with nothing recorded in between that reads an image, is turned into no-ops "
++                    "(its state commands and timestamps kept) - its pixels were read by nothing (Bryan's entrance: one "
++                    "full-screen pass a frame)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_skip_writeback_depth, false, "GPU/Native",
+                     "Session 80 (frame structure): with gpu_native_truth_skip_writeback, texture-only depth copies too - a "
+                     "1x 20e4 depth copy whose depth texture fill holds every texel it copies does not write guest memory "
+@@ -5929,6 +5936,21 @@ void NativeRenderer::EndTruthPass() {
+   } else {
+     cb.CmdVkEndRenderPass();
+   }
++  // Session 80 (gpu_native_truth_drop_dead_passes): a pass that only drew colour pixels - turned off if the next pass
++  // clears them first (TruthRecordDraw).
++  dead_pass_.valid = REXCVAR_GET(gpu_native_truth_drop_dead_passes) && truth_pass_dead_ok_ &&
++                     truth_pass_touched_color_ && !truth_pass_touched_depth_ && truth_pass_real_color_ &&
++                     truth_pass_draws_ && truth_pass_color_ >= 0 && size_t(truth_pass_color_) < truth_images_.size();
++  if (dead_pass_.valid) {
++    dead_pass_.color = truth_pass_color_;
++    dead_pass_.image = truth_images_[truth_pass_color_].image;
++    std::copy(truth_pass_rect_, truth_pass_rect_ + 4, dead_pass_.rect);
++    dead_pass_.begin = truth_pass_begin_offset_;
++    dead_pass_.end = cb.stream_offset();
++    dead_pass_.submission = command_processor_.GetCurrentSubmission();
++    dead_pass_.frame = frame_;
++    dead_pass_.segment = truth_pass_segment_index_;
++  }
+   FrameSlot& slot = slots_[SlotOf(frame_)];
+   if (truth_pass_segment_index_ < slot.segments.size() && slot.queries < QueryLimit()) {
+     FrameSlot::Segment& segment = slot.segments[truth_pass_segment_index_];
+@@ -6100,8 +6122,6 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   const uint32_t gx1 = (uint32_t(rect[2]) + scale_x - 1) / scale_x, gy1 = (uint32_t(rect[3]) + scale_y - 1) / scale_y;
+   const bool writes_color = (draw.color_write_mask & 0xF) != 0 && draw.truth_color >= 0 && c_real;
+   const bool uses_depth = draw.truth_depth >= 0 && d_real;
+-  truth_pass_touched_color_ |= writes_color;  // Session 73
+-  truth_pass_touched_depth_ |= uses_depth;
+   // (The tiles of the last rectangle are kept: most draws of a pass share the scene's whole rectangle.)
+   if (truth_tile_color_ != color || truth_tile_depth_ != depth || !std::equal(rect, rect + 4, truth_tile_rect_)) {
+     truth_tile_c_ = EdramTiles(c_image.base, c_image.pitch_tiles, c_image.is_64bpp(), gx0, gy0, gx1, gy1);
+@@ -6358,6 +6378,29 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT,
+                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+     }
++    // Session 80 (gpu_native_truth_drop_dead_passes): the last pass only drew colour pixels into this pass's colour image,
++    // and this first draw clears all of them (every channel, nothing read under it, the same image - not renamed) with
++    // nothing recorded since that reads or writes an image or buffer (a resolve, store, load, flush or other pass): its
++    // pixels were read by nothing - its begin, draws and end become no-ops (the pass's own timestamps stay outside).
++    if (dead_pass_.valid) {
++      dead_pass_.valid = false;
++      const DeadPassCandidate& p = dead_pass_;
++      const bool clears = !load && !twins && !renamed && draw.fast_clear && writes_color &&
++                          (draw.color_write_mask & 0xF) == 0xF && !PostNeedsDst(draw) && color == p.color &&
++                          truth_images_[color].image == p.image && rect[0] <= p.rect[0] && rect[1] <= p.rect[1] &&
++                          rect[2] >= p.rect[2] && rect[3] >= p.rect[3];
++      if (clears && REXCVAR_GET(gpu_native_truth_drop_dead_passes)) {
++        const bool dead = p.submission == command_processor_.GetCurrentSubmission() && cb.OnlyStateSince(p.end) &&
++                          cb.NopRenderPass(p.begin, p.end);
++        ++(dead ? truth_counts_.dead_passes : truth_counts_.dead_pass_kept);
++        if (dead && p.frame == frame_ && p.segment < slot.segments.size()) slot.segments[p.segment].pass_draws = 0;
++        if (segment_log_frames_ > 0) {
++          REXGPU_INFO("[native][seg] frame {} truth dead pass: colour {} rect {},{}-{},{} cleared by the next pass: {}",
++                      frame_, p.color, p.rect[0], p.rect[1], p.rect[2], p.rect[3],
++                      dead ? "turned off" : "kept (work recorded in between, or refused)");
++        }
++      }
++    }
+     if (query_pool_ && slot_queries_ok_ && slot.queries + 2 <= QueryLimit()) {
+       FrameSlot::Segment& segment = slot.segments.emplace_back();
+       segment.kind = 4;
+@@ -6438,6 +6481,7 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     }
+     truth_pass_lazy_ = lazy;
+     truth_pass_open_ = true;
++    truth_pass_dead_ok_ = !load && !twins;  // Session 80 (gpu_native_truth_drop_dead_passes)
+     truth_pass_draws_ = 0;  // Session 72 (gpu_native_truth_pass_log)
+     truth_pass_touched_color_ = truth_pass_touched_depth_ = false;  // Session 73
+     truth_pass_begin_offset_ = cb.last_begin_render_pass_offset();
+@@ -6541,6 +6585,23 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     truth_pass_d_valid_ |= d_load | d_alias;
+   }
+   }  // (not the fast path)
++  // Session 73: what the pass's draws touch. (Session 80 fix: here, once this draw's pass is open. Set before the pass
++  // change above, a pass's first draw was counted for the pass before it and lost for its own: a pass whose only
++  // colour write was its first draw - a one-draw pass - had its colour kept without a store
++  // (gpu_native_truth_color_none: STORE_OP_NONE after a write leaves the image undefined; a tile GPU loses it).)
++  truth_pass_touched_color_ |= writes_color;
++  truth_pass_touched_depth_ |= uses_depth;
++  // Session 80 (gpu_native_truth_drop_dead_passes): what the pass's draws do besides colour pixels in their rectangle
++  // (the scissor: `rect` without twins), and that rectangle.
++  truth_pass_dead_ok_ = truth_pass_dead_ok_ && !twins && !draw.memexport && !draw.occlusion_query &&
++                        draw.xfb_buffer == VK_NULL_HANDLE && !draw.own_skip_call &&
++                        REXCVAR_GET(gpu_native_truth_debug_gpu_work) == 0;
++  if (!truth_pass_draws_) {
++    std::copy(rect, rect + 4, truth_pass_rect_);
++  } else {
++    truth_pass_rect_[0] = std::min(truth_pass_rect_[0], rect[0]), truth_pass_rect_[1] = std::min(truth_pass_rect_[1], rect[1]);
++    truth_pass_rect_[2] = std::max(truth_pass_rect_[2], rect[2]), truth_pass_rect_[3] = std::max(truth_pass_rect_[3], rect[3]);
++  }
+   // The draw, with everything it binds (the command processor binds its own sets between our draws).
+   // (Session 47, CPU: the command processor bound this draw's sets, with this layout, before the claim - UpdateBindings,
+   // or the repeat path's constants - so they are bound again only after a load pass of ours bound its own set 0.)
+@@ -7215,6 +7276,10 @@ void NativeRenderer::LogTruthCensus() {
+                   "{:.2f}, refused {:.2f}",
+                   pf(c.dead_copies[0]), pf(c.dead_copies[1]), pf(c.dead_kept_touched), pf(c.dead_nop_failed));
+     }
++    if (c.dead_passes || c.dead_pass_kept) {  // Session 80 (gpu_native_truth_drop_dead_passes)
++      REXGPU_INFO("[native][truth] dead passes turned off per frame: {:.2f}; cleared by the next pass but kept {:.2f}",
++                  pf(c.dead_passes), pf(c.dead_pass_kept));
++    }
+     {  // Session 66 (G1.1, gpu_native_truth_drop_dead_resolves): dropped entries, flushes of the deferred batch by reason
+       static constexpr const char* kFlushNames[kDeferFlushReasons] = {
+           "other", "same texture", "not batched", "outside rename", "pass into source", "texture sampled", "frame end",

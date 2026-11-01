@@ -1,0 +1,25 @@
+# Session 77 (XDET_PLAN.md P1.1): check that the candidate SIM regions read sensible values in a Cena vs Undertaker
+# match. Run with --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=139,103
+# --wwe2k14_launch_arena=3 --wwe2k14_launch_skip_entrances=true and a --wwe2k14_det_hash spec holding the candidate
+# regions (+ --wwe2k14_det_hash_raw_every=60); tools\xdet\peek_regions.py decodes the raw dumps. CPU vs CPU (no pad
+# input after the title). Boot presses as in short\launch_boot_check.txt. Fast-forward OK. on_fail quit.
+on_fail quit
+log xdet: peek start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log xdet: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log xdet: in-game sequence loading
+wait_file M3.PAC 7200
+log scene=match
+wait_frames 1200
+log xdet: peek done
+quit

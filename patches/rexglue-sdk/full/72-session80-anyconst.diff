@@ -1,0 +1,52 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-anyconst): cf2b2dec208f..9fd14512b464 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  9fd1451 Merge s80-anyconst: shader_swap kFlagAnyConstants (probes take any guest shader of their hash) + cube textures under canonical bindings kImageCube + fc (Session 80, OWN_RENDERER_PLAN.md W0-W2: the wrestler materials' reflection cubes); only used by registered replacements, nothing changes without one
+
+diff --git a/src/graphics/vulkan/native/shader_swap.cpp b/src/graphics/vulkan/native/shader_swap.cpp
+index 7aab56d9c018a7c3dd03cf78b9e86ca1aafb8789..bbaefac9d321b8b766542ec2538ceec3ccdd6dec 100644
+--- a/src/graphics/vulkan/native/shader_swap.cpp
++++ b/src/graphics/vulkan/native/shader_swap.cpp
+@@ -163,7 +163,7 @@ bool Build(const SpirvShader& shader, std::vector<uint8_t>& out) {
+   const char* name = entry->name.c_str();
+   const Shader::ConstantRegisterMap& constants = shader.constant_register_map();
+   if (constants.float_dynamic_addressing) return Refuse(hash, name, "the guest shader indexes its constants");
+-  for (int i = 0; i < 4; ++i) {
++  for (int i = 0; i < 4 && !(entry->flags & kFlagAnyConstants); ++i) {
+     if (constants.float_bitmap[i] != entry->float_bitmap[i]) {
+       return Refuse(hash, name, "the guest shader uses other float constants than the replacement was written for");
+     }
+@@ -183,10 +183,12 @@ bool Build(const SpirvShader& shader, std::vector<uint8_t>& out) {
+       return false;
+     }
+     const bool is_signed = value >= kImageSigned && value < kImageSigned + 32;
+-    if (!is_signed && !(value >= kImage && value < kImage + 32)) return true;  // (not ours: left as it is)
+-    const uint32_t fc = value - (is_signed ? kImageSigned : kImage);
++    const bool is_cube = value >= kImageCube && value < kImageCube + 32;  // (Session 80)
++    if (!is_signed && !is_cube && !(value >= kImage && value < kImage + 32)) return true;  // (not ours: as it is)
++    const uint32_t fc = value - (is_signed ? kImageSigned : is_cube ? kImageCube : kImage);
++    const xenos::FetchOpDimension dimension = is_cube ? xenos::FetchOpDimension::kCube : xenos::FetchOpDimension::k2D;
+     for (size_t i = 0; i < textures.size(); ++i) {
+-      if (textures[i].fetch_constant == fc && textures[i].dimension == xenos::FetchOpDimension::k2D &&
++      if (textures[i].fetch_constant == fc && textures[i].dimension == dimension &&
+           bool(textures[i].is_signed) == is_signed) {
+         binding = uint32_t(i);
+         return true;
+diff --git a/src/graphics/vulkan/native/shader_swap.h b/src/graphics/vulkan/native/shader_swap.h
+index f0bbc3df68e99841aa240203249211be5236905d..4710809de09a73b393474077d8d58c25feb07330 100644
+--- a/src/graphics/vulkan/native/shader_swap.h
++++ b/src/graphics/vulkan/native/shader_swap.h
+@@ -27,9 +27,14 @@ namespace rex::graphics::vulkan::shader_swap {
+ // Set 3: the unsigned 2D image of fetch constant fc at kImage + fc, the signed one at kImageSigned + fc, the first
+ // sampler of fc at kSampler + fc.
+ constexpr uint32_t kImage = 1000, kImageSigned = 1100, kSampler = 1200;
++// Session 80: the unsigned cube image of fetch constant fc at kImageCube + fc (a samplerCube / textureCube).
++constexpr uint32_t kImageCube = 1300;
+ 
+ // Registration flags.
+ constexpr uint32_t kFlagOwnEpilogue = 1;
++// Session 80 (probes): the replacement reads no float constants - any guest shader of the hash takes it (no check of
++// the registered float registers against the translation's).
++constexpr uint32_t kFlagAnyConstants = 2;
+ 
+ // Thread-safe; a later registration of the same guest shader replaces the earlier one for modules made after it.
+ bool Register(uint64_t guest_hash, const uint32_t* words, size_t count, const uint8_t* float_registers,

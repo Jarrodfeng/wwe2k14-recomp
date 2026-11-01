@@ -1,0 +1,8 @@
+# Session 77 wider coverage (XDET_PLAN.md): Royal Rumble (type 23): Cena (139, pad 1) first, the game fills the other entrants, the Royal Rumble arena (22). Quick Match from numbers (no capture), entrances skipped.
+# Record with tools\xdet\run_stageA.ps1 -Record xdet_cov_rumble -Scenario cov_rumble (route: cover_3600.txt, or
+# cover_12000.txt for cov_long / cov_rumble).
+--wwe2k14_launch=@quick
+--wwe2k14_quick_type=23
+--wwe2k14_launch_participants=139:0
+--wwe2k14_launch_arena=22
+--wwe2k14_launch_skip_entrances=true

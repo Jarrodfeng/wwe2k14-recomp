@@ -38,7 +38,10 @@
 #include "../native_fn.h"
 #include "../native_skin.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_skin_3bone, WWE2K14_NF_X86_ON, "wwe2k14",
+// Session 77 (Jarrod 2026-10-31 ~12:20: "Yes, turn it on"): on for every platform. ARM64 verified byte-exact in verify
+// mode on the phone (run 127: 35,420 calls, 0 mismatching bytes, 1.60x the recompiled loop), x86-64 in Session 66
+// (4313); natives on vs off leave every hashed layer equal (PC 4874 / 4903), phone = PC with it on (126 / 4903).
+REXCVAR_DEFINE_STRING(wwe2k14_nf_skin_3bone, "on", "wwe2k14",
                       "Session 66: native three-bone skinning loop sub_82508958 (src/nf/skin_3bone.h): off | verify | on");
 
 namespace wwe2k14::nf_skin_3bone {

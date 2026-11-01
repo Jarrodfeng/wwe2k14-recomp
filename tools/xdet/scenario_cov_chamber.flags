@@ -1,0 +1,8 @@
+# Session 77 wider coverage (XDET_PLAN.md): Elimination Chamber (type 39): Cena (139, pad 1), Rock (100), Austin (101), Kane (107), Big Show (125), Mysterio (123), the Elimination Chamber arena (21). Quick Match from numbers (no capture), entrances skipped.
+# Record with tools\xdet\run_stageA.ps1 -Record xdet_cov_chamber -Scenario cov_chamber (route: cover_3600.txt, or
+# cover_12000.txt for cov_long / cov_rumble).
+--wwe2k14_launch=@quick
+--wwe2k14_quick_type=39
+--wwe2k14_launch_participants=139:0,100,101,107,125,123
+--wwe2k14_launch_arena=21
+--wwe2k14_launch_skip_entrances=true

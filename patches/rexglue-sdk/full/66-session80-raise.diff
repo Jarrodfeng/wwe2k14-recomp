@@ -1,0 +1,48 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-raise): e799310c06be..b73d515b7747 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  b73d515 Merge s80-raise: gpu_native_pipeline_workers_raise (Session 80, off) - the quiet workers raised when a skipped draw's pipeline is queued; no gain measured on the PC (crowded-CPU rounds 5383-5394, cold 4-thread runs), a lever for Intel
+
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index d7df1ce76a5d157b6efed2d972d9a95dfa9b8b80..aac7e2ccf2d8885b48f625673192bbd1a307a925 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -307,6 +307,16 @@ REXCVAR_DEFINE_BOOL(gpu_native_pipeline_workers_quiet, true, "GPU/Native",
+                     "Session 70 (v0.2.8's slow entrances): the NATIVE pipeline workers run below normal priority, so "
+                     "the warm-up of stored pipelines never takes CPU time from the game's own threads; raised to "
+                     "normal while the command thread waits for one of them. Windows; read when the workers start");
++// wwe2k14 patch (Session 80, HD 520 arc): a draw whose pipeline is not made is skipped, not waited for, so the raise
++// above never happened for it: with the CPU busy the quiet workers sat in their below-normal warm-up jobs, the draw's
++// own job (queued first) waited behind them, and a scene skipped draws for seconds (this PC with other games running:
++// 287,233 and 5,032 skipped draws in two runs; the same scenes alone: 8). The HD 520 has one worker (4 threads / 3).
++// Off by default (Jarrod, 2026-11-01: "Merge, switched off"): no gain measured on this PC (crowded-CPU rounds and a
++// cold-cache 4-thread run: the long skip stretches did not recur) - a lever for an Intel measurement.
++REXCVAR_DEFINE_BOOL(gpu_native_pipeline_workers_raise, false, "GPU/Native",
++                    "Session 80: with gpu_native_pipeline_workers_quiet, the workers busy with the warm-up are raised "
++                    "to normal priority when a skipped draw's pipeline is queued, so its job starts sooner (each "
++                    "worker drops back at its next warm-up job). Windows; off (no gain measured on the PC)");
+ REXCVAR_DEFINE_BOOL(gpu_native_precompile, false, "GPU/Native",
+                     "Session 70 (the launcher's precompile): the stored NATIVE pipelines made as fast as the PC allows "
+                     "- no per-frame budget, a worker per CPU thread at normal priority, retries every 10 frames; "
+@@ -1989,6 +1999,22 @@ VkPipeline NativeRenderer::GetPipeline(const Draw& draw, bool* pending) {
+       // (Session 69 review: a draw's own job ahead of the stored pipelines' backlog - it is skipped until made.)
+       pipeline_jobs_.push_front({key, draw, {spec_values[0], spec_values[1], spec_values[2]}});
+       pipeline_cv_.notify_one();
++#if REX_PLATFORM_WIN32
++      // Session 80 (gpu_native_pipeline_workers_raise): the workers in a warm-up job finish it at normal priority, so
++      // this job (at the front) starts as soon as one is free; each worker sets its own priority at its next job.
++      if (REXCVAR_GET(gpu_native_pipeline_workers_quiet) && REXCVAR_GET(gpu_native_pipeline_workers_raise) &&
++          !pipeline_running_.empty()) {
++        for (const auto& running : pipeline_running_) {
++          if (running.second) SetThreadPriority(static_cast<HANDLE>(running.second), THREAD_PRIORITY_NORMAL);
++        }
++        static std::atomic<uint32_t> raises{0};
++        const uint32_t n = raises.fetch_add(1, std::memory_order_relaxed) + 1;
++        if ((n & (n - 1)) == 0) {  // (1, 2, 4, 8, ...)
++          REXGPU_INFO("[native] pipeline workers raised for a skipped draw's pipeline: {} times ({} running)", n,
++                      pipeline_running_.size());
++        }
++      }
++#endif
+     }
+     return VK_NULL_HANDLE;
+   }

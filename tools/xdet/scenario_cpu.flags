@@ -1,0 +1,10 @@
+# Session 77 stage A scenario "cpu" (the name is historical): Cena (139) on controller 1 vs Undertaker (103, CPU),
+# Quick Match type 0 built from numbers (no capture: the tester path), arena 3, entrances skipped. Recording
+# xdet_cena_taker_a (run 4840). Cena IS player-controlled: without the walk at 2679 the play diverges at 2685 (runs
+# 4874 / 4875), as the pad recording does. (An earlier note said "CPU in effect": wrong - the inputs removed then fell
+# before player control starts, ~2640, or while Cena was mid-move.)
+--wwe2k14_launch=@quick
+--wwe2k14_quick_type=0
+--wwe2k14_launch_participants=139:0,103
+--wwe2k14_launch_arena=3
+--wwe2k14_launch_skip_entrances=true

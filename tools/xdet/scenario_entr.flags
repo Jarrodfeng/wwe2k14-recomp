@@ -1,0 +1,7 @@
+# Session 77 stage 2 (XDET_PLAN.md): stage A's Quick Match with both entrances. Cena (139) on controller 1 vs
+# Undertaker (103, CPU), Quick Match type 0 (no capture), arena 3. Route tools\xdet\cena_taker_entr.txt.
+--wwe2k14_launch=@quick
+--wwe2k14_quick_type=0
+--wwe2k14_launch_participants=139:0,103
+--wwe2k14_launch_arena=3
+--wwe2k14_launch_skip_entrances=false

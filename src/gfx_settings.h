@@ -16,7 +16,7 @@
 //                3 30 everywhere (Session 37: weak PCs; the launcher only)
 //   refresh_hz   high refresh: game steps per second (0 = the monitor's)
 //   original_look  the original 720p / 4x MSAA / 30 fps entrance look (Advanced)
-//   texture_filter 0 standard (the forced 4x anisotropic filtering every run had), 1 8x, 2 16x (Session 33)
+//   texture_filter 0 standard (the game's own filtering since Session 80; the forced 4x before), 1 8x, 2 16x (Session 33)
 //   renderer     0 accurate, 1 light (Session 37), 2 native (Session 41: accurate + the native renderer). Session 51
 //                (Jarrod, 2026-10-22: "NATIVE for everyone"): 2 is the default; ACCURATE and LIGHT are fallbacks
 //   settings_version  Session 51: 2 = the file has had the one-time move of the old default renderer (0) to NATIVE
@@ -598,6 +598,17 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // records no GPU work (1-2 a frame in Brock's entrance once its restore is left out). check_item skip_repeat_1440
       // / _720: pictures 6 / 6, hashes 467 / 467 (4590-4597); pass-log A/B 4598: Brock -3.4%.
       {"gpu_native_truth_skip_repeat_resolves", "true"},
+      // Session 80 (Jarrod, 2026-11-01: "yes on fill safety"): a batched texture fill (Session 52 / 59) that reads a
+      // renamed image outside its rename rectangle is not deferred - a rare-ordering gap the Session 79 review found
+      // (stale pixels possible). Only adds a flush in that ordering; under the arc switch: shots 4 / 4, 500 / 500
+      // resolve hashes, both replays MATCH (5174-5178).
+      {"gpu_native_truth_fill_rename_check", "true"},
+      // Session 80 look lever (Jarrod, 2026-11-01, the review sheets: "I can barely tell the difference", for
+      // everyone): a thinner distant crowd - of each crowd run's members farther than its median view depth, every
+      // other one not drawn (the same members each frame; ~15% of the queued members). It needs Session 70's exact
+      // crowd cull (members entirely outside the draw's own view not drawn).
+      {"gpu_scene_crowd_cull", "2"},
+      {"gpu_scene_crowd_thin", "100"},
   };
 }
 

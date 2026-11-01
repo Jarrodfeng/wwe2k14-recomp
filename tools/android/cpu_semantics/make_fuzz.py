@@ -39,11 +39,11 @@ for i, (name, body) in enumerate(blocks):
             if a and not trap:
                 lhs = a.group(1)
                 if '.f64' in lhs:
-                    pre.append(f'    {lhs} = fz::RandF64(rng);')
+                    pre.append(f'    {lhs} = fz::RandF64(rng, band);')
                 elif '.u32[' in lhs:
-                    pre.append(f'    {lhs} = fz::RandV32(rng);')
+                    pre.append(f'    {lhs} = fz::RandV32(rng, band);')
                 else:
-                    pre.append(f'    {lhs} = fz::Rand64(rng, {"true" if lhs.startswith("ctx.f") else "false"});')
+                    pre.append(f'    {lhs} = fz::Rand64(rng, {"true" if lhs.startswith("ctx.f") else "false"}, band);')
             elif line.strip():
                 pre.append(line)
         else:
@@ -55,9 +55,14 @@ for i, (name, body) in enumerate(blocks):
     fid = f'fz_{i}'
     funcs.append((fid, name))
     out.append(f'static void {fid}(uint8_t* memory, fz::Rng& rng, FILE* f) {{')
-    out.append(f'  for (int round = 0; round < {rounds}; ++round) {{')
+    # Session 77: three bands of ROUNDS rounds (fuzz_support.h): 0 random (the Session 73 stream, unchanged), 1 boundary
+    # values only, 2 random with the guest rounding mode set per round (nearest, zero, +inf, -inf in turn). Each round
+    # starts from round-to-nearest unless band 2 sets another (a test's own mtfsf must not leak into the next round).
+    out.append(f'  for (int round = 0; round < {3 * rounds}; ++round) {{')
+    out.append(f'    const int band = round / {rounds};')
     out.append('    PPCContext ctx{};')
     out.append('    ctx.fpscr.loadFromHost();')
+    out.append('    ctx.fpscr.storeFromGuest(band == 2 ? uint32_t(round & 3) : 0u);')
     out.extend(pre)
     out.append(f'    {fn}(ctx, memory);')
     out.append(f'    std::fprintf(f, "{name} %d", round);')
@@ -72,4 +77,4 @@ for fid, name in funcs:
 out.append('};')
 out.append(f'const int fz::kCaseCount = {len(funcs)};')
 open(out_path, 'w', encoding='utf-8', newline='\n').write('\n'.join(out) + '\n')
-print(f'{len(funcs)} cases x {rounds} rounds -> {out_path}')
+print(f'{len(funcs)} cases x {3 * rounds} rounds (3 bands of {rounds}) -> {out_path}')

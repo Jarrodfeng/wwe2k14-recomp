@@ -2,6 +2,8 @@
 # generated instruction tests (build_ppc_tests.ps1 first) into random-input runs; this builds them with the game's flags
 # for both (x86: clang -O3 -msse4.1; ARM64: NDK -O3 -march=armv8.2-a, static, run under QEMU in Docker), and diffs
 # every output register.
+# Session 77: each test runs 3 x Rounds rounds (make_fuzz.py: random, boundary values, random with each rounding
+# mode); tools\android\cpu_semantics\classify_fuzz.py separates NaN-bit-only lines from real differences.
 #   pwsh -File tools\android\cpu_semantics\run_fuzz.ps1 [-Rounds 100]
 param([int]$Rounds = 100)
 $ErrorActionPreference = 'Stop'

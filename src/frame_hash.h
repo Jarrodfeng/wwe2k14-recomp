@@ -17,7 +17,30 @@
 //               characters of slots 0/1/6 (3840 bytes each), motion camera (1024 bytes). They differ between two
 //               boots whenever the heap layout differs, whatever the game state.
 //     legacy    the exact 17-region set used by runs 244-251 (for reproducing them).
+//     sim       Session 77 (XDET_PLAN.md, cross-device): what 'default' does not cover, checked in a Cena vs Undertaker
+//               match (run 4837): dist = the 9x9 x/z distance table 0x837683D8 (sub_82666310, determinism.md Result 5),
+//               p0 / p1 / p6 / p7 / p8 = the position vector of the slot 0 / 1 / 6 / 7 / 8 character
+//               ([char+176], bone 2's translation: x, y, z, 1), shown = the shown camera's view block
+//               ([[0x836F3AA8]+1392]+16, its documented first 176 of 272 bytes: two matrices, FOV, derived values;
+//               camera.md), camout = the composer's output matrix + FOV ([0x836F3AA8]+1488, 68 bytes),
+//               c0d / c1d / refd = char +2808 (angle) / +2812 (distance to the
+//               opponent), lcg5 = the small fixed-seed LCG 0x835E4CD0 (rng.md row 8).
 //   "1" / "true" = default. Example: --wwe2k14_det_hash=default,objects (what tools/determinism/run_det.ps1 uses).
+// Session 77 (cross-device, all default off / unchanged on Windows):
+// --wwe2k14_det_hash_dir=DIR      where det_NNN.csv / .bin go (default: out/harness/determinism next to out/build on
+//                                 Windows; <working folder>/logs/det elsewhere: the app's files folder on Android).
+// --wwe2k14_det_hash_v2=true      cells say why a region was not hashed: '0' = a pointer in its chain was null
+//                                 (e.g. an empty slot), '!' = the memory was not readable (instead of '-' for both);
+//                                 '# xdet ...' lines after line 1 give the platform, CPU and build of the run;
+//                                 column 'vb' (first) = the det vblank count at the frame (scheduler trace key);
+//                                 '# xdet renderer:' = the effective renderer (SDK), and '# xdet changed / timeouts /
+//                                 renderer at frame F:' lines before frame F's row when a setting changed, a det vblank
+//                                 timed out (SDK counter) or the renderer changed mid-run.
+// --wwe2k14_det_poke=FRAME:CHAIN:XOR   test only (the comparers' sensitivity check): at guest frame FRAME, before the
+//                                 hash, XOR the big-endian word at CHAIN (ADDR[>OFF...], as in a region) with XOR.
+//                                 A comparison must then show a difference at exactly FRAME. Logs "[dethash] poke".
+// Off Windows there is no SEH: every page of a copy is checked in the guest page table first (guest_read.h), so a
+// freed region gives a not-readable cell instead of a crash.
 // The spec is parsed at the first frame with the setting on (later changes are ignored). Once per guest frame
 // (VdSwap, before the swap is forwarded) each region is copied (under __try/__except, so memory that is freed while
 // it is read gives "-" instead of a crash), masked, hashed with 64-bit FNV-1a, and one CSV row is
@@ -30,6 +53,8 @@
 // --wwe2k14_det_hash_raw_every=N (default 0 = off) also appends the masked bytes of every region every N frames to
 // det_NNN.bin (record: "DETR", u64 frame, u32 region count, then per region u32 length + bytes; length 0 when
 // unreadable), so a divergence can be traced to byte offsets with tools/determinism/det_compare.py.
+// Session 77: --wwe2k14_det_hash_raw_from / _raw_to=F limit the dumps to frames F.. / ..F (0 = no limit), so large
+// regions can be dumped around one frame only.
 //
 // Region sources (addresses from db/rng.json, docs/systems/match_state.md, db/match_state.json and
 // docs/systems/camera.md; nothing here is guessed):
@@ -63,6 +88,7 @@
 #pragma once
 
 #include <rex/cvar.h>
+#include <rex/det.h>
 #include <rex/logging.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
@@ -75,6 +101,7 @@
 #include <chrono>
 #include <ctime>
 #include <filesystem>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -93,6 +120,8 @@
 #endif
 
 #include "frame_stats.h"
+#include "guest_read.h"
+#include "xdet_check.h"  // Session 77 (P7): the identity line
 
 REXCVAR_DEFINE_STRING(wwe2k14_det_hash, "", "wwe2k14",
                       "Debug (determinism tests): hash guest memory regions once per frame and write "
@@ -102,6 +131,20 @@ REXCVAR_DEFINE_STRING(wwe2k14_det_hash, "", "wwe2k14",
 REXCVAR_DEFINE_INT32(wwe2k14_det_hash_raw_every, 0, "wwe2k14",
                      "Debug: with --wwe2k14_det_hash, also dump the (masked) region bytes every N frames to "
                      "det_NNN.bin (0 = off)");
+REXCVAR_DEFINE_INT32(wwe2k14_det_hash_raw_from, 0, "wwe2k14",
+                     "Session 77: with --wwe2k14_det_hash_raw_every, dump only from this guest frame on (0 = from the "
+                     "start)");
+REXCVAR_DEFINE_INT32(wwe2k14_det_hash_raw_to, 0, "wwe2k14",
+                     "Session 77: with --wwe2k14_det_hash_raw_every, dump only up to this guest frame (0 = to the end)");
+REXCVAR_DEFINE_STRING(wwe2k14_det_hash_dir, "", "wwe2k14",
+                      "Session 77: folder for det_NNN.csv / .bin (default: out/harness/determinism on Windows, "
+                      "<working folder>/logs/det elsewhere)");
+REXCVAR_DEFINE_BOOL(wwe2k14_det_hash_v2, false, "wwe2k14",
+                    "Session 77 (cross-device): '0' = null pointer in a region's chain, '!' = not readable (instead "
+                    "of '-' for both), and '# xdet' platform / build lines after line 1");
+REXCVAR_DEFINE_STRING(wwe2k14_det_poke, "", "wwe2k14",
+                      "Session 77, test only: FRAME:ADDR[>OFF...]:XOR = at guest frame FRAME, before the hash, XOR "
+                      "the big-endian word there (the comparers' sensitivity check)");
 
 namespace wwe2k14 {
 
@@ -112,11 +155,15 @@ class FrameHash {
     if (spec.empty()) return;
     if (!opened_) Open(spec);
     if (!csv_) return;
+    if (v2_) TrackChanges(frame);
+    if (poke_.frame == frame) Poke();
     const auto t0 = std::chrono::steady_clock::now();
     std::chrono::steady_clock::duration t_read{};
     std::string row = std::to_string(frame);
     const int32_t raw_every = REXCVAR_GET(wwe2k14_det_hash_raw_every);
-    const bool raw = bin_ && raw_every > 0 && (frame % uint64_t(raw_every)) == 0;
+    const int32_t raw_from = REXCVAR_GET(wwe2k14_det_hash_raw_from), raw_to = REXCVAR_GET(wwe2k14_det_hash_raw_to);
+    const bool raw = bin_ && raw_every > 0 && (frame % uint64_t(raw_every)) == 0 &&
+                     (raw_from <= 0 || frame >= uint64_t(raw_from)) && (raw_to <= 0 || frame <= uint64_t(raw_to));
     if (raw) {
       const uint32_t count = uint32_t(regions_.size());
       std::fwrite("DETR", 1, 4, bin_);
@@ -124,11 +171,18 @@ class FrameHash {
       std::fwrite(&count, sizeof(count), 1, bin_);
     }
     char hex[24];
+    if (v2_) {
+      // Session 77: column 'vb' = the det vblank count at this frame (the scheduler trace's line key), so a
+      // schedule difference (by vblank) can be put next to the first differing frame. 16 hex digits like a hash.
+      std::snprintf(hex, sizeof(hex), ",%016llx", static_cast<unsigned long long>(rex::det::Vblanks()));
+      row += hex;
+    }
     if (region_us_.size() != regions_.size()) region_us_.assign(regions_.size(), 0.0);
     for (size_t ri = 0; ri < regions_.size(); ++ri) {
       Region& r = regions_[ri];
       const auto tr = std::chrono::steady_clock::now();
-      const bool ok = Read(r, frame);
+      const ReadResult rr = Read(r, frame);
+      const bool ok = rr == kRead;
       const auto dr = std::chrono::steady_clock::now() - tr;
       t_read += dr;
       region_us_[ri] += std::chrono::duration<double, std::micro>(dr).count();
@@ -140,6 +194,8 @@ class FrameHash {
         }
         std::snprintf(hex, sizeof(hex), ",%016llx", static_cast<unsigned long long>(h));
         row += hex;
+      } else if (v2_) {
+        row += rr == kNullLink ? ",0" : ",!";  // Session 77: an empty slot is a value, a failed read is not
       } else {
         row += ",-";
       }
@@ -242,35 +298,78 @@ class FrameHash {
     if (end > 0x7F000000ull && guest < 0x80000000u) return false;
     auto* host = REX_KERNEL_MEMORY()->TranslateVirtual<const uint8_t*>(guest);
     if (!host) return false;
+#ifndef _WIN32
+    // Session 77: no SEH here (a faulting copy would end the app): the guest page table for every 4 KB page first.
+    for (uint64_t p = guest & ~0xFFFull; p < end; p += 0x1000) {
+      if (!GuestWordReadableFast(uint32_t(p < guest ? guest : p))) return false;
+    }
+#endif
     if (careful && !Readable(host, length)) return false;
     return SafeCopy(dst, host, length);
   }
 
+  enum ReadResult { kRead, kNullLink, kUnreadable };
+
   // Resolves the region's pointer chain and copies its (masked) bytes into buf_. After a faulting copy the region
   // is checked with VirtualQuery for the next 600 frames (a bad chain faults at most once per 600 frames).
-  bool Read(Region& r, uint64_t frame) {
+  ReadResult Read(Region& r, uint64_t frame) {
     const bool careful = frame < r.careful_until;
     uint32_t address = r.address;
     for (uint32_t off : r.offsets) {
-      if ((address & 3) != 0) return false;
+      if ((address & 3) != 0) return kUnreadable;
       uint8_t w[4];
       if (!CopyGuest(address, 4, w, careful)) {
         if (!careful) r.careful_until = frame + 600;
-        return false;
+        return kUnreadable;
       }
       const uint32_t value = (uint32_t(w[0]) << 24) | (uint32_t(w[1]) << 16) | (uint32_t(w[2]) << 8) | uint32_t(w[3]);
-      if (value == 0) return false;
+      if (value == 0) return kNullLink;
       address = value + off;
     }
     if (buf_.size() < r.length) buf_.resize(r.length);
     if (!CopyGuest(address, r.length, buf_.data(), careful)) {
       if (!careful) r.careful_until = frame + 600;
-      return false;
+      return kUnreadable;
     }
     if (!r.mask.empty()) {
       for (uint32_t i = 0; i < r.length; ++i) buf_[i] &= r.mask[i];
     }
-    return true;
+    return kRead;
+  }
+
+  // Session 77: --wwe2k14_det_poke (parsed in Open): XOR one big-endian guest word at the chain's address.
+  struct PokeSpec {
+    uint64_t frame = ~0ull;
+    Region chain;  // address + offsets; length 4
+    uint32_t xor_mask = 0;
+  };
+  void Poke() {
+    uint32_t address = poke_.chain.address;
+    for (uint32_t off : poke_.chain.offsets) {
+      uint8_t w[4];
+      if ((address & 3) != 0 || !CopyGuest(address, 4, w, false)) {
+        REXLOG_WARN("[wwe2k14][dethash] poke at frame {}: chain not readable", poke_.frame);
+        return;
+      }
+      const uint32_t value = (uint32_t(w[0]) << 24) | (uint32_t(w[1]) << 16) | (uint32_t(w[2]) << 8) | uint32_t(w[3]);
+      if (value == 0) {
+        REXLOG_WARN("[wwe2k14][dethash] poke at frame {}: null pointer in the chain", poke_.frame);
+        return;
+      }
+      address = value + off;
+    }
+    uint8_t w[4];
+    if ((address & 3) != 0 || !CopyGuest(address, 4, w, false)) {
+      REXLOG_WARN("[wwe2k14][dethash] poke at frame {}: 0x{:08X} not readable", poke_.frame, address);
+      return;
+    }
+    const uint32_t before = (uint32_t(w[0]) << 24) | (uint32_t(w[1]) << 16) | (uint32_t(w[2]) << 8) | uint32_t(w[3]);
+    const uint32_t after = before ^ poke_.xor_mask;
+    auto* host = REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(address);
+    host[0] = uint8_t(after >> 24), host[1] = uint8_t(after >> 16), host[2] = uint8_t(after >> 8),
+    host[3] = uint8_t(after);
+    REXLOG_WARN("[wwe2k14][dethash] poke at frame {}: 0x{:08X} {:08X} -> {:08X} (test: the game is changed from here)",
+                poke_.frame, address, before, after);
   }
 
   static bool ParseNumber(const std::string& s, bool hex_default, uint32_t* out) {
@@ -305,10 +404,17 @@ class FrameHash {
       "glob=0x836F38D0:576,gm=0x8376AAF4:14600,judge=0x83767B6C>0:512,c0=0x836F38D0>0:3840,"
       "c1=0x836F38D4>0:3840,ref=0x836F38E8>0:3840,cam=0x836F3ABC>0:1024";
 
+  // Session 77: what 'default' misses for a cross-device claim (sources in the header; values checked in run 4837).
+  static constexpr const char* kSimSpec =
+      "dist=0x837683D8:324,p0=0x836F38D0>176>0:16,p1=0x836F38D4>176>0:16,p6=0x836F38E8>176>0:16,"
+      "p7=0x836F38EC>176>0:16,p8=0x836F38F0>176>0:16,shown=0x836F3AA8>1392>16:272+0/176,camout=0x836F3AA8>1488:68,"
+      "c0d=0x836F38D0>2808:8,c1d=0x836F38D4>2808:8,refd=0x836F38E8>2808:8,lcg5=0x835E4CD0:4";
+
   static const char* NamedSet(const std::string& item) {
     if (item == "default" || item == "1" || item == "true") return kDefaultSpec;
     if (item == "objects") return kObjectsSpec;
     if (item == "legacy") return kLegacySpec;
+    if (item == "sim") return kSimSpec;
     return nullptr;
   }
 
@@ -441,16 +547,135 @@ class FrameHash {
     return true;
   }
 
+  // Session 77: --wwe2k14_det_poke=FRAME:ADDR[>OFF...]:XOR.
+  void ParsePoke() {
+    const std::string s = REXCVAR_GET(wwe2k14_det_poke);
+    if (s.empty()) return;
+    const size_t a = s.find(':'), b = s.rfind(':');
+    uint32_t frame = 0, mask = 0;
+    bool good = a != std::string::npos && b != a && ParseNumber(s.substr(0, a), false, &frame) &&
+                ParseNumber(s.substr(b + 1), true, &mask) && mask != 0;
+    std::stringstream parts(good ? s.substr(a + 1, b - a - 1) : std::string());
+    std::string part;
+    bool first = true;
+    while (good && std::getline(parts, part, '>')) {
+      uint32_t v = 0;
+      good = ParseNumber(part, first, &v);
+      if (first) poke_.chain.address = v, first = false;
+      else poke_.chain.offsets.push_back(v);
+    }
+    if (!good || first) {
+      REXLOG_WARN("[wwe2k14][dethash] ignoring --wwe2k14_det_poke='{}' (want FRAME:ADDR[>OFF...]:XOR)", s);
+      return;
+    }
+    poke_.frame = frame;
+    poke_.xor_mask = mask;
+    REXLOG_WARN("[wwe2k14][dethash] poke armed: frame {}, 0x{:08X} with {} dereference(s), xor 0x{:08X} (TEST RUN)",
+                frame, poke_.chain.address, poke_.chain.offsets.size(), mask);
+  }
+
+  // Session 77: '# xdet' lines after line 1 (det_compare.py skips '#' lines): what ran, for cross-device pairs.
+  static std::string PlatformLines() {
+    std::string out = "# xdet platform=";
+#if defined(__ANDROID__)
+    out += "android";
+#elif defined(_WIN32)
+    out += "windows";
+#else
+    out += "posix";
+#endif
+#if defined(__aarch64__) || defined(_M_ARM64)
+    out += " arch=arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    out += " arch=x86-64";
+#else
+    out += " arch=other";
+#endif
+    // (Session 77: the natives' effective values too: their defaults changed between builds and differ by platform,
+    // and the modified line lists only values that differ from this build's default.)
+    for (const char* name : {"wwe2k14_fixed_seed", "wwe2k14_replay_play", "wwe2k14_replay_record", "det_frames",
+                             "det_serial", "wwe2k14_det_poke", "wwe2k14_native_skin", "wwe2k14_nf_skin_3bone",
+                             "wwe2k14_replay_guard"}) {
+      const std::string v = rex::cvar::GetFlagByName(name);
+      out += std::string(" ") + name + "=" + (v.empty() ? "-" : v);
+    }
+    // Session 77 (P7): which build, game files and profile this came from (src/xdet_check.h).
+    if (!xdet_check::Identity().empty()) out += "\n# xdet identity: " + xdet_check::Identity();
+    out += "\n# xdet modified:";
+    for (const auto& [name, v] : Settings()) out += " " + name + "=" + v;
+    // Session 77 (phone session): what the renderer really chose (render_target_path_vulkan=fsi on a phone without
+    // interlock runs host render targets), and that this file also marks mid-run changes ('# xdet ... at frame F').
+    const std::string renderer = rex::det::RendererInfo();
+    out += "\n# xdet renderer: " + (renderer.empty() ? std::string("-") : renderer);
+    out += "\n# xdet track: settings timeouts renderer";
+    return out + "\n";
+  }
+
+  // The modified settings (value != compiled default), value spaces and commas as '_' (one token per setting).
+  static std::map<std::string, std::string> Settings() {
+    std::map<std::string, std::string> out;
+    for (const std::string& name : rex::cvar::ListModifiedFlags()) {
+      std::string v = rex::cvar::GetFlagByName(name);
+      for (char& c : v) c = (c == ' ' || c == ',') ? '_' : c;
+      out[name] = v;
+    }
+    return out;
+  }
+
+  // Session 77 (comparer skeptics + the phone session): '# xdet ... at frame F' lines before frame F's row when a
+  // setting changed (a route's cvar step, the GRAPHICS menu, code), a det vblank fired on a timeout (the SDK's counter:
+  // the log line can be filtered or cut), or the effective renderer changed. The first-frame snapshot alone missed all
+  // three. Cheap: two counters and a string per frame; the settings are listed only when the change count moved.
+  void TrackChanges(uint64_t frame) {
+    if (const uint64_t n = rex::cvar::ChangeCount(); n != cvar_changes_) {
+      cvar_changes_ = n;
+      std::map<std::string, std::string> now = Settings();
+      std::string diff;
+      for (const auto& [name, v] : now) {
+        auto it = settings_.find(name);
+        if (it == settings_.end() || it->second != v) diff += " " + name + "=" + v;
+      }
+      for (const auto& [name, v] : settings_) {
+        if (!now.count(name)) diff += " " + name + "=(default)";
+      }
+      settings_ = std::move(now);
+      if (!diff.empty()) Line("changed", frame, diff.substr(1));
+    }
+    if (const uint64_t t = rex::det::VblankTimeouts(); t != timeouts_) {
+      Line("timeouts", frame, "total " + std::to_string(t) + " (+" + std::to_string(t - timeouts_) + ")");
+      timeouts_ = t;
+    }
+    if (std::string r = rex::det::RendererInfo(); r != renderer_) {
+      Line("renderer", frame, r.empty() ? "-" : r);
+      renderer_ = std::move(r);
+    }
+  }
+  void Line(const char* what, uint64_t frame, const std::string& text) {
+    const std::string line = std::string("# xdet ") + what + " at frame " + std::to_string(frame) + ": " + text + "\n";
+    std::fwrite(line.data(), 1, line.size(), csv_);
+  }
+
   void Open(const std::string& spec) {
     opened_ = true;
+    v2_ = REXCVAR_GET(wwe2k14_det_hash_v2);
     Parse(spec, 0);
     if (regions_.empty()) return;
+    ParsePoke();
     const int number = CurrentLogNumber();
     const std::filesystem::path exe = ExePath();
     const std::string folder = exe.parent_path().filename().string();
     std::error_code ec;
+    const std::string given_dir = REXCVAR_GET(wwe2k14_det_hash_dir);
+#ifdef _WIN32
     const std::filesystem::path dir =
-        std::filesystem::weakly_canonical(exe.parent_path() / ".." / ".." / "harness" / "determinism", ec);
+        given_dir.empty()
+            ? std::filesystem::weakly_canonical(exe.parent_path() / ".." / ".." / "harness" / "determinism", ec)
+            : std::filesystem::path(given_dir);
+#else
+    // Session 77: the working folder is the app's files folder on Android (writable; <exe>/../.. is not).
+    const std::filesystem::path dir =
+        given_dir.empty() ? std::filesystem::current_path() / "logs" / "det" : std::filesystem::path(given_dir);
+#endif
     std::filesystem::create_directories(dir, ec);
     char num[16];
     std::snprintf(num, sizeof(num), "%03d", number < 0 ? 0 : number);
@@ -471,10 +696,17 @@ class FrameHash {
       REXLOG_WARN("[wwe2k14][dethash] cannot write {}", csv_path.string());
       return;
     }
-    std::string header = "# det_hash " + ExeIdentity(exe) + " spec=" + spec + "\nframe";
+    std::string header = "# det_hash " + ExeIdentity(exe) + " spec=" + spec + "\n";
+    if (v2_) header += PlatformLines();
+    header += v2_ ? "frame,vb" : "frame";
     for (const Region& r : regions_) header += "," + r.name;
     header += '\n';
     std::fwrite(header.data(), 1, header.size(), csv_);
+    if (v2_) {  // Session 77: the state the header shows; timeouts_ stays 0 (one before the first hashed frame counts)
+      cvar_changes_ = rex::cvar::ChangeCount();
+      settings_ = Settings();
+      renderer_ = rex::det::RendererInfo();
+    }
     if (REXCVAR_GET(wwe2k14_det_hash_raw_every) > 0) {
 #ifdef _WIN32
       bin_ = _fsopen(bin_path.string().c_str(), "wb", _SH_DENYNO);
@@ -482,11 +714,18 @@ class FrameHash {
       bin_ = std::fopen(bin_path.string().c_str(), "wb");
 #endif
     }
-    REXLOG_INFO("[wwe2k14][dethash] writing {} ({} regions, raw every {} frames)", csv_path.string(), regions_.size(),
-                REXCVAR_GET(wwe2k14_det_hash_raw_every));
+    REXLOG_INFO("[wwe2k14][dethash] writing {} ({} regions, raw every {} frames, frames {} to {})", csv_path.string(),
+                regions_.size(), REXCVAR_GET(wwe2k14_det_hash_raw_every), REXCVAR_GET(wwe2k14_det_hash_raw_from),
+                REXCVAR_GET(wwe2k14_det_hash_raw_to));
   }
 
   bool opened_ = false;
+  bool v2_ = false;  // Session 77: --wwe2k14_det_hash_v2
+  // Session 77: what TrackChanges compares against (the last written state).
+  uint64_t cvar_changes_ = 0, timeouts_ = 0;
+  std::map<std::string, std::string> settings_;
+  std::string renderer_;
+  PokeSpec poke_;    // Session 77: --wwe2k14_det_poke
   std::FILE* csv_ = nullptr;
   std::FILE* bin_ = nullptr;
   std::vector<Region> regions_;

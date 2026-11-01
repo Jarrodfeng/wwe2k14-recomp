@@ -90,9 +90,13 @@ REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe_text_all, false, "wwe2k14",
                     "Debug (Session 28): with probe_text on, log every call (not only new ids) with its caller");
 // Session 33 (item 2): TEXTURE FILTERING. The SDK forces 4x anisotropic filtering on every eligible texture by default
 // (anisotropic_override 3); 8 / 16 raise it (anisotropic_override 4 / 5; it can change while the game runs).
+// Session 80 (Jarrod, 2026-11-01, the review sheets: "I can barely tell the difference", for everyone): STANDARD is the
+// game's own filtering (anisotropic_override -1), not the forced 4x - on Intel's Gen9 anisotropic filtering runs at a
+// fraction of the bilinear rate.
 REXCVAR_DEFINE_INT32(wwe2k14_texture_filter, 0, "wwe2k14",
-                     "Session 33: anisotropic texture filtering: 0 = unchanged (the SDK's forced 4x), 8 = 8x, 16 = 16x "
-                     "(sharper floors, ramps and mats at an angle). Sets anisotropic_override if left at default");
+                     "Session 33: anisotropic texture filtering: 0 = standard (the game's own filtering since Session "
+                     "80; the SDK's forced 4x before), 8 = 8x, 16 = 16x (sharper floors, ramps and mats at an angle). "
+                     "Sets anisotropic_override if left at default");
 REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe_text, false, "wwe2k14",
                     "Debug (Session 28): with the probe on, log every new text id the text manager is asked for "
                     "(set from a script with `cvar` right before the screen of interest)");
@@ -208,13 +212,16 @@ inline bool FlagIsTrue(const char* name) {
 inline int FlagInt(const char* name) { return std::atoi(rex::cvar::GetFlagByName(name).c_str()); }
 
 // Session 33: --wwe2k14_texture_filter -> the SDK's anisotropic_override (only if left at default).
-inline const char* AnisoForFilter(int f) { return f >= 16 ? "5" : f >= 8 ? "4" : nullptr; }
+// (Session 80: standard = the game's own, -1.)
+inline const char* AnisoForFilter(int f) { return f >= 16 ? "5" : f >= 8 ? "4" : "-1"; }
 inline void ConfigureTextureFilter() {
   const char* v = AnisoForFilter(REXCVAR_GET(wwe2k14_texture_filter));
-  if (v && rex::cvar::GetFlagSource("anisotropic_override") == rex::cvar::Source::kDefault)
+  if (rex::cvar::GetFlagSource("anisotropic_override") == rex::cvar::Source::kDefault)
     rex::cvar::SetFlagByName("anisotropic_override", v);
-  if (v) REXLOG_INFO("[wwe2k14][gfx] texture filtering {}x (anisotropic_override {})",
-                     REXCVAR_GET(wwe2k14_texture_filter), rex::cvar::GetFlagByName("anisotropic_override"));
+  REXLOG_INFO("[wwe2k14][gfx] texture filtering {} (anisotropic_override {})",
+              REXCVAR_GET(wwe2k14_texture_filter) ? std::to_string(REXCVAR_GET(wwe2k14_texture_filter)) + "x"
+                                                  : std::string("standard (the game's own)"),
+              rex::cvar::GetFlagByName("anisotropic_override"));
 }
 
 inline gfxs::Choice g_running;       // what this run does now (after the startup apply and live changes)
@@ -435,8 +442,8 @@ inline bool CommitScreenValues() {
   // DLSS and FSR quality / performance pick the render size themselves (the resolution row does not matter then).
   // Session 33: texture filtering applies at once (the SDK's anisotropic_override is read per sampler).
   if (eff.texture_filter != g_running.texture_filter) {
-    const char* v = AnisoForFilter(eff.texture_filter == 2 ? 16 : eff.texture_filter == 1 ? 8 : 0);
-    rex::cvar::SetFlagByName("anisotropic_override", v ? v : "3");
+    rex::cvar::SetFlagByName("anisotropic_override",
+                             AnisoForFilter(eff.texture_filter == 2 ? 16 : eff.texture_filter == 1 ? 8 : 0));
     g_running.texture_filter = eff.texture_filter;
   }
   const bool dlss_running = (g_running.upscale >= 2 && g_running.upscale <= 4) || g_running.upscale >= 6;

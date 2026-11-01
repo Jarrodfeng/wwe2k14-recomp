@@ -1,0 +1,10 @@
+# Session 77 stage A scenario "pad": Cena (139) on controller 1 vs Undertaker (103, CPU), arena 3, entrances skipped,
+# launched from the lesnar_bryan capture with its participants replaced (the launch Session 64 used on the phone).
+# A capture is a copy of game memory (local only: on Jarrod's phone via tools\android\run.ps1 -Scenario lesnar_bryan,
+# never shipped). (An earlier note said @quick left Cena CPU-controlled: WRONG, corrected 2026-10-31 02:37 - the
+# inputs removed then fell before player control starts or while Cena was mid-move; without the walk at 2679 the
+# Quick Match recording diverges at 2685 like this one, runs 4874 / 4875. Use scenario_cpu.flags, the tester path.)
+--wwe2k14_launch=lesnar_bryan
+--wwe2k14_launch_participants=139:0,103
+--wwe2k14_launch_arena=3
+--wwe2k14_launch_skip_entrances=true

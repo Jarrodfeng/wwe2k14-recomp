@@ -1,0 +1,138 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-shadowhalf): b73d515b7747..392e193720f3 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  392e193 Merge s80-shadowhalf: gpu_shadow_half_rate (Session 80, HD 520 arc look lever, off; Jarrod: "Every other frame") - the wrestlers' shadow maps (ps DA494C9383E18961) drawn on alternate frames, the copy between skipped; census 5403: drawn = skipped, 3 copies skipped a skipped frame, none kept with a clear; T2 PASS
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 09bb2d5faad88b6b281b32804da12e9c0ae5447d..d5251c0dd195d3c8058848198919b1b19cb4290f 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -367,6 +367,13 @@ class CommandProcessor {
+   // draws this frame were all skipped dead glare draws (a drawn draw into one removes it); their copies without a clear
+   // are skipped too; emptied at the swap (drawing side).
+   std::vector<uint32_t> nf_dead_targets_;
++  // wwe2k14 patch (Session 80, gpu_shadow_half_rate): the wrestlers' shadow maps on alternate frames - the RT0 targets
++  // whose wrestler shadow draws are being skipped since their last copy (that copy is skipped: the texture keeps the
++  // previous frame's map), each target's last frame with drawn wrestler shadow draws, the frame count (the swap).
++  std::vector<uint32_t> shadow_skipped_targets_;
++  std::vector<std::pair<uint32_t, uint64_t>> shadow_drawn_frame_;
++  uint64_t shadow_frame_ = 0;
++  uint64_t shadow_drawn_ = 0, shadow_skipped_ = 0, shadow_copies_skipped_ = 0, shadow_copies_kept_clear_ = 0;
+   uint32_t NfRt0Key() const {
+     return ((*register_file_)[XE_GPU_REG_RB_COLOR_INFO] & 0xFFF) |
+            (((*register_file_)[XE_GPU_REG_RB_SURFACE_INFO] & 0x3FFF) << 16);
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index ce8ceabb4a78620c46866e5a118a74adcc238c69..57581d13138e78ce5f24beaa524b5b75f2d37d76 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -2265,6 +2265,17 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+ 
+   if (!nf_draw) ++counter_;
+   nf_dead_targets_.clear();  // wwe2k14 patch (Session 79): the dead glare targets are per frame
++  // wwe2k14 patch (Session 80, gpu_shadow_half_rate): the frame count; a skip mark left without its copy is dropped (a
++  // census line every 600 frames while the lever acts).
++  ++shadow_frame_;
++  shadow_skipped_targets_.clear();
++  if (shadow_frame_ % 600 == 0 && (shadow_drawn_ || shadow_skipped_)) {
++    REXGPU_INFO("[shadow] half rate, frames to {}: wrestler shadow draws drawn {} / skipped {}; copies skipped {}, kept "
++                "with a clear {}; targets {}",
++                shadow_frame_, shadow_drawn_, shadow_skipped_, shadow_copies_skipped_, shadow_copies_kept_clear_,
++                shadow_drawn_frame_.size());
++    shadow_drawn_ = shadow_skipped_ = shadow_copies_skipped_ = shadow_copies_kept_clear_ = 0;
++  }
+   SkipFrameDrawsLatch();  // wwe2k14 patch (Session 15): gpu_skip_frame_draws for the next frame
+   // wwe2k14 patch (Session 6, COUNTERS): write a captured frame's rows (after the swap, outside the timed draws)
+   // and start or end a frame-anatomy capture.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 23de5a3482b9e7182b01105d52b33b592a1534bc..a613960712186aa41e4d257f1d2a755e8d127ab7 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -140,6 +140,13 @@ REXCVAR_DEFINE_INT32(gpu_barrier_map, 0, "GPU",
+                      "by SubmitBarriers per frame, by call site (3 return addresses), with their pipeline barrier "
+                      "commands, buffer barriers (shared memory / EDRAM / other), image barriers, the render passes "
+                      "they ended and the ORed stage masks. Measurement only (a stack capture per batch)");
++// wwe2k14 patch (Session 80, HD 520 arc look lever; Jarrod 2026-11-01: "Every other frame"): the wrestlers' shadow
++// maps (their shadows on themselves and each other) drawn on alternate frames, the other frame reusing the previous
++// map (IssueDraw / IssueCopy). Off by default; a look change (shadows up to one frame behind the pose).
++REXCVAR_DEFINE_BOOL(gpu_shadow_half_rate, false, "GPU",
++                    "Session 80 (look lever): the wrestlers' shadow maps (pixel shader DA494C9383E18961) drawn every "
++                    "other frame, the frame between reusing the previous map; [shadow] census lines. Off by default")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_session_stats_frames, 600, "GPU",
+                      "Session 58 (problem reports): every this many guest frames, an [s58][gpu] line when pipelines "
+                      "were made or draws skipped since the last one (and at least every 3600 frames): pipelines made "
+@@ -9453,6 +9460,39 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     const auto it = std::find(nf_dead_targets_.begin(), nf_dead_targets_.end(), NfRt0Key());
+     if (it != nf_dead_targets_.end()) nf_dead_targets_.erase(it);
+   }
++  // wwe2k14 patch (Session 80, HD 520 arc look lever, gpu_shadow_half_rate; Jarrod 2026-11-01: "Every other frame"):
++  // the wrestlers' shadow maps (their shadows on themselves and each other: pixel shader DA494C9383E18961 into the
++  // 512x512 maps; runs 5397 / 5398) drawn on alternate frames. A target whose wrestler shadow draws were drawn in the
++  // previous frame skips them in this one, and its next copy is skipped (IssueCopy): the map texture keeps the previous
++  // frame's. A target not drawn in the previous frame (a scene start, a cut) is always drawn. The Surface's split: these
++  // passes ~3 ms of its frame.
++  // (Not in the game's readback windows - readback_resolve_override 1-3 (-1 none set, 0 none): there the CPU reads
++  // copies back.)
++  if (REXCVAR_GET(gpu_shadow_half_rate) && REXCVAR_GET(readback_resolve_override) <= 0 && !memexport_used_vertex &&
++      active_pixel_shader() && active_pixel_shader()->ucode_data_hash() == 0xDA494C9383E18961ull) {
++    const uint32_t key = NfRt0Key();
++    bool skip = std::find(shadow_skipped_targets_.begin(), shadow_skipped_targets_.end(), key) !=
++                shadow_skipped_targets_.end();
++    if (!skip) {
++      auto drawn = std::find_if(shadow_drawn_frame_.begin(), shadow_drawn_frame_.end(),
++                                [key](const std::pair<uint32_t, uint64_t>& e) { return e.first == key; });
++      if (drawn == shadow_drawn_frame_.end()) {
++        shadow_drawn_frame_.emplace_back(key, shadow_frame_);
++      } else if (drawn->second + 1 == shadow_frame_) {
++        skip = true;  // (drawn in the previous frame: this frame's turn to skip)
++        shadow_skipped_targets_.push_back(key);
++      } else {
++        drawn->second = shadow_frame_;  // (this frame's, or not drawn in the previous frame)
++      }
++    }
++    if (skip) {
++      ++shadow_skipped_;
++      anatomy_skip_reason_ = kAnatomySkipOther;
++      repeat_prev_.valid = false;
++      return true;
++    }
++    ++shadow_drawn_;
++  }
+   // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a registered restore of what the truth images
+   // still hold is left out here, before its textures are requested (or loaded) - NativeRenderer::
+   // TruthRestoreRedundantEarly; TruthRecordDraw checks the rest again (the late check).
+@@ -11702,6 +11742,12 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+   if (REXCVAR_GET(gpu_native_lean_draws_library) && library_kind != 1 && library_kind != 2) {
+     return full(kLeanNotLibrary);
+   }
++  // wwe2k14 patch (Session 80, gpu_shadow_half_rate): the wrestlers' shadow draws take the full path, where the lever
++  // skips them (only these: every other draw stays lean).
++  if (REXCVAR_GET(gpu_shadow_half_rate) && active_pixel_shader() &&
++      active_pixel_shader()->ucode_data_hash() == 0xDA494C9383E18961ull) {
++    return full(kLeanMode);
++  }
+   // (wwe2k14 patch, Session 54: on the host render target path too - a truth frame updates no render target there.)
+   if (!native_ || !native_->enabled() || !native_->truth() || !REXCVAR_GET(gpu_native_lean) ||
+       (render_target_cache_->GetPath() != RenderTargetCache::Path::kPixelShaderInterlock &&
+@@ -13043,6 +13089,22 @@ bool VulkanCommandProcessor::IssueCopy() {
+       }
+     }
+   }
++  // wwe2k14 patch (Session 80, gpu_shadow_half_rate): the copy out of a target whose wrestler shadow draws were skipped
++  // this frame - the map texture keeps the previous frame's map. A copy that also clears is kept (a later surface may
++  // rely on the clear; counted: its map would be partial for this frame).
++  if (!shadow_skipped_targets_.empty()) {
++    const reg::RB_COPY_CONTROL cc = register_file_->Get<reg::RB_COPY_CONTROL>();
++    const auto it = std::find(shadow_skipped_targets_.begin(), shadow_skipped_targets_.end(), NfRt0Key());
++    if (cc.copy_src_select == 0 && it != shadow_skipped_targets_.end()) {
++      shadow_skipped_targets_.erase(it);
++      if (cc.color_clear_enable || cc.depth_clear_enable) {
++        ++shadow_copies_kept_clear_;
++      } else {
++        ++shadow_copies_skipped_;
++        return true;
++      }
++    }
++  }
+ 
+   if (!BeginSubmission(true)) {
+     return false;

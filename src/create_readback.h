@@ -76,6 +76,25 @@ REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring, 32, "wwe2k14",
                      "first 300 frames no longer run at half speed, A/B 3975). Session 71: 32 (a Superstar Threads "
                      "attire builds over 5+ frames; with 4 its finished texture was skipped and came out stale)")
     .range(0, 60);
+// Session 79 (HD 520 arc): the 32 above made each character window's first ~32 frames read back the frame's own
+// screen-size copies too (Bryan's entrance: 14 copies a frame, pitch 1280, until their streak passed 32 - about a
+// second at ~23 fps on the 4090 PC, run 5083; 10-27 with 4: a 4-frame hitch, 4461). The attire builds that need 32 are
+// 2048 wide (the Threads shirt, 0x1E257000), so copies narrower than that can keep a lower limit (Threads outfit still
+// right, 5094 / 5126). Session 80 (Jarrod, 2026-11-01: "Yes, default for all"): 4, with the gap rule below.
+REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring_narrow, 4, "wwe2k14",
+                     "Session 79: in the load and character windows, copies narrower than 2048 texels (the attire "
+                     "builds are 2048 wide) are not read back once their destination was resolved in this many earlier "
+                     "frames in a row (SDK readback_resolve_override_skip_recurring_narrow; when lower than "
+                     "wwe2k14_readback_skip_recurring). 0 = off (one limit for every copy)")
+    .range(0, 60);
+// Session 79 (04:15): with the narrow rule on, most of what was still read back each frame were the reflection cubes'
+// 64x64 faces (run 5123: 2,504-3,494 of 2,606-3,693 per window): a cube is copied 5 frames, then not for 2, and a gap
+// over 2 frames restarted its run, so 4 of every 7 frames read it back. Session 80 (Jarrod, 2026-11-01): 4 by default.
+REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring_narrow_gap, 4, "wwe2k14",
+                     "Session 79: with wwe2k14_readback_skip_recurring_narrow, a narrow copy's frames in a row survive "
+                     "gaps of up to this many frames (SDK readback_resolve_override_skip_recurring_narrow_gap; the "
+                     "reflection cubes skip 2 frames in 7). 0 = off (gaps over 2 frames restart the run)")
+    .range(0, 16);
 REXCVAR_DEFINE_INT32(wwe2k14_readback_create_skip_recurring, 4, "wwe2k14",
                      "Session 61 (players: CAW very slow): in the create modes too, resolves whose destination was "
                      "also resolved in this many earlier frames in a row are not read back - the editor's per-frame "
@@ -93,6 +112,8 @@ inline int g_mode = 3;              // the mode of the newest reason to be on (k
 inline int g_set_mode = -1;         // the readback_resolve_override this last set (-1 = none)
 inline bool g_create = false;       // Session 59: the newest reason to be on is a create mode (kept through the hold)
 inline int g_set_skip = -1;         // Session 59: the readback_resolve_override_skip_recurring this last set
+inline int g_set_narrow = -1;       // Session 79: the readback_resolve_override_skip_recurring_narrow this last set
+inline int g_set_narrow_gap = -1;   // Session 79: the readback_resolve_override_skip_recurring_narrow_gap this last set
 inline uint64_t g_left_frame = 0;  // the frame the last reason to be on ended while on (0 = still a reason, or off)
 // Kept on this long after leaving (review): the command processor runs behind VdSwap, so a resolve the game issued in
 // the sequence's last frames may be processed after the switch.
@@ -149,6 +170,18 @@ inline void OnFrame(uint64_t frame) {
   if (skip != g_set_skip) {
     g_set_skip = skip;
     rex::cvar::SetFlagByName("readback_resolve_override_skip_recurring", std::to_string(skip));
+  }
+  // Session 79: the lower limit for narrow copies (not in the create modes: they keep their own one limit).
+  const int narrow = on && !g_create ? REXCVAR_GET(wwe2k14_readback_skip_recurring_narrow) : 0;
+  if (narrow != g_set_narrow) {
+    g_set_narrow = narrow;
+    rex::cvar::SetFlagByName("readback_resolve_override_skip_recurring_narrow", std::to_string(narrow));
+  }
+  // (Session 79: and its gap, with it.)
+  const int narrow_gap = narrow ? REXCVAR_GET(wwe2k14_readback_skip_recurring_narrow_gap) : 0;
+  if (narrow_gap != g_set_narrow_gap) {
+    g_set_narrow_gap = narrow_gap;
+    rex::cvar::SetFlagByName("readback_resolve_override_skip_recurring_narrow_gap", std::to_string(narrow_gap));
   }
   if (mode == g_set_mode) return;
   g_on = on;

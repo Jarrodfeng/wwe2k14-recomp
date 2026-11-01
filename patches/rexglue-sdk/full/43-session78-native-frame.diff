@@ -1,0 +1,447 @@
+# ReXGlue SDK changes for WWE 2K14 (session78-native-frame): 4eacaff4e593..6fd63c048f0d on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  6fd63c0 Merge s78-nf: Session 78 - the HD 520 arc's native frame step A (gpu_native_frame, off by default): the command processor's answers side (today's no-draw execution, everything the guest sees) and a drawing side behind it with its own register file and predication, catching up before every guest-visible point; stage A replay and both entrances MATCH the old path in every layer, screenshots byte-identical
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 70bf8dcdaf04ad411c73cd94916d69523a52d4b0..8c7839b86cb37d3566755b0761547d63cb5becfe 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -303,6 +303,39 @@ class CommandProcessor {
+   GraphicsSystem* graphics_system_ = nullptr;
+   RegisterFile* register_file_ = nullptr;
+ 
++  // wwe2k14 patch (Session 78, NATIVE FRAME, gpu_native_frame; docs\native\NATIVE_FRAME_DESIGN.md in the game
++  // repository): the command processor as two sides over the same words. The answers side executes the ring and its
++  // segments as gpu_det_skip_host_draws does: everything the guest can see, on the real register file, no draw, copy or
++  // shader work. The drawing side executes the same segment words afterwards on its own register file and
++  // predication state, with every answer packet skipped, and catches up before each guest-visible point (NfCatchUp,
++  // from OnGuestVisibleWrite), so it may lag but never past anything the guest could notice. The drawing caches are
++  // built on the drawing side's register file (DrawRegisterFile); register_file_ points at it only while the drawing
++  // side executes (the guest's MMIO reads go to the graphics system's own file, never this pointer).
++  enum class NfRole : uint8_t { kBoth, kAnswers, kDraw };
++  NfRole nf_role_ = NfRole::kBoth;
++  bool nf_ = false;  // gpu_native_frame, latched in Initialize
++  std::unique_ptr<RegisterFile> nf_register_file_;
++  RegisterFile* nf_real_register_file_ = nullptr;
++  uint64_t nf_bin_select_ = 0xFFFFFFFFull, nf_bin_mask_ = 0xFFFFFFFFull;  // the drawing side's predication
++  uint32_t nf_depth_ = 0;        // answers side: indirect-buffer depth (1 = a segment the ring called)
++  uint32_t nf_seg_ptr_ = 0;      // the current segment (guest physical; 0 = none)
++  uint32_t nf_seg_words_ = 0;
++  uint32_t nf_seg_done_ = 0;     // drawing side: words of the current segment executed
++  uint32_t nf_answer_pos_ = 0;   // answers side: the segment-level packet being executed (word index)
++  struct NfCensus {
++    uint64_t segments = 0, catchups = 0, words = 0, ring_packets = 0, nested = 0, nested_waits = 0, overruns = 0;
++    uint64_t skipped_draw_side = 0;  // segments the drawing side did not run (gpu_native_frame_draw off)
++  };
++  NfCensus nf_census_;
++  RegisterFile& DrawRegisterFile() { return nf_register_file_ ? *nf_register_file_ : *register_file_; }
++  // Runs the drawing side over the current segment's words up to `target_word` (exclusive). Answers side only.
++  void NfCatchUp(uint32_t target_word);
++  // Runs one ring-level packet (not an indirect buffer) on the drawing side, before the answers side runs it.
++  void NfRunRingPacketForDraw(const memory::RingBuffer& reader);
++  void NfEnterDraw();
++  void NfLeaveDraw();
++  void NfFrameLog();
++
+   std::atomic<bool> worker_running_;
+   system::object_ref<system::XHostThread> worker_thread_;
+ 
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index f26549f45dd246074e59048a72dc07ae23bbfb3b..c6dab3d49a118c5b1e36a117d77fa210776a7b04 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -60,6 +60,18 @@ REXCVAR_DEFINE_BOOL(vsync, true, "GPU", "Enable vertical sync");
+ REXCVAR_DEFINE_BOOL(gpu_det_skip_host_draws, false, "GPU",
+                     "Determinism runs: execute GPU packets but record no host draws or copies (no picture; resolves the "
+                     "game reads back are not written)");
++// wwe2k14 patch (Session 78, NATIVE FRAME; docs\native\NATIVE_FRAME_DESIGN.md in the game repository): the command
++// processor as two sides (see nf_role_ in command_processor.h). Read once at start.
++REXCVAR_DEFINE_BOOL(gpu_native_frame, false, "GPU/Native",
++                    "Session 78 (HD 520 arc): the native frame - the command processor answers the guest without "
++                    "drawing; a drawing side with its own register state runs the same commands behind it and catches "
++                    "up before every guest-visible point. Read at start");
++REXCVAR_DEFINE_BOOL(gpu_native_frame_draw, true, "GPU/Native",
++                    "Session 78: with gpu_native_frame, run the drawing side (false: nothing drawn, the answers alone "
++                    "- the rollback / no-draw case)");
++REXCVAR_DEFINE_INT32(gpu_native_frame_log_frames, 600, "GPU/Native",
++                     "Session 78: [native][frame] census line every N frames (0 = none)");
++REXCVAR_DECLARE(int32_t, gpu_native_detached);
+ REXCVAR_DEFINE_BOOL(gpu_scene_crowd_batch, true, "GPU",
+                     "wwe2k14 (Session 60): the crowd members the game queued (wwe2k14_scene_crowd 1) are added as "
+                     "instances of their run's first draw in one go (their constants uploaded, nothing else derived "
+@@ -516,6 +528,22 @@ bool CommandProcessor::Initialize() {
+     }
+   }
+ 
++  // wwe2k14 patch (Session 78, NATIVE FRAME): the split latched before the worker starts (the backend builds its
++  // drawing caches on DrawRegisterFile in SetupContext). Not with Session 51's detached / log-fed modes (their own
++  // segment executor).
++  nf_ = REXCVAR_GET(gpu_native_frame);
++  if (nf_ && REXCVAR_GET(gpu_native_detached) != 0) {
++    REXLOG_WARN("[native][frame] gpu_native_frame refused: gpu_native_detached {} is on",
++                REXCVAR_GET(gpu_native_detached));
++    nf_ = false;
++  }
++  if (nf_) {
++    nf_register_file_ = std::make_unique<RegisterFile>(*register_file_);
++    nf_real_register_file_ = register_file_;
++    nf_role_ = NfRole::kAnswers;
++    REXLOG_INFO("[native][frame] on: answers from the command processor (no draws), drawing side behind it (draw {})",
++                REXCVAR_GET(gpu_native_frame_draw));
++  }
+   // wwe2k14 patch (Session 77): det_serial drain check registered before the worker starts (kind 0 = not drained
+   // until its first wait), so no decision passes while the CP has not started yet; removed again at Shutdown.
+   if (det::SerialEnabled()) det_drain_id_ = det::AddDrainCheck([this] { return DetDrained(); });
+@@ -880,8 +908,17 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+     return;
+   }
+ 
++  // wwe2k14 patch (Session 78, NATIVE FRAME): the drawing side writes its own file and nothing else (the scratch
++  // write-backs, coherency and gamma-ramp side effects are the answers side's); the answers side notes no repeats.
++  if (nf_role_ == NfRole::kDraw) {
++    if (regs.values[index] != value || (index >= 0x4000 && index <= 0x47FF)) {
++      RepeatNoteRegisters(index, 1);
++    }
++    regs.values[index] = value;
++    return;
++  }
+   // wwe2k14 patch (Session 23, REPEAT): a write that changes the value (a float constant: any write).
+-  if (regs.values[index] != value || (index >= 0x4000 && index <= 0x47FF)) {
++  if (nf_role_ != NfRole::kAnswers && (regs.values[index] != value || (index >= 0x4000 && index <= 0x47FF))) {
+     RepeatNoteRegisters(index, 1);
+   }
+   // wwe2k14 patch (Session 74): a scratch register's new value is the game's "the GPU is past this" signal, and the
+@@ -1097,7 +1134,7 @@ void CommandProcessor::WriteRegistersFromMemSplit(uint32_t start_index, uint32_t
+       // (review fix: noting only the first changed register could hide later changes in the run when that first
+       // one is a draw-packet register, which RepeatNoteRegisters ignores on its own; a run of several registers
+       // is never ignored).
+-      for (uint32_t i = 0; i < run; ++i) {
++      for (uint32_t i = 0; i < run && nf_role_ != NfRole::kAnswers; ++i) {  // (Session 78: the drawing side's)
+         if (dest[i] != memory::load_and_swap<uint32_t>(source + i)) {
+           RepeatNoteRegisters(index, run);
+           break;
+@@ -1387,6 +1424,16 @@ uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t read_index, uint32_t wr
+   reader.set_read_offset(read_index * sizeof(uint32_t));
+   reader.set_write_offset(write_index * sizeof(uint32_t));
+   do {
++    // wwe2k14 patch (Session 78, NATIVE FRAME): a ring-level packet other than a segment call runs on the drawing
++    // side first (the segments themselves: ExecutePacketType3_INDIRECT_BUFFER).
++    if (nf_ && nf_role_ == NfRole::kAnswers) {
++      memory::RingBuffer peek = reader;
++      const uint32_t header = peek.ReadAndSwap<uint32_t>();
++      const uint32_t opcode = (header >> 8) & 0x7F;
++      if (header && !((header >> 30) == 3 && (opcode == PM4_INDIRECT_BUFFER || opcode == PM4_INDIRECT_BUFFER_PFD))) {
++        NfRunRingPacketForDraw(reader);
++      }
++    }
+     if (!ExecutePacket(&reader)) {
+       // This probably should be fatal - but we're going to continue anyways.
+       REXGPU_ERROR("**** PRIMARY RINGBUFFER: Failed to execute packet.");
+@@ -1429,9 +1476,101 @@ void CommandProcessor::ExecutePacket(uint32_t ptr, uint32_t count) {
+   } while (reader.read_count());
+ }
+ 
++// wwe2k14 patch (Session 78, NATIVE FRAME; see nf_role_ in command_processor.h).
++void CommandProcessor::NfEnterDraw() {
++  nf_role_ = NfRole::kDraw;
++  register_file_ = nf_register_file_.get();
++  std::swap(bin_select_, nf_bin_select_);
++  std::swap(bin_mask_, nf_bin_mask_);
++}
++
++void CommandProcessor::NfLeaveDraw() {
++  std::swap(bin_select_, nf_bin_select_);
++  std::swap(bin_mask_, nf_bin_mask_);
++  register_file_ = nf_real_register_file_;
++  nf_role_ = NfRole::kAnswers;
++}
++
++void CommandProcessor::NfCatchUp(uint32_t target_word) {
++  if (nf_role_ != NfRole::kAnswers || !nf_seg_ptr_) {
++    return;
++  }
++  target_word = std::min(target_word, nf_seg_words_);
++  if (nf_seg_done_ >= target_word) {
++    return;
++  }
++  if (!REXCVAR_GET(gpu_native_frame_draw)) {
++    nf_census_.skipped_draw_side += target_word == nf_seg_words_;
++    nf_seg_done_ = target_word;
++    return;
++  }
++  ++nf_census_.catchups;
++  nf_census_.words += target_word - nf_seg_done_;
++  // The packet attribution state belongs to whichever side executes; the drawing side runs inside the segment (depth
++  // 1, as the segment's own packets do when one side runs everything).
++  const uint32_t packet_at_before = half2_packet_at_, ib_caller_before = half2_ib_caller_;
++  const int64_t bias_before = half2_exec_bias_;
++  const uint32_t depth_before = native_ib_depth_;
++  half2_exec_bias_ = 0;
++  native_ib_depth_ = 1;
++  NfEnterDraw();
++  memory::RingBuffer reader(memory_->TranslatePhysical(nf_seg_ptr_), nf_seg_words_ * sizeof(uint32_t));
++  reader.set_read_offset(nf_seg_done_ * sizeof(uint32_t));
++  reader.set_write_offset(target_word * sizeof(uint32_t));
++  do {
++    if (!ExecutePacket(&reader)) {
++      ++nf_census_.overruns;
++      break;
++    }
++  } while (reader.read_count());
++  NfLeaveDraw();
++  native_ib_depth_ = depth_before;
++  half2_exec_bias_ = bias_before;
++  half2_ib_caller_ = ib_caller_before;
++  half2_packet_at_ = packet_at_before;
++  nf_seg_done_ = target_word;
++}
++
++void CommandProcessor::NfRunRingPacketForDraw(const memory::RingBuffer& reader) {
++  if (!REXCVAR_GET(gpu_native_frame_draw)) {
++    return;
++  }
++  ++nf_census_.ring_packets;
++  memory::RingBuffer copy = reader;
++  const uint32_t packet_at_before = half2_packet_at_;
++  NfEnterDraw();
++  if (!ExecutePacket(&copy)) {
++    ++nf_census_.overruns;
++  }
++  NfLeaveDraw();
++  half2_packet_at_ = packet_at_before;
++}
++
++void CommandProcessor::NfFrameLog() {
++  static uint32_t frames = 0;
++  const int32_t every = REXCVAR_GET(gpu_native_frame_log_frames);
++  if (every <= 0 || ++frames < uint32_t(every)) {
++    return;
++  }
++  const NfCensus& c = nf_census_;
++  REXLOG_INFO("[native][frame] {} frames: segments {}, catch-ups {} ({:.1f} a frame), words {:.0f} a frame, ring "
++              "packets on the drawing side {}, nested buffers {} (waits inside them {}), overruns {}, segments not "
++              "drawn {}",
++              frames, c.segments, c.catchups, double(c.catchups) / frames, double(c.words) / frames, c.ring_packets,
++              c.nested, c.nested_waits, c.overruns, c.skipped_draw_side);
++  nf_census_ = {};
++  frames = 0;
++}
++
+ bool CommandProcessor::ExecutePacket(memory::RingBuffer* reader) {
+-  // wwe2k14 patch (Session 6, COUNTERS): a frame-anatomy capture times each frame from its first command.
+-  if (anatomy_frame_start_pending_) {
++  // wwe2k14 patch (Session 78, NATIVE FRAME): where the answers side is in the current segment (the drawing side
++  // catches up to here before a guest-visible point); the measurement hooks belong to the drawing side.
++  if (nf_role_ == NfRole::kAnswers) {
++    if (native_ib_depth_ == 1) {
++      nf_answer_pos_ = uint32_t(reader->read_offset() / sizeof(uint32_t));
++    }
++  } else if (anatomy_frame_start_pending_) {
++    // wwe2k14 patch (Session 6, COUNTERS): a frame-anatomy capture times each frame from its first command.
+     AnatomyStartFrame();
+   }
+   // wwe2k14 patch (Session 48, HALF2): the packet's header word in guest physical memory, before anything is read
+@@ -1694,7 +1833,8 @@ bool CommandProcessor::ExecutePacketType3(memory::RingBuffer* reader, uint32_t p
+       TilingLogPacket(reader, uint32_t(data_start_offset), opcode, true, any_pass && opcode != PM4_XE_SWAP);
+     }
+     // wwe2k14 patch (Session 48, HALF2): a draw packet the bin test skips still consumes its library draw.
+-    if (half2_ && !any_pass && (opcode == PM4_DRAW_INDX || opcode == PM4_DRAW_INDX_2)) {
++    // (Session 78: on the drawing side only - the answers side never matches library draws.)
++    if (half2_ && nf_role_ != NfRole::kAnswers && !any_pass && (opcode == PM4_DRAW_INDX || opcode == PM4_DRAW_INDX_2)) {
+       Half2OnCpDraw(half2_packet_at_, true, {});
+     }
+     if (!any_pass || opcode == PM4_XE_SWAP) {
+@@ -1706,6 +1846,52 @@ bool CommandProcessor::ExecutePacketType3(memory::RingBuffer* reader, uint32_t p
+     TilingLogPacket(reader, uint32_t(data_start_offset), opcode, false, true);
+   }
+ 
++  // wwe2k14 patch (Session 78, NATIVE FRAME): what each side runs (docs\native\NATIVE_FRAME_DESIGN.md section 2).
++  if (nf_role_ == NfRole::kAnswers) {
++    switch (opcode) {
++      case PM4_DRAW_INDX:
++      case PM4_DRAW_INDX_2:
++      case PM4_IM_LOAD:
++      case PM4_IM_LOAD_IMMEDIATE:
++      case PM4_INVALIDATE_STATE:
++      case PM4_VIZ_QUERY:
++        reader->AdvanceRead(count * sizeof(uint32_t));
++        return true;
++      case PM4_XE_SWAP:
++        // The guest-visible part of the swap: the point itself and the swap counter (EVENT_WRITE_SHD's bit 31
++        // value); the presentation is the drawing side's (it caught up to here first).
++        ++half2_swaps_;
++        OnGuestVisibleWrite(GuestVisibleEvent::kSwap);
++        reader->AdvanceRead(count * sizeof(uint32_t));
++        ++counter_;
++        NfFrameLog();
++        return true;
++      default:
++        break;
++    }
++  } else if (nf_role_ == NfRole::kDraw) {
++    switch (opcode) {
++      case PM4_WAIT_REG_MEM:
++        // Passed by the answers side before the drawing side got here, except inside a buffer the drawing side runs
++        // whole before the answers side enters it (counted: a CPU-gated wait there would be passed early).
++        if (native_ib_depth_ >= 2) ++nf_census_.nested_waits;
++        [[fallthrough]];
++      case PM4_ME_INIT:
++      case PM4_INTERRUPT:
++      case PM4_MEM_WRITE:
++      case PM4_COND_WRITE:
++      case PM4_REG_TO_MEM:
++      case PM4_EVENT_WRITE_SHD:
++      case PM4_EVENT_WRITE_EXT:
++      case PM4_EVENT_WRITE_ZPD:
++        RepeatNotePacket(opcode);  // (as when it ran: it ends a repeat)
++        reader->AdvanceRead(count * sizeof(uint32_t));
++        return true;
++      default:
++        break;
++    }
++  }
++
+   // wwe2k14 patch (Session 23, REPEAT): any other packet between two draws ends a repeat (register and constant
+   // writes are noted by the register write paths themselves; the draw packets by the backend).
+   switch (opcode) {
+@@ -1720,7 +1906,7 @@ bool CommandProcessor::ExecutePacketType3(memory::RingBuffer* reader, uint32_t p
+     case PM4_INDIRECT_BUFFER_PFD:
+       break;
+     default:
+-      RepeatNotePacket(opcode);
++      if (nf_role_ != NfRole::kAnswers) RepeatNotePacket(opcode);  // (Session 78: the drawing side's state)
+       break;
+   }
+ 
+@@ -1934,8 +2120,13 @@ bool CommandProcessor::ExecutePacketType3_INTERRUPT(memory::RingBuffer* reader,
+ 
+ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, uint32_t packet,
+                                                   uint32_t count) {
+-  ++half2_swaps_;  // wwe2k14 patch (Session 51 step 3: the detached census)
+-  OnGuestVisibleWrite(GuestVisibleEvent::kSwap);  // wwe2k14 patch (Session 66, H1.1)
++  // wwe2k14 patch (Session 78, NATIVE FRAME): on the drawing side the presentation only (the answers side counted
++  // the swap and made it guest-visible: ExecutePacketType3).
++  const bool nf_draw = nf_role_ == NfRole::kDraw;
++  if (!nf_draw) {
++    ++half2_swaps_;  // wwe2k14 patch (Session 51 step 3: the detached census)
++    OnGuestVisibleWrite(GuestVisibleEvent::kSwap);  // wwe2k14 patch (Session 66, H1.1)
++  }
+   SCOPE_profile_cpu_f("gpu");
+ 
+ #ifdef REXGLUE_ENABLE_PERF_COUNTERS
+@@ -2012,7 +2203,7 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   // wwe2k14 patch (Session 7, EXTENTS-SHADOW): close the frame's tiling brackets, summary, latch the settings.
+   ExtentsFrameBoundary();
+ 
+-  ++counter_;
++  if (!nf_draw) ++counter_;
+   SkipFrameDrawsLatch();  // wwe2k14 patch (Session 15): gpu_skip_frame_draws for the next frame
+   // wwe2k14 patch (Session 6, COUNTERS): write a captured frame's rows (after the swap, outside the timed draws)
+   // and start or end a frame-anatomy capture.
+@@ -2233,6 +2424,19 @@ bool CommandProcessor::ExecutePacketType3_INDIRECT_BUFFER(memory::RingBuffer* re
+   if (Half2SkipGprBuffer(list_ptr, list_length)) {
+     return true;
+   }
++  // wwe2k14 patch (Session 78, NATIVE FRAME), answers side: a segment the ring calls becomes the drawing side's
++  // current one (it catches up inside it and completes it below); a buffer a segment calls is run whole by the drawing
++  // side before the answers side enters it (its catch-up target is this packet's end).
++  const bool nf_segment = nf_role_ == NfRole::kAnswers && native_ib_depth_ == 0;
++  if (nf_segment) {
++    nf_seg_ptr_ = GpuToCpu(list_ptr) & 0x1FFFFFFF;
++    nf_seg_words_ = list_length;
++    nf_seg_done_ = 0;
++    ++nf_census_.segments;
++  } else if (nf_role_ == NfRole::kAnswers && native_ib_depth_ == 1) {
++    ++nf_census_.nested;
++    NfCatchUp(nf_answer_pos_ + 1 + count);
++  }
+   // wwe2k14 patch (Session 48, HALF2): where the INDIRECT_BUFFER packet itself is (its header word), for the draws
+   // inside the buffer.
+   const uint32_t half2_caller_before = half2_ib_caller_;
+@@ -2249,6 +2453,10 @@ bool CommandProcessor::ExecutePacketType3_INDIRECT_BUFFER(memory::RingBuffer* re
+   half2_exec_bias_ = half2_bias_before;
+   --native_ib_depth_;
+   half2_ib_caller_ = half2_caller_before;
++  if (nf_segment) {  // (Session 78) the drawing side completes the segment
++    NfCatchUp(nf_seg_words_);
++    nf_seg_ptr_ = 0;
++  }
+   if (half2_ && !native_ib_depth_) {
+     const uint32_t start = GpuToCpu(list_ptr) & 0x1FFFFFFF;
+     Half2EndSegment(start, start + list_length * 4);
+@@ -2560,8 +2768,9 @@ bool CommandProcessor::ExecutePacketType3_EVENT_WRITE(memory::RingBuffer* reader
+     assert_always();
+     reader->AdvanceRead((count - 1) * sizeof(uint32_t));
+   }
+-  // wwe2k14 patch (Session 7, EXTENTS-SHADOW): SCREEN_EXT_INIT starts a screen extents window.
+-  if (extents_active_ && (initiator & 0x3F) == SCREEN_EXT_INIT) {
++  // wwe2k14 patch (Session 7, EXTENTS-SHADOW): SCREEN_EXT_INIT starts a screen extents window (Session 78: the
++  // drawing side's, which runs the draws the window measures).
++  if (extents_active_ && nf_role_ != NfRole::kAnswers && (initiator & 0x3F) == SCREEN_EXT_INIT) {
+     extents_shadow_->OnScreenExtentsInit(bin_select_);
+   }
+   return true;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index b97af3a1967c14a2a24c516fa6ebc68822582718..1eee58153936e0711fbc61d18cf78596116cb4b3 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2937,7 +2937,7 @@ bool VulkanCommandProcessor::SetupContext() {
+       this);
+ 
+   primitive_processor_ =
+-      std::make_unique<VulkanPrimitiveProcessor>(*register_file_, *memory_, *shared_memory_, *this);
++      std::make_unique<VulkanPrimitiveProcessor>(DrawRegisterFile(), *memory_, *shared_memory_, *this);
+   if (!primitive_processor_->Initialize()) {
+     REXGPU_ERROR("Failed to initialize the geometric primitive processor");
+     return false;
+@@ -3006,7 +3006,7 @@ bool VulkanCommandProcessor::SetupContext() {
+ 
+   // Requires the transient descriptor set layouts.
+   render_target_cache_ = std::make_unique<VulkanRenderTargetCache>(
+-      *register_file_, *memory_, draw_resolution_scale_x, draw_resolution_scale_y, *this);
++      DrawRegisterFile(), *memory_, draw_resolution_scale_x, draw_resolution_scale_y, *this);
+   if (!render_target_cache_->Initialize(shared_memory_binding_count)) {
+     REXGPU_ERROR("Failed to initialize the render target cache");
+     return false;
+@@ -3053,7 +3053,7 @@ bool VulkanCommandProcessor::SetupContext() {
+   }
+ 
+   pipeline_cache_ = std::make_unique<VulkanPipelineCache>(
+-      *this, *register_file_, *render_target_cache_, guest_shader_vertex_stages_);
++      *this, DrawRegisterFile(), *render_target_cache_, guest_shader_vertex_stages_);
+   if (!pipeline_cache_->Initialize()) {
+     REXGPU_ERROR("Failed to initialize the graphics pipeline cache");
+     return false;
+@@ -3061,7 +3061,7 @@ bool VulkanCommandProcessor::SetupContext() {
+ 
+   // Requires the transient descriptor set layouts.
+   texture_cache_ =
+-      VulkanTextureCache::Create(*register_file_, *shared_memory_, draw_resolution_scale_x,
++      VulkanTextureCache::Create(DrawRegisterFile(), *shared_memory_, draw_resolution_scale_x,
+                                  draw_resolution_scale_y, *this, guest_shader_pipeline_stages_);
+   if (!texture_cache_) {
+     REXGPU_ERROR("Failed to initialize the texture cache");
+@@ -4193,6 +4193,11 @@ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+   // blocks with no side effects in CommandProcessor::WriteRegister; handling added here for any other register
+   // must be added to kRegisterSplitIntervals (command_processor.cpp) too.
+   CommandProcessor::WriteRegister(index, value);
++  // wwe2k14 patch (Session 78, NATIVE FRAME): the answers side's writes go to the real register file, which the
++  // drawing caches never read (they are built on the drawing side's file): nothing of theirs to invalidate.
++  if (nf_role_ == NfRole::kAnswers) {
++    return;
++  }
+ 
+   if (index >= XE_GPU_REG_SHADER_CONSTANT_000_X && index <= XE_GPU_REG_SHADER_CONSTANT_511_W) {
+     if (frame_open_) {
+@@ -13639,6 +13644,11 @@ static const char* const kReadbackFlushReasonNames[] = {
+     "interrupt", "swap", "wait_reg_mem", "await", "slot_reuse", "batch_max", "mode_change", "cvar_off", "shutdown"};
+ 
+ void VulkanCommandProcessor::OnGuestVisibleWrite(GuestVisibleEvent event, uint32_t address) {
++  // wwe2k14 patch (Session 78, NATIVE FRAME): the drawing side first runs everything before this point (its resolves'
++  // readbacks are queued by then and flushed below, as the command processor's own were).
++  if (nf_) {
++    NfCatchUp(nf_answer_pos_);
++  }
+   if (readback_pending_.empty()) {
+     return;
+   }

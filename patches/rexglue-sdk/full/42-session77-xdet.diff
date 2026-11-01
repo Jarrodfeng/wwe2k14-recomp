@@ -1,0 +1,1810 @@
+# ReXGlue SDK changes for WWE 2K14 (session77-xdet): 102f2d9b226b..4eacaff4e593 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  4eacaff Merge s77-xdet: Session 77 - cross-device determinism: det_serial / det_frames on POSIX (readiness, alertable waits, resumed threads, mutants, readdir order), the drain race, fctid / fctidz saturate like the PowerPC, codegen register table + tool fingerprint, det timeouts / renderer in the det CSV, gpu_det_skip_host_draws, det_serial_stats, det_time_constant / det_fs_constant (tester check), file-system fixes
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e71069415a6a633a82fa0d4306a43ba0a0a20ac6..c84a0aba252e74a47739ce83f203f4a3bd948be1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -226,9 +226,15 @@ configure_file(
+ )
+ 
+ # Output directories (multi-config appends /<Config>/ automatically)
+-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
+-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
+-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
++# wwe2k14 patch (Session 77): REXGLUE_OUTPUT_DIR overrides them, so a second build folder (the instruction tests,
++# tools/android/cpu_semantics/build_ppc_tests.ps1) does not overwrite the main build's libraries (it replaced
++# rexruntime.lib with a tests-configured one, and the next main build linked rexgpu-xenos against it and failed).
++if(NOT REXGLUE_OUTPUT_DIR)
++    set(REXGLUE_OUTPUT_DIR "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
++endif()
++set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${REXGLUE_OUTPUT_DIR}")
++set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${REXGLUE_OUTPUT_DIR}")
++set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${REXGLUE_OUTPUT_DIR}")
+ 
+ # Sanitizer support for debugging memory corruption and undefined behavior
+ if(REXGLUE_ENABLE_SANITIZERS)
+diff --git a/include/rex/cvar.h b/include/rex/cvar.h
+index fe94186e16861f5a82b99aa690d63cd8ad7289a6..ee5f013d0a813918451d2cb59e3c57e76eff17fd 100644
+--- a/include/rex/cvar.h
++++ b/include/rex/cvar.h
+@@ -238,6 +238,15 @@ void ResetToDefault(std::string_view name);
+ void ResetAllToDefaults();
+ bool HasNonDefaultValue(std::string_view name);
+ std::vector<std::string> ListModifiedFlags();
++// wwe2k14 patch (Session 77, cross-device determinism): a count of value changes (any source, only when the value
++// differs afterwards), so a per-frame reader can notice a setting changed mid-run without listing every flag.
++uint64_t ChangeCount();
++// wwe2k14 patch (Session 77): a value for a flag that is not registered yet (a runtime-loaded module's, e.g. the GPU
++// library's), applied when it registers with config priority (the command line and the environment still win).
++// False when the flag is already registered (set it directly then).
++bool DeferFlagValue(std::string_view name, std::string_view value);
++// wwe2k14 patch (Session 77): the command line's value for a flag that is not registered yet, if one was given.
++std::optional<std::string> PendingCommandLineValue(std::string_view name);
+ std::string SerializeToTOML();
+ std::string SerializeToTOML(std::string_view category);
+ 
+diff --git a/include/rex/det.h b/include/rex/det.h
+index 680f0cf21b012dc24de0df58a1a26c3288bcee22..7f7d5874f0b0a8b2b4ca89fc5920a1c105302040 100644
+--- a/include/rex/det.h
++++ b/include/rex/det.h
+@@ -18,6 +18,11 @@
+ #include <cstdint>
+ #include <functional>
+ #include <string>
++#include <thread>
++
++namespace rex::thread {
++class WaitHandle;
++}
+ 
+ namespace rex::det {
+ 
+@@ -28,6 +33,28 @@ void GuestThreadStarted();
+ void GuestThreadExiting();
+ bool IsGuestThread();
+ 
++// wwe2k14 patch (Session 77, cross-device tester check, XDET_PLAN P7 / gap 11): det_time_constant (with det_frames)
++// - the virtual clocks start from constant bases instead of the host's uptime and date (timebase 1 s, uptime 1000 ms,
++// system time 2013-10-29 00:00 UTC = the game's release), so no tester's clock or date reaches the guest; and guest
++// code the SDK calls on a host thread (interrupt callbacks, the audio worker's client callbacks: GuestCallbackScope)
++// reads the virtual clocks too. Off: unchanged.
++bool TimeConstant();
++uint64_t ConstantSystemTimeBase();
++// A guest thread, or (det_time_constant) guest code running inside a GuestCallbackScope on a host thread.
++bool ReadsVirtualTime();
++struct GuestCallbackScope {
++  GuestCallbackScope();
++  ~GuestCallbackScope();
++  GuestCallbackScope(const GuestCallbackScope&) = delete;
++  GuestCallbackScope& operator=(const GuestCallbackScope&) = delete;
++};
++// det_fs_constant (gap 10, no det_frames needed): the file system answers what a folder dump and a disc image of the
++// same disc, and any machine's save folder, would otherwise answer differently with constants: file times
++// kConstantFileTime (1970-01-01, what a disc image already reports), a disc image's attributes and volume size as a
++// read-only folder's. Off: unchanged.
++bool FsConstant();
++inline constexpr uint64_t kConstantFileTime = 116444736000000000ull;
++
+ // A guest thread blocks (no effect on host threads or with det_frames off).
+ void EnterWait();
+ void LeaveWait();
+@@ -47,6 +74,14 @@ void NoteVblank();
+ void WaitVblanks(uint64_t target);
+ // Det vblanks for a guest timeout in milliseconds (at least 1).
+ uint64_t VblanksForMs(uint64_t ms);
++// wwe2k14 patch (Session 77, cross-device): the vblank thread counts every vblank that fired on a timeout (det_serial's
++// det_serial_vblank_timeout_ms, det_frames' quiescence timeout), so the det hash CSV can mark it even when the log
++// line is filtered or cut. And the effective renderer (what the backend actually chose after its feature checks, e.g.
++// "vulkan rt=host" when the device has no fragment shader interlock), set by the backend, read by the CSV writer.
++void NoteVblankTimeout();
++uint64_t VblankTimeouts();
++void SetRendererInfo(const std::string& info);
++std::string RendererInfo();
+ // wwe2k14 patch (Session 27.5): the virtual time rate (det_frames_time_hz as applied: 60 until it first changes) and
+ // the virtual time since the first det vblank in microseconds (for host code that must follow guest time, e.g. a
+ // video decoder standing in for the guest's own).
+@@ -102,7 +137,24 @@ bool SerialWaitIdle(uint32_t timeout_ms);  // vblank thread: until nothing is ru
+ void SerialAfterVblank();                  // vblank thread: schedule after the vblank work
+ void NoteCpProgress();
+ // Host workers that change guest memory on their own register a "drained" test (checked before every decision).
+-void AddDrainCheck(std::function<bool()> drained);
++// wwe2k14 patch (Session 77): returns an id for RemoveDrainCheck (a worker that shuts down must unregister: a stale
++// check would keep the scheduler waiting forever, or call into a destroyed object).
++int AddDrainCheck(std::function<bool()> drained);
++void RemoveDrainCheck(int id);
++// wwe2k14 patch (Session 77): a slot's thread has given its slot up (SerialThreadExit / SerialThreadKilled). The
++// Locked form is for ready() predicates (the scheduler calls them holding its lock).
++bool SerialSlotExited(int slot);
++bool SerialSlotExitedLocked(int slot);
++// wwe2k14 patch (Session 77): another thread terminated this slot's thread (it never returns from SerialBlock):
++// retire the slot (and pass the baton on if it held it).
++void SerialThreadKilled(int slot);
++// wwe2k14 patch (Session 77): with det_serial_trace_detail, the scheduler trace notes before each thread pick what
++// the command processor was waiting on (the function the CP registers: e.g. "w1:00001A40" = an idle ring at that read
++// pointer, "w2:ADDR=VALUE" = WAIT_REG_MEM on memory), and TraceTag text (the CP tags each interrupt request with its
++// ring position) - to find which wait lets host timing decide where GPU interrupts run.
++void SetCpDescribe(std::function<std::string()> describe);
++void TraceTag(const std::string& tag);
++bool TraceDetail();
+ // Audio under det_serial: the worker waits for pumps (AudioWaitPump), runs its client callbacks once per pump and
+ // reports AudioPumpDone; the vblank thread asks for this vblank's pumps at idle and waits for them.
+ void AudioSetWorker(bool present);
+@@ -114,5 +166,9 @@ bool AudioPumpsPending();
+ uint64_t CpProgress();
+ // Signalled now, without consuming it (Windows: NtQueryEvent / NtQuerySemaphore / NtQueryMutant / NtQueryTimer).
+ bool HandleSignaled(void* native_handle);
++// wwe2k14 patch (Session 77): the same for a wait by thread `waiter`, on every platform: Windows forwards to the
++// native-handle version; POSIX asks the SDK's own wait object (rex::thread::PeekSignaled; it has no kernel object to
++// query, and a mutant must be judged for the waiter, not for the scheduler thread asking).
++bool HandleSignaled(rex::thread::WaitHandle* wait_handle, std::thread::id waiter);
+ 
+ }  // namespace rex::det
+diff --git a/include/rex/filesystem/devices/disc_image_device.h b/include/rex/filesystem/devices/disc_image_device.h
+index a97863d757df0c509d255804f0668e0d59b1b3b7..693c1642fbe4d4c343e4e747244e06aa79dc0691 100644
+--- a/include/rex/filesystem/devices/disc_image_device.h
++++ b/include/rex/filesystem/devices/disc_image_device.h
+@@ -15,6 +15,7 @@
+ #include <string>
+ #include <vector>
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 77): det_fs_constant
+ #include <rex/filesystem/device.h>
+ #include <rex/memory/mapped_memory.h>
+ 
+@@ -47,10 +48,13 @@ class DiscImageDevice : public Device {
+   uint32_t attributes() const override { return 0; }
+   uint32_t component_name_max_length() const override { return 255; }
+ 
++  // wwe2k14 patch (Session 77): det_fs_constant - a folder's constant volume size (host_path_device.h), not the
++  // image file's.
+   uint32_t total_allocation_units() const override {
++    if (det::FsConstant()) return 128 * 1024;
+     return uint32_t(mmap_->size() / sectors_per_allocation_unit() / bytes_per_sector());
+   }
+-  uint32_t available_allocation_units() const override { return 0; }
++  uint32_t available_allocation_units() const override { return det::FsConstant() ? 128 * 1024 : 0; }
+   uint32_t sectors_per_allocation_unit() const override { return 1; }
+   uint32_t bytes_per_sector() const override { return 0x200; }
+ 
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 0cd47010ff15599e685dc59f097145bdc6b237fd..70bf8dcdaf04ad411c73cd94916d69523a52d4b0 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -327,7 +327,17 @@ class CommandProcessor {
+   // tell "waiting with nothing to do" from "work arrived but the loop has not noticed yet".
+   std::atomic<int> det_wait_kind_{0};
+   std::atomic<uint32_t> det_wait_addr_{0}, det_wait_ref_{0}, det_wait_mask_{0}, det_wait_func_{0};
++  // wwe2k14 patch (Session 77): bumped after every det_wait_kind_ change (SetDetWaitKind): DetDrained trusts an
++  // evaluation only if no change happened during it (a switch between two waits of the same kind mixed their fields).
++  std::atomic<uint32_t> det_wait_seq_{0};
++  int det_drain_id_ = -1;  // the registered det_serial drain check (removed at Shutdown)
++  void SetDetWaitKind(int kind) {
++    det_wait_kind_.store(kind);
++    det_wait_seq_.fetch_add(1);
++  }
++  bool Half2LogHasPublishedSelfWork() const;  // Session 77: Half2LogHasSelfWork from other threads (atomics only)
+   bool DetDrained();
++  bool DetDrainedFor(int kind);  // wwe2k14 patch (Session 77)
+ 
+   // Some titles submit writes beyond the emulated register file range in PM4
+   // packets. Preserve these values so dependent packet logic can still observe
+diff --git a/include/rex/ppc/intrinsics.h b/include/rex/ppc/intrinsics.h
+index b65a729a3b3c4a4d36379b2fb7378c064c669f73..4eb0ff1f53e5e11a586eeacf01777d5612ad3085 100644
+--- a/include/rex/ppc/intrinsics.h
++++ b/include/rex/ppc/intrinsics.h
+@@ -203,14 +203,28 @@ inline int32_t cvt_f64_i32_current(double v) {
+   return simde_mm_cvtsd_si32(simde_mm_load_sd(&v));
+ #endif
+ }
++// wwe2k14 patch (Session 77, XDET_PLAN.md gap 13): fctid / fctidz saturate like the PowerPC on every platform: NaN ->
++// 0x8000000000000000, at or above 2^63 -> INT64_MAX, below -2^63 -> INT64_MIN. x86's conversion returned
++// 0x8000000000000000 for exactly 2^63 (the generated guard was "> double(LLONG_MAX)", and double(LLONG_MAX) is 2^63);
++// ARM saturated to INT64_MAX (tools\android\cpu_semantics: input 43e0000000000000). 2^63 and -2^63 are exact doubles,
++// and every double of magnitude 2^52 or more is an integer, so the range test needs no rounding first.
+ inline int64_t cvt_f64_i64_current(double v) {
++  if (v != v) return INT64_MIN;
++  if (v >= 9223372036854775808.0) return INT64_MAX;
++  if (v < -9223372036854775808.0) return INT64_MIN;
+ #if defined(__aarch64__) || defined(_M_ARM64)
+-  const double r = std::nearbyint(v);
+-  return r < -9223372036854775808.0 ? INT64_MIN : r >= 9223372036854775808.0 ? INT64_MAX : int64_t(r);
++  return int64_t(std::nearbyint(v));
+ #else
+   return simde_mm_cvtsd_si64(simde_mm_load_sd(&v));
+ #endif
+ }
++// fctidz: the same, rounding toward zero (a C++ conversion of an in-range double truncates on every platform).
++inline int64_t cvt_f64_i64_trunc(double v) {
++  if (v != v) return INT64_MIN;
++  if (v >= 9223372036854775808.0) return INT64_MAX;
++  if (v < -9223372036854775808.0) return INT64_MIN;
++  return int64_t(v);
++}
+ 
+ // wwe2k14 patch (Session 73): vmaxfp / vminfp in the VMX flush mode. x86's maxps / minps read denormal inputs as zero
+ // (MXCSR DAZ, set by the flush mode); simde's ARM version is a compare and a select, which returns the denormal input
+diff --git a/include/rex/system/xthread.h b/include/rex/system/xthread.h
+index 2ccccc0fb83712a035e9d82c7049f79c841e9dd4..fdd5c048b2e701cba578d3592e9a1abb022d9286 100644
+--- a/include/rex/system/xthread.h
++++ b/include/rex/system/xthread.h
+@@ -333,6 +333,7 @@ class XThread : public XObject {
+   bool is_running() const { return running_; }
+ 
+   uint32_t thread_id() const { return thread_id_; }
++  int det_slot() const { return det_slot_; }  // wwe2k14 patch (Session 77): det_serial scheduler slot (-1 = none)
+   uint32_t last_error();
+   void set_last_error(uint32_t error_code);
+   void set_name(const std::string_view name);
+diff --git a/include/rex/thread.h b/include/rex/thread.h
+index 465c31b9ea2c2522821c7b1baa65a334a56a8899..e3c7377a9768c8bbf70e4b006ee5c1f96c52fbab 100644
+--- a/include/rex/thread.h
++++ b/include/rex/thread.h
+@@ -230,6 +230,11 @@ std::pair<WaitResult, size_t> WaitMultiple(
+     WaitHandle* wait_handles[], size_t wait_handle_count, bool wait_all, bool is_alertable,
+     std::chrono::milliseconds timeout = std::chrono::milliseconds::max());
+ 
++// wwe2k14 patch (Session 77): whether a wait on the handle by thread `waiter` would succeed now, without consuming
++// the signal (det_serial's readiness test). 1 = yes, 0 = no, -1 = this platform cannot tell this way (Windows:
++// rex::det::HandleSignaled asks the kernel with the native handle instead).
++int PeekSignaled(WaitHandle* wait_handle, std::thread::id waiter);
++
+ // Waits until all of the specified objects are in the signaled state, a
+ // user callback is queued to the thread, or the time-out interval elapses.
+ // If timeout is zero the call will return immediately instead of waiting and
+diff --git a/resources/templates/codegen/register_cpp.inja b/resources/templates/codegen/register_cpp.inja
+index 0be31c412f32f30dac0b0622da00189f084c98b0..d8f34e8f814949dcfdf691a634daff8f78f79b13 100644
+--- a/resources/templates/codegen/register_cpp.inja
++++ b/resources/templates/codegen/register_cpp.inja
+@@ -5,6 +5,22 @@
+ #include "{{ project }}_init.h"
+ #include <rex/system/function_dispatcher.h>
+ 
++// wwe2k14 patch (Session 77): the registrations as a const table and one loop, not one SetFunction statement per
++// function: 83,000 statements in one function body took 261 s to compile for arm64 at -O3 (over 10 min at -O0), alone
++// on one core at the end of every game library build (22 s on the PC). Same calls in the same order.
++namespace {
++struct RexRegisterEntry {
++  uint32_t guest_address;
++  ::PPCFunc* func;
++};
++#define REX_REGISTER_ENTRY(address, func) RexRegisterEntry{address, func}
++const RexRegisterEntry kRexRegisterTable[] = {
++{% for fn in functions %}{% if not fn.below_code_base or fn.is_import %}    REX_REGISTER_ENTRY({{ fn.address }}, {{ fn.name }}),
++{% endif %}{% endfor %}    REX_REGISTER_ENTRY(0u, nullptr),  // end (keeps the table non-empty)
++};
++#undef REX_REGISTER_ENTRY
++}  // namespace
++
+ {% if is_dll %}
+ #ifdef _WIN32
+ #define REX_MODULE_EXPORT __declspec(dllexport)
+@@ -17,8 +33,8 @@ void ReXModule_Register(rex::runtime::IModuleRegistrar* registrar) {
+ {% else %}
+ void {{ project }}_RegisterFunctions(rex::runtime::IModuleRegistrar* registrar) {
+ {% endif %}
+-{% for fn in functions %}{% if not fn.below_code_base or fn.is_import %}  registrar->SetFunction({{ fn.address }}, {{ fn.name }});
+-{% endif %}{% endfor %}}
++  for (const RexRegisterEntry* e = kRexRegisterTable; e->func; ++e) registrar->SetFunction(e->guest_address, e->func);
++}
+ 
+ {% if is_dll %}
+ // The runtime uses this baked layout for the dispatch table. It must match the
+diff --git a/src/audio/audio_system.cpp b/src/audio/audio_system.cpp
+index 7a4430001c71beec882c50cf6203fb1902f685bd..e00cb470e6021d4f9b46dc52905d7aabc99a4093 100644
+--- a/src/audio/audio_system.cpp
++++ b/src/audio/audio_system.cpp
+@@ -129,6 +129,7 @@ void AudioSystem::WorkerThreadMain() {
+         global_lock.unlock();
+         if (!client_callback) continue;
+         uint64_t args[] = {client_callback_arg};
++        det::GuestCallbackScope guest_callback;  // wwe2k14 patch (Session 77): det_time_constant
+         function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
+                                       rex::countof(args));
+       }
+@@ -185,6 +186,7 @@ void AudioSystem::WorkerThreadMain() {
+         }
+         SCOPE_profile_cpu_i("apu", "rex::audio::AudioSystem->client_callback");
+         uint64_t args[] = {client_callback_arg};
++        det::GuestCallbackScope guest_callback;  // wwe2k14 patch (Session 77): det_time_constant
+         function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
+                                       rex::countof(args));
+         if (diag_pump_count < 10) {
+diff --git a/src/codegen/builders/floating_point.cpp b/src/codegen/builders/floating_point.cpp
+index 887d1ddd53f8048149bfe96fd40a8a27bcc1ae05..188e24f0e143ef5771715d564d17068c1c3d7690 100644
+--- a/src/codegen/builders/floating_point.cpp
++++ b/src/codegen/builders/floating_point.cpp
+@@ -56,23 +56,20 @@ bool build_fcfid(BuilderContext& ctx) {
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 77, XDET_PLAN.md gap 13): the PowerPC's saturation (NaN, at or above 2^63, below -2^63) is in
++// the helpers (rex/ppc/intrinsics.h), the same on every platform. The old guard "> double(LLONG_MAX)" let exactly
++// 2^63 through to x86's conversion (0x8000000000000000 instead of INT64_MAX).
+ bool build_fctid(BuilderContext& ctx) {
+   ctx.emit_set_flush_mode(false);
+-  ctx.println(
+-      "\t{0}.s64 = std::isnan({1}.f64) ? int64_t(0x8000000000000000ULL) : "
+-      "({1}.f64 > double(LLONG_MAX)) ? LLONG_MAX : "
+-      "rex::ppc::cvt_f64_i64_current({1}.f64);",  // wwe2k14 patch (Session 73)
+-      ctx.f(ctx.insn.operands[0]), ctx.f(ctx.insn.operands[1]));
++  ctx.println("\t{0}.s64 = rex::ppc::cvt_f64_i64_current({1}.f64);", ctx.f(ctx.insn.operands[0]),
++              ctx.f(ctx.insn.operands[1]));
+   return true;
+ }
+ 
+ bool build_fctidz(BuilderContext& ctx) {
+   ctx.emit_set_flush_mode(false);
+-  ctx.println(
+-      "\t{0}.s64 = std::isnan({1}.f64) ? int64_t(0x8000000000000000ULL) : "
+-      "({1}.f64 > double(LLONG_MAX)) ? LLONG_MAX : "
+-      "simde_mm_cvttsd_si64(simde_mm_load_sd(&{1}.f64));",
+-      ctx.f(ctx.insn.operands[0]), ctx.f(ctx.insn.operands[1]));
++  ctx.println("\t{0}.s64 = rex::ppc::cvt_f64_i64_trunc({1}.f64);", ctx.f(ctx.insn.operands[0]),
++              ctx.f(ctx.insn.operands[1]));
+   return true;
+ }
+ 
+diff --git a/src/codegen/project_recompiler.cpp b/src/codegen/project_recompiler.cpp
+index 240bcb0cfe7480b671a5e4541a545bce318f8f3d..ffd93793987cdc03e035dec196091d1e33d51f1e 100644
+--- a/src/codegen/project_recompiler.cpp
++++ b/src/codegen/project_recompiler.cpp
+@@ -29,7 +29,10 @@
+ #include <rex/codegen/output_stamp.h>
+ #include <rex/codegen/progress_reporter.h>
+ #include <rex/codegen/template_registry.h>
++#include <rex/filesystem.h>  // wwe2k14 patch (Session 77): ToolBinaryHash
++#include <rex/hash.h>
+ #include <rex/kernel/init.h>
++#include <rex/platform.h>
+ #include <rex/logging.h>
+ #include <rex/runtime.h>
+ #include <rex/system/user_module.h>
+@@ -76,11 +79,52 @@ std::vector<std::filesystem::path> CollectModuleInputs(const RecompilerConfig& c
+   return inputs;
+ }
+ 
++// wwe2k14 patch (Session 77): the codegen binary itself, so a changed instruction builder regenerates (the version
++// string and the templates hash stayed the same when only a builder changed: the fctid / fctidz saturation fix
++// reported "1 module(s) up to date" and left all 876 old statements in place). Files are still written only when
++// their content changes, so a rebuilt tool with the same output costs one codegen pass and no recompiles.
++// The codegen tool's own binaries: the executable and the runtime library next to it (the xex loader and the export
++// tables codegen reads). They are also written to the depfile (below), so the build re-runs codegen when either
++// changes (Session 77 review: without them ninja never started the new rexglue, and the fingerprint above never ran).
++std::vector<std::filesystem::path> ToolBinaries() {
++  std::vector<std::filesystem::path> out;
++  const std::filesystem::path exe = rex::filesystem::GetExecutablePath();
++  if (exe.empty()) return out;
++  out.push_back(exe);
++#if REX_PLATFORM_WIN32
++  const std::filesystem::path runtime = exe.parent_path() / "rexruntime.dll";
++#elif REX_PLATFORM_MAC
++  const std::filesystem::path runtime = exe.parent_path() / "librexruntime.dylib";
++#else
++  const std::filesystem::path runtime = exe.parent_path() / "librexruntime.so";
++#endif
++  std::error_code ec;
++  if (std::filesystem::exists(runtime, ec)) out.push_back(runtime);
++  return out;
++}
++
++const std::string& ToolBinaryHash() {
++  static const std::string hash = [] {
++    std::string all;
++    for (const auto& path : ToolBinaries()) {
++      const std::string digest = rex::hash_file(path);
++      all += (all.empty() ? "" : "+") + (digest.empty() ? std::string("<unreadable>") : digest);
++    }
++    if (all.empty()) {
++      REXCODEGEN_WARN("codegen: cannot find or read its own binary; a changed tool may not regenerate");
++      return std::string("<unknown>");
++    }
++    return all;
++  }();
++  return hash;
++}
++
+ std::string FingerprintModule(const RecompilerConfig& cfg,
+                               std::span<const std::filesystem::path> inputs,
+                               std::string_view sdkVersion) {
+   std::vector<std::string> flags{
+       fmt::format("templates={}", EmbeddedTemplatesHash()),
++      fmt::format("tool={}", ToolBinaryHash()),
+       fmt::format("generate_exception_handlers={}", cfg.generateExceptionHandlers),
+       fmt::format("max_jump_extension={}", cfg.maxJumpExtension),
+       fmt::format("data_region_threshold={}", cfg.dataRegionThreshold),
+@@ -455,6 +499,8 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
+ 
+   if (!contexts.empty()) {
+     auto buildDir = contexts[0].ctx.configDir() / contexts[0].ctx.Config().outDirectoryPath;
++    // wwe2k14 patch (Session 77): the tool's binaries are inputs too (see ToolBinaries).
++    for (const auto& path : ToolBinaries()) allInputs.push_back(path);
+     std::sort(allInputs.begin(), allInputs.end());
+     allInputs.erase(std::unique(allInputs.begin(), allInputs.end()), allInputs.end());
+ 
+diff --git a/src/core/clock.cpp b/src/core/clock.cpp
+index e670640196e1a3b93fbf4b15a7f78e6ce3724cdc..2162e062e3af2d5c201a151ed57b6d10ec105dac 100644
+--- a/src/core/clock.cpp
++++ b/src/core/clock.cpp
+@@ -159,13 +159,21 @@ void Clock::set_guest_system_time_base(uint64_t time_base) {
+ uint64_t Clock::QueryGuestTickCount() {
+   auto guest_tick_count = UpdateGuestClock();
+   // wwe2k14 patch (Session 15): det_frames: guest threads see a time derived from the det vblank count.
+-  if (det::Enabled() && det::IsGuestThread()) {
++  // (Session 77: det_time_constant - guest callbacks on host threads too, det::ReadsVirtualTime.)
++  if (det::Enabled() && det::ReadsVirtualTime()) {
+     return det::VirtualGuestTicks(guest_tick_count, guest_tick_frequency_);
+   }
+   return guest_tick_count;
+ }
+ 
+ uint64_t Clock::QueryGuestSystemTime() {
++  // wwe2k14 patch (Session 77): det_time_constant - a constant date plus virtual time, whatever clock_no_scaling
++  // says and whatever the host's date is, on every thread (review: host threads write it into guest memory - a
++  // thread's create time, a timer APC's time - so real time since start must not reach it; the only callers are
++  // KeQuerySystemTime, XThread::Create and XTimer, none of them waits on it).
++  if (det::TimeConstant()) {
++    return det::ConstantSystemTimeBase() + det::VirtualSystemTimeOffset(QueryGuestSystemTimeOffset());
++  }
+   if (REXCVAR_GET(clock_no_scaling)) {
+     return Clock::QueryHostSystemTime();
+   }
+@@ -182,7 +190,8 @@ uint32_t Clock::QueryGuestUptimeMillis() {
+   const auto real = static_cast<uint32_t>(std::min<uint64_t>(QueryGuestSystemTimeOffset() / 10000,
+                                                               std::numeric_limits<uint32_t>::max()));
+   // wwe2k14 patch (Session 15): det_frames: guest threads see uptime derived from the det vblank count.
+-  if (det::Enabled() && det::IsGuestThread()) return det::VirtualUptimeMillis(real);
++  // (Session 77: det_time_constant - guest callbacks on host threads too.)
++  if (det::Enabled() && det::ReadsVirtualTime()) return det::VirtualUptimeMillis(real);
+   return real;
+ }
+ 
+diff --git a/src/core/cvar.cpp b/src/core/cvar.cpp
+index 228728deaa02a0d5835047157f4c855cf3afaa0c..25a5f9bfd5d3572f0db9925d29bc5e657ac3af30 100644
+--- a/src/core/cvar.cpp
++++ b/src/core/cvar.cpp
+@@ -37,6 +37,9 @@ std::mutex g_mutex;
+ // from runtime-loaded modules and drain pending values.
+ std::atomic<bool> g_init_done = false;
+ 
++// wwe2k14 patch (Session 77): value changes, for ChangeCount().
++std::atomic<uint64_t> g_change_count{0};
++
+ // Recursive: FlagRegistrar chain methods re-enter; change callbacks invoked
+ // from SetFlagByName must not mutate the registry.
+ std::recursive_mutex& GetRegistryMutex() {
+@@ -86,10 +89,15 @@ bool Outranks(Source source, const FlagEntry& entry) {
+ 
+ // Unvalidated apply, for the command line and environment paths.
+ bool ApplyFromSource(FlagEntry& entry, std::string_view value, Source source) {
+-  if (!Outranks(source, entry) || !entry.setter(value)) {
++  if (!Outranks(source, entry)) {
++    return false;
++  }
++  const std::string before = entry.getter();
++  if (!entry.setter(value)) {
+     return false;
+   }
+   entry.source = source;
++  if (entry.getter() != before) g_change_count.fetch_add(1, std::memory_order_relaxed);
+   return true;
+ }
+ 
+@@ -317,10 +325,12 @@ ApplyResult SetFlagFromSource(std::string_view name, std::string_view value, Sou
+     return ApplyResult::kRejected;
+   }
+ 
++  const std::string before = entry.getter();
+   if (!entry.setter(value)) {
+     return ApplyResult::kRejected;
+   }
+   entry.source = source;
++  if (entry.getter() != before) g_change_count.fetch_add(1, std::memory_order_relaxed);
+ 
+   if (entry.lifecycle == Lifecycle::kRequiresRestart) {
+     MarkPendingRestart(name);
+@@ -502,6 +512,7 @@ void ResetToDefault(std::string_view name) {
+     return;
+   }
+   auto& entry = GetRegistryStorage()[it->second];
++  if (entry.getter() != entry.default_value) g_change_count.fetch_add(1, std::memory_order_relaxed);
+   entry.setter(entry.default_value);
+   entry.source = Source::kDefault;
+ }
+@@ -509,6 +520,7 @@ void ResetToDefault(std::string_view name) {
+ void ResetAllToDefaults() {
+   std::lock_guard lock(GetRegistryMutex());
+   for (auto& entry : GetRegistryStorage()) {
++    if (entry.getter() != entry.default_value) g_change_count.fetch_add(1, std::memory_order_relaxed);
+     entry.setter(entry.default_value);
+     entry.source = Source::kDefault;
+   }
+@@ -535,6 +547,28 @@ std::vector<std::string> ListModifiedFlags() {
+   return result;
+ }
+ 
++uint64_t ChangeCount() {
++  return g_change_count.load(std::memory_order_relaxed);
++}
++
++bool DeferFlagValue(std::string_view name, std::string_view value) {
++  std::lock_guard lock(GetRegistryMutex());
++  if (GetRegistryIndex().find(std::string(name)) != GetRegistryIndex().end()) {
++    return false;
++  }
++  GetPendingValuesStorage()[std::string(name)].config = std::string(value);
++  return true;
++}
++
++std::optional<std::string> PendingCommandLineValue(std::string_view name) {
++  std::lock_guard lock(GetRegistryMutex());
++  auto it = GetPendingValuesStorage().find(std::string(name));
++  if (it == GetPendingValuesStorage().end()) {
++    return std::nullopt;
++  }
++  return it->second.cmdline;
++}
++
+ std::string SerializeToTOML() {
+   std::lock_guard lock(GetRegistryMutex());
+   std::string result;
+diff --git a/src/core/det.cpp b/src/core/det.cpp
+index 84205322c2f3148a5faec6d6e716e35e9259a23c..3e043d2a06764075c1ce98dafb71998fb8bf3534 100644
+--- a/src/core/det.cpp
++++ b/src/core/det.cpp
+@@ -35,6 +35,14 @@ REXCVAR_DEFINE_INT32(det_frames_timeout_ms, 250, "GPU",
+ REXCVAR_DEFINE_INT32(det_frames_time_hz, 60, "GPU",
+                      "det_frames: virtual time per det vblank = 1/N s (default 60); the guest timebase, system time, "
+                      "uptime, timed waits and the audio pumps follow it. Read at each det vblank");
++// wwe2k14 patch (Session 77, cross-device tester check): include/rex/det.h.
++REXCVAR_DEFINE_BOOL(det_time_constant, false, "GPU",
++                    "det_frames: the virtual clocks start from constant bases (timebase 1 s, uptime 1000 ms, system "
++                    "time 2013-10-29 00:00 UTC), not the host's uptime and date; guest callbacks on host threads read "
++                    "them too (include/rex/det.h)");
++REXCVAR_DEFINE_BOOL(det_fs_constant, false, "GPU",
++                    "Constant file times, and a disc image's attributes / volume size as a read-only folder's, so a "
++                    "folder dump, a disc image and any machine's save folder answer the same (include/rex/det.h)");
+ 
+ namespace rex::det {
+ namespace {
+@@ -130,6 +138,8 @@ inline uint32_t HostTid() {
+ inline void Pause() {
+ #if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
+   _mm_pause();
++#elif defined(__aarch64__)
++  __asm__ __volatile__("yield");  // wwe2k14 patch (Session 77): the spin-wait hint on ARM64 (was nothing)
+ #endif
+ }
+ }  // namespace
+@@ -161,6 +171,17 @@ void GuestThreadExiting() {
+ 
+ bool IsGuestThread() { return t_guest; }
+ 
++// wwe2k14 patch (Session 77, cross-device tester check): det_time_constant / det_fs_constant (include/rex/det.h).
++namespace {
++thread_local int32_t t_callback_depth = 0;
++}  // namespace
++bool TimeConstant() { return Enabled() && REXCVAR_GET(det_time_constant); }
++uint64_t ConstantSystemTimeBase() { return 130274784000000000ull; }  // 2013-10-29 00:00:00 UTC as a FILETIME
++bool ReadsVirtualTime() { return t_guest || (t_callback_depth > 0 && TimeConstant()); }
++GuestCallbackScope::GuestCallbackScope() { ++t_callback_depth; }
++GuestCallbackScope::~GuestCallbackScope() { --t_callback_depth; }
++bool FsConstant() { return REXCVAR_GET(det_fs_constant); }
++
+ void EnterWait() {
+   if (!t_guest) return;
+   if (t_wait_depth++ == 0) {
+@@ -191,6 +212,25 @@ void NoteVblank() {
+   g_cv.notify_all();
+ }
+ 
++// wwe2k14 patch (Session 77, cross-device): timed-out vblanks and the effective renderer, for the det hash CSV.
++namespace {
++std::atomic<uint64_t> g_vblank_timeouts{0};
++std::mutex g_renderer_mutex;
++std::string g_renderer_info;
++}  // namespace
++
++void NoteVblankTimeout() { g_vblank_timeouts.fetch_add(1, std::memory_order_acq_rel); }
++uint64_t VblankTimeouts() { return g_vblank_timeouts.load(std::memory_order_acquire); }
++
++void SetRendererInfo(const std::string& info) {
++  std::lock_guard<std::mutex> lock(g_renderer_mutex);
++  g_renderer_info = info;
++}
++std::string RendererInfo() {
++  std::lock_guard<std::mutex> lock(g_renderer_mutex);
++  return g_renderer_info;
++}
++
+ void WaitVblanks(uint64_t target) {
+   WaitScope scope;
+   std::unique_lock<std::mutex> lock(g_mutex);
+@@ -293,7 +333,9 @@ std::string DescribeRunning() {
+ uint64_t VirtualGuestTicks(uint64_t real_ticks, uint64_t guest_tick_frequency) {
+   if (!g_base_ticks_set.load(std::memory_order_acquire)) {
+     bool expected = false;
+-    if (g_base_ticks_set.compare_exchange_strong(expected, true)) g_base_ticks.store(real_ticks);
++    // (Session 77: det_time_constant - 1 s of guest ticks, not the host's tick count at the first read.)
++    if (g_base_ticks_set.compare_exchange_strong(expected, true))
++      g_base_ticks.store(TimeConstant() ? guest_tick_frequency : real_ticks);
+   }
+   const uint64_t vb = g_vblanks.load(std::memory_order_acquire);
+   if (t_read_vblank != vb) {
+@@ -303,13 +345,16 @@ uint64_t VirtualGuestTicks(uint64_t real_ticks, uint64_t guest_tick_frequency) {
+   ++t_reads;
+   const uint64_t per_frame = guest_tick_frequency / 60;
+   const uint64_t step = std::max<uint64_t>(1, per_frame / 100000);
++  // (Session 77, review: det_time_constant - guest code called on a host thread (an interrupt, an audio callback)
++  // reads half a frame later than the frame's start, so after the guest threads' reads of that frame, not before.)
++  const uint64_t callback_lead = (!t_guest && t_callback_depth > 0 && TimeConstant()) ? per_frame / 2 : 0;
+   if (!g_tick_freq.load(std::memory_order_relaxed)) g_tick_freq.store(guest_tick_frequency, std::memory_order_release);
+   if (g_time_rebased.load(std::memory_order_acquire)) {  // wwe2k14 patch (Session 27.5): det_frames_time_hz
+     const Segment s = ReadSegment();
+     return g_base_ticks.load(std::memory_order_relaxed) + SegTicks(s, std::max(vb, s.vb0), guest_tick_frequency) +
+-           t_reads * step;
++           callback_lead + t_reads * step;
+   }
+-  return g_base_ticks.load(std::memory_order_relaxed) + vb * per_frame + t_reads * step;
++  return g_base_ticks.load(std::memory_order_relaxed) + vb * per_frame + callback_lead + t_reads * step;
+ }
+ 
+ uint32_t VirtualUptimeMillis(uint32_t real_ms) {
+@@ -317,7 +362,8 @@ uint32_t VirtualUptimeMillis(uint32_t real_ms) {
+   static std::atomic<uint32_t> base{0};
+   if (!set.load(std::memory_order_acquire)) {
+     bool expected = false;
+-    if (set.compare_exchange_strong(expected, true)) base.store(real_ms);
++    // (Session 77: det_time_constant - 1000 ms, not the host's uptime at the first read.)
++    if (set.compare_exchange_strong(expected, true)) base.store(TimeConstant() ? 1000u : real_ms);
+   }
+   const uint64_t vb = g_vblanks.load(std::memory_order_acquire);
+   if (g_time_rebased.load(std::memory_order_acquire)) {  // wwe2k14 patch (Session 27.5): det_frames_time_hz
+@@ -345,7 +391,8 @@ void RunVblankHooks() {
+ uint64_t VirtualSystemTimeOffset(uint64_t real_offset) {
+   if (!g_base_sys_set.load(std::memory_order_acquire)) {
+     bool expected = false;
+-    if (g_base_sys_set.compare_exchange_strong(expected, true)) g_base_sys.store(real_offset);
++    // (Session 77: det_time_constant - 0: the system time is ConstantSystemTimeBase() + virtual time, clock.cpp.)
++    if (g_base_sys_set.compare_exchange_strong(expected, true)) g_base_sys.store(TimeConstant() ? 0 : real_offset);
+   }
+   const uint64_t vb = g_vblanks.load(std::memory_order_acquire);
+   if (g_time_rebased.load(std::memory_order_acquire)) {  // wwe2k14 patch (Session 27.5): det_frames_time_hz
+diff --git a/src/core/det_serial.cpp b/src/core/det_serial.cpp
+index 8617624e735e6fe95920ef37b16dadbe3e51a92f..bac294c5c668c87f794e8410050ecd7a23f8ea93 100644
+--- a/src/core/det_serial.cpp
++++ b/src/core/det_serial.cpp
+@@ -4,6 +4,7 @@
+ #include <rex/cvar.h>
+ #include <rex/det.h>
+ #include <rex/logging.h>
++#include <rex/thread.h>
+ 
+ #include <algorithm>
+ #include <atomic>
+@@ -37,6 +38,12 @@ REXCVAR_DEFINE_STRING(det_serial_trace, "", "GPU",
+                       "decision count, a hash of the picks and the first picks; x = an external request, - = idle)");
+ REXCVAR_DEFINE_INT32(det_serial_stall_ms, 3000, "GPU",
+                      "det_serial: log when one guest thread keeps the baton this long (a spin wait on another thread?)");
++REXCVAR_DEFINE_BOOL(det_serial_stats, false, "GPU",
++                    "wwe2k14 (Session 77): det_serial timing, logged every 600 det vblanks: where the time between "
++                    "vblanks goes (guest turns, drain waits, external requests, picks, wake-up delay, idle)");
++REXCVAR_DEFINE_BOOL(det_serial_trace_detail, false, "GPU",
++                    "wwe2k14 (Session 77): det_serial_trace also notes, before each thread pick, what the command "
++                    "processor was waiting on, and each GPU interrupt request's ring position (no 240-character cut)");
+ 
+ namespace rex::det {
+ namespace {
+@@ -71,6 +78,26 @@ FILE* s_trace = nullptr;
+ bool s_trace_tried = false;
+ uint64_t s_tr_count = 0, s_tr_hash = 1469598103934665603ull;
+ std::string s_tr_picks;
++std::function<std::string()> s_cp_describe;  // Session 77 (det_serial_trace_detail)
++std::mutex s_tag_mu;                          // TraceTag comes from the CP thread without s_mu
++// Session 77 (det_serial_stats): sums in nanoseconds, under s_mu. A hand-off: the holder calls ScheduleLocked (t0),
++// the drain wait ends (t1), the external requests are done (t2), the next slot is woken (t3), and that slot runs again
++// (its wait returns: the wake-up delay = then - t3). A turn: from a slot resuming to its next ScheduleLocked.
++struct DetStats {
++  uint64_t handoffs = 0, externals = 0, wakes = 0, idles = 0;
++  uint64_t drain_ns = 0, ext_ns = 0, pick_ns = 0, wake_ns = 0, turn_ns = 0;
++  uint64_t vb0 = 0;
++  std::chrono::steady_clock::time_point wall0{};
++};
++DetStats s_st;
++bool s_st_on = false;
++std::chrono::steady_clock::time_point s_woken_at{};  // t3 of the last wake (the slot that was woken)
++std::chrono::steady_clock::time_point s_turn_since{};  // when the running slot resumed
++inline uint64_t Ns(std::chrono::steady_clock::duration d) {
++  return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(d).count());
++}
++std::string s_tags;
++std::atomic<bool> s_trace_open{false};
+ void TraceNote(int code) {  // slot, -1 idle, -2 external
+   if (!s_trace_tried) {
+     s_trace_tried = true;
+@@ -82,13 +109,27 @@ void TraceNote(int code) {  // slot, -1 idle, -2 external
+       const std::string path = dir + "/det_serial.txt";
+ #endif
+       s_trace = std::fopen(path.c_str(), "w");
++      s_trace_open.store(s_trace != nullptr, std::memory_order_release);
+       REXLOG_INFO("[det] serial trace -> {} ({})", path, s_trace ? "open" : "failed");
+     }
+   }
+   if (!s_trace) return;
+   ++s_tr_count;
+   s_tr_hash = (s_tr_hash ^ uint64_t(code + 3)) * 1099511628211ull;
+-  if (s_tr_picks.size() < 240) {
++  // Session 77: detail mode (not part of the hash): the CP's wait before a thread pick, and the tags (interrupt ring
++  // positions) noted since the previous decision, before an external.
++  static const bool detail = REXCVAR_GET(det_serial_trace_detail);
++  if (detail) {
++    {
++      std::lock_guard<std::mutex> tl(s_tag_mu);
++      if (!s_tags.empty()) {
++        s_tr_picks += s_tags;
++        s_tags.clear();
++      }
++    }
++    if (code != -2 && s_cp_describe) s_tr_picks += "[" + s_cp_describe() + "]";
++  }
++  if (detail || s_tr_picks.size() < 240) {
+     s_tr_picks += code == -1 ? "-" : code == -2 ? "x" : std::to_string(code);
+     s_tr_picks += ' ';
+   }
+@@ -106,6 +147,8 @@ void TraceFlush() {
+ inline void Pause() {
+ #if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
+   _mm_pause();
++#elif defined(__aarch64__)
++  __asm__ __volatile__("yield");  // wwe2k14 patch (Session 77): the spin-wait hint on ARM64 (was nothing)
+ #endif
+ }
+ 
+@@ -125,17 +168,18 @@ int64_t NowMs() {
+ 
+ // Other host workers that change guest memory on their own (the XMA decoder): drained when all return true.
+ std::mutex s_drain_mu;
+-std::vector<std::function<bool()>> s_drains;
+-int g_last_undrained = -2;  // -1 = the command processor, n = drain check n (for the stall log)
++std::vector<std::pair<int, std::function<bool()>>> s_drains;  // Session 77: (id, check), removable
++int s_next_drain_id = 0;
++int g_last_undrained = -2;  // -1 = the command processor, n = drain check id n (for the stall log)
+ bool AllDrained() {
+   if (!CpWaiting()) {
+     g_last_undrained = -1;
+     return false;
+   }
+   std::lock_guard<std::mutex> lock(s_drain_mu);
+-  for (size_t i = 0; i < s_drains.size(); ++i) {
+-    if (!s_drains[i]()) {
+-      g_last_undrained = int(i);
++  for (const auto& d : s_drains) {
++    if (!d.second()) {
++      g_last_undrained = d.first;
+       return false;
+     }
+   }
+@@ -169,8 +213,22 @@ void WaitCpDrained(std::unique_lock<std::mutex>& lock) {
+ // With the lock held: run pending external requests one at a time (arrival order), then give the baton to the next
+ // ready slot after s_last (round-robin), or go idle. Called by whoever gives the baton up.
+ void ScheduleLocked(std::unique_lock<std::mutex>& lock) {
++  const bool st = s_st_on;
++  std::chrono::steady_clock::time_point t0, t1;
++  if (st) {
++    t0 = std::chrono::steady_clock::now();
++    if (s_turn_since.time_since_epoch().count()) s_st.turn_ns += Ns(t0 - s_turn_since);
++    s_turn_since = {};
++    ++s_st.handoffs;
++  }
++  bool drained_once = false;
+   for (;;) {
+     WaitCpDrained(lock);
++    if (st && !drained_once) {
++      drained_once = true;
++      t1 = std::chrono::steady_clock::now();
++      s_st.drain_ns += Ns(t1 - t0);
++    }
+     if (s_ext.empty()) break;
+     std::shared_ptr<External> e = s_ext.front();
+     s_ext.pop_front();
+@@ -180,6 +238,12 @@ void ScheduleLocked(std::unique_lock<std::mutex>& lock) {
+     e->cv.notify_all();
+     e->cv.wait(lock, [&] { return e->done; });
+     s_external_running = false;
++    if (st) ++s_st.externals;
++  }
++  std::chrono::steady_clock::time_point t2;
++  if (st) {
++    t2 = std::chrono::steady_clock::now();
++    s_st.ext_ns += Ns(t2 - t1);
+   }
+   const int n = int(s_slots.size());
+   const uint64_t vb = Vblanks();
+@@ -200,10 +264,19 @@ void ScheduleLocked(std::unique_lock<std::mutex>& lock) {
+       s_last = i;
+       s_idle = false;
+       s_holder_since_ms.store(NowMs());
++      if (st) {
++        s_woken_at = std::chrono::steady_clock::now();
++        s_st.pick_ns += Ns(s_woken_at - t2);
++        ++s_st.wakes;
++      }
+       s.cv.notify_all();
+       return;
+     }
+   }
++  if (st) {
++    s_st.pick_ns += Ns(std::chrono::steady_clock::now() - t2);
++    ++s_st.idles;
++  }
+   TraceNote(-1);
+   s_holder = -1;
+   s_idle = true;
+@@ -247,6 +320,12 @@ void SerialThreadStart(int slot) {
+   }
+   s.cv.wait(lock, [&] { return s.go; });
+   s.go = false;
++  if (s_st_on) {  // Session 77 (det_serial_stats): as in SerialBlock
++    const auto now = std::chrono::steady_clock::now();
++    if (s_woken_at.time_since_epoch().count()) s_st.wake_ns += Ns(now - s_woken_at);
++    s_woken_at = {};
++    s_turn_since = now;
++  }
+ }
+ 
+ void SerialThreadExit() {
+@@ -269,6 +348,12 @@ void SerialBlock(std::function<bool()> ready, uint64_t deadline_vblank) {
+   if (s_holder == t_sslot) ScheduleLocked(lock);
+   s.cv.wait(lock, [&] { return s.go; });
+   s.go = false;
++  if (s_st_on) {  // Session 77 (det_serial_stats)
++    const auto now = std::chrono::steady_clock::now();
++    if (s_woken_at.time_since_epoch().count()) s_st.wake_ns += Ns(now - s_woken_at);
++    s_woken_at = {};
++    s_turn_since = now;
++  }
+   s.ready = nullptr;
+   s.deadline = ~0ull;
+ }
+@@ -322,12 +407,82 @@ bool SerialWaitIdle(uint32_t timeout_ms) {
+ void SerialAfterVblank() {
+   std::unique_lock<std::mutex> lock(s_mu);
+   TraceFlush();
++  // Session 77 (det_serial_stats): read once per vblank (a setting change mid-run starts a fresh window).
++  if (REXCVAR_GET(det_serial_stats) != s_st_on) {
++    s_st_on = REXCVAR_GET(det_serial_stats);
++    s_st = DetStats{};
++    s_st.vb0 = Vblanks();
++    s_st.wall0 = std::chrono::steady_clock::now();
++  }
++  if (s_st_on && Vblanks() - s_st.vb0 >= 600) {
++    const double wall = double(Ns(std::chrono::steady_clock::now() - s_st.wall0));
++    const double vbs = double(Vblanks() - s_st.vb0);
++    auto pct = [&](uint64_t ns) { return 100.0 * double(ns) / wall; };
++    auto per = [&](uint64_t ns) { return double(ns) / vbs / 1000.0; };  // us per vblank
++    const uint64_t acc = s_st.turn_ns + s_st.drain_ns + s_st.ext_ns + s_st.pick_ns + s_st.wake_ns;
++    REXLOG_INFO("[det] serial stats vblanks {}-{}: {:.2f} ms per vblank; per vblank {:.1f} hand-offs, {:.1f} external, "
++                "{:.1f} idle; guest turns {:.0f} us ({:.0f}%), drain waits {:.0f} us ({:.0f}%), external requests "
++                "{:.0f} us ({:.0f}%), picks {:.0f} us ({:.0f}%), wake-up delay {:.0f} us ({:.0f}%; {:.1f} us per "
++                "wake), other (vblank thread, idle) {:.0f}%",
++                s_st.vb0, Vblanks(), wall / vbs / 1e6, double(s_st.handoffs) / vbs, double(s_st.externals) / vbs,
++                double(s_st.idles) / vbs, per(s_st.turn_ns), pct(s_st.turn_ns), per(s_st.drain_ns),
++                pct(s_st.drain_ns), per(s_st.ext_ns), pct(s_st.ext_ns), per(s_st.pick_ns), pct(s_st.pick_ns),
++                per(s_st.wake_ns), pct(s_st.wake_ns),
++                s_st.wakes ? double(s_st.wake_ns) / double(s_st.wakes) / 1000.0 : 0.0,
++                100.0 - pct(acc));
++    s_st = DetStats{};
++    s_st.vb0 = Vblanks();
++    s_st.wall0 = std::chrono::steady_clock::now();
++  }
+   if (s_holder < 0) ScheduleLocked(lock);
+ }
+ 
+-void AddDrainCheck(std::function<bool()> drained) {
++int AddDrainCheck(std::function<bool()> drained) {
+   std::lock_guard<std::mutex> lock(s_drain_mu);
+-  s_drains.push_back(std::move(drained));
++  const int id = s_next_drain_id++;
++  s_drains.emplace_back(id, std::move(drained));
++  return id;
++}
++
++void RemoveDrainCheck(int id) {
++  std::lock_guard<std::mutex> lock(s_drain_mu);
++  s_drains.erase(std::remove_if(s_drains.begin(), s_drains.end(), [id](const auto& d) { return d.first == id; }),
++                 s_drains.end());
++}
++
++// wwe2k14 patch (Session 77): exited slots (state 4).
++bool SerialSlotExitedLocked(int slot) {
++  return slot >= 0 && size_t(slot) < s_slots.size() && s_slots[slot]->state == 4;
++}
++bool SerialSlotExited(int slot) {
++  std::unique_lock<std::mutex> lock(s_mu);
++  return SerialSlotExitedLocked(slot);
++}
++void SerialThreadKilled(int slot) {
++  if (slot < 0) return;
++  std::unique_lock<std::mutex> lock(s_mu);
++  if (size_t(slot) >= s_slots.size()) return;
++  Slot& s = *s_slots[slot];
++  s.state = 4;
++  s.ready = nullptr;  // its predicate may point at objects the killed thread's unwind frees
++  if (s_holder == slot) ScheduleLocked(lock);
++}
++
++// wwe2k14 patch (Session 77): det_serial_trace_detail.
++bool TraceDetail() {
++  static const bool on = !REXCVAR_GET(det_serial_trace).empty() && REXCVAR_GET(det_serial_trace_detail);
++  return on;
++}
++void SetCpDescribe(std::function<std::string()> describe) {
++  std::unique_lock<std::mutex> lock(s_mu);
++  s_cp_describe = std::move(describe);
++}
++void TraceTag(const std::string& tag) {
++  // Only once the trace file is open: TraceNote, which drains the tags, returns early without a file.
++  if (!TraceDetail() || !s_trace_open.load(std::memory_order_acquire)) return;
++  std::lock_guard<std::mutex> tl(s_tag_mu);
++  s_tags += tag;
++  s_tags += ' ';
+ }
+ 
+ // Audio pumps: the audio worker runs its client callbacks when the vblank thread asks, at idle.
+@@ -455,4 +610,20 @@ bool HandleSignaled(void* native_handle) {
+ #endif
+ }
+ 
++bool HandleSignaled(rex::thread::WaitHandle* wait_handle, std::thread::id waiter) {
++  if (!wait_handle) return false;
++#if defined(_WIN32)
++  (void)waiter;
++  return HandleSignaled(wait_handle->native_handle());
++#else
++  const int peek = rex::thread::PeekSignaled(wait_handle, waiter);
++  if (peek < 0) {
++    static std::atomic<bool> warned{false};
++    if (!warned.exchange(true))
++      REXLOG_WARN("[det] serial: a wait handle without a readiness peek; its waits wake only at their deadline");
++  }
++  return peek == 1;
++#endif
++}
++
+ }  // namespace rex::det
+diff --git a/src/core/filesystem_posix.cpp b/src/core/filesystem_posix.cpp
+index bdbcfafce56c8cde5beb109b3ad5b323d921a56b..e77b61be24869aca26121d0f2e21bc0ac5cee564 100644
+--- a/src/core/filesystem_posix.cpp
++++ b/src/core/filesystem_posix.cpp
+@@ -13,6 +13,8 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
++#include <algorithm>  // wwe2k14 patch (Session 77): ListFiles in name order
++#include <cctype>
+ #include <iostream>
+ 
+ #include <fcntl.h>
+@@ -295,12 +297,17 @@ std::vector<FileInfo> ListFiles(const std::filesystem::path& path) {
+ 
+     info.name = ent->d_name;
+     struct stat st;
+-    stat((path / info.name).c_str(), &st);
++    // wwe2k14 patch (Session 77, cross-device): an entry that cannot be stat'ed is left out (its size and times
++    // would be uninitialised), and the type comes from the stat, not d_type (DT_UNKNOWN on some file systems made
++    // every folder a file).
++    if (stat((path / info.name).c_str(), &st) != 0) {
++      continue;
++    }
+     info.create_timestamp = convertUnixtimeToWinFiletime(st.st_ctime);
+     info.access_timestamp = convertUnixtimeToWinFiletime(st.st_atime);
+     info.write_timestamp = convertUnixtimeToWinFiletime(st.st_mtime);
+     info.path = path;
+-    if (ent->d_type == DT_DIR) {
++    if (S_ISDIR(st.st_mode)) {
+       info.type = FileInfo::Type::kDirectory;
+       info.total_size = 0;
+     } else {
+@@ -310,6 +317,20 @@ std::vector<FileInfo> ListFiles(const std::filesystem::path& path) {
+     result.push_back(info);
+   }
+   closedir(dir);
++  // wwe2k14 patch (Session 77): in name order, compared without case, like an NTFS listing on Windows (readdir's
++  // order depends on the file system and its history: the guest saw content packages in a different order on a phone
++  // than on the PC).
++  std::sort(result.begin(), result.end(), [](const FileInfo& a, const FileInfo& b) {
++    const std::string& x = a.name.native();
++    const std::string& y = b.name.native();
++    const size_t n = std::min(x.size(), y.size());
++    for (size_t i = 0; i < n; ++i) {
++      const int cx = std::toupper(static_cast<unsigned char>(x[i]));
++      const int cy = std::toupper(static_cast<unsigned char>(y[i]));
++      if (cx != cy) return cx < cy;
++    }
++    return x.size() < y.size();
++  });
+   return result;
+ }
+ 
+diff --git a/src/core/filesystem_win.cpp b/src/core/filesystem_win.cpp
+index c5a2c5d125f38fd3653ee490fd091c8a294f21b6..4fd48d3ca5e9d07d47b6d04db93b6ac34001004f 100644
+--- a/src/core/filesystem_win.cpp
++++ b/src/core/filesystem_win.cpp
+@@ -9,6 +9,8 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <algorithm>  // wwe2k14 patch (Session 77): ListFiles sort
++#include <cctype>
+ #include <string>
+ 
+ #include <io.h>
+@@ -43,9 +45,19 @@ std::filesystem::path to_path(const std::u16string_view source) {
+ namespace filesystem {
+ 
+ std::filesystem::path GetExecutablePath() {
+-  wchar_t* path;
+-  auto error = _get_wpgmptr(&path);
+-  return !error ? std::filesystem::path(path) : std::filesystem::path();
++  // wwe2k14 patch (Session 77): GetModuleFileNameW, not _get_wpgmptr - the CRT sets _wpgmptr only in wide-entry
++  // programs, and its parameter check ended a narrow main() (rexglue.exe: exit 0xC0000409 from the codegen
++  // fingerprint). Same path for the game.
++  std::wstring buf(MAX_PATH, L'\0');
++  for (;;) {
++    const DWORD n = GetModuleFileNameW(nullptr, buf.data(), DWORD(buf.size()));
++    if (n == 0) return std::filesystem::path();
++    if (n < buf.size()) {
++      buf.resize(n);
++      return std::filesystem::path(buf);
++    }
++    buf.resize(buf.size() * 2);
++  }
+ }
+ 
+ std::filesystem::path GetExecutableFolder() {
+@@ -263,6 +275,20 @@ std::vector<FileInfo> ListFiles(const std::filesystem::path& path) {
+     result.push_back(info);
+   } while (FindNextFileW(handle, &ffd) != 0);
+   FindClose(handle);
++  // wwe2k14 patch (Session 77, cross-device): in name order compared without case, the same comparison as the POSIX
++  // listing (on the UTF-8 names), so every host lists in one order: NTFS already gives it for ASCII names, FAT32 /
++  // exFAT / network drives do not.
++  std::sort(result.begin(), result.end(), [](const FileInfo& a, const FileInfo& b) {
++    const std::string x = rex::path_to_utf8(a.name);
++    const std::string y = rex::path_to_utf8(b.name);
++    const size_t n = std::min(x.size(), y.size());
++    for (size_t i = 0; i < n; ++i) {
++      const int cx = std::toupper(static_cast<unsigned char>(x[i]));
++      const int cy = std::toupper(static_cast<unsigned char>(y[i]));
++      if (cx != cy) return cx < cy;
++    }
++    return x.size() < y.size();
++  });
+ 
+   return result;
+ }
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+index fb36d0d70c4fbe36f0434ab58700d08c213bec8c..4472702c58e0789e8edf4086246bdcda6c4e0ed7 100644
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -432,8 +432,31 @@ class PosixConditionBase {
+     return const_cast<std::condition_variable&>(cond_).native_handle();
+   }
+ 
++  // wwe2k14 patch (Session 77): whether a Wait by `waiter` would succeed now, under the object's lock, without
++  // post_execution (nothing consumed). det_serial's scheduler asks this for a blocked guest thread from another
++  // thread, so a mutant is judged for the waiter, not the caller.
++  bool PeekSignaledFor(std::thread::id waiter) {
++#if REX_PLATFORM_LINUX && !REX_PLATFORM_ANDROID
++    auto native_mutex = static_cast<pthread_mutex_t*>(mutex_.native_handle());
++    int lock_result = pthread_mutex_lock(native_mutex);
++    if (lock_result == EOWNERDEAD) {
++      pthread_mutex_consistent(native_mutex);
++    } else if (lock_result != 0) {
++      return false;
++    }
++    std::unique_lock<std::mutex> lock(mutex_, std::adopt_lock);
++#else
++    std::unique_lock<std::mutex> lock(mutex_);
++#endif
++    return signaled_for(waiter);
++  }
++
+  protected:
+   inline virtual bool signaled() const = 0;
++  virtual bool signaled_for(std::thread::id waiter) const {
++    (void)waiter;
++    return signaled();
++  }
+   inline virtual void post_execution() = 0;
+   std::condition_variable cond_;
+   std::mutex mutex_;
+@@ -538,6 +561,7 @@ class PosixCondition<Mutant> : public PosixConditionBase {
+   inline bool signaled() const override {
+     return count_ == 0 || owner_ == std::this_thread::get_id();
+   }
++  bool signaled_for(std::thread::id waiter) const override { return count_ == 0 || owner_ == waiter; }
+   inline void post_execution() override {
+     count_++;
+     owner_ = std::this_thread::get_id();
+@@ -1174,17 +1198,24 @@ WaitResult Wait(WaitHandle* wait_handle, bool is_alertable, std::chrono::millise
+   ScopedAlertableState alertable_state_guard(true);
+   auto deadline = ComputeAlertableDeadline(timeout);
+ 
++  // wwe2k14 patch (Session 77): the handle is tried before the timeout check. With a 0 ms timeout the deadline is
++  // "now", so the old order (elapsed? then wait) returned kTimeout without ever testing a signalled handle, and
++  // det_serial's first non-blocking probe of every alertable wait failed on Android.
+   while (true) {
+     if (DispatchCurrentThreadUserCallback()) {
+       return WaitResult::kUserCallback;
+     }
+-    if (HasAlertableTimeoutElapsed(deadline)) {
+-      return WaitResult::kTimeout;
+-    }
+     auto result = posix_wait_handle->condition().Wait(ComputeAlertableWaitTimeout(deadline));
+     if (result != WaitResult::kTimeout) {
+       return result;
+     }
++    if (HasAlertableTimeoutElapsed(deadline)) {
++      // Session 77 (review): an APC queued during the last slice runs (Windows: WAIT_IO_COMPLETION), not a timeout.
++      if (DispatchCurrentThreadUserCallback()) {
++        return WaitResult::kUserCallback;
++      }
++      return WaitResult::kTimeout;
++    }
+   }
+ }
+ 
+@@ -1206,17 +1237,22 @@ WaitResult SignalAndWait(WaitHandle* wait_handle_to_signal, WaitHandle* wait_han
+ 
+   ScopedAlertableState alertable_state_guard(true);
+   auto deadline = ComputeAlertableDeadline(timeout);
++  // wwe2k14 patch (Session 77): try the handle before the timeout check (see Wait).
+   while (true) {
+     if (DispatchCurrentThreadUserCallback()) {
+       return WaitResult::kUserCallback;
+     }
+-    if (HasAlertableTimeoutElapsed(deadline)) {
+-      return WaitResult::kTimeout;
+-    }
+     result = posix_wait_handle_to_wait_on->condition().Wait(ComputeAlertableWaitTimeout(deadline));
+     if (result != WaitResult::kTimeout) {
+       return result;
+     }
++    if (HasAlertableTimeoutElapsed(deadline)) {
++      // Session 77 (review): an APC queued during the last slice runs (Windows: WAIT_IO_COMPLETION), not a timeout.
++      if (DispatchCurrentThreadUserCallback()) {
++        return WaitResult::kUserCallback;
++      }
++      return WaitResult::kTimeout;
++    }
+   }
+ }
+ 
+@@ -1238,19 +1274,31 @@ std::pair<WaitResult, size_t> WaitMultiple(WaitHandle* wait_handles[], size_t wa
+ 
+   ScopedAlertableState alertable_state_guard(true);
+   auto deadline = ComputeAlertableDeadline(timeout);
++  // wwe2k14 patch (Session 77): try the handles before the timeout check (see Wait).
+   while (true) {
+     if (DispatchCurrentThreadUserCallback()) {
+       return std::make_pair(WaitResult::kUserCallback, 0);
+     }
+-    if (HasAlertableTimeoutElapsed(deadline)) {
+-      return std::make_pair(WaitResult::kTimeout, 0);
+-    }
+     auto result = PosixConditionBase::WaitMultiple(std::vector<PosixConditionBase*>(conditions),
+                                                    wait_all, ComputeAlertableWaitTimeout(deadline));
+     if (result.first != WaitResult::kTimeout) {
+       return result;
+     }
++    if (HasAlertableTimeoutElapsed(deadline)) {
++      if (DispatchCurrentThreadUserCallback()) {  // Session 77 (review): see Wait
++        return std::make_pair(WaitResult::kUserCallback, 0);
++      }
++      return std::make_pair(WaitResult::kTimeout, 0);
++    }
++  }
++}
++
++int PeekSignaled(WaitHandle* wait_handle, std::thread::id waiter) {
++  auto posix_wait_handle = dynamic_cast<PosixWaitHandle*>(wait_handle);
++  if (posix_wait_handle == nullptr) {
++    return -1;
+   }
++  return posix_wait_handle->condition().PeekSignaledFor(waiter) ? 1 : 0;
+ }
+ 
+ class PosixEvent : public PosixConditionHandle<Event> {
+diff --git a/src/core/threading_win.cpp b/src/core/threading_win.cpp
+index a376d7b7f0d4942700d50f93af1aca9705b69b69..883d2a56caee6db16738b44e79d8463bd2a06342 100644
+--- a/src/core/threading_win.cpp
++++ b/src/core/threading_win.cpp
+@@ -219,6 +219,13 @@ std::pair<WaitResult, size_t> WaitMultiple(WaitHandle* wait_handles[], size_t wa
+   }
+ }
+ 
++// wwe2k14 patch (Session 77): Windows answers through rex::det::HandleSignaled's kernel queries instead.
++int PeekSignaled(WaitHandle* wait_handle, std::thread::id waiter) {
++  (void)wait_handle;
++  (void)waiter;
++  return -1;
++}
++
+ class Win32Event : public Win32Handle<Event> {
+  public:
+   explicit Win32Event(HANDLE handle) : Win32Handle(handle) {}
+diff --git a/src/filesystem/devices/disc_image_device.cpp b/src/filesystem/devices/disc_image_device.cpp
+index 8000a816163e06053832848edb3b8dc34f78f90c..c90dd72ae2593dd43fa1c7086b5362fab7c2e195 100644
+--- a/src/filesystem/devices/disc_image_device.cpp
++++ b/src/filesystem/devices/disc_image_device.cpp
+@@ -17,6 +17,7 @@
+ 
+ #include <fmt/format.h>
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 77): det_fs_constant
+ #include <rex/literals.h>
+ #include <rex/logging.h>
+ #include <rex/math.h>
+@@ -213,9 +214,18 @@ bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer, size_t
+   auto name = std::string(name_buffer, name_length);
+ 
+   auto entry = DiscImageEntry::Create(this, parent, name, mmap_.get());
+-  entry->attributes_ = attributes | kFileAttributeReadOnly;
++  // wwe2k14 patch (Session 77): det_fs_constant - a read-only folder's attributes (host_path_entry.cpp: folder 0x10,
++  // file 0x81), not the image's byte (a disc's, or 0x21 / 0x11 in an image tools\iso\make_xiso.py packed).
++  if (det::FsConstant()) {
++    entry->attributes_ = (attributes & kFileAttributeDirectory) ? uint32_t(kFileAttributeDirectory)
++                                                                : uint32_t(kFileAttributeNormal | kFileAttributeReadOnly);
++  } else {
++    entry->attributes_ = attributes | kFileAttributeReadOnly;
++  }
+   entry->size_ = length;
+   entry->allocation_size_ = rex::round_up(length, bytes_per_sector());
++  // (Session 77, review: det_fs_constant - a folder's size is 0, as in a folder dump; its table length stays local.)
++  if (det::FsConstant() && (attributes & kFileAttributeDirectory)) entry->size_ = 0, entry->allocation_size_ = 0;
+ 
+   // Set to January 1, 1970 (UTC) in 100-nanosecond intervals
+   entry->create_timestamp_ = 10000 * 11644473600000LL;
+diff --git a/src/filesystem/devices/host_path_entry.cpp b/src/filesystem/devices/host_path_entry.cpp
+index d0dce004c8f59437092bba3ccba11dc8011b36b4..86052462f5d0bd91928a4c9504a338964c41b304 100644
+--- a/src/filesystem/devices/host_path_entry.cpp
++++ b/src/filesystem/devices/host_path_entry.cpp
+@@ -12,6 +12,7 @@
+ #include <rex/filesystem/devices/host_path_entry.h>
+ #include <rex/filesystem/devices/host_path_file.h>
+ 
++#include <rex/det.h>  // wwe2k14 patch (Session 77): det_fs_constant
+ #include <rex/filesystem.h>
+ #include <rex/filesystem/device.h>
+ #include <rex/filesystem/devices/host_path_device.h>
+@@ -34,9 +35,12 @@ HostPathEntry* HostPathEntry::Create(Device* device, Entry* parent,
+   auto path = rex::string::utf8_join_guest_paths(parent->path(), rex::path_to_utf8(file_info.name));
+   auto entry = new HostPathEntry(device, parent, path, full_path);
+ 
+-  entry->create_timestamp_ = file_info.create_timestamp;
+-  entry->access_timestamp_ = file_info.access_timestamp;
+-  entry->write_timestamp_ = file_info.write_timestamp;
++  // wwe2k14 patch (Session 77): det_fs_constant - one constant time (a disc image's 1970-01-01) instead of this
++  // machine's times for its copy of the files (game folder, save folder, content).
++  const bool constant_times = det::FsConstant();
++  entry->create_timestamp_ = constant_times ? det::kConstantFileTime : file_info.create_timestamp;
++  entry->access_timestamp_ = constant_times ? det::kConstantFileTime : file_info.access_timestamp;
++  entry->write_timestamp_ = constant_times ? det::kConstantFileTime : file_info.write_timestamp;
+   if (file_info.type == rex::filesystem::FileInfo::Type::kDirectory) {
+     entry->attributes_ = kFileAttributeDirectory;
+   } else {
+diff --git a/src/filesystem/devices/host_path_file.cpp b/src/filesystem/devices/host_path_file.cpp
+index 4c57a185718d2f193b5f182ad3df51f97e345560..d0a73e9582f81e8b9e441c3d3f218edb9e5c82ec 100644
+--- a/src/filesystem/devices/host_path_file.cpp
++++ b/src/filesystem/devices/host_path_file.cpp
+@@ -31,6 +31,9 @@ X_STATUS HostPathFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
+   }
+ 
+   if (file_handle_->Read(byte_offset, buffer.data(), buffer.size(), out_bytes_read)) {
++    // wwe2k14 patch (Session 77, cross-device): a read at or past the end ends the file, as on a disc image and on
++    // Windows (ReadFile with an offset there fails with ERROR_HANDLE_EOF); POSIX pread returns 0 bytes and success.
++    if (*out_bytes_read == 0 && !buffer.empty()) return X_STATUS_END_OF_FILE;
+     return X_STATUS_SUCCESS;
+   } else {
+     return X_STATUS_END_OF_FILE;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index fab97691825f48991b0bcca0fb23aadd4f8ca4e2..f26549f45dd246074e59048a72dc07ae23bbfb3b 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -52,6 +52,14 @@
+ #include <rex/system/user_module.h>
+ 
+ REXCVAR_DEFINE_BOOL(vsync, true, "GPU", "Enable vertical sync");
++// wwe2k14 patch (Session 77, cross-device determinism runs; Jarrod: "no drawing could be huge"): the command processor
++// still executes every packet (registers, interrupts, fences, waits, the frame swap) but records no host draw or copy
++// (resolve): no pipelines, textures or render passes. Under det_serial the command thread's work sits on the critical
++// path (the scheduler drains it at every hand-off; ~90% of a core on the phone). Not render-only: copies the game reads
++// back (readback windows) and memexport draws do not write guest memory, so the comparer treats it as a game setting.
++REXCVAR_DEFINE_BOOL(gpu_det_skip_host_draws, false, "GPU",
++                    "Determinism runs: execute GPU packets but record no host draws or copies (no picture; resolves the "
++                    "game reads back are not written)");
+ REXCVAR_DEFINE_BOOL(gpu_scene_crowd_batch, true, "GPU",
+                     "wwe2k14 (Session 60): the crowd members the game queued (wwe2k14_scene_crowd 1) are added as "
+                     "instances of their run's first draw in one go (their constants uploaded, nothing else derived "
+@@ -508,6 +516,9 @@ bool CommandProcessor::Initialize() {
+     }
+   }
+ 
++  // wwe2k14 patch (Session 77): det_serial drain check registered before the worker starts (kind 0 = not drained
++  // until its first wait), so no decision passes while the CP has not started yet; removed again at Shutdown.
++  if (det::SerialEnabled()) det_drain_id_ = det::AddDrainCheck([this] { return DetDrained(); });
+   worker_running_ = true;
+   worker_thread_ = system::object_ref<system::XHostThread>(
+       new system::XHostThread(kernel_state_, 128 * 1024, 0, [this]() {
+@@ -521,10 +532,18 @@ bool CommandProcessor::Initialize() {
+ }
+ 
+ void CommandProcessor::Shutdown() {
++  // wwe2k14 patch (Session 77): the CP is never drained again once its loop ends: unregister (the check would call
++  // into this object after it is gone), and once the loop has ended mark the CP waiting for good (it leaves its last
++  // wait with the flag cleared: a scheduler decision, the vblank thread's, would wait for it forever).
++  if (det_drain_id_ >= 0) {
++    det::RemoveDrainCheck(det_drain_id_);
++    det_drain_id_ = -1;
++  }
+   worker_running_ = false;
+   write_ptr_index_event_->Set();
+   worker_thread_->Wait(0, 0, 0, nullptr);
+   worker_thread_.reset();
++  if (det::SerialEnabled()) det::SetCpWaiting(true);
+ }
+ 
+ void CommandProcessor::InitializeShaderStorage(const std::filesystem::path& cache_root,
+@@ -607,8 +626,24 @@ void CommandProcessor::WorkerThreadMain() {
+     rex::FatalError("Unable to setup command processor internal state");
+     return;
+   }
+-  // wwe2k14 patch (Session 15): det_serial: drained = waiting with nothing to do (see DetDrained).
+-  if (det::SerialEnabled()) det::AddDrainCheck([this] { return DetDrained(); });
++  // wwe2k14 patch (Session 15): det_serial: drained = waiting with nothing to do (see DetDrained; registered in
++  // Initialize since Session 77).
++  // wwe2k14 patch (Session 77): det_serial_trace_detail: what the CP waits on, before each scheduler pick.
++  if (det::SerialEnabled() && det::TraceDetail()) {
++    det::SetCpDescribe([this] {
++      char b[64];
++      const int kind = det_wait_kind_.load();
++      if (kind == 0) {
++        std::snprintf(b, sizeof(b), "run:%X", read_ptr_index_);
++      } else if (kind == 1) {
++        std::snprintf(b, sizeof(b), "w1:%X/%X", det_wait_addr_.load(), write_ptr_index_.load());
++      } else {
++        std::snprintf(b, sizeof(b), "w%d:%X&%X=%X?%d", kind, det_wait_addr_.load(), det_wait_mask_.load(),
++                      det_wait_ref_.load(), det_wait_func_.load());
++      }
++      return std::string(b);
++    });
++  }
+   // wwe2k14 patch (Session 6, CP10): initial values of the cached setting lookups.
+   RefreshReadbackResolveModeCache();
+   RefreshGpuDebugLogCache();
+@@ -635,7 +670,7 @@ void CommandProcessor::WorkerThreadMain() {
+       // event is too high.
+       PrepareForWait();
+       det_wait_addr_.store(read_ptr_index_);
+-      det_wait_kind_.store(1);
++      SetDetWaitKind(1);
+       det::SetCpWaiting(true);  // wwe2k14 patch (Session 15): det_frames
+       uint32_t loop_count = 0;
+       do {
+@@ -654,7 +689,7 @@ void CommandProcessor::WorkerThreadMain() {
+                !(half2_log_.load(std::memory_order_relaxed) && Half2LogHasSelfWork()));
+       ReturnFromWait();
+       det::SetCpWaiting(false);  // wwe2k14 patch (Session 15): det_frames
+-      det_wait_kind_.store(0);
++      SetDetWaitKind(0);
+       // (Session 51 review: a wake-up for the log leaves the ring idle - never run the primary buffer then, it would
+       // execute a whole stale lap.)
+       if (!worker_running_ || !pending_fns_.empty() || write_ptr_index == 0xBAADF00D ||
+@@ -757,9 +792,32 @@ void CommandProcessor::EnableReadPointerWriteBack(uint32_t ptr, uint32_t block_s
+ 
+ // wwe2k14 patch (Session 15): det_serial drain check (scheduler thread): true when the wait the command processor
+ // is in would not end now (nothing new to execute / the polled value still does not match).
++// wwe2k14 patch (Session 77): the wait kind alone decides; 0 (executing) is NOT drained. Before, the scheduler read
++// the separate "waiting" flag (still set) and then the kind (already 0 = "default: drained") while the CP was leaving a
++// wait to run new commands: the next guest turn started before those commands' GPU interrupts were queued, so the
++// interrupts ran one turn later in some runs (0.85% of det vblanks in runs 4841 / 4842; found with
++// det_serial_trace_detail in 4843 / 4844: "[run:89B]7" = a pick while the CP ran). Kind 4 = blocked on its own
++// interrupt request, which the scheduler must run (drained).
+ bool CommandProcessor::DetDrained() {
+-  switch (det_wait_kind_.load()) {
++  // Session 77: one read of the kind (after the sequence; a wait's fields are stored before its SetDetWaitKind), and
++  // drained only if the CP is still in that same wait after the check: waiting, same kind, no kind change in
++  // between (it may leave the wait, or move on to another wait of the same kind, while it is evaluated).
++  const uint32_t seq = det_wait_seq_.load();
++  const int kind = det_wait_kind_.load();
++  if (!det::CpWaiting()) return false;
++  const bool drained = DetDrainedFor(kind);
++  return drained && det::CpWaiting() && det_wait_kind_.load() == kind && det_wait_seq_.load() == seq;
++}
++
++bool CommandProcessor::DetDrainedFor(int kind) {
++  switch (kind) {
++    case 0:
++      return false;
++    case 4:
++      return true;
+     case 1: {
++      // Session 77 (review): the idle loop also ends for the library calls' log (gpu_native_detached 2).
++      if (Half2LogHasPublishedSelfWork()) return false;
+       const uint32_t w = write_ptr_index_.load();
+       return w == 0xBAADF00D || w == det_wait_addr_.load();
+     }
+@@ -767,7 +825,7 @@ bool CommandProcessor::DetDrained() {
+     case 3: {
+       const uint32_t addr = det_wait_addr_.load();
+       uint32_t value;
+-      if (det_wait_kind_.load() == 2) {
++      if (kind == 2) {
+         value = *reinterpret_cast<uint32_t*>(memory_->TranslatePhysical(addr & ~uint32_t(0x3)));
+         value = xenos::GpuSwap(value, static_cast<xenos::Endian>(addr & 0x3));
+       } else {
+@@ -1853,7 +1911,15 @@ bool CommandProcessor::ExecutePacketType3_INTERRUPT(memory::RingBuffer* reader,
+       if (graphics_system_) {
+         // wwe2k14 patch (Session 15): det_serial: the guest interrupt routine runs between guest turns.
+         if (det::SerialEnabled()) {
++          if (det::TraceDetail()) {  // Session 77: which packet asked (ring position, CPU)
++            char tag[48];
++            std::snprintf(tag, sizeof(tag), "i%X.%d", uint32_t(reader->read_offset()), n);
++            det::TraceTag(tag);
++          }
++          // Session 77: blocked on our own request (DetDrained: drained) until the scheduler has run it.
++          SetDetWaitKind(4);
+           det::SerialRunExternal([&] { graphics_system_->DispatchInterruptCallback(1, n); }, true);
++          SetDetWaitKind(0);
+         } else {
+           graphics_system_->DispatchInterruptCallback(1, n);
+         }
+@@ -2261,13 +2327,17 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+         break;
+     }
+     if (!matched) {
++      // wwe2k14 patch (Session 77): the det wait fields once per wait (they do not change while it polls; a store
++      // per poll would keep moving det_wait_seq_ and starve the scheduler's DetDrained).
++      if (!waited) {
++        det_wait_addr_.store(poll_reg_addr);
++        det_wait_ref_.store(ref);
++        det_wait_mask_.store(mask);
++        det_wait_func_.store(wait_info & 0x7);
++        SetDetWaitKind(is_memory ? 2 : 3);
++        det::SetCpWaiting(true);  // wwe2k14 patch (Session 15): det_frames (cleared after the wait loop)
++      }
+       waited = true;
+-      det_wait_addr_.store(poll_reg_addr);
+-      det_wait_ref_.store(ref);
+-      det_wait_mask_.store(mask);
+-      det_wait_func_.store(wait_info & 0x7);
+-      det_wait_kind_.store(is_memory ? 2 : 3);
+-      det::SetCpWaiting(true);  // wwe2k14 patch (Session 15): det_frames (cleared after the wait loop)
+       if (!timeline_wait_recorded && perf::timeline::Enabled()) {
+         perf::timeline::Record("wrm_b", poll_reg_addr, ref, value);
+         timeline_wait_recorded = true;
+@@ -2304,7 +2374,7 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+   } while (!matched);
+   if (waited) {
+     det::SetCpWaiting(false);  // wwe2k14 patch (Session 15): det_frames
+-    det_wait_kind_.store(0);
++    SetDetWaitKind(0);
+     det::NoteCpProgress();
+   }
+   if (timeline_wait_recorded) {
+@@ -2734,9 +2804,12 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+       }
+       // wwe2k14 patch (Session 50, LEAN DRAWS): a library draw the backend records itself (gpu_native_lean_draws),
+       // otherwise IssueDraw (never during a frame-anatomy capture).
+-      if (anatomy || !IssueDrawLean(vgt_draw_initiator.prim_type, vgt_draw_initiator.num_indices,
+-                                    is_indexed ? &index_buffer_info : nullptr, major_mode_explicit,
+-                                    half2_matched_kind_, draw_succeeded)) {
++      // wwe2k14 patch (Session 77): gpu_det_skip_host_draws - nothing recorded (counted as drawn).
++      if (REXCVAR_GET(gpu_det_skip_host_draws)) {
++        draw_succeeded = true;
++      } else if (anatomy || !IssueDrawLean(vgt_draw_initiator.prim_type, vgt_draw_initiator.num_indices,
++                                           is_indexed ? &index_buffer_info : nullptr, major_mode_explicit,
++                                           half2_matched_kind_, draw_succeeded)) {
+         draw_succeeded = IssueDraw(vgt_draw_initiator.prim_type, vgt_draw_initiator.num_indices,
+                                    is_indexed ? &index_buffer_info : nullptr, major_mode_explicit);
+       }
+@@ -2901,7 +2974,9 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+     }
+     for (uint32_t i = 0; i < 12; ++i) WriteRegister(kSceneCrowdRegister + i, (*list)[12 * size_t(m) + i]);
+     bool ok = false;
+-    if (!IssueDrawLean(prim_type, index_count, index_buffer_info, major_mode_explicit, library_kind, ok)) {
++    if (REXCVAR_GET(gpu_det_skip_host_draws)) {  // wwe2k14 patch (Session 77): see its definition
++      ok = true;
++    } else if (!IssueDrawLean(prim_type, index_count, index_buffer_info, major_mode_explicit, library_kind, ok)) {
+       ok = IssueDraw(prim_type, index_count, index_buffer_info, major_mode_explicit);
+     }
+     ++st.members;
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index 4278395dd42c0ed0cbebe4d3945f6fbc0a8ddf3d..7bf70dc96a09e4d733bbd418dac746e5edd45c79 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -325,6 +325,7 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+           if (det::SerialEnabled()) {
+             if (!det::SerialWaitIdle(0)) {
+               ++det_timeouts;
++              det::NoteVblankTimeout();  // wwe2k14 patch (Session 77): the CSV marks it (not only the log)
+               if (det_timeouts <= 20 || det_timeouts % 100 == 0) {
+                 REXGPU_WARN("[det] serial: vblank {} fired while a guest thread still runs #{}", det::Vblanks() + 1,
+                             det_timeouts);
+@@ -347,6 +348,7 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+           if (det::Enabled()) {
+             if (!det::WaitQuiescent(0, 0)) {
+               ++det_timeouts;
++              det::NoteVblankTimeout();  // wwe2k14 patch (Session 77): the CSV marks it (not only the log)
+               if (det_timeouts <= 20 || det_timeouts % 100 == 0) {
+                 REXGPU_WARN("[det] vblank {} fired without quiescence ({} guest threads running: host tids {}) #{}",
+                             det::Vblanks() + 1, det::RunningGuestThreads(), det::DescribeRunning(), det_timeouts);
+diff --git a/src/graphics/half2_log.cpp b/src/graphics/half2_log.cpp
+index 639026739b8c12aff1d9a8947596aeadb72263f9..3841774a65c328befa626b1cd121f7320b04447c 100644
+--- a/src/graphics/half2_log.cpp
++++ b/src/graphics/half2_log.cpp
+@@ -1065,7 +1065,12 @@ bool CommandProcessor::Half2LogDrive() {
+     }
+     any = true;
+   }
+-  if (!detached && drain && (log.read == log.write.load(std::memory_order_acquire) || any)) {
++  // wwe2k14 patch (Session 77, review of 7f8e1f9): also when nothing ran and later records wait (was "read == write ||
++  // any"): the loop then stopped at a record written after the switch, so the drain is over (next >= drain below).
++  // Before, the drain stayed set until the next ring segment: the command processor's idle loop spun on
++  // Half2LogHasSelfWork, and under det_serial its drain check (DetDrainedFor 1) never passed - a hang if the render
++  // thread blocked before its next kick.
++  if (!detached && drain) {
+     // Drained up to the switch (the loop stops at the first later record).
+     const uint64_t r = log.read;
+     const bool more = r != log.write.load(std::memory_order_acquire);
+@@ -1085,6 +1090,14 @@ bool CommandProcessor::Half2LogHasSelfWork() const {
+          log->read != log->write.load(std::memory_order_acquire);
+ }
+ 
++// wwe2k14 patch (Session 77): the same test from another thread (det_serial's drain check): read_published is the
++// consumer's position as an atomic (read itself belongs to the command processor thread).
++bool CommandProcessor::Half2LogHasPublishedSelfWork() const {
++  const Half2Log* log = half2_log_.load(std::memory_order_acquire);
++  return log && (log->detached.load(std::memory_order_acquire) || log->drain_until_seq.load(std::memory_order_relaxed)) &&
++         log->read_published.load(std::memory_order_acquire) != log->write.load(std::memory_order_acquire);
++}
++
+ void CommandProcessor::Half2DetachedFallback(Half2Log& log, uint32_t reason) {
+   if (reason < 4) ++log.exec.fallbacks[reason];
+   // From the next present the game turns the no-GPU mode off; tried again after 300 frames (hysteresis).
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 3a79c39aa567a2961f8c018f65bdbf8d7e6b4dfc..45d5d6374ed7ca13e3ebe6adc32e52fe9b25e8e3 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -23,6 +23,7 @@
+ 
+ #include <rex/assert.h>
+ #include <rex/cvar.h>
++#include <rex/det.h>  // wwe2k14 patch (Session 77): SetRendererInfo
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/pipeline/shader/spirv_builder.h>
+ #include <rex/graphics/pipeline/shader/spirv_translator.h>
+@@ -266,6 +267,10 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+       path_ = Path::kHostRenderTargets;
+     }
+   }
++  // wwe2k14 patch (Session 77, cross-device): the effective path for the det hash CSV - the setting may say "fsi"
++  // while the device has no interlock (the phone ran host render targets with render_target_path_vulkan=fsi).
++  det::SetRendererInfo(std::string("vulkan rt=") + (path_ == Path::kPixelShaderInterlock ? "fsi" : "host") +
++                       " requested=" + std::string(REXCVAR_GET(render_target_path_vulkan)));
+ 
+   // Format support.
+   constexpr VkFormatFeatureFlags kUsedDepthFormatFeatures =
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp b/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
+index bd5de6559fcb473aaed81b60afd7d6f3ca7cdece..49180b2e471f0d6b040e38cffab8b80cd33db561 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
+@@ -12,6 +12,9 @@
+ // Disable warnings about unused parameters for kernel functions
+ #pragma GCC diagnostic ignored "-Wunused-parameter"
+ 
++#include <cctype>  // wwe2k14 patch (Session 77): ConstantPathHash
++#include <string_view>
++#include <rex/det.h>
+ #include <rex/filesystem/device.h>
+ #include <rex/kernel/xboxkrnl/private.h>
+ #include <rex/logging.h>
+@@ -31,6 +34,15 @@
+ #include <rex/thread/mutex.h>
+ 
+ namespace rex::kernel::xboxkrnl {
++
++// wwe2k14 patch (Session 77): det_fs_constant - a file id that is the same on every host (64-bit FNV-1a of the
++// upper-cased guest path; std::hash differs between the MSVC STL and libc++).
++static uint64_t ConstantPathHash(std::string_view path, uint64_t seed) {
++  uint64_t h = 1469598103934665603ull ^ seed;
++  for (unsigned char c : path) h = (h ^ uint64_t(std::toupper(c))) * 1099511628211ull;
++  return h;
++}
++
+ using namespace rex::system;
+ 
+ static bool IsValidPath(const std::string_view s, bool is_pattern) {
+@@ -130,7 +142,9 @@ u32 NtQueryInformationFile_entry(u32 file_handle, ppc_ptr_t<X_IO_STATUS_BLOCK> i
+       // Internal unique file pointer. Not sure why anyone would want this.
+       // TODO(benvanik): use pointer to fs::entry?
+       auto info = info_ptr.as<X_FILE_INTERNAL_INFORMATION*>();
+-      info->index_number = rex::memory::hash_combine(0, file->path());
++      // wwe2k14 patch (Session 77): det_fs_constant - one hash on every host (std::hash is the C++ library's own).
++      info->index_number = det::FsConstant() ? ConstantPathHash(file->path(), 0)
++                                             : rex::memory::hash_combine(0, file->path());
+       out_length = sizeof(*info);
+       break;
+     }
+@@ -143,7 +157,8 @@ u32 NtQueryInformationFile_entry(u32 file_handle, ppc_ptr_t<X_IO_STATUS_BLOCK> i
+     case XFileSectorInformation: {
+       REXKRNL_DEBUG("Stub XFileSectorInformation!");
+       auto info = info_ptr.as<uint32_t*>();
+-      size_t fname_hash = rex::memory::hash_combine(82589933LL, file->path());
++      size_t fname_hash = det::FsConstant() ? size_t(ConstantPathHash(file->path(), 82589933ull))
++                                            : rex::memory::hash_combine(82589933LL, file->path());
+       *info = static_cast<uint32_t>(fname_hash ^ (fname_hash >> 32));
+       out_length = sizeof(uint32_t);
+       break;
+@@ -415,7 +430,8 @@ u32 NtQueryVolumeInformationFile_entry(u32 file_handle,
+     }
+     case XFileFsAttributeInformation: {
+       auto device = file->device();
+-      const auto& name = device->name();
++      // wwe2k14 patch (Session 77): det_fs_constant - a read-only folder's name ("STFS"), not a disc image's "GDFX".
++      const std::string name = det::FsConstant() ? std::string("STFS") : std::string(device->name());
+       auto info = info_ptr.as<X_FILE_FS_ATTRIBUTE_INFORMATION*>();
+       info->attributes = device->attributes();
+       info->component_name_max_length = device->component_name_max_length();
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_module.cpp b/src/kernel/xboxkrnl/xboxkrnl_module.cpp
+index b9c906e6ae676d2aaa5fbe98fccce12f3977824e..0ea2eff1de505a7aa6418bac77c6f587f0eb9cc3 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_module.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_module.cpp
+@@ -190,8 +190,10 @@ XboxkrnlModule::XboxkrnlModule(Runtime* emulator, KernelState* kernel_state)
+   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x00AD, pKeTimeStampBundle);
+   memory::store_and_swap<uint64_t>(lpKeTimeStampBundle + 0, 0);
+   memory::store_and_swap<uint64_t>(lpKeTimeStampBundle + 8, 0);
++  // (Session 77: det_time_constant - the constant uptime base, not this host thread's real milliseconds.)
+   memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 16,
+-                                   chrono::Clock::QueryGuestUptimeMillis());
++                                   det::TimeConstant() ? det::VirtualUptimeMillis(0)
++                                                       : chrono::Clock::QueryGuestUptimeMillis());
+   memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 20, 0);
+   // wwe2k14 patch (Session 15): det_frames: the bundle changes only at det vblanks (a vblank hook), with uptime
+   // derived from the vblank count; the 1 ms host timer leaves it alone.
+diff --git a/src/system/function_dispatcher.cpp b/src/system/function_dispatcher.cpp
+index bd4310951d479706603e033b208b4cd16b0a486c..7c363c51d33a86469276d51b1d57ca276a8e0984 100644
+--- a/src/system/function_dispatcher.cpp
++++ b/src/system/function_dispatcher.cpp
+@@ -15,6 +15,7 @@
+ 
+ #include <rex/assert.h>
+ #include <rex/dbg.h>
++#include <rex/det.h>  // wwe2k14 patch (Session 77): det_time_constant
+ #include <rex/logging.h>
+ #include <rex/perf/counter.h>
+ #include <rex/memory.h>
+@@ -167,6 +168,8 @@ uint64_t FunctionDispatcher::ExecuteInterrupt(ThreadState* thread_state, uint32_
+   uint32_t old_tls_ptr = memory::load_and_swap<uint32_t>(pcr_address);
+   memory::store_and_swap<uint32_t>(pcr_address, 0);
+ 
++  // wwe2k14 patch (Session 77): guest code on a host thread - with det_time_constant it reads the virtual clocks.
++  det::GuestCallbackScope guest_callback;
+   if (!Execute(thread_state, address)) {
+     return 0xDEADBABE;
+   }
+diff --git a/src/system/xobject.cpp b/src/system/xobject.cpp
+index 411efbd9679c09f0e24ee738bb100af4f7aa39d7..d3003535c9dde6e917e55dad37c2e30086a4a7a1 100644
+--- a/src/system/xobject.cpp
++++ b/src/system/xobject.cpp
+@@ -223,16 +223,28 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode, uint32_t a
+     const bool infinite = timeout_ms == std::chrono::milliseconds::max();
+     const uint64_t target =
+         infinite ? ~0ull : det::Vblanks() + det::VblanksForMs(uint64_t(timeout_ms.count()));
+-    void* native = wait_handle->native_handle();
++    // Session 77: the wait handle and the waiting thread (not the native handle): POSIX has no kernel object to
++    // query, and a mutant is judged for this thread, not for the scheduler thread that asks.
++    const std::thread::id waiter = std::this_thread::get_id();
+     auto* thread = XThread::GetCurrentThread();
++    // Session 77: waiting on a guest thread: ready as soon as its det slot has exited. Its host handle is signalled
++    // only at the very end of its exit, after it gave the baton up, so "signalled yet?" depended on host speed (a PC
++    // and a phone could pick a different next thread). Once ready, the rest of the exit needs no baton: wait for the
++    // host signal here, holding the baton.
++    auto* xthread = dynamic_cast<XThread*>(this);
++    const int target_slot = xthread ? xthread->det_slot() : -1;
+     for (;;) {
+       result = rex::thread::Wait(wait_handle, alertable ? true : false, std::chrono::milliseconds(0));
+       if (result != rex::thread::WaitResult::kTimeout || timeout_ms.count() == 0) break;
++      if (target_slot >= 0 && det::SerialSlotExited(target_slot)) {
++        result = rex::thread::Wait(wait_handle, false, std::chrono::milliseconds::max());
++        break;
++      }
+       if (!infinite && det::Vblanks() >= target) break;
+       det::SerialBlock(
+-          [native, thread, alertable] {
+-            return det::HandleSignaled(native) ||
+-                   (alertable && thread && thread->HasUserApcs());
++          [wait_handle, waiter, thread, alertable, target_slot] {
++            return (target_slot >= 0 && det::SerialSlotExitedLocked(target_slot)) ||
++                   det::HandleSignaled(wait_handle, waiter) || (alertable && thread && thread->HasUserApcs());
+           },
+           target);
+     }
+@@ -284,13 +296,14 @@ X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object, ui
+     const bool infinite = timeout_ms == std::chrono::milliseconds::max();
+     const uint64_t target =
+         infinite ? ~0ull : det::Vblanks() + det::VblanksForMs(uint64_t(timeout_ms.count()));
+-    void* native = wait_object->GetWaitHandle()->native_handle();
++    auto* wait_handle = wait_object->GetWaitHandle();
++    const std::thread::id waiter = std::this_thread::get_id();  // Session 77: see Wait
+     auto* thread = XThread::GetCurrentThread();
+     while (r == rex::thread::WaitResult::kTimeout && timeout_ms.count() != 0 &&
+            (infinite || det::Vblanks() < target)) {
+       det::SerialBlock(
+-          [native, thread, alertable] {
+-            return det::HandleSignaled(native) ||
++          [wait_handle, waiter, thread, alertable] {
++            return det::HandleSignaled(wait_handle, waiter) ||
+                    (alertable && thread && thread->HasUserApcs());
+           },
+           target);
+@@ -350,8 +363,7 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects, uint32_t wait_
+     const bool infinite = timeout_ms == std::chrono::milliseconds::max();
+     const uint64_t target =
+         infinite ? ~0ull : det::Vblanks() + det::VblanksForMs(uint64_t(timeout_ms.count()));
+-    std::vector<void*> natives;
+-    for (auto* h : wait_handles) natives.push_back(h->native_handle());
++    const std::thread::id waiter = std::this_thread::get_id();  // Session 77: see Wait
+     auto* thread = XThread::GetCurrentThread();
+     const bool any = wait_type != 0;
+     for (;;) {
+@@ -395,11 +407,11 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects, uint32_t wait_
+         }
+       }
+       det::SerialBlock(
+-          [natives, thread, alertable, any] {
++          [wait_handles, waiter, thread, alertable, any] {
+             if (alertable && thread && thread->HasUserApcs()) return true;
+             bool all = true;
+-            for (void* n : natives) {
+-              const bool sig = det::HandleSignaled(n);
++            for (auto* h : wait_handles) {
++              const bool sig = det::HandleSignaled(h, waiter);
+               if (any && sig) return true;
+               all = all && sig;
+             }
+diff --git a/src/system/xthread.cpp b/src/system/xthread.cpp
+index 12ed57adb8b27c011b7d7dd77b8f24f0eef746a1..e2cc0201b2f1c2b4923d8a773a31d826c4aebbb8 100644
+--- a/src/system/xthread.cpp
++++ b/src/system/xthread.cpp
+@@ -567,10 +567,18 @@ X_STATUS XThread::Terminate(int exit_code) {
+     // Same lifetime rule as Exit(): don't allow ReleaseHandle() to destroy
+     // the thread object before Thread::Exit() reaches pthread_exit().
+     auto self = retain_object(this);
++    // wwe2k14 patch (Session 77): det_serial: give the baton and the slot up, as Exit() does (it never returns).
++    if (det_slot_ >= 0) {
++      det::GuestThreadExiting();
++      det::SerialThreadExit();
++    }
+     FreeStack();
+     ReleaseHandle();
+     rex::thread::Thread::Exit(exit_code);
+   } else {
++    // wwe2k14 patch (Session 77): det_serial: the killed thread never leaves SerialBlock: retire its slot first
++    // (its ready() predicate could point at objects its unwind frees; a slot left "blocked" could get the baton).
++    if (det_slot_ >= 0) det::SerialThreadKilled(det_slot_);
+     thread_->Terminate(exit_code);
+     FreeStack();
+     ReleaseHandle();
+@@ -972,6 +980,9 @@ X_STATUS XThread::Resume(uint32_t* out_suspend_count) {
+     suspend_cv_.notify_all();
+   }
+ 
++  // wwe2k14 patch (Session 77): det_serial: a thread created suspended becomes runnable when resumed (the Win32
++  // branch above did this since Session 15; without it such a thread never got a turn on Android).
++  if (det_slot_ >= 0 && should_resume_host) det::SerialMarkRunnable(det_slot_);
+   // Self-suspended threads are resumed via guest suspend count transitions.
+   if (should_resume_host) {
+     thread_->Resume(&unused_host_suspend_count);

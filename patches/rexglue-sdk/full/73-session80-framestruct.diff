@@ -1,0 +1,752 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-framestruct): 9fd14512b464..329487a26dbf on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  329487a Merge s80-framestruct: the frame structure, part 1 (Session 80, OWN_RENDERER_PLAN.md; Jarrod: 'Frame structure') - gpu_native_truth_skip_writeback_depth (off; on under the game's arc switch): the scene's depth copies texture-only (no guest-memory write, the stencil kept, written on request; Surface in-run Brock -5.8%, Bryan -5.2%, match -4.4%; resolve hashes 500/500, shots byte-identical, validation clean); the pass log's batch / per-dispatch / submission timers with gpu_ram_stats
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index a424a4b03206a66277a023fe359957532c1f9c94..5514699ac1ae1ac303758d8a4a804298a0d979ad 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -488,7 +488,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+   void NativeTruthAfterResolveMarked(const draw_util::ResolveInfo& info);
+   // wwe2k14 patch (Session 72 part 4): NativeRenderer::TruthResolveRedundant (false without a native renderer).
+   bool NativeTruthResolveRedundant(const draw_util::ResolveInfo& info);
+-  uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false, int32_t layer = -1) const;
++  uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false, int32_t layer = -1,
++                                 bool allow_depth = false) const;
+   // wwe2k14 patch (Session 56, gpu_native_truth_skip_writeback_scaled): the scaled resolve buffer, a guest range's
+   // scaled range (32bpp), marking a range written by compute, and the scaled loads' materialize entry.
+   VkBuffer NativeScaledResolveBuffer() const;
+@@ -496,7 +497,7 @@ class VulkanCommandProcessor : public CommandProcessor {
+   void NativeUseScaledResolveBufferForWrite(uint64_t scaled_start, uint64_t scaled_length);
+   void NativeTruthMaterializeScaled(uint32_t start, uint32_t length);
+   VkDescriptorSet NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled = false,
+-                                       int32_t layer = -1);
++                                       int32_t layer = -1, bool allow_depth = false);
+   void NativeTextureEndRead(void* handle, uint32_t old_usage);
+   // wwe2k14 patch (Session 56): VulkanTextureCache::SampleWrittenTextures.
+   uint32_t NativeSampleWrittenTextures(void* const* keep, size_t keep_count);
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 6bc60e87414cb7f867b7bdd231b83f08daebe540..50dbf9b821b249bea552e41d2d9d1c56c72346fe 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -405,6 +405,9 @@ class NativeRenderer {
+   // (kind 6: TruthResolveSource's staging stores + the copy shader, or TruthResolveDirect's dispatch - which also fills
+   // the texture) and around its texture fill (kind 7); nothing without gpu_ram_stats. And the write-back's path / bytes.
+   void TruthTimer(uint32_t kind, bool begin);
++  // Session 80 (frame structure): with gpu_ram_stats, a timestamp as a submission's first command (the command
++  // processor's BeginSubmission), so the pass log can tell a gap the GPU spent waiting for the next submission.
++  void TruthStampSubmission();
+   void TruthNoteWriteBack(bool direct, uint32_t bytes);
+   // Session 49 (gpu_native_truth_skip_writeback, texture-only resolves): a truth resolve whose texture fill holds every
+   // texel the copy writes (a single-level k_8_8_8_8 texture with an R32_UINT storage view, the copy wholly inside it)
+@@ -841,7 +844,8 @@ class NativeRenderer {
+   void RetirePostTarget(PostTarget& target);
+   // Per frame, for the statistics read back once the GPU has finished the frame.
+   static constexpr uint32_t kFrameSlots = 4;
+-  static constexpr uint32_t kQueriesPerFrame = 1024;  // (Session 49: 256 -> 1024, the write-back / fill segments)
++  // (Session 49: 256 -> 1024, the write-back / fill segments; Session 80: 2048, the batch's own segments)
++  static constexpr uint32_t kQueriesPerFrame = 2048;
+   // (Session 49, review: 256 a frame as before unless gpu_ram_stats times the write-backs too.)
+   uint32_t QueryLimit() const { return ram_stats_ ? kQueriesPerFrame : 256u; }
+   enum ParityCounter : uint32_t {
+@@ -894,6 +898,7 @@ class NativeRenderer {
+       uint64_t pass_vs = 0, pass_ps = 0;
+     };
+     std::vector<Segment> segments;
++    std::vector<uint32_t> submission_stamps;  // Session 80: query index of each submission's first command
+     bool parity = false, color_parity = false;
+     bool dump = false;  // gpu_native_dump: both pictures were copied to dump_buffers_ at this frame's end
+     // When the slot's parity sets and result ranges were last written (depth, colour).
+@@ -1555,8 +1560,32 @@ class NativeRenderer {
+     uint32_t scale_x = 1, scale_y = 1;
+     uint64_t scaled_use_start = 0, scaled_use_length = 0;
+     uint32_t guest_x0 = 0, guest_y0 = 0, guest_x1 = 0, guest_y1 = 0;  // its rectangle in guest texels (x0 ... as 1x)
++    // Session 80 (gpu_native_truth_skip_writeback_depth): a 1x depth copy (k_24_8_FLOAT, 20e4) - the texture holds its
++    // depth as the 32-bit floats the fill decoded, the stencil byte of copy texel (x, y) is byte y * stencil_pitch + x
++    // of stencil slot `stencil_slot`, or `stencil_const` for all (slot -1: the image's last clear).
++    bool depth = false;
++    int32_t stencil_slot = -1;
++    uint32_t stencil_const = 0, stencil_pitch = 0;
+   };
+   std::vector<WbRecord> wb_records_;
++  // Session 80 (gpu_native_truth_skip_writeback_depth): the depth records' stencil snapshots, kStencilSlots of
++  // kStencilSlotSize bytes in one buffer (a bit a slot in use); the snapshot shader (TruthStoreSet's stencil view into
++  // a slot) and the depth materialise (the slot, the destination, the texture's R32_UINT view).
++  static constexpr uint32_t kStencilSlots = 8;
++  static constexpr uint32_t kStencilSlotSize = 1u << 20;
++  VkBuffer stencil_snap_ = VK_NULL_HANDLE;
++  VkDeviceMemory stencil_snap_memory_ = VK_NULL_HANDLE;
++  uint32_t stencil_slots_busy_ = 0;
++  VkPipeline stencil_snap_pipeline_ = VK_NULL_HANDLE;
++  VkPipeline materialize_depth_pipeline_ = VK_NULL_HANDLE;
++  VkPipelineLayout materialize_depth_layout_ = VK_NULL_HANDLE;
++  bool depth_wb_failed_ = false;
++  bool EnsureDepthWritebackObjects();
++  bool TruthDepthTextureOnly(const draw_util::ResolveInfo& info, TruthImage& t, int16_t index, uint32_t src_x,
++                             uint32_t src_y, uint32_t w, uint32_t h, bool all_stencil, uint32_t dest_base,
++                             uint32_t dest_coordinate_info, uint32_t dest_info);
++  // A descriptor over one stencil slot (transient: this submission).
++  VkDescriptorSet StencilSlotSet(int32_t slot);
+   bool truth_skip_writeback_ = false;        // latched per frame
+   bool truth_wb_skipped_ = false;            // the current resolve skipped its write-back (pending record)
+   WbRecord truth_wb_pending_;
+@@ -1586,6 +1615,11 @@ class NativeRenderer {
+                                  // 6 age, 7 skipping stopped
+     uint32_t kept[6] = {};  // write-backs kept: 0 not truth / scaled, 1 no texture, 2 not readable, 3 not inside,
+                             // 4 other copy, 5 not a plain fill
++    // Session 80 (gpu_native_truth_skip_writeback_depth): depth copies left texture-only (of them with a stencil
++    // snapshot), depth records materialised, and depth copies kept by reason: 0 no fill / not inside, 1 no free
++    // stencil slot, 2 objects / mixed stencil.
++    uint32_t depth_skipped = 0, depth_snapshots = 0, depth_materialized = 0;
++    uint32_t depth_kept[3] = {};
+   } wb_counts_;
+   bool truth_class2_blend_ = false;  // RGBA16_SNORM attachments can blend here
+   // TruthResolveDirect: a 1x1 D32S8 image whose stencil and depth views fill the shader's unused coverage and depth
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index c4eca5ee3e55a9ff9cdb0767d092d71378e1d84e..e0edee2591b81f413be753662bf11363e052e9c9 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -277,12 +277,15 @@ class VulkanTextureCache final : public TextureCache {
+   // storage view (R32_UINT: 32 bits a texel, R16G16B16A16_UINT: 64): its bytes a texel, 0 if none.
+   // (Session 56: allow_scaled - a scaled resolve texture too, gpu_native_truth_skip_writeback_scaled.)
+   // (Session 79, layer >= 0: a face of a cube NativeTextureForResolve fills - gpu_native_truth_fill_cube_faces.)
+-  uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false, int32_t layer = -1) const;
++  // (Session 80, allow_depth: a k_24_8_FLOAT texture's R32_UINT view too - the 32-bit floats the direct load made of
++  // its 20e4 depth, for a reader that converts them back: gpu_native_truth_skip_writeback_depth.)
++  uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false, int32_t layer = -1,
++                                 bool allow_depth = false) const;
+   // Its storage descriptor set, the texture prepared for a compute read (layout GENERAL, usage kComputeStorageWrite
+   // so its next sampling transitions it back); VK_NULL_HANDLE if it has none. And pinning (no eviction).
+   // (Session 79, layer >= 0: the cube face's.)
+   VkDescriptorSet NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled = false,
+-                                       int32_t layer = -1);
++                                       int32_t layer = -1, bool allow_depth = false);
+   // After the read's dispatch (review: a draw may sample it next, with the layout its bindings were made for): back to
+   // the usage and layout it had (nothing if it was a compute storage texture or undefined).
+   void NativeTextureEndRead(void* handle, uint32_t old_usage);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index f358fb47342b3d5e730ec63baeaf4480998c0963..fb23516d1fefeb22f11d394ee568f40489a77029 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7359,15 +7359,17 @@ bool VulkanCommandProcessor::NativeTruthResolveRedundant(const draw_util::Resolv
+   return native_ && native_->TruthResolveRedundant(info);
+ }
+ 
+-uint32_t VulkanCommandProcessor::NativeTextureReadable(void* handle, bool allow_scaled, int32_t layer) const {
+-  return texture_cache_ ? texture_cache_->NativeTextureReadable(handle, allow_scaled, layer) : 0u;
++uint32_t VulkanCommandProcessor::NativeTextureReadable(void* handle, bool allow_scaled, int32_t layer,
++                                                      bool allow_depth) const {
++  return texture_cache_ ? texture_cache_->NativeTextureReadable(handle, allow_scaled, layer, allow_depth) : 0u;
+ }
+ 
+ VkDescriptorSet VulkanCommandProcessor::NativeTextureForRead(void* handle, uint32_t& old_usage_out,
+-                                                             bool allow_scaled, int32_t layer) {
++                                                             bool allow_scaled, int32_t layer, bool allow_depth) {
+   old_usage_out = 0;
+-  return texture_cache_ ? texture_cache_->NativeTextureForRead(handle, old_usage_out, allow_scaled, layer)
+-                        : VK_NULL_HANDLE;
++  return texture_cache_
++             ? texture_cache_->NativeTextureForRead(handle, old_usage_out, allow_scaled, layer, allow_depth)
++             : VK_NULL_HANDLE;
+ }
+ 
+ uint32_t VulkanCommandProcessor::NativeSampleWrittenTextures(void* const* keep, size_t keep_count) {
+@@ -14603,6 +14605,9 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+     deferred_command_buffer_.Reset();
+     hoist_command_buffer_.Reset();  // wwe2k14 patch (Session 21, HOIST)
+     hoist_pending_ = false;
++    // wwe2k14 patch (Session 80, frame structure): with gpu_ram_stats, a timestamp as the submission's first command
++    // (after its hoisted uploads, which run before every command of the submission - small copies).
++    if (native_ && native_->enabled() && native_->truth()) native_->TruthStampSubmission();
+     // wwe2k14 patch (Session 7c, CAUSES): where the submission starts among the anatomy rows (GPU marks).
+     if (gpu_marks_) {
+       GpuMarksBeginSubmission();
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 2e2a72547d62dd0dfbb615256cb1f79bf47fe54c..95b738f4132bc72419c7986c648852d4be67d4a8 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -1848,6 +1848,14 @@ void NativeRenderer::DestroyObjects() {
+   truth_alias_read_owners_.clear();
+   DestroyRetired(true);
+   OwnCrowdDestroy();  // wwe2k14 patch (Session 80, own crowd)
++  // Session 80 (gpu_native_truth_skip_writeback_depth): the stencil snapshots and the depth write-back's objects.
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipeline, device, stencil_snap_pipeline_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipeline, device, materialize_depth_pipeline_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipelineLayout, device, materialize_depth_layout_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device, stencil_snap_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device, stencil_snap_memory_);
++  stencil_slots_busy_ = 0;
++  depth_wb_failed_ = false;
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipelineLayout, device, alias_direct_layout_);
+   truth_retired_sets_.clear();  // freed with the pool
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyDescriptorPool, device, truth_pool_);
+@@ -4575,6 +4583,158 @@ bool NativeRenderer::EnsureMaterializePipeline() {
+   materialize_failed_ = false;
+   return true;
+ }
++
++// Session 80 (gpu_native_truth_skip_writeback_depth): a texture-only depth copy's stencil, kept for its materialise -
++// the image's stencil over the copied rectangle (TruthStoreSet's stencil view, binding 2), one byte a texel, rows of
++// `pitch` texels (a multiple of 4) from dword `slot_dword` of the snapshot buffer. Four texels an invocation.
++constexpr char kNativeStencilSnapShader[] = R"(
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++layout(set = 0, binding = 2) uniform usampler2D stencil_source;
++layout(set = 1, binding = 0, std430) writeonly buffer DestBuffer { uint dest[]; };
++layout(push_constant) uniform Constants {
++  uint origin_x, origin_y, width, height, slot_dword, pitch;
++} c;
++void main() {
++  uvec2 g = gl_GlobalInvocationID.xy;
++  uint x = g.x * 4u;
++  if (x >= c.width || g.y >= c.height) return;
++  uint v = 0u;
++  for (uint i = 0u; i < 4u; ++i) {
++    if (x + i < c.width) {
++      v |= (texelFetch(stencil_source, ivec2(int(c.origin_x + x + i), int(c.origin_y + g.y)), 0).r & 255u) << (8u * i);
++    }
++  }
++  dest[c.slot_dword + ((g.y * c.pitch + x) >> 2u)] = v;
++}
++)";
++
++// Session 80 (gpu_native_truth_skip_writeback_depth): a texture-only depth copy's output into guest memory - what
++// kNativeResolveFull1xComputeShader's FULL1X_DEPTH copy writes: (the 20e4 depth << 8 | the stencil byte), endian
++// swapped, at its destination texel's 2D tiled offset. The depth from the texture's 32-bit floats (the fill decoded the
++// 20e4 exactly; DepthToFloat24 of such a float is the 20e4 again), the stencil from the record's slot (stencil_mode bit
++// 8) or the constant in its low byte. One texel an invocation.
++constexpr char kNativeMaterializeDepthShader[] = R"(
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++layout(set = 0, binding = 0, std430) readonly buffer Stencil { uint stencil[]; };
++layout(set = 1, binding = 0, std430) writeonly buffer DestBuffer { uint dest[]; };
++layout(set = 2, binding = 0, r32ui) uniform readonly uimage2D texture_in;
++layout(push_constant) uniform Constants {
++  uint x0, y0, w, h, pitch, dest_base, endian, tex_x0, tex_y0, stencil_mode, slot_dword, snap_pitch;
++} c;
++int XeTextureTiledOffset2D(ivec2 p, uint pitch_aligned, uint bpb_log2) {
++  int macro = ((p.x >> 5) + (p.y >> 5) * int(pitch_aligned >> 5u)) << (bpb_log2 + 7u);
++  int micro = ((p.x & 7) + ((p.y & 14) << 2)) << bpb_log2;
++  int offset = macro + ((micro & -16) << 1) + (micro & 15) + ((p.y & 1) << 4);
++  return ((offset & -512) << 3) + ((p.y & 16) << 7) + ((offset & 448) << 2) +
++         (((((p.y & 8) >> 2) + (p.x >> 3)) & 3) << 6) + (offset & 63);
++}
++uint XeEndianSwap32(uint value, uint endian) {
++  if (endian == 1u || endian == 2u) value = ((value & 16711935u) << 8u) | ((value & 4278255360u) >> 8u);
++  if (endian == 2u || endian == 3u) value = (value << 16u) | (value >> 16u);
++  return value;
++}
++uint DepthToFloat24(float z) {
++  z = clamp(z, 0.0, 1.0);
++  uint u = floatBitsToUint(z);
++  uint b = u < 0x38800000u ? ((u & 0x7FFFFFu) | 0x800000u) >> min(113u - (u >> 23), 24u) : u - (112u << 23);
++  b += 3u + ((b >> 3) & 1u);
++  return (b >> 3) & 0xFFFFFFu;
++}
++void main() {
++  uvec2 p = gl_GlobalInvocationID.xy;
++  if (p.x >= c.w || p.y >= c.h) return;
++  ivec2 d = ivec2(int(c.x0 + p.x), int(c.y0 + p.y));
++  ivec2 t = ivec2(int(c.tex_x0) + d.x, int(c.tex_y0) + d.y);
++  uint index = (uint(XeTextureTiledOffset2D(d, c.pitch, 2u)) + c.dest_base) >> 2u;
++  uint s = c.stencil_mode & 255u;
++  if ((c.stencil_mode & 256u) != 0u) {
++    uint i = p.y * c.snap_pitch + p.x;
++    s = (stencil[c.slot_dword + (i >> 2u)] >> (8u * (i & 3u))) & 255u;
++  }
++  float z = uintBitsToFloat(imageLoad(texture_in, t).r);
++  dest[index] = XeEndianSwap32((DepthToFloat24(z) << 8u) | s, c.endian);
++}
++)";
++
++bool NativeRenderer::EnsureDepthWritebackObjects() {
++  if (stencil_snap_pipeline_ != VK_NULL_HANDLE && materialize_depth_pipeline_ != VK_NULL_HANDLE) return true;
++  if (depth_wb_failed_ || !EnsureResolveScaledFullPipeline() || resolve_scaled_full_layout_ == VK_NULL_HANDLE) {
++    return false;
++  }
++  const VkDescriptorSetLayout texture_set_layout = command_processor_.NativeTextureSetLayout();
++  if (texture_set_layout == VK_NULL_HANDLE) return false;
++  depth_wb_failed_ = true;  // until everything below exists
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (stencil_snap_ == VK_NULL_HANDLE &&
++      !ui::vulkan::util::CreateDedicatedAllocationBuffer(vulkan_device, VkDeviceSize(kStencilSlots) * kStencilSlotSize,
++                                                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
++                                                         ui::vulkan::util::MemoryPurpose::kDeviceLocal, stencil_snap_,
++                                                         stencil_snap_memory_)) {
++    stencil_snap_ = VK_NULL_HANDLE;
++    stencil_snap_memory_ = VK_NULL_HANDLE;
++    return false;
++  }
++  if (materialize_depth_layout_ == VK_NULL_HANDLE) {
++    const VkDescriptorSetLayout storage = command_processor_.GetSingleTransientDescriptorLayout(
++        VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute);
++    const VkDescriptorSetLayout set_layouts[3] = {storage, storage, texture_set_layout};
++    VkPushConstantRange push = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 12 * sizeof(uint32_t)};
++    VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
++    layout_info.setLayoutCount = 3;
++    layout_info.pSetLayouts = set_layouts;
++    layout_info.pushConstantRangeCount = 1;
++    layout_info.pPushConstantRanges = &push;
++    if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &materialize_depth_layout_) != VK_SUCCESS) {
++      materialize_depth_layout_ = VK_NULL_HANDLE;
++      return false;
++    }
++  }
++  const auto make = [&](const char* body, VkPipelineLayout layout, VkPipeline& out) {
++    if (out != VK_NULL_HANDLE) return true;
++    std::vector<uint32_t> spirv;
++    std::string error;
++    if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT, std::string("#version 450\n") + body, spirv,
++                                               error)) {
++      REXGPU_ERROR("[native][wb] depth write-back shader compilation failed: {}", error);
++      return false;
++    }
++    const VkShaderModule shader =
++        ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++    if (shader == VK_NULL_HANDLE) return false;
++    VkComputePipelineCreateInfo info = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
++    info.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, shader,
++                  "main", nullptr};
++    info.layout = layout;
++    const bool ok = dfn.vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &info, nullptr, &out) == VK_SUCCESS;
++    dfn.vkDestroyShaderModule(device, shader, nullptr);
++    if (!ok) out = VK_NULL_HANDLE;
++    return ok;
++  };
++  if (!make(kNativeStencilSnapShader, resolve_scaled_full_layout_, stencil_snap_pipeline_) ||
++      !make(kNativeMaterializeDepthShader, materialize_depth_layout_, materialize_depth_pipeline_)) {
++    return false;
++  }
++  depth_wb_failed_ = false;
++  return true;
++}
++
++VkDescriptorSet NativeRenderer::StencilSlotSet(int32_t slot) {
++  if (stencil_snap_ == VK_NULL_HANDLE || slot < 0 || uint32_t(slot) >= kStencilSlots) return VK_NULL_HANDLE;
++  const VkDescriptorSet set = command_processor_.AllocateSingleTransientDescriptor(
++      VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute);
++  if (set == VK_NULL_HANDLE) return VK_NULL_HANDLE;
++  VkDescriptorBufferInfo buffer_info = {stencil_snap_, VkDeviceSize(slot) * kStencilSlotSize, kStencilSlotSize};
++  VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
++  write.dstSet = set;
++  write.descriptorCount = 1;
++  write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++  write.pBufferInfo = &buffer_info;
++  command_processor_.GetVulkanDevice()->functions().vkUpdateDescriptorSets(
++      command_processor_.GetVulkanDevice()->device(), 1, &write, 0, nullptr);
++  return set;
++}
+ // Session 56 (gpu_native_truth_skip_writeback_scaled): kNativeMaterializeScaledShader on resolve_tex_layout_, on its own
+ // (review: a failure here leaves the 1x write-backs alone).
+ bool NativeRenderer::EnsureMaterializeScaledPipeline() {
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 7793338b398f606b0c740fca8b835f57d03a5929..b30853cb7de8886668a5e615d8ff9b107963c579 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -345,6 +345,13 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_full_resolves, false, "GPU/Native",
+                     "batch too, instead of flushing it and running alone (as gpu_native_truth_defer_memory_resolves; not "
+                     "in readback windows)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_skip_writeback_depth, false, "GPU/Native",
++                    "Session 80 (frame structure): with gpu_native_truth_skip_writeback, texture-only depth copies too - a "
++                    "1x 20e4 depth copy whose depth texture fill holds every texel it copies does not write guest memory "
++                    "(3.7 MB a 720p copy; Bryan's entrance makes four a frame); its stencil is kept (a snapshot of the "
++                    "image's, or the last clear's value) and the memory is written from the texture and the stencil only "
++                    "when something requests it, as the colour records (census: [native][wb] depth)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_depth_resolves, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): with gpu_native_truth_batch_resolves, a 1x direct depth copy (into memory) "
+                     "and its depth texture fill join the deferred batch too, instead of flushing it and running alone "
+@@ -3935,6 +3942,11 @@ bool NativeRenderer::TruthResolveDepth1x(const draw_util::ResolveInfo& info, uin
+   const uint32_t w = scale_x * uint32_t(info.coordinate_info.width_div_8) * 8;
+   const uint32_t h = scale_y * uint32_t(info.height_div_8) * 8;
+   if (!w || !h || src_x + w > t.width || src_y + h > t.height) return false;
++  // Session 80 (gpu_native_truth_skip_writeback_depth): the fill alone, the stencil kept, a record for the memory.
++  if (!scaled &&
++      TruthDepthTextureOnly(info, t, index, src_x, src_y, w, h, all_stencil, dest_base, dest_coordinate_info, dest_info)) {
++    return true;
++  }
+   // Session 79 (gpu_native_truth_defer_depth_resolves): deferred with the batch, as a 1x memory-writing colour copy
+   // (TruthResolveDirect's memory_defer) - its destination use held, outside readback windows, writing no memory a
+   // deferred entry writes. Else the batch first, as before.
+@@ -4090,6 +4102,122 @@ bool NativeRenderer::TruthResolveDepth1x(const draw_util::ResolveInfo& info, uin
+   return true;
+ }
+ 
++// Session 80 (gpu_native_truth_skip_writeback_depth): a 1x 20e4 depth copy (TruthResolveDepth1x's checks passed: one
++// depth truth image holds every copied tile, its stencil the image's for all of them or for none) done as its texture
++// fill alone, as TruthFillOnly does a colour copy: the fill first; if it holds every texel the copy writes, the
++// stencil is kept (the image's: a snapshot entry in the deferred batch, read at the batch's flush like the copy would
++// be; none: the last clear's value) and the record goes in (TruthAfterResolveMarked) instead of the copy into memory.
++// Only with the batch (the snapshot is a deferred entry). False: the copy follows (the fill done: it is not repeated).
++bool NativeRenderer::TruthDepthTextureOnly(const draw_util::ResolveInfo& info, TruthImage& t, int16_t index,
++                                           uint32_t src_x, uint32_t src_y, uint32_t w, uint32_t h, bool all_stencil,
++                                           uint32_t dest_base, uint32_t dest_coordinate_info, uint32_t dest_info) {
++  if (!REXCVAR_GET(gpu_native_truth_skip_writeback_depth) || !truth_skip_writeback_ || texture_written_ ||
++      truth_fill_tried_ || !(t.format & 1u) ||
++      (command_processor_.NativeResolveReadback() && !REXCVAR_GET(gpu_native_truth_skip_writeback_debug_immediate)) ||
++      !REXCVAR_GET(gpu_native_truth_batch_resolves) || !REXCVAR_GET(gpu_native_truth_defer_depth_resolves)) {
++    return false;
++  }
++  int32_t slot = -1;
++  if (all_stencil) {
++    for (uint32_t i = 0; i < kStencilSlots; ++i) {
++      if (!(stencil_slots_busy_ & (1u << i))) {
++        slot = int32_t(i);
++        break;
++      }
++    }
++    if (slot < 0 || uint64_t((w + 3u) & ~3u) * h > kStencilSlotSize) {
++      ++wb_counts_.depth_kept[1];
++      return false;
++    }
++  }
++  if (!EnsureDepthWritebackObjects() || !EnsureTruthStaging()) {
++    ++wb_counts_.depth_kept[2];
++    return false;
++  }
++  // The fill first (it reads only the image), then the records this copy overlaps (before it would write memory).
++  truth_fill_done_ = FillDone();
++  TruthFillTexture(info);
++  truth_fill_tried_ = true;
++  {
++    const FillDone& done = truth_fill_done_;
++    const int32_t filled_rect[4] = {done.dst_x, done.dst_y, done.dst_x + done.w, done.dst_y + done.h};
++    TruthResolveOverlaps(info, texture_written_, done.texture && !done.level ? filled_rect : nullptr);
++  }
++  const FillDone& f = truth_fill_done_;
++  if (!texture_written_ || !f.depth || f.level || f.has_mips ||
++      command_processor_.NativeTextureReadable(f.texture, false, -1, true) != 4u || f.w != f.copy_w ||
++      f.h != f.copy_h || uint32_t(f.copy_w) != w || uint32_t(f.copy_h) != h || f.dst_x < 0 || f.dst_y < 0 ||
++      f.dst_x + f.copy_w > int32_t(f.texture_w) || f.dst_y + f.copy_h > int32_t(f.texture_h)) {
++    ++wb_counts_.depth_kept[0];
++    return false;
++  }
++  const uint32_t snap_pitch = (w + 3u) & ~3u;
++  if (slot >= 0) {
++    const VkDescriptorSet source_set = TruthStoreSet(t, true, truth_staging_);  // (binding 2: the stencil view)
++    const VkDescriptorSet slot_set = StencilSlotSet(slot);
++    if (source_set == VK_NULL_HANDLE || slot_set == VK_NULL_HANDLE) {
++      ++wb_counts_.depth_kept[2];
++      return false;
++    }
++    TruthSyncRead(index);  // Session 54 (draw twins)
++    DeferredResolve& d = truth_deferred_.emplace_back();
++    d.texture_image = VK_NULL_HANDLE;
++    d.pipeline = stencil_snap_pipeline_;
++    d.layout = resolve_scaled_full_layout_;
++    d.sets[0] = source_set;
++    d.sets[1] = slot_set;
++    d.sets[2] = VK_NULL_HANDLE;
++    d.set_count = 2;
++    std::fill(std::begin(d.pc), std::end(d.pc), 0u);
++    const uint32_t pc[10] = {src_x, src_y, w, h, 0u, snap_pitch, 0u, 0u, 0u, 0u};
++    std::memcpy(d.pc, pc, sizeof(pc));
++    d.pc_size = sizeof(pc);
++    d.group_count_x = ((w + 3u) / 4u + 7u) / 8u;
++    d.group_count_y = (h + 7u) / 8u;
++    d.image = t.image;
++    d.index = index;
++    d.depth = true;
++    d.texture = nullptr;
++    stencil_slots_busy_ |= 1u << slot;
++    ++wb_counts_.depth_snapshots;
++    ++truth_counts_.deferred;
++  }
++  // (Where the copy would write - FULL1X_DEPTH's constants: the destination's first texel, its pitch in 32-texel
++  // units, its base relative to the destination binding, its endian.)
++  const uint32_t ox = ((dest_coordinate_info >> 20) & 0xFu) * 8u;
++  const uint32_t oy = ((dest_coordinate_info >> 24) & 0xFu) * 8u;
++  WbRecord& r = truth_wb_pending_;
++  r = WbRecord();
++  r.texture = f.texture;
++  r.extent_start = info.copy_dest_extent_start;
++  r.extent_length = info.copy_dest_extent_length;
++  r.dest_offset = truth_dest_offset_;
++  r.dest_range = truth_dest_range_;
++  r.base = info.copy_dest_base;
++  r.pitch = dest_coordinate_info & 1023u;
++  r.x0 = ox;
++  r.y0 = oy;
++  r.x1 = ox + w;
++  r.y1 = oy + h;
++  r.dest_base = dest_base;
++  r.endian = dest_info & 7u;
++  r.tex_x0 = uint32_t(f.dst_x) - ox;
++  r.tex_y0 = uint32_t(f.dst_y) - oy;
++  r.frame = frame_;
++  r.depth = true;
++  r.stencil_slot = slot;
++  r.stencil_const = t.stencil & 0xFFu;
++  r.stencil_pitch = snap_pitch;
++  truth_wb_skipped_ = true;
++  ++wb_counts_.depth_skipped;
++  TruthNoteRestoreSource(info, index, src_x == 0 && src_y == 0 && ((dest_coordinate_info >> 20) & 0xFFu) == 0, w, h);
++  if (segment_log_frames_ > 0) {
++    REXGPU_INFO("[native][seg] frame {} truth depth resolve texture-only: {}x{} from image {} at {},{} (stencil {})",
++                frame_, w, h, index, src_x, src_y, slot >= 0 ? "kept in a slot" : "its last clear's");
++  }
++  return true;
++}
++
+ bool NativeRenderer::TruthResolveScaledFull(const draw_util::ResolveInfo& info, VkDescriptorSet dest_set) {
+   TruthFlushDeferred(kDeferFlushOtherResolve);  // Session 52
+   uint32_t scale_x = 1, scale_y = 1;
+@@ -4237,6 +4365,20 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+   EndTruthPass();
+   command_processor_.EndRenderPass();  // (review: a caller may come with the command processor's own pass open)
+   DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++  // Session 80 (frame structure): with gpu_ram_stats, the batch's GPU time in the pass log - kind 8 the renames'
++  // copies, 9 the barriers into the read layouts (draws = entries, depth = depth sources, colour kind = entries
++  // writing guest memory), 11 each dispatch (below), 10 the barrier back (the deferred resolves' timers 6 / 7 hold
++  // only their recording, so their work was counted between the passes).
++  const auto note_batch = [&]() {
++    if (truth_timer_kind_ != 9) return;
++    FrameSlot::Segment& s = slots_[SlotOf(frame_)].segments[truth_timer_segment_];
++    s.pass_draws = uint32_t(truth_deferred_.size());
++    for (const DeferredResolve& d : truth_deferred_) {
++      s.pass_depth += d.depth ? 1 : 0;
++      s.pass_color_kind += d.mem_length ? 1 : 0;
++    }
++  };
++  TruthTimer(8, true);
+   // The images involved and their layouts: dispatch sources (read), and with renames the copies' sources and the
+   // renamed images (Session 52, gpu_native_truth_batch_rename). All start in the attachment layout.
+   // (Session 56: depth images too - renamed with their pass's colour, gpu_native_truth_rename_depth.)
+@@ -4339,6 +4481,9 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+     }
+   }
+   // 2. The dispatch sources readable, the others back to their attachment layout; the dispatches.
++  TruthTimer(8, false);
++  TruthTimer(9, true);
++  note_batch();
+   barriers.clear();
+   for (Involved& e : involved) {
+     // (Session 79: a depth source in the depth store set's layout.)
+@@ -4389,11 +4534,27 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+     wrote_memory = true;
+   }
+   command_processor_.SubmitBarriers(true);  // (the textures' barriers, pushed when each resolve was deferred)
++  // (Session 80: kind 9 ends with the barriers; each dispatch its own kind 11 segment - width / height its threads,
++  // depth a depth source, colour kind 1 when it writes guest memory, draws the bytes written there, vs the memory
++  // format, ps 1 when it fills a texture.)
++  TruthTimer(9, false);
+   for (const DeferredResolve& d : truth_deferred_) {
++    TruthTimer(11, true);
++    if (truth_timer_kind_ == 11) {
++      FrameSlot::Segment& s = slots_[SlotOf(frame_)].segments[truth_timer_segment_];
++      s.pass_width = uint16_t(std::min<uint32_t>(d.group_count_x * 8, 65535));
++      s.pass_height = uint16_t(std::min<uint32_t>(d.group_count_y * 8, 65535));
++      s.pass_depth = d.depth ? 1 : 0;
++      s.pass_color_kind = d.mem_length ? 1 : 0;
++      s.pass_draws = d.mem_length;
++      s.pass_vs = d.mem_format;
++      s.pass_ps = d.texture_image != VK_NULL_HANDLE ? 1 : 0;
++    }
+     command_processor_.BindExternalComputePipeline(d.pipeline);
+     cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, d.layout, 0, d.set_count, d.sets, 0, nullptr);
+     cb.CmdVkPushConstants(d.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, d.pc_size, d.pc);
+     cb.CmdVkDispatch(d.group_count_x, d.group_count_y, 1);
++    TruthTimer(11, false);
+   }
+   if (wrote_memory) shared_memory->Use(saved_usage, saved_range);  // (review fix, above)
+   // (Their pages are the texture-only records' again only where a record holds them.)
+@@ -4406,6 +4567,7 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+     }
+   }
+   // 3. Every image back to its attachment layout (the spares too: a rename takes one as it is).
++  TruthTimer(10, true);
+   barriers.clear();
+   for (Involved& e : involved) {
+     transition(e, e.depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+@@ -4414,6 +4576,7 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+     cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, kStages, 0, 0, nullptr, 0, nullptr,
+                             uint32_t(barriers.size()), barriers.data());
+   }
++  TruthTimer(10, false);
+   truth_deferred_.clear();
+   for (TruthBundle& b : truth_spares_) {
+     if (b.busy) {
+@@ -4962,14 +5125,30 @@ void NativeRenderer::TruthTimer(uint32_t kind, bool begin) {
+   cb.CmdVkWriteTimestamp(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_, query_base + segment.native_end);
+ }
+ 
++void NativeRenderer::TruthStampSubmission() {
++  if (!ram_stats_ || !truth_ || !replacing_ || !query_pool_ || !slot_queries_ok_) return;
++  FrameSlot& slot = slots_[SlotOf(frame_)];
++  if (slot.queries + 1 > QueryLimit()) return;
++  const uint32_t q = slot.queries++;
++  command_processor_.deferred_command_buffer().CmdVkWriteTimestamp(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_,
++                                                                   SlotOf(frame_) * kQueriesPerFrame + q);
++  slot.submission_stamps.push_back(q);
++}
++
+ void NativeRenderer::LogTruthPasses(uint64_t frame, const FrameSlot& slot, const std::vector<uint64_t>& stamps,
+                                     double ms) {
+   // Session 72: the frame's segments in recording order - each pass's own time, and the GPU work between the end of
+   // the previous timed segment and its start (resolves, copies, stores and barriers recorded outside the passes).
+   --pass_log_frames_;
+   uint64_t first = UINT64_MAX, last = 0, prev_end = UINT64_MAX;
+-  double passes_ms = 0.0, between_ms = 0.0;
+-  uint32_t n = 0;
++  double passes_ms = 0.0, between_ms = 0.0, idle_ms = 0.0;
++  uint32_t n = 0, idle_gaps = 0;
++  // Session 80 (frame structure): the submissions' first commands (TruthStampSubmission). One that started after the
++  // previous segment had ended means the GPU sat idle that long in the gap, waiting for the CPU to submit.
++  std::vector<uint64_t> submits;
++  for (uint32_t q : slot.submission_stamps) {
++    if (q < stamps.size()) submits.push_back(stamps[q]);
++  }
+   for (const FrameSlot::Segment& s : slot.segments) {
+     if (s.native_begin == UINT32_MAX || s.native_end == UINT32_MAX || s.native_begin >= stamps.size() ||
+         s.native_end >= stamps.size()) {
+@@ -4979,6 +5158,20 @@ void NativeRenderer::LogTruthPasses(uint64_t frame, const FrameSlot& slot, const
+     if (e < b) continue;
+     const double own = double(e - b) * ms;
+     const double before = prev_end != UINT64_MAX && b >= prev_end ? double(b - prev_end) * ms : 0.0;
++    if (before > 0.0) {
++      // The latest submission start in the gap: the GPU had nothing to run from the previous end until then.
++      uint64_t start = 0;
++      for (uint64_t t : submits) {
++        if (t > prev_end && t <= b) start = std::max(start, t);
++      }
++      if (start) {
++        const double idle = double(start - prev_end) * ms;
++        idle_ms += idle;
++        ++idle_gaps;
++        REXGPU_INFO("[native][pass] frame {} submission started {:.3f} ms into the {:.3f} ms gap before #{}", frame,
++                    idle, before, n);
++      }
++    }
+     first = std::min(first, b);
+     last = std::max(last, e);
+     prev_end = e;
+@@ -4992,6 +5185,11 @@ void NativeRenderer::LogTruthPasses(uint64_t frame, const FrameSlot& slot, const
+   REXGPU_INFO("[native][pass] frame {}: {} timed segments, {:.3f} ms in them, {:.3f} ms between them, {:.3f} ms first "
+               "to last",
+               frame, n, passes_ms, between_ms, last > first ? double(last - first) * ms : 0.0);
++  if (!submits.empty()) {
++    REXGPU_INFO("[native][pass] frame {}: {} submissions; the GPU waited for one in {} gaps, {:.3f} ms of the {:.3f} "
++                "ms between segments",
++                frame, submits.size(), idle_gaps, idle_ms, between_ms);
++  }
+ }
+ 
+ void NativeRenderer::TruthNoteWriteBack(bool direct, uint32_t bytes) {
+@@ -5014,9 +5212,10 @@ void NativeRenderer::TruthMaterializeRecord(const WbRecord& r) {
+   const VkBuffer dest_buffer = scaled ? command_processor_.NativeScaledResolveBuffer()
+                                       : shared_memory ? shared_memory->buffer() : VK_NULL_HANDLE;
+   uint32_t old_usage = 0;
++  // (Session 80: a depth record through its texture's R32_UINT view of the floats, gpu_native_truth_skip_writeback_depth.)
+   const VkDescriptorSet texture_set =
+-      (scaled ? EnsureMaterializeScaledPipeline() : EnsureMaterializePipeline())
+-          ? command_processor_.NativeTextureForRead(r.texture, old_usage, scaled, r.layer)  // (Session 79: a face's)
++      (r.depth ? EnsureDepthWritebackObjects() : scaled ? EnsureMaterializeScaledPipeline() : EnsureMaterializePipeline())
++          ? command_processor_.NativeTextureForRead(r.texture, old_usage, scaled, r.layer, r.depth)  // (S79: a face's)
+           : VK_NULL_HANDLE;
+   const VkDescriptorSet dest_set = texture_set != VK_NULL_HANDLE
+                                        ? command_processor_.AllocateSingleTransientDescriptor(
+@@ -5047,6 +5246,38 @@ void NativeRenderer::TruthMaterializeRecord(const WbRecord& r) {
+                        std::pair<uint32_t, uint32_t>(r.extent_start, r.extent_length));
+   }
+   DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++  if (r.depth) {
++    // Session 80 (gpu_native_truth_skip_writeback_depth): kNativeMaterializeDepthShader - set 0 the record's stencil
++    // slot (without one, any storage set: unread), its snapshot's write (the batch, flushed above) made visible.
++    const VkDescriptorSet stencil_set = r.stencil_slot >= 0 ? StencilSlotSet(r.stencil_slot) : dest_set;
++    if (stencil_set == VK_NULL_HANDLE) {
++      REXGPU_ERROR("[native][wb] no stencil slot set for depth {:08X}+{:X}: the GPU copy keeps older data",
++                   r.extent_start, r.extent_length);
++      command_processor_.NativeTextureEndRead(r.texture, old_usage);
++      return;
++    }
++    VkMemoryBarrier snapshot_barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_SHADER_WRITE_BIT,
++                                        VK_ACCESS_SHADER_READ_BIT};
++    cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
++                            &snapshot_barrier, 0, nullptr, 0, nullptr);
++    command_processor_.BindExternalComputePipeline(materialize_depth_pipeline_);
++    const VkDescriptorSet depth_sets[3] = {stencil_set, dest_set, texture_set};
++    cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, materialize_depth_layout_, 0, 3, depth_sets, 0,
++                               nullptr);
++    const uint32_t dw = r.x1 - r.x0, dh = r.y1 - r.y0;
++    const uint32_t pc[12] = {r.x0,     r.y0,     dw,
++                             dh,       r.pitch * 32, r.dest_base,
++                             r.endian, r.tex_x0, r.tex_y0,
++                             r.stencil_slot >= 0 ? 256u : (r.stencil_const & 255u), 0u, r.stencil_pitch};
++    cb.CmdVkPushConstants(materialize_depth_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), pc);
++    command_processor_.SubmitBarriers(true);
++    cb.CmdVkDispatch((dw + 7) / 8, (dh + 7) / 8, 1);
++    command_processor_.NativeTextureEndRead(r.texture, old_usage);
++    ++wb_counts_.materialized;
++    ++wb_counts_.depth_materialized;
++    wb_counts_.materialized_bytes += r.extent_length;
++    return;
++  }
+   command_processor_.BindExternalComputePipeline(materialize_pipeline_[scaled ? 2 : r.bpb64 ? 1 : 0]);
+   const VkDescriptorSet sets[2] = {dest_set, texture_set};
+   cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, resolve_tex_layout_, 1, 2, sets, 0, nullptr);
+@@ -5075,6 +5306,8 @@ void NativeRenderer::TruthRemoveRecords(const std::vector<size_t>& indices) {
+   for (size_t k = indices.size(); k-- > 0;) {
+     WbRecord& r = wb_records_[indices[k]];
+     command_processor_.NativeTexturePin(r.texture, false);
++    // (Session 80: a depth record's stencil slot is free again - its materialise, if any, was recorded before.)
++    if (r.depth && r.stencil_slot >= 0) stencil_slots_busy_ &= ~(1u << uint32_t(r.stencil_slot));
+     // (Session 56: a scaled record never marked the guest memory - the scaled resolve does not write it.)
+     if (shared_memory && r.scale_x <= 1 && r.scale_y <= 1) {
+       shared_memory->SetRangeSkipped(r.extent_start, r.extent_length, false);
+@@ -6946,6 +7179,16 @@ void NativeRenderer::LogTruthCensus() {
+                 w.by_reason[6] / n, w.by_reason[7] / n, w.kept[1] / n, w.kept[2] / n, w.kept[3] / n, w.kept[5] / n,
+                 wb_records_.size());
+   }
++  // Session 80 (gpu_native_truth_skip_writeback_depth).
++  if (w.depth_skipped || w.depth_materialized || w.depth_kept[0] || w.depth_kept[1] || w.depth_kept[2]) {
++    const double n = double(std::max(1u, report_.frames));
++    REXGPU_INFO("[native][wb] frames {}-{}: depth copies texture-only per frame {:.2f} (stencil kept in a slot {:.2f}), "
++                "depth records written from their textures {:.2f}; depth copies kept per frame: no fill / not inside "
++                "{:.2f}, no free stencil slot {:.2f}, objects {:.2f}; stencil slots in use {}",
++                frame_ + 1 - report_.frames, frame_, w.depth_skipped / n, w.depth_snapshots / n,
++                w.depth_materialized / n, w.depth_kept[0] / n, w.depth_kept[1] / n, w.depth_kept[2] / n,
++                std::bitset<32>(stencil_slots_busy_).count());
++  }
+   w = WbCounts();
+ }
+ 
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index d11628d7ce65156d6127c81b61e07739e5a5516f..3f97a80f8c270f56275205bb1876ca8939cb7b6d 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2931,7 +2931,8 @@ void VulkanTextureCache::NativeTextureResolved(void* handle) {
+ }
+ 
+ // wwe2k14 patch (Session 49, NATIVE TRUTH skip write-back): see the header.
+-uint32_t VulkanTextureCache::NativeTextureReadable(void* handle, bool allow_scaled, int32_t layer) const {
++uint32_t VulkanTextureCache::NativeTextureReadable(void* handle, bool allow_scaled, int32_t layer,
++                                                  bool allow_depth) const {
+   if (!handle) return 0;
+   const VulkanTexture& texture = *static_cast<const VulkanTexture*>(handle);
+   const TextureKey& key = texture.key();
+@@ -2950,7 +2951,11 @@ uint32_t VulkanTextureCache::NativeTextureReadable(void* handle, bool allow_scal
+       texture.direct_load_creation() != VulkanTexture::DirectLoadCreation::kCapable) {
+     return 0;
+   }
+-  // (Depth: the direct load converts 20e4 to 32-bit floats - not raw bits.)
++  // (Depth: the direct load converts 20e4 to 32-bit floats - not raw bits. Session 80: for a reader that converts them
++  // back, allow_depth, the 20e4 texture's floats through its R32_UINT view.)
++  if (key.format == xenos::TextureFormat::k_24_8_FLOAT && allow_depth) {
++    return texture.direct_load_format() == VK_FORMAT_R32_UINT ? 4u : 0u;
++  }
+   if (key.format == xenos::TextureFormat::k_24_8_FLOAT || key.format == xenos::TextureFormat::k_24_8) return 0;
+   return texture.direct_load_format() == VK_FORMAT_R32_UINT           ? 4u
+          : texture.direct_load_format() == VK_FORMAT_R16G16B16A16_UINT ? 8u
+@@ -2958,9 +2963,9 @@ uint32_t VulkanTextureCache::NativeTextureReadable(void* handle, bool allow_scal
+ }
+ 
+ VkDescriptorSet VulkanTextureCache::NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled,
+-                                                         int32_t layer) {
++                                                         int32_t layer, bool allow_depth) {
+   old_usage_out = uint32_t(VulkanTexture::Usage::kComputeStorageWrite);
+-  if (!NativeTextureReadable(handle, allow_scaled, layer)) return VK_NULL_HANDLE;
++  if (!NativeTextureReadable(handle, allow_scaled, layer, allow_depth)) return VK_NULL_HANDLE;
+   VulkanTexture& texture = *static_cast<VulkanTexture*>(handle);
+   VkDescriptorSet set = layer >= 0 ? texture.GetLayerStorageDescriptorSet(uint32_t(layer))
+                                    : texture.GetDirectLoadDescriptorSet();

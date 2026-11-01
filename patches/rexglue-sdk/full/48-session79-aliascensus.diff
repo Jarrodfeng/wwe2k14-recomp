@@ -1,0 +1,101 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-aliascensus): 38a27fb99266..f05f55b137a1 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  f05f55b Merge s79-aliascensus: Session 79 diagnostic gpu_native_truth_alias_census (off): alias-loaded tiles dead / consumed / kept within their pass
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index a52a896a5f9aab2b877a814446cd5fc7949a5848..77967b92db5c5306bab08d6ce9c0304b4d662ac7 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -1612,6 +1612,12 @@ class NativeRenderer {
+   int32_t truth_tile_rect_[4] = {};
+   int16_t truth_tile_color_ = -1, truth_tile_depth_ = -1;
+   std::bitset<2048> truth_tile_c_, truth_tile_d_;
++  // wwe2k14 patch (Session 79, gpu_native_truth_alias_census): alias-loaded tiles of the open pass not yet read or
++  // overwritten whole, and per 300 frames: tiles found dead (a later draw of the pass covered them whole without
++  // reading), consumed (a later draw read them), kept (still pending at the pass end).
++  std::bitset<2048> census_pend_c_, census_pend_d_;
++  uint64_t census_dead_ = 0, census_consumed_ = 0, census_kept_ = 0, census_loaded_ = 0;
++  uint32_t census_frames_ = 0;
+   // Session 47 (CPU): the open pass's images own every tile of truth_tile_c_ / _d_ (TruthRecordDraw's fast path).
+   bool truth_tile_c_owned_ = false, truth_tile_d_owned_ = false;
+   // Session 47 (CPU): claims of this epoch hold (a new epoch at every frame end, fallback and image reset); the last
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 500ce396337a3f7f122056881176ca0ef7af10bc..7ba648281de379e27fc08bce27102ea17a013f6f 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -290,6 +290,11 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_pass_dont_care, false, "GPU/Native",
+                     "and the stencil replaced whole on both faces) opens without loading that attachment (load op "
+                     "DONT_CARE: memory traffic on tile and bandwidth-poor GPUs; the clear draw still writes every pixel)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_alias_census, false, "GPU/Native",
++                    "Session 79 (diagnostic): of the tiles alias-loaded into a truth pass, how many a later draw of the "
++                    "same pass covers whole without reading them (dead loads), reads (consumed) or leaves pending to "
++                    "the pass end (kept) - a lower bound for dead stores ([native][truth] alias census lines)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_clear_attachments, false, "GPU/Native",
+                     "Session 56: a truth fast clear that writes all of the depth and stencil in its rectangle, with a "
+                     "depth the CPU knows exactly (its vertex shader run on the CPU: 0 or 1 through a plain viewport), is "
+@@ -5210,6 +5215,15 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   // draw that is not a clear needs no load and changes no owner: only the draw is recorded.
+   const bool fast = same_pass && truth_pass_open_ && !draw.fast_clear && segment_log_frames_ <= 0 &&
+                     (!writes_color || truth_tile_c_owned_) && (!uses_depth || truth_tile_d_owned_);
++  // wwe2k14 patch (Session 79, gpu_native_truth_alias_census): a fast-path draw is counted as reading every tile it
++  // touches (its reads are not worked out here): the census undercounts dead tiles, never overcounts.
++  const bool census = REXCVAR_GET(gpu_native_truth_alias_census);
++  if (census && fast && (census_pend_c_.any() || census_pend_d_.any())) {
++    const std::bitset<2048> rc = census_pend_c_ & truth_tile_c_, rd = census_pend_d_ & truth_tile_d_;
++    census_consumed_ += rc.count() + rd.count();
++    census_pend_c_ &= ~truth_tile_c_;
++    census_pend_d_ &= ~truth_tile_d_;
++  }
+   bool opened_now = false;
+   std::bitset<2048> c_touch, d_touch;
+   bool stencil_clear = false;
+@@ -5302,6 +5316,31 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+       ++truth_counts_.depth_renames;
+     }
+   }
++  // wwe2k14 patch (Session 79, gpu_native_truth_alias_census): this draw's effect on the tiles alias-loaded earlier in
++  // the pass (a new pass: the old pass's pending tiles are kept), then its own alias loads become pending unless it
++  // reads them itself. (c_whole / d_whole are worked out only where the per-tile look runs: an undercount.)
++  if (census) {
++    if (!same_pass || load) {
++      census_kept_ += census_pend_c_.count() + census_pend_d_.count();
++      census_pend_c_.reset();
++      census_pend_d_.reset();
++    }
++    const auto effect = [&](std::bitset<2048>& pend, const std::bitset<2048>& touch, const std::bitset<2048>& whole,
++                            bool reads) {
++      if (reads) {
++        census_consumed_ += (pend & touch).count();
++        pend &= ~touch;
++      } else {
++        census_dead_ += (pend & whole).count();
++        pend &= ~whole;
++      }
++    };
++    effect(census_pend_c_, c_touch, c_whole, reads_color);
++    effect(census_pend_d_, d_touch, d_whole, reads_depth);
++    census_loaded_ += c_alias.count() + d_alias.count();
++    if (reads_color) census_consumed_ += c_alias.count(); else census_pend_c_ |= c_alias;
++    if (reads_depth) census_consumed_ += d_alias.count(); else census_pend_d_ |= d_alias;
++  }
+   if (load && (c_alias.any() || d_alias.any())) {
+     truth_counts_.alias_reads += uint32_t(c_alias.count() + d_alias.count());
+     const std::vector<int16_t>& owners = alias_owners();
+@@ -5693,6 +5732,15 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+ 
+ void NativeRenderer::TruthOnFrameEnd(bool ended_truth, bool next_truth) {
+   TruthFlushDeferred(kDeferFlushFrameEnd);  // Session 52
++  // wwe2k14 patch (Session 79, gpu_native_truth_alias_census): per 300 frames.
++  if (REXCVAR_GET(gpu_native_truth_alias_census) && ++census_frames_ >= 300) {
++    const double n = census_frames_;
++    REXGPU_INFO("[native][truth] alias census frame {}: per frame, tiles alias-loaded {:.1f}: dead (a later draw of the "
++                "pass covers them whole, unread) {:.1f}, consumed {:.1f}, kept to the pass end {:.1f}",
++                frame_, census_loaded_ / n, census_dead_ / n, census_consumed_ / n, census_kept_ / n);
++    census_frames_ = 0;
++    census_loaded_ = census_dead_ = census_consumed_ = census_kept_ = 0;
++  }
+   // Session 54 (gpu_native_truth_draw_twins_off): off - every image brought up to date from its twin, then drawn
+   // directly; on again - every twin made again from its image (TruthRetireTwin through EnsureTruthTwin).
+   if (const bool off = REXCVAR_GET(gpu_native_truth_draw_twins_off); off != truth_twins_off_) {

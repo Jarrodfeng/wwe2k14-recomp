@@ -1,0 +1,526 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-aliasdirect): d700b31f538a..f1a55720cb5a on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  f1a5572 Merge s79-aliasdirect: Session 79 gpu_native_truth_alias_direct (off) + the alias census by owner -> pass image: alias loads straight from RGBA8 / depth owners, store dispatches 214 -> 19 a frame (shots byte-identical 5054, 500 / 500 resolve hashes 5057, fast-forwarded A/B 5056: GPU -2 / -3 / -7% on the 4090)
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index e1fb3bf9e9f8b299bc259c71f98eb52834b4319e..7eecc9f1ccead1cb92957dc9df110d7cdb56a214 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -1414,6 +1414,23 @@ class NativeRenderer {
+   bool EnsureTruthFillTexPipelines();
+   bool EnsureTruthFillTexSmallPipelines();
+   VkDescriptorSet TruthStoreSet(TruthImage& t, bool staging, VkBuffer buffer);
++  // wwe2k14 patch (Session 79, gpu_native_truth_alias_direct): the alias load straight from the owner image - its
++  // fragment shader works out the dword TruthStore would have put in the staging buffer (the same packing) and
++  // converts it as the load does; no store dispatch. [owner depth][target depth][target class]; the owners' store sets
++  // (bindings 1 / 2 are visible to fragment shaders too). Owners read this way stay in their read layouts until the
++  // pass ends (truth_alias_read_owners_: image, depth).
++  struct AliasDirectConstants {
++    EdramPlace place;
++    uint32_t owner_base_dwords, owner_pitch_tile_dwords, owner_flags;
++  };
++  VkShaderModule alias_direct_shaders_[2] = {};
++  VkPipelineLayout alias_direct_layout_ = VK_NULL_HANDLE;
++  VkPipeline alias_direct_pipelines_[2][2][kPostTargetClasses] = {};
++  bool alias_direct_failed_ = false;
++  bool EnsureAliasDirectPipelines();
++  std::vector<std::pair<VkImage, bool>> truth_alias_read_owners_;
++  void TruthRestoreAliasOwners();
++  std::vector<int16_t> truth_scratch_direct_owners_, truth_scratch_stored_owners_;
+   VkDescriptorPool truth_pool_ = VK_NULL_HANDLE;
+   uint32_t truth_resolution_[2] = {};  // the resolution scale the images were made at
+   struct TruthRetiredSet {
+@@ -1429,6 +1446,7 @@ class NativeRenderer {
+   struct TruthCounts {
+     uint32_t frames = 0, fallbacks = 0, passes = 0, draws = 0, loads = 0, writeouts = 0, staged = 0, staged_edram = 0;
+     uint32_t alias_reads = 0, store_dispatches = 0, direct = 0, direct_depth = 0;  // (Session 59: direct_depth)
++    uint32_t alias_direct = 0;  // Session 79 (gpu_native_truth_alias_direct): alias reads loaded straight from owners
+     uint32_t compiling = 0;  // Session 47: draws skipped while their pipeline was being made
+     uint32_t waited = 0;     // Session 55: draws into narrower surfaces whose pipeline was made at once instead
+     uint32_t filled = 0, fill_refused = 0;
+@@ -1622,6 +1640,9 @@ class NativeRenderer {
+   std::bitset<2048> census_pend_c_, census_pend_d_;
+   uint64_t census_dead_ = 0, census_consumed_ = 0, census_kept_ = 0, census_loaded_ = 0;
+   uint32_t census_frames_ = 0;
++  // (Session 79: the alias-loaded tiles by owner -> pass image: kind / format / pitch of both, and whether the tile sits
++  // at the same place in both - a plain copy of the same bits could replace its store and load.)
++  std::unordered_map<std::string, uint64_t> census_pairs_;
+   // Session 47 (CPU): the open pass's images own every tile of truth_tile_c_ / _d_ (TruthRecordDraw's fast path).
+   bool truth_tile_c_owned_ = false, truth_tile_d_owned_ = false;
+   // Session 47 (CPU): claims of this epoch hold (a new epoch at every frame end, fallback and image reset); the last
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 8a486533cb9fddde2aff8c634431a24b459eb575..c875c208e48c084349da464795432cd42bd32ecf 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -1824,7 +1824,20 @@ void NativeRenderer::DestroyObjects() {
+     truth_fill_tex_layout_ = VK_NULL_HANDLE;
+   }
+   truth_fill_tex_failed_ = false;
++  // Session 79 (gpu_native_truth_alias_direct).
++  for (auto& by_owner : alias_direct_pipelines_) {
++    for (auto& by_target : by_owner) {
++      for (VkPipeline& p : by_target) {
++        RetirePipeline(p);
++        p = VK_NULL_HANDLE;
++      }
++    }
++  }
++  for (VkShaderModule& s : alias_direct_shaders_) ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyShaderModule, device, s);
++  alias_direct_failed_ = false;
++  truth_alias_read_owners_.clear();
+   DestroyRetired(true);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipelineLayout, device, alias_direct_layout_);
+   truth_retired_sets_.clear();  // freed with the pool
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyDescriptorPool, device, truth_pool_);
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipelineLayout, device, truth_store_layout_);
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index e14728d746eaef094094f7fc50d30f754ac54151..d7cc222599e2d682083d67c8762efca7736e36e7 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -311,6 +311,13 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_scaled_texture_only, false, "GPU/Nati
+                     "resolve that also writes its scaled texture does not write the scaled resolve buffer (what the "
+                     "scaled write-backs cost - the ceiling of texture-only resolves at a scale)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_alias_direct, false, "GPU/Native",
++                    "Session 79 (HD 520 arc): a pass's tiles another RGBA8 or depth image owns are loaded straight from "
++                    "that image (the fragment shader packs them as the store would, then converts them as the load "
++                    "does) instead of stored into the staging buffer by a compute dispatch first - fewer compute "
++                    "dispatches and 3D / compute switches. Owners that are the pass's own images, and RGBA16 owners, "
++                    "are stored as before")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_texture_only_cube_faces, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): with gpu_native_truth_fill_cube_faces and gpu_native_truth_skip_writeback, "
+                     "a direct resolve into a cube face it fills is texture-only too (recorded, written into memory "
+@@ -422,6 +429,91 @@ void main() {
+ }
+ )";
+ 
++// Session 79 (gpu_native_truth_alias_direct): the alias load without the store. For each pixel of the pass's image
++// (as kLoadFragmentShader: its dword index in the EDRAM layout), the owner image's pixel that TruthStore would have
++// written into that dword (kTruthStoreComputeShader's addressing, inverted), packed exactly as the store packs it,
++// then converted exactly as the load converts it. OWNER_DEPTH: the owner is a depth image (20e4 / unorm24 + stencil:
++// its stencil view, or its last clear's value).
++constexpr char kTruthAliasDirectFragmentShader[] = R"(
++layout(set = 0, binding = 1) uniform sampler2D owner;
++#ifdef OWNER_DEPTH
++layout(set = 0, binding = 2) uniform usampler2D owner_stencil;
++#endif
++layout(location = 0) out vec4 out_color;
++layout(push_constant) uniform Constants {
++  uint color_base_dwords;
++  uint depth_base_dwords;
++  uint pitch_tile_dwords;
++  uint tile_w;
++  uint tile_h;
++  uint width;
++  uint height;
++  uint wrap_dwords;
++  uint flags;  // bit 0: the pass's depth is 20e4; bit 1: a colour surface
++  float scale_x;
++  float scale_y;
++  uint origin_x;
++  uint origin_y;
++  uint owner_base_dwords;
++  uint owner_pitch_tile_dwords;
++  uint owner_flags;  // bit 0: 20e4 owner depth; bit 2: stencil from the view (else bits 8-15); bit 16: the depth side
++} c;
++uvec2 EdramIndices(uvec2 p) {
++  uint tile = (p.y / c.tile_h) * c.pitch_tile_dwords + (p.x / c.tile_w) * (c.tile_w * c.tile_h);
++  uint x = p.x % c.tile_w, y = p.y % c.tile_h, half_w = c.tile_w >> 1;
++  uint xd = x < half_w ? x + half_w : x - half_w;
++  return uvec2((c.color_base_dwords + tile + y * c.tile_w + x) % c.wrap_dwords,
++               (c.depth_base_dwords + tile + y * c.tile_w + xd) % c.wrap_dwords);
++}
++float DepthFromEdram(uint d24, bool is_float) {
++  if (!is_float) return float(d24) / 16777215.0;
++  uint e = d24 >> 20, m = d24 & 0xFFFFFu;
++  if (e == 0u) return float(m) * exp2(-34.0);
++  return uintBitsToFloat(((e + 112u) << 23) | (m << 3));
++}
++#ifdef OWNER_DEPTH
++uint DepthToEdram(float z, bool is_float) {
++  z = clamp(z, 0.0, 1.0);
++  if (!is_float) {
++    precise float scaled = z * 16777215.0;
++    return uint(roundEven(scaled));
++  }
++  uint u = floatBitsToUint(z);
++  uint b = u < 0x38800000u ? ((u & 0x7FFFFFu) | 0x800000u) >> min(113u - (u >> 23), 24u) : u - (112u << 23);
++  b += 3u + ((b >> 3) & 1u);
++  return (b >> 3) & 0xFFFFFFu;
++}
++#endif
++void main() {
++  uvec2 p = uvec2(min(floor(gl_FragCoord.xy / vec2(c.scale_x, c.scale_y)),
++                      vec2(float(c.width - 1u), float(c.height - 1u))));
++  uvec2 i = EdramIndices(p);
++  uint index = (c.owner_flags & 0x10000u) != 0u ? i.y : i.x;
++  // The owner pixel whose store writes this dword: tile (relative to the owner's base) and place in the tile.
++  uint tile_dwords = c.tile_w * c.tile_h;
++  uint rel = (index + c.wrap_dwords - c.owner_base_dwords % c.wrap_dwords) % c.wrap_dwords;
++  uint tile = rel / tile_dwords, within = rel % tile_dwords;
++  uint pitch_tiles = max(c.owner_pitch_tile_dwords / tile_dwords, 1u);
++  uint x = within % c.tile_w, y = within / c.tile_w;
++#ifdef OWNER_DEPTH
++  uint half_w = c.tile_w >> 1;
++  x = x < half_w ? x + half_w : x - half_w;  // (the store swaps the 40-sample halves: swapped back)
++#endif
++  ivec2 q = ivec2((tile % pitch_tiles) * c.tile_w + x, (tile / pitch_tiles) * c.tile_h + y);
++  uint dword;
++#ifdef OWNER_DEPTH
++  float z = texelFetch(owner, q, 0).r;
++  uint s = (c.owner_flags & 4u) != 0u ? (texelFetch(owner_stencil, q, 0).r & 0xFFu) : ((c.owner_flags >> 8) & 0xFFu);
++  dword = (DepthToEdram(z, (c.owner_flags & 1u) != 0u) << 8) | s;
++#else
++  uvec4 u = uvec4(round(clamp(texelFetch(owner, q, 0), 0.0, 1.0) * 255.0));
++  dword = u.r | (u.g << 8) | (u.b << 16) | (u.a << 24);
++#endif
++  out_color = (c.flags & 2u) != 0u ? unpackUnorm4x8(dword) : vec4(0.0);
++  gl_FragDepth = DepthFromEdram(dword >> 8, (c.flags & 1u) != 0u);
++}
++)";
++
+ // Session 47 (M6): a texture's texels from an image, packed into a buffer (one dword a texel, rows of `width`) for a
+ // copy into the texture: exactly what the store, the resolve's copy and the texture load would give. Modes: 0
+ // k_8_8_8_8 from RGBA8 (bit 4: red and blue swapped, the copy's swap), 1 k_16_16 / 3 k_16_16_16_16 (two dwords a
+@@ -780,10 +872,13 @@ bool NativeRenderer::EnsureTruthObjects() {
+     truth_class2_blend_ = (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0;
+   }
+   // (Binding 2: a depth image's stencil - written and read only for depth images.)
++  // (Session 79: the images visible to fragment shaders too - gpu_native_truth_alias_direct reads them in its load.)
+   VkDescriptorSetLayoutBinding bindings[3] = {
+       {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+-      {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+-      {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
++      {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
++       nullptr},
++      {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
++       nullptr}};
+   VkDescriptorSetLayoutCreateInfo set_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+   set_info.bindingCount = 3;
+   set_info.pBindings = bindings;
+@@ -2894,6 +2989,102 @@ bool NativeRenderer::EnsureTruthFillTexSmallPipelines() {
+   return true;
+ }
+ 
++// Session 79 (gpu_native_truth_alias_direct): kTruthAliasDirectFragmentShader for colour / depth owners, each as a
++// colour-only and a depth-only load (the load pipelines' state and render passes), on the store's set 0.
++bool NativeRenderer::EnsureAliasDirectPipelines() {
++  if (alias_direct_failed_ || truth_store_set_layout_ == VK_NULL_HANDLE || load_vertex_shader_ == VK_NULL_HANDLE) {
++    return false;
++  }
++  if (alias_direct_layout_ != VK_NULL_HANDLE) return true;
++  alias_direct_failed_ = true;  // until everything below exists
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  for (int owner_depth = 0; owner_depth < 2; ++owner_depth) {
++    std::vector<uint32_t> spirv;
++    std::string error;
++    const std::string source = std::string("#version 450\n") + (owner_depth ? "#define OWNER_DEPTH 1\n" : "") +
++                               kTruthAliasDirectFragmentShader;
++    if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_FRAGMENT_BIT, source, spirv, error)) {
++      REXGPU_ERROR("[native][truth] alias direct shader compilation failed: {}", error);
++      return false;
++    }
++    alias_direct_shaders_[owner_depth] =
++        ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++    if (alias_direct_shaders_[owner_depth] == VK_NULL_HANDLE) return false;
++  }
++  VkPushConstantRange push = {VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(AliasDirectConstants)};
++  VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
++  layout_info.setLayoutCount = 1;
++  layout_info.pSetLayouts = &truth_store_set_layout_;
++  layout_info.pushConstantRangeCount = 1;
++  layout_info.pPushConstantRanges = &push;
++  if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &alias_direct_layout_) != VK_SUCCESS) {
++    alias_direct_layout_ = VK_NULL_HANDLE;
++    return false;
++  }
++  // (As the load pipelines: a full-screen triangle, no culling, no blending, depth ALWAYS when it writes depth.)
++  VkPipelineShaderStageCreateInfo stages[2] = {
++      {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, load_vertex_shader_,
++       "main", nullptr},
++      {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, VK_NULL_HANDLE,
++       "main", nullptr}};
++  VkPipelineVertexInputStateCreateInfo vertex_input = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
++  VkPipelineInputAssemblyStateCreateInfo input_assembly = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
++  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
++  VkPipelineViewportStateCreateInfo viewport = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
++  viewport.viewportCount = 1;
++  viewport.scissorCount = 1;
++  VkPipelineRasterizationStateCreateInfo raster = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
++  raster.polygonMode = VK_POLYGON_MODE_FILL;
++  raster.cullMode = VK_CULL_MODE_NONE;
++  raster.lineWidth = 1.0f;
++  VkPipelineMultisampleStateCreateInfo multisample = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
++  multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
++  VkPipelineDepthStencilStateCreateInfo depth = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
++  VkPipelineColorBlendAttachmentState blend_attachment = {};
++  VkPipelineColorBlendStateCreateInfo blend_state = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
++  blend_state.attachmentCount = 1;
++  blend_state.pAttachments = &blend_attachment;
++  VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
++  VkPipelineDynamicStateCreateInfo dynamic = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
++  dynamic.dynamicStateCount = 2;
++  dynamic.pDynamicStates = dynamic_states;
++  VkGraphicsPipelineCreateInfo info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
++  info.stageCount = 2;
++  info.pStages = stages;
++  info.pVertexInputState = &vertex_input;
++  info.pInputAssemblyState = &input_assembly;
++  info.pViewportState = &viewport;
++  info.pRasterizationState = &raster;
++  info.pMultisampleState = &multisample;
++  info.pDepthStencilState = &depth;
++  info.pColorBlendState = &blend_state;
++  info.pDynamicState = &dynamic;
++  info.layout = alias_direct_layout_;
++  for (uint32_t cls = 0; cls < kPostTargetClasses; ++cls) {
++    if (!post_class_ok_[cls]) continue;
++    info.renderPass = truth_render_pass_keep_nodep_[cls] != VK_NULL_HANDLE ? truth_render_pass_keep_nodep_[cls]
++                                                                            : post_render_pass_continue_[cls];
++    for (int owner_depth = 0; owner_depth < 2; ++owner_depth) {
++      stages[1].module = alias_direct_shaders_[owner_depth];
++      for (int target_depth = 0; target_depth < 2; ++target_depth) {
++        blend_attachment.colorWriteMask = target_depth ? 0x0 : 0xF;
++        depth.depthTestEnable = target_depth ? VK_TRUE : VK_FALSE;
++        depth.depthWriteEnable = target_depth ? VK_TRUE : VK_FALSE;
++        depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;
++        VkPipeline& out = alias_direct_pipelines_[owner_depth][target_depth][cls];
++        if (dfn.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &info, nullptr, &out) != VK_SUCCESS) {
++          out = VK_NULL_HANDLE;
++          return false;
++        }
++      }
++    }
++  }
++  alias_direct_failed_ = false;
++  return true;
++}
++
+ // Session 52 (gpu_native_truth_fill_direct): the pack shader with TEXOUT 1 (r32ui) / 2 (rgba16ui), on the store's set 0
+ // and the texture's storage set 1.
+ bool NativeRenderer::EnsureTruthFillTexPipelines() {
+@@ -5053,7 +5244,10 @@ void NativeRenderer::TruthDrawRect(const Draw& d, int32_t rect[4]) const {
+ }
+ 
+ void NativeRenderer::EndTruthPass() {
+-  if (!truth_pass_open_) return;
++  if (!truth_pass_open_) {
++    TruthRestoreAliasOwners();  // Session 79 (made readable for a pass that did not open)
++    return;
++  }
+   if (segment_log_frames_ > 0) {  // Session 56 (diagnostic): who ends the pass (tools\perf\pass_ends.py)
+     uintptr_t stack[5] = {};
+     const uintptr_t base = VulkanCommandProcessor::DebugCaptureStack(stack, 5, 0);
+@@ -5097,6 +5291,35 @@ void NativeRenderer::EndTruthPass() {
+   truth_counts_.untouched_color += !truth_pass_touched_color_;  // Session 73 (scratch: the pass has no colour target)
+   truth_counts_.untouched_scratch_color += !truth_pass_touched_color_ && !truth_pass_real_color_;
+   truth_counts_.untouched_depth += truth_pass_real_depth_ && !truth_pass_touched_depth_;
++  TruthRestoreAliasOwners();
++}
++
++// Session 79 (gpu_native_truth_alias_direct): the images the pass's loads read, back in their attachment layouts (also
++// when no pass opened after they were made readable).
++void NativeRenderer::TruthRestoreAliasOwners() {
++  if (!truth_alias_read_owners_.empty()) {
++    DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++    std::vector<VkImageMemoryBarrier>& barriers = truth_store_barriers_;
++    barriers.clear();
++    for (const auto& [image, depth] : truth_alias_read_owners_) {
++      VkImageMemoryBarrier& b = barriers.emplace_back();
++      b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
++      b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++      b.image = image;
++      b.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
++      b.dstAccessMask = depth ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
++                              : VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++      b.oldLayout = depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++      b.newLayout = depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++      b.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(
++          depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
++    }
++    cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
++                            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
++                                VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
++                            0, 0, nullptr, 0, nullptr, uint32_t(barriers.size()), barriers.data());
++    truth_alias_read_owners_.clear();
++  }
+ }
+ 
+ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+@@ -5357,14 +5580,86 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     effect(census_pend_c_, c_touch, c_whole, reads_color);
+     effect(census_pend_d_, d_touch, d_whole, reads_depth);
+     census_loaded_ += c_alias.count() + d_alias.count();
++    // (By owner -> this pass's image: kind k, format f, pitch p; "same place" when both bases are the same tile (the
++    // tile's 80x16 pixels at the same place in both), "same columns" when the pitch is the same and the bases a whole
++    // number of rows apart (the same pixels a row shift away): either way one rectangle holds the same bits.)
++    if (c_alias.any() || d_alias.any()) {
++      for (const int16_t o : alias_owners()) {
++        const TruthImage& oi = truth_images_[o];
++        for (int side = 0; side < 2; ++side) {
++          const std::bitset<2048> tiles = (side ? d_alias : c_alias) & oi.owned;
++          if (tiles.none()) continue;
++          const TruthImage& ci = side ? d_image : c_image;
++          const uint32_t delta = (oi.base - ci.base) & 2047u;
++          const char* where = !delta                                      ? " same place"
++                              : oi.pitch_tiles == ci.pitch_tiles &&
++                                        delta % std::max(1u, ci.pitch_tiles) == 0
++                                  ? " same columns"
++                                  : "";
++          census_pairs_[fmt::format("{} k{} f{} p{} -> k{} f{} p{}{}", side ? "depth" : "colour", oi.kind, oi.format,
++                                    oi.pitch_tiles, ci.kind, ci.format, ci.pitch_tiles, where)] += tiles.count();
++        }
++      }
++    }
+     if (reads_color) census_consumed_ += c_alias.count(); else census_pend_c_ |= c_alias;
+     if (reads_depth) census_consumed_ += d_alias.count(); else census_pend_d_ |= d_alias;
+   }
++  // Session 79 (gpu_native_truth_alias_direct): the aliased tiles whose owners the load reads straight (not stored).
++  std::bitset<2048> direct_tiles;
++  std::vector<int16_t>& direct_owners = truth_scratch_direct_owners_;
++  direct_owners.clear();
+   if (load && (c_alias.any() || d_alias.any())) {
+     truth_counts_.alias_reads += uint32_t(c_alias.count() + d_alias.count());
+     const std::vector<int16_t>& owners = alias_owners();
+     const std::bitset<2048> aliased = c_alias | d_alias;
+-    TruthStoreMany(owners.data(), owners.size(), aliased, true);
++    // (RGBA8 and depth owners other than this pass's own images; RGBA16 owners - 64bpp - are stored as before.)
++    std::vector<int16_t>& stored_owners = truth_scratch_stored_owners_;
++    stored_owners.clear();
++    const bool try_direct = REXCVAR_GET(gpu_native_truth_alias_direct) && c_image.kind < kPostTargetClasses &&
++                            truth_staging_ != VK_NULL_HANDLE && EnsureAliasDirectPipelines();
++    for (const int16_t o : owners) {
++      TruthImage& oi = truth_images_[o];
++      const int owner_depth = oi.kind == 3 ? 1 : 0;
++      const bool direct = try_direct && o != color && o != depth && oi.initialized && oi.image != VK_NULL_HANDLE &&
++                          ((oi.kind == 1 && oi.format == 0) || owner_depth) &&
++                          alias_direct_pipelines_[owner_depth][0][c_image.kind] != VK_NULL_HANDLE &&
++                          alias_direct_pipelines_[owner_depth][1][c_image.kind] != VK_NULL_HANDLE &&
++                          TruthStoreSet(oi, true, truth_staging_) != VK_NULL_HANDLE;
++      (direct ? direct_owners : stored_owners).push_back(o);
++    }
++    if (!stored_owners.empty()) TruthStoreMany(stored_owners.data(), stored_owners.size(), aliased, true);
++    if (!direct_owners.empty()) {
++      // (As TruthStoreMany: a deferred resolve reading one goes first; the images in their read layouts until the
++      // pass ends - TruthRestoreAliasOwners.)
++      bool deferred_source = false;
++      for (const int16_t o : direct_owners) deferred_source = deferred_source || TruthDeferredSource(o);
++      if (deferred_source) TruthFlushDeferred(kDeferFlushStores);
++      EndTruthPass();
++      for (const int16_t o : direct_owners) TruthSyncRead(o);  // (draw twins)
++      std::vector<VkImageMemoryBarrier>& barriers = truth_store_barriers_;
++      barriers.clear();
++      for (const int16_t o : direct_owners) {
++        const TruthImage& oi = truth_images_[o];
++        const bool d = oi.kind == 3;
++        direct_tiles |= oi.owned & aliased;
++        VkImageMemoryBarrier& b = barriers.emplace_back();
++        b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
++        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++        b.image = oi.image;
++        b.srcAccessMask = d ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
++        b.oldLayout = d ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++        b.newLayout = d ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++        b.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(
++            d ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
++        truth_alias_read_owners_.emplace_back(oi.image, d);
++      }
++      cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
++                                  VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
++                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
++                              uint32_t(barriers.size()), barriers.data());
++      truth_counts_.alias_direct += uint32_t(((c_alias | d_alias) & direct_tiles).count());
++    }
+   }
+   if (!truth_pass_open_) {
+     opened_now = true;
+@@ -5497,7 +5792,9 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     cb.CmdVkSetViewport(0, 1, &full);
+     std::vector<std::array<int32_t, 4>>& load_rects = truth_scratch_load_rects_;  // (Session 47: scratch)
+     for (int pass = 0; pass < 4; ++pass) {
+-      const std::bitset<2048>& tiles = pass == 0 ? c_load : pass == 1 ? d_load : pass == 2 ? c_alias : d_alias;
++      // (Session 79: the aliased tiles of owners read straight are drawn below, not from the staging buffer.)
++      const std::bitset<2048> tiles = (pass == 0 ? c_load : pass == 1 ? d_load : pass == 2 ? c_alias : d_alias) &
++                                      (pass < 2 ? ~std::bitset<2048>() : ~direct_tiles);
+       if (tiles.none() || (pass < 2 && no_edram)) continue;
+       ((pass & 1) ? truth_pass_touched_depth_ : truth_pass_touched_color_) = true;  // Session 73: a load writes it
+       TruthTileRects((pass & 1) ? d_image : c_image, tiles, load_rects);
+@@ -5513,6 +5810,42 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+         cb.CmdVkDraw(3, 1, 0, 0);
+       }
+     }
++    // Session 79 (gpu_native_truth_alias_direct): per side (the pass's colour, its depth) and owner, the owner's tiles
++    // from the owner image; a depth owner's tiles whose stencil it holds read its stencil view, the others take its last
++    // clear's stencil (as TruthStoreMany's rects and stencil rects).
++    for (int side = 0; side < 2 && direct_tiles.any(); ++side) {
++      const std::bitset<2048> side_tiles = (side ? d_alias : c_alias) & direct_tiles;
++      if (side_tiles.none()) continue;
++      (side ? truth_pass_touched_depth_ : truth_pass_touched_color_) = true;
++      for (const int16_t o : direct_owners) {
++        const TruthImage& oi = truth_images_[o];
++        const std::bitset<2048> own = side_tiles & oi.owned;
++        if (own.none()) continue;
++        const int owner_depth = oi.kind == 3 ? 1 : 0;
++        AliasDirectConstants k;
++        k.place = place;
++        k.owner_base_dwords = (oi.base % 2048u) * tile_dwords;
++        k.owner_pitch_tile_dwords = oi.pitch_tiles * tile_dwords;
++        cb.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, alias_direct_pipelines_[owner_depth][side][c_image.kind]);
++        cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, alias_direct_layout_, 0, 1, &oi.store_sets[0], 0,
++                                   nullptr);
++        const bool split = owner_depth && oi.stencil_view != VK_NULL_HANDLE;
++        for (int own_stencil = 0; own_stencil < (split ? 2 : 1); ++own_stencil) {
++          const std::bitset<2048> part = !split ? own : own_stencil ? (own & oi.stencil_valid) : (own & ~oi.stencil_valid);
++          if (part.none()) continue;
++          k.owner_flags = (side ? 0x10000u : 0u) |
++                          (owner_depth ? (oi.format & 1u) | (own_stencil ? 4u : (oi.stencil & 0xFFu) << 8) : 0u);
++          cb.CmdVkPushConstants(alias_direct_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(k), &k);
++          TruthTileRects(side ? d_image : c_image, part, load_rects);
++          for (const auto& r : load_rects) {
++            const VkRect2D scissor = pass_rect(r[0], r[1], r[2], r[3]);
++            if (!scissor.extent.width || !scissor.extent.height) continue;
++            cb.CmdVkSetScissor(0, 1, &scissor);
++            cb.CmdVkDraw(3, 1, 0, 0);
++          }
++        }
++      }
++    }
+     // (Loaded tiles become a valid copy, not owned: only what a draw writes changes owner - review fix.)
+     truth_foreign_bind_ = true;  // the load layout's set 0 was bound
+     if (c_load.any() || d_load.any()) ++truth_counts_.loads;
+@@ -5757,6 +6090,14 @@ void NativeRenderer::TruthOnFrameEnd(bool ended_truth, bool next_truth) {
+     REXGPU_INFO("[native][truth] alias census frame {}: per frame, tiles alias-loaded {:.1f}: dead (a later draw of the "
+                 "pass covers them whole, unread) {:.1f}, consumed {:.1f}, kept to the pass end {:.1f}",
+                 frame_, census_loaded_ / n, census_dead_ / n, census_consumed_ / n, census_kept_ / n);
++    std::vector<std::pair<uint64_t, std::string>> pairs;
++    for (const auto& [key, tiles] : census_pairs_) pairs.emplace_back(tiles, key);
++    std::sort(pairs.begin(), pairs.end(), std::greater<>());
++    for (size_t i = 0; i < pairs.size() && i < 16; ++i) {
++      REXGPU_INFO("[native][truth] alias census frame {}: {:.1f} tiles a frame {}", frame_, pairs[i].first / n,
++                  pairs[i].second);
++    }
++    census_pairs_.clear();
+     census_frames_ = 0;
+     census_loaded_ = census_dead_ = census_consumed_ = census_kept_ = 0;
+   }
+@@ -6167,14 +6508,14 @@ void NativeRenderer::LogTruthCensus() {
+     }
+     REXGPU_INFO("[native][truth] frames {}-{}: truth frames {}, fallbacks {} ({}); per frame: passes {:.1f}, draws "
+                 "{:.1f}, boundary loads {:.1f}, write-outs {:.2f}, staged resolves {:.1f} (tiles from the EDRAM "
+-                "{:.1f}), direct copies {:.1f} (depth {:.1f}), store dispatches {:.1f}, alias reads {:.1f}; images {}{}; skipped "
++                "{:.1f}), direct copies {:.1f} (depth {:.1f}), store dispatches {:.1f}, alias reads {:.1f} (straight from their images {:.1f}); images {}{}; skipped "
+                 "while their pipeline was made {} (made at once instead, not the screen: {}); textures filled by copy {:.1f} (refused {:.1f}; packed {:.1f}, of them "
+                 "into the texture's storage view {:.1f}, deferred {:.1f}); resolves deferred {:.1f} in {:.1f} batches, renames {:.1f}, textures made sampleable before a pass {:.1f}, depth renames {:.1f}, real depth clears {:.1f}, passes not loading colour {:.1f} / depth {:.1f}, passes not touching colour {:.1f} / depth {:.1f} (scratch colour {:.1f}; colour kept without load / store {:.1f}); draw twins: made {:.2f}, read {:.1f}; lazy passes "
+                 "{:.1f} with no barrier, {:.1f} with one; restores left out {:.2f}, drawn {:.2f}; repeated copies "
+                 "left out {:.2f}",
+                 frame_ + 1 - report_.frames, frame_, c.frames, c.fallbacks, reasons.empty() ? "none" : reasons,
+                 pf(c.passes), pf(c.draws), pf(c.loads), pf(c.writeouts), pf(c.staged), pf(c.staged_edram), pf(c.direct),
+-                pf(c.direct_depth), pf(c.store_dispatches), pf(c.alias_reads), truth_images_.size(), gpu, c.compiling, c.waited, pf(c.filled),
++                pf(c.direct_depth), pf(c.store_dispatches), pf(c.alias_reads), pf(c.alias_direct), truth_images_.size(), gpu, c.compiling, c.waited, pf(c.filled),
+                 pf(c.fill_refused), pf(c.fill_packed), pf(c.fill_direct), pf(c.fills_deferred), pf(c.deferred), pf(c.deferred_batches), pf(c.renames), pf(c.early_sampled), pf(c.depth_renames), pf(c.clear_attachments), pf(c.dont_care_color), pf(c.dont_care_depth), pf(c.untouched_color), pf(c.untouched_depth), pf(c.untouched_scratch_color), pf(c.color_none),
+                 pf(c.twin_blits[0]), pf(c.twin_blits[1]),
+                 double(command_processor_.deferred_command_buffer().lazy_begins_free() - truth_lazy_free_) / frames,

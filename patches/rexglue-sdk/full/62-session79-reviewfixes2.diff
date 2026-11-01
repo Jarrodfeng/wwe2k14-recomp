@@ -1,0 +1,70 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-reviewfixes2): 55e7849356b7..3123f634c23b on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  3123f63 Merge s79-reviewfixes2: Session 79 review fixes of steps 57-61 (full 1x deferral checks renamed sources; lazy alias flush also for renamed own images; gpu_native_truth_fill_rename_check, off - on under the game's arc switch); shots 4/4 (5174), 500/500 hashes (5175), validation 0 errors (5176), stage A + entrances MATCH (5177/5178)
+
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 595297e23c64569cb18960f895a360f521f017f0..ce38a3ecd7d09740c12dbbdd539892b576231200 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -323,6 +323,12 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_memory_resolves, false, "GPU/Native",
+                     "(texture, vertex, index, memexport) or a later resolve over them flushes the batch first. Not in "
+                     "readback windows")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_fill_rename_check, false, "GPU/Native",
++                    "Session 79 (review fix, a gap since Session 59): a texture fill that reads a renamed image outside "
++                    "its rename rectangle is not deferred with the batch (the flush's copy brings those pixels first). "
++                    "Off by default (on under the game's arc switch) until Jarrod's call: it only adds a flush in that "
++                    "rare ordering")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_alias_direct_lazy_flush, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): with gpu_native_truth_alias_direct, the deferred batch is flushed before "
+                     "the owners are read straight only when one of them is a renamed image (its pixels outside the "
+@@ -3655,13 +3661,18 @@ bool NativeRenderer::TruthResolveFull1x(const draw_util::ResolveInfo& info, uint
+   // Session 79 (gpu_native_truth_defer_full_resolves): deferred with the batch, as a 1x memory-writing colour copy
+   // (TruthResolveDirect's memory_defer) - with its texture write, if it has one. Else the batch first, as before.
+   VulkanSharedMemory* const shared_memory = command_processor_.NativeSharedMemory();
++  // (Review fix, Session 79: a renamed image holds only its rename rectangle until the flush's copy - a copy reaching
++  // outside it is not deferred, as TruthResolveDirect's `outside`; the flush below runs that copy first.)
++  const bool outside = t.rename_source != VK_NULL_HANDLE &&
++                       (int32_t(src_x) < t.rename_rect[0] || int32_t(src_y) < t.rename_rect[1] ||
++                        int32_t(src_x + w) > t.rename_rect[2] || int32_t(src_y + h) > t.rename_rect[3]);
+   const bool defer =
+       REXCVAR_GET(gpu_native_truth_defer_full_resolves) && REXCVAR_GET(gpu_native_truth_batch_resolves) &&
+       shared_memory && !command_processor_.NativeResolveReadback() && command_processor_.held_dest_use_ &&
+-      !command_processor_.held_dest_scaled_ && info.copy_dest_extent_length &&
++      !command_processor_.held_dest_scaled_ && info.copy_dest_extent_length && !outside &&
+       !TruthDeferredWritesMemory(info.copy_dest_extent_start,
+                                  uint64_t(info.copy_dest_extent_start) + info.copy_dest_extent_length, &info);
+-  if (!defer) TruthFlushDeferred(kDeferFlushOtherResolve);
++  if (!defer) TruthFlushDeferred(outside ? kDeferFlushOutside : kDeferFlushOtherResolve);
+   if (!EnsureTruthStaging() || !EnsureResolveScaledFullPipeline()) {
+     if (defer) TruthFlushDeferred(kDeferFlushOtherResolve);  // (Session 79: as without deferring)
+     return false;  // (its layout)
+@@ -4716,7 +4727,13 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+       uint32_t(dest.copy_dest_endian), format, texture, texture_w, texture_h, level, has_mips, handle, why,
+       storage_bytes, &storage_set);
+   // (Session 59: not deferred after all - the held barrier pushed now, recorded as before.)
+-  bool deferring = hold && got && storage_set != VK_NULL_HANDLE && storage_bytes && (!depth || defer_depth);
++  // (Review fix, Session 79, gpu_native_truth_fill_rename_check: a renamed image holds only its rename rectangle until
++  // the flush's copy - a fill reading outside it is not deferred; the flush just below runs that copy first.)
++  const bool fill_outside = REXCVAR_GET(gpu_native_truth_fill_rename_check) && t.rename_source != VK_NULL_HANDLE &&
++                            (src_x < t.rename_rect[0] || src_y < t.rename_rect[1] ||
++                             src_x + copy_w > t.rename_rect[2] || src_y + copy_h > t.rename_rect[3]);
++  bool deferring =
++      hold && got && storage_set != VK_NULL_HANDLE && storage_bytes && (!depth || defer_depth) && !fill_outside;
+   if (hold && !deferring && (got || !hold_refused)) {
+     TruthFlushDeferred(kDeferFlushOtherResolve);  // (review: as above, before the barrier is pushed)
+   }
+@@ -5969,6 +5986,12 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+       for (const int16_t o : direct_owners) {
+         renamed_owner = renamed_owner || truth_images_[o].rename_source != VK_NULL_HANDLE;
+       }
++      // (Review fix: or this pass's own images, renamed earlier - the whole-tile loads below may land outside their
++      // rename rectangle, where the flush's copy would later overwrite them.)
++      for (const int16_t own : {color, depth}) {
++        renamed_owner = renamed_owner || (own >= 0 && size_t(own) < truth_images_.size() &&
++                                          truth_images_[own].rename_source != VK_NULL_HANDLE);
++      }
+       if (renamed_owner) TruthFlushDeferred(kDeferFlushStores);
+       EndTruthPass();
+       for (const int16_t o : direct_owners) TruthSyncRead(o);  // (draw twins)

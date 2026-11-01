@@ -1,0 +1,37 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-aliaslazy): b7f0b78aefb9..55e7849356b7 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  55e7849 Merge s79-aliaslazy: Session 79 gpu_native_truth_alias_direct_lazy_flush (off; on under the game's arc switch) - the batch flushed before direct alias reads only for a renamed owner: batches 38 -> 33 (Bryan) / 26.7 -> 24 (match); shots 4/4 (5163), 500/500 resolve hashes (5165), validation 0 errors (5166), stage A + entrances MATCH (5167/5168)
+
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 0e261daac6fce5fb0a7b09e79192bedfbd5930a8..595297e23c64569cb18960f895a360f521f017f0 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -323,6 +323,11 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_memory_resolves, false, "GPU/Native",
+                     "(texture, vertex, index, memexport) or a later resolve over them flushes the batch first. Not in "
+                     "readback windows")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_alias_direct_lazy_flush, false, "GPU/Native",
++                    "Session 79 (HD 520 arc): with gpu_native_truth_alias_direct, the deferred batch is flushed before "
++                    "the owners are read straight only when one of them is a renamed image (its pixels outside the "
++                    "rename rectangle come at the flush), not every time")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_alias_direct_rgba16, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): with gpu_native_truth_alias_direct, RGBA16 owners (k_16_16 / "
+                     "k_16_16_16_16 surfaces, 64bpp addressing for the latter) are read straight too, packed as the store "
+@@ -5956,7 +5961,15 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+       // (As TruthStoreMany: the deferred batch first - a deferred resolve may read an owner, and a renamed owner gets
+       // its pixels outside its rename rectangle only at the flush (TruthDeferredSource sees the slot's new image, not
+       // the one the batch reads); the images in their read layouts until the pass ends - TruthRestoreAliasOwners.)
+-      TruthFlushDeferred(kDeferFlushStores);
++      // Session 79 (gpu_native_truth_alias_direct_lazy_flush): only for a renamed owner. The batch's entries read
++      // truth images and write textures / memory, never a truth image, and this pass draws only into its own images
++      // (never an owner read here), so an entry reading an owner reads the same pixels before or after these draws;
++      // every flush starts with EndTruthPass, which puts the owners back in their attachment layouts first.
++      bool renamed_owner = !REXCVAR_GET(gpu_native_truth_alias_direct_lazy_flush);
++      for (const int16_t o : direct_owners) {
++        renamed_owner = renamed_owner || truth_images_[o].rename_source != VK_NULL_HANDLE;
++      }
++      if (renamed_owner) TruthFlushDeferred(kDeferFlushStores);
+       EndTruthPass();
+       for (const int16_t o : direct_owners) TruthSyncRead(o);  // (draw twins)
+       std::vector<VkImageMemoryBarrier>& barriers = truth_store_barriers_;

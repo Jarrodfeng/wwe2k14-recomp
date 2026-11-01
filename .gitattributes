@@ -3,3 +3,11 @@
 *.diff -text
 # Session 72: shell scripts run in the Linux container (tools/android/drivers): LF on every checkout.
 *.sh text eol=lf
+# Session 77: replay recordings and hash reference streams are read on phones too and may be shipped: LF on every
+# checkout (src/replay.h writes LF; the cross-device comparer reads both).
+*.rec text eol=lf
+tools/xdet/refs/*.csv text eol=lf
+# Session 77: routes pushed to phones: src/input_script.h keeps a trailing '\r' in file names and log text (a CRLF
+# route would wait for 'M3.PAC\r' forever), so LF on every checkout.
+tools/xdet/*.txt text eol=lf
+tools/input_scripts/android/*.txt text eol=lf

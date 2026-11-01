@@ -1,0 +1,147 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-deferfull): 6aa7858ab64d..91d4dc71ba23 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  91d4dc7 Merge s79-deferfull: Session 79 gpu_native_truth_defer_full_resolves (off; on under the game's arc switch) - the 1x full k_8 / k_4_4_4_4 copies join the deferred batch (batches + lone copies 42 -> 38 a frame in Bryan's entrance); shots 4/4 (5141), validation 0 errors (5142), stage A MATCH (5143), entrances MATCH + 14/14 shots (5144)
+
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 13847b23ea4796a3e5cc6a640128109ac2d2fbf1..a5a59efa2397305dde9b4a8e0aef6627a9516457 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -323,6 +323,12 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_memory_resolves, false, "GPU/Native",
+                     "(texture, vertex, index, memexport) or a later resolve over them flushes the batch first. Not in "
+                     "readback windows")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_full_resolves, false, "GPU/Native",
++                    "Session 79 (HD 520 arc): with gpu_native_truth_batch_resolves, a 1x full k_8 / k_4_4_4_4 copy "
++                    "(gpu_native_truth_direct_resolve_full_1x, with its texture write if it has one) joins the deferred "
++                    "batch too, instead of flushing it and running alone (as gpu_native_truth_defer_memory_resolves; not "
++                    "in readback windows)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_depth_resolves, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): with gpu_native_truth_batch_resolves, a 1x direct depth copy (into memory) "
+                     "and its depth texture fill join the deferred batch too, instead of flushing it and running alone "
+@@ -3619,9 +3625,22 @@ bool NativeRenderer::TruthResolveFull1x(const draw_util::ResolveInfo& info, uint
+   const uint32_t w = uint32_t(info.coordinate_info.width_div_8) * 8;
+   const uint32_t h = uint32_t(info.height_div_8) * 8;
+   if (!w || !h || src_x + w > t.width || src_y + h > t.height) return false;
+-  TruthFlushDeferred(kDeferFlushOtherResolve);
+-  if (!EnsureTruthStaging() || !EnsureResolveScaledFullPipeline()) return false;  // (its layout)
++  // Session 79 (gpu_native_truth_defer_full_resolves): deferred with the batch, as a 1x memory-writing colour copy
++  // (TruthResolveDirect's memory_defer) - with its texture write, if it has one. Else the batch first, as before.
++  VulkanSharedMemory* const shared_memory = command_processor_.NativeSharedMemory();
++  const bool defer =
++      REXCVAR_GET(gpu_native_truth_defer_full_resolves) && REXCVAR_GET(gpu_native_truth_batch_resolves) &&
++      shared_memory && !command_processor_.NativeResolveReadback() && command_processor_.held_dest_use_ &&
++      !command_processor_.held_dest_scaled_ && info.copy_dest_extent_length &&
++      !TruthDeferredWritesMemory(info.copy_dest_extent_start,
++                                 uint64_t(info.copy_dest_extent_start) + info.copy_dest_extent_length, &info);
++  if (!defer) TruthFlushDeferred(kDeferFlushOtherResolve);
++  if (!EnsureTruthStaging() || !EnsureResolveScaledFullPipeline()) {
++    if (defer) TruthFlushDeferred(kDeferFlushOtherResolve);  // (Session 79: as without deferring)
++    return false;  // (its layout)
++  }
+   if (resolve_full_1x_pipeline_ == VK_NULL_HANDLE) {
++    if (defer) TruthFlushDeferred(kDeferFlushOtherResolve);  // (Session 79: the batch before any refusal below)
+     if (resolve_full_1x_failed_) return false;
+     resolve_full_1x_failed_ = true;
+     const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
+@@ -3651,7 +3670,10 @@ bool NativeRenderer::TruthResolveFull1x(const draw_util::ResolveInfo& info, uint
+     resolve_full_1x_failed_ = false;
+   }
+   const VkDescriptorSet source_set = TruthStoreSet(t, true, truth_staging_);
+-  if (source_set == VK_NULL_HANDLE) return false;
++  if (source_set == VK_NULL_HANDLE) {
++    if (defer) TruthFlushDeferred(kDeferFlushOtherResolve);  // (Session 79: as without deferring)
++    return false;
++  }
+   // Session 59 (gpu_native_truth_direct_resolve_full_1x_texture): the texture the copy feeds, written by the same
+   // dispatch through its 8 / 16-bit storage view (found by its own base; written at the copy's place in it).
+   const uint32_t tex_x0 = info.copy_dest_base_x + uint32_t(info.copy_dest_coordinate_info.offset_x_div_8) * 8;
+@@ -3698,6 +3720,8 @@ bool NativeRenderer::TruthResolveFull1x(const draw_util::ResolveInfo& info, uint
+     }
+     if (resolve_full_1x_tex_pipelines_[variant] != VK_NULL_HANDLE) {
+       uint32_t texture_w = 0, texture_h = 0;
++      // (Session 79: deferring - the texture's barrier held, for the entry or pushed below.)
++      if (defer) command_processor_.NativeHoldTextureBarrier(true);
+       texture_set = command_processor_.NativeTextureForResolve(
+           info.copy_dest_texture_base >> 12, uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32),
+           uint32_t(dest.copy_dest_endian), texture_w, texture_h, texture_handle, false,
+@@ -3705,11 +3729,79 @@ bool NativeRenderer::TruthResolveFull1x(const draw_util::ResolveInfo& info, uint
+       if (texture_set != VK_NULL_HANDLE && (tex_x0 + w > texture_w || tex_y0 + h > texture_h)) {
+         texture_set = VK_NULL_HANDLE;  // (the texture is outdated and reloaded as before; its pushed barrier is harmless)
+         texture_handle = nullptr;
++        if (defer) command_processor_.NativeHoldTextureBarrier(false);  // (Session 79: pushed now, as before)
+       }
+     }
+   }
+   const bool texwrite = texture_set != VK_NULL_HANDLE;
+   const VkPipelineLayout full_layout = texwrite ? resolve_scaled_full_tex_layout_ : resolve_scaled_full_layout_;
++  if (defer) {
++    // Session 79 (gpu_native_truth_defer_full_resolves): the entry. A deferred write into the same texture goes first
++    // (two dispatches of one batch have no barrier between them), then this one's held barrier orders the writes.
++    bool same_texture = false;
++    for (const DeferredResolve& e : truth_deferred_) same_texture = same_texture || (texwrite && e.texture == texture_handle);
++    if (same_texture) TruthFlushDeferred(kDeferFlushSameTexture);
++    TruthSyncRead(index);  // Session 54 (draw twins)
++    DeferredResolve& d = truth_deferred_.emplace_back();
++    d.texture_image = VK_NULL_HANDLE;
++    if (texwrite) {
++      command_processor_.NativeTakeHeldTextureBarrier(d.texture_image, d.texture_src_stage, d.texture_src_access,
++                                                      d.texture_old_layout);
++      for (size_t k = 0; k + 1 < truth_deferred_.size() && d.texture_image != VK_NULL_HANDLE; ++k) {
++        if (truth_deferred_[k].texture_image == d.texture_image) d.texture_image = VK_NULL_HANDLE;
++      }
++    }
++    command_processor_.NativeHoldTextureBarrier(false);
++    d.pipeline = texwrite ? resolve_full_1x_tex_pipelines_[(mode & 15u) == 4u ? 0 : 1] : resolve_full_1x_pipeline_;
++    d.layout = full_layout;
++    d.sets[0] = source_set;
++    d.sets[1] = dest_set;
++    d.sets[2] = texture_set;
++    d.set_count = texwrite ? 3 : 2;
++    const uint32_t dpc[12] = {src_x,
++                              src_y,
++                              w,
++                              h,
++                              mode,
++                              dest_base,
++                              ((dest_coordinate_info >> 20) & 0xFu) * 8u,
++                              ((dest_coordinate_info >> 24) & 0xFu) * 8u,
++                              (dest_coordinate_info & 1023u) << 5,
++                              dest_info & 7u,
++                              tex_x0,
++                              tex_y0};
++    std::memcpy(d.pc, dpc, sizeof(dpc));
++    d.pc_size = texwrite ? uint32_t(sizeof(dpc)) : uint32_t(sizeof(uint32_t) * 10);
++    const uint32_t per = (mode & 15u) == 4u ? 4u : 2u;
++    d.group_count_x = (w / per + 7) / 8;
++    d.group_count_y = (h + 7) / 8;
++    d.image = t.image;
++    d.index = index;
++    d.texture = texwrite ? texture_handle : nullptr;
++    d.mem_start = command_processor_.held_dest_start_;
++    d.mem_length = command_processor_.held_dest_length_;
++    command_processor_.held_dest_use_ = false;  // (taken: recorded at the flush)
++    d.extent_start = info.copy_dest_extent_start;
++    d.extent_length = info.copy_dest_extent_length;
++    if (!info.copy_dest_info.copy_dest_array && info.copy_dest_texture_base) {
++      d.mem_base = info.copy_dest_texture_base;
++      d.mem_pitch = uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32);
++      d.mem_format = uint32_t(info.copy_dest_info.copy_dest_format);
++      d.mem_rect[0] = int32_t(tex_x0);
++      d.mem_rect[1] = int32_t(tex_y0);
++      d.mem_rect[2] = d.mem_rect[0] + int32_t(w);
++      d.mem_rect[3] = d.mem_rect[1] + int32_t(h);
++    }
++    shared_memory->SetRangeSkipped(d.extent_start, d.extent_length, true);
++    if (texwrite) {
++      texture_written_ = texture_handle;  // (up to date after MarkRangeAsResolved: AfterResolveMarked)
++      ++report_.textures_filled;
++    }
++    ++truth_counts_.deferred_memory;
++    ++truth_counts_.deferred;
++    ++truth_counts_.direct;
++    return true;
++  }
+   EndTruthPass();
+   TruthSyncRead(index);  // Session 54 (draw twins)
+   DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();

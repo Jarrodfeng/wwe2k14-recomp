@@ -1,0 +1,302 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-cubefaces): f05f55b137a1..5ef4e50020b6 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  5ef4e50 Merge s79-cubefaces: Session 79 gpu_native_truth_fill_cube_faces (off): truth direct resolves fill reflection cube faces (shots byte-identical, run 5042)
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 861c12f1a31e5bae3efc2327433394a5e7055cae..82d1dde6e76b27f160094f4044b7418a83fb0d9b 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -425,9 +425,11 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // wwe2k14 patch (Session 45, NATIVE TEXWRITE): the texture cache's part (VulkanTextureCache::NativeTextureForResolve
+   // / NativeTextureResolved), and the render target cache's call after the resolve's MarkRangeAsResolved.
+   // (Session 59: `format` k_16_16 / k_16_16_16_16 too - their R32_UINT / R16G16B16A16_UINT storage views.)
++  // (Session 79: allow_layer - a cube face, gpu_native_truth_fill_cube_faces.)
+   VkDescriptorSet NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32, uint32_t endianness,
+                                           uint32_t& width_out, uint32_t& height_out, void*& handle_out, bool allow_scaled = false,
+-                                          xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8);
++                                          xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8,
++                                          bool allow_layer = false);
+   void NativeTextureResolved(void* handle);
+   // wwe2k14 patch (Session 47, NATIVE TRUTH M6): VulkanTextureCache::NativeTextureForCopy; and, after a resolve's copy
+   // in a truth frame (before MarkRangeAsResolved), the native renderer fills the texture it feeds from its image.
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index d28cc345bb4b982182263ebb8ffc6d014a507982..16ab93b615951a51c3ddaf60eb50c328407a213f 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -212,9 +212,12 @@ class VulkanTextureCache final : public TextureCache {
+   // texels (usage kComputeStorageWrite, layout GENERAL); returns its storage descriptor set (binding 0), its size and a
+   // handle for NativeTextureResolved. VK_NULL_HANDLE when there is none.
+   // (Session 59: `format` k_16_16 / k_16_16_16_16 too - their R32_UINT / R16G16B16A16_UINT storage views.)
++  // (Session 79, allow_layer with gpu_native_truth_fill_cube_faces: or one face of such a cube, base_page the face's
++  // start page - the set is the face's; the cube must be up to date before, the write covers one face only.)
+   VkDescriptorSet NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32, uint32_t endianness,
+                                           uint32_t& width_out, uint32_t& height_out, void*& handle_out, bool allow_scaled = false,
+-                                          xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8);
++                                          xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8,
++                                          bool allow_layer = false);
+   // After the resolve's MarkRangeAsResolved (which made the texture outdated): it holds what the memory holds.
+   void NativeTextureResolved(void* handle);
+   // wwe2k14 patch (Session 47, NATIVE TRUTH M6): the 1x 2D tiled single-level texture of `format` last loaded (directly
+@@ -415,6 +418,10 @@ class VulkanTextureCache final : public TextureCache {
+     // be bound in any number of submissions. VK_NULL_HANDLE on failure - which is remembered (review fix): after a
+     // failure, it returns VK_NULL_HANDLE without trying (and logging) again for this texture.
+     VkDescriptorSet GetDirectLoadDescriptorSet();
++    // wwe2k14 patch (Session 79, gpu_native_truth_fill_cube_faces): the same for array layer `layer` of level 0 (layer
++    // 0: GetDirectLoadDescriptorSet) - a 2D view of the layer, created on first use, kept while the texture exists.
++    static constexpr uint32_t kNativeLayerViews = 6;
++    VkDescriptorSet GetLayerStorageDescriptorSet(uint32_t layer);
+     // wwe2k14 patch (Session 7c, TEXLOAD): whether the last load into the image took its scratch buffer from the
+     // vulkan_texture_load_scratch_ring (LoadTextureDataFromResidentMemoryImpl: a later load into the image while it
+     // is still a transfer destination needs the image write-after-write barrier if either load used the ring).
+@@ -497,6 +504,9 @@ class VulkanTextureCache final : public TextureCache {
+     size_t direct_load_descriptor_index_ = SIZE_MAX;
+     // Creating the storage view or allocating the descriptor set failed once - not tried again.
+     bool direct_load_descriptor_failed_ = false;
++    // wwe2k14 patch (Session 79): layers 1-5 (index layer - 1), as direct_load_view_ / _descriptor_index_.
++    VkImageView layer_storage_views_[kNativeLayerViews - 1] = {};
++    size_t layer_storage_indices_[kNativeLayerViews - 1] = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
+   };
+ 
+   struct VulkanTextureBinding {
+@@ -917,6 +927,13 @@ class VulkanTextureCache final : public TextureCache {
+     uint32_t pitch_div_32;
+   };
+   std::unordered_map<uint32_t, NativeMipKey> native_resolve_mip_keys_;
++  // wwe2k14 patch (Session 79, gpu_native_truth_fill_cube_faces): a cube face's start page -> the cube's key and the
++  // face (array layer), for the 1x tiled single-level k_8_8_8_8 cubes with the R32_UINT storage view.
++  struct NativeLayerKey {
++    TextureKey key;
++    uint32_t layer;
++  };
++  std::unordered_map<uint32_t, NativeLayerKey> native_resolve_layer_keys_;
+   void NativeLearnTextureKey(const VulkanTexture& texture);
+ 
+   // wwe2k14 patch (Session 7c, TEXLOAD): texture load counts (command processor thread only). The frame part goes to
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 47afba86008cfdb2f8db9d305bd7337f124ca14b..d448aefb0f4913e4d80e66e57c7e98f084f1d2b9 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7241,10 +7241,12 @@ void VulkanCommandProcessor::NativeBeforeStockResolve() {
+ VkDescriptorSet VulkanCommandProcessor::NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32,
+                                                                 uint32_t endianness, uint32_t& width_out,
+                                                                 uint32_t& height_out, void*& handle_out,
+-                                                                bool allow_scaled, xenos::TextureFormat format) {
++                                                                bool allow_scaled, xenos::TextureFormat format,
++                                                                bool allow_layer) {
+   handle_out = nullptr;
+   return texture_cache_ ? texture_cache_->NativeTextureForResolve(base_page, pitch_div_32, endianness, width_out,
+-                                                                  height_out, handle_out, allow_scaled, format)
++                                                                  height_out, handle_out, allow_scaled, format,
++                                                                  allow_layer)
+                         : VK_NULL_HANDLE;
+ }
+ 
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 7ba648281de379e27fc08bce27102ea17a013f6f..72deea045078132605372333abe46ffe0135a945 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -2581,9 +2581,11 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+     // (Session 52: with batching the texture's barrier is held - recorded with the batch if this one is deferred.)
+     const bool hold = batch;
+     if (hold) command_processor_.NativeHoldTextureBarrier(true);
++    // (Session 79, gpu_native_truth_fill_cube_faces: at 1x a cube face too - copy_dest_base is the face's start.)
+     texture_set = command_processor_.NativeTextureForResolve(
+         info.copy_dest_base >> 12, uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32),
+-        uint32_t(info.copy_dest_info.copy_dest_endian), texture_w, texture_h, texture_handle, scaled_texture);
++        uint32_t(info.copy_dest_info.copy_dest_endian), texture_w, texture_h, texture_handle, scaled_texture,
++        xenos::TextureFormat::k_8_8_8_8, !scaled);
+   }
+   const auto release_held_barrier = [&]() { command_processor_.NativeHoldTextureBarrier(false); };
+   uint32_t pc[12] = {constants.dest_relative.edram_info.packed,
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 98d9e5ffcc97709d09c9b3060c826ab842d63120..adba31a49fc991647529f20d3dd01ae2cceeed13 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -93,6 +93,11 @@ REXCVAR_DEFINE_BOOL(vulkan_texture_native_storage_small, false, "GPU/Vulkan",
+                     "shaderStorageImageExtendedFormats), so native fills and resolves can write them directly "
+                     "(k_4_4_4_4: no - B4G4R4A4 has no storage image support; review)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_fill_cube_faces, false, "GPU/Vulkan",
++                    "Session 79 (HD 520 arc): new 1x tiled single-level k_8_8_8_8 cube textures get an R32_UINT storage "
++                    "view (one 2D view a face), and a truth frame's direct resolve into a face also fills that face of "
++                    "the cube when the cube is up to date (the memory is still written; the cube is not reloaded)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(vulkan_texture_load_direct_unscaled_any_page, false, "GPU/Vulkan",
+                     "Session 52: with vulkan_texture_load_direct_unscaled, a 1x tiled texture of those kinds gets a "
+                     "direct-load image even if no resolve has written its page yet when it is made (textures loaded "
+@@ -1774,9 +1779,23 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+       (formats[1] == VK_FORMAT_UNDEFINED || formats[1] == VK_FORMAT_R8_UNORM || formats[1] == VK_FORMAT_R8_SNORM) &&
+       key.GetGuestLayout().packed_level != 0 &&
+       command_processor_.GetVulkanDevice()->properties().shaderStorageImageExtendedFormats;
++  // wwe2k14 patch (Session 79, gpu_native_truth_fill_cube_faces): 1x tiled single-level k_8_8_8_8 cubes (RGBA8 host
++  // formats) get the R32_UINT storage view too, for the faces' fills (they still load through the buffer path: the
++  // direct load takes single-layer textures only).
++  const bool native_storage_cube =
++      REXCVAR_GET(gpu_native_truth_fill_cube_faces) && !key.scaled_resolve && key.tiled && !key.mip_max_level &&
++      key.dimension == xenos::DataDimension::kCube && key.GetDepthOrArraySize() == VulkanTexture::kNativeLayerViews &&
++      key.format == xenos::TextureFormat::k_8_8_8_8 &&
++      (formats[0] == VK_FORMAT_R8G8B8A8_UNORM || formats[0] == VK_FORMAT_R8G8B8A8_SNORM) &&
++      (formats[1] == VK_FORMAT_UNDEFINED || formats[1] == VK_FORMAT_R8G8B8A8_UNORM ||
++       formats[1] == VK_FORMAT_R8G8B8A8_SNORM) &&
++      key.GetGuestLayout().packed_level != 0;
+   if (native_storage_small && EnsureDirectLoadInitialized()) {
+     direct_load_format = VK_FORMAT_R8_UINT;
+     direct_load_creation = VulkanTexture::DirectLoadCreation::kDeviceRejected;
++  } else if (native_storage_cube && EnsureDirectLoadInitialized()) {
++    direct_load_format = VK_FORMAT_R32_UINT;
++    direct_load_creation = VulkanTexture::DirectLoadCreation::kDeviceRejected;
+   } else if ((key.scaled_resolve && REXCVAR_GET(vulkan_texture_load_direct)) || direct_unscaled) {
+     if (!EnsureDirectLoadInitialized()) {
+       direct_load_creation = VulkanTexture::DirectLoadCreation::kUnavailable;
+@@ -2753,7 +2772,8 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+ VkDescriptorSet VulkanTextureCache::NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32,
+                                                             uint32_t endianness, uint32_t& width_out,
+                                                             uint32_t& height_out, void*& handle_out,
+-                                                            bool allow_scaled, xenos::TextureFormat format) {
++                                                            bool allow_scaled, xenos::TextureFormat format,
++                                                            bool allow_layer) {
+   const std::array<uint32_t, 4> cover = NativeTakeCover();  // wwe2k14 patch (Session 52)
+   handle_out = nullptr;
+   // Session 45: gpu_native_segment_log lists why a served resolve does not fill its texture.
+@@ -2769,6 +2789,51 @@ VkDescriptorSet VulkanTextureCache::NativeTextureForResolve(uint32_t base_page,
+     }
+     return VK_NULL_HANDLE;
+   };
++  // Session 79 (gpu_native_truth_fill_cube_faces): one face of a cube. Its other faces keep their texels, so the cube
++  // must be up to date before (the write covers one face: no cover shortcut); afterwards it holds what memory holds.
++  if (allow_layer && REXCVAR_GET(gpu_native_truth_fill_cube_faces)) {
++    auto face = native_resolve_layer_keys_.find(base_page);
++    if (face != native_resolve_layer_keys_.end()) {
++      const TextureKey& key = face->second.key;
++      const uint32_t layer = face->second.layer;
++      if (key.format != format || format != xenos::TextureFormat::k_8_8_8_8 || key.scaled_resolve ||
++          uint32_t(key.endianness) != endianness || key.pitch != pitch_div_32) {
++        return refuse("cube face key", &key);
++      }
++      Texture* found = NativeFindTexture(key);
++      if (!found) return refuse("cube gone", &key);
++      VulkanTexture& texture = static_cast<VulkanTexture&>(*found);
++      if (texture.direct_load_creation() != VulkanTexture::DirectLoadCreation::kCapable ||
++          texture.direct_load_format() != VK_FORMAT_R32_UINT) {
++        return refuse("cube without the R32_UINT storage view", &key);
++      }
++      if (!NativeTextureBaseUpToDate(texture)) return refuse("cube not up to date", &key);
++      const VkDescriptorSet set = texture.GetLayerStorageDescriptorSet(layer);
++      if (set == VK_NULL_HANDLE) return VK_NULL_HANDLE;
++      texture.MarkAsUsed();
++      VulkanTexture::Usage old_usage = texture.SetUsage(VulkanTexture::Usage::kComputeStorageWrite);
++      VkPipelineStageFlags src_stage_mask;
++      VkAccessFlags src_access_mask;
++      VkImageLayout old_layout;
++      GetTextureUsageMasks(old_usage, src_stage_mask, src_access_mask, old_layout);
++      if (native_hold_barrier_) {
++        native_held_barrier_ = {true, texture.image(), src_stage_mask, src_access_mask, old_layout};
++      } else {
++        command_processor_.PushImageMemoryBarrier(
++            texture.image(), ui::vulkan::util::InitializeSubresourceRange(), src_stage_mask,
++            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, src_access_mask, VK_ACCESS_SHADER_WRITE_BIT, old_layout,
++            VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, false);
++      }
++      if (command_processor_.NativeSegmentLogActive()) {
++        REXGPU_INFO("[native][seg] texture fill: cube face {} of page 0x{:05X} (face page 0x{:05X})", layer,
++                    uint32_t(key.base_page), base_page);
++      }
++      width_out = key.GetWidth();
++      height_out = key.GetHeight();
++      handle_out = &texture;
++      return set;
++    }
++  }
+   auto known = native_resolve_keys_.find(base_page);
+   if (known == native_resolve_keys_.end()) return refuse("no direct load seen on this page", nullptr);
+   const TextureKey key = known->second;
+@@ -2923,6 +2988,19 @@ void VulkanTextureCache::NativeTexturePin(void* handle, bool pin) {
+ void VulkanTextureCache::NativeLearnTextureKey(const VulkanTexture& texture) {
+   const TextureKey& key = texture.key();
+   native_resolve_keys_[key.base_page] = key;
++  // Session 79 (gpu_native_truth_fill_cube_faces): each face of a cube with the R32_UINT storage view, by its start page
++  // (faces lie array_slice_stride_bytes apart; only page-aligned strides).
++  if (key.dimension == xenos::DataDimension::kCube && !key.mip_max_level &&
++      texture.direct_load_creation() == VulkanTexture::DirectLoadCreation::kCapable &&
++      texture.direct_load_format() == VK_FORMAT_R32_UINT && REXCVAR_GET(gpu_native_truth_fill_cube_faces)) {
++    const uint32_t stride = texture.guest_layout().base.array_slice_stride_bytes;
++    const uint32_t faces = std::min(key.GetDepthOrArraySize(), VulkanTexture::kNativeLayerViews);
++    if (stride && !(stride & 0xFFF)) {
++      for (uint32_t layer = 0; layer < faces; ++layer) {
++        native_resolve_layer_keys_[key.base_page + layer * (stride >> 12)] = {key, layer};
++      }
++    }
++  }
+   if (!key.mip_max_level || !key.mip_page) return;
+   const texture_util::TextureGuestLayout& layout = texture.guest_layout();
+   const FormatInfo* info = FormatInfo::Get(key.format);
+@@ -3344,6 +3422,13 @@ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
+   if (direct_load_view_ != VK_NULL_HANDLE) {
+     dfn.vkDestroyImageView(device, direct_load_view_, nullptr);
+   }
++  // wwe2k14 patch (Session 79): the cube faces' storage views.
++  for (uint32_t i = 0; i + 1 < kNativeLayerViews; ++i) {
++    if (layer_storage_indices_[i] != SIZE_MAX && vulkan_texture_cache.direct_load_descriptor_pool_) {
++      vulkan_texture_cache.direct_load_descriptor_pool_->Free(layer_storage_indices_[i]);
++    }
++    if (layer_storage_views_[i] != VK_NULL_HANDLE) dfn.vkDestroyImageView(device, layer_storage_views_[i], nullptr);
++  }
+   vmaDestroyImage(vulkan_texture_cache.vma_allocator_, image_, allocation_);
+ }
+ 
+@@ -3515,6 +3600,55 @@ VkDescriptorSet VulkanTextureCache::VulkanTexture::GetDirectLoadDescriptorSet()
+   return descriptor_set;
+ }
+ 
++// wwe2k14 patch (Session 79, gpu_native_truth_fill_cube_faces): see the header.
++VkDescriptorSet VulkanTextureCache::VulkanTexture::GetLayerStorageDescriptorSet(uint32_t layer) {
++  if (!layer) return GetDirectLoadDescriptorSet();
++  VulkanTextureCache& vulkan_texture_cache = static_cast<VulkanTextureCache&>(texture_cache());
++  ui::vulkan::SingleLayoutDescriptorSetPool* descriptor_pool = vulkan_texture_cache.direct_load_descriptor_pool_.get();
++  if (layer >= kNativeLayerViews || layer >= key().GetDepthOrArraySize() || !descriptor_pool ||
++      direct_load_format_ == VK_FORMAT_UNDEFINED || direct_load_descriptor_failed_) {
++    return VK_NULL_HANDLE;
++  }
++  const uint32_t i = layer - 1;
++  if (layer_storage_indices_[i] != SIZE_MAX) return descriptor_pool->Get(layer_storage_indices_[i]);
++  const ui::vulkan::VulkanDevice* const vulkan_device = vulkan_texture_cache.command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (layer_storage_views_[i] == VK_NULL_HANDLE) {
++    VkImageViewCreateInfo view_create_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
++    view_create_info.image = image();
++    view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
++    view_create_info.format = direct_load_format_;
++    // (Storage image descriptors require the identity swizzle: zero-initialized.)
++    view_create_info.subresourceRange =
++        ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layer, 1);
++    if (dfn.vkCreateImageView(device, &view_create_info, nullptr, &layer_storage_views_[i]) != VK_SUCCESS) {
++      layer_storage_views_[i] = VK_NULL_HANDLE;
++      direct_load_descriptor_failed_ = true;
++      REXGPU_ERROR("[s79][CUBE] failed to create a storage view of a cube face - its faces are not filled");
++      return VK_NULL_HANDLE;
++    }
++  }
++  const size_t descriptor_index = descriptor_pool->Allocate();
++  if (descriptor_index == SIZE_MAX) {
++    direct_load_descriptor_failed_ = true;
++    REXGPU_ERROR("[s79][CUBE] failed to allocate a storage image descriptor set for a cube face");
++    return VK_NULL_HANDLE;
++  }
++  const VkDescriptorSet descriptor_set = descriptor_pool->Get(descriptor_index);
++  VkDescriptorImageInfo descriptor_image_info = {VK_NULL_HANDLE, layer_storage_views_[i], VK_IMAGE_LAYOUT_GENERAL};
++  VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
++  write.dstSet = descriptor_set;
++  write.dstBinding = 0;
++  write.descriptorCount = 1;
++  write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++  write.pImageInfo = &descriptor_image_info;
++  dfn.vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
++  layer_storage_indices_[i] = descriptor_index;
++  ++vulkan_texture_cache.command_processor_.cause_counts().desc_writes;
++  return descriptor_set;
++}
++
+ VkImageView VulkanTextureCache::VulkanTexture::GetView(bool is_signed, uint32_t host_swizzle,
+                                                        bool is_array) {
+   xenos::DataDimension dimension = key().dimension;

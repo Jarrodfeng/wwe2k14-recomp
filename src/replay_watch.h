@@ -24,6 +24,17 @@
 // freezing. Second guard: over kRunaway dispatches in one replay, the same with opcode 105 (the replay ends).
 // --wwe2k14_replay_guard (default on Android, off on the PC); --wwe2k14_replay_guard_test_frame=N makes the guard
 // trip on purpose at guest frame N (a test of the ending; the PC never runs away by itself).
+//
+// Session 77 (XDET_PLAN.md gap 23): passing a list's end is NOT a runaway. At the start of a tag or Elimination
+// Chamber match the walk passes list 0's end (position 1613, length 2, end 1615) on the PC exactly as on the phone (PC
+// 4941 with the guard on = phone 148, same frame, record and position; normal phone play 152 too): the buffer the walk
+// indexes ([manager+48] = 0xAF0AA530 during the walk, moving between walks) is not the one the descriptors describe
+// (0xAE850000 / 0xAEC80000 at VdSwap), and the walk ends on a 104 further on by itself. Ending the list there made the
+// game crash right after (a read of guest 0 on the render thread) on both devices; with the guard off the PC (4934,
+// 4940) and the phone (151) play the whole match, equal in every hashed layer. Now the guard ends a list only when
+// the next position leaves the record buffer (capacity [manager+28] slots: 269,760 here; the Session 73 freeze walked
+// 368 million) or wraps, plus the runaway count as before; a list's end crossed inside the buffer is logged (the
+// first kMaxEndReports, report only, no memory change).
 
 #pragma once
 
@@ -54,6 +65,7 @@ namespace wwe2k14::replay_watch {
 inline constexpr uint64_t kRunaway = 3000000;  // a heavy entrance frame dispatches well under 100,000 records
 inline constexpr uint32_t kMaxLists = 16;
 inline constexpr uint32_t kMaxReports = 20;
+inline constexpr uint32_t kMaxEndReports = 3;  // Session 77: report-only end crossings
 
 struct Entry {
   uint32_t record, opcode, length, position;
@@ -63,6 +75,7 @@ inline thread_local Entry t_ring[64];
 inline thread_local uint32_t t_list_count = 0, t_start[kMaxLists], t_end[kMaxLists], t_buffer_index = 0;
 inline thread_local uint64_t t_test_frame_done = 0;
 inline std::atomic<uint32_t> g_reports{0};
+inline std::atomic<uint32_t> g_end_reports{0};
 inline std::atomic<uint32_t> g_fake_records{0};  // guest address of two 16-byte records: opcode 104, then 105
 
 inline uint32_t Be32(const uint8_t* base, uint32_t a) {
@@ -94,6 +107,12 @@ inline void LogRing(const uint8_t* base, uint32_t manager, const char* why) {
               "start {}), {} lists (descriptors at 0x{:08X})",
               why, g_guest_frame.load(std::memory_order_relaxed), manager, Be32(base, manager + 44),
               Be32(base, manager + 36), t_buffer_index, lists, descs);
+  // Session 77 (gap 23): the buffer pointers the walk indexes ([manager + 4 * (index + 12)]) and the recorders'
+  // descriptor array (+104), as they are now (a VdSwap hash showed other values than the walk's record addresses).
+  REXLOG_WARN("[wwe2k14][replay_watch]   buffers +48..+60: 0x{:08X} 0x{:08X} 0x{:08X} 0x{:08X}; recorders' "
+              "descriptors +104 0x{:08X}; capacity +28 {}",
+              Be32(base, manager + 48), Be32(base, manager + 52), Be32(base, manager + 56), Be32(base, manager + 60),
+              Be32(base, manager + 104), Be32(base, manager + 28));
   for (uint32_t i = 0; i < lists && i < kMaxLists; ++i) {
     const uint32_t d = descs + i * 68;
     REXLOG_WARN("[wwe2k14][replay_watch]   list {}: start {} end {} (at the walk's start: {} / {})", i,
@@ -108,35 +127,38 @@ inline void LogRing(const uint8_t* base, uint32_t manager, const char* why) {
   }
 }
 
-// After a dispatch: the loop's next step; ends the list (104) or the replay (105) when it runs away.
+// After a dispatch: the loop's next step; ends the list (104) when it leaves the record buffer, or the replay (105)
+// when it runs away. A list's end passed inside the buffer is only logged (Session 77, gap 23).
 inline void Guard(uint8_t* base, uint32_t manager, uint32_t slot) {
   const uint32_t pos = Be32(base, manager + 44);
   const uint32_t record = Be32(base, slot);
   const uint32_t len = Be32(base, record + 8);
   const uint32_t next = pos + len + 1;
-  bool runaway = t_dispatches >= kRunaway;
-  bool past = false;
-  // The lists as they are now (a list still growing while it is walked is not cut short).
+  const bool runaway = t_dispatches >= kRunaway;
+  // The record buffer holds [manager+28] slots (269,760 in a tag match); 0 = unknown, then only a wrap counts.
+  const uint32_t capacity = Be32(base, manager + 28);
+  const bool outside = next < pos || (capacity != 0 && next >= capacity);  // (next < pos: wrapped past 2^32)
+  // The list being walked, as the lists are now (a list still growing while it is walked is not cut short).
   const uint32_t descs = Be32(base, manager + 108);
   uint32_t count = Be32(base, manager + 132);
   count = count < kMaxLists ? count : kMaxLists;
   uint32_t list = kMaxLists, end = 0;
-  bool all_ordered = true;
   for (uint32_t i = 0; i < count; ++i) {
     const uint32_t s = Be32(base, descs + i * 68 + 16), e = Be32(base, descs + i * 68 + 12);
-    all_ordered &= s <= e;
     if (list == kMaxLists && s < e && pos >= s && pos <= e) list = i, end = e;
   }
   const int32_t test_frame = REXCVAR_GET(wwe2k14_replay_guard_test_frame);
   const uint64_t frame = g_guest_frame.load(std::memory_order_relaxed);
   const bool test = test_frame > 0 && frame >= uint64_t(test_frame) && t_test_frame_done == 0 && list == 0;
-  if (list < kMaxLists) {
-    past = next > end || next < pos;  // (or wrapped past 2^32)
-  } else if (count) {
-    // The position is inside no list (already off its end): only with every list in order (no ring).
-    past = all_ordered;
+  if (!outside && !runaway && !test) {
+    if (list < kMaxLists && next > end && g_end_reports.fetch_add(1, std::memory_order_relaxed) < kMaxEndReports) {
+      LogRing(base, manager, "a render-command list's walk passed its end inside the buffer (report only)");
+      REXLOG_WARN("[wwe2k14][replay_watch] last record 0x{:08X} length {}: next position {} (list {} ends at {}, "
+                  "buffer {} slots); left alone",
+                  record, len, next, list, end, capacity);
+    }
+    return;
   }
-  if (!past && !runaway && !test) return;
   if (test) t_test_frame_done = frame;
   const uint32_t fake = FakeRecords(base);
   const uint32_t index = Be32(base, manager + 36);
@@ -147,9 +169,10 @@ inline void Guard(uint8_t* base, uint32_t manager, uint32_t slot) {
     LogRing(base, manager,
             test ? "TEST: the replay guard ends list 0 on purpose"
             : runaway ? "a render-command replay ran past 3000000 dispatches"
-                      : "a render-command list's walk went past its end");
-    REXLOG_WARN("[wwe2k14][replay_watch] last record 0x{:08X} length {}: next position {} (list {} ends at {}); {}",
-                record, len, next, list < kMaxLists ? int(list) : -1, end,
+                      : "a render-command list's walk left the record buffer");
+    REXLOG_WARN("[wwe2k14][replay_watch] last record 0x{:08X} length {}: next position {} (list {} ends at {}, "
+                "buffer {} slots); {}",
+                record, len, next, list < kMaxLists ? int(list) : -1, end, capacity,
                 can_end ? (runaway ? "the replay is ended (105)" : "the list is ended (104)")
                         : "cannot end it (the record buffer is not 16-byte aligned)");
   }

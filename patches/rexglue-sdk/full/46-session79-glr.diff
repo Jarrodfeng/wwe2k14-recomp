@@ -1,0 +1,105 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-glr): 752e026ac3d6..3426e5f62b7a on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  3426e5f Merge s79-glr: Session 79 - the copies out of dead glare targets skipped too (not those that clear); same-frame shots byte-identical
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 4f436d1a5fbbb1a510071a7725baddbc4718c453..ed2fa520c3f78e28ee28322507b864928567cce0 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -329,6 +329,7 @@ class CommandProcessor {
+     // Session 79 (gpu_native_frame_dead_glare): star-glare draws seen, with the combine found ahead, judged dead.
+     uint64_t glare_seen = 0, glare_ahead = 0, glare_dead = 0;
+     uint64_t glare_check_ok = 0, glare_check_bad = 0;  // the combine's carried c32 vs its register at the draw
++    uint64_t glare_copies_skipped = 0, glare_copies_kept_clear = 0;  // copies of dead glare targets
+   };
+   NfCensus nf_census_;
+   RegisterFile& DrawRegisterFile() { return nf_register_file_ ? *nf_register_file_ : *register_file_; }
+@@ -362,6 +363,14 @@ class CommandProcessor {
+   uint64_t nf_batch_seq_ = 0;
+   std::atomic<uint32_t> half2_watch_ps_ucode_{0};
+   bool nf_lookahead_ = false;
++  // Session 79 (gpu_native_frame_dead_glare): RT0 targets (RB_COLOR_INFO base | RB_SURFACE_INFO pitch << 16) whose
++  // draws this frame were all skipped dead glare draws (a drawn draw into one removes it); their copies without a clear
++  // are skipped too; emptied at the swap (drawing side).
++  std::vector<uint32_t> nf_dead_targets_;
++  uint32_t NfRt0Key() const {
++    return ((*register_file_)[XE_GPU_REG_RB_COLOR_INFO] & 0xFFF) |
++           (((*register_file_)[XE_GPU_REG_RB_SURFACE_INFO] & 0x3FFF) << 16);
++  }
+ 
+   std::atomic<bool> worker_running_;
+   system::object_ref<system::XHostThread> worker_thread_;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index a5083706b5dd43c636361aa33830bee3f094493c..a19eaedd0805ff408e4e1d22ab2baa9ed15f01bb 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -1588,10 +1588,10 @@ void CommandProcessor::NfFrameLog() {
+   REXLOG_INFO("[native][frame] {} frames: segments {}, catch-ups {} ({:.1f} a frame), words {:.0f} a frame, ring "
+               "packets on the drawing side {}, nested buffers {} (waits inside them {}), overruns {}, segments not "
+               "drawn {}; star glare draws {} (combine found ahead {}, dead {}); combine c32 carried = register {}, "
+-              "differs {}",
++              "differs {}; dead glare copies skipped {} (kept: with a clear {})",
+               frames, c.segments, c.catchups, double(c.catchups) / frames, double(c.words) / frames, c.ring_packets,
+               c.nested, c.nested_waits, c.overruns, c.skipped_draw_side, c.glare_seen, c.glare_ahead, c.glare_dead,
+-              c.glare_check_ok, c.glare_check_bad);
++              c.glare_check_ok, c.glare_check_bad, c.glare_copies_skipped, c.glare_copies_kept_clear);
+   nf_census_ = {};
+   frames = 0;
+ }
+@@ -2260,6 +2260,7 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   ExtentsFrameBoundary();
+ 
+   if (!nf_draw) ++counter_;
++  nf_dead_targets_.clear();  // wwe2k14 patch (Session 79): the dead glare targets are per frame
+   SkipFrameDrawsLatch();  // wwe2k14 patch (Session 15): gpu_skip_frame_draws for the next frame
+   // wwe2k14 patch (Session 6, COUNTERS): write a captured frame's rows (after the swap, outside the timed draws)
+   // and start or end a frame-anatomy capture.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index dd1066612a76e22c84c6eb076a1092921203a194..47afba86008cfdb2f8db9d305bd7337f124ca14b 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -9415,6 +9415,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         if ((c32x & 0x7FFFFFFFu) == 0) {
+           ++nf_census_.glare_dead;
+           if (REXCVAR_GET(gpu_native_frame_dead_glare) == 1) {
++            const uint32_t key = NfRt0Key();
++            if (std::find(nf_dead_targets_.begin(), nf_dead_targets_.end(), key) == nf_dead_targets_.end()) {
++              nf_dead_targets_.push_back(key);
++            }
+             anatomy_skip_reason_ = kAnatomySkipOther;
+             repeat_prev_.valid = false;
+             return true;
+@@ -9423,6 +9427,11 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       }
+     }
+   }
++  // (Session 79) A drawn draw into a dead glare target: its copies are live again.
++  if (!nf_dead_targets_.empty()) {
++    const auto it = std::find(nf_dead_targets_.begin(), nf_dead_targets_.end(), NfRt0Key());
++    if (it != nf_dead_targets_.end()) nf_dead_targets_.erase(it);
++  }
+   // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a registered restore of what the truth images
+   // still hold is left out here, before its textures are requested (or loaded) - NativeRenderer::
+   // TruthRestoreRedundantEarly; TruthRecordDraw checks the rest again (the late check).
+@@ -12998,6 +13007,21 @@ bool VulkanCommandProcessor::IssueCopy() {
+   if (SkipFrameResolve((*register_file_)[XE_GPU_REG_RB_COPY_DEST_BASE])) {
+     return true;
+   }
++  // wwe2k14 patch (Session 79, gpu_native_frame_dead_glare): a copy out of a dead glare target (every draw into it
++  // this frame was a skipped glare draw) - its destination is read only by the skipped glare passes and the combine at
++  // strength 0. A copy that also clears is kept (a later surface at the same EDRAM base may rely on the clear).
++  if (!nf_dead_targets_.empty()) {
++    const reg::RB_COPY_CONTROL cc = register_file_->Get<reg::RB_COPY_CONTROL>();
++    if (cc.copy_src_select == 0 &&
++        std::find(nf_dead_targets_.begin(), nf_dead_targets_.end(), NfRt0Key()) != nf_dead_targets_.end()) {
++      if (cc.color_clear_enable || cc.depth_clear_enable) {
++        ++nf_census_.glare_copies_kept_clear;
++      } else {
++        ++nf_census_.glare_copies_skipped;
++        return true;
++      }
++    }
++  }
+ 
+   if (!BeginSubmission(true)) {
+     return false;

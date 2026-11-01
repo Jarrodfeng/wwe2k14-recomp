@@ -42,6 +42,8 @@
 //   --perf-test             (Session 39: run the performance test, test builds with perf_test.txt only (Session 41);
 //                           waits for it)
 //   --show-perf-test        (open its window, for a look)
+//   --xdet-check            (Session 77: run the determinism check, ABOUT; waits for it and its zip)
+//   --show-xdet-check       (open its window, for a look)
 
 #include "launcher_core.h"
 
@@ -951,6 +953,9 @@ class App {
     else if (st.op == "perf_test") StartPerfTest();                // Session 39
     else if (st.op == "wait_perf_test") return perf_step_ < 0;     // ... until all its runs are done
     else if (st.op == "show_perf_test") want_perf_popup_ = true;   // its window, for a look
+    else if (st.op == "xdet_check") StartCheck();                  // Session 77
+    else if (st.op == "wait_xdet_check") return !check_running_ && game_proc_ == nullptr;
+    else if (st.op == "show_xdet_check") want_check_popup_ = true;
     else if (st.op == "backup") DoBackup("automation");
     else if (st.op == "restore") RefreshLogos(true), DoRestore(std::atoi(st.a.c_str()));
     else if (st.op == "report") MakeReport();
@@ -1039,6 +1044,7 @@ class App {
     PrecompilePopup();  // Session 70
     QuickStartPopup();  // Session 53
     PerfTestPopup();  // Session 39
+    CheckPopup();     // Session 77
     UpdatePopup();
     KeysPopup();  // Session 67
     LogUpdateOnce();
@@ -2131,7 +2137,8 @@ class App {
       return;
     }
     // Session 70: the precompile first, when this build / card / driver / pipeline settings have not had one.
-    if (cmd.exe == paths_.game_exe.wstring() && s.precompile && !s.harness && perf_step_ < 0 && !importing_ &&
+    if (cmd.exe == paths_.game_exe.wstring() && s.precompile && !s.harness && perf_step_ < 0 && !check_running_ &&
+        !importing_ &&
         !precompile_skip_once_ && PrecompileKey() != ReadPrecompileStamp()) {
       StartPrecompile(cmd, ok_msg);
       return;
@@ -2361,6 +2368,11 @@ class App {
     if (perf_step_ >= 0) {  // Session 39: a performance test run (its exit code goes into the test's about.txt)
       if (code) Log("performance test run exited with " + ExitCodeText(code));
       PerfRunEnded(code);
+      return;
+    }
+    if (check_running_) {  // Session 77: the determinism check (its zip)
+      check_running_ = false;
+      CheckEnded(code);
       return;
     }
     if (code == kGameReportedErrorExitCode) {  // the game showed its own message first: no crash dialog
@@ -2919,6 +2931,138 @@ class App {
       out += '\n';
     }
     return out;
+  }
+
+  // ---------------- Session 77 (XDET_PLAN.md "P7 testers", step 3): the determinism check. Jarrod's interview
+  // (2026-10-31 ~15:30): phone and PC testers, a button with the help links, the match shown, the results in a zip the
+  // tester sends, compared at my end against a PC play of the same release; in every build. One game: the recording
+  // xdet\xdet_check.rec with the route xdet\check_route.txt (both shipped next to the exe; Cena vs Undertaker, a
+  // Quick Match from a fresh save), --wwe2k14_xdet_check (src\xdet_check.h: every input a tester's machine or settings
+  // could change, pinned), an empty save folder of its own (the tester's save is never read or written: the route
+  // answers NO to creating save data) and a shader cache of its own that later checks reuse. Its own short command
+  // line, not GameFlags: the player's settings stay out, and a second --user_data_root would repeat a flag (a
+  // repeated flag drops every startup flag after it). Then one .zip in reports: the hash CSV (one hash per memory
+  // region per frame: no game data), the scheduler trace and the run's log, the user name removed;
+  // tools\determinism\det_compare.py --cross REFERENCE ZIP compares it.
+  static constexpr const char* kCheckDir = "xdet";
+  bool check_running_ = false, want_check_popup_ = false;
+  fs::path check_run_dir_, check_zip_;
+  bool CheckAvailable() const {
+    std::error_code ec;
+    const fs::path dir = paths_.game_exe.parent_path() / kCheckDir;
+    return fs::exists(dir / "xdet_check.rec", ec) && fs::exists(dir / "check_route.txt", ec);
+  }
+  void StartCheck() {
+    if (game_proc_) return Status("Close the game first");
+    const fs::path root = LocalDataDir() / "xdet_check";
+    check_run_dir_ = root / ("run_" + NowStamp("%Y%m%d_%H%M%S"));
+    std::error_code ec;
+    fs::create_directories(check_run_dir_ / "save", ec);
+    if (!ec) fs::create_directories(check_run_dir_ / "out", ec);
+    if (!ec) fs::create_directories(root / "cache", ec);
+    if (ec) return Status("Could not make " + PathStr(check_run_dir_) + ": " + ec.message());
+    const fs::path ship = paths_.game_exe.parent_path() / kCheckDir;
+    const std::string out = PathStr(check_run_dir_ / "out");
+    std::string a = "--wwe2k14_xdet_check=true";
+    if (!s.game_data_dir.empty()) a += " --game_data_root=" + Quote(s.game_data_dir);
+    a += " --user_data_root=" + Quote(PathStr(check_run_dir_ / "save"));
+    a += " --cache_root=" + Quote(PathStr(root / "cache"));
+    a += " --wwe2k14_settings_file=" + Quote(PathStr(check_run_dir_ / "settings.json"));  // none: not the player's
+    a += " --wwe2k14_replay_dir=" + Quote(PathStr(ship)) + " --wwe2k14_replay_play=xdet_check";
+    a += " --wwe2k14_input_script=" + Quote(PathStr(ship / "check_route.txt"));
+    a += " --det_serial_trace=" + Quote(out) + " --wwe2k14_det_hash_dir=" + Quote(out);
+    Command c;
+    c.exe = paths_.game_exe.wstring();
+    c.workdir = paths_.launcher_dir.wstring();
+    c.args = Widen(a);
+    c.display = Quote(PathStr(paths_.game_exe)) + " " + a;
+    check_zip_.clear();
+    check_running_ = true;
+    StartGame(c, "Determinism check started");
+    if (!game_proc_) check_running_ = false;  // could not start: Status says why
+  }
+  // From PollGame, when the check's game has closed.
+  void CheckEnded(DWORD code) {
+    fs::path dir = paths_.launcher_dir / "reports";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) dir = LocalDataDir() / "reports", fs::create_directories(dir, ec);
+    const fs::path zip = dir / ("determinism_check_" + NowStamp("%Y%m%d_%H%M") + ".zip");
+    ZipWriter z(zip);
+    if (!z.ok()) return Status("Could not write " + PathStr(zip));
+    // The hash CSV (det_NNN.csv or det_<exe folder>_NNN.csv) and the scheduler trace; NNN = the run's log number.
+    std::string number, identity;
+    const fs::path out = check_run_dir_ / "out";
+    for (const auto& e : fs::directory_iterator(out, ec)) {
+      const std::string name = PathStr(e.path().filename());
+      if (name.rfind("det_", 0) != 0) continue;
+      if (e.path().extension() == ".csv") {
+        const std::string data = Redact(ReadTail(e.path(), 64u << 20));
+        z.Add(name, data);
+        const size_t us = name.rfind('_');
+        if (us != std::string::npos) number = name.substr(us + 1, name.size() - us - 1 - 4);
+        if (const size_t at = data.find("# xdet identity: "); at != std::string::npos)
+          identity = data.substr(at + 17, data.find('\n', at) - at - 17);
+      } else if (e.path().extension() == ".txt") {
+        z.Add(name, ReadTail(e.path(), 64u << 20));
+      }
+    }
+    // The run's log and its rotated parts (wwe2k14_NNN.log, wwe2k14_NNN.K.log).
+    int logs = 0;
+    if (!number.empty()) {
+      const std::string base = "wwe2k14_" + number + ".";
+      for (const auto& e : fs::directory_iterator(paths_.logs, ec)) {
+        const std::string name = PathStr(e.path().filename());
+        if (name.rfind(base, 0) == 0 && e.path().extension() == ".log")
+          z.Add(name, Redact(ReadTail(e.path(), 48u << 20))), ++logs;
+      }
+    }
+    const std::string about =
+        std::string("WWE 2K14 recomp determinism check (Session 77)\nVersion: ") + Version() + "\nMade: " +
+        NowStamp("%Y-%m-%d %H:%M") + " (local time)\n\n" + HardwareText(hw_) + "\nGame exit: " + ExitCodeText(code) +
+        "\nRun log number: " + (number.empty() ? std::string("(no hash file: the check did not start its replay)")
+                                                : number) +
+        ", log files: " + std::to_string(logs) + "\nIdentity: " + (identity.empty() ? std::string("-") : identity) +
+        "\n\nThe .csv holds one hash per memory region per frame (no game data); compared with a reference play "
+        "of the same release: tools\\determinism\\det_compare.py --cross REFERENCE THIS.zip\n";
+    z.Add("about.txt", Redact(about));
+    if (!z.Close()) return Status("Could not finish " + PathStr(zip));
+    fs::remove_all(check_run_dir_, ec);  // the empty save and the copies now in the zip
+    check_zip_ = zip;
+    want_check_popup_ = true;
+    Status("Determinism check saved: " + PathStr(zip));
+    Log("determinism check saved " + PathStr(zip) + " (exit " + ExitCodeText(code) + ")");
+  }
+  void CheckPopup() {
+    if (want_check_popup_) ImGui::OpenPopup("xdet_check"), want_check_popup_ = false;
+    if (!BeginGameModal("xdet_check", "DETERMINISM CHECK", 680 * Dpi())) return;
+    if (check_running_) {
+      ImGui::Text("The check is running.");
+      ImGui::Spacing();
+      ImGui::TextWrapped("The game plays a short Cena vs Undertaker match by itself (about 2 minutes) and closes. "
+                         "Please don't touch the controller, mouse or keyboard while it runs.");
+    } else if (!check_zip_.empty()) {
+      ImGui::TextWrapped("Done, thank you! Please send this file:");
+      ImGui::TextColored(kGood, "%s", PathStr(check_zip_).c_str());
+      ImGui::Dummy(ImVec2(0, 12 * Dpi()));
+      if (ModalMainButton("OPEN THE FOLDER")) {
+        const std::wstring arg = L"/select,\"" + check_zip_.wstring() + L"\"";
+        ShellExecuteW(hwnd_, nullptr, L"explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+      }
+      if (ModalButton("Close")) ImGui::CloseCurrentPopup();
+    } else {
+      ImGui::TextWrapped("Checks that the game runs on this PC exactly as on ours: it plays a recorded Cena vs "
+                         "Undertaker match by itself (about 2 minutes, from a fresh, empty save of its own) and saves "
+                         "one .zip for you to send. Your save and your settings are not touched.");
+      ImGui::Dummy(ImVec2(0, 12 * Dpi()));
+      const bool can = gd_.ok && !game_proc_ && CheckAvailable();
+      if (ModalMainButton("START THE CHECK", can)) StartCheck();
+      if (ModalButton("Not now")) ImGui::CloseCurrentPopup();
+      if (!gd_.ok) ImGui::TextColored(kBad, "Set up your game files first (Settings).");
+      else if (!CheckAvailable()) ImGui::TextColored(kBad, "This build has no check files (the xdet folder).");
+    }
+    ImGui::NewLine();
+    ImGui::EndPopup();
   }
 
   void PerfTestPopup() {
@@ -4019,9 +4163,10 @@ class App {
       ImGui::Dummy(ImVec2(0, 6 * d));
     }
     // Session 33: anisotropic filtering (the game always had 4x forced by the runtime; 8x / 16x sharpen floors,
-    // ramps and mats seen at an angle). Changes at once from the game's own GRAPHICS screen too.
+    // ramps and mats seen at an angle). Changes at once from the game's own GRAPHICS screen too. Session 80 (Jarrod):
+    // STANDARD is the game's own filtering, no longer the forced 4x.
     static constexpr const char* kTf[] = {"STANDARD", "8X", "16X"};
-    static constexpr const char* kTfNote[] = {"4x anisotropic filtering, as before.",
+    static constexpr const char* kTfNote[] = {"The game's own texture filtering.",
                                               "8x anisotropic filtering: sharper floors and ramps at an angle.",
                                               "16x anisotropic filtering: the sharpest floors and ramps at an angle."};
     s.texture_filter = std::clamp(s.texture_filter, 0, 2);
@@ -4101,6 +4246,8 @@ class App {
     ImGui::SameLine(0, 24 * d);
     if (ImGui::TextLink("Report a problem")) ImGui::OpenPopup("report");
     ReportPopup();
+    ImGui::SameLine(0, 24 * d);
+    if (ImGui::TextLink("Determinism check")) want_check_popup_ = true;  // Session 77 (CheckPopup)
 
     ImGui::Dummy(ImVec2(0, 10 * d));
     Heading("CREDITS", 1.15f);
@@ -5849,6 +5996,8 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--harness") out.push_back({"harness", next()});
     else if (a == "--launch") out.push_back({"launch"});
     else if (a == "--perf-test") out.push_back({"perf_test"}), out.push_back({"wait_perf_test"});  // Session 39
+    else if (a == "--xdet-check") out.push_back({"xdet_check"}), out.push_back({"wait_xdet_check"});  // Session 77
+    else if (a == "--show-xdet-check") out.push_back({"show_xdet_check"});
     else if (a == "--show-perf-test") out.push_back({"show_perf_test"});
     else if (a == "--shot") out.push_back({"shot", next()});
     else if (a == "--exit") app.exit_after_steps = true;

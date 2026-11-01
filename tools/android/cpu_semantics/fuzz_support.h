@@ -27,10 +27,30 @@ struct Rng {
   }
 };
 
-inline uint64_t Rand64(Rng& r, bool) {
+// Session 77 (XDET_PLAN.md P5, gaps 13 / 16): band 1 rounds draw only from these boundary lists (make_fuzz.py: rounds
+// are in three bands: 0 random as in Session 73, 1 boundary values, 2 random with a rounding mode per round).
+// f64: the integer conversion edges (fctid / fctidz at exactly 2^63, fctiw at 2^31, halves for the rounding modes,
+// 2^52 for fcfid) and the float-precision edges (frsp just under FLT_MIN).
+static const uint64_t kF64Boundary[] = {
+    0x43E0000000000000ull, 0xC3E0000000000000ull, 0x43DFFFFFFFFFFFFFull, 0xC3E0000000000001ull, 0x43F0000000000000ull,
+    0x41E0000000000000ull, 0x41DFFFFFFFC00000ull, 0x41DFFFFFFFE00000ull, 0xC1E0000000000000ull, 0xC1E0000000100000ull,
+    0x41F0000000000000ull, 0x3FE0000000000000ull, 0x3FF8000000000000ull, 0x4004000000000000ull, 0xBFE0000000000000ull,
+    0xBFF8000000000000ull, 0x4330000000000000ull, 0x4330000000000001ull, 0x3810000000000000ull, 0x380FFFFFF0000000ull,
+    0x380FFFFFE0000000ull, 0x0010000000000000ull, 0x000FFFFFFFFFFFFFull, 0x7FF0000000000000ull};
+// f32 lanes: operands whose products / sums land just under FLT_MIN and round up to it (x86 judges tininess after
+// rounding, ARM before: with flush-to-zero one flushes, the other not), FLT_MIN neighbours, the int32 conversion edges.
+static const uint32_t kV32Boundary[] = {
+    0x00800000u, 0x00800001u, 0x007FFFFFu, 0x00000001u, 0x80800000u, 0x3F7FFFFEu, 0x3F7FFFFFu, 0x3F800000u,
+    0x3F800001u, 0x3F000000u, 0x3F000001u, 0xBF7FFFFEu, 0x01000000u, 0x00FFFFFFu, 0x3EFFFFFFu, 0x4F000000u,
+    0x4EFFFFFFu, 0xCF000000u, 0xCF000001u, 0x4F800000u, 0x7F7FFFFFu, 0x7F800000u};
+template <class T, size_t N>
+inline T Pick(Rng& r, const T (&list)[N]) { return list[r.Next() % N]; }
+
+inline uint64_t Rand64(Rng& r, bool fp_bits, int band = 0) {
   static const uint64_t kEdge[] = {0, 1, 0xFFFFFFFFFFFFFFFFull, 0x7FFFFFFFFFFFFFFFull, 0x8000000000000000ull,
                                    0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 0x100000000ull, 0xFFFFFFFF80000000ull, 31, 32,
                                    63, 64, 0x1F, 0x3F, 0x40, 0x10001000};
+  if (band == 1) return fp_bits ? Pick(r, kF64Boundary) : Pick(r, kEdge);
   const uint64_t x = r.Next();
   switch (x & 7) {
     case 0: return kEdge[(x >> 8) % (sizeof(kEdge) / sizeof(kEdge[0]))];
@@ -40,7 +60,13 @@ inline uint64_t Rand64(Rng& r, bool) {
   }
 }
 
-inline double RandF64(Rng& r) {
+inline double RandF64(Rng& r, int band = 0) {
+  if (band == 1) {
+    const uint64_t b = Pick(r, kF64Boundary);
+    double d;
+    std::memcpy(&d, &b, 8);
+    return d;
+  }
   static const uint64_t kEdge[] = {0x0000000000000000ull, 0x8000000000000000ull, 0x7FF0000000000000ull,
                                    0xFFF0000000000000ull, 0x7FF8000000000000ull, 0xFFF8000000000000ull,
                                    0x7FF0000000000001ull, 0x0000000000000001ull, 0x800FFFFFFFFFFFFFull,
@@ -60,7 +86,8 @@ inline double RandF64(Rng& r) {
   return d;
 }
 
-inline uint32_t RandV32(Rng& r) {
+inline uint32_t RandV32(Rng& r, int band = 0) {
+  if (band == 1) return Pick(r, kV32Boundary);
   static const uint32_t kEdge[] = {0, 0x80000000u, 0x7F800000u, 0xFF800000u, 0x7FC00000u, 0xFFC00000u, 0x7F800001u,
                                    0x00000001u, 0x807FFFFFu, 0x3F000000u, 0xBF000000u, 0x40200000u, 0x4EFFFFFFu,
                                    0x4F000000u, 0xCF000001u, 0x4F800000u, 0x7F7FFFFFu, 0x00800000u, 0xFFFFFFFFu,

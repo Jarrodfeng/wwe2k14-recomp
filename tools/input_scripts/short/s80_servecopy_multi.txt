@@ -1,0 +1,488 @@
+# harness: fastforward
+# Session 80, written by tools\native\passab_multi.py: OWN_RENDERER_PLAN.md scene copies: the match's two colour scene copies served from the scene image (carry + serve, exact rows in both arms) against copying them, on Intel..
+#   arm copy: gpu_native_truth_carry_copies=false, gpu_native_truth_serve_copies=false
+#   arm serve: gpu_native_truth_carry_copies=true, gpu_native_truth_serve_copies=true
+# Per scene: warm-up 60 frames per arm, then 12 cycles x 4 pass-logged frames per arm; labels <scene>_<arm>.
+on_fail quit
+log bench: start s80_servecopy_multi (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 180
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 60
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 60
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: brock_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: brock_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 320
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 60
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 60
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: bryan_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: bryan_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 780
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 60
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 60
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 2
+log passlog: match_copy
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies true
+cvar gpu_native_truth_serve_copies true
+wait_frames 2
+log passlog: match_serve
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_carry_copies false
+cvar gpu_native_truth_serve_copies false
+wait_frames 60
+log bench: done
+quit

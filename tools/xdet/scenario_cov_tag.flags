@@ -1,0 +1,8 @@
+# Session 77 wider coverage (XDET_PLAN.md): tag (type 3): Cena (139, pad 1) + Orton (161) vs Punk (131) + Sheamus (279), WrestleMania 29 (15). Quick Match from numbers (no capture), entrances skipped.
+# Record with tools\xdet\run_stageA.ps1 -Record xdet_cov_tag -Scenario cov_tag (route: cover_3600.txt, or
+# cover_12000.txt for cov_long / cov_rumble).
+--wwe2k14_launch=@quick
+--wwe2k14_quick_type=3
+--wwe2k14_launch_participants=139:0,161,131,279
+--wwe2k14_launch_arena=15
+--wwe2k14_launch_skip_entrances=true

@@ -1,0 +1,9 @@
+# Session 77 wider coverage (XDET_PLAN.md, Jarrod 2026-10-31 ~15:15: "And a rumble match can't be done?"): the 40-man
+# Royal Rumble from Jarrod's capture rumble_40 (run 486: Cena 139 first, controller 1, arena 22, entry order restored
+# from the capture), entrances skipped. The Quick Match Rumble from numbers (scenario_cov_rumble.flags) crashes on the
+# PC too (~frame 5520): not a valid setup. A capture is a copy of game memory: local only (on Jarrod's phone via
+# tools\android\run.ps1 -Scenario rumble_40, never shipped).
+# Record with tools\xdet\run_stageA.ps1 -Record xdet_rumble40 -Scenario rumble40 -FlagsFile played.flags -NoDraw
+# -Route tools\xdet\cover_12000.txt.
+--wwe2k14_launch=rumble_40
+--wwe2k14_launch_skip_entrances=true

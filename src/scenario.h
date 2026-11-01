@@ -1135,6 +1135,19 @@ inline void FireLaunch(PPCContext& ctx, uint8_t* base, uint32_t sm) {
         if (U32(kSettings + uint32_t(off)) != BeU32(cg, off))
           gv += fmt::format(" +{} {:08X}/{:08X}", off, U32(kSettings + uint32_t(off)), BeU32(cg, off));
       REXLOG_INFO("[wwe2k14][scenario] quick vs capture '{}': G words built/captured:{}", cmp, gv);
+      // Session 77 (P7: Quick Match left the pad's wrestler CPU-controlled): the M and A values too (first 40 each).
+      for (const auto& [label, addr, cap] : {std::tuple<const char*, uint32_t, const std::vector<uint8_t>*>{"M", m, &cm},
+                                             std::tuple<const char*, uint32_t, const std::vector<uint8_t>*>{
+                                                 "A", SlotsAddress(), &ca}}) {
+        std::string v;
+        int shown = 0;
+        for (size_t off = 0; addr && off + 4 <= cap->size() && shown < 40; off += 4) {
+          if (U32(addr + uint32_t(off)) == BeU32(*cap, off)) continue;
+          v += fmt::format(" +{} {:08X}/{:08X}", off, U32(addr + uint32_t(off)), BeU32(*cap, off));
+          ++shown;
+        }
+        REXLOG_INFO("[wwe2k14][scenario] quick vs capture '{}': {} words built/captured:{}", cmp, label, v);
+      }
     } else {
       REXLOG_WARN("[wwe2k14][scenario] quick vs capture '{}': capture files not found in {}", cmp, dir.string());
     }

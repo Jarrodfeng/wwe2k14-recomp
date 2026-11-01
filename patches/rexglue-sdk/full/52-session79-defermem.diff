@@ -1,0 +1,328 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-defermem): f1a55720cb5a..4b81d3e0133f on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  4b81d3e Merge s79-defermem: Session 79 gpu_native_truth_defer_memory_resolves (off): memory-writing direct resolves batched (Bryan: 72 deferred in 33 batches vs 52 in 24 + 20 alone; shots byte-identical 5062 / 5065)
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 7eecc9f1ccead1cb92957dc9df110d7cdb56a214..11637d30ee4fbb8c12d991b8d3d2c8f65cf35517 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -718,8 +718,35 @@ class NativeRenderer {
+     int32_t drop_rect[4] = {0, 0, 0, 0};
+     // wwe2k14 patch (Session 79): the cube face the entry writes (-1: a 2D texture) - one texture, separate texels.
+     int32_t layer = -1;
++    // wwe2k14 patch (Session 79, gpu_native_truth_defer_memory_resolves): a resolve that also writes guest memory (the
++    // GPU copy): its shared memory use (mem_length 0: none) and the extent marked skipped until the batch is flushed
++    // (a reader of those pages flushes it first, as for texture-only records).
++    uint32_t mem_start = 0, mem_length = 0;
++    uint32_t extent_start = 0, extent_length = 0;
++    // (Where it writes: the destination texture's base, pitch, format and the texel rectangle - copies into separate
++    // rectangles of one surface write separate bytes though their extents interleave; base 0: unknown.)
++    uint32_t mem_base = 0, mem_pitch = 0, mem_format = 0;
++    int32_t mem_rect[4] = {};
+   };
+   std::vector<DeferredResolve> truth_deferred_;
++  // wwe2k14 patch (Session 79): whether a deferred resolve writes guest memory in [start, end) - with `info`, other
++  // than into separate rectangles of the same surface.
++  bool TruthDeferredWritesMemory(uint64_t start, uint64_t end, const draw_util::ResolveInfo* info = nullptr) const {
++    for (const DeferredResolve& d : truth_deferred_) {
++      if (!d.extent_length || d.extent_start >= end || start >= uint64_t(d.extent_start) + d.extent_length) continue;
++      if (info && d.mem_base && !info->copy_dest_info.copy_dest_array && info->copy_dest_texture_base == d.mem_base &&
++          uint32_t(info->copy_dest_coordinate_info.pitch_aligned_div_32) == d.mem_pitch &&
++          uint32_t(info->copy_dest_info.copy_dest_format) == d.mem_format) {
++        const int32_t x0 = int32_t(info->copy_dest_base_x + uint32_t(info->copy_dest_coordinate_info.offset_x_div_8) * 8);
++        const int32_t y0 = int32_t(info->copy_dest_base_y + uint32_t(info->copy_dest_coordinate_info.offset_y_div_8) * 8);
++        const int32_t x1 = x0 + int32_t(info->coordinate_info.width_div_8) * 8;
++        const int32_t y1 = y0 + int32_t(info->height_div_8) * 8;
++        if (x1 <= d.mem_rect[0] || d.mem_rect[2] <= x0 || y1 <= d.mem_rect[1] || d.mem_rect[3] <= y0) continue;
++      }
++      return true;
++    }
++    return false;
++  }
+   // Session 52 (gpu_native_truth_batch_rename): an image's GPU objects, set aside (busy: a deferred resolve reads it)
+   // or ready for the next rename of an image of the same kind, format and size.
+   struct TruthBundle {
+@@ -1447,6 +1474,7 @@ class NativeRenderer {
+     uint32_t frames = 0, fallbacks = 0, passes = 0, draws = 0, loads = 0, writeouts = 0, staged = 0, staged_edram = 0;
+     uint32_t alias_reads = 0, store_dispatches = 0, direct = 0, direct_depth = 0;  // (Session 59: direct_depth)
+     uint32_t alias_direct = 0;  // Session 79 (gpu_native_truth_alias_direct): alias reads loaded straight from owners
++    uint32_t deferred_memory = 0;  // Session 79 (gpu_native_truth_defer_memory_resolves): deferred resolves writing memory
+     uint32_t compiling = 0;  // Session 47: draws skipped while their pipeline was being made
+     uint32_t waited = 0;     // Session 55: draws into narrower surfaces whose pipeline was made at once instead
+     uint32_t filled = 0, fill_refused = 0;
+diff --git a/include/rex/graphics/vulkan/shared_memory.h b/include/rex/graphics/vulkan/shared_memory.h
+index b2094c7d04a680810431aabc0e5ea22a1f30bad6..afae006d27da857706521d573b7e3a9c42b5dc9f 100644
+--- a/include/rex/graphics/vulkan/shared_memory.h
++++ b/include/rex/graphics/vulkan/shared_memory.h
+@@ -50,6 +50,11 @@ class VulkanSharedMemory : public SharedMemory {
+   // default) = all of the usage's stages (conservative). Tracked for vulkan_shared_memory_narrow_barrier.
+   void Use(Usage usage, std::pair<uint32_t, uint32_t> written_range = {},
+            VkPipelineStageFlags access_stages = 0);
++  // wwe2k14 patch (Session 79, gpu_native_truth_defer_memory_resolves): one more compute write right after a
++  // kComputeWrite use, to a range the writes since that use do not overlap (the caller's guarantee): no barrier between
++  // them - the next barrier commits all of them (the written range grows to cover both). Use() if the last use was
++  // another one.
++  void UseAlsoComputeWrite(std::pair<uint32_t, uint32_t> written_range);
+ 
+   // wwe2k14 patch (Session 7b, BARNARROW): access_stages for a guest draw: vertex input (a guest DMA index
+   // buffer in the shared memory) and every guest vertex-side stage (vertex fetch, index loads in the vertex /
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index d7cc222599e2d682083d67c8762efca7736e36e7..f35cba7b741d50accd99635ae513356e7a407944 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -311,6 +311,13 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_scaled_texture_only, false, "GPU/Nati
+                     "resolve that also writes its scaled texture does not write the scaled resolve buffer (what the "
+                     "scaled write-backs cost - the ceiling of texture-only resolves at a scale)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_memory_resolves, false, "GPU/Native",
++                    "Session 79 (HD 520 arc): with gpu_native_truth_batch_resolves, a 1x direct resolve that writes "
++                    "guest memory (no texture holds all it writes) joins the deferred batch too, so it shares the "
++                    "batch's barrier pair; its pages are marked as the texture-only records' are, so any reader of them "
++                    "(texture, vertex, index, memexport) or a later resolve over them flushes the batch first. Not in "
++                    "readback windows")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_alias_direct, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): a pass's tiles another RGBA8 or depth image owns are loaded straight from "
+                     "that image (the fragment shader packs them as the store would, then converts them as the load "
+@@ -2818,6 +2825,19 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+       if (d.texture == texture_handle && texture_handle && d.layer == texture_layer) same_texture = true;
+     }
+     const bool texwrite_only = texture_set != VK_NULL_HANDLE && (pc[9] & 0x400u) != 0;
++    // Session 79 (gpu_native_truth_defer_memory_resolves): or one that writes guest memory too (1x, outside readback
++    // windows, its destination use held); an entry writing memory it overlaps goes first (two dispatches of one batch
++    // have no barrier between them).
++    VulkanSharedMemory* const shared_memory = command_processor_.NativeSharedMemory();
++    const bool memory_defer = !texwrite_only && !scaled && batch && shared_memory &&
++                              REXCVAR_GET(gpu_native_truth_defer_memory_resolves) &&
++                              !command_processor_.NativeResolveReadback() && command_processor_.held_dest_use_ &&
++                              !command_processor_.held_dest_scaled_ && info.copy_dest_extent_length;
++    const bool memory_overlap =
++        memory_defer && TruthDeferredWritesMemory(info.copy_dest_extent_start,
++                                                  uint64_t(info.copy_dest_extent_start) + info.copy_dest_extent_length,
++                                                  &info);
++    const bool deferrable = texwrite_only || memory_defer;
+     // (A renamed image has only its rectangle yet: a copy reaching outside it waits for the flush's copy.)
+     const bool outside = t.rename_source != VK_NULL_HANDLE &&
+                          (int32_t(pc[5]) < t.rename_rect[0] || int32_t(pc[6]) < t.rename_rect[1] ||
+@@ -2870,14 +2890,22 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+         truth_deferred_.erase(truth_deferred_.begin() + ptrdiff_t(i));
+       }
+     }
+-    if ((same_texture && !drop_same) || !batch || !texwrite_only || outside) {
+-      TruthFlushDeferred(outside                      ? kDeferFlushOutside
+-                         : (!batch || !texwrite_only) ? kDeferFlushNotBatched
+-                                                      : kDeferFlushSameTexture);
++    if (!texwrite_only && segment_log_frames_ > 0) {  // (Session 79, diagnostic: a resolve writing memory)
++      REXGPU_INFO("[native][seg] frame {} memory resolve: deferred {} (batch {}, readback {}, dest use held {}, "
++                  "outside {}, overlap {}, same texture {}) page 0x{:05X} {}x{}",
++                  frame_, memory_defer && !outside && !memory_overlap, batch, command_processor_.NativeResolveReadback(),
++                  command_processor_.held_dest_use_ || memory_defer, outside, memory_overlap, same_texture,
++                  info.copy_dest_base >> 12, uint32_t(info.coordinate_info.width_div_8) * 8, info.height_div_8 * 8);
++    }
++    if ((same_texture && !drop_same) || !batch || !deferrable || outside || memory_overlap) {
++      TruthFlushDeferred(outside                    ? kDeferFlushOutside
++                         : (!batch || !deferrable) ? kDeferFlushNotBatched
++                         : memory_overlap          ? kDeferFlushOtherResolve
++                                                   : kDeferFlushSameTexture);
+     }
+     if (outside) EndTruthPass();
+-    if (!(batch && texwrite_only && !outside)) release_held_barrier();  // (pushed now: recorded as before)
+-    if (batch && texwrite_only && !outside) {
++    if (!(batch && deferrable && !outside)) release_held_barrier();  // (pushed now: recorded as before)
++    if (batch && deferrable && !outside) {
+       DeferredResolve& d = truth_deferred_.emplace_back();
+       d.texture_image = VK_NULL_HANDLE;
+       command_processor_.NativeTakeHeldTextureBarrier(d.texture_image, d.texture_src_stage, d.texture_src_access,
+@@ -2894,12 +2922,37 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+       for (size_t k = 0; k + 1 < truth_deferred_.size() && d.texture_image != VK_NULL_HANDLE; ++k) {
+         if (truth_deferred_[k].texture_image == d.texture_image) d.texture_image = VK_NULL_HANDLE;
+       }
+-      if (!scaled && texture_handle) std::copy(filled_rect, filled_rect + 4, d.drop_rect);  // Session 66 (G1.1)
++      // (G1.1 drops texture-only entries only: an entry writing memory is never dropped.)
++      if (!scaled && texture_handle && texwrite_only) std::copy(filled_rect, filled_rect + 4, d.drop_rect);
+       d.pipeline = scaled ? resolve_scaled_tex_pipeline_ : resolve_tex_pipeline_;  // (Session 56: at a scale too)
+       d.layout = resolve_tex_layout_;
+       d.sets[0] = t.resolve_set;
+       d.sets[1] = dest_set;
+       d.sets[2] = texture_set;
++      if (memory_defer) {
++        // Session 79: the copy into memory (and the texture, if it fills one); its destination use recorded at the
++        // flush, its pages marked until then (TruthMaterialize flushes the batch for a reader of them).
++        const bool texwrite = texture_set != VK_NULL_HANDLE;
++        d.pipeline = texwrite ? resolve_tex_pipeline_ : resolve_pipeline_;
++        d.layout = texwrite ? resolve_tex_layout_ : resolve_layout_;
++        d.set_count = texwrite ? 3 : 2;
++        d.mem_start = command_processor_.held_dest_start_;
++        d.mem_length = command_processor_.held_dest_length_;
++        command_processor_.held_dest_use_ = false;  // (taken: the later drop finds none)
++        d.extent_start = info.copy_dest_extent_start;
++        d.extent_length = info.copy_dest_extent_length;
++        if (!info.copy_dest_info.copy_dest_array && info.copy_dest_texture_base) {
++          d.mem_base = info.copy_dest_texture_base;
++          d.mem_pitch = uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32);
++          d.mem_format = uint32_t(info.copy_dest_info.copy_dest_format);
++          d.mem_rect[0] = int32_t(info.copy_dest_base_x + uint32_t(info.copy_dest_coordinate_info.offset_x_div_8) * 8);
++          d.mem_rect[1] = int32_t(info.copy_dest_base_y + uint32_t(info.copy_dest_coordinate_info.offset_y_div_8) * 8);
++          d.mem_rect[2] = d.mem_rect[0] + int32_t(info.coordinate_info.width_div_8) * 8;
++          d.mem_rect[3] = d.mem_rect[1] + int32_t(info.height_div_8) * 8;
++        }
++        shared_memory->SetRangeSkipped(d.extent_start, d.extent_length, true);
++        ++truth_counts_.deferred_memory;
++      }
+       std::memcpy(d.pc, pc, sizeof(pc));
+       d.group_count_x = group_count_x;
+       d.group_count_y = group_count_y;
+@@ -2908,7 +2961,7 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+       d.texture = texture_handle;
+       d.layer = texture_layer;  // Session 79
+       texture_written_ = texture_handle;
+-      ++report_.textures_filled;
++      if (texture_handle) ++report_.textures_filled;
+       ++truth_counts_.direct;
+       ++truth_counts_.deferred;
+       return true;
+@@ -4094,6 +4147,20 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+     cb.CmdVkPipelineBarrier(kStages | texture_stages, kStages, 0, 0, nullptr, 0, nullptr, uint32_t(barriers.size()),
+                             barriers.data());
+   }
++  // Session 79 (gpu_native_truth_defer_memory_resolves): the entries writing guest memory - its compute-write use.
++  VulkanSharedMemory* const shared_memory = command_processor_.NativeSharedMemory();
++  bool wrote_memory = false;
++  for (const DeferredResolve& d : truth_deferred_) {
++    if (!d.mem_length || !shared_memory) continue;
++    // (The batch's writes into memory never overlap - an overlapping one flushes the batch first: one barrier.)
++    const std::pair<uint32_t, uint32_t> range(d.mem_start, d.mem_length);
++    if (wrote_memory) {
++      shared_memory->UseAlsoComputeWrite(range);
++    } else {
++      shared_memory->Use(VulkanSharedMemory::Usage::kComputeWrite, range);
++    }
++    wrote_memory = true;
++  }
+   command_processor_.SubmitBarriers(true);  // (the textures' barriers, pushed when each resolve was deferred)
+   for (const DeferredResolve& d : truth_deferred_) {
+     command_processor_.BindExternalComputePipeline(d.pipeline);
+@@ -4101,6 +4168,15 @@ void NativeRenderer::TruthFlushDeferredSlow() {
+     cb.CmdVkPushConstants(d.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, d.pc_size, d.pc);
+     cb.CmdVkDispatch(d.group_count_x, d.group_count_y, 1);
+   }
++  // (Their pages are the texture-only records' again only where a record holds them.)
++  if (wrote_memory) {
++    for (const DeferredResolve& d : truth_deferred_) {
++      if (d.extent_length) shared_memory->SetRangeSkipped(d.extent_start, d.extent_length, false);
++    }
++    for (const WbRecord& r : wb_records_) {
++      if (r.scale_x <= 1 && r.scale_y <= 1) shared_memory->SetRangeSkipped(r.extent_start, r.extent_length, true);
++    }
++  }
+   // 3. Every image back to its attachment layout (the spares too: a rename takes one as it is).
+   barriers.clear();
+   for (Involved& e : involved) {
+@@ -4407,7 +4483,12 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+                                              uint32_t(copy_h));
+   }
+   // (Session 59: a storage-view fill's texture barrier is held - recorded with the batch if the fill is deferred.)
+-  const bool hold = batch_fills && storage_bytes && !depth && !texture_written_;
++  // (Session 79, gpu_native_truth_defer_memory_resolves: every fill's barrier held, so a fill the texture cache
++  // refuses - no texture over the page - flushes nothing; one that is recorded flushes the batch first, as before. A
++  // copy-path texture's barrier is pushed at once by the texture cache: it joins the flush's barriers, before the
++  // batch's dispatches - an entry writing that texture is flushed by the texture cache before it.)
++  const bool hold_refused = REXCVAR_GET(gpu_native_truth_defer_memory_resolves);
++  const bool hold = batch_fills && !texture_written_ && ((storage_bytes && !depth) || hold_refused);
+   // (Review: a fill that cannot be deferred flushes the batch before its texture's barrier, as without batching.)
+   if (batch_fills && !hold && !texture_written_) TruthFlushDeferred(kDeferFlushOtherResolve);
+   if (hold) command_processor_.NativeHoldTextureBarrier(true);
+@@ -4416,8 +4497,10 @@ void NativeRenderer::TruthFillTexture(const draw_util::ResolveInfo& info) {
+       uint32_t(dest.copy_dest_endian), format, texture, texture_w, texture_h, level, has_mips, handle, why,
+       storage_bytes, &storage_set);
+   // (Session 59: not deferred after all - the held barrier pushed now, recorded as before.)
+-  bool deferring = hold && got && storage_set != VK_NULL_HANDLE;
+-  if (hold && !deferring) TruthFlushDeferred(kDeferFlushOtherResolve);  // (review: as above, before the barrier is pushed)
++  bool deferring = hold && got && storage_set != VK_NULL_HANDLE && storage_bytes && !depth;
++  if (hold && !deferring && (got || !hold_refused)) {
++    TruthFlushDeferred(kDeferFlushOtherResolve);  // (review: as above, before the barrier is pushed)
++  }
+   if (!deferring) command_processor_.NativeHoldTextureBarrier(false);
+   const auto release = [&]() {
+     if (deferring) command_processor_.NativeHoldTextureBarrier(false);
+@@ -4766,12 +4849,18 @@ void NativeRenderer::TruthRemoveRecords(const std::vector<size_t>& indices) {
+     for (const WbRecord& r : wb_records_) {
+       if (r.scale_x <= 1 && r.scale_y <= 1) shared_memory->SetRangeSkipped(r.extent_start, r.extent_length, true);
+     }
++    // (Session 79: and the deferred resolves' that write memory.)
++    for (const DeferredResolve& d : truth_deferred_) {
++      if (d.extent_length) shared_memory->SetRangeSkipped(d.extent_start, d.extent_length, true);
++    }
+   }
+ }
+ 
+ void NativeRenderer::TruthMaterialize(uint32_t start, uint32_t length, uint32_t reason) {
+   std::vector<size_t> done;
+   const uint64_t end = uint64_t(start) + length;
++  // Session 79 (gpu_native_truth_defer_memory_resolves): a deferred resolve writing these pages - the batch first.
++  if (TruthDeferredWritesMemory(start, end)) TruthFlushDeferred(kDeferFlushMaterialize);
+   for (size_t i = 0; i < wb_records_.size(); ++i) {
+     const WbRecord& r = wb_records_[i];
+     if (r.scale_x > 1 || r.scale_y > 1) continue;  // (Session 56: scaled - not in the guest memory read here)
+@@ -4824,6 +4913,13 @@ void NativeRenderer::TruthDropRecords() {
+ 
+ void NativeRenderer::TruthBeforeResolveWrite(const draw_util::ResolveInfo& info) {
+   if (alias_frames_left_ > 0) AliasBeginResolve();  // wwe2k14 patch (Session 66, G1.0)
++  // Session 79 (gpu_native_truth_defer_memory_resolves): a resolve over memory a deferred one writes - that one first.
++  // (Into a separate rectangle of the same surface: separate bytes, no order needed.)
++  if (info.copy_dest_extent_length &&
++      TruthDeferredWritesMemory(info.copy_dest_extent_start,
++                                uint64_t(info.copy_dest_extent_start) + info.copy_dest_extent_length, &info)) {
++    TruthFlushDeferred(kDeferFlushOtherResolve);
++  }
+   truth_wb_skipped_ = false;
+   truth_fill_tried_ = false;
+   truth_overlaps_done_ = false;
+@@ -6510,13 +6606,13 @@ void NativeRenderer::LogTruthCensus() {
+                 "{:.1f}, boundary loads {:.1f}, write-outs {:.2f}, staged resolves {:.1f} (tiles from the EDRAM "
+                 "{:.1f}), direct copies {:.1f} (depth {:.1f}), store dispatches {:.1f}, alias reads {:.1f} (straight from their images {:.1f}); images {}{}; skipped "
+                 "while their pipeline was made {} (made at once instead, not the screen: {}); textures filled by copy {:.1f} (refused {:.1f}; packed {:.1f}, of them "
+-                "into the texture's storage view {:.1f}, deferred {:.1f}); resolves deferred {:.1f} in {:.1f} batches, renames {:.1f}, textures made sampleable before a pass {:.1f}, depth renames {:.1f}, real depth clears {:.1f}, passes not loading colour {:.1f} / depth {:.1f}, passes not touching colour {:.1f} / depth {:.1f} (scratch colour {:.1f}; colour kept without load / store {:.1f}); draw twins: made {:.2f}, read {:.1f}; lazy passes "
++                "into the texture's storage view {:.1f}, deferred {:.1f}); resolves deferred {:.1f} (writing memory {:.1f}) in {:.1f} batches, renames {:.1f}, textures made sampleable before a pass {:.1f}, depth renames {:.1f}, real depth clears {:.1f}, passes not loading colour {:.1f} / depth {:.1f}, passes not touching colour {:.1f} / depth {:.1f} (scratch colour {:.1f}; colour kept without load / store {:.1f}); draw twins: made {:.2f}, read {:.1f}; lazy passes "
+                 "{:.1f} with no barrier, {:.1f} with one; restores left out {:.2f}, drawn {:.2f}; repeated copies "
+                 "left out {:.2f}",
+                 frame_ + 1 - report_.frames, frame_, c.frames, c.fallbacks, reasons.empty() ? "none" : reasons,
+                 pf(c.passes), pf(c.draws), pf(c.loads), pf(c.writeouts), pf(c.staged), pf(c.staged_edram), pf(c.direct),
+                 pf(c.direct_depth), pf(c.store_dispatches), pf(c.alias_reads), pf(c.alias_direct), truth_images_.size(), gpu, c.compiling, c.waited, pf(c.filled),
+-                pf(c.fill_refused), pf(c.fill_packed), pf(c.fill_direct), pf(c.fills_deferred), pf(c.deferred), pf(c.deferred_batches), pf(c.renames), pf(c.early_sampled), pf(c.depth_renames), pf(c.clear_attachments), pf(c.dont_care_color), pf(c.dont_care_depth), pf(c.untouched_color), pf(c.untouched_depth), pf(c.untouched_scratch_color), pf(c.color_none),
++                pf(c.fill_refused), pf(c.fill_packed), pf(c.fill_direct), pf(c.fills_deferred), pf(c.deferred), pf(c.deferred_memory), pf(c.deferred_batches), pf(c.renames), pf(c.early_sampled), pf(c.depth_renames), pf(c.clear_attachments), pf(c.dont_care_color), pf(c.dont_care_depth), pf(c.untouched_color), pf(c.untouched_depth), pf(c.untouched_scratch_color), pf(c.color_none),
+                 pf(c.twin_blits[0]), pf(c.twin_blits[1]),
+                 double(command_processor_.deferred_command_buffer().lazy_begins_free() - truth_lazy_free_) / frames,
+                 double(command_processor_.deferred_command_buffer().lazy_begins_synced() - truth_lazy_synced_) / frames,
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 314b3c1bdd70649d59f997a18d20bc7e9bd2c093..a387e660bb641638baa9dc30fe3afabd09249c9c 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -530,6 +530,27 @@ void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_
+   stages_accessed_since_barrier_ |= access_stages ? access_stages : usage_stage_mask;
+ }
+ 
++// wwe2k14 patch (Session 79): see the header.
++void VulkanSharedMemory::UseAlsoComputeWrite(std::pair<uint32_t, uint32_t> written_range) {
++  if (last_usage_ != Usage::kComputeWrite || !last_written_range_.second) {
++    Use(Usage::kComputeWrite, written_range);
++    return;
++  }
++  written_range.first = std::min(written_range.first, kBufferSize);
++  written_range.second = std::min(written_range.second, kBufferSize - written_range.first);
++  if (!written_range.second) return;
++  InvalidateUploadHashes(written_range.first, written_range.second);  // (as Use)
++  MarkHoistAccess(written_range.first, written_range.second);
++  const uint64_t begin = std::min(uint64_t(last_written_range_.first), uint64_t(written_range.first));
++  const uint64_t end = std::max(uint64_t(last_written_range_.first) + last_written_range_.second,
++                                uint64_t(written_range.first) + written_range.second);
++  last_written_range_ = {uint32_t(begin), uint32_t(end - begin)};
++  VkPipelineStageFlags usage_stage_mask;
++  VkAccessFlags usage_access_mask;
++  GetUsageMasks(Usage::kComputeWrite, usage_stage_mask, usage_access_mask);
++  stages_accessed_since_barrier_ |= usage_stage_mask;
++}
++
+ void VulkanSharedMemory::NarrowUploadBarrierSource(VkPipelineStageFlags& src_stage_mask,
+                                                    VkAccessFlags& src_access_mask) {
+   // wwe2k14 patch (Session 7b, BARNARROW): src_stage_mask / src_access_mask are GetUsageMasks(last_usage_) -

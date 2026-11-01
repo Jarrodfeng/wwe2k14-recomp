@@ -48,6 +48,7 @@
 #include "logo_import.h"    // --wwe2k14_logo_import (Session 18, logo importer v0, default off)
 #include "audio_capture.h"  // --wwe2k14_audio_capture (Session 18, sound for re-shoots, default off)
 #include "precompile.h"     // --wwe2k14_precompile (Session 70: the launcher's precompile, default off)
+#include "native_frame.h"   // --wwe2k14_native_frame (Session 79: the HD 520 arc's switch, default off)
 #include "tron_export.h"    // --wwe2k14_tron_export (Session 17 launcher previews, default off)      // MP4 / MOV / MKV titantrons via Media Foundation (Session 17 item 1B; needs --wwe2k14_mods)
 #include "motion_fix.h"     // --wwe2k14_fix_secondary_motion (Session 27.5: Cena's title at 60 fps, default off)
 #include "gfx_menu.h"       // GRAPHICS menu in the Options (Session 28)
@@ -73,8 +74,10 @@
 #include "create_readback.h"  // Session 57: --wwe2k14_readback_sequences (exact readback in the create modes, default on)
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
 #include "post_swap.h"  // Session 72: our post-effect shaders (gpu_native_shader_swap)
+#include "scene_swap.h"  // Session 80: our own scene material shaders (--wwe2k14_scene_shaders, off)
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
 #include "replay_watch.h"  // Session 63: log a runaway render-command replay; S73 b78: end it (default on Android)
+#include "xdet_check.h"  // Session 77 (P7): --wwe2k14_xdet_check, the tester determinism check's profile
 #include "native_skin.h"   // Session 64: the game's CPU vertex-skinning loop sub_82508738 natively (S66: every platform, via native_fn.h)
 #include "nf/all.h"        // Session 66 (F2): the native function factory's functions (off until verified)
 #include "shader_list.h"  // Session 61: --wwe2k14_shader_list (the shipped shader list into the shader storage)
@@ -160,6 +163,8 @@ class Wwe2k14App : public rex::ReXApp {
   // Dev-layout default: with no --game_data_root, search upwards from the exe
   // (out/build/<preset>/) for game_data/extracted/default.xex.
   void OnConfigurePaths(rex::PathConfig& paths) override {
+    // Session 77 (P7): the tester check's profile first (over every other source; no wwe2k14.toml).
+    wwe2k14::xdet_check::ConfigurePaths(paths);
     // Keep far more log history than ReXGlue's default (5 MB files): GPU warnings can fill 5 MB in ~13 s,
     // which rotated away the whole match before a crash (wwe2k14_014). This is the last hook before
     // logging is configured. Command-line values still win; a config-file value would not.
@@ -213,6 +218,7 @@ class Wwe2k14App : public rex::ReXApp {
         config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin, "any");
       }
     }
+    wwe2k14::xdet_check::AfterGpuPlugin();  // Session 77 (P7): the profile's GPU-library settings
     // Session 54: the settings file once more now that the GPU plugin's settings exist (gpu_native, the native
     // renderer's flags, gpu_native_truth_draw_height: set before this they were lost - run 3652 ran without NATIVE;
     // likely also run 2139's resolution_scale). Only what is still at default (the first call's settings stay).
@@ -413,6 +419,8 @@ class Wwe2k14App : public rex::ReXApp {
                   rex::cvar::GetFlagByName("gpu_native_half2"), rex::cvar::GetFlagByName("gpu_native_lean_draws"),
                   rex::cvar::GetFlagByName("gpu_native_trust_geometry_pages"));
     }
+    // Session 79 (HD 520 arc): --wwe2k14_native_frame, the arc's switch (src\native_frame.h).
+    wwe2k14::native_frame::Apply();
 
     // Session 43 (stretch S4): --wwe2k14_preset_deck (docs\native\STEAM_DECK.md): as LOW, but 60 fps (the Deck's GPU is
     // ~4x a UHD 620; its screen is 1280x800 at 60 Hz). Set before the 1440p preset, so it keeps only its no-MSAA /
@@ -523,7 +531,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::low_power::Configure();      // Session 37: --wwe2k14_low_power (default off)
     wwe2k14::SlowFrameOnPreSetup();  // Session 8 task 12: nothing unless --wwe2k14_slowframe_ms > 0
     wwe2k14::dlaa::Configure();      // Session 18: DLAA phase 1 (all off unless a --wwe2k14_dlaa_* flag is set)
-    wwe2k14::gfx_menu::ConfigureTextureFilter();  // Session 33: --wwe2k14_texture_filter (0 = unchanged)
+    wwe2k14::gfx_menu::ConfigureTextureFilter();  // Session 33: --wwe2k14_texture_filter (0 = the game's own, S80)
     wwe2k14::ultrawide::Configure();  // Session 33: --wwe2k14_aspect (16:9 = unchanged)
     // Session 33: photo mode is built on the CineCam free camera.
     if (REXCVAR_GET(wwe2k14_photo_mode) && rex::cvar::GetFlagSource("wwe2k14_cinecam") == rex::cvar::Source::kDefault)
@@ -571,6 +579,7 @@ class Wwe2k14App : public rex::ReXApp {
     REXLOG_INFO("[wwe2k14] game_data_root: {} ({})", game_data_root().string(),
                 std::filesystem::is_regular_file(game_data_root()) ? "disc image" : "folder");
     REXLOG_INFO("[wwe2k14] user_data_root: {}", user_data_root().string());  // Session 53: the save folder in use
+    wwe2k14::xdet_check::PostSetup(game_data_root());  // Session 77 (P7): the profile's notes, the identity line
     wwe2k14::keybinds_save::Install(user_data_root());  // Session 53 item 2.6: keyboard binds kept between starts
     wwe2k14::keyboard_player::Install(runtime());  // Session 76: the keyboard as its own player (P2 beside one pad)
     for (const char* name : {"gpu_plugin", "wwe2k14_gpu_backend", "readback_resolve",
@@ -594,6 +603,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::decode_probe::g_native_bpe_in_game = [] { return wwe2k14::load_probe::CurrentSequence() == 9; };
     wwe2k14::load_pipeline_wait::Install();  // Session 57 (tester bug 1): no skipped draws during in-game loads
     wwe2k14::post_swap::Install();  // Session 72: our post-effect shaders (used with gpu_native_shader_swap)
+    wwe2k14::scene_swap::Install();  // Session 80: our own scene material shaders (--wwe2k14_scene_shaders)
     // Session 58: the session timeline for Report a problem (snapshots off in harness runs unless asked for).
     wwe2k14::session_log::Install(!REXCVAR_GET(wwe2k14_input_script).empty() || !REXCVAR_GET(wwe2k14_live).empty());
     wwe2k14::StartTimelineIfRequested();
@@ -678,6 +688,21 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::DumpGuestImage(runtime(), PPCImageConfig, REXCVAR_GET(wwe2k14_dump_image));  // empty = off
     // Session 61: the shader list's shaders and pipelines into the storage the SDK loads right after this.
     wwe2k14::shader_list::Import(runtime()->cache_root());
+    // Session 80 (HD 520 arc): with NATIVE's truth frames the emulated path draws nothing, so its stored pipelines are
+    // not made at boot (the Surface's UHD 620: 406 stored ones at 2.6 s each, ~3 minutes before the first frame; none
+    // used after). The SDK's own test for truth frames (native_renderer.cpp: refused with EDRAM renaming, or DLSS /
+    // DLAA without gpu_native_truth_upscalers). Their records stay; one needed later is made on first use.
+    {
+      auto on = [](const char* name) {
+        const std::string v = rex::cvar::GetFlagByName(name);
+        return v == "true" || v == "1";
+      };
+      const bool upscaler_refuses = (on("gpu_dlss") || on("gpu_dlaa")) && !on("gpu_native_truth_upscalers");
+      const bool truth = rex::cvar::GetFlagByName("gpu_native") == "2" && on("gpu_native_truth") &&
+                         !on("gpu_edram_rename") && !upscaler_refuses;
+      if (truth && rex::cvar::GetFlagSource("vulkan_stored_pipelines_at_boot") == rex::cvar::Source::kDefault)
+        rex::cvar::SetFlagByName("vulkan_stored_pipelines_at_boot", "false");
+    }
   }
 
  private:

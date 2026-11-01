@@ -1,0 +1,324 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-nfd): d1fd95373977..752e026ac3d6 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  752e026 Merge s79-nfd: Session 79 - native frame NF-D first piece: gpu_native_frame_dead_glare (the entrance's star glare not drawn when the combine queued ahead in the same segment has strength 0; the game's hooks carry the combine's c32 in the HALF2 queue); exactness census 0 differ, same-frame shots byte-identical, entrance replay MATCH; DeferredCommandBuffer kNop / NopRange (unused); diagnostics gpu_native_frame_batch_log
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 48112bc9f5174858bc1abe8e0cd7f089c6a3accc..4f436d1a5fbbb1a510071a7725baddbc4718c453 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -326,6 +326,9 @@ class CommandProcessor {
+   struct NfCensus {
+     uint64_t segments = 0, catchups = 0, words = 0, ring_packets = 0, nested = 0, nested_waits = 0, overruns = 0;
+     uint64_t skipped_draw_side = 0;  // segments the drawing side did not run (gpu_native_frame_draw off)
++    // Session 79 (gpu_native_frame_dead_glare): star-glare draws seen, with the combine found ahead, judged dead.
++    uint64_t glare_seen = 0, glare_ahead = 0, glare_dead = 0;
++    uint64_t glare_check_ok = 0, glare_check_bad = 0;  // the combine's carried c32 vs its register at the draw
+   };
+   NfCensus nf_census_;
+   RegisterFile& DrawRegisterFile() { return nf_register_file_ ? *nf_register_file_ : *register_file_; }
+@@ -342,8 +345,23 @@ class CommandProcessor {
+   // answer packet - the answers side may stop storing what only drawing needs only if nothing reads it back. Any
+   // thread; counted, the first few logged.
+   static void NfNoteHighRead(uint32_t index, const char* who);
++  // wwe2k14 patch (Session 79, NF-D look-ahead diagnostic): the drawing side's catch-up batches so far (monotonic).
++  uint64_t nf_batch_seq() const { return nf_batch_seq_; }
++  // wwe2k14 patch (Session 79, NF-D look-ahead through the library calls): the watched pixel shader (the entrance
++  // combine; its library draws carry c32 in the HALF2 queue), set from the last matched library draw; and the first
++  // queued, published library draw of the watched shader inside the current native-frame segment, ahead of the
++  // command processor (its c32.x bits). Command processor thread.
++  uint32_t half2_watch_ps_ucode() const { return half2_watch_ps_ucode_.load(std::memory_order_relaxed); }
++  // gpu_native_frame with gpu_native_frame_dead_glare (latched in Initialize): the game's hooks fill the look-ahead
++  // fields only then.
++  bool nf_lookahead() const { return nf_lookahead_; }
++  void Half2WatchLastMatchedPixelShader();
++  bool Half2FindWatchedAhead(uint32_t& c32x);
+ 
+  protected:
++  uint64_t nf_batch_seq_ = 0;
++  std::atomic<uint32_t> half2_watch_ps_ucode_{0};
++  bool nf_lookahead_ = false;
+ 
+   std::atomic<bool> worker_running_;
+   system::object_ref<system::XHostThread> worker_thread_;
+diff --git a/include/rex/graphics/half2.h b/include/rex/graphics/half2.h
+index 16f007f623566d7f4481e82025686a425e40b93c..db32417426984a6162feb1b027f4b9f4069d6d61 100644
+--- a/include/rex/graphics/half2.h
++++ b/include/rex/graphics/half2.h
+@@ -39,6 +39,11 @@ struct Half2LibraryDraw {
+   // wwe2k14 patch (Session 51, STATE LOG): the state-log record holding this call's packets (gpu_native_half2 3; a
+   // call made inside another call shares the outer call's record). 0: none.
+   uint64_t log_seq = 0;
++  // wwe2k14 patch (Session 79, NF-D look-ahead): for a draw of the watched pixel shader
++  // (CommandProcessor::half2_watch_ps_ucode, the entrance combine), its pixel constant c32 from the device's float
++  // shadow (the game's hooks, every half2 mode); has_ps_c32 false otherwise.
++  bool has_ps_c32 = false;
++  uint32_t ps_c32[4] = {};
+   uint32_t run_count = 0;
+   uint32_t value_count = 0;
+   Half2Run runs[kMaxRuns];
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index efa1bf191e11c3858920119595b1aa0c2acc8aeb..62ff569cc42f4e9d4abbe63faf6e22093b2f0bb0 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -49,6 +49,24 @@ class DeferredCommandBuffer {
+   // after a Reset / SwapStream), and replacing its render pass by a compatible one (different load / store operations)
+   // once the pass's draws are known. False (nothing changed) if the stream has moved on or the pass differs.
+   size_t last_begin_render_pass_offset() const { return last_begin_offset_; }
++  // wwe2k14 patch (Session 79, NF-D dead passes): the stream's end (the next command's offset, in elements), and
++  // turning every command recorded in [begin_offset, end_offset) into kNop (skipped on replay). The range must start on
++  // a command boundary; false (nothing changed) if it does not end on one.
++  size_t stream_offset() const { return command_stream_.size(); }
++  bool NopRange(size_t begin_offset, size_t end_offset) {
++    size_t at = begin_offset;
++    while (at < end_offset && at < command_stream_.size()) {
++      const auto& header = *reinterpret_cast<const CommandHeader*>(command_stream_.data() + at);
++      at += kCommandHeaderSizeElements + header.arguments_size_elements;
++    }
++    if (at != end_offset) return false;
++    for (at = begin_offset; at < end_offset;) {
++      auto& header = *reinterpret_cast<CommandHeader*>(command_stream_.data() + at);
++      at += kCommandHeaderSizeElements + header.arguments_size_elements;
++      header.command = Command::kNop;
++    }
++    return true;
++  }
+   bool PatchBeginRenderPass(size_t offset, VkRenderPass expected, VkRenderPass replacement) {
+     if (offset == SIZE_MAX || offset < kCommandHeaderSizeElements || offset >= command_stream_.size()) return false;
+     const CommandHeader& header =
+@@ -638,6 +656,7 @@ class DeferredCommandBuffer {
+     kHostCallback,      // wwe2k14 patch (Session 18, DLAA)
+     kVkBlitImage,       // wwe2k14 patch (Session 54, NATIVE draw sizes)
+     kVkClearDepthStencilImage,  // wwe2k14 patch (Session 54, NATIVE without interlock)
++    kNop,  // wwe2k14 patch (Session 79, NF-D): a command turned off after recording (NopRange); skipped on replay
+   };
+ 
+   struct CommandHeader {
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 5e9fe41cfc19fd760e160142c20204dafb7d2709..a5083706b5dd43c636361aa33830bee3f094493c 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -72,6 +72,14 @@ REXCVAR_DEFINE_BOOL(gpu_native_frame_draw, true, "GPU/Native",
+ REXCVAR_DEFINE_BOOL(gpu_native_frame_answers_lean, true, "GPU/Native",
+                     "Session 79 (NF-C): with gpu_native_frame, the answers side stores only registers below 0x2000 "
+                     "(render state and constants are the drawing side's; nothing reads them back). Read at start");
++REXCVAR_DEFINE_INT32(gpu_native_frame_dead_glare, 1, "GPU/Native",
++                     "Session 79 (NF-D look-ahead): with gpu_native_frame, the entrance's star glare draws when the "
++                     "combine queued ahead in the segment has glare strength 0: 1 = not drawn (default; acts only with "
++                     "gpu_native_frame), 2 = counted only, 0 = off. Pictures byte-identical (Session 79, runs "
++                     "5008 / 5009). Read at start");
++REXCVAR_DEFINE_INT32(gpu_native_frame_batch_log, 0, "GPU/Native",
++                     "Session 79 (diagnostic): log the native-frame catch-up batch of the first N star-glare / entrance "
++                     "combine draws (NativeRenderer::TruthRecordDraw)");
+ REXCVAR_DEFINE_INT32(gpu_native_frame_log_frames, 600, "GPU/Native",
+                      "Session 78: [native][frame] census line every N frames (0 = none)");
+ REXCVAR_DECLARE(int32_t, gpu_native_detached);
+@@ -545,6 +553,7 @@ bool CommandProcessor::Initialize() {
+     nf_real_register_file_ = register_file_;
+     nf_role_ = NfRole::kAnswers;
+     nf_answers_lean_ = REXCVAR_GET(gpu_native_frame_answers_lean);
++    nf_lookahead_ = REXCVAR_GET(gpu_native_frame_dead_glare) != 0;  // (Session 79)
+     REXLOG_INFO("[native][frame] on: answers from the command processor (no draws), drawing side behind it (draw {})",
+                 REXCVAR_GET(gpu_native_frame_draw));
+   }
+@@ -1510,6 +1519,7 @@ void CommandProcessor::NfCatchUp(uint32_t target_word) {
+     return;
+   }
+   ++nf_census_.catchups;
++  ++nf_batch_seq_;
+   nf_census_.words += target_word - nf_seg_done_;
+   // The packet attribution state belongs to whichever side executes; the drawing side runs inside the segment (depth
+   // 1, as the segment's own packets do when one side runs everything).
+@@ -1577,9 +1587,11 @@ void CommandProcessor::NfFrameLog() {
+   const NfCensus& c = nf_census_;
+   REXLOG_INFO("[native][frame] {} frames: segments {}, catch-ups {} ({:.1f} a frame), words {:.0f} a frame, ring "
+               "packets on the drawing side {}, nested buffers {} (waits inside them {}), overruns {}, segments not "
+-              "drawn {}",
++              "drawn {}; star glare draws {} (combine found ahead {}, dead {}); combine c32 carried = register {}, "
++              "differs {}",
+               frames, c.segments, c.catchups, double(c.catchups) / frames, double(c.words) / frames, c.ring_packets,
+-              c.nested, c.nested_waits, c.overruns, c.skipped_draw_side);
++              c.nested, c.nested_waits, c.overruns, c.skipped_draw_side, c.glare_seen, c.glare_ahead, c.glare_dead,
++              c.glare_check_ok, c.glare_check_bad);
+   nf_census_ = {};
+   frames = 0;
+ }
+diff --git a/src/graphics/half2.cpp b/src/graphics/half2.cpp
+index 828421a13ea2a8741a0cede00d56e72b5a8d548d..28f9fdce06bfa99319685a5f5bc84eabed0f63d4 100644
+--- a/src/graphics/half2.cpp
++++ b/src/graphics/half2.cpp
+@@ -99,6 +99,7 @@ Half2LibraryDraw* CommandProcessor::Half2BeginLibraryDraw(uint32_t kind, uint32_
+   d.vs_ucode[0] = d.vs_ucode[1] = 0;
+   d.vs_inline_ucode = 0;
+   d.index32 = false;
++  d.has_ps_c32 = false;  // wwe2k14 patch (Session 79)
+   d.log_seq = 0;
+   if (half2_logging()) d.log_seq = Half2LogReserve(kind, d.packets_begin);  // wwe2k14 patch (Session 51, STATE LOG)
+   d.state.store(1, std::memory_order_release);
+@@ -121,9 +122,43 @@ void CommandProcessor::Half2EndLibraryDraw(Half2LibraryDraw* draw, uint32_t pack
+   physical(draw->vs_ucode[1]);
+   physical(draw->ps_ucode);
+   physical(draw->vs_inline_ucode);
++  // wwe2k14 patch (Session 79, NF-D look-ahead): the hook copied c32 for every draw; kept for the watched shader.
++  const uint32_t watch = half2_watch_ps_ucode_.load(std::memory_order_relaxed);
++  draw->has_ps_c32 = watch && draw->ps_ucode == watch;
+   draw->state.store(2, std::memory_order_release);
+ }
+ 
++// wwe2k14 patch (Session 79, NF-D look-ahead; see command_processor.h).
++void CommandProcessor::Half2WatchLastMatchedPixelShader() {
++  if (half2_ && half2_->last_valid && half2_->last.ps_ucode) {
++    half2_watch_ps_ucode_.store(half2_->last.ps_ucode, std::memory_order_relaxed);
++    // The look-ahead's exactness check: the c32 the library call carried = the register the draw reads.
++    if (half2_->last.has_ps_c32) {
++      const uint32_t reg = register_file_->values[XE_GPU_REG_SHADER_CONSTANT_000_X + 4 * (256 + 32)];
++      ++(reg == half2_->last.ps_c32[0] ? nf_census_.glare_check_ok : nf_census_.glare_check_bad);
++    }
++  }
++}
++
++bool CommandProcessor::Half2FindWatchedAhead(uint32_t& c32x) {
++  if (!half2_ || !nf_seg_ptr_) return false;
++  Half2State& s = *half2_;
++  const uint32_t seg_begin = nf_seg_ptr_ & 0x1FFFFFFF, seg_end = seg_begin + nf_seg_words_ * 4;
++  const uint64_t tail = s.tail.load(std::memory_order_acquire);
++  const uint64_t last = std::min(tail, s.head + Half2State::kSlots);
++  for (uint64_t i = s.head; i < last; ++i) {
++    const Half2LibraryDraw& d = s.slots[i % Half2State::kSlots];
++    if (d.state.load(std::memory_order_acquire) != 2) break;  // not published yet: nothing further is either
++    const uint32_t at = d.packets_begin & 0x1FFFFFFF;
++    if (at < seg_begin || at >= seg_end) continue;  // another segment's
++    if (d.has_ps_c32) {
++      c32x = d.ps_c32[0];
++      return true;
++    }
++  }
++  return false;
++}
++
+ void CommandProcessor::Half2Compare(const Half2LibraryDraw& d, const Half2PacketDraw& packet, bool first_chunk) {
+   // The library's clears and resolves (kinds 3, 4) are attributed only: their own inline shaders and immediate
+   // register writes are not in the device's shadow.
+@@ -381,6 +416,9 @@ void CommandProcessor::Half2OnCpDraw(uint32_t packet_physical, bool skipped, con
+     s.last.packets_end = d.packets_end;
+     s.last.device = d.device;
+     s.last.log_seq = d.log_seq;  // (Session 51, STATE LOG)
++    s.last.ps_ucode = d.ps_ucode;  // (Session 79: 0 unless nf_lookahead - the look-ahead's watch is learned from it)
++    s.last.has_ps_c32 = d.has_ps_c32;  // (and checked against the registers at the combine's draw)
++    std::copy(std::begin(d.ps_c32), std::end(d.ps_c32), std::begin(s.last.ps_c32));
+   }
+   s.last_valid = true;
+   d.state.store(0, std::memory_order_relaxed);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 1eee58153936e0711fbc61d18cf78596116cb4b3..dd1066612a76e22c84c6eb076a1092921203a194 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -83,6 +83,7 @@ REXCVAR_DEFINE_BOOL(vulkan_flight_gpu_records, false, "GPU/Vulkan",
+ // wwe2k14 patch (Session 16, MATTE): find and dump the game's depth resolves (for depth mattes). Both default off.
+ // wwe2k14 patch (Session 20, RECSTATS)
+ REXCVAR_DECLARE(bool, gpu_native_truth_clear_attachments);  // wwe2k14 patch (Session 56, native_truth.cpp)
++REXCVAR_DECLARE(int32_t, gpu_native_frame_dead_glare);       // wwe2k14 patch (Session 79, command_processor.cpp)
+ REXCVAR_DECLARE(int32_t, readback_resolve_override);  // wwe2k14 patch (Session 59; graphics/command_processor.cpp)
+ // wwe2k14 patch (Session 66, B2.0 / B2.1): see VulkanPipelineCache::GetVertexFetchEndianKey and VertexCensusDraw.
+ REXCVAR_DECLARE(bool, gpu_native_vertex_endian_spec);
+@@ -9398,6 +9399,30 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     repeat_prev_.valid = false;
+     return true;
+   }
++  // wwe2k14 patch (Session 79, NF-D look-ahead, gpu_native_frame_dead_glare 1 = skip, 2 = count only): the entrance's
++  // star glare (directional blurs 75641266549A40C0, streak combine 9C84E33D39058FB0) when the entrance combine
++  // (4E2CD8031D93DE3E, swapped: our copy reads the glare only at a strength c32.x != 0) is queued ahead in this
++  // native-frame segment with c32.x == 0: nothing reads its output. The combine's library draws carry c32 (HALF2 queue).
++  if (nf_ && !memexport_used_vertex && active_pixel_shader() && REXCVAR_GET(gpu_native_frame_dead_glare)) {
++    const uint64_t ps_hash = active_pixel_shader()->ucode_data_hash();
++    if (ps_hash == 0x4E2CD8031D93DE3Eull) {
++      Half2WatchLastMatchedPixelShader();
++    } else if (ps_hash == 0x75641266549A40C0ull || ps_hash == 0x9C84E33D39058FB0ull) {
++      ++nf_census_.glare_seen;
++      uint32_t c32x = 0;
++      if (Half2FindWatchedAhead(c32x)) {
++        ++nf_census_.glare_ahead;
++        if ((c32x & 0x7FFFFFFFu) == 0) {
++          ++nf_census_.glare_dead;
++          if (REXCVAR_GET(gpu_native_frame_dead_glare) == 1) {
++            anatomy_skip_reason_ = kAnatomySkipOther;
++            repeat_prev_.valid = false;
++            return true;
++          }
++        }
++      }
++    }
++  }
+   // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a registered restore of what the truth images
+   // still hold is left out here, before its textures are requested (or loaded) - NativeRenderer::
+   // TruthRestoreRedundantEarly; TruthRecordDraw checks the rest again (the late check).
+diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
+index 986a6507aa14167da9821d9bcc6d9de22cccbc07..f526bde61d8e628244365461acf720eebd11e919 100644
+--- a/src/graphics/vulkan/deferred_command_buffer.cpp
++++ b/src/graphics/vulkan/deferred_command_buffer.cpp
+@@ -644,6 +644,9 @@ void DeferredCommandBuffer::ExecuteStream(const std::vector<uintmax_t>& command_
+         dfn.vkCmdWriteTimestamp(command_buffer, args.pipeline_stage, args.query_pool, args.query);
+       } break;
+ 
++      case Command::kNop:  // wwe2k14 patch (Session 79, NF-D): turned off after recording (NopRange)
++        break;
++
+       default:
+         assert_unhandled_case(header.command);
+         break;
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 7a357424d3af93dbb7b45ed94e78e351dee8ffd7..8a486533cb9fddde2aff8c634431a24b459eb575 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -394,6 +394,7 @@ REXCVAR_DEFINE_INT32(gpu_native_alias_census, 0, "GPU/Native",
+ 
+ // Session 46 (gpu_native_truth): what a truth frame turns on, and what refuses it (defined in command_processor.cpp).
+ REXCVAR_DECLARE(bool, gpu_native_lean);
++REXCVAR_DECLARE(int32_t, gpu_native_frame_batch_log);  // wwe2k14 patch (Session 79)
+ REXCVAR_DECLARE(int32_t, gpu_native_truth_pass_log);  // Session 72 (native_truth.cpp)
+ REXCVAR_DECLARE(bool, gpu_native_shader_swap);        // Session 72 (shader_swap.cpp)
+ REXCVAR_DECLARE(bool, gpu_edram_rename);
+@@ -3466,6 +3467,15 @@ uint32_t NativeRenderer::PostReason(const Draw& draw, bool check_shader) const {
+ bool NativeRenderer::ClaimPost(Draw& draw) {
+   const uint32_t reason = PostReason(draw, true);
+   if (reason == kPostOff) return false;
++  // wwe2k14 patch (Session 79, NF-D look-ahead diagnostic, gpu_native_frame_batch_log): as TruthRecordDraw's.
++  if (const int32_t log_left = REXCVAR_GET(gpu_native_frame_batch_log); log_left > 0) [[unlikely]] {
++    const uint64_t ps = draw.pixel_shader_hash;
++    if (ps == 0x75641266549A40C0ull || ps == 0x9C84E33D39058FB0ull || ps == 0x4E2CD8031D93DE3Eull) {
++      REXGPU_INFO("[native][frame] batch {} frame {}: post draw ps {:016X}", command_processor_.nf_batch_seq(), frame_,
++                  ps);
++      REXCVAR_SET(gpu_native_frame_batch_log, log_left - 1);
++    }
++  }
+   FrameSlot& slot = slots_[SlotOf(frame_)];
+   if (reason != kPostOk) {
+     ++slot.post_skipped[reason];
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index d49798065e5edc1bf797d1fb1653404221b4aad3..500ce396337a3f7f122056881176ca0ef7af10bc 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -33,6 +33,7 @@
+ 
+ REXCVAR_DECLARE(int32_t, gpu_native_truth_debug_draws);
+ REXCVAR_DECLARE(int32_t, gpu_native);
++REXCVAR_DECLARE(int32_t, gpu_native_frame_batch_log);  // wwe2k14 patch (Session 79)
+ REXCVAR_DECLARE(bool, gpu_native_truth);
+ REXCVAR_DECLARE(bool, gpu_edram_rename);
+ REXCVAR_DECLARE(bool, gpu_dlss);
+@@ -5075,6 +5076,16 @@ void NativeRenderer::EndTruthPass() {
+ }
+ 
+ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
++  // wwe2k14 patch (Session 79, NF-D look-ahead diagnostic, gpu_native_frame_batch_log N): which native-frame catch-up
++  // batch the star glare's draws (75641266549A40C0, 9C84E33D39058FB0) and the entrance combine (4E2CD8031D93DE3E) land
++  // in, the first N such draws (shader hashes are our identifiers).
++  if (const int32_t log_left = REXCVAR_GET(gpu_native_frame_batch_log); log_left > 0) [[unlikely]] {
++    const uint64_t ps = draw.pixel_shader_hash;
++    if (ps == 0x75641266549A40C0ull || ps == 0x9C84E33D39058FB0ull || ps == 0x4E2CD8031D93DE3Eull) {
++      REXGPU_INFO("[native][frame] batch {} frame {}: draw ps {:016X}", command_processor_.nf_batch_seq(), frame_, ps);
++      REXCVAR_SET(gpu_native_frame_batch_log, log_left - 1);
++    }
++  }
+   // (Session 47, CPU: the recording time is sampled - one draw in 64, counted 64 times - not two clock reads a draw.)
+   const bool timed = (++truth_time_tick_ & 63) == 0;
+   std::chrono::steady_clock::time_point cpu_start;

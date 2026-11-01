@@ -1,0 +1,30 @@
+# Session 77: the "as played" cross-device config (Jarrod 2026-10-31 ~11:10: "things like the crowd pass are important
+# phone optmizations so I feel like they should be used for determinism since they'd be how I'm actually playing the
+# game"). Stage A's pins (tools\xdet\stageA.flags) with the phone optimisations on, the SAME value on both devices;
+# a pin stays only where a setting changes game state. Used by run_stageA.ps1 -FlagsFile played.flags and
+# tools\android\run.ps1 -Played (which also fast-forwards the phone: --vsync=false, host-only).
+# Evidence that each optimisation leaves game state alone (every hashed layer equal, frame against frame):
+#   natives (two- and three-bone skinning): PC 4874 off vs 4903 on; byte-exact on ARM in verify mode (phone 127) and on
+#     x86-64 (Session 66, 4313); phone 126 (on) = PC 4903.
+#   crowd pass: PC stage 2 4906 off vs 4908 on (only GPU interrupt timing differs, 203 det vblanks); phone 129 (on) =
+#     PC 4908 except interrupt timing in 4 det vblanks. With it off the phone lost the GPU in Cena's entrance (run 128,
+#     an Adreno timeout fault).
+# Jarrod's phone (launcher_settings.json, read 11:12): 60 fps mode (frame_rate 1 = step 0 + 60 fps entrances) and
+# dynamic resolution off - as pinned below. DLC: he plays with it on; pinned off until both devices hold the same files.
+--wwe2k14_det_hash=default,objects,sim
+--wwe2k14_det_hash_v2=true
+--wwe2k14_step_hz=0
+--wwe2k14_step_hz_entrance=0
+--wwe2k14_entrance_60fps=true
+--user_language=1
+--wwe2k14_dlc=false
+--wwe2k14_dynamic_res=false
+--wwe2k14_phys_alloc_fast_fail=true
+--occlusion_query_enable=false
+--resolution_scale=1
+--det_serial_vblank_timeout_ms=60000
+# The phone optimisations, on and the same on both (nf_skin_3bone: on by default everywhere since Jarrod's ~12:20
+# decision; older APKs had it off on ARM, so it stays pinned here).
+--wwe2k14_native_skin=true
+--wwe2k14_nf_skin_3bone=on
+--wwe2k14_scene_crowd=1

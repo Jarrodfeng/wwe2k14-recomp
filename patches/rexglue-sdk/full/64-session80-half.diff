@@ -1,0 +1,139 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-half): 895cc9045ed8..f7190db59e14 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  f7190db Merge s80-half: gpu_native_ps_half (Session 80, HD 520 arc look lever, off) - relaxed pixel-shader maths as real fp16, shaderFloat16 enabled when present; validation 0 errors (5205), shots vs off: match 0.41% / Brock 0.11% / Bryan 0% of pixels off by >16 (5203 / 5204), T2 PASS
+
+diff --git a/include/rex/ui/vulkan/device.h b/include/rex/ui/vulkan/device.h
+index 2ad5446ff837eae681f6751cf94e4a963c085a53..665e0a4c507cf0aadc110f0db8e3ddd996602639 100644
+--- a/include/rex/ui/vulkan/device.h
++++ b/include/rex/ui/vulkan/device.h
+@@ -124,6 +124,10 @@ class VulkanDevice {
+ 
+     bool scalarBlockLayout = false;
+ 
++    // VK_KHR_shader_float16_int8 (#83, promoted to 1.2) - wwe2k14 patch (Session 80, gpu_native_ps_half)
++
++    bool shaderFloat16 = false;
++
+     // VK_KHR_portability_subset (#164)
+ 
+     bool constantAlphaColorBlendFactors = false;
+diff --git a/src/graphics/vulkan/shader.cpp b/src/graphics/vulkan/shader.cpp
+index ce59391c29c28377f3b260aa53bfc01973ea89b2..79fa0befb32f36fb97ec881d18515895f4978836 100644
+--- a/src/graphics/vulkan/shader.cpp
++++ b/src/graphics/vulkan/shader.cpp
+@@ -50,6 +50,15 @@ REXCVAR_DEFINE_BOOL(vulkan_spirv_optimize_store, true, "GPU",
+ REXCVAR_DEFINE_BOOL(vulkan_spirv_optimize_collect, false, "GPU",
+                     "Session 70 (set by the game's precompile): every module made from code not stored yet is "
+                     "optimised on a pool of threads and stored for the next runs (spirv_opt_store.h)");
++// wwe2k14 patch (Session 80, HD 520 arc): the relaxed pixel-shader maths of gpu_native_ps_relaxed_precision as real
++// 16-bit floats (SPIRV-Tools' convert-relaxed-to-half), for drivers that may ignore the decoration: Intel's Gen9 runs
++// fp16 at twice the fp32 rate, and on the Surface's UHD 620 the scene pass is 21-38x the 4090's. The code is made SSA
++// first (the performance passes), so the translator's register variables do not convert back and forth. Needs the
++// device's shaderFloat16; the characters' shaders stay full precision as with the decoration.
++REXCVAR_DEFINE_BOOL(gpu_native_ps_half, false, "GPU/Native",
++                    "Session 80: with gpu_native_ps_relaxed_precision, the relaxed pixel-shader maths converted to "
++                    "16-bit floats (needs shaderFloat16; looks: judged by eye). Applies to modules made after it is "
++                    "set");
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -93,6 +102,40 @@ std::vector<uint32_t> OptimizeSpirv(const uint32_t* words, size_t count, uint64_
+   }
+   return out;
+ }
++
++// wwe2k14 patch (Session 80, gpu_native_ps_half): the RelaxedPrecision maths as 16-bit floats, then the clean-up of the
++// conversions it inserts. Empty if it failed (the relaxed code is used).
++std::atomic<uint32_t> g_half_count{0}, g_half_failed{0};
++std::vector<uint32_t> ConvertRelaxedToHalf(const uint32_t* words, size_t count, uint64_t hash) {
++  std::vector<uint32_t> out;
++  if (count < 5) return out;
++  const uint32_t version = words[1];
++  const spv_target_env env = version >= 0x10600   ? SPV_ENV_VULKAN_1_3
++                             : version >= 0x10400 ? SPV_ENV_VULKAN_1_2
++                             : version >= 0x10300 ? SPV_ENV_VULKAN_1_1
++                                                  : SPV_ENV_VULKAN_1_0;
++  spvtools::Optimizer optimizer(env);
++  optimizer.SetMessageConsumer([](spv_message_level_t, const char*, const spv_position_t&, const char*) {});
++  optimizer.RegisterPass(spvtools::CreateConvertRelaxedToHalfPass());
++  optimizer.RegisterPass(spvtools::CreateSimplificationPass());
++  optimizer.RegisterPass(spvtools::CreateRedundancyEliminationPass());
++  optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
++  spvtools::OptimizerOptions options;
++  options.set_run_validator(false);
++  if (!optimizer.Run(words, count, &out, options) || out.size() < 5) {
++    out.clear();
++    if (g_half_failed.fetch_add(1, std::memory_order_relaxed) < 8) {
++      REXGPU_WARN("[ps_half] shader {:016X}: the half conversion failed, the relaxed code is used", hash);
++    }
++    return out;
++  }
++  const uint32_t n = g_half_count.fetch_add(1, std::memory_order_relaxed) + 1;
++  if ((n & 63) == 1) {
++    REXGPU_INFO("[ps_half] {} pixel shaders with 16-bit maths ({} failed)", n,
++                g_half_failed.load(std::memory_order_relaxed));
++  }
++  return out;
++}
+ #endif
+ }  // namespace
+ 
+@@ -296,11 +339,35 @@ VkShaderModule VulkanShader::VulkanTranslation::GetOrCreateShaderModule() {
+   // for phone GPUs, on the code the module is made from (the translator's, the optimised store's, or NATIVE's shader
+   // swap replacement); translated_binary() and --dump_shaders stay as they were. Off = this code is never touched.
+   std::vector<uint32_t> relaxed;
++#if REX_HAS_SPIRV_OPT
++  // wwe2k14 patch (Session 80, gpu_native_ps_half): SSA code first (the store's or the performance passes'), so the
++  // half conversion works on values rather than the translator's register variables.
++  std::vector<uint32_t> ssa, half;
++  const bool want_half = shader().type() == xenos::ShaderType::kPixel && REXCVAR_GET(gpu_native_ps_half) &&
++                         vulkan_device->properties().shaderFloat16 && shader_module_create_info.codeSize % 4 == 0;
++  if (want_half && optimized.empty()) {
++    ssa = OptimizeSpirv(shader_module_create_info.pCode, shader_module_create_info.codeSize / 4,
++                        shader().ucode_data_hash());
++    if (!ssa.empty()) {
++      shader_module_create_info.codeSize = ssa.size() * sizeof(uint32_t);
++      shader_module_create_info.pCode = ssa.data();
++    }
++  }
++#endif
+   if (shader().type() == xenos::ShaderType::kPixel && shader_module_create_info.codeSize % 4 == 0 &&
+       spirv_relaxed_precision::ApplyIfEnabled(shader_module_create_info.pCode, shader_module_create_info.codeSize / 4,
+                                               shader().ucode_data_hash(), modification(), relaxed)) {
+     shader_module_create_info.codeSize = relaxed.size() * sizeof(uint32_t);
+     shader_module_create_info.pCode = relaxed.data();
++#if REX_HAS_SPIRV_OPT
++    if (want_half) {
++      half = ConvertRelaxedToHalf(relaxed.data(), relaxed.size(), shader().ucode_data_hash());
++      if (!half.empty()) {
++        shader_module_create_info.codeSize = half.size() * sizeof(uint32_t);
++        shader_module_create_info.pCode = half.data();
++      }
++    }
++#endif
+   }
+   rex::perf::frame_events::Get().shaders.fetch_add(1, std::memory_order_relaxed);  // Session 73
+   if (vulkan_device->functions().vkCreateShaderModule(vulkan_device->device(),
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 3c188facdec933da11088efd5f1086ad5210321a..e555b006e87efbe2f0dfa1eeb7d9e44c0045d6d4 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -832,6 +832,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+       XE_UI_VULKAN_FEATURE_2(features_1_2, samplerMirrorClampToEdge);
+       XE_UI_VULKAN_FEATURE_2(features_1_2, uniformBufferStandardLayout);
+       XE_UI_VULKAN_FEATURE_2(features_1_2, scalarBlockLayout);
++      // wwe2k14 patch (Session 80, HD 520 arc): 16-bit float maths in shaders, for gpu_native_ps_half (Intel's Gen9
++      // runs it at twice the 32-bit rate; the HD 520 / UHD 620 Windows drivers report it). A capability only: no shader
++      // uses it unless that cvar converts one.
++      XE_UI_VULKAN_FEATURE_2(features_1_2, shaderFloat16);
+     }
+   } else {
+     if (ext_1_2_KHR_sampler_mirror_clamp_to_edge) {
+@@ -990,6 +994,7 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     XE_EMU_FEATURE(samplerMirrorClampToEdge)
+     XE_EMU_FEATURE(uniformBufferStandardLayout)
+     XE_EMU_FEATURE(scalarBlockLayout)
++    XE_EMU_FEATURE(shaderFloat16)
+     XE_EMU_FEATURE(shaderSignedZeroInfNanPreserveFloat32)
+     XE_EMU_FEATURE(shaderDenormFlushToZeroFloat32)
+     XE_EMU_FEATURE(shaderRoundingModeRTEFloat32)

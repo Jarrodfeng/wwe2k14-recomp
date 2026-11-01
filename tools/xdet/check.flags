@@ -1,0 +1,5 @@
+# Session 77 (XDET_PLAN.md "P7 testers"): the tester determinism check's flags for the PC runners
+# (tools\xdet\run_stageA.ps1 -FlagsFile check.flags): the profile alone - it sets the as-played values, the hash and
+# every tester-dependent input itself (src\xdet_check.h). The runners add the paths; the launchers will pass the same
+# one flag (P7 steps 3 / 4).
+--wwe2k14_xdet_check=true

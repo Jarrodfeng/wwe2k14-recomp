@@ -65,6 +65,8 @@ REXCVAR_DEFINE_INT32(wwe2k14_nf_log_s, 5, "wwe2k14",
 
 // Session 66 (03:30): on for x86-64 only, per function: strict verify 0 mismatches (4313), determinism identical
 // (4316-4319) and a gain in the in-run A/B with the strict-clean version (skin_3bone: skinning thread -15%).
+// Session 77: skin_3bone (its only user) is now on everywhere (ARM verified, run 127; src/nf/skin_3bone.h); the macro
+// stays for the next function verified on x86-64 only.
 #if defined(__x86_64__) || defined(_M_X64)
 #define WWE2K14_NF_X86_ON "on"
 #else

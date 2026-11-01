@@ -1,0 +1,806 @@
+# harness: fastforward
+# Session 80, written by tools\native\passab_multi.py: SCENE_SHADERS_PLAN.md step 0/1 on the Surface: our crowd pixel shaders, a flat wrestler body, the crowd and the wrestler body skipped, against the game's own.
+#   arm base: gpu_debug_skip_vertex_shader=0, gpu_native_shader_swap_skip=ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+#   arm crowd_ours: gpu_debug_skip_vertex_shader=0, gpu_native_shader_swap_skip=1B66FF87A6433D53,B1F58C0AA0E3C83A
+#   arm flat_body: gpu_debug_skip_vertex_shader=0, gpu_native_shader_swap_skip=ED94EC2F6D52E14F,803205E3BEA932C8
+#   arm skip_crowd: gpu_debug_skip_vertex_shader=183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB, gpu_native_shader_swap_skip=ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+#   arm skip_body: gpu_debug_skip_vertex_shader=F709D14F30FCC95C, gpu_native_shader_swap_skip=ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+# Per scene: warm-up 60 frames per arm, then 8 cycles x 4 pass-logged frames per arm; labels <scene>_<arm>.
+on_fail quit
+log bench: start s80_scene_multi (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 0
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: brock_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: brock_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: brock_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: brock_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: brock_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: brock_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: brock_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: brock_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: brock_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 140
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: bryan_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: bryan_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: bryan_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: bryan_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: bryan_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: bryan_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: bryan_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: bryan_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: bryan_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 600
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: match_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: match_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: match_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: match_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: match_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: match_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: match_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_base
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip 1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_crowd_ours
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8
+wait_frames 2
+log passlog: match_flat_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 183CC64A4C4E96AC,0E2A3DF5BAA2CA18,C1028A64EFCF8229,CB5B16DA1312E5AB
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_crowd
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader F709D14F30FCC95C
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 2
+log passlog: match_skip_body
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_debug_skip_vertex_shader 0
+cvar gpu_native_shader_swap_skip ED94EC2F6D52E14F,803205E3BEA932C8,1B66FF87A6433D53,B1F58C0AA0E3C83A
+wait_frames 60
+log bench: done
+quit

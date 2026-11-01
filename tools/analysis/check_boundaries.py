@@ -15,7 +15,9 @@ rows = [l.rstrip("\n").split("\t")[:4] for l in open(sys.argv[1]).readlines()[1:
 exclude = {int(x, 16) for x in sys.argv[2].split(",")} if len(sys.argv) > 2 and sys.argv[2] else set()
 
 reg = open(os.path.join(GEN, "wwe2k14_register.cpp"), encoding="utf-8").read()
-start_of = {n: int(a, 16) for a, n in re.findall(r"SetFunction\(0x([0-9A-Fa-f]+),\s*(\w+)\)", reg)}
+start_of = {n: int(a, 16) for a, n in re.findall(r"(?:SetFunction|REX_REGISTER_ENTRY)\(0x([0-9A-Fa-f]+),\s*(\w+)\)", reg)}
+if not start_of:
+    raise SystemExit("no function entries in the register file (format changed?)")
 bodies = {}
 for path in glob.glob(os.path.join(GEN, "wwe2k14_recomp.*.cpp")):
     text = open(path, encoding="utf-8").read()

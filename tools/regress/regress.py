@@ -471,8 +471,9 @@ def bench_metrics(logs, n, lines):
         with open(fpath, newline='') as f:
             f.readline()
             for line in f:
+                # (Session 79: frame, t_seconds, frame_ms, then since Session 73 more columns - CPU / GPU times, scene.)
                 p = line.strip().split(',')
-                if len(p) != 3:
+                if len(p) < 3:
                     break
                 try:
                     frames[int(p[0])] = float(p[2])

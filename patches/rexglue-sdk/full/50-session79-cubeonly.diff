@@ -1,0 +1,335 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-cubeonly): 5ef4e50020b6..d700b31f538a on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  d700b31 Merge s79-cubeonly: Session 79 gpu_native_truth_texture_only_cube_faces (off): cube face resolves texture-only and batched (shots byte-identical 5046; 250 / 250 resolve hashes with the faces written from their views, 5048 / 5049)
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 82d1dde6e76b27f160094f4044b7418a83fb0d9b..16a35812cba40473d559ae936d7fe3332f73fb54 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -429,7 +429,7 @@ class VulkanCommandProcessor : public CommandProcessor {
+   VkDescriptorSet NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32, uint32_t endianness,
+                                           uint32_t& width_out, uint32_t& height_out, void*& handle_out, bool allow_scaled = false,
+                                           xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8,
+-                                          bool allow_layer = false);
++                                          bool allow_layer = false, int32_t* layer_out = nullptr);
+   void NativeTextureResolved(void* handle);
+   // wwe2k14 patch (Session 47, NATIVE TRUTH M6): VulkanTextureCache::NativeTextureForCopy; and, after a resolve's copy
+   // in a truth frame (before MarkRangeAsResolved), the native renderer fills the texture it feeds from its image.
+@@ -488,14 +488,15 @@ class VulkanCommandProcessor : public CommandProcessor {
+   void NativeTruthAfterResolveMarked(const draw_util::ResolveInfo& info);
+   // wwe2k14 patch (Session 72 part 4): NativeRenderer::TruthResolveRedundant (false without a native renderer).
+   bool NativeTruthResolveRedundant(const draw_util::ResolveInfo& info);
+-  uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false) const;
++  uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false, int32_t layer = -1) const;
+   // wwe2k14 patch (Session 56, gpu_native_truth_skip_writeback_scaled): the scaled resolve buffer, a guest range's
+   // scaled range (32bpp), marking a range written by compute, and the scaled loads' materialize entry.
+   VkBuffer NativeScaledResolveBuffer() const;
+   bool NativeScaledResolveRange(uint32_t start, uint32_t length, uint64_t& scaled_start, uint64_t& scaled_length) const;
+   void NativeUseScaledResolveBufferForWrite(uint64_t scaled_start, uint64_t scaled_length);
+   void NativeTruthMaterializeScaled(uint32_t start, uint32_t length);
+-  VkDescriptorSet NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled = false);
++  VkDescriptorSet NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled = false,
++                                       int32_t layer = -1);
+   void NativeTextureEndRead(void* handle, uint32_t old_usage);
+   // wwe2k14 patch (Session 56): VulkanTextureCache::SampleWrittenTextures.
+   uint32_t NativeSampleWrittenTextures(void* const* keep, size_t keep_count);
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 77967b92db5c5306bab08d6ce9c0304b4d662ac7..e1fb3bf9e9f8b299bc259c71f98eb52834b4319e 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -421,7 +421,8 @@ class NativeRenderer {
+   // Before the resolve writes memory (or skips): records it replaces go, records whose texture it fills too stay, the
+   // others it overlaps go into memory first. Once a resolve; filled_texture = the texture this resolve fills, if any.
+   void TruthResolveOverlaps(const draw_util::ResolveInfo& info, void* filled_texture,
+-                            const int32_t* filled_rect = nullptr);  // (x0 y0 x1 y1 in texture texels, level 0)
++                            const int32_t* filled_rect = nullptr,  // (x0 y0 x1 y1 in texture texels, level 0)
++                            int32_t filled_layer = -1);           // (Session 79: the cube face filled, -1 2D)
+   // Session 56 (gpu_native_truth_skip_writeback_scaled): the scaled texture-only records whose guest memory a scaled
+   // texture load reads go into the scaled resolve buffer first.
+   void TruthMaterializeScaled(uint32_t start, uint32_t length);
+@@ -715,6 +716,8 @@ class NativeRenderer {
+     // its texture, x0 y0 x1 y1 (fills: texture_rect; unscaled texture-only resolves: the rectangle written; scaled
+     // resolves: none, x1 = 0 - never dropped). A later resolve into the same texture covering it whole drops the entry.
+     int32_t drop_rect[4] = {0, 0, 0, 0};
++    // wwe2k14 patch (Session 79): the cube face the entry writes (-1: a 2D texture) - one texture, separate texels.
++    int32_t layer = -1;
+   };
+   std::vector<DeferredResolve> truth_deferred_;
+   // Session 52 (gpu_native_truth_batch_rename): an image's GPU objects, set aside (busy: a deferred resolve reads it)
+@@ -1462,6 +1465,7 @@ class NativeRenderer {
+   // Session 49 (gpu_native_truth_skip_writeback): see TruthBeforeResolveWrite.
+   struct WbRecord {
+     void* texture = nullptr;                  // VulkanTexture (pinned while recorded)
++    int32_t layer = -1;                       // Session 79: the cube face the texels are in (-1: a 2D texture)
+     uint32_t extent_start = 0, extent_length = 0;  // the guest memory the copy writes
+     uint64_t dest_offset = 0;                      // the destination descriptor's buffer range (Session 56: 64-bit,
+     uint32_t dest_range = 0;                       // a scaled offset passes 4 GiB at 3x3 - review)
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 16ab93b615951a51c3ddaf60eb50c328407a213f..c4eca5ee3e55a9ff9cdb0767d092d71378e1d84e 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -217,7 +217,7 @@ class VulkanTextureCache final : public TextureCache {
+   VkDescriptorSet NativeTextureForResolve(uint32_t base_page, uint32_t pitch_div_32, uint32_t endianness,
+                                           uint32_t& width_out, uint32_t& height_out, void*& handle_out, bool allow_scaled = false,
+                                           xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8,
+-                                          bool allow_layer = false);
++                                          bool allow_layer = false, int32_t* layer_out = nullptr);
+   // After the resolve's MarkRangeAsResolved (which made the texture outdated): it holds what the memory holds.
+   void NativeTextureResolved(void* handle);
+   // wwe2k14 patch (Session 47, NATIVE TRUTH M6): the 1x 2D tiled single-level texture of `format` last loaded (directly
+@@ -276,10 +276,13 @@ class VulkanTextureCache final : public TextureCache {
+   // compute shader can read back texel by texel - a single-level 2D tiled 1x texture with the direct load's raw-bits
+   // storage view (R32_UINT: 32 bits a texel, R16G16B16A16_UINT: 64): its bytes a texel, 0 if none.
+   // (Session 56: allow_scaled - a scaled resolve texture too, gpu_native_truth_skip_writeback_scaled.)
+-  uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false) const;
++  // (Session 79, layer >= 0: a face of a cube NativeTextureForResolve fills - gpu_native_truth_fill_cube_faces.)
++  uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false, int32_t layer = -1) const;
+   // Its storage descriptor set, the texture prepared for a compute read (layout GENERAL, usage kComputeStorageWrite
+   // so its next sampling transitions it back); VK_NULL_HANDLE if it has none. And pinning (no eviction).
+-  VkDescriptorSet NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled = false);
++  // (Session 79, layer >= 0: the cube face's.)
++  VkDescriptorSet NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled = false,
++                                       int32_t layer = -1);
+   // After the read's dispatch (review: a draw may sample it next, with the layout its bindings were made for): back to
+   // the usage and layout it had (nothing if it was a compute storage texture or undefined).
+   void NativeTextureEndRead(void* handle, uint32_t old_usage);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index d448aefb0f4913e4d80e66e57c7e98f084f1d2b9..eba54f618643b0ff11bac3829083ce7e34252f3f 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7242,11 +7242,12 @@ VkDescriptorSet VulkanCommandProcessor::NativeTextureForResolve(uint32_t base_pa
+                                                                 uint32_t endianness, uint32_t& width_out,
+                                                                 uint32_t& height_out, void*& handle_out,
+                                                                 bool allow_scaled, xenos::TextureFormat format,
+-                                                                bool allow_layer) {
++                                                                bool allow_layer, int32_t* layer_out) {
+   handle_out = nullptr;
++  if (layer_out) *layer_out = -1;
+   return texture_cache_ ? texture_cache_->NativeTextureForResolve(base_page, pitch_div_32, endianness, width_out,
+                                                                   height_out, handle_out, allow_scaled, format,
+-                                                                  allow_layer)
++                                                                  allow_layer, layer_out)
+                         : VK_NULL_HANDLE;
+ }
+ 
+@@ -7327,14 +7328,15 @@ bool VulkanCommandProcessor::NativeTruthResolveRedundant(const draw_util::Resolv
+   return native_ && native_->TruthResolveRedundant(info);
+ }
+ 
+-uint32_t VulkanCommandProcessor::NativeTextureReadable(void* handle, bool allow_scaled) const {
+-  return texture_cache_ ? texture_cache_->NativeTextureReadable(handle, allow_scaled) : 0u;
++uint32_t VulkanCommandProcessor::NativeTextureReadable(void* handle, bool allow_scaled, int32_t layer) const {
++  return texture_cache_ ? texture_cache_->NativeTextureReadable(handle, allow_scaled, layer) : 0u;
+ }
+ 
+ VkDescriptorSet VulkanCommandProcessor::NativeTextureForRead(void* handle, uint32_t& old_usage_out,
+-                                                             bool allow_scaled) {
++                                                             bool allow_scaled, int32_t layer) {
+   old_usage_out = 0;
+-  return texture_cache_ ? texture_cache_->NativeTextureForRead(handle, old_usage_out, allow_scaled) : VK_NULL_HANDLE;
++  return texture_cache_ ? texture_cache_->NativeTextureForRead(handle, old_usage_out, allow_scaled, layer)
++                        : VK_NULL_HANDLE;
+ }
+ 
+ uint32_t VulkanCommandProcessor::NativeSampleWrittenTextures(void* const* keep, size_t keep_count) {
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 72deea045078132605372333abe46ffe0135a945..e14728d746eaef094094f7fc50d30f754ac54151 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -311,6 +311,11 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_scaled_texture_only, false, "GPU/Nati
+                     "resolve that also writes its scaled texture does not write the scaled resolve buffer (what the "
+                     "scaled write-backs cost - the ceiling of texture-only resolves at a scale)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_texture_only_cube_faces, false, "GPU/Native",
++                    "Session 79 (HD 520 arc): with gpu_native_truth_fill_cube_faces and gpu_native_truth_skip_writeback, "
++                    "a direct resolve into a cube face it fills is texture-only too (recorded, written into memory "
++                    "from the face only when memory is read) - so a cube's faces batch under one barrier pair")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_skip_writeback_scaled, false, "GPU/Native",
+                     "Session 56: at a resolution scale, a direct RGBA8 resolve that writes its scaled texture "
+                     "(gpu_native_truth_direct_resolve_scaled_texture) skips its write into the scaled resolve buffer "
+@@ -2567,6 +2572,7 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+   // The texture the copy feeds, filled by the same dispatch when it qualifies (N3a).
+   uint32_t texture_w = 0, texture_h = 0;
+   void* texture_handle = nullptr;
++  int32_t texture_layer = -1;  // Session 79: the cube face it fills (-1: a 2D texture)
+   VkDescriptorSet texture_set = VK_NULL_HANDLE;
+   const bool scaled_texture = scaled && REXCVAR_GET(gpu_native_truth_direct_resolve_scaled_texture) &&
+                               resolve_scaled_tex_pipeline_ != VK_NULL_HANDLE;
+@@ -2585,7 +2591,7 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+     texture_set = command_processor_.NativeTextureForResolve(
+         info.copy_dest_base >> 12, uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32),
+         uint32_t(info.copy_dest_info.copy_dest_endian), texture_w, texture_h, texture_handle, scaled_texture,
+-        xenos::TextureFormat::k_8_8_8_8, !scaled);
++        xenos::TextureFormat::k_8_8_8_8, !scaled, &texture_layer);
+   }
+   const auto release_held_barrier = [&]() { command_processor_.NativeHoldTextureBarrier(false); };
+   uint32_t pc[12] = {constants.dest_relative.edram_info.packed,
+@@ -2609,7 +2615,10 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+     const uint32_t x0 = uint32_t(info.copy_dest_coordinate_info.offset_x_div_8) * 8;
+     const uint32_t y0 = uint32_t(info.copy_dest_coordinate_info.offset_y_div_8) * 8;
+     const uint32_t w = uint32_t(info.coordinate_info.width_div_8) * 8, h = group_count_y * 8;
+-    if (command_processor_.NativeTextureReadable(texture_handle) != 4u || !EnsureMaterializePipeline()) {
++    // (Session 79, gpu_native_truth_texture_only_cube_faces: a cube face's too - read back through its face's view.)
++    if (command_processor_.NativeTextureReadable(texture_handle, false, texture_layer) != 4u ||
++        (texture_layer >= 0 && !REXCVAR_GET(gpu_native_truth_texture_only_cube_faces)) ||
++        !EnsureMaterializePipeline()) {
+       ++wb_counts_.kept[2];
+     } else if (x0 + w > texture_w || y0 + h > texture_h) {
+       ++wb_counts_.kept[3];
+@@ -2618,6 +2627,7 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+       WbRecord& r = truth_wb_pending_;
+       r = WbRecord();
+       r.texture = texture_handle;
++      r.layer = texture_layer;
+       r.extent_start = info.copy_dest_extent_start;
+       r.extent_length = info.copy_dest_extent_length;
+       r.dest_offset = truth_dest_offset_;
+@@ -2693,7 +2703,7 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+     filled_rect[2] = std::min(int32_t(texture_w / scale_x), fx0 + int32_t(info.coordinate_info.width_div_8) * 8);
+     filled_rect[3] = std::min(int32_t(texture_h / scale_y),
+                               fy0 + (scaled ? int32_t(info.height_div_8) * 8 : int32_t(group_count_y) * 8));
+-    TruthResolveOverlaps(info, texture_set != VK_NULL_HANDLE ? texture_handle : nullptr, filled_rect);
++    TruthResolveOverlaps(info, texture_set != VK_NULL_HANDLE ? texture_handle : nullptr, filled_rect, texture_layer);
+   }
+   // Session 56 (diagnostic): the scaled texture only.
+   if (scaled && texture_set != VK_NULL_HANDLE && REXCVAR_GET(gpu_native_truth_debug_scaled_texture_only)) {
+@@ -2708,8 +2718,9 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+   // Session 52 (gpu_native_truth_batch_resolves): a texture-only resolve is deferred (see TruthFlushDeferredSlow).
+   {
+     bool same_texture = false;
++    // (Session 79: a cube's faces are separate texels - an entry writing another face is not the same texture here.)
+     for (const DeferredResolve& d : truth_deferred_) {
+-      if (d.texture == texture_handle && texture_handle) same_texture = true;
++      if (d.texture == texture_handle && texture_handle && d.layer == texture_layer) same_texture = true;
+     }
+     const bool texwrite_only = texture_set != VK_NULL_HANDLE && (pc[9] & 0x400u) != 0;
+     // (A renamed image has only its rectangle yet: a copy reaching outside it waits for the flush's copy.)
+@@ -2728,7 +2739,7 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+         filled_rect[3] > filled_rect[1]) {
+       drop_same = true;
+       for (const DeferredResolve& d : truth_deferred_) {
+-        if (d.texture != texture_handle) continue;
++        if (d.texture != texture_handle || d.layer != texture_layer) continue;
+         const int32_t* r = d.drop_rect;
+         if (r[2] <= r[0] || r[3] <= r[1] || r[0] < filled_rect[0] || r[1] < filled_rect[1] || r[2] > filled_rect[2] ||
+             r[3] > filled_rect[3]) {
+@@ -2746,7 +2757,7 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+     if (drop_same) {
+       for (size_t i = 0; i < truth_deferred_.size();) {
+         const DeferredResolve& d = truth_deferred_[i];
+-        if (d.texture != texture_handle) {
++        if (d.texture != texture_handle || d.layer != texture_layer) {
+           ++i;
+           continue;
+         }
+@@ -2783,6 +2794,11 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+         d.texture_src_access = carry_access;
+         d.texture_old_layout = carry_layout;
+       }
++      // (Session 79: another face of a cube an earlier entry of the batch takes to its compute-write layout - the whole
++      // image - gets no second barrier in the same command; its faces are separate texels, needing no ordering.)
++      for (size_t k = 0; k + 1 < truth_deferred_.size() && d.texture_image != VK_NULL_HANDLE; ++k) {
++        if (truth_deferred_[k].texture_image == d.texture_image) d.texture_image = VK_NULL_HANDLE;
++      }
+       if (!scaled && texture_handle) std::copy(filled_rect, filled_rect + 4, d.drop_rect);  // Session 66 (G1.1)
+       d.pipeline = scaled ? resolve_scaled_tex_pipeline_ : resolve_tex_pipeline_;  // (Session 56: at a scale too)
+       d.layout = resolve_tex_layout_;
+@@ -2795,6 +2811,7 @@ bool NativeRenderer::TruthResolveDirect(const draw_util::ResolveInfo& info,
+       d.image = t.image;
+       d.index = index;
+       d.texture = texture_handle;
++      d.layer = texture_layer;  // Session 79
+       texture_written_ = texture_handle;
+       ++report_.textures_filled;
+       ++truth_counts_.direct;
+@@ -4488,7 +4505,7 @@ void NativeRenderer::TruthMaterializeRecord(const WbRecord& r) {
+   uint32_t old_usage = 0;
+   const VkDescriptorSet texture_set =
+       (scaled ? EnsureMaterializeScaledPipeline() : EnsureMaterializePipeline())
+-          ? command_processor_.NativeTextureForRead(r.texture, old_usage, scaled)
++          ? command_processor_.NativeTextureForRead(r.texture, old_usage, scaled, r.layer)  // (Session 79: a face's)
+           : VK_NULL_HANDLE;
+   const VkDescriptorSet dest_set = texture_set != VK_NULL_HANDLE
+                                        ? command_processor_.AllocateSingleTransientDescriptor(
+@@ -4622,7 +4639,7 @@ void NativeRenderer::TruthBeforeResolveWrite(const draw_util::ResolveInfo& info)
+ }
+ 
+ void NativeRenderer::TruthResolveOverlaps(const draw_util::ResolveInfo& info, void* filled_texture,
+-                                          const int32_t* filled_rect) {
++                                          const int32_t* filled_rect, int32_t filled_layer) {
+   if (truth_overlaps_done_) return;
+   truth_overlaps_done_ = true;
+   if (wb_records_.empty()) return;
+@@ -4652,7 +4669,7 @@ void NativeRenderer::TruthResolveOverlaps(const draw_util::ResolveInfo& info, vo
+       // Every texel the record would write, this resolve writes too (the same tiled surface): replaced.
+       superseded.push_back(i);
+       all.push_back(i);
+-    } else if (filled_texture && r.texture == filled_texture) {
++    } else if (filled_texture && r.texture == filled_texture && r.layer == filled_layer) {  // (Session 79: same face)
+       // This resolve also fills the record's texture, so the texture stays what both resolves wrote: the record,
+       // written later, writes this resolve's texels as this resolve does. Kept - or replaced when this resolve fills
+       // every texel of the record's rectangle (one texture: one texel, one address).
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index adba31a49fc991647529f20d3dd01ae2cceeed13..e01b8e4a8e3c01c1c14ae3e284d46a9a4cbdba33 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2773,9 +2773,10 @@ VkDescriptorSet VulkanTextureCache::NativeTextureForResolve(uint32_t base_page,
+                                                             uint32_t endianness, uint32_t& width_out,
+                                                             uint32_t& height_out, void*& handle_out,
+                                                             bool allow_scaled, xenos::TextureFormat format,
+-                                                            bool allow_layer) {
++                                                            bool allow_layer, int32_t* layer_out) {
+   const std::array<uint32_t, 4> cover = NativeTakeCover();  // wwe2k14 patch (Session 52)
+   handle_out = nullptr;
++  if (layer_out) *layer_out = -1;
+   // Session 45: gpu_native_segment_log lists why a served resolve does not fill its texture.
+   const auto refuse = [&](const char* why, const TextureKey* key) -> VkDescriptorSet {
+     if (command_processor_.NativeSegmentLogActive()) {
+@@ -2831,6 +2832,7 @@ VkDescriptorSet VulkanTextureCache::NativeTextureForResolve(uint32_t base_page,
+       width_out = key.GetWidth();
+       height_out = key.GetHeight();
+       handle_out = &texture;
++      if (layer_out) *layer_out = int32_t(layer);
+       return set;
+     }
+   }
+@@ -2890,10 +2892,20 @@ void VulkanTextureCache::NativeTextureResolved(void* handle) {
+ }
+ 
+ // wwe2k14 patch (Session 49, NATIVE TRUTH skip write-back): see the header.
+-uint32_t VulkanTextureCache::NativeTextureReadable(void* handle, bool allow_scaled) const {
++uint32_t VulkanTextureCache::NativeTextureReadable(void* handle, bool allow_scaled, int32_t layer) const {
+   if (!handle) return 0;
+   const VulkanTexture& texture = *static_cast<const VulkanTexture*>(handle);
+   const TextureKey& key = texture.key();
++  // Session 79: a face of a 1x single-level tiled k_8_8_8_8 cube with the R32_UINT view (gpu_native_truth_fill_cube_faces).
++  if (layer >= 0) {
++    return key.dimension == xenos::DataDimension::kCube && !key.mip_max_level && key.tiled && !key.scaled_resolve &&
++                   key.format == xenos::TextureFormat::k_8_8_8_8 &&
++                   uint32_t(layer) < std::min(key.GetDepthOrArraySize(), VulkanTexture::kNativeLayerViews) &&
++                   texture.direct_load_creation() == VulkanTexture::DirectLoadCreation::kCapable &&
++                   texture.direct_load_format() == VK_FORMAT_R32_UINT
++               ? 4u
++               : 0u;
++  }
+   if (key.mip_max_level || key.depth_or_array_size_minus_1 || !key.tiled || (key.scaled_resolve && !allow_scaled) ||
+       key.dimension != xenos::DataDimension::k2DOrStacked ||
+       texture.direct_load_creation() != VulkanTexture::DirectLoadCreation::kCapable) {
+@@ -2906,11 +2918,13 @@ uint32_t VulkanTextureCache::NativeTextureReadable(void* handle, bool allow_scal
+                                                                        : 0u;
+ }
+ 
+-VkDescriptorSet VulkanTextureCache::NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled) {
++VkDescriptorSet VulkanTextureCache::NativeTextureForRead(void* handle, uint32_t& old_usage_out, bool allow_scaled,
++                                                         int32_t layer) {
+   old_usage_out = uint32_t(VulkanTexture::Usage::kComputeStorageWrite);
+-  if (!NativeTextureReadable(handle, allow_scaled)) return VK_NULL_HANDLE;
++  if (!NativeTextureReadable(handle, allow_scaled, layer)) return VK_NULL_HANDLE;
+   VulkanTexture& texture = *static_cast<VulkanTexture*>(handle);
+-  VkDescriptorSet set = texture.GetDirectLoadDescriptorSet();
++  VkDescriptorSet set = layer >= 0 ? texture.GetLayerStorageDescriptorSet(uint32_t(layer))
++                                   : texture.GetDirectLoadDescriptorSet();
+   if (set == VK_NULL_HANDLE) return VK_NULL_HANDLE;
+   texture.MarkAsUsed();
+   VulkanTexture::Usage old_usage = texture.SetUsage(VulkanTexture::Usage::kComputeStorageWrite);

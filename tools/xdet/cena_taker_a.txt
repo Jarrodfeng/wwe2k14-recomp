@@ -1,0 +1,100 @@
+# Session 77 (XDET_PLAN.md stage A, step 1): Cena (controller 1) vs Undertaker (CPU), Quick Match type 0, arena 3,
+# entrances skipped. Run with the flags in tools\xdet\stageA.flags (tools\xdet\run_stageA.ps1 adds them) plus
+# --wwe2k14_replay_record=NAME or --wwe2k14_replay_play=NAME. Boot presses as in short\launch_boot_check.txt (from the
+# frozen user data); then in the match: walk, strikes, grapples, a run, more strikes, and a mark every 300 match frames
+# (the comparers' alignment check: under replay every mark must land on the same guest frame on every device). In
+# playback the script's pad is ignored (the recording answers every controller call): only its waits, marks and quit
+# matter. No screenshot steps: phones do not write pictures (run_stageA.ps1 -Shots adds them on the PC). on_fail quit.
+on_fail quit
+log xdet: stage A start
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+log xdet: main menu (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 36000
+log xdet: in-game sequence loading
+wait_file M3.PAC 72000
+log scene=match
+wait_frames 300
+log xdet: match 300
+# walk right, up, left (left stick), 50 frames each
+set 0x0000 0 0 24000 0 0 0
+wait_frames 50
+set 0x0000 0 0 0 24000 0 0
+wait_frames 50
+set 0x0000 0 0 -24000 0 0 0
+wait_frames 50
+set 0x0000 0 0 0 0 0 0
+wait_frames 150
+log xdet: match 600
+# strikes (X) and a grapple (A), then a grapple move (A + left stick up)
+press X 6 20
+press X 6 20
+press X 6 40
+press A 6 60
+set 0x1000 0 0 0 24000 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 82
+log xdet: match 900
+# run (RT) towards the opponent and strike
+set 0x0000 0 255 24000 0 0 0
+wait_frames 40
+set 0x0000 0 0 0 0 0 0
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 -24000 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 82
+log xdet: match 1200
+wait_frames 300
+log xdet: match 1500
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 24000 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 170
+log xdet: match 1800
+# walk down, then strikes and a grapple again
+set 0x0000 0 0 0 -24000 0 0
+wait_frames 60
+set 0x0000 0 0 0 0 0 0
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 0 -24000 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 122
+log xdet: match 2100
+wait_frames 300
+log xdet: match 2400
+press X 6 20
+press X 6 20
+press X 6 20
+press A 6 60
+set 0x1000 0 0 -24000 0 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 162
+log xdet: match 2700
+wait_frames 300
+log xdet: match 3000
+wait_frames 300
+log xdet: match 3300
+wait_frames 300
+log xdet: match 3600
+wait_frames 60
+log xdet: stage A done
+quit

@@ -1,3 +1,10 @@
+- The reworked NATIVE (new in v0.2.15) was checked on my PC (NVIDIA RTX 4090) at 720p, 1440p and 4K, and measured on my
+  Intel laptop at 720p: Lesnar vs Bryan (both entrances and the match), Undertaker's WrestleMania entrance, the menus and
+  the logo editor. In those checks the picture matched v0.2.14's to within rounding. Not every arena and match type has
+  been looked at yet. If something looks wrong (a missing or oddly coloured part of the arena, the crowd or a
+  superstar, flicker), the extra flag `--wwe2k14_native_frame=false` (Settings -> Advanced) brings back v0.2.14's
+  NATIVE; please send a report too (launcher: Report a problem).
+- This release is for Windows only; the Android build follows after it has been tested on phones.
 - The keyboard as its own player (new in v0.2.14) was tested with a simulated second controller, not by two people
   yet. With four controllers the keyboard shares player 1 again. Not tried yet: a controller switching off in the
   middle of a match (with no controller left, the keyboard becomes player 1 until the controller is back).

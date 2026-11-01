@@ -1,0 +1,785 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-owncrowd): 3c28cfe1ec51..cf2b2dec208f on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  cf2b2de Merge s80-owncrowd: our own crowd renderer (Session 80, OWN_RENDERER_PLAN.md; Jarrod: "Crowd" first, fully ours) - gpu_native_own_crowd, off: every crowd member drawn by one draw of ours (the title's program, vertex pulling from our per-frame mesh copy); Surface in-run match -5.2% (~3/4 of the crowd's cost); shots rounding-only; T2 PASS
+
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 15f3cc94684f7bb6dc042c64120972f64c254bf7..8838c52c604cb5f0c55c6c23b9d93483fcaa31f0 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -539,6 +539,11 @@ class CommandProcessor {
+   virtual bool RegisterNativeShaderSwap(uint64_t guest_pixel_shader_hash, const uint32_t* words, size_t word_count,
+                                         const uint8_t* float_registers, size_t float_register_count,
+                                         const char* name, uint32_t flags = 0);
++  // wwe2k14 patch (Session 80, OWN_RENDERER_PLAN.md, gpu_native_own_crowd): the title's own crowd program (SPIR-V vertex
++  // + fragment shaders, the interface of the game's src\scene\own_crowd_*) for the crowd runs whose first member uses
++  // this guest vertex shader. flags 1 = the entrances' variant (the lighting map read per pixel, fetch constant 13).
++  virtual bool RegisterNativeOwnCrowd(uint64_t guest_vertex_shader_hash, const uint32_t* vs_words, size_t vs_count,
++                                      const uint32_t* fs_words, size_t fs_count, uint32_t flags);
+   // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a guest pixel shader that only writes back what
+   // two resolves took out - colour target 0 = the texture of fetch constant color_fetch, depth = fetch constant
+   // depth_fetch's - so NATIVE may leave out its draws when those textures still hold its own images' pixels; false
+@@ -670,6 +675,15 @@ class CommandProcessor {
+   // uploaded, nothing else derived again (a member differs from the first only in c76-c78: the game's crowd loop records
+   // nothing else between them). Returns how many it added (from the front); the caller draws the rest one by one.
+   virtual uint32_t AppendCrowdInstances(const uint32_t* members, uint32_t count) { return 0; }
++  // wwe2k14 patch (Session 80, own crowd): right after a run's first member's draw - the other members (12 dwords each)
++  // drawn by our own crowd renderer in one draw; false = not taken (the run is drawn as before).
++  virtual bool OwnCrowdDraw(const uint32_t* members, uint32_t count) { return false; }
++  // Whether our own crowd renderer is on for this frame (the switch, NATIVE truth frames).
++  virtual bool OwnCrowdActive() const { return false; }
++  // Before a draw packet's draw: whether a queued crowd run starts with this draw (its c76-c78), so the draw is left to
++  // our renderer (own_crowd_skip_draw_; the backend leaves out the draw call, SceneCrowdAfterDraw draws all members).
++  bool SceneCrowdPreTake();
++  bool own_crowd_skip_draw_ = false;
+   uint32_t half2_inline_vs_at_ = 0, half2_inline_vs_caller_ = 0;  // where the last inline VS load was (diagnostic)
+   uint32_t half2_ucode_[2] = {};  // guest physical address of the last IM_LOAD's microcode (VS, PS); 0: inline
+   uint32_t half2_shader_at_[2] = {};  // (Session 51, STATE LOG diagnostic) the last VS / PS load packet's address
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 94e40478502caccca67394a3c0e1f690cb2111e5..a424a4b03206a66277a023fe359957532c1f9c94 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -550,6 +550,18 @@ class VulkanCommandProcessor : public CommandProcessor {
+                      bool major_mode_explicit, uint32_t library_kind, bool& succeeded) override;
+   // wwe2k14 patch (Session 60, CROWD BATCH): see the base class.
+   uint32_t AppendCrowdInstances(const uint32_t* members, uint32_t count) override;
++  bool OwnCrowdDraw(const uint32_t* members, uint32_t count) override;  // wwe2k14 patch (Session 80, own crowd)
++  bool OwnCrowdActive() const override;
++  bool RegisterNativeOwnCrowd(uint64_t guest_vertex_shader_hash, const uint32_t* vs_words, size_t vs_count,
++                              const uint32_t* fs_words, size_t fs_count, uint32_t flags) override;
++  struct OwnCrowdProgram {
++    uint64_t vertex_shader_hash;
++    std::vector<uint32_t> vs, fs;
++    uint32_t flags;
++  };
++  std::mutex own_crowd_mutex_;
++  std::vector<std::shared_ptr<const OwnCrowdProgram>> own_crowd_programs_;
++  std::vector<uint64_t> own_crowd_unknown_;  // (vertex shader ^ reason, logged once each)
+   uint32_t crowd_batch_refusals_logged_ = 0;
+   double gpu_frame_accumulated_us_ = 0.0;  // Session 73: this frame's submissions' GPU time so far (frame_events)
+   // Session 73: the GPU busy work the game asks for (frame_events warm_kb), recorded at the swap.
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 874be2d5dd1381983700390896d5084003035b0f..6bc60e87414cb7f867b7bdd231b83f08daebe540 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -196,6 +196,9 @@ struct Draw {
+   // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_restores): a registered restore shader's draw - the guest
+   // pages (address >> 12) of the textures it writes back as colour and as depth.
+   bool restore = false;
++  // wwe2k14 patch (Session 80, own crowd): a crowd run's first member whose draw our own crowd renderer takes - the
++  // truth pass, its loads and bookkeeping are recorded as for any draw, only the draw call is left out.
++  bool own_skip_call = false;
+   uint32_t restore_color_page = 0, restore_depth_page = 0;
+ };
+ 
+@@ -475,6 +478,26 @@ class NativeRenderer {
+     return bound;
+   }
+   void EndTruthPass();
++  // wwe2k14 patch (Session 80, OWN_RENDERER_PLAN.md, gpu_native_own_crowd; own_crowd.cpp): our own draw of a crowd
++  // run's other members, right after its first member's truth draw (same pass, that draw's pipeline state and index
++  // buffer): the title's program, our mesh copy, the members' matrices and the scene block. False (nothing recorded)
++  // when the state is not that or an object could not be made - the caller then draws the run as before.
++  struct OwnCrowdInput {
++    uint64_t vertex_shader_hash = 0;  // the guest crowd vertex shader (its first member's truth draw just recorded)
++    const uint32_t* vs_words = nullptr;
++    size_t vs_count = 0;
++    const uint32_t* fs_words = nullptr;
++    size_t fs_count = 0;
++    const uint8_t* mesh_guest = nullptr;  // the guest vertex buffer (7 big-endian dwords a vertex)
++    uint32_t mesh_vertices = 0;
++    const uint32_t* members = nullptr;   // 12 dwords a member (VS c76-c78 as written to the registers)
++    uint32_t member_count = 0;
++    float scene[92] = {};                // src\scene\own_crowd_vs.glsl's CrowdScene (23 vec4, std140)
++    VkImageView views[3] = {};           // bindings 1-3: the vertex lighting map, the colour, the entrances' map
++    VkSampler samplers[3] = {};
++  };
++  bool RecordOwnCrowd(const OwnCrowdInput& in);
++  void OwnCrowdOnFrameEnd();
+   // Session 45 (N3a, gpu_native_resolve_texture): after the resolve's MarkRangeAsResolved - the texture the resolve
+   // also filled is up to date again.
+   void AfterResolveMarked();
+@@ -1681,6 +1704,39 @@ class NativeRenderer {
+   // truth draw recorded its draw command (ClaimTruthRepeat, TruthLastDrawRecorded).
+   uint32_t truth_claim_epoch_ = 1;
+   bool truth_last_recorded_ = false;
++  // wwe2k14 patch (Session 80, own crowd): the last recorded truth draw's vertex shader and index buffer.
++  uint64_t truth_last_vs_hash_ = 0;
++  struct {
++    bool indexed = false;
++    VkBuffer buffer = VK_NULL_HANDLE;
++    VkDeviceSize offset = 0;
++    VkIndexType type = VK_INDEX_TYPE_UINT16;
++    uint32_t count = 0;
++  } truth_last_index_;
++  // wwe2k14 patch (Session 80, own crowd; own_crowd.cpp): our objects.
++  bool OwnCrowdEnsureObjects();
++  void OwnCrowdDestroy();
++  VkShaderModule OwnCrowdModule(const uint32_t* words, size_t count);
++  void OwnCrowdConvertMesh(const OwnCrowdInput& in, float* out);
++  bool own_crowd_failed_ = false;
++  VkDescriptorSetLayout own_crowd_set_layout_ = VK_NULL_HANDLE;
++  VkPipelineLayout own_crowd_layout_ = VK_NULL_HANDLE;
++  VkBuffer own_crowd_ring_ = VK_NULL_HANDLE;
++  VkDeviceMemory own_crowd_ring_memory_ = VK_NULL_HANDLE;
++  void* own_crowd_ring_map_ = nullptr;
++  struct OwnCrowdSlice {
++    uint64_t submission = 0;
++    VkDeviceSize used = 0;
++    VkDescriptorPool pool = VK_NULL_HANDLE;
++  };
++  std::vector<OwnCrowdSlice> own_crowd_slices_;
++  uint32_t own_crowd_slice_ = 0;
++  std::unordered_map<uint64_t, VkShaderModule> own_crowd_modules_;
++  std::unordered_map<PipelineKey, VkPipeline, PipelineKeyHasher> own_crowd_pipelines_;
++  struct {
++    uint64_t frames = 0, runs = 0, members = 0, vertices = 0, refused_state = 0, refused_ring = 0,
++             refused_objects = 0;
++  } own_crowd_stats_;
+   uint32_t truth_time_tick_ = 0;  // Session 47: TruthRecordDraw times one draw in 8
+   // Session 47 (CPU): what the open truth pass's draws last bound (pipeline, depth bias, blend constants).
+   bool truth_bound_valid_ = false;
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index ba05c2e4e1c61d55dc661d8d884864f67b3214e0..ed052cd51cf682b66600b1b24f5ce57b8fdb9ccd 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -58,6 +58,7 @@ set(REXGPU_XENOS_VULKAN_SOURCES
+     vulkan/texture_cache.cpp
+     vulkan/native/native_renderer.cpp
+     vulkan/native/native_truth.cpp
++    vulkan/native/own_crowd.cpp
+     vulkan/native/shader_swap.cpp
+ )
+ 
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index cc439ea289308793703d12d98b237496bc05e906..238abc903653ef77f2b7d78cf77c6c05f4ca521d 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -3091,6 +3091,10 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+       }
+       // wwe2k14 patch (Session 50, LEAN DRAWS): a library draw the backend records itself (gpu_native_lean_draws),
+       // otherwise IssueDraw (never during a frame-anatomy capture).
++      // wwe2k14 patch (Session 80, own crowd): a crowd run's first member left to our own crowd renderer.
++      own_crowd_skip_draw_ = !anatomy && (!scene_crowd_local_.empty() ||
++                                          scene_crowd_queued_.load(std::memory_order_relaxed)) &&
++                             SceneCrowdPreTake();
+       // wwe2k14 patch (Session 77): gpu_det_skip_host_draws - nothing recorded (counted as drawn).
+       if (REXCVAR_GET(gpu_det_skip_host_draws)) {
+         draw_succeeded = true;
+@@ -3161,9 +3165,54 @@ void CommandProcessor::SceneCrowdPush(const uint32_t* first, const uint32_t* oth
+   scene_crowd_queued_.store(uint32_t(scene_crowd_queue_.size()), std::memory_order_relaxed);
+ }
+ 
++// wwe2k14 patch (Session 80, own crowd): see the declaration. The same queue and match as SceneCrowdAfterDraw.
++bool CommandProcessor::SceneCrowdPreTake() {
++  if (!OwnCrowdActive() || scene_crowd_verify_active_ || scene_crowd_blocked_.load(std::memory_order_relaxed)) {
++    return false;
++  }
++  if (scene_crowd_queued_.load(std::memory_order_relaxed)) {
++    std::lock_guard lock(scene_crowd_mutex_);
++    for (SceneCrowdRun& r : scene_crowd_queue_) scene_crowd_local_.push_back(std::move(r));
++    scene_crowd_queue_.clear();
++    scene_crowd_queued_.store(0, std::memory_order_relaxed);
++  }
++  const RegisterFile& regs = *register_file_;
++  uint32_t now[12];
++  for (uint32_t i = 0; i < 12; ++i) now[i] = regs[kSceneCrowdRegister + i];
++  const size_t look = std::min<size_t>(scene_crowd_local_.size(), 32);
++  for (size_t i = 0; i < look; ++i) {
++    const SceneCrowdRun& r = scene_crowd_local_[i];
++    if (!r.verify && r.first[0] == now[0] && std::equal(now, now + 12, r.first)) return true;
++  }
++  return false;
++}
++
+ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint32_t index_count,
+                                            IndexBufferInfo* index_buffer_info, bool major_mode_explicit,
+                                            uint32_t library_kind) {
++  // wwe2k14 patch (Session 80, own crowd): this draw (a run's first member) was left to our renderer. Unless our draw
++  // takes it below, it is drawn as the game's after all - before the other members (they become its instances), or
++  // at any return on the way (the guard).
++  const bool first_ours = own_crowd_skip_draw_;
++  own_crowd_skip_draw_ = false;
++  struct FirstGuard {
++    CommandProcessor* cp;
++    xenos::PrimitiveType prim_type;
++    uint32_t index_count;
++    IndexBufferInfo* index_buffer_info;
++    bool major_mode_explicit;
++    uint32_t library_kind;
++    bool armed;
++    void Draw() {
++      if (!armed) return;
++      armed = false;
++      bool ok = false;
++      if (!cp->IssueDrawLean(prim_type, index_count, index_buffer_info, major_mode_explicit, library_kind, ok)) {
++        cp->IssueDraw(prim_type, index_count, index_buffer_info, major_mode_explicit);
++      }
++    }
++    ~FirstGuard() { Draw(); }
++  } first_guard{this, prim_type, index_count, index_buffer_info, major_mode_explicit, library_kind, first_ours};
+   const RegisterFile& regs = *register_file_;
+   uint32_t now[12];
+   for (uint32_t i = 0; i < 12; ++i) now[i] = regs[kSceneCrowdRegister + i];
+@@ -3247,6 +3296,22 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+   // writes the whole group c76-c79; c79 is unchanged), then its draw as the packet's would be issued.
+   const uint32_t members = uint32_t(list->size() / 12);
+   if (!members) return;
++  // wwe2k14 patch (Session 80, OWN_RENDERER_PLAN.md, gpu_native_own_crowd): the other members drawn by our own crowd
++  // renderer in one draw (the game's closing op-21 record, next in the stream, leaves c76-c78 as the loop would).
++  if (first_guard.armed) {
++    // The first member (its c76-c78 are the registers' now) and the others in one draw of ours.
++    std::vector<uint32_t> all(now, now + 12);
++    all.insert(all.end(), list->begin(), list->end());
++    if (OwnCrowdDraw(all.data(), members + 1)) {
++      first_guard.armed = false;
++      st.members += members;
++      return;
++    }
++    first_guard.Draw();  // (before the others: they are appended as its instances)
++  } else if (OwnCrowdDraw(list->data(), members)) {
++    st.members += members;
++    return;
++  }
+   // wwe2k14 patch (Session 60, CROWD BATCH): one member through the draw dispatch (it starts a new instanced run: right
+   // after a run's first draw its other constant uploads lie between, so no member can follow it as an instance), then
+   // as many as fit straight as instances of that run, and again.
+diff --git a/src/graphics/half2_log.cpp b/src/graphics/half2_log.cpp
+index 2690389b09a6e96090459318bc409c6368eb40d3..4ce0b26d19c1e64c066decbc5697022c36d25df0 100644
+--- a/src/graphics/half2_log.cpp
++++ b/src/graphics/half2_log.cpp
+@@ -973,6 +973,9 @@ bool CommandProcessor::RegisterNativeShaderSwap(uint64_t, const uint32_t*, size_
+   return false;
+ }
+ bool CommandProcessor::RegisterNativeRestoreShader(uint64_t, uint32_t, uint32_t, const char*) { return false; }
++bool CommandProcessor::RegisterNativeOwnCrowd(uint64_t, const uint32_t*, size_t, const uint32_t*, size_t, uint32_t) {
++  return false;
++}
+ 
+ bool CommandProcessor::half2_detached_wanted() const {
+   const Half2Log* log = half2_log_.load(std::memory_order_acquire);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index c4cd63bfa108cf3cce872e1bc575176d2a8a5e8c..f358fb47342b3d5e730ec63baeaf4480998c0963 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -143,6 +143,12 @@ REXCVAR_DEFINE_INT32(gpu_barrier_map, 0, "GPU",
+ // wwe2k14 patch (Session 80, HD 520 arc look lever; Jarrod 2026-11-01: "Every other frame"): the wrestlers' shadow
+ // maps (their shadows on themselves and each other) drawn on alternate frames, the other frame reusing the previous
+ // map (IssueDraw / IssueCopy). Off by default; a look change (shadows up to one frame behind the pose).
++// wwe2k14 patch (Session 80, OWN_RENDERER_PLAN.md: the crowd fully ours).
++REXCVAR_DEFINE_BOOL(gpu_native_own_crowd, false, "GPU/Native",
++                    "Session 80 (OWN_RENDERER_PLAN.md): a crowd run's members after its first drawn by our own crowd "
++                    "renderer in one draw (the title's registered program, our mesh copy; NATIVE truth frames only) "
++                    "instead of instances of the game's translated draw; false = the game's draws (default). Live")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_shadow_half_rate, false, "GPU",
+                     "Session 80 (look lever): the wrestlers' shadow maps (pixel shader DA494C9383E18961) drawn every "
+                     "other frame, the frame between reusing the previous map; [shadow] census lines. Off by default")
+@@ -10638,6 +10644,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     // wwe2k14 patch (Session 45, NATIVE FRAME): the census (fill fields above). Session 46: a truth draw keeps it (its
+     // rectangle is the fill's).
+     native_draw.fast_clear = fast_clear || (native_owned && native_draw.truth && native_draw.fast_clear);
++    native_draw.own_skip_call = own_crowd_skip_draw_;  // wwe2k14 patch (Session 80, own crowd)
+     native_->OnDraw(native_draw);  // wwe2k14 patch (Session 38, NATIVE)
+     // wwe2k14 patch (Session 46, NATIVE TRUTH M5): the truth draw was recorded with its own pipeline, sets and state.
+     if (truth_owned) NativeStateTouched(!native_->TakeTruthForeignBind());
+@@ -12117,6 +12124,7 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+     InsertCrashCheckpoint(*crash_record, CrashCheckpointPhase::kDraw);
+   }
+   ++frame_counters_.draws_issued;
++  native_draw.own_skip_call = own_crowd_skip_draw_;  // wwe2k14 patch (Session 80, own crowd)
+   native_->OnDrawPre(native_draw);
+   native_->OnDraw(native_draw);
+   NativeStateTouched(!native_->TakeTruthForeignBind());
+@@ -16876,6 +16884,7 @@ bool VulkanCommandProcessor::RepeatDrawFast(const Shader* vertex_shader, uint64_
+         current_graphics_descriptor_sets_[SpirvShaderTranslator::kDescriptorSetConstants];
+     std::copy(std::begin(constants_dynamic->dynamic_offsets), std::end(constants_dynamic->dynamic_offsets),
+               native_repeat.dynamic_offsets);
++    native_repeat.own_skip_call = own_crowd_skip_draw_;  // wwe2k14 patch (Session 80, own crowd)
+     native_->OnDraw(native_repeat);
+     if (truth_owned) NativeStateTouched(!native_->TakeTruthForeignBind());  // wwe2k14 patch (Session 46, NATIVE TRUTH M5)
+   } else {
+@@ -16905,6 +16914,140 @@ bool VulkanCommandProcessor::RepeatDrawFast(const Shader* vertex_shader, uint64_
+ // copy - all of them hold for every member as they held for the first (the game records nothing else between them).
+ // Stops at the first member that does not fit (the 256-vec4 range, another offset or buffer, a draw recorded after);
+ // the caller draws the rest through the normal path, which starts a new run.
++// wwe2k14 patch (Session 80, OWN_RENDERER_PLAN.md, gpu_native_own_crowd): the title's crowd programs.
++bool VulkanCommandProcessor::RegisterNativeOwnCrowd(uint64_t guest_vertex_shader_hash, const uint32_t* vs_words,
++                                                    size_t vs_count, const uint32_t* fs_words, size_t fs_count,
++                                                    uint32_t flags) {
++  if (!vs_words || !fs_words || vs_count < 5 || fs_count < 5 || vs_words[0] != 0x07230203u ||
++      fs_words[0] != 0x07230203u) {
++    return false;
++  }
++  auto program = std::make_shared<OwnCrowdProgram>();
++  program->vertex_shader_hash = guest_vertex_shader_hash;
++  program->vs.assign(vs_words, vs_words + vs_count);
++  program->fs.assign(fs_words, fs_words + fs_count);
++  program->flags = flags;
++  std::lock_guard<std::mutex> lock(own_crowd_mutex_);
++  own_crowd_programs_.push_back(std::move(program));
++  REXGPU_INFO("[native][own_crowd] program registered for vertex shader {:016X} ({}; {} + {} words)",
++              guest_vertex_shader_hash, (flags & 1) ? "entrance" : "match", vs_count, fs_count);
++  return true;
++}
++
++// Right after a crowd run's first member was drawn (SceneCrowdAfterDraw): its mesh, the game's own constants for the
++// draw, the index rules and the textures, handed to our crowd renderer for the other members.
++bool VulkanCommandProcessor::OwnCrowdActive() const {
++  return REXCVAR_GET(gpu_native_own_crowd) && native_ && native_->enabled() && native_->replacing();
++}
++
++bool VulkanCommandProcessor::OwnCrowdDraw(const uint32_t* members, uint32_t count) {
++  if (!REXCVAR_GET(gpu_native_own_crowd) || !native_ || !native_->enabled() || !native_->replacing() || !count) {
++    return false;
++  }
++  const auto* vs = static_cast<const VulkanShader*>(active_vertex_shader());
++  const auto* ps = static_cast<const VulkanShader*>(active_pixel_shader());
++  if (!vs || !ps) return false;
++  std::shared_ptr<const OwnCrowdProgram> program;
++  {
++    std::lock_guard<std::mutex> lock(own_crowd_mutex_);
++    for (const auto& p : own_crowd_programs_) {
++      if (p->vertex_shader_hash == vs->ucode_data_hash()) program = p;
++    }
++  }
++  // (Once per vertex shader and reason, up to 32: why a crowd run kept the game's draws - our coverage.)
++  const auto decline = [&](uint32_t reason, const char* why) {
++    const uint64_t key = vs->ucode_data_hash() ^ (uint64_t(reason) << 59);
++    if (own_crowd_unknown_.size() < 32 &&
++        std::find(own_crowd_unknown_.begin(), own_crowd_unknown_.end(), key) == own_crowd_unknown_.end()) {
++      own_crowd_unknown_.push_back(key);
++      REXGPU_INFO("[native][own_crowd] crowd vertex shader {:016X} (pixel shader {:016X}) kept the game's draws: {}",
++                  vs->ucode_data_hash(), ps->ucode_data_hash(), why);
++    }
++    return false;
++  };
++  if (!program) return decline(1, "no program of ours");
++  const bool entrance = (program->flags & 1) != 0;
++  const RegisterFile& regs = *register_file_;
++  // The member mesh: the vertex shader's first binding, 7 dwords a vertex, 8-in-32 (as the crowd shaders fetch it).
++  const auto& bindings = vs->vertex_bindings();
++  if (bindings.empty() || bindings[0].stride_words != 7) return decline(2, "mesh not 7 dwords a vertex");
++  const xenos::xe_gpu_vertex_fetch_t fetch = regs.GetVertexFetch(bindings[0].fetch_constant);
++  const uint32_t base = uint32_t(fetch.address) << 2, bytes = uint32_t(fetch.size) << 2;
++  if (xenos::Endian(fetch.endian) != xenos::Endian::k8in32 || bytes < 28 || bytes > (16u << 20) ||
++      uint64_t(base) + bytes > 0x20000000ull) {
++    return decline(3, "mesh endian or size");
++  }
++  // The position as the guest's: clip space from the shader, the host's ndc conversion (no divides by w).
++  const SpirvShaderTranslator::SystemConstants& sc = system_constants_;
++  if ((sc.flags & (SpirvShaderTranslator::kSysFlag_XYDividedByW | SpirvShaderTranslator::kSysFlag_ZDividedByW)) ||
++      !(sc.flags & SpirvShaderTranslator::kSysFlag_WNotReciprocal)) {
++    return decline(4, "position divided by w / reciprocal w");
++  }
++  native::NativeRenderer::OwnCrowdInput in;
++  in.vertex_shader_hash = vs->ucode_data_hash();
++  in.vs_words = program->vs.data();
++  in.vs_count = program->vs.size();
++  in.fs_words = program->fs.data();
++  in.fs_count = program->fs.size();
++  in.mesh_guest = memory_->TranslatePhysical(base);
++  in.mesh_vertices = bytes / 28;
++  in.members = members;
++  in.member_count = count;
++  // The scene block (src\scene\own_crowd_vs.glsl CrowdScene): the game's vertex constants by register.
++  uint32_t* scene = reinterpret_cast<uint32_t*>(in.scene);
++  const auto c = [&](uint32_t vec4_index, uint32_t reg) {
++    for (uint32_t i = 0; i < 4; ++i) scene[vec4_index * 4 + i] = regs[XE_GPU_REG_SHADER_CONSTANT_000_X + 4 * reg + i];
++  };
++  for (uint32_t i = 0; i < 4; ++i) {
++    c(i, 56 + i);     // view_proj
++    c(4 + i, 8 + i);  // light_dir
++    c(8 + i, 0 + i);  // light_color
++  }
++  c(12, 74);
++  c(13, 180);
++  c(14, 181);
++  c(15, 182);
++  c(16, 184);
++  c(17, 189);
++  c(18, 190);
++  c(19, 255);
++  for (uint32_t i = 0; i < 3; ++i) {
++    in.scene[20 * 4 + i] = sc.ndc_scale[i];
++    in.scene[21 * 4 + i] = sc.ndc_offset[i];
++  }
++  scene[22 * 4 + 0] = uint32_t(sc.vertex_index_endian);
++  scene[22 * 4 + 1] = uint32_t(sc.vertex_base_index);
++  scene[22 * 4 + 2] = sc.vertex_index_min;
++  scene[22 * 4 + 3] = sc.vertex_index_max;
++  // The textures and their samplers as the first member's draw bound them.
++  const auto texture = [&](const VulkanShader* shader, bool vertex, uint32_t fc, VkImageView& view,
++                           VkSampler& sampler) {
++    view = texture_cache_->GetActiveBindingOrNullImageView(fc, xenos::FetchOpDimension::k2D, false);
++    const auto& samplers = shader->GetSamplerBindingsAfterTranslation();
++    const auto& current = vertex ? current_samplers_vertex_ : current_samplers_pixel_;
++    sampler = VK_NULL_HANDLE;
++    for (size_t i = 0; i < samplers.size() && i < current.size(); ++i) {
++      if (samplers[i].fetch_constant == fc) sampler = current[i].second;
++    }
++    return view != VK_NULL_HANDLE && sampler != VK_NULL_HANDLE;
++  };
++  if (!texture(ps, false, 0, in.views[1], in.samplers[1])) return decline(5, "colour texture (fetch 0)");
++  if (entrance) {
++    if (!texture(ps, false, 13, in.views[2], in.samplers[2])) return decline(6, "lighting map (fetch 13)");
++    in.views[0] = in.views[1];
++    in.samplers[0] = in.samplers[1];
++  } else {
++    if (!texture(vs, true, 16, in.views[0], in.samplers[0])) return decline(7, "vertex lighting map (fetch 16)");
++    in.views[2] = in.views[1];
++    in.samplers[2] = in.samplers[1];
++  }
++  if (!native_->RecordOwnCrowd(in)) return false;  // (counted in the renderer's own line)
++  // Our pipeline, layout and set were bound: everything the next draw relies on is forgotten.
++  NativeStateTouched(false);
++  repeat_prev_.valid = false;
++  return true;
++}
++
+ uint32_t VulkanCommandProcessor::AppendCrowdInstances(const uint32_t* members, uint32_t count) {
+   RepeatFastStats& stats = repeat_fast_stats_;
+   ConstantsDynamicOffsets* const constants_dynamic = constants_dynamic_offsets_.get();
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index db37b93dfc44504e8efb6b1ef74c68214ca7ceb8..2e2a72547d62dd0dfbb615256cb1f79bf47fe54c 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -1847,6 +1847,7 @@ void NativeRenderer::DestroyObjects() {
+   alias_direct_failed_ = false;
+   truth_alias_read_owners_.clear();
+   DestroyRetired(true);
++  OwnCrowdDestroy();  // wwe2k14 patch (Session 80, own crowd)
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipelineLayout, device, alias_direct_layout_);
+   truth_retired_sets_.clear();  // freed with the pool
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyDescriptorPool, device, truth_pool_);
+@@ -5771,6 +5772,7 @@ void NativeRenderer::OnResolve(uint32_t copy_source, uint32_t surface_info, uint
+ }
+ 
+ void NativeRenderer::OnFrameEnd(CommandProcessor::NativeCensus& census) {
++  OwnCrowdOnFrameEnd();  // wwe2k14 patch (Session 80, own crowd)
+   // wwe2k14 patch (Session 69, gpu_native_truth_debug_renderdoc): the capture started at the strip clear ends here, two
+   // frames later (its submissions are in by then).
+   if (g_truth_rdc_active && frame_ >= g_truth_rdc_frame + 2) {
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index ce38a3ecd7d09740c12dbbdd539892b576231200..7793338b398f606b0c740fca8b835f57d03a5929 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -6318,7 +6318,14 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   // Session 61: a character draw's positions captured while it is drawn (DLSS / DLAA object motion vectors).
+   const bool xfb = draw.xfb_buffer != VK_NULL_HANDLE && debug_gpu_work != 2;
+   if (xfb) command_processor_.NativeXfbBegin(draw.xfb_buffer, draw.xfb_offset, draw.xfb_size);
+-  if (debug_gpu_work == 2) {
++  // wwe2k14 patch (Session 80, own crowd): what an own crowd draw right after this one reuses.
++  truth_last_vs_hash_ = draw.vertex_shader_hash;
++  truth_last_index_.indexed = draw.indexed;
++  truth_last_index_.buffer = draw.index_buffer;
++  truth_last_index_.offset = draw.index_offset;
++  truth_last_index_.type = draw.index_type;
++  truth_last_index_.count = draw.vertex_count;
++  if (debug_gpu_work == 2 || draw.own_skip_call) {  // (Session 80: own crowd - the draw is ours, right after this)
+   } else if (draw.indexed) {
+     // (Session 56, gpu_native_truth_dedupe_state: the buffer bound at offset 0 once, the draw from its first index.)
+     const VkDeviceSize index_size = draw.index_type == VK_INDEX_TYPE_UINT32 ? 4 : 2;
+diff --git a/src/graphics/vulkan/native/own_crowd.cpp b/src/graphics/vulkan/native/own_crowd.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..7669b266fd52ab7f66e271ca77b39cfe44c8a7f3
+--- /dev/null
++++ b/src/graphics/vulkan/native/own_crowd.cpp
+@@ -0,0 +1,298 @@
++// wwe2k14 patch (Session 80, OWN_RENDERER_PLAN.md: the crowd fully ours; gpu_native_own_crowd). Our own crowd draw
++// inside NATIVE's truth pass: one instanced draw of a crowd run's members with the title's own program (its SPIR-V,
++// src\scene\own_crowd_* in the game), our own pipeline layout and descriptor set, and a per-submission ring holding our
++// copy of the member mesh (converted from the guest's big-endian vertices - the game rebuilds its crowd meshes every
++// frame at a new address, run 5423, so each run converts its own), the members' matrices and the scene block.
++// The pipeline is the crowd draw's own truth pipeline key (its depth, cull, blend and pass) with our shaders and layout.
++// Map of the parts used: docs\native\OWN_CROWD_MAP.md (game repo).
++
++#include <rex/graphics/vulkan/native/native_renderer.h>
++
++#include <algorithm>
++#include <cstring>
++
++#include <rex/graphics/vulkan/command_processor.h>
++#include <rex/hash.h>
++#include <rex/logging.h>
++#include <rex/ui/vulkan/util.h>
++
++namespace rex::graphics::vulkan::native {
++
++namespace {
++constexpr uint32_t kOwnRingSlices = 4;
++constexpr VkDeviceSize kOwnRingSliceSize = 4u << 20;
++constexpr uint32_t kOwnSetsPerSlice = 64;
++
++uint32_t ByteSwap32(uint32_t v) {
++  return (v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24);
++}
++
++float HalfToFloat(uint16_t h) {
++  const uint32_t sign = uint32_t(h & 0x8000u) << 16;
++  uint32_t exponent = (h >> 10) & 0x1Fu, mantissa = h & 0x3FFu, bits;
++  if (exponent == 0x1F) {
++    bits = sign | 0x7F800000u | (mantissa << 13);
++  } else if (exponent) {
++    bits = sign | ((exponent + 112) << 23) | (mantissa << 13);
++  } else if (mantissa) {  // subnormal: normalise
++    exponent = 113;
++    while (!(mantissa & 0x400u)) {
++      mantissa <<= 1;
++      --exponent;
++    }
++    bits = sign | (exponent << 23) | ((mantissa & 0x3FFu) << 13);
++  } else {
++    bits = sign;
++  }
++  float f;
++  std::memcpy(&f, &bits, 4);
++  return f;
++}
++}  // namespace
++
++bool NativeRenderer::OwnCrowdEnsureObjects() {
++  if (own_crowd_failed_) return false;
++  if (own_crowd_layout_ != VK_NULL_HANDLE) return true;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  own_crowd_failed_ = true;  // (until everything below exists)
++  VkDescriptorSetLayoutBinding bindings[6] = {};
++  const VkShaderStageFlags both = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
++  const VkDescriptorType types[6] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
++                                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
++                                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
++                                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER};
++  for (uint32_t i = 0; i < 6; ++i) bindings[i] = {i, types[i], 1, both, nullptr};
++  VkDescriptorSetLayoutCreateInfo set_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
++  set_info.bindingCount = 6;
++  set_info.pBindings = bindings;
++  if (dfn.vkCreateDescriptorSetLayout(device, &set_info, nullptr, &own_crowd_set_layout_) != VK_SUCCESS) return false;
++  VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
++  layout_info.setLayoutCount = 1;
++  layout_info.pSetLayouts = &own_crowd_set_layout_;
++  if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &own_crowd_layout_) != VK_SUCCESS) return false;
++  if (!ui::vulkan::util::CreateDedicatedAllocationBuffer(
++          vulkan_device, kOwnRingSliceSize * kOwnRingSlices,
++          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
++          ui::vulkan::util::MemoryPurpose::kUpload, own_crowd_ring_, own_crowd_ring_memory_)) {
++    return false;
++  }
++  if (dfn.vkMapMemory(device, own_crowd_ring_memory_, 0, VK_WHOLE_SIZE, 0, &own_crowd_ring_map_) != VK_SUCCESS) {
++    return false;
++  }
++  const VkDescriptorPoolSize sizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kOwnSetsPerSlice},
++                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kOwnSetsPerSlice * 3},
++                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kOwnSetsPerSlice * 2}};
++  VkDescriptorPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
++  pool_info.maxSets = kOwnSetsPerSlice;
++  pool_info.poolSizeCount = 3;
++  pool_info.pPoolSizes = sizes;
++  own_crowd_slices_.resize(kOwnRingSlices);
++  for (OwnCrowdSlice& slice : own_crowd_slices_) {
++    if (dfn.vkCreateDescriptorPool(device, &pool_info, nullptr, &slice.pool) != VK_SUCCESS) return false;
++  }
++  own_crowd_failed_ = false;
++  REXGPU_INFO("[native][own_crowd] objects made (ring {} x {} KB)", kOwnRingSlices, kOwnRingSliceSize >> 10);
++  return true;
++}
++
++void NativeRenderer::OwnCrowdDestroy() {
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  for (auto& [key, pipeline] : own_crowd_pipelines_) {
++    if (pipeline != VK_NULL_HANDLE) dfn.vkDestroyPipeline(device, pipeline, nullptr);
++  }
++  own_crowd_pipelines_.clear();
++  for (auto& [key, module] : own_crowd_modules_) dfn.vkDestroyShaderModule(device, module, nullptr);
++  own_crowd_modules_.clear();
++  for (OwnCrowdSlice& slice : own_crowd_slices_) {
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyDescriptorPool, device, slice.pool);
++  }
++  own_crowd_slices_.clear();
++  if (own_crowd_ring_map_) dfn.vkUnmapMemory(device, own_crowd_ring_memory_);
++  own_crowd_ring_map_ = nullptr;
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device, own_crowd_ring_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device, own_crowd_ring_memory_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipelineLayout, device, own_crowd_layout_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyDescriptorSetLayout, device, own_crowd_set_layout_);
++  own_crowd_failed_ = false;
++}
++
++VkShaderModule NativeRenderer::OwnCrowdModule(const uint32_t* words, size_t count) {
++  const uint64_t key = XXH3_64bits(words, count * sizeof(uint32_t));
++  auto found = own_crowd_modules_.find(key);
++  if (found != own_crowd_modules_.end()) return found->second;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  VkShaderModuleCreateInfo info = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
++  info.codeSize = count * sizeof(uint32_t);
++  info.pCode = words;
++  VkShaderModule module = VK_NULL_HANDLE;
++  if (vulkan_device->functions().vkCreateShaderModule(vulkan_device->device(), &info, nullptr, &module) !=
++      VK_SUCCESS) {
++    module = VK_NULL_HANDLE;
++  }
++  own_crowd_modules_[key] = module;
++  return module;
++}
++
++// The member mesh: 7 big-endian dwords a vertex (position, normal, the half-float texture coordinate) to 8 floats.
++void NativeRenderer::OwnCrowdConvertMesh(const OwnCrowdInput& in, float* out) {
++  const uint32_t* guest = reinterpret_cast<const uint32_t*>(in.mesh_guest);
++  for (uint32_t v = 0; v < in.mesh_vertices; ++v, guest += 7, out += 8) {
++    uint32_t d[7];
++    for (int i = 0; i < 7; ++i) d[i] = ByteSwap32(guest[i]);
++    std::memcpy(out, d, 6 * sizeof(float));  // position, normal
++    // The texture coordinate: the pixel shader samples (high half, low half) of the swapped dword (the game's vertex
++    // shader fetches it into .yx).
++    out[6] = HalfToFloat(uint16_t(d[6] >> 16));
++    out[7] = HalfToFloat(uint16_t(d[6] & 0xFFFFu));
++  }
++}
++
++bool NativeRenderer::RecordOwnCrowd(const OwnCrowdInput& in) {
++  // Right after the run's first member, recorded as a truth draw of the same vertex shader into the open pass: our draw
++  // goes into that pass with that draw's pipeline state.
++  if (!truth_ || !truth_pass_open_ || !truth_last_recorded_ || !last_truth_valid_ ||
++      truth_last_vs_hash_ != in.vertex_shader_hash || !truth_last_index_.indexed || !in.member_count) {
++    ++own_crowd_stats_.refused_state;
++    return false;
++  }
++  if (!OwnCrowdEnsureObjects()) return false;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++
++  // The per-submission ring slice (a slice is reused only once the GPU finished the submission that last used it).
++  const uint64_t submission = command_processor_.GetCurrentSubmission();
++  OwnCrowdSlice* slice = &own_crowd_slices_[own_crowd_slice_];
++  if (slice->submission != submission) {
++    const uint32_t next = (own_crowd_slice_ + 1) % kOwnRingSlices;
++    OwnCrowdSlice& n = own_crowd_slices_[next];
++    if (n.submission && n.submission > command_processor_.GetCompletedSubmission()) {
++      ++own_crowd_stats_.refused_ring;
++      return false;
++    }
++    dfn.vkResetDescriptorPool(device, n.pool, 0);
++    n.used = 0;
++    n.submission = submission;
++    own_crowd_slice_ = next;
++    slice = &n;
++  }
++  const VkDeviceSize align = std::max<VkDeviceSize>(
++      {vulkan_device->properties().minUniformBufferOffsetAlignment,
++       vulkan_device->properties().minStorageBufferOffsetAlignment, VkDeviceSize(16)});
++  const auto take = [&](VkDeviceSize size) -> VkDeviceSize {
++    const VkDeviceSize at = (slice->used + align - 1) / align * align;
++    if (at + size > kOwnRingSliceSize) return VK_WHOLE_SIZE;
++    slice->used = at + size;
++    return VkDeviceSize(own_crowd_slice_) * kOwnRingSliceSize + at;
++  };
++  const VkDeviceSize members_size = VkDeviceSize(in.member_count) * 48;
++  const VkDeviceSize mesh_size = VkDeviceSize(std::max<uint32_t>(in.mesh_vertices, 1)) * 32;
++  const VkDeviceSize scene_at = take(sizeof(in.scene)), members_at = take(members_size), mesh_at = take(mesh_size);
++  if (scene_at == VK_WHOLE_SIZE || members_at == VK_WHOLE_SIZE || mesh_at == VK_WHOLE_SIZE) {
++    ++own_crowd_stats_.refused_ring;
++    return false;
++  }
++  uint8_t* ring = static_cast<uint8_t*>(own_crowd_ring_map_);
++  std::memcpy(ring + scene_at, in.scene, sizeof(in.scene));
++  std::memcpy(ring + members_at, in.members, size_t(members_size));
++  OwnCrowdConvertMesh(in, reinterpret_cast<float*>(ring + mesh_at));
++  const VkMappedMemoryRange range = {VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr, own_crowd_ring_memory_, 0,
++                                     VK_WHOLE_SIZE};
++  dfn.vkFlushMappedMemoryRanges(device, 1, &range);
++
++  const VkShaderModule vs = OwnCrowdModule(in.vs_words, in.vs_count);
++  const VkShaderModule fs = OwnCrowdModule(in.fs_words, in.fs_count);
++  if (vs == VK_NULL_HANDLE || fs == VK_NULL_HANDLE) {
++    ++own_crowd_stats_.refused_objects;
++    return false;
++  }
++  // The pipeline: the first member's truth pipeline key with our shaders and layout (made here, synchronously, once).
++  PipelineKey key = last_truth_key_;
++  key.vertex_shader = vs;
++  key.pixel_shader = fs;
++  key.layout = own_crowd_layout_;
++  key.tint_hash = 0;
++  key.geometry_shader = VK_NULL_HANDLE;
++  VkPipeline& pipeline = own_crowd_pipelines_[key];
++  if (pipeline == VK_NULL_HANDLE) {
++    const float spec[3] = {};
++    pipeline = CreatePipeline(Draw(), key, spec);
++    if (pipeline == VK_NULL_HANDLE) {
++      ++own_crowd_stats_.refused_objects;
++      return false;
++    }
++    REXGPU_INFO("[native][own_crowd] pipeline made for vertex shader {:016X} (class {}, state {:08X})",
++                in.vertex_shader_hash, key.variant & 7, key.state);
++  }
++
++  VkDescriptorSet set = VK_NULL_HANDLE;
++  VkDescriptorSetAllocateInfo alloc = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
++  alloc.descriptorPool = slice->pool;
++  alloc.descriptorSetCount = 1;
++  alloc.pSetLayouts = &own_crowd_set_layout_;
++  if (dfn.vkAllocateDescriptorSets(device, &alloc, &set) != VK_SUCCESS) {
++    ++own_crowd_stats_.refused_ring;
++    return false;
++  }
++  const VkDescriptorBufferInfo scene_info = {own_crowd_ring_, scene_at, sizeof(in.scene)};
++  const VkDescriptorBufferInfo mesh_info = {own_crowd_ring_, mesh_at, mesh_size};
++  const VkDescriptorBufferInfo members_info = {own_crowd_ring_, members_at, members_size};
++  VkDescriptorImageInfo images[3];
++  for (int i = 0; i < 3; ++i) {
++    images[i] = {in.samplers[i], in.views[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
++  }
++  VkWriteDescriptorSet writes[6] = {};
++  for (uint32_t i = 0; i < 6; ++i) {
++    writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
++    writes[i].dstSet = set;
++    writes[i].dstBinding = i;
++    writes[i].descriptorCount = 1;
++  }
++  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++  writes[0].pBufferInfo = &scene_info;
++  for (uint32_t i = 1; i <= 3; ++i) {
++    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
++    writes[i].pImageInfo = &images[i - 1];
++  }
++  writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++  writes[4].pBufferInfo = &mesh_info;
++  writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++  writes[5].pBufferInfo = &members_info;
++  dfn.vkUpdateDescriptorSets(device, 6, writes, 0, nullptr);
++
++  // The draw, in the open pass (viewport, scissor, depth bias and blend constants stay the first member's).
++  DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++  cb.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
++  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, own_crowd_layout_, 0, 1, &set, 0, nullptr);
++  cb.CmdVkBindIndexBuffer(truth_last_index_.buffer, truth_last_index_.offset, truth_last_index_.type);
++  cb.CmdVkDrawIndexed(truth_last_index_.count, in.member_count, 0, 0, 0);
++  // Every binding the next truth draw relies on is another's now.
++  truth_bound_pipeline_ = VK_NULL_HANDLE;
++  truth_bound_index_buffer_ = VK_NULL_HANDLE;
++  truth_bound_valid_ = false;
++  truth_foreign_bind_ = true;
++  truth_last_recorded_ = false;  // (nothing merges into our draw)
++  ++own_crowd_stats_.runs;
++  own_crowd_stats_.members += in.member_count;
++  own_crowd_stats_.vertices += in.mesh_vertices;
++  return true;
++}
++
++void NativeRenderer::OwnCrowdOnFrameEnd() {
++  if (++own_crowd_stats_.frames >= 600) {
++    if (own_crowd_stats_.runs || own_crowd_stats_.refused_state || own_crowd_stats_.refused_ring ||
++        own_crowd_stats_.refused_objects) {
++      REXGPU_INFO("[native][own_crowd] {} frames: {} runs, {} members drawn by us ({} mesh vertices converted); "
++                  "refused: state {}, ring {}, objects {}",
++                  own_crowd_stats_.frames, own_crowd_stats_.runs, own_crowd_stats_.members, own_crowd_stats_.vertices,
++                  own_crowd_stats_.refused_state, own_crowd_stats_.refused_ring, own_crowd_stats_.refused_objects);
++    }
++    own_crowd_stats_ = {};
++  }
++}
++
++}  // namespace rex::graphics::vulkan::native

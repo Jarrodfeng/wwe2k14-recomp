@@ -1,0 +1,9 @@
+# Session 77: renderer variants for tools\xdet\invariance.ps1 (NAME<TAB>FLAGS). Each must leave the game's layers
+# identical to the reference play. Phone-like = the NATIVE 720p settings file + host render targets (as
+# tools\android\emulate\replay_profiles.ps1); a730_old = an older Adreno's limits (profiles_a730.tsv).
+phone	--wwe2k14_use_launcher_settings=true --wwe2k14_settings_file=C:\Users\Jarrod\wwe2k14-recomp\out\s72\settings_native720.json --render_target_path_vulkan=fbo
+phone_a730	--wwe2k14_use_launcher_settings=true --wwe2k14_settings_file=C:\Users\Jarrod\wwe2k14-recomp\out\s72\settings_native720.json --render_target_path_vulkan=fbo --vulkan_emulate_api_minor=1 --vulkan_emulate_limits=maxStorageBufferRange=134217728,maxFragmentCombinedOutputResources=72,maxPerStageDescriptorStorageBuffers=524288 --vulkan_emulate_disable=VK_KHR_dynamic_rendering,VK_EXT_non_seamless_cube_map,VK_EXT_depth_clip_enable,VK_EXT_load_store_op_none,VK_KHR_load_store_op_none,fragmentShaderSampleInterlock,fragmentShaderPixelInterlock
+phone_batch	--wwe2k14_use_launcher_settings=true --wwe2k14_settings_file=C:\Users\Jarrod\wwe2k14-recomp\out\s72\settings_native720.json --render_target_path_vulkan=fbo --readback_resolve_batch=true --readback_resolve_batch_min_bytes=16385
+wide	--wwe2k14_aspect=21:9
+slow_pipelines	--vulkan_pipeline_debug_delay_ms=40 --gpu_native_truth_debug_pipeline_delay_ms=40
+scale2	--resolution_scale=2

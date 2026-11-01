@@ -1,0 +1,70 @@
+# Session 77 (XDET_PLAN.md stage 2): stage A's Quick Match with both entrances (tools\xdet\scenario_entr.flags):
+# Cena (controller 1) vs Undertaker (CPU), arena 3. Boot presses as in cena_taker_a.txt; no pad input during the
+# entrances (a press can skip one); marks at both trons, at the match pack (M3.PAC, after the entrances) and every 600
+# frames after it ("entr N"), then a short stretch of stage A's walk and strikes, and quit. Stage A flags (tools\xdet\stageA.flags) plus --wwe2k14_replay_record=NAME
+# or --wwe2k14_replay_play=NAME. Under replay every mark must land on the same guest frame on every device.
+# Known ARM-only risk (XDET_PLAN gap 23): the render-command walk ran past its list end at the end of Cena's entrance on
+# the phone; the guard (src\replay_watch.h, on by default on Android) logs [replay_watch] lines = INVALID.
+on_fail quit
+log xdet: stage 2 start
+wait_file SaveData.Dat 36000
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 36000
+log xdet: main menu (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 36000
+log xdet: in-game sequence loading
+wait_file 139.bik2 36000
+log xdet: tron 139 (Cena's entrance)
+wait_file 103.bik2 36000
+log xdet: tron 103 (Undertaker's entrance)
+# (Session 77, run 4905: both trons open before the match pack - 139.bik2 at frame 2376, 103.bik2 at 5710, M3.PAC at
+# 13002 after the entrances - so the route waits for them in that order; wait_file waits for a new open.)
+wait_file M3.PAC 72000
+log xdet: match pack loaded (entrances over)
+wait_frames 600
+log xdet: entr 600
+wait_frames 600
+log xdet: entr 1200
+wait_frames 600
+log xdet: entr 1800
+wait_frames 600
+log xdet: entr 2400
+wait_frames 600
+log xdet: entr 3000
+wait_frames 600
+log xdet: entr 3600
+wait_frames 600
+log xdet: entr 4200
+wait_frames 600
+log xdet: entr 4800
+# walk right, up, left, then strikes and a grapple (as stage A)
+set 0x0000 0 0 24000 0 0 0
+wait_frames 50
+set 0x0000 0 0 0 24000 0 0
+wait_frames 50
+set 0x0000 0 0 -24000 0 0 0
+wait_frames 50
+set 0x0000 0 0 0 0 0 0
+wait_frames 150
+log xdet: entr 5100
+press X 6 20
+press X 6 20
+press X 6 40
+press A 6 60
+set 0x1000 0 0 0 24000 0 0
+wait_frames 6
+set 0x0000 0 0 0 0 0 0
+wait_frames 82
+log xdet: entr 5400
+wait_frames 300
+log xdet: entr 5700
+wait_frames 60
+log xdet: stage 2 done
+quit

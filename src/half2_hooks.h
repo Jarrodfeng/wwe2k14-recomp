@@ -234,6 +234,16 @@ inline void AroundWriter(uint32_t kind, PPCContext& ctx, uint8_t* base) {
     // the caller; the end of its packets is saved at device+13844 for EndVertices (0x82CB1510) to restore.
     const uint32_t end = kind == 2 ? Load32(base, device + kInlineEndOffset) : Load32(base, device + kWritePointerOffset);
     if (full && kind == 2) FillInlineFetch(base, device, *d);
+    // Session 79 (native frame look-ahead, gpu_native_frame_dead_glare; only with it on - the entries stay exactly
+    // as before otherwise): in every half2 mode, the pixel shader's microcode address and its constant c32 from the PS
+    // float shadow (device+6016, 16 bytes a constant); the SDK keeps c32 only for the watched shader (the entrance
+    // combine) when it publishes the entry.
+    if (cp->nf_lookahead() && (kind == 1 || kind == 2)) {
+      if (const uint32_t ps = Load32(base, device + kPixelShaderOffset)) {
+        if (!full || kind == 2) d->ps_ucode = Load32(base, ps + 24) + Load32(base, ps + Load32(base, ps + 64) + 40);
+        for (uint32_t k = 0; k < 4; ++k) d->ps_c32[k] = Load32(base, device + kPsFloatOffset + 32 * 16 + 4 * k);
+      }
+    }
     cp->Half2EndLibraryDraw(d, end + 4);
   }
 }

@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.2.15
+
+The biggest speed update yet, aimed at laptops and integrated graphics: a reworked NATIVE renderer with my own
+versions of every shader the game draws matches and entrances with, a faster first start, and shorter hitches when an
+entrance begins.
+
+- **Faster matches and entrances, most of all on modest graphics.** On integrated graphics such as Intel's HD / UHD 620,
+  the game was held back by its graphics chip, and much of that time went into work the PC does not need: the game
+  copies its picture several times a frame for the next effect in line, and my translations of the Xbox 360's shaders
+  carried overhead that only made sense on the 360. NATIVE now:
+  - draws every match and entrance with my own versions of the game's shaders: the crowd, the superstars, the arena and
+    stage, the shadows and lighting, the post effects and the on-screen sprites. They compute the same picture as the
+    game's own (identical but for tiny rounding) with far less overhead;
+  - draws the crowd as one batch instead of one member at a time;
+  - skips copies of the picture that nothing reads, and lets the effects that need the picture read it where it already
+    is, instead of from a copy;
+  - lets the game run ahead while the picture is drawn behind it, instead of waiting on the drawing at every step.
+  
+  I measured each step on its own on my Intel test laptop (a Surface Pro 6 with UHD 620 graphics, at 720p). For
+  example: my own shaders made matches 15% faster and entrances 17-19% faster; my own versions of the superstars'
+  materials, another 14% in matches; dropping the unused copies, 14% in Bryan's entrance; reading the scene in place,
+  7% in matches. These come on top of each other. On a fast graphics card the game was already at its frame cap; there
+  it now needs less of the card's time for the same picture. It's on with the NATIVE renderer (the default) and stays off
+  with DLSS, DLAA, FSR or the ACCURATE / LIGHT renderers. The extra flag `--wwe2k14_native_frame=false`
+  (Settings -> Advanced) brings back v0.2.14's NATIVE.
+- **A much faster first start on slow PCs.** If you had played with the older renderers, the game prepared their
+  stored graphics at every start, even when NATIVE draws everything. On my Intel laptop that was about 3 minutes of
+  "not responding" before the first frame. NATIVE now skips them. The shipped list of graphics to prepare (PREPARING
+  SHADERS on the first launch) is also up to date and leaner: 461 to make instead of 761 on most PCs (448 instead of
+  633 on graphics without the feature NATIVE's accurate path uses).
+- **Shorter hitch when an entrance starts.** Since v0.2.10's fix for Superstar Threads outfits, the first second of each
+  entrance could run at about 23 fps while the game read back pictures it only needs for building outfits. It now stops
+  reading back the ones it doesn't need after 4 frames, and outfits still build correctly.
+- **Look:** the far-away crowd is thinner (every other distant member is left out; nearby fans are unchanged), and
+  texture filtering STANDARD is now the game's own instead of a forced 4x (floors and mats at an angle may look a little
+  softer; choose 8x or 16x in GRAPHICS for sharper).
+- **Gameplay is unchanged.**
+
 ## v0.2.14
 
 Two players on one controller and the keyboard, a fix for PCs whose sound device won't start, and a fix attempt for

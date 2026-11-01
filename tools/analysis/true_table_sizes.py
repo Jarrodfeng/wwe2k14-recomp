@@ -16,7 +16,9 @@ for l in open(os.path.join(SP, "dump_switches.log"), encoding="utf-8", errors="r
         words[int(m.group(1), 16)] = int(m.group(2), 16)
 
 reg = open(os.path.join(GEN, "wwe2k14_register.cpp"), encoding="utf-8").read()
-starts = sorted(int(a, 16) for a in re.findall(r"SetFunction\(0x([0-9A-Fa-f]+),", reg))
+starts = sorted(int(a, 16) for a in re.findall(r"(?:SetFunction|REX_REGISTER_ENTRY)\(0x([0-9A-Fa-f]+),", reg))
+if not starts:
+    raise SystemExit("no function entries in the register file (format changed?)")
 
 # ReXGlue's labels per table, from generated code
 rex_labels = {}

@@ -1,0 +1,72 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-aliasrgba16): 91d4dc71ba23..b7f0b78aefb9 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  b7f0b78 Merge s79-aliasrgba16: Session 79 gpu_native_truth_alias_direct_rgba16 (off; on under the game's arc switch) - RGBA16 owners read straight by the alias load: store dispatches 19 -> 2 (Bryan) / 17 -> 0 (match); shots 4/4 (5149), 500/500 resolve hashes (5151), validation 0 errors (5152), stage A + entrances MATCH (5153/5154)
+
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index a5a59efa2397305dde9b4a8e0aef6627a9516457..0e261daac6fce5fb0a7b09e79192bedfbd5930a8 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -323,6 +323,11 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_memory_resolves, false, "GPU/Native",
+                     "(texture, vertex, index, memexport) or a later resolve over them flushes the batch first. Not in "
+                     "readback windows")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_alias_direct_rgba16, false, "GPU/Native",
++                    "Session 79 (HD 520 arc): with gpu_native_truth_alias_direct, RGBA16 owners (k_16_16 / "
++                    "k_16_16_16_16 surfaces, 64bpp addressing for the latter) are read straight too, packed as the store "
++                    "packs them, instead of stored first")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_defer_full_resolves, false, "GPU/Native",
+                     "Session 79 (HD 520 arc): with gpu_native_truth_batch_resolves, a 1x full k_8 / k_4_4_4_4 copy "
+                     "(gpu_native_truth_direct_resolve_full_1x, with its texture write if it has one) joins the deferred "
+@@ -529,8 +534,25 @@ void main() {
+   uint s = (c.owner_flags & 4u) != 0u ? (texelFetch(owner_stencil, q, 0).r & 0xFFu) : ((c.owner_flags >> 8) & 0xFFu);
+   dword = (DepthToEdram(z, (c.owner_flags & 1u) != 0u) << 8) | s;
+ #else
+-  uvec4 u = uvec4(round(clamp(texelFetch(owner, q, 0), 0.0, 1.0) * 255.0));
+-  dword = u.r | (u.g << 8) | (u.b << 16) | (u.a << 24);
++  // (Session 79, gpu_native_truth_alias_direct_rgba16: bits 20-23 the owner's colour format - 0 k_8_8_8_8, 4 k_16_16,
++  // 5 k_16_16_16_16 from an RGBA16_SNORM image, packed as kTruthStoreComputeShader packs them.)
++  uint format = (c.owner_flags >> 20) & 0xFu;
++  bool high = false;
++  if (format == 5u) {
++    // 64bpp: 40 x 16 pixels a tile, two dwords each, rows of tiles twice the 32bpp pitch (the store's addressing).
++    uint row_dwords = c.owner_pitch_tile_dwords * 2u;
++    uint r2 = rel % row_dwords, w2 = r2 % tile_dwords, xx = w2 % c.tile_w;
++    q = ivec2((r2 / tile_dwords) * (c.tile_w >> 1) + (xx >> 1u), (rel / row_dwords) * c.tile_h + w2 / c.tile_w);
++    high = (xx & 1u) != 0u;
++  }
++  vec4 raw = texelFetch(owner, q, 0);
++  if (format == 0u) {
++    uvec4 u = uvec4(round(clamp(raw, 0.0, 1.0) * 255.0));
++    dword = u.r | (u.g << 8) | (u.b << 16) | (u.a << 24);
++  } else {
++    uvec4 s = uvec4(ivec4(round(clamp(raw, -1.0, 1.0) * 32767.0)));
++    dword = high ? (s.b & 0xFFFFu) | (s.a << 16) : (s.r & 0xFFFFu) | (s.g << 16);
++  }
+ #endif
+   out_color = (c.flags & 2u) != 0u ? unpackUnorm4x8(dword) : vec4(0.0);
+   gl_FragDepth = DepthFromEdram(dword >> 8, (c.flags & 1u) != 0u);
+@@ -5918,8 +5940,12 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     for (const int16_t o : owners) {
+       TruthImage& oi = truth_images_[o];
+       const int owner_depth = oi.kind == 3 ? 1 : 0;
++      // (Session 79, gpu_native_truth_alias_direct_rgba16: the k_16_16 / k_16_16_16_16 RGBA16 owners too.)
++      const bool rgba16 = REXCVAR_GET(gpu_native_truth_alias_direct_rgba16) && oi.kind == 2 &&
++                          (oi.format == uint32_t(xenos::ColorRenderTargetFormat::k_16_16) ||
++                           oi.format == uint32_t(xenos::ColorRenderTargetFormat::k_16_16_16_16));
+       const bool direct = try_direct && o != color && o != depth && oi.initialized && oi.image != VK_NULL_HANDLE &&
+-                          ((oi.kind == 1 && oi.format == 0) || owner_depth) &&
++                          ((oi.kind == 1 && oi.format == 0) || owner_depth || rgba16) &&
+                           alias_direct_pipelines_[owner_depth][0][c_image.kind] != VK_NULL_HANDLE &&
+                           alias_direct_pipelines_[owner_depth][1][c_image.kind] != VK_NULL_HANDLE &&
+                           TruthStoreSet(oi, true, truth_staging_) != VK_NULL_HANDLE;
+@@ -6134,7 +6160,8 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+           const std::bitset<2048> part = !split ? own : own_stencil ? (own & oi.stencil_valid) : (own & ~oi.stencil_valid);
+           if (part.none()) continue;
+           k.owner_flags = (side ? 0x10000u : 0u) |
+-                          (owner_depth ? (oi.format & 1u) | (own_stencil ? 4u : (oi.stencil & 0xFFu) << 8) : 0u);
++                          (owner_depth ? (oi.format & 1u) | (own_stencil ? 4u : (oi.stencil & 0xFFu) << 8) : 0u) |
++                          (oi.kind == 2 ? (oi.format & 0xFu) << 20 : 0u);  // (Session 79: the RGBA16 owners' format)
+           cb.CmdVkPushConstants(alias_direct_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(k), &k);
+           TruthTileRects(side ? d_image : c_image, part, load_rects);
+           for (const auto& r : load_rects) {

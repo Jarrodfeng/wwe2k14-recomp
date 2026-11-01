@@ -1,0 +1,8 @@
+# Session 77 wider coverage (XDET_PLAN.md): Hell in a Cell (type 49): Lesnar (343, pad 1) vs Bryan (324), the Hell in a Cell arena (9). Quick Match from numbers (no capture), entrances skipped.
+# Record with tools\xdet\run_stageA.ps1 -Record xdet_cov_hiac -Scenario cov_hiac (route: cover_3600.txt, or
+# cover_12000.txt for cov_long / cov_rumble).
+--wwe2k14_launch=@quick
+--wwe2k14_quick_type=49
+--wwe2k14_launch_participants=343:0,324
+--wwe2k14_launch_arena=9
+--wwe2k14_launch_skip_entrances=true

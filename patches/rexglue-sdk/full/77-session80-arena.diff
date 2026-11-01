@@ -1,0 +1,73 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-arena): 83df32f5c0c3..e7c82b0ffce6 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  e7c82b0 Merge s80-arena: the arena ours, part 1 (Session 80, OWN_RENDERER_PLAN.md) - the shader swap hands each replacement its translation's colour quantize mode (8-bit rounding / 16-bit fixed -32..32 scaling) as specialization constant kSpecColorQuantize; nothing changes for replacements that do not declare it (the post shaders); the game's scene shaders (off) use it in xenos_ps.glsl: shots rounding only, validation 0
+
+diff --git a/src/graphics/vulkan/native/shader_swap.cpp b/src/graphics/vulkan/native/shader_swap.cpp
+index bbaefac9d321b8b766542ec2538ceec3ccdd6dec..7e3befdf004981b8efe5b1ed0516c71e56fb0277 100644
+--- a/src/graphics/vulkan/native/shader_swap.cpp
++++ b/src/graphics/vulkan/native/shader_swap.cpp
+@@ -156,7 +156,7 @@ bool Takes(uint64_t guest_hash, bool epilogue_idle, bool alpha_to_coverage) {
+   return false;
+ }
+ 
+-bool Build(const SpirvShader& shader, std::vector<uint8_t>& out) {
++bool Build(const SpirvShader& shader, std::vector<uint8_t>& out, uint32_t color_quantize) {
+   const uint64_t hash = shader.ucode_data_hash();
+   const std::shared_ptr<const Entry> entry = Find(hash);
+   if (!entry) return false;
+@@ -196,6 +196,7 @@ bool Build(const SpirvShader& shader, std::vector<uint8_t>& out) {
+     }
+     return false;
+   };
++  uint32_t quantize_id = 0;  // (Session 80) the result id decorated SpecId kSpecColorQuantize, if any
+   for (size_t at = 5; at < words.size();) {
+     const uint32_t word_count = words[at] >> 16, opcode = words[at] & 0xFFFF;
+     if (!word_count || at + word_count > words.size()) return Refuse(hash, name, "the replacement's code is cut");
+@@ -207,6 +208,14 @@ bool Build(const SpirvShader& shader, std::vector<uint8_t>& out) {
+       }
+       words[at + 3] = binding;
+     }
++    // OpDecorate %target SpecId kSpecColorQuantize
++    if (opcode == 71 && word_count == 4 && words[at + 2] == 1 && words[at + 3] == kSpecColorQuantize) {
++      quantize_id = words[at + 1];
++    }
++    // OpSpecConstant %type %id value (decorations come before the constants in a module)
++    if (opcode == 50 && word_count == 4 && quantize_id && words[at + 2] == quantize_id) {
++      words[at + 3] = color_quantize;
++    }
+     at += word_count;
+   }
+   out.resize(words.size() * sizeof(uint32_t));
+diff --git a/src/graphics/vulkan/native/shader_swap.h b/src/graphics/vulkan/native/shader_swap.h
+index 4710809de09a73b393474077d8d58c25feb07330..dcdaf83f43ec67cb864c556483f12fe2befd0eff 100644
+--- a/src/graphics/vulkan/native/shader_swap.h
++++ b/src/graphics/vulkan/native/shader_swap.h
+@@ -53,6 +53,12 @@ bool Skipped(uint64_t guest_hash);
+ bool SwapStale(uint64_t guest_hash, uint32_t recorded_pixel_ext);
+ // The replacement for the shader with its set-3 bindings remapped; false (logged once per shader) when there is none
+ // or it does not fit: other float constants than it was written for, or a texture / sampler the translation lacks.
+-bool Build(const SpirvShader& shader, std::vector<uint8_t>& out);
++// Session 80 (the arena ours): color_quantize = the translation's pixel.native_color_quantize (0 none, 1 8-bit, 2
++// 16-bit fixed: the value the target stores, which the translator writes last). A replacement that declares a
++// specialization constant with constant_id kSpecColorQuantize gets it as that constant's value, so its own epilogue
++// rounds (8-bit) or scales into the 360's -32..32 range (16-bit fixed targets) as the translation would - one guest
++// shader can draw into both kinds of target (the shadow maps' depth: an 8-bit pass and two 16-bit maps).
++constexpr uint32_t kSpecColorQuantize = 0;
++bool Build(const SpirvShader& shader, std::vector<uint8_t>& out, uint32_t color_quantize = 0);
+ 
+ }  // namespace rex::graphics::vulkan::shader_swap
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 6d4151cb59f2d7a10efce977ca563aaca6e468fd..381661ca88b700c91336efd5f4a354e88c4ceaa6 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -1531,7 +1531,9 @@ VulkanShader::VulkanTranslation* VulkanPipelineCache::GetNativePixelShaderTransl
+     // above still ran: it sets up the shader's bindings and constants, which the replacement uses as they are.
+     if (translated && (native_ext & SpirvShaderTranslator::kNativeExtSwap)) {
+       std::vector<uint8_t> replacement;
+-      if (shader_swap::Build(shader, replacement)) translation->ReplaceTranslatedBinary(std::move(replacement));
++      if (shader_swap::Build(shader, replacement, modification.pixel.native_color_quantize)) {
++        translation->ReplaceTranslatedBinary(std::move(replacement));
++      }
+     }
+     if (!translated || translation->GetOrCreateShaderModule() == VK_NULL_HANDLE) {
+       REXGPU_WARN("[native] pixel shader {:016X}: no host render target translation", shader.ucode_data_hash());

@@ -1,0 +1,42 @@
+# ReXGlue SDK changes for WWE 2K14 (session79-texlog): 3595d66e25e4..892e60c03c62 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  892e60c Merge s79-texlog: Session 79 diagnostic vulkan_texture_sampled_seg_log (off by default) - the textures each draw samples in the native segment log
+
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 702a09e3af3ed4dda8910e1299c5d9b65e9af6c1..d11628d7ce65156d6127c81b61e07739e5a5516f 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -164,6 +164,12 @@ REXCVAR_DEFINE_BOOL(vulkan_texture_load_eager, false, "GPU/Vulkan",
+                     "previous frame it was loaded only after more draws (so its barrier waits for one resolve "
+                     "instead of the draws in flight). Same texture contents (a texture written again before its "
+                     "use is reloaded at its use)");
++// wwe2k14 patch (Session 79, diagnostic): which textures each draw samples, in the segment log's order (is a copy read
++// before the next copy over it?).
++REXCVAR_DEFINE_BOOL(vulkan_texture_sampled_seg_log, false, "GPU/Vulkan",
++                    "Diagnostic (Session 79): while the native segment log runs, a '[native][seg] texture sampled' line "
++                    "per texture a draw samples (page, format, size, fetch constant)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ // wwe2k14 patch (Session 22, TEXDEPTH): see GetDirectLoadViewFormat. Read when a texture is created (whether its
+ // image gets the storage usage) and per load.
+@@ -813,6 +819,20 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+ 
+   TextureCache::RequestTextures(used_texture_mask);
+ 
++  // wwe2k14 patch (Session 79, diagnostic): vulkan_texture_sampled_seg_log.
++  if (REXCVAR_GET(vulkan_texture_sampled_seg_log) && command_processor_.NativeSegmentLogActive()) {
++    uint32_t log_mask = used_texture_mask;
++    uint32_t log_index;
++    while (bit_inline::bit_scan_forward(log_mask, &log_index)) {
++      log_mask &= ~(uint32_t(1) << log_index);
++      const TextureBinding* log_binding = GetValidTextureBinding(log_index);
++      if (!log_binding) continue;
++      REXGPU_INFO("[native][seg] texture sampled: page 0x{:05X} format {} {}x{} fetch {}",
++                  uint32_t(log_binding->key.base_page), uint32_t(log_binding->key.format),
++                  log_binding->key.GetWidth(), log_binding->key.GetHeight(), log_index);
++    }
++  }
++
+   // wwe2k14 patch (Session 66, G1.0 resolve census, gpu_native_alias_census): the textures this draw samples (counter
+   // only; before the skip below, which would leave a repeated binding uncounted).
+   if (command_processor_.NativeAliasCensusActive()) {

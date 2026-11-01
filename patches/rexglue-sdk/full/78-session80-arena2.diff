@@ -1,0 +1,35 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-arena2): e7c82b0ffce6..538f7ca2b66f on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  538f7ca Merge s80-arena2: the arena ours, part 2 (Session 80) - gpu_native_shader_swap_skip holds 128 hashes (16 cut the in-run A/Bs short); no default change
+
+diff --git a/src/graphics/vulkan/native/shader_swap.cpp b/src/graphics/vulkan/native/shader_swap.cpp
+index 7e3befdf004981b8efe5b1ed0516c71e56fb0277..6e622532445199deb43d0531141982c9e4157956 100644
+--- a/src/graphics/vulkan/native/shader_swap.cpp
++++ b/src/graphics/vulkan/native/shader_swap.cpp
+@@ -23,7 +23,7 @@ REXCVAR_DEFINE_BOOL(gpu_native_shader_swap, false, "GPU/Native",
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_STRING(gpu_native_shader_swap_skip, "", "GPU/Native",
+                       "Session 80 (in-run A/Bs of our replacement shaders): a comma-separated list of guest pixel "
+-                      "shader hashes (hex, up to 16) whose registered replacement is left out - their draws use the "
++                      "shader hashes (hex, up to 128) whose registered replacement is left out - their draws use the "
+                       "translation; read once a frame (empty = none)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+@@ -47,7 +47,7 @@ std::vector<std::unique_ptr<Table>> g_tables;
+ std::unordered_set<uint64_t> g_logged;
+ std::unordered_set<uint64_t> g_logged_not_taken;  // (Session 80)
+ // (Session 80) gpu_native_shader_swap_skip, parsed at the guest swap; read by any thread.
+-std::atomic<uint64_t> g_skips[16];
++std::atomic<uint64_t> g_skips[128];  // (Session 80: 16 cut the arena A/Bs short)
+ std::atomic<uint32_t> g_skip_count{0};
+ 
+ std::shared_ptr<const Entry> Find(uint64_t hash) {
+@@ -116,7 +116,7 @@ void RefreshSkips() {
+   // Copied under the cvar registry lock (as gpu_debug_skip_vertex_shader).
+   const std::string text = rex::cvar::Query<std::string>("gpu_native_shader_swap_skip");
+   uint32_t n = 0;
+-  for (size_t pos = 0; pos < text.size() && n < 16;) {
++  for (size_t pos = 0; pos < text.size() && n < std::size(g_skips);) {
+     const size_t end = std::min(text.find(',', pos), text.size());
+     const uint64_t h = std::strtoull(text.substr(pos, end - pos).c_str(), nullptr, 16);
+     if (h) g_skips[n++].store(h, std::memory_order_relaxed);

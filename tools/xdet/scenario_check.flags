@@ -1,0 +1,8 @@
+# Session 77 (XDET_PLAN.md "P7 testers", step 2): the tester check's match - Cena (139, controller 1) vs Undertaker
+# (103, CPU), Quick Match type 0, arena 3, entrances skipped: tools\xdet\scenario_cpu.flags, from a fresh save (route
+# tools\xdet\check_route.txt). Recording only: playback takes the launch from the recording.
+--wwe2k14_launch=@quick
+--wwe2k14_quick_type=0
+--wwe2k14_launch_participants=139:0,103
+--wwe2k14_launch_arena=3
+--wwe2k14_launch_skip_entrances=true

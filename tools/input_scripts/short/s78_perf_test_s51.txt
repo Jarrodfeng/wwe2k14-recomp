@@ -1,0 +1,208 @@
+# Session 41 (low-spec step 0, docs\native\LOWSPEC_PLAN.md): the laptop / playtester performance test with the per-pass
+# GPU breakdown. Self-contained (inline state chains, no includes, no states.toml), so it runs from a test zip next to
+# wwe2k14.exe (as perf_test.txt; the launcher's PERFORMANCE TEST runs it twice: the LOW preset (accurate + native
+# renderer, fast clears), then the light renderer, both at 720p and frame rate 30). Boots to the main menu, takes a
+# frame-anatomy capture with GPU marks (2 frames, sparse marks) there, at Bryan's entrance +440 frames and at the match
+# +600 frames (logs\anatomy_NNN_K*.csv; Session 43: K = 0 menu, 1 Bryan, 2 Bryan with gpu_native_post +
+# gpu_native_after_scene (Session 42), 3 Bryan with every Session 43 native setting (post, post depth, 16-bit,
+# quantize, scene extras, after-scene), 4 match, 5 match with the Session 42 pair, 6 match with the Session 43 set;
+# each capture's label is in its "perf: capture K ..." log line), and switches the fast clears on and off every 120
+# frames in Brock's entrance and from Bryan's through the start of the match (logged as "ab: mode 1 / 0"; the light
+# renderer has no fast clears: its pairs are the test's own check, about 0). Read with py tools\native\laptop_breakdown.py ZIP.
+# Session 45: at the end, in the match, the whole native frame on / off ("ab3") and, with it on, native blending + fast
+# clears of any size left out / in ("ab4").
+# Game flags (the launcher's PERFORMANCE TEST): --wwe2k14_input_script=perf_test.txt --wwe2k14_launch=@quick
+#   --wwe2k14_quick_type=0 --wwe2k14_launch_participants=343,324 --wwe2k14_file_trace=true --vsync=false + the renderer.
+# on_fail quit: a wait that fails ends the run (the log says which).
+on_fail quit
+log perf: start
+wait_file SaveData.Dat 3600
+wait_state 0x8395C8D0 3 1800 2
+press_until_state START 0x8395C8D0 4 10 30
+press_until_state A 0x8395C8D0 >=5 10 30
+wait_file MNUIHD.PAC 1800
+log perf: main menu reached (the quick match starts by itself)
+# Session 43 (S0b-lite): direct 1x texture loads on from here, so the match's resolve-output textures are created able
+# to load straight into their image; switched off and on with the Session 43 set in the match's "ab2" windows below
+# (on the light renderer those windows measure this alone). The depth variant (k_24_8_FLOAT) stays on throughout.
+cvar vulkan_texture_load_direct_unscaled true
+cvar vulkan_texture_load_direct_depth true
+# Session 47 (the truth playtest build turns gpu_native_truth on with the NATIVE renderer / LOW preset): off until the
+# truth block "ab5" below, so the blocks before it compare what they always did (it turns gpu_native_all and
+# gpu_native_lean on itself: those off too).
+cvar gpu_native_truth false
+cvar gpu_native_all false
+cvar gpu_native_lean false
+cvar gpu_anatomy_gpu_marks true
+cvar gpu_anatomy_gpu_marks_mode 1
+cvar gpu_anatomy_gpu_marks_every 100000
+wait_frames 20
+log perf: capture 0 menu
+cvar gpu_anatomy_capture 2
+wait_frames 6
+wait_file INGAMELUA.PAC 3600
+log perf: match loading
+wait_file 343.bik2 3600
+log ab: start
+# Windows of 120 frames: the entrances follow the video's real-time clock, so their length in frames depends on the
+# PC's speed (Brock's: ~3,970 frames fast-forwarded on an RTX 4090, ~600-900 at 12-18 fps). Two pairs fit in Brock's on
+# any PC; after the Bryan capture ten pairs run on through Bryan's entrance into the match (each window's scene comes
+# from the file opens afterwards). A later wait_file also counts opens since the last one, so the match capture still
+# comes 600 frames after the windows if the match started during them.
+repeat 2
+cvar gpu_fast_clear true
+log ab: mode 1
+wait_frames 120
+cvar gpu_fast_clear false
+log ab: mode 0
+wait_frames 120
+end_repeat
+cvar gpu_fast_clear true
+log ab: mode 1
+wait_file 324.bik2 20000
+wait_frames 440
+log perf: capture 1 bryan
+cvar gpu_anatomy_capture 2
+wait_frames 6
+# Session 42: the same with the native post-processing and after-scene draws (no effect on the light renderer)
+cvar gpu_native_post true
+cvar gpu_native_after_scene true
+wait_frames 6
+log perf: capture 2 bryan native post
+cvar gpu_anatomy_capture 2
+wait_frames 6
+cvar gpu_native_post false
+cvar gpu_native_after_scene false
+# Session 43: every Session 43 native setting (Session 44: + gpu_native_merge, gpu_native_post_lean_depth; both exact)
+cvar gpu_native_post true
+cvar gpu_native_post_depth true
+cvar gpu_native_post_16bit true
+cvar gpu_native_post_quantize true
+cvar gpu_native_scene_extras true
+cvar gpu_native_after_scene true
+cvar gpu_native_merge true
+cvar gpu_native_post_lean_depth true
+wait_frames 6
+log perf: capture 3 bryan session 43 native set
+cvar gpu_anatomy_capture 2
+wait_frames 6
+cvar gpu_native_post false
+cvar gpu_native_post_depth false
+cvar gpu_native_post_16bit false
+cvar gpu_native_post_quantize false
+cvar gpu_native_scene_extras false
+cvar gpu_native_after_scene false
+cvar gpu_native_merge false
+cvar gpu_native_post_lean_depth false
+repeat 10
+cvar gpu_fast_clear false
+log ab: mode 0
+wait_frames 120
+cvar gpu_fast_clear true
+log ab: mode 1
+wait_frames 120
+end_repeat
+wait_file M3.PAC 30000
+wait_frames 600
+log perf: capture 4 match
+cvar gpu_anatomy_capture 2
+wait_frames 6
+cvar gpu_native_post true
+cvar gpu_native_after_scene true
+wait_frames 6
+log perf: capture 5 match native post
+cvar gpu_anatomy_capture 2
+wait_frames 6
+cvar gpu_native_post false
+cvar gpu_native_after_scene false
+cvar gpu_native_post true
+cvar gpu_native_post_depth true
+cvar gpu_native_post_16bit true
+cvar gpu_native_post_quantize true
+cvar gpu_native_scene_extras true
+cvar gpu_native_after_scene true
+cvar gpu_native_merge true
+cvar gpu_native_post_lean_depth true
+wait_frames 6
+log perf: capture 6 match session 43 native set
+cvar gpu_anatomy_capture 2
+wait_frames 6
+# Session 43: the Session 43 set on / off every 120 frames in the match (logged "ab2: mode 1 / 0"; frames per second
+# per window, paired as the fast clears: laptop_breakdown.py prints it). The light renderer has none of it (its pairs
+# are the test's own check, about 0).
+repeat 8
+log ab2: mode 1
+wait_frames 120
+cvar vulkan_texture_load_direct_unscaled false
+cvar gpu_native_post false
+cvar gpu_native_post_depth false
+cvar gpu_native_post_16bit false
+cvar gpu_native_post_quantize false
+cvar gpu_native_scene_extras false
+cvar gpu_native_after_scene false
+cvar gpu_native_merge false
+cvar gpu_native_post_lean_depth false
+log ab2: mode 0
+wait_frames 120
+cvar vulkan_texture_load_direct_unscaled true
+cvar gpu_native_post true
+cvar gpu_native_post_depth true
+cvar gpu_native_post_16bit true
+cvar gpu_native_post_quantize true
+cvar gpu_native_scene_extras true
+cvar gpu_native_after_scene true
+cvar gpu_native_merge true
+cvar gpu_native_post_lean_depth true
+end_repeat
+cvar gpu_native_post false
+cvar gpu_native_post_depth false
+cvar gpu_native_post_16bit false
+cvar gpu_native_post_quantize false
+cvar gpu_native_scene_extras false
+cvar gpu_native_after_scene false
+cvar gpu_native_merge false
+cvar gpu_native_post_lean_depth false
+# Session 45 (step 2): the native frame - gpu_native_all (every draw the native renderer can draw, its loads trimmed)
+# and gpu_native_resolve (resolves from its own targets) - on / off every 120 frames in the match against LOW as it is
+# (logged "ab3: mode 1 / 0"; laptop_breakdown.py prints it). Not exact (blending): the playtester's pictures are not
+# compared, only frames per second.
+repeat 6
+log ab3: mode 1
+cvar gpu_native_all true
+cvar gpu_native_resolve true
+wait_frames 120
+log ab3: mode 0
+cvar gpu_native_all false
+cvar gpu_native_resolve false
+wait_frames 120
+end_repeat
+# Session 45 (cost breakdown on the 4090, runs 2977-2985): with the native frame on, its two parts that cost there -
+# native blending and fast clears of any size (gpu_native_all_exclude 1 + 4) - left out / in every 120 frames (logged
+# "ab4: mode 1 / 0"): does the laptop agree?
+cvar gpu_native_all true
+cvar gpu_native_resolve true
+repeat 6
+log ab4: mode 1
+cvar gpu_native_all_exclude 5
+wait_frames 120
+log ab4: mode 0
+cvar gpu_native_all_exclude 0
+wait_frames 120
+end_repeat
+cvar gpu_native_all false
+cvar gpu_native_resolve false
+# Session 46 (the no-EDRAM frame): truth frames - gpu_native_truth, which turns on gpu_native_all and gpu_native_lean
+# itself - on / off every 120 frames in the match against LOW as it ships (logged "ab5: mode 1 / 0"; the off side
+# turns all three off again). Not exact: only frames per second are compared.
+repeat 6
+log ab5: mode 1
+cvar gpu_native_truth true
+wait_frames 120
+log ab5: mode 0
+cvar gpu_native_truth false
+cvar gpu_native_all false
+cvar gpu_native_lean false
+wait_frames 120
+end_repeat
+log perf: done
+quit

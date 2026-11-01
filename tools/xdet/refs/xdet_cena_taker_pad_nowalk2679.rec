@@ -1,0 +1,233 @@
+# wwe2k14 replay v2 (src/replay.h): controller calls per guest frame (VdSwap count), after the host pad filters
+name xdet_cena_taker_pad_nowalk2679
+seed 77
+dlc none
+flag det_frames true
+flag det_serial true
+# modified: det_serial_trace = <path>
+# modified: log_max_file_size_mb = 100
+# modified: timer_queue_sleep = true
+# modified: present_guest_frames_once = true
+# modified: present_ui_idle_wait = true
+# modified: window_activate_when_shown = false
+# modified: window_show_behind = true
+# modified: vulkan_gpu_crash_diagnostics = true
+# modified: vulkan_device = 0
+# modified: game_data_root = <path>
+# modified: user_data_root = <path>
+# modified: cache_root = <path>
+# modified: xex_apply_patch = false
+# modified: wwe2k14_timeline = true
+flag wwe2k14_entrance_60fps true
+flag wwe2k14_force_no_msaa true
+# modified: wwe2k14_replay_record = xdet_cena_taker_pad
+# modified: wwe2k14_input_script = <path>
+# modified: wwe2k14_det_hash = default,objects,sim
+# modified: wwe2k14_det_hash_raw_every = 60
+# modified: wwe2k14_det_hash_v2 = true
+flag wwe2k14_load_turbo false
+flag wwe2k14_load_turbo_boot false
+flag wwe2k14_load_turbo_menu false
+flag wwe2k14_skip_boot_screens false
+flag wwe2k14_phys_alloc_fast_fail true
+# modified: wwe2k14_fixed_seed = 77
+flag wwe2k14_fast_loader false
+flag wwe2k14_launch lesnar_bryan
+flag wwe2k14_launch_arena 3
+flag wwe2k14_launch_participants 139:0,103
+flag wwe2k14_launch_skip_entrances true
+# modified: wwe2k14_background_full_speed = true
+# modified: wwe2k14_session_snapshots = 0
+flag wwe2k14_native_skin false
+flag wwe2k14_nf_skin_3bone off
+# modified: gpu_allow_invalid_fetch_constants = true
+# modified: gpu_vblank_precise_timer = true
+# modified: vsync = false
+# modified: gpu_wait_reg_mem_spin = true
+# modified: gpu_wait_reg_mem_sleep_us = 100
+# modified: gpu_type0_bulk_writes = true
+# modified: gpu_type0_block_split = true
+flag occlusion_query_enable false
+# modified: gpu_anatomy_path = <path>
+# modified: gpu_rt_cache_skip_unchanged = true
+# modified: gpu_request_ranges_fast = true
+# modified: gpu_upload_skip_unchanged = true
+# modified: gpu_request_textures_skip_unchanged = true
+# modified: vulkan_async_submit = true
+# modified: vulkan_deferred_descriptor_writes = true
+# modified: vulkan_submit_on_wait = true
+# modified: vulkan_reuse_texture_bindings = true
+# modified: vulkan_async_swap = true
+# modified: vulkan_vertex_residency_cache_off = true
+# modified: vulkan_viewport_info_cache = true
+# modified: vulkan_constants_dynamic_offsets = true
+# modified: vulkan_system_constants_skip = true
+# modified: gpu_skip_noop_draws = true
+# modified: vulkan_repeat_draw_merge = true
+# modified: vulkan_repeat_draw_merge_shaders = D5E2FCC9F76BC40C,C1028A64EFCF8229,183CC64A4C4E96AC
+# modified: vulkan_repeat_draw_fast = true
+# modified: vulkan_pipeline_no_submit_wait = true
+# modified: render_target_path_vulkan = fsi
+# modified: vulkan_upload_hoist = 2
+# modified: vulkan_texture_load_direct = true
+# modified: vulkan_sampler_param_cache = true
+# modified: vulkan_texture_load_eager = true
+# modified: vulkan_texture_load_direct_depth = true
+C 0 0 0 1 0 01010000FFFFFFFF7FFF7FFF7FFF7FFFFFFFFFFF
+S 0 0 0 1 0 00000001000000000000000000000000
+C 0 0 1 1 48F 0000000000000000000000000000000000000000
+S 0 0 1 1 48F 00000000000000000000000000000000
+C 0 0 2 1 48F 0000000000000000000000000000000000000000
+S 0 0 2 1 48F 00000000000000000000000000000000
+C 0 0 3 1 48F 0000000000000000000000000000000000000000
+S 0 0 3 1 48F 00000000000000000000000000000000
+T 60 244
+T 120 484
+T 180 724
+T 240 964
+T 300 1204
+T 360 1444
+T 420 1684
+T 480 1924
+T 540 2164
+T 600 2404
+T 660 2644
+T 720 2884
+T 780 3124
+T 840 3364
+T 900 3604
+T 960 3844
+T 1020 4084
+T 1080 4324
+T 1140 4564
+T 1200 4804
+S 1231 0 0 1 0 000000020010000000000000F99CFB8F
+S 1241 0 0 1 0 000000030000000000000000FBD3FB2E
+T 1260 5044
+S 1307 0 0 1 0 000000041000000000000000FCFEFB90
+S 1317 0 0 1 0 000000050000000000000000FCFEFB90
+T 1320 5284
+T 1380 5524
+T 1440 5764
+T 1500 6004
+T 1560 6244
+T 1620 6484
+T 1680 6724
+T 1740 6964
+T 1800 7204
+T 1860 7444
+T 1920 7684
+T 1980 7924
+T 2040 8164
+T 2100 8404
+T 2160 8644
+T 2220 8884
+T 2280 9124
+T 2340 9364
+T 2400 9604
+T 2460 9844
+T 2520 10084
+S 2579 0 0 1 0 00000006000000005DC0000000000000
+T 2580 10324
+S 2629 0 0 1 0 000000070000000000005DC000000000
+T 2640 10564
+T 2700 10804
+S 2729 0 0 1 0 00000009000000000000000000000000
+T 2760 11044
+T 2820 11284
+S 2879 0 0 1 0 0000000A400000000000000000000000
+T 2880 11524
+S 2885 0 0 1 0 0000000B000000000000000000000000
+S 2905 0 0 1 0 0000000C400000000000000000000000
+S 2911 0 0 1 0 0000000D000000000000000000000000
+S 2931 0 0 1 0 0000000E400000000000000000000000
+S 2937 0 0 1 0 0000000F000000000000000000000000
+T 2940 11764
+S 2977 0 0 1 0 00000010100000000000000000000000
+S 2983 0 0 1 0 00000011000000000000000000000000
+T 3000 12004
+S 3043 0 0 1 0 000000121000000000005DC000000000
+S 3049 0 0 1 0 00000013000000000000000000000000
+T 3060 12244
+T 3120 12484
+S 3131 0 0 1 0 00000014000000FF5DC0000000000000
+S 3171 0 0 1 0 00000016400000000000000000000000
+S 3177 0 0 1 0 00000017000000000000000000000000
+T 3180 12724
+S 3197 0 0 1 0 00000018400000000000000000000000
+S 3203 0 0 1 0 00000019000000000000000000000000
+S 3223 0 0 1 0 0000001A100000000000000000000000
+S 3229 0 0 1 0 0000001B000000000000000000000000
+T 3240 12964
+S 3289 0 0 1 0 0000001C10000000A240000000000000
+S 3295 0 0 1 0 0000001D000000000000000000000000
+T 3300 13204
+T 3360 13444
+T 3420 13684
+T 3480 13924
+T 3540 14164
+T 3600 14404
+T 3660 14644
+S 3677 0 0 1 0 0000001E400000000000000000000000
+S 3683 0 0 1 0 0000001F000000000000000000000000
+S 3703 0 0 1 0 00000020400000000000000000000000
+S 3709 0 0 1 0 00000021000000000000000000000000
+T 3720 14884
+S 3729 0 0 1 0 00000022100000000000000000000000
+S 3735 0 0 1 0 00000023000000000000000000000000
+T 3780 15124
+S 3795 0 0 1 0 00000024100000005DC0000000000000
+S 3801 0 0 1 0 00000025000000000000000000000000
+T 3840 15364
+T 3900 15604
+T 3960 15844
+S 3971 0 0 1 0 00000026000000000000A24000000000
+T 4020 16084
+S 4031 0 0 1 0 00000028400000000000000000000000
+S 4037 0 0 1 0 00000029000000000000000000000000
+S 4057 0 0 1 0 0000002A400000000000000000000000
+S 4063 0 0 1 0 0000002B000000000000000000000000
+T 4080 16324
+S 4083 0 0 1 0 0000002C100000000000000000000000
+S 4089 0 0 1 0 0000002D000000000000000000000000
+T 4140 16564
+S 4149 0 0 1 0 0000002E100000000000A24000000000
+S 4155 0 0 1 0 0000002F000000000000000000000000
+T 4200 16804
+T 4260 17044
+T 4320 17284
+T 4380 17524
+T 4440 17764
+T 4500 18004
+T 4560 18244
+S 4577 0 0 1 0 00000030400000000000000000000000
+S 4583 0 0 1 0 00000031000000000000000000000000
+S 4603 0 0 1 0 00000032400000000000000000000000
+S 4609 0 0 1 0 00000033000000000000000000000000
+T 4620 18484
+S 4629 0 0 1 0 00000034400000000000000000000000
+S 4635 0 0 1 0 00000035000000000000000000000000
+S 4655 0 0 1 0 00000036100000000000000000000000
+S 4661 0 0 1 0 00000037000000000000000000000000
+T 4680 18724
+S 4721 0 0 1 0 0000003810000000A240000000000000
+S 4727 0 0 1 0 00000039000000000000000000000000
+T 4740 18964
+T 4800 19204
+T 4860 19444
+T 4920 19684
+T 4980 19924
+T 5040 20164
+T 5100 20404
+T 5160 20644
+T 5220 20884
+T 5280 21124
+T 5340 21364
+T 5400 21604
+T 5460 21844
+T 5520 22084
+T 5580 22324
+T 5640 22564
+T 5700 22804
+T 5760 23044
+T 5820 23284

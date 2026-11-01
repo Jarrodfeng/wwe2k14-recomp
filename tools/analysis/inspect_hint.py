@@ -14,7 +14,9 @@ GEN = os.environ.get("GEN", r"C:\Users\Jarrod\wwe2k14-recomp\generated\default")
 PREFIX = os.environ.get("PREFIX", "wwe2k14")
 
 reg = open(os.path.join(GEN, f"{PREFIX}_register.cpp"), encoding="utf-8").read()
-funcs = sorted((int(a, 16), n) for a, n in re.findall(r"SetFunction\(0x([0-9A-Fa-f]+),\s*(\w+)\)", reg))
+funcs = sorted((int(a, 16), n) for a, n in re.findall(r"(?:SetFunction|REX_REGISTER_ENTRY)\(0x([0-9A-Fa-f]+),\s*(\w+)\)", reg))
+if not funcs:
+    raise SystemExit("no function entries in the register file (format changed?)")
 starts = [a for a, _ in funcs]
 
 _cache = {}
