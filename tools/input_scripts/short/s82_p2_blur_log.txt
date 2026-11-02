@@ -1,0 +1,14 @@
+# Session 82 (P2 builder): segment + census log for 4 frames from match frame +503 (game frame ~2782), where the post blur A5C9AC54 is paused once (frame 2783: a copy of its pass run as the game's).
+# Run with --wwe2k14_replay_play=s80_lb_quick + the settings file + --gpu_native_owned_frame=true
+# --gpu_native_owned_frame_log=2 --wwe2k14_native_frame=true --vsync=false. on_fail quit.
+on_fail quit
+log bench: start s82_p2_blur_log
+wait_file m3.pac 3600
+log scene=match
+wait_frames 503
+log passlog: blur
+cvar gpu_native_segment_log 4
+cvar gpu_native_truth_pass_log 4
+wait_frames 60
+log bench: done
+quit

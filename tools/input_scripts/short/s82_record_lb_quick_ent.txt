@@ -1,0 +1,43 @@
+# Session 82 (Jarrod: "for loading in the shaders you don't need to be watching the entire entrances"): records the
+# quick entrance replay s82_lb_quick_ent - Brock vs Bryan as s21_lb with both entrances, each cut short with START 5 s
+# after the wrestler's step 15 (as s80_probe_short.txt), then 1,200 match frames with no pad input. The title presses
+# as s80_record_lb_quick.txt (without them the title screen idles into the attract demo). Played back by
+# s82_ent_shots.txt (shots) or any route that waits for 343.bik2 / 324.bik2 / M3.PAC.
+# Run with --wwe2k14_replay_record=s82_lb_quick_ent --wwe2k14_launch=lesnar_bryan (entrances NOT skipped).
+# Marks: 1 Brock's tron, 2 Bryan's tron, 3 the match. on_fail quit.
+on_fail quit
+log bench: start s82_record_lb_quick_ent
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+mark 1 tron_343
+wait_state entrance_step_0 >=15 3600 2 optional
+log bench: Brock step 15
+wait_frames 300
+press_until_state START entrance_step_0 <5 100 30 5 unreadable
+wait_file 324.bik2 20000
+log scene=tron_324
+mark 2 tron_324
+wait_state entrance_step_1 >=15 3600 2 optional
+log bench: Bryan step 15
+wait_frames 300
+press_until_state START entrance_step_1 <5 40 30 5 unreadable
+wait_file M3.PAC 30000
+log scene=match
+mark 3 match
+wait_frames 1200
+log bench: done
+quit

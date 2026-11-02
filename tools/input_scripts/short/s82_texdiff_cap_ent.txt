@@ -1,0 +1,12 @@
+# Session 82 (P2): as s82_texdiff_cap.txt for the quick ENTRANCE replay s82_lb_quick_ent: a RenderDoc capture of two frames at
+# +300 into the match (the shot s82e_match_a's frame), for texdiff.ps1 variants. on_fail quit.
+on_fail quit
+log bench: start s82_texdiff_cap_ent
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 300
+cvar gpu_native_debug_rdc_now true
+screenshot s82texdiff
+wait_frames 12
+log bench: done
+quit

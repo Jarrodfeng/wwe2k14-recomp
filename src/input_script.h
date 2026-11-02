@@ -136,6 +136,7 @@
 #pragma once
 
 #include <rex/cvar.h>
+#include <rex/det.h>
 #include <rex/hook.h>
 #include <rex/input/input.h>
 #include <rex/logging.h>
@@ -156,6 +157,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -239,6 +241,16 @@ inline std::atomic<int> g_screenshots_in_flight{0};
 // Session 16 (src/matte.h): called on the game thread at every screenshot before the capture starts (null = nothing).
 inline void (*g_screenshot_hook)(const std::string& label) = nullptr;
 
+// Session 82 (P2): a replay's same-frame shot came out in a few fixed versions (runs 016-027 of sdk_0bb3da55f: every
+// hashed guest region equal). The cause: this file's worker thread took the presenter's LATEST guest output when it got
+// to run, and the guest (fast-forwarded, det_frames) goes on at once: swap N's image replaced swap N-1's within
+// microseconds to milliseconds of the thread starting (the thread-start delay depends on the load = the versions). In
+// replay mode the capture is now made right here on the guest thread, where det_frames has settled the command
+// processor (the last swap, N-1, is complete and swap N is not issued yet), so the shot is always the output of the
+// previous guest frame; the worker thread only encodes and writes. The same switch makes a replay wait for pipelines
+// (async_shader_compilation off: replay.h) so a frame is not held back - and its predecessor shown - while a pipeline
+// is made. Default off; replay mode turns it on (each only if left at default); the setting is in replay.h.
+
 // PNG through Windows Imaging Component (part of Windows: no extra library). RawImage is R8 G8 B8 X8 -> 24-bit BGR;
 // with `alpha` (Session 18: title reveal thumbnails) R8 G8 B8 A8 -> 32-bit BGRA. Session 58: `container` =
 // GUID_ContainerFormatJpeg for the scene snapshots (src/session_log.h).
@@ -299,7 +311,17 @@ inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImag
 inline void SaveScreenshot(const std::string& label) {
   if (g_screenshot_hook) g_screenshot_hook(label);
   g_screenshots_in_flight.fetch_add(1);
-  std::thread([label] {
+  // Session 82: the capture on this (guest) thread in replay mode, see wwe2k14_replay_exact_shots.
+  auto early = std::make_shared<rex::ui::RawImage>();
+  bool early_ok = false, early_taken = false;
+  if (REXCVAR_GET(wwe2k14_replay_exact_shots) && rex::det::Enabled()) {
+    auto* runtime = REX_KERNEL_STATE()->emulator();
+    auto* graphics = runtime ? runtime->graphics_system() : nullptr;
+    auto* presenter = graphics ? graphics->presenter() : nullptr;
+    early_taken = true;
+    early_ok = presenter && presenter->CaptureGuestOutput(*early);
+  }
+  std::thread([label, early, early_ok, early_taken] {
     struct InFlight {
       ~InFlight() { g_screenshots_in_flight.fetch_sub(1); }
     } in_flight;
@@ -307,7 +329,12 @@ inline void SaveScreenshot(const std::string& label) {
     auto* graphics = runtime ? runtime->graphics_system() : nullptr;
     auto* presenter = graphics ? graphics->presenter() : nullptr;
     rex::ui::RawImage image;
-    if (!presenter || !presenter->CaptureGuestOutput(image) || !image.width || !image.height) {
+    if (early_taken) {
+      if (early_ok) image = std::move(*early);
+    } else if (presenter) {
+      presenter->CaptureGuestOutput(image);
+    }
+    if (!image.width || !image.height) {
       REXLOG_WARN("[wwe2k14][input] screenshot '{}': no guest output to capture", label);
       return;
     }

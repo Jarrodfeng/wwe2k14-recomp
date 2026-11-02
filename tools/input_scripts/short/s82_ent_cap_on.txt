@@ -1,0 +1,14 @@
+# Session 82 (diagnostic): the quick entrance replay with the owned frame turned ON at the match (run with --gpu_native_owned_frame=false), a RenderDoc capture of the frames after match +300 (gpu_native_debug_rdc_now), the shot of that frame. Run with ENABLE_VULKAN_RENDERDOC_CAPTURE=1 and RenderDoc on PATH. on_fail quit.
+on_fail quit
+log bench: start s82_ent_cap_on
+wait_file 343.bik2 3600
+wait_file 324.bik2 20000
+wait_file M3.PAC 30000
+cvar gpu_native_owned_frame true
+log scene=match
+wait_frames 300
+cvar gpu_native_debug_rdc_now true
+screenshot s82cap
+wait_frames 12
+log bench: done
+quit

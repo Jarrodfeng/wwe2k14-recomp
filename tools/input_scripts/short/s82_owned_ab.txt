@@ -1,0 +1,38 @@
+# Session 82: in-run A/B of the owned frame (owned_ab), "ab: mode" lines for tools\native\ab_gpu.py; in-run A/B of gpu_native_owned_frame (period 120 frames) on s82_ent_shots.txt; made by make_ab.py
+# Session 82: same-frame shots of the quick entrance replay s82_lb_quick_ent (Brock vs Bryan, both entrances cut short
+# 5 s after each one's step 15, then 1,200 match frames; recorded by s82_record_lb_quick_ent.txt, run 5721: Brock's
+# tron at frame 2357, Bryan's at 4396, the match at 5997, end 7197). Also the warm-up run per build (fills the stored
+# pipelines of both entrances and the match in ~1 min fast-forwarded). Run with --wwe2k14_replay_play=s82_lb_quick_ent
+# plus the arms' flags, fast-forwarded both arms. Shots as s72_swap_shots.txt (Brock +300 / +600, Bryan +440) plus two
+# of the match. Marks: 1 Brock's tron, 2 Bryan's tron, 3 the match. on_fail quit.
+on_fail quit
+log bench: start s82_ent_shots
+wait_file 343.bik2 3600
+log scene=tron_343
+mark 1 ab_entrances
+repeat 22
+cvar gpu_native_owned_frame true
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_owned_frame false
+log ab: mode 0
+wait_frames 120
+end_repeat
+cvar gpu_native_owned_frame false
+log ab: mode 0
+wait_file M3.PAC 6000
+mark 2 ab_match
+wait_frames 300
+repeat 15
+cvar gpu_native_owned_frame true
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_owned_frame false
+log ab: mode 0
+wait_frames 120
+end_repeat
+cvar gpu_native_owned_frame false
+log ab: mode 0
+mark 3 ab_done
+wait_frames 30
+quit

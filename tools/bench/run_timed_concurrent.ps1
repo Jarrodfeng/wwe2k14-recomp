@@ -211,10 +211,17 @@ try {
         # Other holders' live slots (ours are excluded by token), and live tickets: every ticket now in the queue is
         # shared (no exclusive one, checked above) and would go before a ticket written now.
         $others = @($s.Slots | Where-Object { $_.Rec -and $mine -notcontains $_.Rec.token -and (Test-RunLockOwnerAlive $_.Rec) })
-        $waiting = @($s.Tickets | Where-Object { Test-RunLockOwnerAlive $_ })
+        # (Session 82 review: only SHARED tickets go before ours; a queued BUILD ticket does not take a shared slot.)
+        $waiting = @($s.Tickets | Where-Object { (Get-RunLockTicketMode $_) -eq 'shared' -and (Test-RunLockOwnerAlive $_) })
         $free = $max - $others.Count - $held.Count
         $unowned = @(Get-RunLockUnownedGames $s.Games (@($others | ForEach-Object { [int]$_.Rec.pid }) + $PID))
-        if ($free -gt $waiting.Count -and $s.Games.Count -lt $max -and -not $unowned.Count) {
+        # (Known limits, review item 5: with -NoIdleHold and ONE script the gather loop is not entered, so it never waits for
+        # builds; and builders that start in turn can keep a live build slot busy for as long as they keep building, which can
+        # starve a gather - a timed batch wants a quiet queue (nothing building), or -Exclusive.)
+        # (Session 82 review: a BUILD hold runs next to shared holds and would skew these timed lanes: the gather waits
+        # until no build is held, and the end of the run warns if one started meanwhile - builds cannot be kept out of a
+        # shared hold, so a timed batch wants a quiet queue; use -Exclusive for numbers that must not be skewed.)
+        if ($free -gt $waiting.Count -and $s.Games.Count -lt $max -and -not $unowned.Count -and -not @($s.LiveBuilds).Count) {
             # Should go at once; a short timeout only covers a lost race (someone took the slot first, or an exclusive
             # ticket arrived in between), after which the loop looks again (and yields if it is an exclusive one).
             try {
@@ -282,6 +289,13 @@ try {
     Exit-LanesHolds
     $released = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff')
     if ($relSlots) { Write-Host "[lanes] released $relSlots at $released" }
+    if (-not $Exclusive -and $gather.all_held) {
+        try {
+            $from = [datetime]::ParseExact($gather.all_held, 'yyyy-MM-dd HH:mm:ss.fff', $null)
+            $nb = @(Read-RunLockHistory | Where-Object { $_.Mode -eq 'build' -and $_.Kind -in 'acquire', 'release' -and $_.Time -ge $from }).Count + @((Get-RunLockState).LiveBuilds).Count
+            if ($nb) { $gather.builds_during = $nb; Write-Host "[lanes] WARNING: $nb build lock event(s) during the lanes: a build may have skewed the timing (batch.json gather.builds_during)" }
+        } catch { }
+    }
 }
 foreach ($m in $mon) { $null = $m.WaitForExit(10000) }   # they stop on the 'stop' file
 

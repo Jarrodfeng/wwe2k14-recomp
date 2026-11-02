@@ -1,0 +1,14 @@
+# Session 82 (harness builder): for tools\native\texdiff.ps1 - the quick match replay (s80_lb_quick), a RenderDoc capture of
+# two frames at +400 into the match (gpu_native_debug_rdc_now: the frames after the cvar), a shot of that frame. Both arms
+# (owned frame on / off) run this same route; run with ENABLE_VULKAN_RENDERDOC_CAPTURE=1 and RenderDoc on the PATH
+# (texdiff.ps1 does). Needs an s82 build (the cvar). on_fail quit.
+on_fail quit
+log bench: start s82_texdiff_cap
+wait_file m3.pac 3600
+log scene=match
+wait_frames 400
+cvar gpu_native_debug_rdc_now true
+screenshot s82texdiff
+wait_frames 12
+log bench: done
+quit

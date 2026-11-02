@@ -1,0 +1,14 @@
+# Session 80: as s80_match_shots.txt (s80_lb_quick, match only), with the segment and pass logs for 2 frames at
+# the first shot's frame (+600 into the match) and the shot itself. on_fail quit.
+on_fail quit
+log bench: start s80_match_log
+wait_file m3.pac 3600
+log scene=match
+wait_frames 600
+log passlog: match
+cvar gpu_native_segment_log 2
+cvar gpu_native_truth_pass_log 2
+screenshot s80m_a
+wait_frames 120
+log bench: done
+quit

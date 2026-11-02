@@ -20,7 +20,7 @@ import sys
 from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOGS = os.path.join(HERE, '..', '..', 'out', 'build', 'win-amd64-release', 'logs')
+LOGS = os.environ.get('LOGS') or os.path.join(HERE, '..', '..', 'out', 'build', 'win-amd64-release', 'logs')
 MODE = re.compile(r'\[input\] line \d+: ab: mode (\d) \(frame (\d+)\)')
 OPEN = re.compile(r"\[file\] NtCreateFile '([^']+)'.* frame=(\d+)")
 SCENES = (('343.bik2', 'brock'), ('324.bik2', 'bryan'), ('m3.pac', 'match'))

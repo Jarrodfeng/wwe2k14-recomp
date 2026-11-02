@@ -1,0 +1,14 @@
+# Session 82 (overnight, look levers): the owned frame's GPU pieces in the match, one run per arm of a lever (lever on / off
+# by the run's flags): the pass log for 8 frames at +300 into the match. Exclusive, NATIVE settings, with
+# --wwe2k14_file_trace=true --vulkan_gpu_timestamps=true --gpu_native_gpu_timers=true --gpu_ram_stats=true
+# --gpu_native_owned_frame=true; read with tools\native\owned_pieces.py RUN RUN --dir LOGDIR (on = off = the one run).
+on_fail quit
+log bench: start s82_lever_timing
+wait_file m3.pac 3600
+log scene=match
+wait_frames 300
+log passlog: lever
+cvar gpu_native_truth_pass_log 8
+wait_frames 60
+log bench: done
+quit

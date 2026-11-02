@@ -1,0 +1,26 @@
+# Session 82 (harness builder): the ON arms' version of s82_match_shots_census.txt (same shots on the same frames, +400 / +500 /
+# +600; owned_verdict treats all three routes as one). The owned frame is flipped off and on again at +300 into the match so that
+# the summary printed by the flip off after the last shot ("TRUTH WORK per frame", which resets at every flip) covers the frames
+# +302 .. +606 only: match frames, not the boot and the intro. The census (`cvar gpu_native_owned_frame_log 2`, two frames) is logged at
+# the first shot. Only for arms that run with --gpu_native_owned_frame=true (owned_check.ps1 picks it). on_fail quit.
+on_fail quit
+log bench: start s82_match_shots_census_on
+wait_file m3.pac 3600
+log scene=match
+wait_frames 300
+cvar gpu_native_owned_frame false
+wait_frames 2
+cvar gpu_native_owned_frame true
+wait_frames 48
+cvar gpu_native_owned_frame_log 2
+wait_frames 50
+screenshot s82f_a
+wait_frames 100
+screenshot s82f_b
+wait_frames 100
+screenshot s82f_c
+wait_frames 3
+cvar gpu_native_owned_frame false
+wait_frames 30
+log bench: done
+quit

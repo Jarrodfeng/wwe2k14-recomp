@@ -100,12 +100,47 @@ void CheckForUpdate(const std::string& version) {
   std::thread([version] {
     Event e;
     e.kind = Event::kUpdate;
-    e.update = launcher::CheckForUpdate(version);
+    // Session 81 test: WWE2K14_UPDATE_FILE=release.json offers that release (an android-v... one with an .apk asset)
+    if (const char* f = std::getenv("WWE2K14_UPDATE_FILE")) {
+      std::ifstream in(f, std::ios::binary);
+      const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      const auto j = nlohmann::json::parse(body, nullptr, false);
+      launcher::UpdateInfo u;
+      if (j.is_object()) {
+        u.tag = j.value("tag_name", ""), u.name = j.value("name", ""), u.url = j.value("html_url", ""), u.notes = j.value("body", "");
+        launcher::PickAsset(j, "wwe2k14-android-", ".apk", u);
+        u.state = launcher::UpdateInfo::kAvailable;
+      } else {
+        u.state = launcher::UpdateInfo::kFailed, u.error = "test file unreadable";
+      }
+      e.update = u;
+    } else {
+      e.update = launcher::CheckForUpdate(version);
+    }
     Post(std::move(e));
   }).detach();
 }
 
 void OpenUrl(const std::string& url) { SDL_OpenURL(url.c_str()); }
+
+// Session 81: the PC test build only pretends (so the app's update screens can be looked at): a download that counts up,
+// and an install that says so. The phone's real one is LauncherActivity.jDownloadUpdate / jInstallUpdate.
+void DownloadUpdate(const std::string&, const std::string&) {
+  std::thread([] {
+    constexpr unsigned long long total = 60u << 20;
+    for (unsigned long long done = 0; done < total; done += 4u << 20) {
+      Event e;
+      e.kind = Event::kUpdateProgress, e.a = std::to_string(done) + " " + std::to_string(total);
+      Post(std::move(e));
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    Event e;
+    e.kind = Event::kUpdateDownloaded, e.ok = true;
+    Post(std::move(e));
+  }).detach();
+}
+void InstallUpdate() { Message("PC test build: the update installs on the phone only"); }
+void ClearUpdate() {}
 
 void StartGame(const std::vector<std::string>& args, const std::string& game_address, const TouchChoice& touch) {
   std::ofstream f(g_files / "last_launch.txt", std::ios::trunc);

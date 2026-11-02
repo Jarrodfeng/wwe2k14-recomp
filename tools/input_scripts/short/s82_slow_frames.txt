@@ -1,0 +1,11 @@
+# Session 82 (diagnostic): the pass log over the slow-frame burst at frames 3375-3381 of the s80_lb_quick match (m3.pac +1096) and the frames after it. Run with --wwe2k14_replay_play=s80_lb_quick --vulkan_gpu_timestamps=true --gpu_native_gpu_timers=true, the owned frame on. on_fail quit.
+on_fail quit
+log bench: start s82_slow_frames
+wait_file m3.pac 3600
+log scene=match
+wait_frames 1090
+log passlog: burst
+cvar gpu_native_truth_pass_log 20
+wait_frames 40
+log bench: done
+quit

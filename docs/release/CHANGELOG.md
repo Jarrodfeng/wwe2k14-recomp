@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.2.16
+
+Matches now hold 60 fps on my Intel test laptop: the NATIVE renderer draws the whole match frame itself, without going
+through the Xbox 360's way of drawing at all.
+
+- **Matches at a steady 60 fps on modest graphics.** On my Intel laptop (a Surface Pro 6 with UHD 620 graphics, at
+  720p) a Lesnar vs Bryan match averaged 54.8 fps in v0.2.15, with its slowest 1% of frames at 38.8 fps; now it holds
+  the 60 fps cap, with the slowest 1% at 50 fps. Frames that took longer than 20 ms (the stutter you feel) went from
+  17% of the match to 1%. The cause: even with v0.2.15's own shaders, every part of the picture still went through a
+  copy of the 360's special picture memory (EDRAM): each step loaded its pixels from it and stored them back, and every
+  copy the game made went through it too. Now every step of the match's picture is drawn straight into the PC's own
+  images, and the copies the next effect needs are served from them. On a fast graphics card the game was already at
+  its cap; there it now needs less of the card's time for the same picture.
+- **Entrances: a first part.** Most of each entrance's picture is now drawn the same way. On the same laptop Brock's
+  entrance went from 45.2 to 48.4 fps (its slowest 1% from 17.8 to 24.9 fps) and Bryan's from 39.5 to 40.8 fps.
+  Entrances are what I'm working on next.
+- **The same picture.** I compared it with v0.2.15's at 720p and 1440p: identical or within a level or two of
+  brightness in a few pixels. It's on with the NATIVE renderer (the default); the extra flag
+  `--gpu_native_owned_frame=false` (Settings -> Advanced) brings back v0.2.15's NATIVE.
+- **Gameplay is unchanged.**
+
 ## v0.2.15
 
 The biggest speed update yet, aimed at laptops and integrated graphics: a reworked NATIVE renderer with my own

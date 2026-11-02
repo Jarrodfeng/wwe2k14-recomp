@@ -52,6 +52,36 @@ inline void Apply() {
       // Surface in-run (run 032): match -14.6%, Bryan -17.0%, Brock -19.2%.
       {"wwe2k14_scene_shaders", "true"},
       {"gpu_native_own_crowd", "true"},
+      // Session 80 overnight (frame structure: the scene's clears): a pass that starts with a whole-surface clear by the
+      // game's flat-colour primitive (yDebugPrimitive: it writes the vertex shader's first interpolator), colour /
+      // depth / stencil known on the CPU, begins with the render pass's own clear (a GPU fast clear) and the clear's
+      // draw is left out - the scene's 1280x720 clear, once a frame. Shots byte-identical (5560 vs 5561), validation 0.
+      {"gpu_native_truth_clear_load", "A4A965C189287B99"},
+      // Session 80 overnight (frame structure: what a draw touches): the sweat maps' copy and layer draws (yLiquidMap's
+      // vertex shaders) have a full-surface scissor but touch only the dirty rectangle: their vertices' box, worked
+      // out on the CPU, narrows the tiles they load and own - that pass alias-loads 8 tiles instead of 416 (0.85-0.90
+      // ms of every scene's Surface frame before). Shots byte-identical (5582 vs 5583), validation 0 (5584), T2 PASS;
+      // Opus review's fixes in (SDK step 81).
+      {"gpu_native_truth_bounds_vs", "5D2AE398B797CF87,8F60149686CB59D1"},
+      // Session 80 overnight (frame structure: the arena screen's pass break): the match's arena screen samples the
+      // previous frame's scene mid scene pass; its image is now made readable before that pass begins (learned from
+      // the first frame's split), so the scene pass is no longer ended and begun again there - one 1280x720 colour +
+      // depth store and load a frame less. Only barriers move. Shots byte-identical (5589 vs 5590), validation 0.
+      {"gpu_native_truth_serve_ahead", "true"},
+      // Session 80 (OWN_RENDERER_PLAN.md "The shadows", owned steps): the ring shadow's downscale and two blurs drawn
+      // into exact-size images of ours instead of the 360's EDRAM-shaped surfaces, their copies left out, the readers
+      // (the next blur, the ring mat) given our images; a lost output is replayed into the truth path (exact). Shots
+      // byte-identical (5607 vs 5611 / 5621; from these defaults 5623), validation 0 (5613 / 5622), every output forced
+      // through the replay identical (5612 / 5619); two Opus reviews' fixes in (SDK step 84); T2 PASS (5624, 5626).
+      // Surface: the match's ring chain 1.08 -> 0.83 ms (run 040), frames -2..-3% (runs 038 / 039).
+      // Session 80 (owned passes, SDK step 85; Jarrod: "Whole chain on"): the whole shadow chain - the ring chain, the
+      // props map (casters by vertex shader: vA96C8C4D / vA878C3FD), the ring mask, the wrestler maps A / B (casters by
+      // pixel shader: DA494C93 / D05BFEA1) and their blurs (7C650AA1 / 694A6D14) - drawn into images of ours, their clear
+      // passes off, dirty tiles copied back before any read. 720p and 1440p shots byte-identical to owned steps off
+      // (5685 / 5690), forced replay / copy-back identical, validation 0 at both (5658 / 5692); four Opus reviews.
+      {"gpu_native_own_steps",
+       "9C85DA5F0879DA76,E1AD4BB4E0563253,DA494C9383E18961,D05BFEA12F4350AD,vA96C8C4D28D28F80,vA878C3FD5E27FB35,"
+       "7C650AA1C792DFF6,694A6D148DC33CFF"},
       {"gpu_native_frame", "true"},
       // (On by default in the SDK, listed so the log shows them.)
       {"gpu_native_frame_answers_lean", "true"},

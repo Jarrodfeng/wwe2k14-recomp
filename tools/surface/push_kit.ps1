@@ -4,10 +4,14 @@
 # (local only: it never ships) and the bench scripts. Never the game files: Jarrod copies his own
 # (game_data\iso\wwe2k14_test.iso -> C:\wwe\wwe2k14_test.iso; ~3-4 min at the 38 MB/s measured 2026-11-01).
 #   pwsh -NoProfile -File tools\surface\push_kit.ps1 [-HostName surface] [-Dest C:/wwe]
-param([string]$HostName = 'surface', [string]$Dest = 'C:/wwe')
+#   -Build DIR   another build's exe folder (Session 82: e.g. out\harness\bisect\exe\sdk_<commit9> - a worktree SDK build
+#                next to the main exe; its rex*.dll are unpinned, as every bisect build's)
+#   -Symbols     also copy rexgpu-xenos.pdb / rexruntime.pdb (~170 MB) so profile runs name our functions (Session 82:
+#                without them every rexgpu sample showed as `rex_gpu_create`)
+param([string]$HostName = 'surface', [string]$Dest = 'C:/wwe', [string]$Build = '', [switch]$Symbols)
 $ErrorActionPreference = 'Stop'
 $R = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$build = Join-Path $R 'out\build\win-amd64-release'
+$build = if ($Build) { (Resolve-Path $Build).Path } else { Join-Path $R 'out\build\win-amd64-release' }
 $crt = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT' -Directory |
     Sort-Object FullName | Select-Object -Last 1
 if (-not $crt) { throw 'no Visual C++ redist folder (Microsoft.VC143.CRT) found' }
@@ -18,12 +22,15 @@ $groups = [ordered]@{
                        @('msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll' | ForEach-Object { Join-Path $crt.FullName $_ }) +
                        @(Join-Path $R 'db\shaders\shader_list.txt')
     'build/data/ids' = @('characters.json', 'arenas.json' | ForEach-Object { Join-Path $R "db\ids\$_" })
-    'routes'         = @('s72_gap_log.txt', 'profile_lesnar_bryan.txt', 's78_anatomy_720.txt', 's80_precompile_idle.txt', 's80_probe_short.txt', 's80_scene_multi.txt', 's80_arc_multi.txt', 's80_owncrowd_multi.txt', 's80_wrestlers_multi.txt', 's80_wrestprops_multi.txt', 's80_gear_multi.txt', 's80_gear2_multi.txt', 's80_wmat_multi.txt', 's80_wall11_multi.txt', 's80_depthwb_multi.txt', 's80_deadcopy_multi.txt', 's80_deadpass_multi.txt', 's80_servecopy_multi.txt', 's80_arena10_multi.txt', 's80_arena23_multi.txt', 's80_arenaside_multi.txt', 's80_arenaall_multi.txt' |
+    'routes'         = @('s72_gap_log.txt', 'profile_lesnar_bryan.txt', 's78_anatomy_720.txt', 's80_precompile_idle.txt', 's80_probe_short.txt', 's80_scene_multi.txt', 's80_arc_multi.txt', 's80_owncrowd_multi.txt', 's80_wrestlers_multi.txt', 's80_wrestprops_multi.txt', 's80_gear_multi.txt', 's80_gear2_multi.txt', 's80_wmat_multi.txt', 's80_wall11_multi.txt', 's80_depthwb_multi.txt', 's80_deadcopy_multi.txt', 's80_deadpass_multi.txt', 's80_servecopy_multi.txt', 's80_arena10_multi.txt', 's80_arena23_multi.txt', 's80_arenaside_multi.txt', 's80_arenaall_multi.txt', 's80_clearload_multi.txt', 's80_clearalias_multi.txt', 's80_bounds_multi.txt', 's80_tonight_multi.txt', 's80_shadowcost_multi.txt', 's80_ownring_multi.txt', 's80_ownring2_multi.txt', 's80_ownpass_multi.txt', 's80_owned_multi.txt', 's80_owned_levers_multi.txt', 's80_owned_levers2_multi.txt' |
                          ForEach-Object { Join-Path $R "tools\input_scripts\short\$_" })
     'replays'        = @(Join-Path $R 'out\replays\s21_lb.rec')
     'scenarios'      = @(Get-ChildItem (Join-Path $R 'out\scenarios') -Filter 'lesnar_bryan.*' | ForEach-Object FullName)
     '.'              = @((Join-Path $R 'tools\surface\bench.ps1'), (Join-Path $R 'tools\perf\thread_busy.ps1'),
                          (Join-Path $R 'tools\surface\run_bench.ps1'))
+}
+if ($Symbols) {
+    $groups['build'] += @('rexgpu-xenos.pdb', 'rexruntime.pdb' | ForEach-Object { Join-Path $build $_ })
 }
 foreach ($dir in $groups.Keys) {
     $files = @($groups[$dir])

@@ -1,0 +1,36 @@
+# harness: fastforward
+# Session 80 overnight (OWN_RENDERER_PLAN.md W3, docs\native\WRESTLER_DRAWS_MAP.md section 8): the draw probe on every
+# wrestler / shadow / rim / plane-shadow vertex shader for two frames at Bryan's entrance +440 and the match +900 -
+# whether each mesh part's vertex buffer and bone palette (VS c76-c175) are the same in every pass. Run with
+# --wwe2k14_replay_play=s21_lb and a NATIVE test settings file; read out\s80\w3\drawprobe_*.csv.
+on_fail quit
+log bench: start s80_w3_probe (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 438
+cvar gpu_debug_draw_probe 0BBBF514D70CF0F4,0D7075D53FCA3F02,222898168D2A226A,E8AC5C3074483B96,3F63A55561994118,A441E84E647C3D9F,F709D14F30FCC95C,0E92FB108A675C39,3F91EC05EDABDF7B,56DD2E94E20F2826,A6767C4D4522DFAA,F006439D879C5FDB,9CB11A97F230260C,A8E30EED87562597,D345ACFD67B8D83F,B15688766DA713DC,A96C8C4D28D28F80
+cvar gpu_debug_draw_probe_consts 76-175
+cvar gpu_debug_draw_probe_path C:\Users\Jarrod\wwe2k14-recomp\out\s80\w3\drawprobe_bryan.csv
+cvar gpu_debug_draw_probe_frames 2
+wait_frames 6
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 898
+cvar gpu_debug_draw_probe_path C:\Users\Jarrod\wwe2k14-recomp\out\s80\w3\drawprobe_match.csv
+cvar gpu_debug_draw_probe_frames 2
+wait_frames 6
+log bench: done
+quit

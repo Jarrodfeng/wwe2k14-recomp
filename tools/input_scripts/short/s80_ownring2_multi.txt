@@ -1,0 +1,498 @@
+# harness: fastforward
+# Session 80, written by tools\native\passab_multi.py: the ring shadow's owned steps (gpu_native_own_steps) with and without their clear passes turned off (gpu_native_own_steps_drop_clears); the defaults (whole arc on) otherwise.
+#   arm off: gpu_native_own_steps=0000000000000001, gpu_native_own_steps_drop_clears=true
+#   arm keep: gpu_native_own_steps=9C85DA5F0879DA76,E1AD4BB4E0563253, gpu_native_own_steps_drop_clears=false
+#   arm drop: gpu_native_own_steps=9C85DA5F0879DA76,E1AD4BB4E0563253, gpu_native_own_steps_drop_clears=true
+# Per scene: warm-up 60 frames per arm, then 8 cycles x 4 pass-logged frames per arm; labels <scene>_<arm>.
+on_fail quit
+log bench: start s80_ownring2_multi (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 120
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 60
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: brock_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: brock_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: brock_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: brock_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: brock_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: brock_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: brock_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: brock_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: brock_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 260
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 60
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: bryan_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: bryan_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: bryan_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: bryan_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: bryan_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: bryan_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: bryan_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: bryan_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: bryan_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 720
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 60
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: match_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: match_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: match_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: match_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: match_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: match_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: match_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears false
+wait_frames 2
+log passlog: match_keep
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 2
+log passlog: match_drop
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+cvar gpu_native_own_steps_drop_clears true
+wait_frames 60
+log bench: done
+quit

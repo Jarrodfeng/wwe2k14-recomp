@@ -1,0 +1,30 @@
+# Session 82 (flip debugging): s80_match_shots.txt, but screenshots of every frame from +595 to +605.
+on_fail quit
+log bench: start s80_match_shots_dense
+wait_file m3.pac 3600
+log scene=match
+wait_frames 595
+screenshot d00
+wait_frames 1
+screenshot d01
+wait_frames 1
+screenshot d02
+wait_frames 1
+screenshot d03
+wait_frames 1
+screenshot d04
+wait_frames 1
+screenshot d05
+wait_frames 1
+screenshot d06
+wait_frames 1
+screenshot d07
+wait_frames 1
+screenshot d08
+wait_frames 1
+screenshot d09
+wait_frames 1
+screenshot d10
+wait_frames 1
+log bench: done
+quit

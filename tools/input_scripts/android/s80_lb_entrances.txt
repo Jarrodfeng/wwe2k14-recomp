@@ -1,0 +1,29 @@
+# Session 80 (Jarrod: "gimme a Brock vs Bryan match with entrances on, it's what our Surface has been"): the phone
+# bench of the Surface's scene - Brock vs Bryan (scenario lesnar_bryan, BG04), both entrances, then the match; marks at
+# each tron and the match for py tools\android\demo_fps.py NNN --marks. Use with
+#   pwsh -File tools\android\run.ps1 -Run NNN -Seconds 240 -Shots 0 -Route tools\input_scripts\android\s80_lb_entrances.txt -Scenario lesnar_bryan -GameArgs "--wwe2k14_launch=lesnar_bryan"
+# Title presses from launch_boot_watch.txt. on_fail quit.
+on_fail quit
+log bench: start lb_entrances (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file 343.bik2 3600
+log entrance: brock
+wait_file 324.bik2 20000
+log entrance: bryan
+wait_file M3.PAC 30000
+log match: start
+wait_frames 1200
+log bench: end
+quit

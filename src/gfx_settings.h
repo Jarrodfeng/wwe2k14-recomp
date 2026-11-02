@@ -609,6 +609,12 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // crowd cull (members entirely outside the draw's own view not drawn).
       {"gpu_scene_crowd_cull", "2"},
       {"gpu_scene_crowd_thin", "100"},
+      // Session 82 (Jarrod, 2026-11-03 ~09:55: "we should probably push these updates! The performance updates back it
+      // up"): the owned frame - every pass of the frame drawn into images of ours, the truth path only as a counted
+      // fallback (docs\native\OWNED_FRAME_DESIGN.md). Integration 16: the match 100% of passes owned at 720p and 1440p,
+      // shots identical / within tolerance, entrance pair PASS; Surface (048 vs 042): match 54.8 -> 60.0 fps average,
+      // 1% low 38.8 -> 50.0. Not on phones (wwe2k14_app.h: untested on Adreno).
+      {"gpu_native_owned_frame", "true"},
   };
 }
 

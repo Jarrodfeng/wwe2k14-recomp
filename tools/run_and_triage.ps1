@@ -48,8 +48,8 @@ if ($lock.Mode -eq 'Exclusive') {
     if ($running -gt 0) { "ABORT: $running wwe2k14 instance(s) already running; close them first."; exit 1 }
 }
 "[runlock] run mode: $($lock.Mode.ToLowerInvariant())$(if ($lock.Slot) { " slot $($lock.Slot)" })"
-# Session 8 (task 2): which pinned SDK build (tools\sdk_pins.json) this run loads; read inside the lock, so no build
-# can restage the DLLs before the game loads them. Printed after the run and kept in logs\sdk_pin_runs.log.
+# Session 8 (task 2): which pinned SDK build (tools\sdk_pins.json) this run loads; read inside the lock, so no exclusive build
+# (build.ps1 / build_sdk.ps1) can restage the main exe folder's DLLs before the game loads them. (BUILD-class fast_builds run beside shared runs but stage only into their own live_<Name> folders and refuse while a game runs from one; Session 82.) Printed after the run and kept in logs\sdk_pin_runs.log.
 . 'C:\Users\Jarrod\wwe2k14-recomp\tools\sdk_pins.ps1'
 $pinLine = Get-SdkPinLine -ExeDir $dir
 

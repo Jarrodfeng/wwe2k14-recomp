@@ -1,0 +1,498 @@
+# harness: fastforward
+# Session 80, written by tools\native\passab_multi.py: frame structure: draws narrowed to their vertices' box (gpu_native_truth_bounds_vs: the sweat maps' copy and layer draws), the defaults (whole arc on) otherwise; plus the scene clears begun by the render pass (gpu_native_truth_clear_load) off in one arm.
+#   arm rect: gpu_native_truth_bounds_vs=0000000000000001, gpu_native_truth_clear_load=A4A965C189287B99
+#   arm box: gpu_native_truth_bounds_vs=5D2AE398B797CF87,8F60149686CB59D1, gpu_native_truth_clear_load=A4A965C189287B99
+#   arm box_noclear: gpu_native_truth_bounds_vs=5D2AE398B797CF87,8F60149686CB59D1, gpu_native_truth_clear_load=0000000000000001
+# Per scene: warm-up 60 frames per arm, then 8 cycles x 4 pass-logged frames per arm; labels <scene>_<arm>.
+on_fail quit
+log bench: start s80_bounds_multi (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 120
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: brock_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: brock_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: brock_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: brock_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: brock_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: brock_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: brock_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: brock_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: brock_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 260
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: bryan_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: bryan_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: bryan_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: bryan_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: bryan_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: bryan_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: bryan_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: bryan_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: bryan_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 720
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 60
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: match_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: match_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: match_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: match_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: match_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: match_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: match_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_rect
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 2
+log passlog: match_box
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 5D2AE398B797CF87,8F60149686CB59D1
+cvar gpu_native_truth_clear_load 0000000000000001
+wait_frames 2
+log passlog: match_box_noclear
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_truth_bounds_vs 0000000000000001
+cvar gpu_native_truth_clear_load A4A965C189287B99
+wait_frames 60
+log bench: done
+quit

@@ -1,0 +1,3144 @@
+# harness: fastforward
+# Session 80, written by tools\native\passab_multi.py: Session 82 end of night: owned frame + depth direct + alpha learn + barrier lean + the look levers (each arm sets every switch).
+#   arm off: gpu_native_owned_frame=false, gpu_native_owned_depth_direct=true, gpu_native_owned_alpha_learn=false, gpu_native_owned_pass_barrier_lean=false, gpu_shadow_half_rate=false, gpu_native_owned_post_half=false, gpu_native_owned_shadow_half=false, gpu_scene_crowd_thin=100, gpu_scene_crowd_thin_keep=2
+#   arm owned: gpu_native_owned_frame=true, gpu_native_owned_depth_direct=true, gpu_native_owned_alpha_learn=false, gpu_native_owned_pass_barrier_lean=false, gpu_shadow_half_rate=false, gpu_native_owned_post_half=false, gpu_native_owned_shadow_half=false, gpu_scene_crowd_thin=100, gpu_scene_crowd_thin_keep=2
+#   arm no_depth_direct: gpu_native_owned_frame=true, gpu_native_owned_depth_direct=false, gpu_native_owned_alpha_learn=false, gpu_native_owned_pass_barrier_lean=false, gpu_shadow_half_rate=false, gpu_native_owned_post_half=false, gpu_native_owned_shadow_half=false, gpu_scene_crowd_thin=100, gpu_scene_crowd_thin_keep=2
+#   arm alpha: gpu_native_owned_frame=true, gpu_native_owned_depth_direct=true, gpu_native_owned_alpha_learn=true, gpu_native_owned_pass_barrier_lean=false, gpu_shadow_half_rate=false, gpu_native_owned_post_half=false, gpu_native_owned_shadow_half=false, gpu_scene_crowd_thin=100, gpu_scene_crowd_thin_keep=2
+#   arm barrier_lean: gpu_native_owned_frame=true, gpu_native_owned_depth_direct=true, gpu_native_owned_alpha_learn=false, gpu_native_owned_pass_barrier_lean=true, gpu_shadow_half_rate=false, gpu_native_owned_post_half=false, gpu_native_owned_shadow_half=false, gpu_scene_crowd_thin=100, gpu_scene_crowd_thin_keep=2
+#   arm shadow_half: gpu_native_owned_frame=true, gpu_native_owned_depth_direct=true, gpu_native_owned_alpha_learn=false, gpu_native_owned_pass_barrier_lean=false, gpu_shadow_half_rate=true, gpu_native_owned_post_half=false, gpu_native_owned_shadow_half=false, gpu_scene_crowd_thin=100, gpu_scene_crowd_thin_keep=2
+#   arm shadow_256: gpu_native_owned_frame=true, gpu_native_owned_depth_direct=true, gpu_native_owned_alpha_learn=false, gpu_native_owned_pass_barrier_lean=false, gpu_shadow_half_rate=false, gpu_native_owned_post_half=false, gpu_native_owned_shadow_half=true, gpu_scene_crowd_thin=100, gpu_scene_crowd_thin_keep=2
+#   arm post_half: gpu_native_owned_frame=true, gpu_native_owned_depth_direct=true, gpu_native_owned_alpha_learn=false, gpu_native_owned_pass_barrier_lean=false, gpu_shadow_half_rate=false, gpu_native_owned_post_half=true, gpu_native_owned_shadow_half=false, gpu_scene_crowd_thin=100, gpu_scene_crowd_thin_keep=2
+#   arm crowd_thin: gpu_native_owned_frame=true, gpu_native_owned_depth_direct=true, gpu_native_owned_alpha_learn=false, gpu_native_owned_pass_barrier_lean=false, gpu_shadow_half_rate=false, gpu_native_owned_post_half=false, gpu_native_owned_shadow_half=false, gpu_scene_crowd_thin=50, gpu_scene_crowd_thin_keep=4
+# Per scene: warm-up 60 frames per arm, then 8 cycles x 4 pass-logged frames per arm; labels <scene>_<arm>.
+on_fail quit
+log bench: start s80_owned_levers2_multi (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 0
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 60
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: brock_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: brock_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: brock_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: brock_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: brock_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: brock_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: brock_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: brock_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: brock_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 0
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 60
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: bryan_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: bryan_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: bryan_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: bryan_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: bryan_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: bryan_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: bryan_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: bryan_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: bryan_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 360
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 60
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: match_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: match_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: match_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: match_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: match_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: match_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: match_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_owned
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct false
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_no_depth_direct
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn true
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_alpha
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean true
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_barrier_lean
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate true
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half true
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_shadow_256
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half true
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 2
+log passlog: match_post_half
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 50
+cvar gpu_scene_crowd_thin_keep 4
+wait_frames 2
+log passlog: match_crowd_thin
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+cvar gpu_native_owned_depth_direct true
+cvar gpu_native_owned_alpha_learn false
+cvar gpu_native_owned_pass_barrier_lean false
+cvar gpu_shadow_half_rate false
+cvar gpu_native_owned_post_half false
+cvar gpu_native_owned_shadow_half false
+cvar gpu_scene_crowd_thin 100
+cvar gpu_scene_crowd_thin_keep 2
+wait_frames 60
+log bench: done
+quit

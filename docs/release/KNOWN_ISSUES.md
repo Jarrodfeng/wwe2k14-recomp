@@ -1,3 +1,9 @@
+- The whole-frame NATIVE drawing (new in v0.2.16) was checked on my PC (NVIDIA RTX 4090) at 720p and 1440p and
+  measured on my Intel laptop at 720p, with Lesnar vs Bryan (both entrances and the match). Other arenas, match types
+  (Royal Rumble, six-man), 4K and AMD graphics have not been looked at with it yet. Anything it can't draw falls back
+  to v0.2.15's way by itself. If something looks wrong (a missing or oddly coloured part, flicker, wrong shadows), the
+  extra flag `--gpu_native_owned_frame=false` (Settings -> Advanced) brings back v0.2.15's NATIVE; please send a report
+  too (launcher: Report a problem).
 - The reworked NATIVE (new in v0.2.15) was checked on my PC (NVIDIA RTX 4090) at 720p, 1440p and 4K, and measured on my
   Intel laptop at 720p: Lesnar vs Bryan (both entrances and the match), Undertaker's WrestleMania entrance, the menus and
   the logo editor. In those checks the picture matched v0.2.14's to within rounding. Not every arena and match type has

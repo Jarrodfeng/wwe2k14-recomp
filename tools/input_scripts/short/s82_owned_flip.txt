@@ -1,0 +1,27 @@
+# Session 82 (owned match frame, P0 acceptance d): the in-run flip. As s80_match_shots.txt (replay s80_lb_quick, the match
+# only; shots 600 / 1200 / 1800 frames into the match), but gpu_native_owned_frame is flipped every 300 frames: on at the
+# match start, off at +300 (shot a at +600, after a flip off), on at +600, off at +900 (shot b at +1200, after a flip off),
+# on at +1500 (shot c at +1800, 300 frames after a flip on). The reference is the same route with the switch never turned on
+# (s80_match_shots.txt, --gpu_native_owned_frame=false): the shots are same-frame. Run with --wwe2k14_replay_play=s80_lb_quick
+# + the settings file + --wwe2k14_native_frame=true --vsync=false (fast-forwarded). on_fail quit.
+on_fail quit
+log bench: start s82_owned_flip
+wait_file m3.pac 3600
+log scene=match
+cvar gpu_native_owned_frame true
+wait_frames 300
+cvar gpu_native_owned_frame false
+wait_frames 300
+cvar gpu_native_owned_frame true
+screenshot s80m_a
+wait_frames 300
+cvar gpu_native_owned_frame false
+wait_frames 300
+screenshot s80m_b
+wait_frames 300
+cvar gpu_native_owned_frame true
+wait_frames 300
+screenshot s80m_c
+wait_frames 60
+log bench: done
+quit

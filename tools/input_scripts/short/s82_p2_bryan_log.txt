@@ -1,0 +1,20 @@
+# Session 82 (P2 builder): the segment + census log for 6 frames just before s82e_bryan's shot (frame 4836 of the quick
+# entrance replay s82_lb_quick_ent), to see why that shot is black with the owned frame on. Run with
+# --wwe2k14_replay_play=s82_lb_quick_ent + the settings file + --gpu_native_owned_frame=true --gpu_native_owned_frame_log=6
+# --wwe2k14_native_frame=true --vsync=false. on_fail quit.
+on_fail quit
+log bench: start s82_p2_bryan_log
+wait_file 343.bik2 3600
+log scene=tron_343
+wait_frames 600
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 430
+log passlog: bryan
+cvar gpu_native_segment_log 6
+cvar gpu_native_truth_pass_log 6
+wait_frames 8
+screenshot s82e_bryan_dbg
+wait_frames 10
+log bench: done
+quit

@@ -1,0 +1,541 @@
+# harness: fastforward
+# Session 80, written by tools\native\passab_multi.py: owned passes v2 (SDK branch s80-ownpasses): off / the ring chain (its blur clear passes now turned off, their tiles copied back where read) / + the props map / + the ring mask.
+#   arm off: gpu_native_own_steps=0000000000000001
+#   arm ring: gpu_native_own_steps=9C85DA5F0879DA76,E1AD4BB4E0563253
+#   arm props: gpu_native_own_steps=9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+#   arm mask: gpu_native_own_steps=9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+# Per scene: warm-up 60 frames per arm, then 8 cycles x 4 pass-logged frames per arm; labels <scene>_<arm>.
+on_fail quit
+log bench: start s80_ownpass_multi (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 60
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 60
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: brock_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: brock_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: brock_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: brock_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: brock_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: brock_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: brock_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: brock_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: brock_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: brock_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: brock_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: brock_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: brock_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: brock_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: brock_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: brock_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: brock_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: brock_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: brock_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: brock_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: brock_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: brock_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: brock_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: brock_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 200
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 60
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: bryan_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: bryan_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: bryan_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: bryan_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: bryan_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: bryan_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: bryan_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: bryan_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: bryan_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: bryan_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: bryan_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: bryan_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: bryan_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: bryan_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: bryan_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: bryan_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: bryan_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: bryan_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: bryan_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: bryan_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: bryan_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: bryan_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: bryan_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: bryan_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 660
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 60
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 60
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: match_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: match_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: match_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: match_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: match_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: match_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: match_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: match_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: match_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: match_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: match_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: match_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: match_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: match_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: match_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: match_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: match_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: match_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: match_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: match_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: match_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253
+wait_frames 2
+log passlog: match_ring
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA
+wait_frames 2
+log passlog: match_props
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 9C85DA5F0879DA76,E1AD4BB4E0563253,vBDAF8155EBF110C2,v63170EAB428C7EFA,vA96C8C4D28D28F80,vA878C3FD5E27FB35
+wait_frames 2
+log passlog: match_mask
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_own_steps 0000000000000001
+wait_frames 60
+log bench: done
+quit

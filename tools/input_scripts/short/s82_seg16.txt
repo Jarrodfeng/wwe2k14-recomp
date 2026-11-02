@@ -1,0 +1,10 @@
+# Session 82 (diagnostic): the segment log of 16 consecutive match frames (m3.pac +600). Run with the replay s80_lb_quick, owned frame on. on_fail quit.
+on_fail quit
+log bench: start s82_seg16
+wait_file m3.pac 3600
+log scene=match
+wait_frames 600
+cvar gpu_native_segment_log 16
+wait_frames 40
+log bench: done
+quit

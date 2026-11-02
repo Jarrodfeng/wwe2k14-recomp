@@ -91,6 +91,9 @@ HOST_ONLY = re.compile(r'^(user_data_root|cache_root|game_data_root|log_|wwe2k14
                        # Session 79: the HD 520 arc switch (src\native_frame.h) only sets gpu_ settings, none of them
                        # the three compared above (native_detached, extents_, det_skip_host_draws).
                        r'wwe2k14_native_frame$|'
+                       # Session 82: run_list mutes fast-forwarded runs; audio_mute only zeroes the samples handed to
+                       # SDL (sdl_audio_driver.cpp), the game's audio work is unchanged.
+                       r'audio_mute$|'
                        r'wwe2k14_background_full_speed$)')
 # Session 77: settings whose compiled-in default differs by platform (tools: a scan of every REXCVAR_DEFINE inside an
 # #if or with a macro default). A '# xdet modified' line lists only settings changed from the default, so a side left

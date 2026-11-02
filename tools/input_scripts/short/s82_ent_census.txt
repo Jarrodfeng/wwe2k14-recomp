@@ -1,0 +1,22 @@
+# Session 82 (P2): the owned frame's census (gpu_native_owned_frame_log 2 = two frames) at two moments of the quick
+# entrance replay s82_lb_quick_ent: Brock's tron + 300 frames and Bryan's tron + 440 (the s82_ent_shots.txt shot
+# moments). The cvar steps take zero frames. Run with --wwe2k14_replay_play=s82_lb_quick_ent, the owned frame on
+# (--gpu_native_owned_frame=true; the second window is set to 3: the same value again would not re-arm the log). Feeds docs\native\OWNED_ENTRANCES_SCOPE.md. on_fail quit.
+on_fail quit
+log bench: start s82_ent_census
+wait_file 343.bik2 3600
+log scene=tron_343
+mark 1 tron_343
+wait_frames 300
+cvar gpu_native_owned_frame_log 2
+screenshot s82ec_brock
+wait_frames 40
+wait_file 324.bik2 20000
+log scene=tron_324
+mark 2 tron_324
+wait_frames 440
+cvar gpu_native_owned_frame_log 3
+screenshot s82ec_bryan
+wait_frames 40
+log bench: done
+quit

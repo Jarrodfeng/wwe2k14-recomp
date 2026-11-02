@@ -84,6 +84,10 @@ struct Settings {
   bool sgsr = true;
   bool performance = false;
   bool fast_shaders = false;
+  // Session 80 (Jarrod: "a little fps/frametime/temperature graph ... the toggle in the logging settings"; then "maybe we
+  // could have both as options, light and verbose"): the game's performance overlay (src\perf_overlay.h): 0 off,
+  // 1 light (the numbers only), 2 verbose (a box with the numbers and a frame-time graph).
+  int perf_overlay = 0;
   // Session 72 (Android drivers, src\android_driver.h): a bundled custom Vulkan driver's file name, or (part 8) one the
   // player imported: kUserDriverPrefix + its folder under platform::DriversDir(); empty = the phone's own driver.
   std::string driver;
@@ -151,6 +155,7 @@ inline Settings LoadSettings(const fs::path& p) {
     Get(j, "dynamic_res", s.dynamic_res);
     Get(j, "big_cores", s.big_cores);
     Get(j, "sgsr", s.sgsr), Get(j, "performance", s.performance), Get(j, "fast_shaders", s.fast_shaders);
+    Get(j, "perf_overlay", s.perf_overlay);
   } catch (...) {
   }
   if (s.frame_rate != 0 && s.frame_rate != 1 && s.frame_rate != 3) s.frame_rate = 1;
@@ -159,6 +164,7 @@ inline Settings LoadSettings(const fs::path& p) {
   s.touch_mode = std::clamp(s.touch_mode, 0, 2);
   s.touch_size = std::clamp(s.touch_size, 60, 150);
   s.touch_opacity = std::clamp(s.touch_opacity, 20, 100);
+  s.perf_overlay = std::clamp(s.perf_overlay, 0, 2);
   return s;
 }
 
@@ -175,7 +181,8 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"safe_shaders", s.safe_shaders},   {"dynamic_res", s.dynamic_res},
                             {"big_cores", s.big_cores},         {"sgsr", s.sgsr},
                             {"performance", s.performance},     {"fast_shaders", s.fast_shaders},
-                            {"drivers_ok", s.drivers_ok},       {"drivers_bad", s.drivers_bad}};
+                            {"drivers_ok", s.drivers_ok},       {"drivers_bad", s.drivers_bad},
+                            {"perf_overlay", s.perf_overlay}};
   std::error_code ec;
   fs::create_directories(p.parent_path(), ec);
   const fs::path tmp = p.string() + ".tmp";
@@ -233,9 +240,10 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   // Session 73: Fast shaders off for now (on Jarrod's Adreno 830 the title and the match went black, only the ring's
   // banner left: half precision breaks values the PC's driver never runs at 16 bits). The setting stays, unused.
   // Session 73 (static in the background with fill-the-screen, Jarrod's phone only): truth passes keep colour with
-  // LOAD_OP_NONE (gpu_native_truth_color_none, part 3) off on phones while it is the suspect - areas a frame does not
-  // redraw (fill-the-screen's sides) showed noise; never measured faster on a phone.
-  f.push_back("--gpu_native_truth_color_none=false");
+  // LOAD_OP_NONE (gpu_native_truth_color_none, part 3) were off on phones while it was the suspect - areas a frame does
+  // not redraw (fill-the-screen's sides) showed noise. Session 80: its bug found and fixed (one-draw passes were given
+  // LOAD_OP_NONE / STORE_OP_NONE); phone run 164 with it on showed no white patches or flashes (Jarrod: "you can rebuild
+  // the APK safely with it on") - no longer passed here: the game's own Android default (on) applies.
   // Session 73 (a 221 ms frame between Jarrod's two entrances, during ~5,500 failed pool-size probes - 357 MB asked
   // for in a 3.5 MB range - each a search of the physical heap's 131,072 pages on a phone CPU): Session 15's fast-fail
   // for requests bigger than their whole range (the same result, no search; its checks passed then).
@@ -257,6 +265,7 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   if (s.language > 0) f.push_back("--user_language=" + std::to_string(s.language));
   if (s.dynamic_res) f.push_back("--wwe2k14_dynamic_res=true");  // Session 73
   if (s.big_cores) f.push_back("--wwe2k14_android_big_cores=true");  // Session 73
+  if (s.perf_overlay) f.push_back("--wwe2k14_perf_overlay=" + std::to_string(s.perf_overlay));  // Session 80
   // Session 73: SAFE SHADERS - the shaders as the emulator translates them, without NATIVE's shortcuts (the Xbox 360's
   // multiply rule kept, no fused multiply-add, no baked-in endian / texture sign / epilogue variants). Only the 4090
   // and Jarrod's Adreno 830 have run the shortcuts; a phone's driver may build them wrongly.

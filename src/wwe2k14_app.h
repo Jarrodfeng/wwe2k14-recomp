@@ -56,6 +56,7 @@
 #include "background_speed.h"  // --wwe2k14_background_full_speed (Session 32, default off; run_list turns it on)
 #include "live_control.h"   // --wwe2k14_live (Session 29: live control channel, default off)
 #include "check_prompt.h"   // input-script `check TEXT` (Session 29: on-screen question, harness runs only)
+#include "perf_overlay.h"   // --wwe2k14_perf_overlay (Session 80: frame rate, frame time, temperature, a graph)
 #include "vulkan_layers.h"  // Session 36 (GitHub issue 1): Overwolf's Vulkan layers kept out (they crashed the game)
 #include "gpu_pick.h"       // Session 31: the dedicated GPU by default, --wwe2k14_gpu=NAME (the launcher's chooser)
 #include "intel_exact_mul.h"  // Session 76: on Intel GPUs NATIVE keeps the 360's multiply rule (--wwe2k14_intel_exact_mul)
@@ -301,8 +302,24 @@ class Wwe2k14App : public rex::ReXApp {
                                std::pair{"readback_resolve_batch_min_bytes", "16385"}}) {
       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
     }
+    // Session 80 (WORKAROUND, cause not found; Jarrod 2026-11-02: "we'll safely rebuild the APK without it"): the
+    // arc's carried copies (gpu_native_truth_carry_copies, and serve_copies on top of it) lit the match crowd wrong on
+    // the Adreno 830 - the left half washed out, the right half magenta, following the arena's lights; every arena.
+    // Bisected on the phone (runs 162-176): carry off = clean (175), serve off alone = still wrong (176). The crowd's
+    // vertex shader reads the arena lighting map (fetch 16, page 0x159DC, 512x512) copied at the previous frame's end.
+    // Not on the PC, not even with the phone's render path and readback settings (5712-5714), and synchronization
+    // validation finds no hazard in the match (5716). Off on phones (set here, so the arc switch keeps it off); next:
+    // that copy's hashes phone vs PC (tools\android\resolve_hash_compare.py).
+    for (auto [name, value] : {std::pair{"gpu_native_truth_carry_copies", "false"},
+                               std::pair{"gpu_native_truth_serve_copies", "false"}}) {
+      if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
+    }
     for (const auto& [name, value] : wwe2k14::gfxs::NativeRendererFlags()) {
-      if (name == "readback_resolve_batch" || name == "gpu_native_truth_color_none") continue;
+      // (Session 80: gpu_native_truth_color_none on again - its bug fixed (one-draw passes were given LOAD_OP_NONE /
+      // STORE_OP_NONE), phone run 164 clean with it on; Jarrod: "rebuild the APK safely with it on".)
+      if (name == "readback_resolve_batch") continue;
+      // (Session 82: the owned frame is PC-only until a phone run of it - never run on an Adreno.)
+      if (name == "gpu_native_owned_frame") continue;
       // (Session 72, Jarrod: "build into the android version": gpu_native_shader_swap included - our copy of the post
       // pass; first run on a phone GPU is his, android-v0.1.2.)
       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
@@ -676,6 +693,9 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::check::Install(
         drawer, [this](std::function<void()> f) { app_context().CallInUIThreadDeferred(std::move(f)); }, harness,
         window() ? window()->GetNativeWindowHandle() : nullptr);
+    // Session 80: the performance overlay (no-op unless --wwe2k14_perf_overlay).
+    wwe2k14::perf_overlay::Install(
+        drawer, [this](std::function<void()> f) { app_context().CallInUIThreadDeferred(std::move(f)); });
     wwe2k14::bookmark::Install(harness);  // Session 29: F11 = "that, just now" bundle (Session 58: players too)
     wwe2k14::screen_text::Enable(harness);  // Session 30: text the game fetched, for scripts / live / bookmarks
   }

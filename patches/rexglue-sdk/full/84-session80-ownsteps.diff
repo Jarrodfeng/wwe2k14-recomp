@@ -1,0 +1,1277 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-ownsteps): a55876b32186..561b4bfe0d17 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  561b4bf Merge s80-ownsteps: owned steps (Session 80, OWN_RENDERER_PLAN.md "The shadows" step 2; gpu_native_own_steps, a pixel / vertex shader list, off in the SDK) - a listed shader's truth draw (colour only into an RGBA8 surface, from its origin; proven coverage - quads, rectangles, 4-vertex strips indexed too, culled quads facing the kept way - or a cleared start after clears of one known colour covering it) recorded into an exact-size image of ours in a render pass of its own; the copy of exactly that rectangle left out; the page's samplers given our image. A lost output is replayed into the truth path from a copy of the draw (exact) and the shader not owned any more. gpu_native_own_steps_drop_clears turns a cleared start's clear pass off at the copy only when it wrote nothing our image does not hold. The ring shadow's downscale + two blurs: PC shots byte-identical (5607 vs 5621), validation 0 (5622), the forced-replay diagnostic identical (5619); two Opus reviews' fixes in; Surface: the match's ring chain 1.08 -> 0.83 ms
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index c470a258d45b3fef3b4584dd22616acedea3729c..d449d828a7fb47e18f7d086e20c9af460bf69599 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -492,6 +492,17 @@ class VulkanCommandProcessor : public CommandProcessor {
+   void NativeTruthAfterResolveMarked(const draw_util::ResolveInfo& info);
+   // wwe2k14 patch (Session 72 part 4): NativeRenderer::TruthResolveRedundant (false without a native renderer).
+   bool NativeTruthResolveRedundant(const draw_util::ResolveInfo& info);
++  // wwe2k14 patch (Session 80, gpu_native_own_steps): NativeRenderer::OwnedTakeResolve (the copy of an owned step's
++  // output: left out, the page is our image's) and OwnedView (a binding of such a page: our image's view, or null).
++  bool NativeOwnedResolve(const draw_util::ResolveInfo& info, bool copy_known);
++  VkImageView NativeOwnedView(uint32_t base_page, uint32_t width, uint32_t height, uint32_t format, uint32_t endian,
++                              bool scaled_ok, const VkComponentMapping& components);
++  // (The owned pages changed: the texture cache's unchanged-bindings shortcut looks again - review.)
++  void NativeOwnedPagesChanged();
++  // (Whether resolves are read back by the CPU now - the readback mode, readback_resolve_override first.)
++  bool NativeReadbackActive() const;
++  // (An owned step's replayed truth draw bound its own state: everything the command processor tracks is forgotten.)
++  void NativeForgetState() { NativeStateTouched(false); }
+   // wwe2k14 patch (Session 80, frame structure census): with the segment log, the next draw's sampled textures.
+   void NativeLogDrawTextures(uint32_t used_texture_mask);
+   uint32_t NativeTextureReadable(void* handle, bool allow_scaled = false, int32_t layer = -1,
+@@ -1746,8 +1757,10 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // from the vertex shader run on the CPU form an axis-aligned rectangle, nothing can discard a pixel (no kill, no
+   // alpha test, no alpha to coverage), one sample: rect = x0, y0, x1, y1 (guest pixels, exclusive), within the
+   // scissor. False when that cannot be proven.
++  // (Session 80, owned_step: an owned step's draw - also a 4-vertex strip, and a culled draw facing the kept way.)
+   bool NativeCoverRect(xenos::PrimitiveType prim_type, const VulkanShader& vertex_shader,
+-                       const VulkanShader* pixel_shader, int32_t rect[4]);
++                       const VulkanShader* pixel_shader, int32_t rect[4], bool owned_step = false,
++                       const IndexBufferInfo* index_buffer_info = nullptr);
+   bool NativeCoverReject(int line, const VulkanShader& vertex_shader);
+   // wwe2k14 patch (Session 56, gpu_native_truth_clear_attachments): the host depth a fast clear's quad / rectangle
+   // writes, from its vertex shader run on the CPU, when every corner gives exactly 0 or exactly 1 through a plain
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 57929e34a07aaadb288c18049d7500d2693fa9e4..f6ccab7be1461c7a352015c2f4c6fe0716e906e5 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -13,6 +13,7 @@
+ #include <cstddef>
+ #include <cstdint>
+ #include <cstring>
++#include <string>
+ #include <vector>
+ 
+ #include <rex/assert.h>
+@@ -93,19 +94,24 @@ class DeferredCommandBuffer {
+   // turned off: its begin, draws and end become kNop; its state commands, timestamps and checkpoints stay (later
+   // commands were recorded relying on the state it set). False (nothing changed) if the range holds anything else
+   // (a barrier, a clear, a query) or is not on command boundaries.
+-  bool NopRenderPass(size_t begin_args_offset, size_t end_offset) {
++  // (Session 80, gpu_native_own_steps_drop_clears: with_clears - its attachment clears turned off too.)
++  bool NopRenderPass(size_t begin_args_offset, size_t end_offset, bool with_clears = false) {
+     if (begin_args_offset == SIZE_MAX || begin_args_offset < kCommandHeaderSizeElements) return false;
+     const size_t begin = begin_args_offset - kCommandHeaderSizeElements;
+     if (begin >= end_offset || end_offset > command_stream_.size()) return false;
+-    const auto off = [](Command c) {
++    const auto off = [with_clears](Command c) {
+       return c == Command::kVkBeginRenderPass || c == Command::kVkEndRenderPass || c == Command::kVkDraw ||
+-             c == Command::kVkDrawIndexed;
++             c == Command::kVkDrawIndexed || (with_clears && c == Command::kVkClearAttachments);
+     };
+     size_t at = begin;
+     Command first = Command::kNop, last = Command::kNop;
+     while (at < end_offset) {
+       const auto& header = *reinterpret_cast<const CommandHeader*>(command_stream_.data() + at);
+-      if (!off(header.command) && !KeepsLazyChain(header.command) && header.command != Command::kNop) return false;
++      // (with_clears: descriptor set writes kept too - a host-side update later draws rely on, no GPU work.)
++      if (!off(header.command) && !KeepsLazyChain(header.command) && header.command != Command::kNop &&
++          !(with_clears && header.command == Command::kVkUpdateDescriptorSets)) {
++        return false;
++      }
+       if (at == begin) first = header.command;
+       if (off(header.command)) last = header.command;
+       at += kCommandHeaderSizeElements + header.arguments_size_elements;
+@@ -118,6 +124,20 @@ class DeferredCommandBuffer {
+     }
+     return true;
+   }
++  // (Session 80, diagnostic) The commands from the begin whose arguments are at `begin_args_offset` to `end_offset`,
++  // as numbers (Command), and whether the range ends on a command boundary.
++  std::string DescribeRange(size_t begin_args_offset, size_t end_offset) const {
++    std::string s;
++    if (begin_args_offset == SIZE_MAX || begin_args_offset < kCommandHeaderSizeElements) return "no begin";
++    size_t at = begin_args_offset - kCommandHeaderSizeElements;
++    while (at < end_offset && at < command_stream_.size()) {
++      const auto& header = *reinterpret_cast<const CommandHeader*>(command_stream_.data() + at);
++      s += std::to_string(int(header.command)) + " ";
++      at += kCommandHeaderSizeElements + header.arguments_size_elements;
++    }
++    if (at != end_offset) s += "(not on a boundary: " + std::to_string(at) + " vs " + std::to_string(end_offset) + ")";
++    return s;
++  }
+   bool PatchBeginRenderPass(size_t offset, VkRenderPass expected, VkRenderPass replacement) {
+     if (offset == SIZE_MAX || offset < kCommandHeaderSizeElements || offset >= command_stream_.size()) return false;
+     const CommandHeader& header =
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index c51e996bbf76bcae3f6944485dde2ddea835ff76..b30887a7c0ec300b460901697a9055b68c76c9c7 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -521,6 +521,26 @@ class NativeRenderer {
+   };
+   bool RecordOwnCrowd(const OwnCrowdInput& in);
+   void OwnCrowdOnFrameEnd();
++  // wwe2k14 patch (Session 80, OWN_RENDERER_PLAN.md "The shadows", gpu_native_own_steps; owned_steps.cpp): owned
++  // steps. A listed pixel shader's draw (colour only into an RGBA8 surface, unblended, no depth or stencil, its proven
++  // coverage holding its rectangle from the surface's origin) is recorded into an exact-size image of ours in a render
++  // pass of its own - not into the truth images: the EDRAM tiles keep what they had, as gpu_shadow_half_rate leaves
++  // them - and the copy of that rectangle into a texture page that follows is left out (OwnedTakeResolve, from the
++  // render target cache's Resolve): every later sampler of the page is bound to our image (OwnedView, from
++  // VulkanTextureCache::RequestTextures). OwnedTakeDraw runs first in TruthRecordDraw: true = recorded (nothing else
++  // to do for the draw); false = the truth draw as before (an owned output it overwrites in its surface is lost).
++  bool OwnedTakeDraw(const Draw& draw);
++  // Whether a draw of this pixel shader may be owned (the command processor then works out its proven coverage).
++  bool OwnedWantsCover(uint64_t pixel_shader_hash) const {
++    return truth_ && replacing_ && !owned_failed_ && OwnedWants(pixel_shader_hash);
++  }
++  // (copy_known: the copy has a copy shader - only such a copy is taken; any copy unmaps the pages it writes.)
++  bool OwnedTakeResolve(const draw_util::ResolveInfo& info, bool copy_known);
++  // (endian: the fetch's byte order; scaled_ok: the texture's scaled-resolve flag is the draw resolution's.)
++  VkImageView OwnedView(uint32_t base_page, uint32_t width, uint32_t height, uint32_t format, uint32_t endian,
++                        bool scaled_ok, const VkComponentMapping& mapping);
++  void OwnedOnFrameEnd();
++  void OwnedDestroy();
+   // Session 45 (N3a, gpu_native_resolve_texture): after the resolve's MarkRangeAsResolved - the texture the resolve
+   // also filled is up to date again.
+   void AfterResolveMarked();
+@@ -1437,6 +1457,7 @@ class NativeRenderer {
+   // touch it (VK_EXT_load_store_op_none; VK_NULL_HANDLE without it).
+   VkRenderPass truth_render_pass_color_none_[3][kPostTargetClasses] = {};
+   size_t truth_pass_begin_offset_ = SIZE_MAX;
++  size_t truth_pass_end_offset_ = SIZE_MAX;  // Session 80: right after the last truth pass's end
+   VkRenderPass truth_pass_begin_rp_ = VK_NULL_HANDLE;
+   uint32_t truth_pass_kind_ = 0;
+   VkPipeline post_load_pipeline_[kPostTargetClasses] = {};
+@@ -1712,6 +1733,11 @@ class NativeRenderer {
+     // images whose draw never came - a fallback.)
+     uint32_t served = 0, serve_breaks = 0, serve_lost = 0;
+     uint32_t serve_ahead = 0;  // Session 80 (gpu_native_truth_serve_ahead): images made readable before their pass
++    // Session 80 (gpu_native_own_steps): draws into our images, their copies left out, outputs lost (overwritten in
++    // the surface before a copy, or the copy not of that rectangle / not a plain one), bindings bound to our images,
++    // listed draws refused (their state not one we take).
++    uint32_t owned_draws = 0, owned_copies = 0, owned_lost_draw = 0, owned_lost_copy = 0, owned_served = 0,
++             owned_refused = 0, owned_clears_dropped = 0, owned_clears_kept = 0;
+     // (Served from a slot's live image; draws sampling their own target, its rename widened to all of it / kept empty.)
+     uint32_t served_live = 0, serve_renames = 0, serve_renames_whole = 0, serve_renames_copied = 0;
+     uint32_t carry_fresh_sets = 0;  // (carried copies run in a later submission: a fresh destination descriptor)
+@@ -1904,6 +1930,14 @@ class NativeRenderer {
+   // Where a truth draw writes, in its images' host pixels (x0 y0 x1 y1, not clamped to the images).
+   void TruthDrawRect(const Draw& draw, int32_t rect[4]) const;
+   bool truth_pass_open_ = false;
++  // Session 80 (gpu_native_own_steps): while the open pass has drawn only clears of one known colour - their union
++  // (its bounding box and the pieces' summed area: the box is all cleared when they are equal) and that colour.
++  struct {
++    bool valid = false;
++    int32_t rect[4] = {};
++    uint64_t area = 0;
++    float color[4] = {};
++  } truth_pass_clears_;
+  public:
+   bool SegmentLogging() const { return segment_log_frames_ > 0; }  // Session 56 (diagnostics elsewhere)
+  private:
+@@ -1970,6 +2004,60 @@ class NativeRenderer {
+     uint64_t frames = 0, runs = 0, members = 0, vertices = 0, refused_state = 0, refused_ring = 0,
+              refused_objects = 0;
+   } own_crowd_stats_;
++  // wwe2k14 patch (Session 80, owned steps; owned_steps.cpp): our images (colour + a depth image the pipelines'
++  // render passes need), the texture pages they hold (copies left out), the views made of them for samplers, the
++  // output of the last owned draw until its copy, and the render pass (colour not loaded, stored, left readable).
++  struct OwnedImage {
++    VkImage image = VK_NULL_HANDLE, depth = VK_NULL_HANDLE;
++    VkDeviceMemory memory = VK_NULL_HANDLE, depth_memory = VK_NULL_HANDLE;
++    VkImageView view = VK_NULL_HANDLE, depth_view = VK_NULL_HANDLE;
++    VkFramebuffer framebuffer = VK_NULL_HANDLE;
++    uint32_t width = 0, height = 0, kind = 0;  // host pixels (with the resolution scale)
++  };
++  std::vector<OwnedImage> owned_images_;
++  struct OwnedPage {
++    uint32_t page = 0;
++    int16_t image = -1;
++    uint32_t width = 0, height = 0;  // guest pixels
++    uint32_t format = 0;             // the copy's destination format (xenos::ColorFormat)
++    uint32_t endian = 0;             // its byte order (xenos::Endian128)
++    uint32_t extent_start = 0, extent_length = 0;  // the guest memory the copy would have written
++    uint64_t producer = 0;           // the owned draw's pixel shader
++    uint64_t frame = 0;
++  };
++  std::vector<OwnedPage> owned_pages_;
++  struct OwnedViewEntry {
++    VkImage image = VK_NULL_HANDLE;
++    VkComponentMapping components = {};
++    VkImageView view = VK_NULL_HANDLE;
++  };
++  std::vector<OwnedViewEntry> owned_views_;
++  struct {
++    bool valid = false;
++    uint32_t base = 0, pitch_tiles = 0;  // the surface (EDRAM base tile, pitch in tiles)
++    uint32_t width = 0, height = 0;      // guest pixels from the surface's origin
++    int16_t image = -1;
++    uint64_t frame = 0;
++    std::bitset<2048> tiles;  // the EDRAM tiles the draw would have written
++    Draw draw;                // the draw itself (replayed into the truth images when its copy does not follow)
++    // The truth pass of the clears it started from (gpu_native_own_steps_drop_clears): turned off when its copy is
++    // taken - until then kept, so a replay lands on the cleared tiles.
++    size_t clears_begin = SIZE_MAX, clears_end = SIZE_MAX;
++    uint64_t clears_submission = 0;
++  } owned_pending_;
++  VkRenderPass owned_render_pass_[kPostTargetClasses] = {};
++  VkRenderPass owned_render_pass_clear_[kPostTargetClasses] = {};  // (the colour cleared at its start)
++  std::string owned_list_text_;
++  std::vector<uint64_t> owned_list_;      // (copied once a frame: OwnedRefreshList)
++  std::vector<uint64_t> owned_disabled_;  // shaders that lost an output: not owned any more
++  bool owned_failed_ = false;
++  bool owned_replaying_ = false;
++  bool OwnedWants(uint64_t pixel_shader_hash) const;
++  void OwnedRefreshList();
++  void OwnedDisable(uint64_t pixel_shader_hash, const char* why);
++  std::bitset<2048> OwnedDrawTiles(const Draw& draw) const;
++  void OwnedReplayPending(const char* why);
++  int16_t OwnedImageFor(uint32_t width, uint32_t height, uint32_t kind);
+   uint32_t truth_time_tick_ = 0;  // Session 47: TruthRecordDraw times one draw in 8
+   // Session 47 (CPU): what the open truth pass's draws last bound (pipeline, depth bias, blend constants).
+   bool truth_bound_valid_ = false;
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index f26e97c71b5ac13568883ece21449bffda9918ff..38f73d840121cd938fc0aad411464f3547beacbc 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -258,6 +258,8 @@ class VulkanTextureCache final : public TextureCache {
+   bool native_hold_barrier_ = false;
+   // wwe2k14 patch (Session 80, gpu_native_truth_serve_copies): bindings whose view is now another image's.
+   uint32_t native_served_mask_ = 0;
++  // wwe2k14 patch (Session 80, gpu_native_own_steps): bindings given an owned step's image (RequestTextures).
++  uint32_t native_owned_mask_ = 0;
+   bool native_last_request_served_ = false;
+   NativeHeldBarrier native_held_barrier_;
+   // (Taken at the start of the call - an early return must not leave it for the next one.)
+@@ -310,6 +312,9 @@ class VulkanTextureCache final : public TextureCache {
+   // Returns whether any binding was served.
+   bool NativeUnserve(uint32_t used_texture_mask);
+   bool NativeServed(uint32_t used_texture_mask) const { return (native_served_mask_ & used_texture_mask) != 0; }
++  // wwe2k14 patch (Session 80, gpu_native_own_steps): the owned pages changed - the unchanged-bindings shortcut of
++  // RequestTextures runs its loops again (a binding of a page that became ours keeps no stale view; review).
++  void NativeOwnedChanged() { ++texture_usage_changes_; }
+   // (Whether the last texture request served a used binding: a repeat of that draw, which requests nothing, takes the
+   // full path - its served image is made readable by its own request.)
+   bool native_last_request_served() const { return native_last_request_served_; }
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index ed052cd51cf682b66600b1b24f5ce57b8fdb9ccd..8499ea34a338a15a3f44ce2de62ca182f229bd9a 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -59,6 +59,7 @@ set(REXGPU_XENOS_VULKAN_SOURCES
+     vulkan/native/native_renderer.cpp
+     vulkan/native/native_truth.cpp
+     vulkan/native/own_crowd.cpp
++    vulkan/native/owned_steps.cpp
+     vulkan/native/shader_swap.cpp
+ )
+ 
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 94cbd46944461bf6a2f03a1d907138025ac219e0..62954ba64cd1d9495b077b40b0388f7467e0fdb4 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7369,6 +7369,25 @@ bool VulkanCommandProcessor::NativeTruthResolveRedundant(const draw_util::Resolv
+   return native_ && native_->TruthResolveRedundant(info);
+ }
+ 
++bool VulkanCommandProcessor::NativeOwnedResolve(const draw_util::ResolveInfo& info, bool copy_known) {
++  return native_ && native_->enabled() && native_->OwnedTakeResolve(info, copy_known);
++}
++
++VkImageView VulkanCommandProcessor::NativeOwnedView(uint32_t base_page, uint32_t width, uint32_t height,
++                                                    uint32_t format, uint32_t endian, bool scaled_ok,
++                                                    const VkComponentMapping& components) {
++  if (!native_ || !native_->enabled()) return VK_NULL_HANDLE;
++  return native_->OwnedView(base_page, width, height, format, endian, scaled_ok, components);
++}
++
++void VulkanCommandProcessor::NativeOwnedPagesChanged() {
++  if (texture_cache_) texture_cache_->NativeOwnedChanged();
++}
++
++bool VulkanCommandProcessor::NativeReadbackActive() const {
++  return GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve)) != ReadbackResolveMode::kDisabled;
++}
++
+ // wwe2k14 patch (Session 80, frame structure census): with the segment log, the textures the next draw samples - each
+ // used fetch constant's guest page, format and size - so a reader can match every copy to the passes that read it.
+ void VulkanCommandProcessor::NativeLogDrawTextures(uint32_t used_texture_mask) {
+@@ -8080,15 +8099,47 @@ float VulkanCommandProcessor::NativeClearDepth(xenos::PrimitiveType prim_type, c
+ }
+ 
+ bool VulkanCommandProcessor::NativeCoverRect(xenos::PrimitiveType prim_type, const VulkanShader& vertex_shader,
+-                                             const VulkanShader* pixel_shader, int32_t rect[4]) {
++                                             const VulkanShader* pixel_shader, int32_t rect[4], bool owned_step,
++                                             const IndexBufferInfo* index_buffer_info) {
+   const RegisterFile& regs = *register_file_;
+-  const bool quad = prim_type == xenos::PrimitiveType::kQuadList;
++  // wwe2k14 patch (Session 80, gpu_native_own_steps): for an owned step's draw also a 4-vertex triangle strip whose
++  // shared edge is the rectangle's diagonal (auto-indexed or 4 indices, read as NativeBoundsRect reads them), and a
++  // culled quad / strip that faces the way culling keeps.
++  const bool strip = owned_step && prim_type == xenos::PrimitiveType::kTriangleStrip;
++  const bool quad = prim_type == xenos::PrimitiveType::kQuadList || strip;
+   if ((!quad && prim_type != xenos::PrimitiveType::kRectangleList) || !pixel_shader) return NativeCoverReject(__LINE__, vertex_shader);
+   const uint32_t vertex_count = quad ? 4 : 3;
+   const auto initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
+-  if (initiator.source_select != xenos::SourceSelect::kAutoIndex || initiator.num_indices != vertex_count) {
++  const bool strip_indexed = strip && initiator.source_select == xenos::SourceSelect::kDMA && index_buffer_info &&
++                             index_buffer_info->count >= 4;
++  if ((initiator.source_select != xenos::SourceSelect::kAutoIndex && !strip_indexed) ||
++      initiator.num_indices != vertex_count) {
+     return NativeCoverReject(__LINE__, vertex_shader);
+   }
++  uint32_t strip_indices[4] = {0, 1, 2, 3};
++  if (strip_indexed) {
++    const bool wide = index_buffer_info->format == xenos::IndexFormat::kInt32;
++    xenos::Endian endian = index_buffer_info->endianness;
++    if (!wide && endian != xenos::Endian::kNone && endian != xenos::Endian::k8in16) {
++      endian = endian == xenos::Endian::k8in32 ? xenos::Endian::k8in16 : xenos::Endian::kNone;
++    }
++    const bool reset = regs.Get<reg::PA_SU_SC_MODE_CNTL>().multi_prim_ib_ena;
++    const uint32_t reset_guest = xenos::GpuSwap(regs.Get<reg::VGT_MULTI_PRIM_IB_RESET_INDX>().reset_indx, endian);
++    const uint8_t* data = memory_->TranslatePhysical<const uint8_t*>(index_buffer_info->guest_base & 0x1FFFFFFFu);
++    if (!data) return NativeCoverReject(__LINE__, vertex_shader);
++    for (uint32_t i = 0; i < 4; ++i) {
++      uint32_t v = 0;
++      if (wide) {
++        std::memcpy(&v, data + size_t(i) * 4, 4);
++      } else {
++        uint16_t h;
++        std::memcpy(&h, data + size_t(i) * 2, 2);
++        v = h;
++      }
++      if (reset && v == reset_guest) return NativeCoverReject(__LINE__, vertex_shader);  // (a restart: two strips)
++      strip_indices[i] = wide ? xenos::GpuSwap(v, endian) : xenos::GpuSwap(uint16_t(v), endian);
++    }
++  }
+   const auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
+   if (surface_info.msaa_samples != xenos::MsaaSamples::k1X || !surface_info.surface_pitch) return NativeCoverReject(__LINE__, vertex_shader);
+   const auto color_control = regs.Get<reg::RB_COLORCONTROL>();
+@@ -8105,7 +8156,9 @@ bool VulkanCommandProcessor::NativeCoverRect(xenos::PrimitiveType prim_type, con
+   // remove covers nothing (gpu_native_post_sync relies on the proof).
+   const auto mode_cntl = regs.Get<reg::PA_SU_SC_MODE_CNTL>();
+   const auto clip_cntl = regs.Get<reg::PA_CL_CLIP_CNTL>();
+-  if (mode_cntl.cull_front || mode_cntl.cull_back || (clip_cntl.ucp_ena && !clip_cntl.clip_disable)) {
++  const bool culled = mode_cntl.cull_front || mode_cntl.cull_back;
++  if ((culled && !owned_step) || (mode_cntl.cull_front && mode_cntl.cull_back) ||
++      (clip_cntl.ucp_ena && !clip_cntl.clip_disable)) {
+     return NativeCoverReject(__LINE__, vertex_shader);
+   }
+   if (!rename_interpreter_) rename_interpreter_ = std::make_unique<ShaderInterpreter>(regs, *memory_);
+@@ -8134,7 +8187,8 @@ bool VulkanCommandProcessor::NativeCoverRect(xenos::PrimitiveType prim_type, con
+   bool ok = true;
+   for (uint32_t i = 0; i < vertex_count && ok; ++i) {
+     std::memset(interpreter.temp_registers(), 0, sizeof(float) * 4 * xenos::kMaxShaderTempRegisters);
+-    const uint32_t index = std::min(std::max((i + index_offset) & xenos::kVertexIndexMask, index_min), index_max);
++    const uint32_t raw = strip ? strip_indices[i] : i;  // (Session 80: an owned step's strip - its indices)
++    const uint32_t index = std::min(std::max((raw + index_offset) & xenos::kVertexIndexMask, index_min), index_max);
+     interpreter.temp_registers()[0] = float(index);
+     sink.written = 0;
+     interpreter.Execute();
+@@ -8146,6 +8200,16 @@ bool VulkanCommandProcessor::NativeCoverRect(xenos::PrimitiveType prim_type, con
+       const double z = double(sink.position[2]), zw = double(sink.position[3]);
+       ok = (sink.written & 0b0100) && std::isfinite(z) && z <= zw && z >= (clip_cntl.dx_clip_space_def ? 0.0 : -zw);
+     }
++    // (Session 80, diagnostic: an owned step's corners, the first few draws.)
++    static uint32_t owned_corners_logged = 0;
++    if (owned_step && owned_corners_logged < 24) {
++      ++owned_corners_logged;
++      REXGPU_INFO("[native][cover] owned step vs {:016X} corner {} index {}: written 0x{:X} position {} {} {} {} "
++                  "(xy fmt {} w0 fmt {} clip off {} dx {})",
++                  vertex_shader.ucode_data_hash(), i, index, sink.written, sink.position[0], sink.position[1],
++                  sink.position[2], sink.position[3], uint32_t(vte.vtx_xy_fmt), uint32_t(vte.vtx_w0_fmt),
++                  uint32_t(clip_cntl.clip_disable), uint32_t(clip_cntl.dx_clip_space_def));
++    }
+     if (!ok) break;
+     px[i] = double(sink.position[0]) / w * scale_x + offset_x;
+     py[i] = double(sink.position[1]) / w * scale_y + offset_y;
+@@ -8157,7 +8221,20 @@ bool VulkanCommandProcessor::NativeCoverRect(xenos::PrimitiveType prim_type, con
+     min_x = std::min(min_x, px[i]), max_x = std::max(max_x, px[i]);
+     min_y = std::min(min_y, py[i]), max_y = std::max(max_y, py[i]);
+   }
+-  if (quad) {
++  if (strip) {
++    // (Session 80) Every corner on the bounding box's corners; corners 1 and 2 opposite (the triangles 0-1-2 and 2-1-3
++    // share that diagonal), 0 and 3 opposite: the two triangles cover the rectangle.
++    const auto on = [](double a, double b) { return std::abs(a - b) <= 1.0e-4; };
++    for (uint32_t i = 0; i < 4; ++i) {
++      if (!(on(px[i], min_x) || on(px[i], max_x)) || !(on(py[i], min_y) || on(py[i], max_y))) return NativeCoverReject(__LINE__, vertex_shader);
++    }
++    // (Review: corners 0 and 1 adjacent - one coordinate shared - and the box not flat, or a strip of two repeated
++    // corners would pass.)
++    if (on(px[1], px[2]) || on(py[1], py[2]) || on(px[0], px[3]) || on(py[0], py[3]) ||
++        on(px[0], px[1]) == on(py[0], py[1]) || on(min_x, max_x) || on(min_y, max_y)) {
++      return NativeCoverReject(__LINE__, vertex_shader);
++    }
++  } else if (quad) {
+     // Every corner on the bounding box's corners, and consecutive corners adjacent (sharing x or y): a convex
+     // rectangle (the quad's two triangles cover it), not a bow-tie.
+     const auto on = [](double a, double b) { return std::abs(a - b) <= 1.0e-4; };
+@@ -8177,6 +8254,20 @@ bool VulkanCommandProcessor::NativeCoverRect(xenos::PrimitiveType prim_type, con
+       }
+     }
+   }
++  // (Session 80, an owned step's culled draw) Kept by the culling: its first triangle's facing in window coordinates
++  // (y down; counter-clockwise when -1/2 of the cross sum is positive, as Vulkan defines it) against the front face
++  // (PA_SU_SC_MODE_CNTL.face: clockwise front) - the quad / strip's other triangle faces the same way (a strip's
++  // second triangle is taken in the order that keeps it). (The sign matches Vulkan's and the pipeline's front face -
++  // review; a wrong one would take a culled draw as covering.)
++  if (culled) {
++    const double cross = (px[0] * py[1] - px[1] * py[0]) + (px[1] * py[2] - px[2] * py[1]) +
++                         (px[2] * py[0] - px[0] * py[2]);
++    const bool ccw = -0.5 * cross > 0.0;
++    const bool front = mode_cntl.face ? !ccw : ccw;
++    if (std::abs(cross) < 1.0e-6 || (mode_cntl.cull_back && !front) || (mode_cntl.cull_front && front)) {
++      return NativeCoverReject(__LINE__, vertex_shader);
++    }
++  }
+   const double centre = regs.Get<reg::PA_SU_VTX_CNTL>().pix_center == xenos::PixelCenter::kD3DZero ? 0.0 : 0.5;
+   int32_t edges[4];
+   const double values[4] = {min_x, min_y, max_x, max_y};
+@@ -10756,9 +10847,15 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   }
+   // wwe2k14 patch (Session 45, NATIVE SYNC): a claimed quad / rectangle's proven coverage (post and scene draws).
+   // (Session 80: or while copies wait in the batch - gpu_native_truth_carry_copies.)
+-  if (native_owned && (native_->WantsCover() || native_->TruthWantsCover()) &&
+-      (prim_type == xenos::PrimitiveType::kQuadList || prim_type == xenos::PrimitiveType::kRectangleList) &&
+-      !NativeCoverRect(prim_type, *vertex_shader, pixel_shader, native_draw.cover)) {
++  // (Session 80: or an owned step's draw - gpu_native_own_steps takes only a draw whose coverage holds its rectangle;
++  // for it also a 4-vertex strip and a culled draw facing the kept way.)
++  const bool cover_owned_step =
++      native_owned && pixel_shader && native_->OwnedWantsCover(pixel_shader->ucode_data_hash());
++  if (native_owned && (native_->WantsCover() || native_->TruthWantsCover() || cover_owned_step) &&
++      (prim_type == xenos::PrimitiveType::kQuadList || prim_type == xenos::PrimitiveType::kRectangleList ||
++       (cover_owned_step && prim_type == xenos::PrimitiveType::kTriangleStrip)) &&
++      !NativeCoverRect(prim_type, *vertex_shader, pixel_shader, native_draw.cover, cover_owned_step,
++                       index_buffer_info)) {
+     std::fill(std::begin(native_draw.cover), std::end(native_draw.cover), 0);
+   }
+   // wwe2k14 patch (Session 80, gpu_native_truth_bounds_vs): a listed vertex shader's draw - the box its vertices span.
+@@ -12399,8 +12496,14 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+   std::fill(std::begin(native_draw.cover), std::end(native_draw.cover), 0);
+   // wwe2k14 patch (Session 80, gpu_native_truth_carry_copies): a quad / rectangle's proven coverage while copies wait
+   // in the batch (a full-screen draw into a copy's source renames the image instead of running the copy).
+-  if ((prim_type == xenos::PrimitiveType::kQuadList || prim_type == xenos::PrimitiveType::kRectangleList) &&
+-      native_->TruthWantsCover() && !NativeCoverRect(prim_type, *vertex_shader, pixel_shader, native_draw.cover)) {
++  // (Session 80: or an owned step's draw - gpu_native_own_steps; for it also a 4-vertex strip, a culled draw facing
++  // the kept way.)
++  const bool cover_owned_step = pixel_shader && native_->OwnedWantsCover(pixel_shader->ucode_data_hash());
++  if ((prim_type == xenos::PrimitiveType::kQuadList || prim_type == xenos::PrimitiveType::kRectangleList ||
++       (cover_owned_step && prim_type == xenos::PrimitiveType::kTriangleStrip)) &&
++      (native_->TruthWantsCover() || cover_owned_step) &&
++      !NativeCoverRect(prim_type, *vertex_shader, pixel_shader, native_draw.cover, cover_owned_step,
++                       index_buffer_info)) {
+     std::fill(std::begin(native_draw.cover), std::end(native_draw.cover), 0);
+   }
+   // wwe2k14 patch (Session 80, gpu_native_truth_bounds_vs): a listed vertex shader's draw - the box its vertices span.
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index ca6c9244167a94f87223d0c6248cb2c0b59108a8..d388ac89db10e54d9c4b7c8b1cc2408683329cde 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -1848,6 +1848,7 @@ void NativeRenderer::DestroyObjects() {
+   truth_alias_read_owners_.clear();
+   DestroyRetired(true);
+   OwnCrowdDestroy();  // wwe2k14 patch (Session 80, own crowd)
++  OwnedDestroy();     // wwe2k14 patch (Session 80, owned steps)
+   // Session 80 (gpu_native_truth_skip_writeback_depth): the stencil snapshots and the depth write-back's objects.
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipeline, device, stencil_snap_pipeline_);
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyPipeline, device, materialize_depth_pipeline_);
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index efd520872325c60882ea1e74d577eeee17ecb98e..0f0f26d9bc0948351ab4cb6a8b70bf73ce891b71 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -6209,6 +6209,7 @@ void NativeRenderer::EndTruthPass() {
+   } else {
+     cb.CmdVkEndRenderPass();
+   }
++  truth_pass_end_offset_ = cb.stream_offset();  // Session 80 (gpu_native_own_steps_drop_clears)
+   // Session 80 (gpu_native_truth_drop_dead_passes): a pass that only drew colour pixels - turned off if the next pass
+   // clears them first (TruthRecordDraw).
+   dead_pass_.valid = REXCVAR_GET(gpu_native_truth_drop_dead_passes) && truth_pass_dead_ok_ &&
+@@ -6275,6 +6276,8 @@ void NativeRenderer::TruthRestoreAliasOwners() {
+ 
+ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   truth_skip_clear_draw_ = false;  // Session 80 (gpu_native_truth_clear_load): set only by this draw's own pass start
++  // wwe2k14 patch (Session 80, gpu_native_own_steps; owned_steps.cpp): an owned step's draw goes into our image.
++  if (OwnedTakeDraw(draw)) return;
+   // wwe2k14 patch (Session 79, diagnostic): who breaks the lazy pass chains, while the segment log runs.
+   command_processor_.deferred_command_buffer().capture_break_stack = segment_log_frames_ > 0;
+   // wwe2k14 patch (Session 79, NF-D look-ahead diagnostic, gpu_native_frame_batch_log N): which native-frame catch-up
+@@ -6928,6 +6931,8 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     }
+     truth_pass_lazy_ = lazy;
+     truth_pass_open_ = true;
++    truth_pass_clears_.valid = false;  // Session 80 (gpu_native_own_steps)
++    truth_pass_clears_.area = 0;
+     truth_pass_dead_ok_ = !load && !twins;  // Session 80 (gpu_native_truth_drop_dead_passes)
+     truth_pass_draws_ = 0;  // Session 72 (gpu_native_truth_pass_log)
+     truth_pass_touched_color_ = truth_pass_touched_depth_ = false;  // Session 73
+@@ -7175,6 +7180,33 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   }
+   if (xfb) command_processor_.NativeXfbEnd();
+   ++truth_pass_draws_;  // Session 72 (gpu_native_truth_pass_log)
++  // Session 80 (gpu_native_own_steps): the pass's clears so far - one known colour, all four channels, no blending
++  // (pieces of one clear: the console splits a clear at the tile boundary); anything else ends the run.
++  {
++    auto& pc = truth_pass_clears_;
++    const bool clear = draw.fast_clear && draw.clear_color_known && writes_color &&
++                       (draw.color_write_mask & 0xF) == 0xF && draw.blend_control == 0x00010001u;
++    const bool first = truth_pass_draws_ == 1;
++    if (!clear || (!first && !pc.valid) ||
++        (!first && std::memcmp(pc.color, draw.clear_color, sizeof(pc.color)))) {
++      pc.valid = false;
++    } else {
++      if (first) {
++        std::copy(rect, rect + 4, pc.rect);
++        std::memcpy(pc.color, draw.clear_color, sizeof(pc.color));
++        pc.area = 0;
++      } else {
++        // (Review: a piece overlapping the earlier ones ends the run - the summed area then proves a whole box only for
++        // pieces that do not overlap, as a clear split at a tile boundary.)
++        const bool overlaps = rect[0] < pc.rect[2] && pc.rect[0] < rect[2] && rect[1] < pc.rect[3] && pc.rect[1] < rect[3];
++        pc.rect[0] = std::min(pc.rect[0], rect[0]), pc.rect[1] = std::min(pc.rect[1], rect[1]);
++        pc.rect[2] = std::max(pc.rect[2], rect[2]), pc.rect[3] = std::max(pc.rect[3], rect[3]);
++        if (overlaps) pc.area = UINT64_MAX / 2;
++      }
++      pc.area += uint64_t(rect[2] - rect[0]) * uint64_t(rect[3] - rect[1]);
++      pc.valid = pc.area < UINT64_MAX / 2;
++    }
++  }
+   // Session 56 (gpu_native_truth_clear_attachments): a fast clear's depth and stencil cleared again, for real.
+   if (debug_gpu_work != 2 && !truth_skip_clear_draw_ && draw.fast_clear && draw.clear_depth >= 0.0f && uses_depth &&
+       draw.raster.depth_test &&
+@@ -7448,6 +7480,7 @@ void NativeRenderer::TruthOnFrameEnd(bool ended_truth, bool next_truth) {
+   // (Session 80, gpu_native_truth_serve_copies: a draw's served state never outlives the frame - review.)
+   serve_rename_.valid = false;
+   serve_pending_.clear();
++  OwnedOnFrameEnd();  // Session 80 (gpu_native_own_steps)
+   // Session 52. (Session 80, gpu_native_truth_carry_copies: a truth frame after a truth frame - the carried copies stay.)
+   if (ended_truth && next_truth) {
+     DeferConcern none;
+@@ -7916,6 +7949,14 @@ void NativeRenderer::LogTruthCensus() {
+                   pf(c.served_live), pf(c.serve_renames), pf(c.serve_renames_whole), pf(c.serve_renames_copied),
+                   pf(c.carry_fresh_sets), pf(c.serve_ahead));
+     }
++    if (c.owned_draws || c.owned_refused || c.owned_lost_copy || c.owned_lost_draw) {  // Session 80 (gpu_native_own_steps)
++      REXGPU_INFO("[native][truth] owned steps per frame: draws into our images {:.2f}, their copies left out {:.2f}, "
++                  "bindings given our images {:.2f}; outputs lost {:.2f} (replayed {:.2f}); refused {:.2f}; their clear "
++                  "passes turned off {:.2f} (kept {:.2f}); images {}",
++                  pf(c.owned_draws), pf(c.owned_copies), pf(c.owned_served), pf(c.owned_lost_copy + c.owned_lost_draw),
++                  pf(c.owned_lost_draw), pf(c.owned_refused), pf(c.owned_clears_dropped), pf(c.owned_clears_kept),
++                  owned_images_.size());
++    }
+     if (c.dead_passes || c.dead_pass_kept) {  // Session 80 (gpu_native_truth_drop_dead_passes)
+       REXGPU_INFO("[native][truth] dead passes turned off per frame: {:.2f}; cleared by the next pass but kept {:.2f}",
+                   pf(c.dead_passes), pf(c.dead_pass_kept));
+diff --git a/src/graphics/vulkan/native/owned_steps.cpp b/src/graphics/vulkan/native/owned_steps.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..6289bf0e49d347aa0d102b9e3252b9b343192ceb
+--- /dev/null
++++ b/src/graphics/vulkan/native/owned_steps.cpp
+@@ -0,0 +1,626 @@
++// wwe2k14 patch (Session 80, OWN_RENDERER_PLAN.md "The shadows" step 2; gpu_native_own_steps). Owned steps: a pass of
++// the 360's frame whose output is only ever read through its copy, drawn into an exact-size image of ours instead of
++// the truth images. On the console such a draw goes into an EDRAM surface laid out in 80-pixel tiles (a 256x256
++// blur into a 320-wide surface whose tiles another surface's pixels alias), then a resolve copies the rectangle into a
++// texture in guest memory; NATIVE's truth frame emulates all of that exactly (the surface's tiles alias-loaded, its
++// pass stored, the copy run as a compute batch into the texture). For a listed pixel shader here, the draw - the
++// game's own pipeline and bindings, its interpolation and our pixel shader as before - is recorded into our image in a
++// render pass of its own (colour not loaded: the draw covers it all; stored; left readable), the copy that follows is
++// left out, and every draw that samples the copy's texture page is given our image's view (the texture's memory and
++// its own image are never written while the page is ours). The EDRAM tiles keep what they had, as
++// gpu_shadow_half_rate leaves them when it skips a map. Map of the hooks: docs\native\OWNED_STEPS_MAP.md (game repo).
++
++#include <rex/graphics/vulkan/native/native_renderer.h>
++
++#include <algorithm>
++#include <cmath>
++#include <cstdlib>
++#include <cstring>
++
++#include <rex/cvar.h>
++#include <rex/graphics/vulkan/command_processor.h>
++#include <rex/logging.h>
++#include <rex/ui/vulkan/util.h>
++
++REXCVAR_DEFINE_STRING(gpu_native_own_steps, "", "GPU/Native",
++                      "Session 80 (OWN_RENDERER_PLAN.md \"The shadows\"): guest pixel shaders (hex hashes, "
++                      "comma-separated) whose truth draws are owned steps: a draw of one (colour only into an RGBA8 "
++                      "surface, unblended, no depth or stencil, covering its rectangle from the surface's origin) is "
++                      "recorded into an exact-size image of ours, the copy of that rectangle into a texture that follows "
++                      "is left out, and the draws sampling that texture are given our image. Not in readback windows. "
++                      "Empty = off");
++REXCVAR_DEFINE_BOOL(gpu_native_own_steps_drop_clears, true, "GPU/Native",
++                    "Session 80 (with gpu_native_own_steps): an owned draw that starts from the clears of its truth pass "
++                    "turns that pass (nothing but those clears) off - our image holds what they wrote");
++REXCVAR_DEFINE_BOOL(gpu_native_own_steps_debug_replay, false, "GPU/Native",
++                    "Session 80 (diagnostic): every owned output's copy taken as not matching - the draw replayed into "
++                    "the truth images and the copy run from them, the shader still owned (the replay path's check: "
++                    "same-frame shots equal to the owned steps off)");
++
++namespace rex::graphics::vulkan::native {
++
++namespace {
++// The RGBA8 class's format (the truth and post targets' class 1: kPostTargetFormats[1]).
++constexpr VkFormat kOwnedColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
++constexpr uint32_t kOwnedImagesPerSize = 4;
++}  // namespace
++
++bool NativeRenderer::OwnedWants(uint64_t pixel_shader_hash) const {
++  // (The list as copied at the last frame's end - OwnedRefreshList; a shader that lost an output is out for good.)
++  return !owned_list_.empty() &&
++         std::find(owned_list_.begin(), owned_list_.end(), pixel_shader_hash) != owned_list_.end() &&
++         std::find(owned_disabled_.begin(), owned_disabled_.end(), pixel_shader_hash) == owned_disabled_.end();
++}
++
++int16_t NativeRenderer::OwnedImageFor(uint32_t width, uint32_t height, uint32_t kind) {
++  // One not holding a page now (nor the output still waiting for its copy): a step reads the page an earlier one left
++  // in another image, and a page's image may still be sampled later in the frame.
++  uint32_t of_size = 0;
++  for (size_t i = 0; i < owned_images_.size(); ++i) {
++    const OwnedImage& o = owned_images_[i];
++    if (o.width != width || o.height != height || o.kind != kind) continue;
++    ++of_size;
++    const bool held = (owned_pending_.valid && owned_pending_.image == int16_t(i)) ||
++                      std::any_of(owned_pages_.begin(), owned_pages_.end(),
++                                  [&](const OwnedPage& p) { return p.image == int16_t(i); });
++    if (!held) return int16_t(i);
++  }
++  if (of_size >= kOwnedImagesPerSize || owned_images_.size() >= 32) return -1;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  // The render pass: the truth passes' attachments (colour of the class, the post depth format) and, as the truth
++  // pipelines' passes, no subpass dependencies (their count is part of render pass compatibility: validation
++  // VUID-vkCmdDraw-renderPass-02684) - the barriers around it are OwnedTakeDraw's. The colour is not loaded (every
++  // pixel is drawn) and stored, the depth neither loaded nor stored (no owned draw uses it); both stay in their
++  // attachment layouts.
++  if (owned_render_pass_[kind] == VK_NULL_HANDLE) {
++    VkAttachmentDescription attachments[2] = {};
++    attachments[0].format = kOwnedColorFormat;
++    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
++    attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
++    attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++    attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
++    attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++    attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++    attachments[1].format = post_ds_format_;
++    attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
++    attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
++    attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++    attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
++    attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
++    attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
++    VkAttachmentReference color_ref = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
++    VkAttachmentReference ds_ref = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
++    VkSubpassDescription subpass = {};
++    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
++    subpass.colorAttachmentCount = 1;
++    subpass.pColorAttachments = &color_ref;
++    subpass.pDepthStencilAttachment = &ds_ref;
++    VkRenderPassCreateInfo info = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
++    info.attachmentCount = 2;
++    info.pAttachments = attachments;
++    info.subpassCount = 1;
++    info.pSubpasses = &subpass;
++    // (And the same with the colour cleared at its start: a draw not proven to cover its rectangle, after clears that
++    // cover it - our image then holds what the surface held under the draw.)
++    VkAttachmentDescription clear_attachments[2] = {attachments[0], attachments[1]};
++    clear_attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
++    VkRenderPassCreateInfo clear_info = info;
++    clear_info.pAttachments = clear_attachments;
++    if (dfn.vkCreateRenderPass(device, &info, nullptr, &owned_render_pass_[kind]) != VK_SUCCESS ||
++        dfn.vkCreateRenderPass(device, &clear_info, nullptr, &owned_render_pass_clear_[kind]) != VK_SUCCESS) {
++      ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyRenderPass, device, owned_render_pass_[kind]);
++      ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyRenderPass, device, owned_render_pass_clear_[kind]);
++      owned_failed_ = true;
++      REXGPU_ERROR("[native][owned] could not make the render pass: owned steps off");
++      return -1;
++    }
++  }
++  OwnedImage o;
++  o.width = width;
++  o.height = height;
++  o.kind = kind;
++  const auto make = [&](VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspects, VkImage& image,
++                        VkDeviceMemory& memory, VkImageView& view) {
++    VkImageCreateInfo image_info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
++    image_info.imageType = VK_IMAGE_TYPE_2D;
++    image_info.format = format;
++    image_info.extent = {width, height, 1};
++    image_info.mipLevels = 1;
++    image_info.arrayLayers = 1;
++    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
++    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
++    image_info.usage = usage;
++    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++    if (!ui::vulkan::util::CreateDedicatedAllocationImage(vulkan_device, image_info,
++                                                          ui::vulkan::util::MemoryPurpose::kDeviceLocal, image, memory)) {
++      return false;
++    }
++    VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
++    view_info.image = image;
++    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
++    view_info.format = format;
++    view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(aspects);
++    return dfn.vkCreateImageView(device, &view_info, nullptr, &view) == VK_SUCCESS;
++  };
++  bool ok = make(kOwnedColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
++                 VK_IMAGE_ASPECT_COLOR_BIT, o.image, o.memory, o.view);
++  ok = ok && make(post_ds_format_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
++                  VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, o.depth, o.depth_memory, o.depth_view);
++  if (ok) {
++    const VkImageView views[2] = {o.view, o.depth_view};
++    VkFramebufferCreateInfo fb_info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
++    fb_info.renderPass = owned_render_pass_[kind];
++    fb_info.attachmentCount = 2;
++    fb_info.pAttachments = views;
++    fb_info.width = width;
++    fb_info.height = height;
++    fb_info.layers = 1;
++    ok = dfn.vkCreateFramebuffer(device, &fb_info, nullptr, &o.framebuffer) == VK_SUCCESS;
++  }
++  if (!ok) {
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyFramebuffer, device, o.framebuffer);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImageView, device, o.view);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImageView, device, o.depth_view);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImage, device, o.image);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImage, device, o.depth);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device, o.memory);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device, o.depth_memory);
++    REXGPU_ERROR("[native][owned] could not make a {}x{} image: owned steps off", width, height);
++    owned_failed_ = true;
++    return -1;
++  }
++  REXGPU_INFO("[native][owned] image {}x{} (class {}) made", width, height, kind);
++  owned_images_.push_back(o);
++  return int16_t(owned_images_.size() - 1);
++}
++
++void NativeRenderer::OwnedRefreshList() {
++  // (Copied under the cvar registry lock - a live set assigns the string from another thread; review.)
++  const std::string list = rex::cvar::Query<std::string>("gpu_native_own_steps");
++  if (list == owned_list_text_) return;
++  owned_list_text_ = list;
++  owned_list_.clear();
++  size_t i = 0;
++  while (i < list.size()) {
++    const size_t end = std::min(list.find(',', i), list.size());
++    const std::string item = list.substr(i, end - i);
++    char* stop = nullptr;
++    const unsigned long long hash = std::strtoull(item.c_str(), &stop, 16);
++    if (hash && stop && stop != item.c_str()) owned_list_.push_back(uint64_t(hash));
++    i = end + 1;
++  }
++}
++
++void NativeRenderer::OwnedDisable(uint64_t pixel_shader_hash, const char* why) {
++  if (std::find(owned_disabled_.begin(), owned_disabled_.end(), pixel_shader_hash) != owned_disabled_.end()) return;
++  owned_disabled_.push_back(pixel_shader_hash);
++  REXGPU_WARN("[native][owned] frame {}: ps {:016X} not owned any more ({})", frame_, pixel_shader_hash, why);
++}
++
++std::bitset<2048> NativeRenderer::OwnedDrawTiles(const Draw& draw) const {
++  // The EDRAM tiles a draw writes (its colour and depth), in guest pixels from its rectangle.
++  std::bitset<2048> tiles;
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  int32_t rect[4];
++  TruthDrawRect(draw, rect);
++  const uint32_t gx0 = uint32_t(std::max(rect[0], 0)) / scale_x, gy0 = uint32_t(std::max(rect[1], 0)) / scale_y;
++  const uint32_t gx1 = (uint32_t(std::max(rect[2], 0)) + scale_x - 1) / scale_x;
++  const uint32_t gy1 = (uint32_t(std::max(rect[3], 0)) + scale_y - 1) / scale_y;
++  if (gx1 <= gx0 || gy1 <= gy0) return tiles;
++  const uint32_t pitch = std::max(1u, ((draw.surface_info & 0x3FFF) * draw.truth_sx + 79) / 80);
++  if (draw.truth_color >= 0 && (draw.color_write_mask & 0xF)) {
++    const auto format = xenos::ColorRenderTargetFormat((draw.color_info >> 16) & 0xF);
++    tiles |= EdramTiles(draw.color_info & 0xFFF, pitch, xenos::IsColorRenderTargetFormat64bpp(format), gx0, gy0, gx1,
++                        gy1);
++  }
++  if (draw.truth_depth >= 0 && (draw.raster.depth_write || draw.raster.stencil || draw.fast_clear)) {
++    tiles |= EdramTiles(draw.depth_info & 0xFFF, pitch, false, gx0, gy0, gx1, gy1);
++  }
++  return tiles;
++}
++
++void NativeRenderer::OwnedReplayPending(const char* why) {
++  // An owned output whose copy did not follow as expected: the draw recorded into the truth images now, as it would
++  // have been (the same submission - its bindings and constants still hold - and nothing recorded since reads or writes
++  // its tiles: this runs before what found it is recorded), so the EDRAM state and the copy are exact; the shader is
++  // not owned any more (review: a loss must not leave the tiles without its draw).
++  if (!owned_pending_.valid) return;
++  owned_pending_.valid = false;
++  ++truth_counts_.owned_lost_draw;
++  if (!REXCVAR_GET(gpu_native_own_steps_debug_replay)) OwnedDisable(owned_pending_.draw.pixel_shader_hash, why);
++  owned_replaying_ = true;
++  truth_foreign_bind_ = true;  // (its sets are not the command processor's current ones: bound again)
++  truth_bound_valid_ = false;
++  TruthRecordDraw(owned_pending_.draw);
++  truth_foreign_bind_ = true;
++  truth_bound_valid_ = false;
++  owned_replaying_ = false;
++  command_processor_.NativeForgetState();
++}
++
++bool NativeRenderer::OwnedTakeDraw(const Draw& draw) {
++  if (owned_replaying_) return false;
++  if (owned_list_.empty() || owned_failed_ || !truth_ || !replacing_ || truth_failed_) {
++    if (owned_pending_.valid) OwnedReplayPending("owned steps off before its copy");
++    return false;
++  }
++  const uint32_t base = draw.color_info & 0xFFF;
++  const uint32_t pitch = std::max(1u, ((draw.surface_info & 0x3FFF) * draw.truth_sx + 79) / 80);
++  // Not taken: a truth draw that writes tiles of an owned output waiting for its copy (colour or depth, any surface
++  // over them) - the output replayed into the truth images first, then this draw over it as on the console.
++  const auto not_taken = [&](bool refused) {
++    if (refused) ++truth_counts_.owned_refused;
++    if (owned_pending_.valid && (OwnedDrawTiles(draw) & owned_pending_.tiles).any()) {
++      OwnedReplayPending("a draw over its tiles before its copy");
++    }
++    return false;
++  };
++  if (!OwnedWants(draw.pixel_shader_hash)) return not_taken(false);
++  // (Not where the CPU reads copies back - the readback mode, readback_resolve_override or the setting; review.)
++  // (The first refusals are logged with the draw's state.)
++  static uint32_t refusals_logged = 0;
++  const auto refuse = [&](const char* why) {
++    if (refusals_logged < 12) {
++      ++refusals_logged;
++      REXGPU_INFO("[native][owned] frame {}: ps {:016X} refused ({}): class {} colour 0x{:08X} c{} d{} mask 0x{:X} "
++                  "all 0x{:X} blend 0x{:08X} clear {} depth {}{} stencil {} sx {} cover {},{}-{},{} restore {} served {}",
++                  frame_, draw.pixel_shader_hash, why, draw.truth_class, draw.color_info, draw.truth_color,
++                  draw.truth_depth, draw.color_write_mask, draw.color_mask_all, draw.blend_control, draw.fast_clear,
++                  draw.raster.depth_test ? "t" : "-", draw.raster.depth_write ? "w" : "-", draw.raster.stencil,
++                  draw.truth_sx, draw.cover[0], draw.cover[1], draw.cover[2], draw.cover[3], draw.restore,
++                  serve_pending_.size());
++    }
++    return not_taken(true);
++  };
++  if (command_processor_.NativeReadbackActive()) return refuse("readback window");
++  if (draw.truth_class != 1 || ((draw.color_info >> 16) & 0xF) != 0 || draw.truth_color < 0) return refuse("target");
++  if (draw.truth_depth >= 0 || draw.raster.depth_test || draw.raster.depth_write || draw.raster.stencil) {
++    return refuse("depth");
++  }
++  if ((draw.color_write_mask & 0xF) != 0xF || (draw.color_mask_all & ~0xFu) || draw.blend_control != 0x00010001u) {
++    return refuse("mask / blend");
++  }
++  if (draw.fast_clear || draw.memexport || draw.occlusion_query || draw.xfb_buffer != VK_NULL_HANDLE ||
++      draw.instance_count != 1 || draw.truth_sx != 1 || draw.truth_sy != 1 || draw.restore || TruthTwinPitch(pitch)) {
++    return refuse("kind");
++  }
++  if (draw.pipeline == VK_NULL_HANDLE) return refuse("no pipeline");
++  if (!serve_pending_.empty()) return refuse("served binding");
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  int32_t rect[4];
++  TruthDrawRect(draw, rect);
++  // From the surface's origin, every pixel of it drawn (proven coverage): our image is exactly the rectangle, not
++  // loaded.
++  if (rect[0] != 0 || rect[1] != 0 || rect[2] <= 0 || rect[3] <= 0 || rect[2] % int32_t(scale_x) ||
++      rect[3] % int32_t(scale_y) || rect[2] > 4096 || rect[3] > 4096) {
++    return refuse("rectangle");
++  }
++  // Every pixel of it drawn (proven coverage) - or, not proven, the open pass into the same image has drawn only clears
++  // of one known colour covering it: our image starts with that colour, rounded as the target stores it (as
++  // gpu_native_truth_clear_load: 1/255), and holds what the surface holds under the draw.
++  const bool covered = draw.cover[2] > draw.cover[0] && draw.cover[3] > draw.cover[1] && draw.cover[0] <= 0 &&
++                       draw.cover[1] <= 0 && draw.cover[2] * int32_t(scale_x) >= rect[2] &&
++                       draw.cover[3] * int32_t(scale_y) >= rect[3];
++  const auto& pc = truth_pass_clears_;
++  const bool cleared = !covered && truth_pass_open_ && truth_pass_color_ == draw.truth_color && pc.valid &&
++                       pc.rect[0] <= 0 && pc.rect[1] <= 0 && pc.rect[2] >= rect[2] && pc.rect[3] >= rect[3] &&
++                       pc.area == uint64_t(pc.rect[2] - pc.rect[0]) * uint64_t(pc.rect[3] - pc.rect[1]);
++  if (!covered && !cleared) return refuse("coverage");
++  VkClearValue clear_value = {};
++  if (cleared) {
++    for (uint32_t i = 0; i < 4; ++i) {
++      // (Review: the product its own statement, so no compiler fuses it with the add - the GPU's is unfused.)
++      const float s = std::min(std::max(pc.color[i], 0.0f), 1.0f) * 255.0f;
++      clear_value.color.float32[i] = std::trunc(s + 0.5f) / 255.0f;
++    }
++  }
++  const uint32_t width = uint32_t(rect[2]), height = uint32_t(rect[3]);
++  const std::bitset<2048> tiles = OwnedDrawTiles(draw);
++  // An owned output still waiting for its copy (one at a time): this draw writes every pixel of it (the same surface
++  // and rectangle - on the console its pixels are overwritten, never copied: dropped), or it is replayed into the truth
++  // images first (review: a second owned draw before the first's copy).
++  if (owned_pending_.valid) {
++    if (owned_pending_.base == base && owned_pending_.pitch_tiles == pitch &&
++        owned_pending_.width == width / scale_x && owned_pending_.height == height / scale_y && covered) {
++      owned_pending_.valid = false;
++    } else {
++      OwnedReplayPending("another owned draw before its copy");
++    }
++  }
++  // Out of the open truth pass and the command processor's (an owned image is drawn in a pass of its own).
++  // (A cleared start: that truth pass - nothing but its clears - is remembered, turned off when the copy is taken;
++  // only when it wrote nothing our image does not hold - no depth or stencil, no colour outside our rectangle - since
++  // the truth images go on counting those tiles as cleared. Review: the blurs' clears write depth too: kept.)
++  const bool clears_ours = pc.rect[0] == 0 && pc.rect[1] == 0 && pc.rect[2] == rect[2] && pc.rect[3] == rect[3] &&
++                           !truth_pass_touched_depth_;
++  const size_t pass_begin = cleared && truth_pass_open_ && clears_ours ? truth_pass_begin_offset_ : SIZE_MAX;
++  if (cleared && !clears_ours && REXCVAR_GET(gpu_native_own_steps_drop_clears)) ++truth_counts_.owned_clears_kept;
++  EndTruthPass();
++  const size_t pass_end = pass_begin != SIZE_MAX ? truth_pass_end_offset_ : SIZE_MAX;
++  command_processor_.EndRenderPass();
++  command_processor_.SubmitBarriers(true);
++  const int16_t index = OwnedImageFor(width, height, 1);
++  if (index < 0) return not_taken(true);  // (all of this size held, or one could not be made: owned_failed_)
++  const OwnedImage& o = owned_images_[index];
++  DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++  // Before the pass: the image's earlier reads (a sampler in an earlier pass or frame) done; its old pixels not kept
++  // (from UNDEFINED), the colour and depth in their attachment layouts.
++  const VkPipelineStageFlags shader_stages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
++                                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
++                                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++  const VkPipelineStageFlags attachment_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
++                                                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
++                                                 VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
++  VkImageMemoryBarrier barriers[2] = {};
++  for (VkImageMemoryBarrier& b : barriers) {
++    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
++    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++    b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++  }
++  barriers[0].image = o.image;
++  barriers[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++  barriers[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++  barriers[0].subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
++  barriers[1].image = o.depth;
++  barriers[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;  // (its last pass's, review)
++  barriers[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
++  barriers[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
++  barriers[1].subresourceRange =
++      ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
++  cb.CmdVkPipelineBarrier(shader_stages | attachment_stages, attachment_stages, 0, 0, nullptr, 0, nullptr, 2, barriers);
++  VkRenderPassBeginInfo begin_info = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
++  begin_info.renderPass = cleared ? owned_render_pass_clear_[1] : owned_render_pass_[1];
++  begin_info.framebuffer = o.framebuffer;
++  begin_info.renderArea = {{0, 0}, {width, height}};
++  begin_info.clearValueCount = cleared ? 1 : 0;
++  begin_info.pClearValues = cleared ? &clear_value : nullptr;
++  cb.CmdVkBeginRenderPass(&begin_info, VK_SUBPASS_CONTENTS_INLINE);
++  // The draw as TruthRecordDraw records it: its pipeline, every set it binds, its viewport, our image's rectangle as
++  // the scissor, its depth bias and blend constants.
++  cb.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, draw.pipeline);
++  for (uint32_t s = 0; s < SpirvShaderTranslator::kDescriptorSetCount; ++s) {
++    if (!(draw.sets_bound & (1u << s)) || draw.sets[s] == VK_NULL_HANDLE) continue;
++    const bool constants = s == SpirvShaderTranslator::kDescriptorSetConstants && draw.dynamic_offset_count;
++    cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, draw.layout, s, 1, &draw.sets[s],
++                               constants ? draw.dynamic_offset_count : 0, constants ? draw.dynamic_offsets : nullptr);
++  }
++  const VkViewport viewport = draw.viewport;
++  cb.CmdVkSetViewport(0, 1, &viewport);
++  const VkRect2D scissor = {{0, 0}, {width, height}};
++  cb.CmdVkSetScissor(0, 1, &scissor);
++  cb.CmdVkSetDepthBias(draw.raster.depth_bias_constant, 0.0f, draw.raster.depth_bias_slope);
++  cb.CmdVkSetBlendConstants(draw.blend_constants);
++  if (draw.indexed) {
++    cb.CmdVkBindIndexBuffer(draw.index_buffer, draw.index_offset, draw.index_type);
++    cb.CmdVkDrawIndexed(draw.vertex_count, 1, 0, 0, 0);
++  } else {
++    cb.CmdVkDraw(draw.vertex_count, 1, 0, 0);
++  }
++  cb.CmdVkEndRenderPass();
++  // After it: readable by the samplers of its page.
++  VkImageMemoryBarrier readable = barriers[0];
++  readable.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++  readable.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
++  readable.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++  readable.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++  cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, shader_stages, 0, 0, nullptr, 0, nullptr, 1,
++                          &readable);
++  // What the next truth draw may take as bound is not (as after own crowd's draw); nothing merges into this one.
++  truth_bound_valid_ = false;
++  truth_bound_pipeline_ = VK_NULL_HANDLE;
++  truth_bound_index_buffer_ = VK_NULL_HANDLE;
++  truth_bound_stencil_valid_ = false;
++  truth_foreign_bind_ = true;
++  truth_last_recorded_ = false;
++  drew_this_frame_ = true;
++  owned_pending_.valid = true;
++  owned_pending_.base = base;
++  owned_pending_.pitch_tiles = pitch;
++  owned_pending_.width = width / scale_x;
++  owned_pending_.height = height / scale_y;
++  owned_pending_.image = index;
++  owned_pending_.frame = frame_;
++  owned_pending_.tiles = tiles;
++  owned_pending_.draw = draw;  // (replayed into the truth images if its copy does not follow as expected)
++  owned_pending_.clears_begin = pass_begin;
++  owned_pending_.clears_end = pass_end;
++  owned_pending_.clears_submission = command_processor_.GetCurrentSubmission();
++  ++truth_counts_.owned_draws;
++  if (segment_log_frames_ > 0) {
++    REXGPU_INFO("[native][seg] frame {} owned draw: ps {:016X} into our image {} ({}x{}), surface base {} pitch {}",
++                frame_, draw.pixel_shader_hash, index, width, height, base, pitch);
++  }
++  return true;
++}
++
++bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool copy_known) {
++  if (owned_list_.empty() || !truth_ || !replacing_) return false;
++  const uint32_t page = (info.copy_dest_base >> 12) & 0x1FFFF;
++  // Pages whose memory any copy writes (colour or depth, any target, any copy shader) are the game's again (review).
++  if (info.copy_dest_extent_length) {
++    const uint64_t start = info.copy_dest_extent_start, end = start + info.copy_dest_extent_length;
++    const size_t before = owned_pages_.size();
++    owned_pages_.erase(std::remove_if(owned_pages_.begin(), owned_pages_.end(),
++                                      [&](const OwnedPage& p) {
++                                        return start < uint64_t(p.extent_start) + p.extent_length &&
++                                               uint64_t(p.extent_start) < end;
++                                      }),
++                       owned_pages_.end());
++    if (owned_pages_.size() != before) command_processor_.NativeOwnedPagesChanged();
++  }
++  if (!owned_pending_.valid || !info.copy_dest_extent_length) return false;
++  // The copy's source tiles: none of the owned output's - not its copy (it stays pending); some - its copy, taken if
++  // it is exactly the owned rectangle, else the output is replayed into the truth images and this copy runs from them.
++  uint32_t span_base = 0, row_length = 0, rows = 0, span_pitch = 0;
++  info.GetCopyEdramTileSpan(span_base, row_length, rows, span_pitch);
++  std::bitset<2048> source;
++  for (uint32_t r = 0; r < rows; ++r) {
++    for (uint32_t c = 0; c < row_length; ++c) source.set((span_base + r * span_pitch + c) & 2047u);
++  }
++  if (!(source & owned_pending_.tiles).any()) return false;
++  const auto lose = [&]() {
++    if (segment_log_frames_ > 0) {
++      REXGPU_INFO("[native][seg] frame {} owned output replayed: copy into page 0x{:05X} not of its rectangle / plain",
++                  frame_, page);
++    }
++    OwnedReplayPending("a copy of its tiles not of its rectangle / not plain");
++    return false;
++  };
++  if (!copy_known || info.IsCopyingDepth() || info.rb_copy_control.copy_src_select != 0 ||
++      REXCVAR_GET(gpu_native_own_steps_debug_replay)) {
++    return lose();
++  }
++  // The copy of exactly the owned rectangle, from the surface's origin, into a texture's origin, as a plain one:
++  // an 8-bit-per-channel unsigned destination (k_8: the red channel; k_8_8_8_8: all four), no exponent bias, no
++  // red / blue swap.
++  const reg::RB_COPY_DEST_INFO d = info.copy_dest_info;
++  const uint32_t w = owned_pending_.width, h = owned_pending_.height;
++  if (info.color_edram_info.pitch_tiles != owned_pending_.pitch_tiles || info.color_edram_info.msaa_samples !=
++      xenos::MsaaSamples::k1X || info.coordinate_info.edram_offset_x_div_8 || info.coordinate_info.edram_offset_y_div_8 ||
++      info.coordinate_info.width_div_8 * 8 != w || info.height_div_8 * 8 != h || span_base != owned_pending_.base ||
++      rows != (h + 15) / 16 || row_length != (w + 79) / 80 ||
++      (d.copy_dest_format != xenos::ColorFormat::k_8 && d.copy_dest_format != xenos::ColorFormat::k_8_8_8_8) ||
++      d.copy_dest_number != xenos::SurfaceNumberFormat::kUnsignedRepeatingFraction || d.copy_dest_exp_bias ||
++      d.copy_dest_swap || d.copy_dest_array || info.copy_dest_base_x || info.copy_dest_base_y ||
++      info.copy_dest_coordinate_info.offset_x_div_8 || info.copy_dest_coordinate_info.offset_y_div_8) {
++    return lose();
++  }
++  OwnedPage p;
++  p.page = page;
++  p.image = owned_pending_.image;
++  p.width = w;
++  p.height = h;
++  p.format = uint32_t(d.copy_dest_format);
++  p.endian = uint32_t(d.copy_dest_endian);
++  p.extent_start = info.copy_dest_extent_start;
++  p.extent_length = info.copy_dest_extent_length;
++  p.producer = owned_pending_.draw.pixel_shader_hash;
++  p.frame = frame_;
++  owned_pages_.push_back(p);
++  owned_pending_.valid = false;
++  command_processor_.NativeOwnedPagesChanged();
++  ++truth_counts_.owned_copies;
++  // (gpu_native_own_steps_drop_clears: the truth pass of the clears it started from turned off now - our image holds
++  // what they wrote; their tiles are read by nothing but other surfaces' alias loads of pixels no copy takes (in the
++  // logged frames), and keep their older pixels as gpu_shadow_half_rate leaves a skipped map's while the images still
++  // count them as cleared. Only in the submission it was recorded in: the offsets are that stream's.)
++  if (owned_pending_.clears_begin != SIZE_MAX && REXCVAR_GET(gpu_native_own_steps_drop_clears) &&
++      owned_pending_.clears_submission == command_processor_.GetCurrentSubmission()) {
++    DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++    const bool dropped = cb.NopRenderPass(owned_pending_.clears_begin, owned_pending_.clears_end, true);
++    ++(dropped ? truth_counts_.owned_clears_dropped : truth_counts_.owned_clears_kept);
++    // (gpu_native_truth_drop_dead_passes: that pass is off already, if it is the candidate.)
++    if (dropped && dead_pass_.valid && dead_pass_.begin == owned_pending_.clears_begin) dead_pass_.valid = false;
++  }
++  if (segment_log_frames_ > 0) {
++    REXGPU_INFO("[native][seg] frame {} owned copy left out: page 0x{:05X} ({}x{}, format {}) is our image {}", frame_,
++                page, w, h, p.format, p.image);
++  }
++  return true;
++}
++
++VkImageView NativeRenderer::OwnedView(uint32_t base_page, uint32_t width, uint32_t height, uint32_t format,
++                                      uint32_t endian, bool scaled_ok, const VkComponentMapping& mapping) {
++  if (owned_pages_.empty() || owned_list_.empty() || !truth_ || !replacing_) return VK_NULL_HANDLE;
++  const OwnedPage* p = nullptr;
++  for (const OwnedPage& q : owned_pages_) {
++    if (q.page == base_page) p = &q;
++  }
++  // (Held from this frame's copy or the last frame's: a page the game stopped copying into is its texture's again.)
++  if (!p || p->frame + 1 < frame_ || p->image < 0 || size_t(p->image) >= owned_images_.size()) return VK_NULL_HANDLE;
++  // A sampler that reads the page otherwise than the copy wrote it (size, format, byte order) or with a resolution
++  // scale not ours (review: the texture's scaled-resolve flag decides the fetch's texel maths): not given our image -
++  // it reads the texture, which the left-out copy did not write - and the shader that made it is not owned any more
++  // (from its next draw the game's copy runs again; logged).
++  if (p->width != width || p->height != height || p->format != format || p->endian != endian || !scaled_ok) {
++    ++truth_counts_.owned_refused;
++    OwnedDisable(p->producer, "a sampler of its page reads it otherwise");
++    return VK_NULL_HANDLE;
++  }
++  // The texture's swizzle over our RGBA8 image: a k_8 texture's single channel is our red, its missing ones read as
++  // an R8 view's do (green, blue 0; alpha 1); a k_8_8_8_8 one's are ours as they are.
++  const bool single = format == uint32_t(xenos::ColorFormat::k_8);
++  VkComponentMapping components = mapping;
++  const VkComponentSwizzle own[4] = {VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B,
++                                     VK_COMPONENT_SWIZZLE_A};
++  VkComponentSwizzle* const parts[4] = {&components.r, &components.g, &components.b, &components.a};
++  for (uint32_t i = 0; i < 4; ++i) {
++    VkComponentSwizzle& s = *parts[i];
++    if (s == VK_COMPONENT_SWIZZLE_IDENTITY) s = own[i];
++    if (single) {
++      if (s == VK_COMPONENT_SWIZZLE_G || s == VK_COMPONENT_SWIZZLE_B) s = VK_COMPONENT_SWIZZLE_ZERO;
++      if (s == VK_COMPONENT_SWIZZLE_A) s = VK_COMPONENT_SWIZZLE_ONE;
++    }
++  }
++  const OwnedImage& o = owned_images_[p->image];
++  for (const OwnedViewEntry& v : owned_views_) {
++    if (v.image == o.image && !std::memcmp(&v.components, &components, sizeof(components))) {
++      ++truth_counts_.owned_served;
++      return v.view;
++    }
++  }
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
++  view_info.image = o.image;
++  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;  // (as the texture cache's views of 2D textures)
++  view_info.format = kOwnedColorFormat;
++  view_info.components = components;
++  view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
++  VkImageView view = VK_NULL_HANDLE;
++  if (vulkan_device->functions().vkCreateImageView(vulkan_device->device(), &view_info, nullptr, &view) !=
++      VK_SUCCESS) {
++    return VK_NULL_HANDLE;
++  }
++  owned_views_.push_back({o.image, components, view});
++  ++truth_counts_.owned_served;
++  return view;
++}
++
++void NativeRenderer::OwnedOnFrameEnd() {
++  // An output whose copy never came (the frame ended first): lost - counted, its shader not owned any more (its
++  // tiles are left as gpu_shadow_half_rate leaves a skipped map's).
++  if (owned_pending_.valid) {
++    owned_pending_.valid = false;
++    ++truth_counts_.owned_lost_copy;
++    OwnedDisable(owned_pending_.draw.pixel_shader_hash, "no copy of it before the frame's end");
++  }
++  // Pages not copied into for two frames are their textures' again.
++  const size_t before = owned_pages_.size();
++  owned_pages_.erase(std::remove_if(owned_pages_.begin(), owned_pages_.end(),
++                                    [&](const OwnedPage& p) { return p.frame + 2 <= frame_; }),
++                     owned_pages_.end());
++  if (owned_pages_.size() != before) command_processor_.NativeOwnedPagesChanged();
++  OwnedRefreshList();  // (the list for the next frame)
++}
++
++void NativeRenderer::OwnedDestroy() {
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  for (OwnedViewEntry& v : owned_views_) ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImageView, device, v.view);
++  owned_views_.clear();
++  for (OwnedImage& o : owned_images_) {
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyFramebuffer, device, o.framebuffer);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImageView, device, o.view);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImageView, device, o.depth_view);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImage, device, o.image);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImage, device, o.depth);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device, o.memory);
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device, o.depth_memory);
++  }
++  owned_images_.clear();
++  owned_pages_.clear();
++  for (VkRenderPass& rp : owned_render_pass_) ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyRenderPass, device, rp);
++  for (VkRenderPass& rp : owned_render_pass_clear_) {
++    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyRenderPass, device, rp);
++  }
++}
++
++}  // namespace rex::graphics::vulkan::native
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 45d5d6374ed7ca13e3ebe6adc32e52fe9b25e8e3..389328a96667106f511972bdec2eafccc8dcc007 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1208,8 +1208,14 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+     // wwe2k14 patch (Session 72 part 4, gpu_native_truth_skip_repeat_resolves): the very copy a direct path did this
+     // frame, from an image nothing has drawn into since: its destination holds it already - no GPU work, no new marks
+     // (the clear below still runs).
+-    if (copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown &&
+-        command_processor_.NativeTruthResolveRedundant(resolve_info)) {
++    // wwe2k14 patch (Session 80, gpu_native_own_steps): the copy of an owned step's output - our image holds it, the
++    // page's samplers are given that image: no GPU work, no memory written, no marks (the clear below still runs).
++    // (Called for every copy: any copy writing an owned page's memory makes it the game's again.)
++    if (command_processor_.NativeOwnedResolve(resolve_info,
++                                              copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown)) {
++      copied = true;
++    } else if (copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown &&
++               command_processor_.NativeTruthResolveRedundant(resolve_info)) {
+       copied = true;
+     } else if (copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown) {
+       const draw_util::ResolveCopyShaderInfo& copy_shader_info =
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 2d020d48ceede12036dfa2bb7a16da1cef522ec0..6fcaad13d08479828b8a07de8279893cb1a7ee81 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -872,7 +872,8 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+                              loop_state.submission == current_submission_index() &&
+                              loop_state.usage_changes == texture_usage_changes_ &&
+                              !(used_texture_mask & texture_bindings_3d_mask_) &&
+-                             !(used_texture_mask & native_served_mask_);  // (Session 80: served bindings re-checked)
++                             !(used_texture_mask & native_served_mask_) &&  // (Session 80: served bindings re-checked)
++                             !(used_texture_mask & native_owned_mask_);     // (and owned ones: gpu_native_own_steps)
+     CountRequestTexturesBackendPart(loops_would_be_skipped);
+     if (loops_would_be_skipped && request_textures_skip_unchanged()) {
+       native_last_request_served_ = false;  // (Session 80: a skip needs no served used binding)
+@@ -927,6 +928,42 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+     // wwe2k14 patch (Session 80, gpu_native_truth_serve_copies): a texture a pending native copy is still to write,
+     // sampled from the image that copy reads instead (the same texels): it stays in its compute-write usage (nothing
+     // flushed, no barrier) and the binding takes that image's view while it is served.
++    // wwe2k14 patch (Session 80, gpu_native_own_steps): a page an owned step's image holds (its copy was left out:
++    // the texture's memory and image are stale) - that image's view, whatever the texture's usage; nothing of the
++    // texture's own is touched (no usage change, no barrier: our image is readable since its pass ended).
++    {
++      const uint32_t bit = uint32_t(1) << index;
++      VulkanTextureBinding& vb = vulkan_texture_bindings_[index];
++      VkImageView owned = VK_NULL_HANDLE;
++      if (!binding->texture_signed && binding->key.dimension == xenos::DataDimension::k2DOrStacked &&
++          !binding->key.depth_or_array_size_minus_1 && !binding->key.mip_max_level &&
++          !texture_util::IsAnySignSigned(binding->swizzled_signs)) {
++        uint32_t swizzle = binding->host_swizzle;
++        if (!command_processor_.GetVulkanDevice()->properties().imageViewFormatSwizzle) {
++          swizzle = xenos::XE_GPU_TEXTURE_SWIZZLE_RGBA;
++        }
++        const VkComponentMapping components = {
++            VulkanTexture::NativeComponentSwizzle(swizzle, 0), VulkanTexture::NativeComponentSwizzle(swizzle, 1),
++            VulkanTexture::NativeComponentSwizzle(swizzle, 2), VulkanTexture::NativeComponentSwizzle(swizzle, 3)};
++        owned = command_processor_.NativeOwnedView(
++            binding->key.base_page, binding->key.GetWidth(), binding->key.GetHeight(), uint32_t(binding->key.format),
++            uint32_t(binding->key.endianness), bool(binding->key.scaled_resolve) == IsDrawResolutionScaled(),
++            components);
++      }
++      if (owned != VK_NULL_HANDLE) {
++        if (vb.image_view_unsigned != owned) {
++          vb.image_view_unsigned = owned;
++          ++texture_binding_generations_[index];
++        }
++        native_owned_mask_ |= bit;
++        continue;
++      }
++      if (native_owned_mask_ & bit) {  // (ours before, not now: the texture's own view again)
++        native_owned_mask_ &= ~bit;
++        vb.image_view_unsigned = binding_texture ? binding_texture->GetView(false, binding->host_swizzle) : VK_NULL_HANDLE;
++        ++texture_binding_generations_[index];
++      }
++    }
+     {
+       const uint32_t bit = uint32_t(1) << index;
+       VulkanTextureBinding& vb = vulkan_texture_bindings_[index];
+@@ -3491,6 +3528,7 @@ void VulkanTextureCache::UpdateTextureBindingsImpl(uint32_t fetch_constant_mask)
+     VulkanTextureBinding& vulkan_binding = vulkan_texture_bindings_[binding_index];
+     vulkan_binding.Reset();
+     native_served_mask_ &= ~(UINT32_C(1) << binding_index);  // wwe2k14 patch (Session 80): the texture's view again
++    native_owned_mask_ &= ~(UINT32_C(1) << binding_index);   // (and gpu_native_own_steps' bindings)
+     // wwe2k14 patch (Session 6, CP5): descriptors written for this fetch constant are outdated now.
+     ++texture_binding_generations_[binding_index];
+     texture_bindings_3d_mask_ &= ~(UINT32_C(1) << binding_index);

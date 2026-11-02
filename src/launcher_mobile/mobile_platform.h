@@ -34,6 +34,8 @@ struct Event {
     kBack,           // Android's Back gesture
     kMessage,        // a = text to show
     kDriverImported, // a = what happened (shown), b = the new driver's folder; ok = false: not imported
+    kUpdateProgress, // Session 81: a = "done total" bytes of the update's download
+    kUpdateDownloaded, // Session 81: ok = downloaded and checked; else a = why not
   } kind = kMessage;
   bool ok = true;
   std::string a, b;
@@ -74,6 +76,12 @@ void Share(const std::vector<fs::path>& files);
 void ExportSaves(const fs::path& save_dir);
 void ImportSaves(const fs::path& save_dir);
 void CheckForUpdate(const std::string& version);
+// Session 81: the launcher installs its own updates. DownloadUpdate fetches the release's APK (GitHub release downloads only)
+// and checks its SHA-256 (kUpdateProgress ..., then kUpdateDownloaded); InstallUpdate hands the file to Android's installer
+// (the player taps Install); ClearUpdate deletes the downloaded file (the app is up to date).
+void DownloadUpdate(const std::string& url, const std::string& sha256);
+void InstallUpdate();
+void ClearUpdate();
 void OpenUrl(const std::string& url);
 // Starts the game with these arguments (game_address: the picked file, opened by the game's own process) and closes
 // the launcher.

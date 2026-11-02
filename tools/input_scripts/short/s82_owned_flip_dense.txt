@@ -1,0 +1,34 @@
+# Session 82 (flip debugging): s82_owned_flip.txt, but screenshots of every frame from +595 to +605 (the flip shot a is +600).
+on_fail quit
+log bench: start s82_owned_flip_dense
+wait_file m3.pac 3600
+log scene=match
+cvar gpu_native_owned_frame true
+wait_frames 300
+cvar gpu_native_owned_frame false
+wait_frames 295
+screenshot d00
+wait_frames 1
+screenshot d01
+wait_frames 1
+screenshot d02
+wait_frames 1
+screenshot d03
+wait_frames 1
+screenshot d04
+wait_frames 1
+screenshot d05
+wait_frames 1
+cvar gpu_native_owned_frame true
+screenshot d06
+wait_frames 1
+screenshot d07
+wait_frames 1
+screenshot d08
+wait_frames 1
+screenshot d09
+wait_frames 1
+screenshot d10
+wait_frames 1
+log bench: done
+quit

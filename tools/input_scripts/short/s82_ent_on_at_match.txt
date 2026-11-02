@@ -1,0 +1,32 @@
+# Session 82 (experiment): s82_ent_shots with gpu_native_owned_frame turned ON at the match (run with --gpu_native_owned_frame=false): owned only in the match.
+# Session 82: same-frame shots of the quick entrance replay s82_lb_quick_ent (Brock vs Bryan, both entrances cut short
+# 5 s after each one's step 15, then 1,200 match frames; recorded by s82_record_lb_quick_ent.txt, run 5721: Brock's
+# tron at frame 2357, Bryan's at 4396, the match at 5997, end 7197). Also the warm-up run per build (fills the stored
+# pipelines of both entrances and the match in ~1 min fast-forwarded). Run with --wwe2k14_replay_play=s82_lb_quick_ent
+# plus the arms' flags, fast-forwarded both arms. Shots as s72_swap_shots.txt (Brock +300 / +600, Bryan +440) plus two
+# of the match. Marks: 1 Brock's tron, 2 Bryan's tron, 3 the match. on_fail quit.
+on_fail quit
+log bench: start s82_ent_shots
+wait_file 343.bik2 3600
+log scene=tron_343
+mark 1 tron_343
+wait_frames 300
+screenshot s82e_brock_a
+wait_frames 300
+screenshot s82e_brock_b
+wait_file 324.bik2 20000
+log scene=tron_324
+mark 2 tron_324
+wait_frames 440
+screenshot s82e_bryan
+wait_file M3.PAC 30000
+cvar gpu_native_owned_frame true
+log scene=match
+mark 3 match
+wait_frames 300
+screenshot s82e_match_a
+wait_frames 600
+screenshot s82e_match_b
+wait_frames 60
+log bench: done
+quit

@@ -42,6 +42,7 @@
 #include "../launcher/dlc_names.h"
 #include "../launcher/game_font.h"
 #include "../launcher/launcher_theme.h"
+#include "../launcher/markdown_imgui.h"
 #include "../launcher/update_check.h"
 #include "../launcher/wm30_list.h"
 #include "mobile_platform.h"
@@ -142,7 +143,7 @@ class App {
       Log("last game run: %s", last_run_.c_str());
       ShowToast(last_run_, 10000);
     }
-    if (s_.check_updates && test_.shot.empty() && !test_.share) CheckUpdate();
+    if (s_.check_updates && (test_.shot.empty() || std::getenv("WWE2K14_UPDATE_FILE")) && !test_.share) CheckUpdate();
     if (test_.check) RunCheck();
     if (test_.share) ShareLogs(false);
     if (test_.page >= 0 && test_.page < kPageCount) page_ = Page(test_.page);
@@ -488,6 +489,11 @@ class App {
     const float block = logo_h + D(28) + play_h + D(14) + ImGui::GetTextLineHeight();
     float y = hero_min.y + std::max(D(16), (hh - block) / 2);
     DrawLogo(dl, ImVec2(hero_min.x + hw / 2, y), logo_w);
+    if (!logo_px_.empty()) {  // Session 81 (Jarrod): the byline where the PC launcher has it, under "2K14"
+      const char* by = "BY JARRODFENG";
+      const float px = D(15), cx = hero_min.x + hw / 2 - logo_w / 2 + logo_w * 0.655f;
+      MenuText(dl, ImVec2(cx - MenuTextSize(px, by).x / 2, y + logo_h * 0.69f), px, IM_COL32(255, 255, 255, 150), by);
+    }
     y += logo_h + D(28);
     if (SlantButton("PLAY", ImVec2(hero_min.x + (hw - play_w) / 2, y), ImVec2(play_w, play_h), true, D(44))) Play();
     y += play_h + D(14);
@@ -529,6 +535,12 @@ class App {
     const float vx = landscape_ ? safe_max_.x - ImGui::CalcTextSize(kVersion).x - D(16) : left;
     ImGui::SetCursorScreenPos(ImVec2(vx, safe_max_.y - ImGui::GetTextLineHeight() - D(8)));
     ImGui::TextColored(ImVec4(1, 1, 1, 0.6f), "%s", kVersion);
+    {  // Session 81 (Jarrod): across from the version, the same styling
+      const char* credit = "Recomp by Jarrodfeng";
+      const float cx = landscape_ ? left : safe_max_.x - ImGui::CalcTextSize(credit).x - D(16);
+      ImGui::SetCursorScreenPos(ImVec2(cx, safe_max_.y - ImGui::GetTextLineHeight() - D(8)));
+      ImGui::TextColored(ImVec4(1, 1, 1, 0.6f), "%s", credit);
+    }
   }
 
   // ---------------------------------------------------------------- a section: the header with the hamburger, then
@@ -1150,6 +1162,13 @@ class App {
       Note("Tests what stops the game before its first picture: the game files, storage, memory, the game's memory "
            "block and the phone's Vulkan driver.");
     }
+    // Session 80 (Jarrod: "a little fps/frametime/temperature graph ... the toggle in the logging settings"; "light and
+    // verbose").
+    GroupTitle("PERFORMANCE OVERLAY");
+    static constexpr const char* kOverlay[] = {"OFF", "LIGHT (just the numbers)", "VERBOSE (with a frame-time graph)"};
+    for (int i = 0; i < 3; ++i)
+      if (Choice(kOverlay[i], s_.perf_overlay == i)) s_.perf_overlay = i, Save();
+    Note("The frame rate, the frame time and the phone's temperature in a corner while you play.");
     GroupTitle("UPDATES");
     if (Toggle("Check for updates", s_.check_updates, "Asks GitHub when the app opens")) {
       Save();
@@ -1160,8 +1179,41 @@ class App {
       case launcher::UpdateInfo::kLatest: ImGui::TextColored(kGood, "No newer release"); break;
       case launcher::UpdateInfo::kFailed: ImGui::TextColored(kBad, "Update check failed: %s", update_.error.c_str()); break;
       case launcher::UpdateInfo::kAvailable:
+        // Session 81: the app installs its own updates: download, SHA-256 check, then Android's own install screen.
         ImGui::TextColored(kGood, "New release: %s", (update_.name.empty() ? update_.tag : update_.name).c_str());
-        if (Button("OPEN THE RELEASE PAGE")) platform::OpenUrl(update_.url);
+        if (!update_.notes.empty()) {
+          ImGui::BeginChild("update_notes", ImVec2(0, D(260)), ImGuiChildFlags_Borders);
+          launcher::RenderMarkdown(update_.notes, ImGui::GetContentRegionAvail().x - D(6), D(1),
+                                   [](const std::string& l) { if (l.rfind("https://", 0) == 0) platform::OpenUrl(l); });
+          ImGui::EndChild();
+        }
+        if (!up_error_.empty()) {
+          ImGui::PushStyleColor(ImGuiCol_Text, kBad);
+          ImGui::TextWrapped("The update could not be installed: %s", up_error_.c_str());
+          ImGui::PopStyleColor();
+          Note("Your installed version is unchanged. Send the logs to share what happened, or install it from the release page.");
+        }
+        if (up_stage_ == 1) {
+          const unsigned long long total = std::max<unsigned long long>(up_total_, update_.asset_size);
+          ImGui::Text("Downloading... %llu MB of %llu MB", up_done_ >> 20, total >> 20);
+          ImGui::ProgressBar(total ? float(double(up_done_) / double(total)) : 0.f, ImVec2(-1, D(10)), "");
+          Note("The download is checked against GitHub's checksum before anything is changed.");
+        } else if (up_stage_ == 2) {
+          Note("Downloaded and checked. Android asks you to confirm the install; the first time it also asks to allow "
+               "installs from this app. Your saves and settings stay.");
+          if (Button("INSTALL")) platform::InstallUpdate();
+        } else if (!update_.asset_url.empty()) {
+          const std::string size_note = "Updating downloads the new app (about " +
+                                        std::to_string((update_.asset_size + (1u << 20) - 1) >> 20) +
+                                        " MB, nothing before you press the button). Your saves and settings stay.";
+          Note(size_note.c_str());
+          if (Button("UPDATE NOW")) {
+            up_stage_ = 1, up_done_ = up_total_ = 0, up_error_.clear();
+            Log("update: downloading %s", update_.asset_name.c_str());
+            platform::DownloadUpdate(update_.asset_url, update_.asset_sha256);
+          }
+        }
+        if (Button("VIEW ON GITHUB")) platform::OpenUrl(update_.url);
         break;
       default: break;
     }
@@ -1357,7 +1409,19 @@ class App {
       case E::kUpdate:
         update_ = e.update;
         Log("update check: state %d %s %s", int(update_.state), update_.tag.c_str(), update_.error.c_str());
+        if (update_.state == launcher::UpdateInfo::kLatest) platform::ClearUpdate();  // up to date: the downloaded APK goes
         if (update_.state == launcher::UpdateInfo::kAvailable) ShowToast("A newer release is out: see Logs and updates");
+        break;
+      case E::kUpdateProgress: {  // Session 81
+        unsigned long long d = 0, t = 0;
+        if (std::sscanf(e.a.c_str(), "%llu %llu", &d, &t) == 2) up_done_ = d, up_total_ = t;
+        break;
+      }
+      case E::kUpdateDownloaded:
+        up_stage_ = e.ok ? 2 : 0;
+        up_error_ = e.ok ? std::string() : e.a;
+        Log("update: download %s %s", e.ok ? "finished and checked" : "FAILED:", e.a.c_str());
+        if (e.ok) ShowToast("The update is ready: see Logs and updates");
         break;
       case E::kBack: Back(); break;
     }
@@ -1431,6 +1495,9 @@ class App {
   wwe2k14::wm30list::Catalogue wm30_;
   int wm30_pick_ = -1;
   launcher::UpdateInfo update_;
+  int up_stage_ = 0;  // Session 81: 0 offer, 1 downloading, 2 downloaded and checked (INSTALL)
+  unsigned long long up_done_ = 0, up_total_ = 0;
+  std::string up_error_;
   std::string toast_;
   uint64_t toast_until_ = 0;
 };

@@ -91,6 +91,8 @@ launcher::UpdateInfo ReadAndroidRelease(const std::string& body, const std::stri
       if (best.empty() || launcher::IsNewer(number(tag), number(best))) {
         best = tag;
         u.tag = tag, u.name = r.value("name", ""), u.url = r.value("html_url", ""), u.notes = r.value("body", "");
+        u.asset_name = u.asset_url = u.asset_sha256 = "", u.asset_size = 0;
+        launcher::PickAsset(r, "wwe2k14-android-", ".apk", u);  // Session 81: the APK the app installs
       }
     }
     if (!best.empty() && launcher::IsNewer(number(best), number(current))) u.state = launcher::UpdateInfo::kAvailable;
@@ -188,6 +190,10 @@ void CheckForUpdate(const std::string& version) {
 }
 
 void OpenUrl(const std::string& url) { Java().CallStr("jOpenUrl", url); }
+
+void DownloadUpdate(const std::string& url, const std::string& sha256) { Java().CallStr("jDownloadUpdate", url + " " + sha256); }
+void InstallUpdate() { Java().CallVoid("jInstallUpdate"); }
+void ClearUpdate() { Java().CallVoid("jClearUpdate"); }
 
 void StartGame(const std::vector<std::string>& args, const std::string& game_address, const TouchChoice& touch) {
   Java j;

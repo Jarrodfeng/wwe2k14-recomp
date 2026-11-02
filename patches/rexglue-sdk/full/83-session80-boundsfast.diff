@@ -1,0 +1,169 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-boundsfast): bc6a731980df..a55876b32186 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  a55876b Merge s80-boundsfast: the vertex box at half the CPU (Session 80 overnight) - the interpreter counts its exec slots, stops after a number of them on request and flags per-vertex flow; NativeBoundsRect stops each vertex after the slot that last wrote the position when the flow is static. Same boxes (sweat rectangles / reload counts identical, 5595 vs 5588), shots identical (5596 vs 5592), match CPU 0.47 -> 0.22 ms a frame; Opus review: correct, other interpreter users unaffected
+
+diff --git a/include/rex/graphics/pipeline/shader/interpreter.h b/include/rex/graphics/pipeline/shader/interpreter.h
+index 8266ecde0f0cd5033d429139ceac2918580484bd..612cd495ff01054b86aadb97caad20e7db7aec0c 100644
+--- a/include/rex/graphics/pipeline/shader/interpreter.h
++++ b/include/rex/graphics/pipeline/shader/interpreter.h
+@@ -44,6 +44,14 @@ class ShaderInterpreter {
+   // translated fetch reads memory there, this returns 0).
+   uint32_t fetches_out_of_range() const { return fetches_out_of_range_; }
+   void reset_fetches_out_of_range() { fetches_out_of_range_ = 0; }
++  // wwe2k14 patch (Session 80, NativeBoundsRect): the exec slots (fetch / ALU) issued so far in this Execute, counted
++  // whether or not a predicate skipped them (the step of an export is steps() while it runs); Execute returns once
++  // stop_after_steps slots are issued (UINT32_MAX: never - the caller resets it); flow_was_dynamic: this Execute went
++  // through anything that can issue a different sequence of slots for another vertex (a predicate on a slot or on the
++  // control flow, a loop).
++  uint32_t steps() const { return steps_; }
++  void set_stop_after_steps(uint32_t steps) { stop_after_steps_ = steps; }
++  bool flow_was_dynamic() const { return flow_dynamic_; }
+   const float* temp_registers() const { return &temp_registers_[0][0]; }
+   float* temp_registers() { return &temp_registers_[0][0]; }
+ 
+@@ -128,6 +136,9 @@ class ShaderInterpreter {
+   ExportSink* export_sink_ = nullptr;
+   // wwe2k14 patch (Session 80): vertex fetch dwords outside their fetch constant's range (read as 0 here).
+   uint32_t fetches_out_of_range_ = 0;
++  uint32_t steps_ = 0;  // (Session 80: see steps())
++  uint32_t stop_after_steps_ = UINT32_MAX;
++  bool flow_dynamic_ = false;
+ 
+   xenos::ShaderType shader_type_ = xenos::ShaderType::kVertex;
+   const uint32_t* ucode_ = nullptr;
+diff --git a/src/graphics/pipeline/shader/interpreter.cpp b/src/graphics/pipeline/shader/interpreter.cpp
+index ffd62cb97ea8bf59ec8912a7d0ad0d87dce9b7d2..c70daa20f06680f3518fff3d96145712a4480b0a 100644
+--- a/src/graphics/pipeline/shader/interpreter.cpp
++++ b/src/graphics/pipeline/shader/interpreter.cpp
+@@ -25,6 +25,8 @@ namespace rex::graphics {
+ void ShaderInterpreter::Execute() {
+   // For more consistency between invocations in case of a malformed shader.
+   state_.Reset();
++  steps_ = 0;  // wwe2k14 patch (Session 80, NativeBoundsRect)
++  flow_dynamic_ = false;
+ 
+   const uint32_t* bool_constants = &register_file_[XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031];
+ 
+@@ -76,6 +78,7 @@ void ShaderInterpreter::Execute() {
+           case ucode::ControlFlowOpcode::kCondExecPredEnd: {
+             const ucode::ControlFlowCondExecPredInstruction cf_cond_exec_pred =
+                 *reinterpret_cast<const ucode::ControlFlowCondExecPredInstruction*>(&cf_exec);
++            flow_dynamic_ = true;  // wwe2k14 patch (Session 80)
+             if (cf_cond_exec_pred.condition() != state_.predicate) {
+               continue;
+             }
+@@ -85,12 +88,17 @@ void ShaderInterpreter::Execute() {
+         }
+ 
+         for (uint32_t exec_index = 0; exec_index < cf_exec.count(); ++exec_index) {
++          // wwe2k14 patch (Session 80, NativeBoundsRect): the caller's step limit - every slot counted once, run or
++          // skipped by its predicate (the count is the slot's place in the sequence).
++          if (steps_ >= stop_after_steps_) return;
+           const uint32_t* exec_instruction = &ucode_[3 * (cf_exec.address() + exec_index)];
+           if ((cf_exec.sequence() >> (exec_index << 1)) & 0b01) {
+             const ucode::FetchInstruction& fetch_instr =
+                 *reinterpret_cast<const ucode::FetchInstruction*>(exec_instruction);
++            if (fetch_instr.is_predicated()) flow_dynamic_ = true;  // (Session 80)
+             if (fetch_instr.is_predicated() &&
+                 fetch_instr.predicate_condition() != state_.predicate) {
++              ++steps_;
+               continue;
+             }
+             if (fetch_instr.opcode() == ucode::FetchOpcode::kVertexFetch) {
+@@ -104,11 +112,14 @@ void ShaderInterpreter::Execute() {
+           } else {
+             const ucode::AluInstruction& alu_instr =
+                 *reinterpret_cast<const ucode::AluInstruction*>(exec_instruction);
++            if (alu_instr.is_predicated()) flow_dynamic_ = true;  // (Session 80)
+             if (alu_instr.is_predicated() && alu_instr.predicate_condition() != state_.predicate) {
++              ++steps_;
+               continue;
+             }
+             ExecuteAluInstruction(alu_instr);
+           }
++          ++steps_;
+         }
+ 
+         if (ucode::DoesControlFlowOpcodeEndShader(cf_opcode)) {
+@@ -117,6 +128,7 @@ void ShaderInterpreter::Execute() {
+       } break;
+ 
+       case ucode::ControlFlowOpcode::kLoopStart: {
++        flow_dynamic_ = true;  // wwe2k14 patch (Session 80: loops, calls and jumps - no step limit for the caller)
+         ucode::ControlFlowLoopStartInstruction cf_loop_start =
+             *reinterpret_cast<const ucode::ControlFlowLoopStartInstruction*>(&cf_instr);
+         assert_true(state_.loop_stack_depth < 4);
+@@ -165,6 +177,7 @@ void ShaderInterpreter::Execute() {
+       } break;
+ 
+       case ucode::ControlFlowOpcode::kCondCall: {
++        flow_dynamic_ = true;  // wwe2k14 patch (Session 80)
+         assert_true(state_.call_stack_depth < 4);
+         if (state_.call_stack_depth >= 4) {
+           continue;
+@@ -198,6 +211,7 @@ void ShaderInterpreter::Execute() {
+       } break;
+ 
+       case ucode::ControlFlowOpcode::kCondJmp: {
++        flow_dynamic_ = true;  // wwe2k14 patch (Session 80)
+         const ucode::ControlFlowCondJmpInstruction cf_cond_jmp =
+             *reinterpret_cast<const ucode::ControlFlowCondJmpInstruction*>(&cf_instr);
+         if (!cf_cond_jmp.is_unconditional()) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 84beb818cd0dd70d3dfda180aea569d2daca4d0c..94cbd46944461bf6a2f03a1d907138025ac219e0 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -8310,18 +8310,22 @@ bool VulkanCommandProcessor::NativeBoundsRect(xenos::PrimitiveType prim_type, co
+   double min_x = DBL_MAX, max_x = -DBL_MAX, min_y = DBL_MAX, max_y = -DBL_MAX;
+   if (ok) {
+     if (!rename_interpreter_) rename_interpreter_ = std::make_unique<ShaderInterpreter>(regs, *memory_);
++    ShaderInterpreter& interpreter = *rename_interpreter_;
+     struct PositionSink : ShaderInterpreter::ExportSink {
++      explicit PositionSink(const ShaderInterpreter& i) : interpreter(i) {}
+       void Export(ucode::ExportRegister export_register, const float* value, uint32_t value_mask) override {
+         if (export_register != ucode::ExportRegister::kVSPosition) return;
+         for (uint32_t i = 0; i < 4; ++i) {
+           if (value_mask & (1u << i)) position[i] = value[i];
+         }
+         written |= value_mask;
++        last_step = interpreter.steps();  // (the slot that wrote it)
+       }
++      const ShaderInterpreter& interpreter;
+       float position[4] = {};
+       uint32_t written = 0;
+-    } sink;
+-    ShaderInterpreter& interpreter = *rename_interpreter_;
++      uint32_t last_step = 0;
++    } sink(interpreter);
+     interpreter.SetShader(xenos::ShaderType::kVertex, vertex_shader.ucode_dwords());
+     interpreter.SetExportSink(&sink);
+     const double scale_x = vte.vport_x_scale_ena ? regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XSCALE) : 1.0;
+@@ -8329,11 +8333,20 @@ bool VulkanCommandProcessor::NativeBoundsRect(xenos::PrimitiveType prim_type, co
+     const double offset_x = vte.vport_x_offset_ena ? regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XOFFSET) : 0.0;
+     const double offset_y = vte.vport_y_offset_ena ? regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YOFFSET) : 0.0;
+     interpreter.reset_fetches_out_of_range();
++    interpreter.set_stop_after_steps(UINT32_MAX);
++    bool first = true;
+     for (const uint32_t index : indices) {
+       std::memset(interpreter.temp_registers(), 0, sizeof(float) * 4 * xenos::kMaxShaderTempRegisters);
+       interpreter.temp_registers()[0] = float(index);
+       sink.written = 0;
+       interpreter.Execute();
++      // The first vertex runs whole; when nothing in it could issue another sequence of slots for another vertex (no
++      // predicate, loop, call or jump), every other vertex stops after the slot that last wrote the position - the
++      // slots after it do not change it.
++      if (first) {
++        first = false;
++        if (!interpreter.flow_was_dynamic() && sink.written) interpreter.set_stop_after_steps(sink.last_step + 1);
++      }
+       // As the translated shader (spirv_translator.cpp): the host's W is the exported w with VTX_W0_FMT, else 1 / w;
+       // its screen xy is the exported xy with VTX_XY_FMT (already divided), else xy / W. Every W above 0 - then the
+       // rasterized pixels lie inside the box of the projected vertices (clipping only takes away).
+@@ -8349,6 +8362,7 @@ bool VulkanCommandProcessor::NativeBoundsRect(xenos::PrimitiveType prim_type, co
+     }
+     // (Review: a fetch outside its buffer reads 0 here but memory on the GPU - no box then.)
+     ok = ok && !interpreter.fetches_out_of_range();
++    interpreter.set_stop_after_steps(UINT32_MAX);  // (the interpreter is shared: NativeCoverRect, NativeClearDepth)
+     interpreter.SetExportSink(nullptr);
+   }
+   // Widened by 2 pixels (either pixel-centre rule, the samples of a pixel, the rasterizer's snapping).

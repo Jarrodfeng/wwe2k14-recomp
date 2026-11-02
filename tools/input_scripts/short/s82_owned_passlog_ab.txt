@@ -1,0 +1,26 @@
+# S82 P1: in-run A/B of the owned frame in the match (windows of 120 frames, "ab: mode" marks for ab_gpu.py) with the pass
+# log (4 frames at +80 of each window, marks "passlog: on" / "passlog: off"). Run with --wwe2k14_file_trace=true
+# --vulkan_gpu_timestamps=true --gpu_native_gpu_timers=true --gpu_ram_stats=true.
+on_fail quit
+log bench: start s82_p1_ab_both
+wait_file M3.PAC 3600
+log scene=match
+cvar gpu_native_owned_frame false
+log ab: mode 0
+wait_frames 300
+repeat 10
+cvar gpu_native_owned_frame true
+log ab: mode 1
+wait_frames 80
+log passlog: on
+cvar gpu_native_truth_pass_log 4
+wait_frames 40
+cvar gpu_native_owned_frame false
+log ab: mode 0
+wait_frames 80
+log passlog: off
+cvar gpu_native_truth_pass_log 4
+wait_frames 40
+end_repeat
+log bench: done
+quit

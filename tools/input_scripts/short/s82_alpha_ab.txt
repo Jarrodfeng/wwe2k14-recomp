@@ -1,0 +1,18 @@
+# harness: fast-forward ok (Session 82: in-run A/B of gpu_native_owned_alpha_learn on / off every 120 frames through the match; owned frame on throughout)
+# Run with --wwe2k14_replay_play=s80_lb_quick --gpu_native_owned_frame=true --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true --wwe2k14_profile_gpu_commands=true --wwe2k14_profile_stacks=true, -Exclusive;
+# read with py tools\native\ab_gpu.py RUN and py tools\native\profile_ab.py RUN. on_fail quit.
+on_fail quit
+log bench: start s82_alpha_ab
+wait_file m3.pac 3600
+log scene=match
+wait_frames 120
+repeat 12
+cvar gpu_native_owned_alpha_learn true
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_owned_alpha_learn false
+log ab: mode 0
+wait_frames 120
+end_repeat
+log bench: done
+quit

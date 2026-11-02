@@ -6,9 +6,13 @@
 package io.github.jarrodfeng.wwe2k14;
 
 import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
@@ -41,6 +45,7 @@ public class GameActivity extends SDLActivity {
     private OnBackInvokedCallback backCallback;
     private AlertDialog quitDialog;
     private boolean fromArgsFile;
+    private BroadcastReceiver batteryReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,10 +84,33 @@ public class GameActivity extends SDLActivity {
             backCallback = this::askQuit;
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback);
         }
+
+        // Session 80: the battery's temperature for the performance overlay (src/perf_overlay.h). Android's battery
+        // broadcast, which every app may receive: at once (it is sticky) and whenever it changes.
+        batteryReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int tenths = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE);
+                if (tenths == Integer.MIN_VALUE) return;
+                try {
+                    nativeBatteryTemperature(tenths);
+                } catch (UnsatisfiedLinkError e) {
+                    // (The game's library not loaded yet: the next broadcast brings it.)
+                }
+            }
+        };
+        registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
     }
 
     @Override
     protected void onDestroy() {
+        if (batteryReceiver != null) {
+            try {
+                unregisterReceiver(batteryReceiver);
+            } catch (IllegalArgumentException e) {
+                // (Not registered.)
+            }
+        }
         if (overlay != null) overlay.release();
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null)
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
@@ -186,6 +214,9 @@ public class GameActivity extends SDLActivity {
     // (src/blackbox.h, src/android_memory.h: it also hands freed memory back), so a report shows them and the launcher
     // can say why Android closed the game.
     private static native void nativeTrimMemory(int level);
+
+    // Session 80: the battery's temperature in tenths of a degree C (src/perf_overlay.h).
+    private static native void nativeBatteryTemperature(int tenths);
 
     @Override
     public void onTrimMemory(int level) {

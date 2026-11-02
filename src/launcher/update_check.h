@@ -30,7 +30,29 @@ namespace launcher {
 struct UpdateInfo {
   enum State { kNone, kChecking, kLatest, kAvailable, kFailed } state = kNone;
   std::string tag, name, url, notes, error;
+  // Session 81: the installable file of the release (the PC's .zip, the phone's .apk), its size and SHA-256 as GitHub
+  // lists them. Empty when the release has none: the dialog then only opens the release page.
+  std::string asset_name, asset_url, asset_sha256;
+  unsigned long long asset_size = 0;
 };
+
+// The release's own file whose name starts with `prefix` and ends with `suffix`, with the SHA-256 GitHub lists
+// ("digest": "sha256:..."). Only github.com download addresses are kept.
+inline void PickAsset(const nlohmann::json& release, const std::string& prefix, const std::string& suffix, UpdateInfo& u) {
+  if (!release.contains("assets") || !release["assets"].is_array()) return;
+  for (const auto& a : release["assets"]) {
+    const std::string name = a.value("name", ""), url = a.value("browser_download_url", "");
+    if (name.size() < prefix.size() + suffix.size() || name.rfind(prefix, 0) != 0 ||
+        name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+      continue;
+    // file:/// is for tests (the installers refuse it outside development builds)
+    if (url.rfind("https://github.com/", 0) != 0 && url.rfind("file:///", 0) != 0) continue;
+    std::string digest = a.value("digest", "");
+    if (digest.rfind("sha256:", 0) == 0) digest.erase(0, 7);
+    u.asset_name = name, u.asset_url = url, u.asset_sha256 = digest, u.asset_size = a.value("size", 0ull);
+    return;
+  }
+}
 
 // Session 36 (Jarrod): three or four numbers, so a hotfix such as v0.1.9.1 counts as newer than v0.1.9 (a missing
 // fourth number is 0). Launchers up to v0.1.8 read only the first three: a four-number version is invisible to them.
@@ -65,6 +87,7 @@ inline UpdateInfo ReadRelease(const std::string& body, const std::string& curren
     if (j.value("draft", false) || j.value("prerelease", false)) return u.state = UpdateInfo::kLatest, u;
     u.tag = j.value("tag_name", ""), u.name = j.value("name", ""), u.url = j.value("html_url", "");
     u.notes = j.value("body", "");
+    PickAsset(j, "wwe2k14-recomp-", ".zip", u);
     u.state = !u.tag.empty() && IsNewer(u.tag, current) ? UpdateInfo::kAvailable : UpdateInfo::kLatest;
   } catch (const std::exception&) {
     u.state = UpdateInfo::kFailed, u.error = "GitHub's answer could not be read";

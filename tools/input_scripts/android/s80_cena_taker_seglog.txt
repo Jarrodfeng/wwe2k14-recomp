@@ -1,0 +1,30 @@
+# Session 80 (the crowd lit wrong on the phone with gpu_native_truth_carry_copies, phone runs 162-176): as
+# bench_cena_taker_match.txt, with the segment and pass logs for 2 frames 600 frames into the match, then quits. For
+# comparing the carried copies' events on the phone with the PC's (tools\input_scripts\short\s80_cena_taker_shots.txt
+# + the same cvars). Use with
+#   pwsh -File tools\android\run.ps1 -Run NNN -Seconds 90 -Shots 0 -Route tools\input_scripts\android\s80_cena_taker_seglog.txt -Scenario lesnar_bryan -GameArgs "--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=139,103 --wwe2k14_launch_skip_entrances=true"
+on_fail quit
+log bench: start cena_taker_seglog (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file CH103.PAC 3600
+wait_frames 600
+log match: start
+wait_frames 600
+log passlog: match
+cvar gpu_native_segment_log 2
+cvar gpu_native_truth_pass_log 2
+wait_frames 120
+log bench: end
+quit

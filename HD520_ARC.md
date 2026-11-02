@@ -39,7 +39,7 @@ The arc starts once Session 77's branches are finished and merged.
 | Merging | Arc work lands on main as it goes, behind its own switch, off by default. That's a standing OK: no need to ask each time. **A merge carries arc work only,** never anything from my side sessions or unrelated changes. If a merge would include anything else, stop and ask. Switching it on, new defaults and releases wait for my word. |
 | Intel multiply rule | Open again: the Surface is our first Intel hardware. In the first Surface session, find out whether the black eyes happen on it and what the exact rule costs, then bring me the choice. |
 | Phone | Checked at milestones: no slower, and phone = PC on the comparer. Phone runs need me there, so these checks happen in attended sessions. |
-| Attendance | Implementation runs unattended. Surface and phone testing only happen while I'm present, starting once the native frame stands. Eye checks and decisions are batched for when I'm back. |
+| Attendance | Implementation runs unattended. Surface and phone testing only happen while I'm present, starting once the native frame stands. Eye checks and decisions are batched for when I'm back. **Updated 2026-11-03 ~02:10 (Jarrod): "Surface testing can happen unattended it's plugged in"** - the Surface (plugged in, logged in) may run unattended; phone runs still need him. |
 
 ## What we know
 
@@ -250,3 +250,23 @@ Milestone 1, or at least your closest estimation to it overnight." Answers:
   Exact, validation clean; Surface in-run match 23.74 -> 22.15 ms (-6.7%). Next: merge, then arena ownership.
 - 2026-11-02 00:15 - merged: SDK step 76 (`wwe2k14-local` 83df32f), on under the arc switch, after an Opus review's
   fixes. Next: arena ownership.
+- 2026-11-02 03:54 - every pixel shader of the match and both entrances ours (68 + the 2 combines; SDK steps 77-78);
+  Surface in-run (run 032, clean): match -14.6%, Bryan -17.0%, Brock -19.2%.
+- 2026-11-02 04:45 - **v0.2.15 released with the whole arc on by default** (Jarrod: "Whole arc on"; "not 0.3 yet, not
+  til our goal is hit"): where NATIVE's truth frames run, the native frame + its exact parts + our shaders + our crowd.
+  PC only; Android after phone tests. The milestone (720p 60 on the HD 520) is not reached yet.
+- 2026-11-02 04:50 - 07:05 - overnight (unattended), frame structure: the scene's clears begun by the render pass
+  (SDK step 79) and draws narrowed to their vertices' box (SDK step 81: the sweat maps' pass alias-loads 8 tiles
+  instead of 416 - 0.85-0.90 ms of every scene's Surface frame before; CPU 0.2 ms a frame on the PC with step 83) and the
+  arena screen's image made readable before the scene pass (step 82: the match's scene pass no longer split once a
+  frame), all on under the arc switch, exact on the PC (shots byte-identical, validation 0, Opus reviews). The Surface
+  was offline from 04:59: no Intel numbers yet (route `s80_tonight_multi.txt`: all on / all off / each off alone).
+  Measured 09:37-09:44 (Surface run 033), within each frame-time state: match -6.1% / -5.0%, Bryan -7.1% / -6.9%,
+  Brock -4.5% / -4.4%.
+- 2026-11-02 09:20 - the shadows planned (Jarrod: "less ownership than I'd have imagined"; interview ~09:30-09:42):
+  the shadow maps + the ring's plane shadow (match 4.5, Bryan 3.2, Brock 4.0 ms of the Surface's passes) as one owned
+  system, the 360 look first (`OWN_RENDERER_PLAN.md` "The shadows").
+- 2026-11-02 10:22 - the Surface's slow frames were the desktop compositor (the taskbar over the bench's game);
+  `bench.ps1 -Front`: all on, match 18.82 -> 16.06 ms GPU a frame (every sampled match frame under 16.7 ms).
+- 2026-11-02 12:15 - owned steps merged (SDK step 84) and on under the arc switch: the ring shadow's downscale + two
+  blurs drawn into our own images, their copies gone (exact; the Surface's ring chain 1.08 -> 0.83 ms).

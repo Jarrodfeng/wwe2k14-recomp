@@ -1,0 +1,19 @@
+# Session 80 (Jarrod: "Could we be skipping entrances for these runs?"): quick same-frame shots of a match only, for
+# picture bisects (owned steps on / off; ~30 s a run against ~2 min 10 s for s72_swap_shots). Run with
+# --wwe2k14_replay_play=s80_lb_quick (out\replays: Brock vs Bryan as s21_lb, entrances skipped, no pad input in the
+# match, match from frame 2279 to 4679; recorded by s80_record_lb_quick.txt) plus the arms' flags, fast-forwarded both
+# arms. (xdet_played_match works too, but its arena owns only the ring blurs.) The full s72_swap_shots.txt (entrances +
+# match, s21_lb) stays the final check. on_fail quit.
+on_fail quit
+log bench: start s80_match_shots
+wait_file m3.pac 3600
+log scene=match
+wait_frames 600
+screenshot s80m_a
+wait_frames 600
+screenshot s80m_b
+wait_frames 600
+screenshot s80m_c
+wait_frames 60
+log bench: done
+quit

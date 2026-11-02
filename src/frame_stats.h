@@ -64,6 +64,7 @@
 
 #include "blackbox.h"     // Session 73: the first frame in the start-up black box
 #include "dynamic_res.h"  // Session 73: each frame's length to the dynamic resolution
+#include "perf_overlay.h"  // Session 80: each frame's length to the performance overlay
 
 #if defined(__ANDROID__)
 #include "android_perf_hint.h"  // Session 64: each frame's length to the phone's CPU governor
@@ -183,6 +184,7 @@ class FrameStats {
     const double t = std::chrono::duration<double>(now - start_).count();
     last_ = now;
     if (!g_frame_time_ignore_next.load(std::memory_order_relaxed)) dynres::g_controller.OnFrame(ms);  // Session 73
+    perf_overlay::PushFrame(ms);  // Session 80 (--wwe2k14_perf_overlay)
 #if defined(__ANDROID__)
     android_driver::OnFrame();
     android_frame_rate::g_frame_rate.OnFrame(frame);

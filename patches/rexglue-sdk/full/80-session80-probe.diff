@@ -1,0 +1,26 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-probe): b945e920c278..491a1e001aa0 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  491a1e0 Merge s80-probe: the draw probe's constant range takes the pixel shader bank too (registers 256-511; diagnostic only, Session 80 overnight - the entrance's lighting cubes' inputs)
+
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 238abc903653ef77f2b7d78cf77c6c05f4ca521d..b7b04b63666743919f5c896bc4c5565dcd648580 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -135,7 +135,7 @@ REXCVAR_DEFINE_INT32(gpu_debug_draw_probe_frames, 0, "GPU",
+ REXCVAR_DEFINE_STRING(gpu_debug_draw_probe_path, "", "GPU",
+                       "Debug (Session 27.5): the draw probe CSV (empty = logs/drawprobe.csv in the working folder)");
+ REXCVAR_DEFINE_STRING(gpu_debug_draw_probe_consts, "", "GPU",
+-                      "Debug (Session 27.5): vertex float constants A-B (float4 registers, inclusive) written per "
++                      "Debug (Session 27.5): float constants A-B (float4 registers, inclusive; 256-511 = the pixel shader bank, Session 80) written per "
+                       "probed draw (empty = none)");
+ REXCVAR_DEFINE_STRING(gpu_debug_skip_pixel_shader, "", "GPU",
+                       "Debug (Session 72): skip draws whose guest pixel shader ucode hash is in this comma-separated "
+@@ -2333,7 +2333,7 @@ void CommandProcessor::DrawProbeLatch() {
+   const std::string consts = rex::cvar::Query<std::string>("gpu_debug_draw_probe_consts");
+   if (!consts.empty()) {
+     int first = -1, last = -1;
+-    if (std::sscanf(consts.c_str(), "%d-%d", &first, &last) == 2 && first >= 0 && last >= first && last < 256) {
++    if (std::sscanf(consts.c_str(), "%d-%d", &first, &last) == 2 && first >= 0 && last >= first && last < 512) {  // (Session 80: 256-511 = the pixel shader bank)
+       draw_probe_const_first_ = first;
+       draw_probe_const_last_ = last;
+     }

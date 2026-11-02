@@ -32,7 +32,12 @@ param([Parameter(Mandatory)][string]$Exe, [Parameter(Mandatory)][string]$GameDat
       # (Session 80) the multi step's in-run route (tools\native\passab_multi.py writes them), e.g. s80_owncrowd_multi.txt.
       [string]$MultiRoute = 's80_scene_multi.txt',
       [string[]]$Only = @('passes', 'frames', 'mul', 'cold'), [switch]$ColdDriver, [int]$TimeoutSeconds = 1500,
-      [string[]]$Levers = @())
+      [string[]]$Levers = @(),
+      # (Session 80, 2026-11-02 10:10: a game started by the scheduled task is not let to the foreground by Windows, so
+      # the taskbar stays over its borderless fullscreen window and the desktop compositor composes the 2736x1824
+      # screen every refresh - ~3.3 ms of GPU time inside ~2 frames in 3 (runs 033-036, dwm.exe 7-13% of the 3D
+      # engine). -Front puts the game's window on top and in the foreground once it shows, as a player's launch does.)
+      [switch]$Front)
 # (-Levers a,b: only those levers / probes and their base run, e.g. -Only levers -Levers no_alias_direct,aniso_4x.)
 $ErrorActionPreference = 'Stop'
 $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })  # (pwsh -File: one string)
@@ -49,6 +54,36 @@ $logs = Join-Path $exeDir 'logs'
 New-Item -ItemType Directory -Force $Out | Out-Null
 $settings = Join-Path $Out 'settings_native720.json'
 Set-Content $settings '{"renderer": 2, "frame_rate": 1, "resolution": 0}'   # NATIVE, 60 fps, 720p (a test file)
+
+# (Session 80, -Front: see the parameter.) Waits for the game's window, makes it topmost (above the taskbar) and the
+# foreground window (an Alt press first: Windows lets a process that just had input move the foreground), and says
+# whether it is the foreground window afterwards.
+function Set-GameFront($proc, [string]$name) {
+  if (-not ('WweBench.User32' -as [type])) {
+    Add-Type -Namespace WweBench -Name User32 -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+'@
+  }
+  $deadline = (Get-Date).AddSeconds(120)
+  while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
+    $proc.Refresh()
+    if ($proc.MainWindowHandle -ne [IntPtr]::Zero) { break }
+    Start-Sleep -Milliseconds 500
+  }
+  $h = $proc.MainWindowHandle
+  if ($h -eq [IntPtr]::Zero) { Write-Host "[surface] $name : front: no window"; return }
+  Start-Sleep -Seconds 2  # (the window goes fullscreen right after it shows)
+  [void][WweBench.User32]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x0001 -bor 0x0002 -bor 0x0040)  # TOPMOST, NOSIZE NOMOVE SHOWWINDOW
+  [WweBench.User32]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)  # Alt down
+  [void][WweBench.User32]::SetForegroundWindow($h)
+  [WweBench.User32]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)  # Alt up
+  Start-Sleep -Milliseconds 500
+  $fg = [WweBench.User32]::GetForegroundWindow() -eq $h
+  Write-Host "[surface] $name : front: topmost, foreground $fg"
+}
 
 # (Session 79, 04:30: -Threads samples every thread's CPU time once a second with thread_busy.ps1 - copied next to this
 # script - into <step>\threads.csv; -Affinity limits the game to those logical processors, e.g. 0xF = 2 cores / 4
@@ -83,6 +118,7 @@ function Invoke-Step([string]$name, [string]$route, [string[]]$flags, [bool]$fre
   $t0 = Get-Date
   $p = Start-Process -FilePath $Exe -ArgumentList $gameArgs -WorkingDirectory $exeDir -PassThru
   if ($Affinity) { try { $p.ProcessorAffinity = [IntPtr]$Affinity } catch { Write-Host "[surface] affinity not set: $_" } }
+  if ($Front) { Set-GameFront $p $name }
   if (-not $p.WaitForExit($TimeoutSeconds * 1000)) { $p.Kill(); Write-Host "[surface] $name : timed out, killed" }
   if ($busy -and -not $busy.WaitForExit(30000)) { Stop-Process -Id $busy.Id -Force }
   Get-ChildItem $logs | Where-Object { $before -notcontains $_.Name -and $_.LastWriteTime -ge $t0 } |

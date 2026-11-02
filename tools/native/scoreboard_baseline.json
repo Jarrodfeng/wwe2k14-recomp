@@ -1,0 +1,228 @@
+{
+  "version": 1,
+  "about": "Per-group Surface ms of the owned-frame design (docs/native/OWNED_FRAME_DESIGN.md section 2) and the rules that assign a pass to a group. The ms values are written by 'py -I tools/native/scoreboard.py --make-baseline' from the source run below; the RULES are hand-written and editable. Replace the source with the milestone run when it exists.",
+  "source": {
+    "run": 40,
+    "log": "out/s80/surface/ownring3/wwe2k14_040.log",
+    "label": "match_drop",
+    "frames": [
+      10881,
+      10882,
+      10883,
+      10884,
+      10911,
+      10912,
+      10913,
+      10914,
+      11061,
+      11062,
+      11063,
+      11064,
+      11091,
+      11092,
+      11093,
+      11094
+    ],
+    "passes_per_frame": 48,
+    "method": "ms per pass = median over the frames of (own time + the gap before it); a group part sums its passes (the design doc section 2 table: the same per-pass medians). Frames used: those with the commonest pass count (48).",
+    "frame_total_median_ms": 14.39,
+    "sum_of_group_ms": 14.273,
+    "note": "Surface run 040, label match_drop: the match with the ring chain owned (steps 9C85DA5F, E1AD4BB4; clears dropped), so the ms of G1 is its cost owned and G2-G10 are the 360 truth structure. This run is before the wrestler maps (step 85) were owned, so G5 is the truth cost. G7 has no pass in this run (PC-only pass, 0 ms). G2 has 20 passes here (15 on the PC), G5 8 (6 on the PC: the owned blurs are not truth passes there); the ms of a part is shared over its passes."
+  },
+  "rules_doc": [
+    "A frame's passes are classified in order. A group starts at the first pass matching its 'start' rule; the group lasts until a LATER group's start rule matches (groups only move forward; a group may be skipped).",
+    "Start-rule fields (all that are present must hold): index (pass number in the frame), pitch / pitch_max (surface pitch in 80-pixel tiles, so 7 = 560 wide), ps / vs (hash prefix of the pass's FIRST draw), from (the current group must be one of these), ps_seen (these first-draw ps prefixes must already have appeared in the frame).",
+    "Fields used by both the pass log (today) and the future [native][owned-frame] census lines (surface pitch, first draw's vs / ps, pass number), so one rule set reads both.",
+    "A group's 'parts' split its ms: the first part whose 'match' holds for the pass (pitch_max / ps / vs) wins; a part without 'match' is the default. 'owned_if_steps': in the approximate mode (no census) a part counts as owned when ALL these hashes (prefix match; 'v' prefix = vertex shader) are in the run's gpu_native_own_steps. No 'owned_if_steps' = not owned today."
+  ],
+  "groups": [
+    {
+      "id": "G1",
+      "name": "ring shadow",
+      "what": "mask, downscale, 2 blurs",
+      "start": {
+        "index": 0,
+        "pitch": 7,
+        "ps": "A4A965C1"
+      },
+      "parts": [
+        {
+          "name": "chain",
+          "ms": 0.9,
+          "owned_if_steps": [
+            "9C85DA5F",
+            "E1AD4BB4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "G2",
+      "name": "small renders",
+      "what": "80x64 clear-only surfaces, 64x64 copies",
+      "start": {
+        "pitch": 1,
+        "ps": "A4A965C1",
+        "from": [
+          "G1"
+        ]
+      },
+      "parts": [
+        {
+          "name": "all",
+          "ms": 0.886
+        }
+      ]
+    },
+    {
+      "id": "G3",
+      "name": "copy quad",
+      "what": "7ABDFEFB over 560x512, copy 512x512",
+      "start": {
+        "ps": "7ABDFEFB"
+      },
+      "parts": [
+        {
+          "name": "all",
+          "ms": 0.81
+        }
+      ]
+    },
+    {
+      "id": "G4",
+      "name": "mip chain",
+      "what": "F235532B into the 1040-wide surface, one copy per mip",
+      "start": {
+        "ps": "F235532B"
+      },
+      "parts": [
+        {
+          "name": "all",
+          "ms": 0.271
+        }
+      ]
+    },
+    {
+      "id": "G5",
+      "name": "wrestler maps",
+      "what": "map A / B casters, reductions, blurs",
+      "start": {
+        "pitch": 7,
+        "ps": "A4A965C1",
+        "from": [
+          "G4"
+        ]
+      },
+      "parts": [
+        {
+          "name": "reductions",
+          "ms": 0.377,
+          "match": {
+            "pitch_max": 2
+          },
+          "owned_if_steps": [
+            "901118D1",
+            "0DC910FA"
+          ]
+        },
+        {
+          "name": "casters+blurs",
+          "ms": 2.113,
+          "owned_if_steps": [
+            "DA494C93",
+            "D05BFEA1",
+            "7C650AA1",
+            "694A6D14"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "G6",
+      "name": "second map",
+      "what": "74 flat casters with depth, reductions, blur",
+      "start": {
+        "pitch": 7,
+        "ps": "A4A965C1",
+        "from": [
+          "G5"
+        ],
+        "ps_seen": [
+          "0DC910FA"
+        ]
+      },
+      "parts": [
+        {
+          "name": "all",
+          "ms": 1.298
+        }
+      ]
+    },
+    {
+      "id": "G7",
+      "name": "small strip",
+      "what": "D261C3CC into 384x64 (PC only; no pass in Surface run 040, 0 ms)",
+      "start": {
+        "ps": "8479D8DA",
+        "from": [
+          "G6"
+        ]
+      },
+      "parts": [
+        {
+          "name": "all",
+          "ms": 0.0
+        }
+      ]
+    },
+    {
+      "id": "G8",
+      "name": "scene",
+      "what": "clears, then the 365-377 scene draws into 1280x720",
+      "start": {
+        "pitch": 16,
+        "ps": "A4A965C1",
+        "from": [
+          "G6",
+          "G7"
+        ]
+      },
+      "parts": [
+        {
+          "name": "all",
+          "ms": 4.864
+        }
+      ]
+    },
+    {
+      "id": "G9",
+      "name": "post",
+      "what": "downsample, blur, combine",
+      "start": {"pitch": 4, "from": ["G8"]},
+      "parts": [
+        {
+          "name": "all",
+          "ms": 2.711
+        }
+      ]
+    },
+    {
+      "id": "G10",
+      "name": "final",
+      "what": "clear + one draw into the front buffer",
+      "start": {
+        "pitch": 16,
+        "ps": "00000000",
+        "from": [
+          "G9"
+        ]
+      },
+      "parts": [
+        {
+          "name": "all",
+          "ms": 0.044
+        }
+      ]
+    }
+  ]
+}

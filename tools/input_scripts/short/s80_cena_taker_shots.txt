@@ -1,0 +1,28 @@
+# Session 80 (the phone's crowd at WrestleMania XXX: left side washed bright, right side purple with the arc on, phone
+# run 162): the phone's bench_cena_taker_match.txt on the PC with screenshots in the match. Use with
+#   --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=139,103
+#   --wwe2k14_launch_skip_entrances=true (+ --wwe2k14_test_no_interlock=true for the phone's render path)
+# Not a replay: CPU vs CPU, the pictures are for looking at, not byte comparisons. on_fail quit.
+on_fail quit
+log bench: start cena_taker_shots (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file CH103.PAC 3600
+wait_frames 600
+log match: start
+screenshot s80ct_a
+wait_frames 600
+screenshot s80ct_b
+wait_frames 60
+quit

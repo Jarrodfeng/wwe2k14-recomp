@@ -1,0 +1,8 @@
+# harness: fast-forward ok (Session 82: the owned pages' reads - run with --gpu_native_owned_frame=true --gpu_native_owned_frame_pagelog=true and a replay; the match only, 2400 frames. on_fail quit.)
+on_fail quit
+log bench: start s82_pagelog
+wait_file m3.pac 3600
+log scene=match
+wait_frames 2400
+log bench: done
+quit

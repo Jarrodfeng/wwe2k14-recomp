@@ -7,8 +7,8 @@
      game_logo.png"). INTERNET: the launcher's update check only (GitHub's latest-release address). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.jarrodfeng.wwe2k14"
-    android:versionCode="13"
-    android:versionName="android-v0.2.0"
+    android:versionCode="14"
+    android:versionName="android-v0.2.1"
     android:installLocation="auto">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="36" />
@@ -22,6 +22,9 @@
     <!-- Rumble on the phone (ANDROID_PLAN F2) and the touch controls' vibrate-on-press (F1). -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Session 81: the launcher's self-update hands the downloaded APK to Android's installer (the player still taps
+         Install; the first time they allow installs from this app). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="WWE 2K14"

@@ -75,6 +75,11 @@ REXCVAR_DEFINE_STRING(wwe2k14_replay_play, "", "wwe2k14",
                       "Replay mode + play <replay dir>/NAME.rec back (its seed and settings, then its inputs)");
 REXCVAR_DEFINE_STRING(wwe2k14_replay_dir, "", "wwe2k14",
                       "Folder for .rec files (default: <repo>/out/replays next to out/build)");
+REXCVAR_DEFINE_BOOL(wwe2k14_replay_exact_shots, false, "wwe2k14",
+                    "Session 82: in replay mode, take a screenshot's capture on the guest thread at the settled frame "
+                    "(not on a worker thread that may start after the next swap) and wait for pipelines instead of "
+                    "skipping / holding draws, so the same guest frame always gives the same picture. Replay mode "
+                    "sets it");
 REXCVAR_DEFINE_BOOL(wwe2k14_replay_dlc_box, false, "wwe2k14",
                     "Session 32: when a playback stops because its DLC packs are not on, also say so in a message box "
                     "(the launcher sets it; harness runs only log it, so nothing waits on a click)");
@@ -191,6 +196,12 @@ class Replay {
         {"wwe2k14_load_turbo", "false"},  {"wwe2k14_load_turbo_menu", "false"},
         {"wwe2k14_load_turbo_boot", "false"}, {"wwe2k14_fast_loader", "false"},
         {"wwe2k14_skip_boot_screens", "false"}};
+    // Session 82 (P2): same guest frame, same picture (src/input_script.h: the screenshot's capture on the guest thread;
+    // pipelines awaited, not skipped). The recording's own flags and an explicit setting still win (Want).
+    wanted.push_back({"wwe2k14_replay_exact_shots", "true"});
+    if (REXCVAR_GET(wwe2k14_replay_exact_shots) || rex::cvar::GetFlagSource("wwe2k14_replay_exact_shots") ==
+                                                       rex::cvar::Source::kDefault)
+      wanted.push_back({"async_shader_compilation", "false"});
     for (auto& kv : file_flags_) wanted.push_back(kv);
     for (auto& [name, value] : wanted) Want(name, value);
     // Seed: the command line's, else the recording's, else one from the host clock (ms of the day, so every value

@@ -103,6 +103,14 @@ STEPS = [
     ('session80-servecopy', '83df32f5c0c39e9a7945837804d7ac43978eb587'),
     ('session80-arena', 'e7c82b0ffce664cf2af0f8e825b71891f079fb8a'),
     ('session80-arena2', '538f7ca2b66fe16109e91843a9384cd5d27a2a8d'),
+    ('session80-clears', 'b945e920c27874bb3470e4ba385ea7594e9c2297'),
+    ('session80-probe', '491a1e001aa085c041f70f067e00623232ec6d5f'),
+    ('session80-bounds', 'bd5a9730eb6b1d5627f3988cf5bab9d4615c569c'),
+    ('session80-serveahead', 'bc6a731980dfd2283b31cf65770fc2583b5dc86b'),
+    ('session80-boundsfast', 'a55876b32186a1b04da41de50b025a4b292fdf76'),
+    ('session80-ownsteps', '561b4bfe0d173a87538e5481361eafcc02115415'),
+    ('session80-ownpasses', '623cc9842d1351a8146a5ba7f78be002e5114729'),
+    ('session82-owned', 'a0ff9cf71b48c2d62ab9356bde0601a58ca6f05f'),
 ]
 
 

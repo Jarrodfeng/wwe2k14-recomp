@@ -1,0 +1,17 @@
+# Session 82 (Jarrod: "I feel like they could easily be like 10 seconds"): as s80_match_shots.txt (replay s80_lb_quick,
+# the match only) but three shots 100 frames apart from +400 into the match, so a run is ~12-14 s fast-forwarded
+# instead of ~30 (the boot and the match load are the floor). (Until 2026-11-03 02:40 the first shot was at +200, which
+# is a black fade - every shot a black, run 5737; checks before then compared two real shots, b and c.) Less variety than shots 600 apart - pair it with the
+# entrance replay's match shots (s82_ent_shots) where a change touches lighting / materials. on_fail quit.
+on_fail quit
+log bench: start s82_match_shots_fast
+wait_file m3.pac 3600
+log scene=match
+wait_frames 400
+screenshot s82f_a
+wait_frames 100
+screenshot s82f_b
+wait_frames 100
+screenshot s82f_c
+log bench: done
+quit

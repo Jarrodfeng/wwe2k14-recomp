@@ -1,0 +1,35 @@
+# harness: fastforward
+# Session 80 overnight (frame structure: the entrance's lighting cubes): the draw probe on the yPreLight vertex shader
+# (D261C3CC487FA436) for 30 frames of Bryan's entrance from +400, with the pixel shader's float constants (registers
+# 256-511 = PS c0-c255) - whether the cubes' inputs change between frames (if not, the cubes could be kept, not redrawn).
+# Run with --wwe2k14_replay_play=s21_lb and a NATIVE test settings file; read out\s80\w3\prelight_bryan.csv.
+on_fail quit
+log bench: start s80_prelight_probe (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 20000
+log scene=tron_343
+wait_frames 300
+cvar gpu_debug_draw_probe D261C3CC487FA436
+cvar gpu_debug_draw_probe_consts 256-511
+cvar gpu_debug_draw_probe_path C:\Users\Jarrod\wwe2k14-recomp\out\s80\w3\prelight_brock.csv
+cvar gpu_debug_draw_probe_frames 30
+wait_frames 34
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 400
+cvar gpu_debug_draw_probe_frames 30
+wait_frames 34
+log bench: done
+quit

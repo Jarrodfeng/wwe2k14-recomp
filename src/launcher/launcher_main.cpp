@@ -30,6 +30,8 @@
 //                           keyboard_binds.h kBinds order)   --keys-hot N (light control N, as a hovered row does)
 //   --update-check (check for updates even in a +dev build)   --update-file JSON (a release from a file, not GitHub)
 //   --update-version VER (pretend this version)   --show-update (open the update details, if one was found)
+//   --update-install / --update-finish / --update-cancel (Session 81: press UPDATE NOW / RESTART AND FINISH / Cancel;
+//                           --update-file also lets the install take file:///PATH downloads, for fake releases)
 //   --kill-game CODE (end the game with this exit code: a test of the crash dialog)
 //   --tab trons|titles|play --select TRON          --assign TRON FILE     --revert TRON
 //   --assign-alpha TRON FILE (stacked alpha)       --banner TRON original|video|none|FILE   --title ID
@@ -76,6 +78,8 @@
 #include "keyboard_binds.h"  // Session 67: KEYBOARD CONTROLS (the keys of each pad control, keybinds.toml)
 #include "launcher_system.h"
 #include "update_check.h"
+#include "markdown_imgui.h"
+#include "update_install.h"
 #include "launcher_theme.h"
 #include "logo_save.h"
 #include "dlc_names.h"  // Session 32: DLC wrestlers' names from the player's DLC files (needs stb_image above)
@@ -771,6 +775,7 @@ class App {
     g_perf_report_default = IsPlaytest();
     Reload();
     StartUpdateCheck(update_force_);
+    UpdateStartup();  // Session 81
   }
 
   // ---------------- Session 31: update check (update_check.h). In the background at start, unless switched off in
@@ -833,26 +838,232 @@ class App {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("A newer version is out: see what's new");
     return h;
   }
+  // ---------------- Session 81: the launcher installs its own updates (update_install.h has the steps and the
+  // reasoning). The dialog has four faces: the offer, the download (checking and unpacking included), "ready" (restart
+  // to finish) and, after any failure, UPDATE FAILED with the reason, REPORT A PROBLEM and the release page.
+  struct InstallJob {
+    upd::Progress prog;
+    std::atomic<int> stage{0};  // 1 downloading, 2 checking, 3 unpacking, 4 ready, 5 failed
+    std::mutex m;
+    std::string error;
+    fs::path root;
+  };
+  std::shared_ptr<InstallJob> job_;
+  std::string up_note_, up_fail_msg_;
+  bool want_update_fail_ = false, verify_pending_ = false, update_test_files_ = false;
+  int verify_frames_ = 0;
+
+  void BadWrapped(const std::string& t) {
+    ImGui::PushStyleColor(ImGuiCol_Text, kBad);
+    ImGui::TextWrapped("%s", t.c_str());
+    ImGui::PopStyleColor();
+  }
+  static std::string MB(unsigned long long b) { return std::to_string((b + (1u << 20) - 1) >> 20) + " MB"; }
+
+  void OpenReleasePage(const UpdateInfo& u) {
+    if (u.url.rfind("https://github.com/", 0) == 0) ShellExecuteW(hwnd_, L"open", Widen(u.url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  }
+  void OpenLink(const std::string& url) {
+    if (url.rfind("https://", 0) == 0) ShellExecuteW(hwnd_, L"open", Widen(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  }
+
+  void FailUpdate(const std::string& why) {
+    up_fail_msg_ = why, want_update_fail_ = true;
+    Log("update failed: " + why);
+  }
+
+  // UPDATE NOW: the checks first (each one a plain sentence for the dialog), then the download on its own thread.
+  void StartInstall(const UpdateInfo& u) {
+    up_note_.clear();
+    if (game_proc_) return void(up_note_ = "Close the game first.");
+    if (paths_.repo_found && !update_test_files_) return void(up_note_ = "A development build can't update itself.");
+    if (u.asset_url.empty() || u.asset_sha256.empty())
+      return void(up_note_ = "This release has no installable file. Use View on GitHub.");
+    const fs::path install = paths_.launcher_dir;
+    if (!upd::Writable(install))
+      return void(up_note_ = "This folder can't be written to (" + PathStr(install) +
+                             "). Move the game to a normal folder such as Documents, or install from the release page.");
+    std::error_code ec;
+    const auto sp = fs::space(install, ec);
+    const unsigned long long need = std::max<unsigned long long>(u.asset_size, 1u << 20) * 3;
+    if (!ec && sp.available < need)
+      return void(up_note_ = "Not enough free space: about " + MB(need) + " are needed here and " + MB(sp.available) + " are free.");
+    job_ = std::make_shared<InstallJob>();
+    job_->stage = 1;
+    Log("update: downloading " + u.asset_name + " (" + MB(u.asset_size) + ")");
+    std::thread([job = job_, install, u, test = update_test_files_, ver = MyVersion()] {
+      auto fail = [&](const std::string& why) {
+        std::lock_guard<std::mutex> lock(job->m);
+        job->error = why, job->stage = 5;
+        std::error_code e;
+        fs::remove_all(upd::TmpDir(install), e);
+      };
+      const fs::path zip = upd::TmpDir(install) / L"update.zip";
+      std::string err = upd::Download(u.asset_url, zip, job->prog, test, ver);
+      if (!err.empty()) return fail(err == "cancelled" ? "cancelled" : "the download failed: " + err);
+      job->stage = 2;
+      const std::string sha = upd::Sha256File(zip);
+      auto lower = [](std::string s) {
+        for (char& c : s) c = char(std::tolower((unsigned char)c));
+        return s;
+      };
+      if (sha.empty() || lower(sha) != lower(u.asset_sha256))
+        return fail("the download did not match GitHub's checksum (got " + sha.substr(0, 12) + ", expected " +
+                    u.asset_sha256.substr(0, 12) + "); nothing was changed");
+      job->stage = 3;
+      const fs::path root = upd::Unpack(zip, upd::TmpDir(install) / L"stage", err);
+      if (root.empty()) return fail(err);
+      std::error_code e;
+      fs::remove(zip, e);
+      {
+        std::lock_guard<std::mutex> lock(job->m);
+        job->root = root;
+      }
+      job->stage = 4;
+    }).detach();
+  }
+
+  // RESTART AND FINISH: the helper does the swap once this launcher has closed.
+  void FinishInstall(const UpdateInfo& u) {
+    if (game_proc_) return void(up_note_ = "Close the game first.");
+    fs::path root;
+    {
+      std::lock_guard<std::mutex> lock(job_->m);
+      root = job_->root;
+    }
+    const std::string err = upd::StartHelper(paths_.launcher_dir, root, u.tag);
+    if (!err.empty()) return job_.reset(), FailUpdate(err);
+    Log("update: helper started for " + u.tag + "; closing for the swap");
+    PostQuitMessage(0);
+  }
+
   void UpdatePopup() {
+    const float d = Dpi();
     if (want_update_popup_) ImGui::OpenPopup("update"), want_update_popup_ = false;
-    if (!BeginGameModal("update", "UPDATE AVAILABLE", 660 * Dpi())) return;
+    const int st = job_ ? job_->stage.load() : 0;
+    const char* title = st == 0 ? "UPDATE AVAILABLE" : st == 4 ? "READY TO INSTALL" : "UPDATING";
+    if (!BeginGameModal("update", title, 660 * d)) return;
     const UpdateInfo u = Update();
-    ImGui::TextWrapped("%s is out (you have %s).", u.name.empty() ? u.tag.c_str() : u.name.c_str(), MyVersion().c_str());
-    ImGui::TextDisabled("Download it from its GitHub page; your saves, settings and mods stay where they are.");
+    const std::string what = u.name.empty() ? u.tag : u.name;
+    if (st == 5) {  // failed: this dialog gives way to UPDATE FAILED (cancel is not a failure)
+      std::string why;
+      {
+        std::lock_guard<std::mutex> lock(job_->m);
+        why = job_->error;
+      }
+      job_.reset();
+      ImGui::CloseCurrentPopup();
+      if (why != "cancelled") FailUpdate(why);
+      ImGui::EndPopup();
+      return;
+    }
+    if (st == 1 || st == 2 || st == 3) {
+      const unsigned long long done = job_->prog.done, total = std::max<unsigned long long>(job_->prog.total, u.asset_size);
+      if (st == 1) ImGui::Text("Downloading %s... %s of %s", what.c_str(), MB(done).c_str(), MB(total).c_str());
+      else ImGui::Text(st == 2 ? "Checking the download..." : "Unpacking...");
+      ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.78f, 0.20f, 0.23f, 1));
+      ImGui::ProgressBar(st == 1 ? (total ? float(double(done) / double(total)) : 0.f) : 1.f, ImVec2(-1, 12 * d), "");
+      ImGui::PopStyleColor();
+      ImGui::TextDisabled("The download is checked against GitHub's checksum before anything is changed.");
+      ImGui::Dummy(ImVec2(0, 8 * d));
+      if (st == 1 && ImGui::Button("Cancel")) job_->prog.cancel = true;
+      ImGui::EndPopup();
+      return;
+    }
+    if (st == 4) {
+      ImGui::TextWrapped("%s is downloaded and checked. The launcher will close, put the new files in place and open again on %s.",
+                         what.c_str(), u.tag.c_str());
+      Note("Your old files are kept until the new version has started properly. Close the game first if it is open.");
+      if (!up_note_.empty()) BadWrapped(up_note_);
+      ImGui::Dummy(ImVec2(0, 10 * d));
+      if (ModalMainButton("RESTART AND FINISH")) FinishInstall(u);
+      if (ModalButton("Later")) ImGui::CloseCurrentPopup();
+      ImGui::NewLine();
+      ImGui::EndPopup();
+      return;
+    }
+    const bool can = !u.asset_url.empty();
+    ImGui::TextWrapped("%s is out (you have %s).", what.c_str(), MyVersion().c_str());
+    if (can)
+      ImGui::TextDisabled("Updating replaces the launcher and game program (%s). Your saves, settings and mods stay where they are.",
+                          MB(u.asset_size).c_str());
+    else
+      ImGui::TextDisabled("Download it from its GitHub page; your saves, settings and mods stay where they are.");
     if (!u.notes.empty()) {
       ImGui::Spacing();
-      ImGui::BeginChild("notes", ImVec2(0, 240 * Dpi()), ImGuiChildFlags_Borders);
-      ImGui::TextWrapped("%s", u.notes.c_str());
+      ImGui::BeginChild("notes", ImVec2(0, 240 * d), ImGuiChildFlags_Borders);
+      RenderMarkdown(u.notes, ImGui::GetContentRegionAvail().x - 6 * d, d, [this](const std::string& l) { OpenLink(l); });
       ImGui::EndChild();
     }
-    ImGui::Dummy(ImVec2(0, 10 * Dpi()));
-    if (ModalMainButton("OPEN THE RELEASE PAGE")) {
-      if (u.url.rfind("https://github.com/", 0) == 0) ShellExecuteW(hwnd_, L"open", Widen(u.url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-      ImGui::CloseCurrentPopup();
+    if (!up_note_.empty()) BadWrapped(up_note_);
+    ImGui::Dummy(ImVec2(0, 10 * d));
+    if (can) {
+      if (ModalMainButton("UPDATE NOW")) StartInstall(u);
+      if (ModalButton("Later")) update_dismissed_ = true, up_note_.clear(), ImGui::CloseCurrentPopup();
+      if (ModalButton("View on GitHub")) OpenReleasePage(u);
+    } else {
+      if (ModalMainButton("OPEN THE RELEASE PAGE")) OpenReleasePage(u), ImGui::CloseCurrentPopup();
+      if (ModalButton("Later")) update_dismissed_ = true, ImGui::CloseCurrentPopup();
     }
-    if (ModalButton("Later")) update_dismissed_ = true, ImGui::CloseCurrentPopup();
     ImGui::NewLine();
     ImGui::EndPopup();
+  }
+
+  void UpdateFailPopup() {
+    if (want_update_fail_) ImGui::OpenPopup("update_fail"), want_update_fail_ = false;
+    if (!BeginGameModal("update_fail", "UPDATE FAILED", 640 * Dpi())) return;
+    ImGui::TextWrapped("The update could not be installed.");
+    ImGui::Spacing();
+    BadWrapped(up_fail_msg_);
+    ImGui::Spacing();
+    Note("Your previous version is still in place and works as before. A report helps fix this; or install the update by hand from its release page.");
+    ImGui::Dummy(ImVec2(0, 10 * Dpi()));
+    if (ModalMainButton("REPORT A PROBLEM")) {
+      ImGui::CloseCurrentPopup();
+      MakeReport();
+    }
+    if (ModalButton("Open the release page")) OpenReleasePage(Update());
+    if (ModalButton("Close")) ImGui::CloseCurrentPopup();
+    ImGui::NewLine();
+    ImGui::EndPopup();
+  }
+
+  // At start: what the helper left (a failure to show), then the "did the new version start properly" check. The
+  // backup goes only after this launcher has drawn its window for a while (UpdateVerifyTick); three starts that never
+  // got there put the old files back.
+  void UpdateStartup() {
+    const fs::path install = paths_.launcher_dir;
+    std::error_code ec;
+    const nlohmann::json res = upd::ReadJson(upd::ResultPath(install));
+    if (res.is_object()) {
+      if (res.value("ok", false)) Log("update: installed " + res.value("version", std::string()));
+      else FailUpdate(res.value("error", std::string("unknown")));
+      fs::remove(upd::ResultPath(install), ec);
+    }
+    const nlohmann::json j = upd::ReadJson(upd::JournalPath(install));
+    if (!j.is_object() || j.value("phase", std::string()) != "verify") return;
+    const int attempts = j.value("attempts", 0) + 1;
+    if (attempts >= 3) {
+      Log("update: the new version did not start properly " + std::to_string(attempts) + " times; putting the old files back");
+      const std::string err = upd::StartRestoreHelper(install);
+      if (err.empty()) return void(PostQuitMessage(0));
+      return FailUpdate(err);
+    }
+    nlohmann::json w = j;
+    w["attempts"] = attempts;
+    upd::WriteJson(upd::JournalPath(install), w);
+    verify_pending_ = true;
+  }
+  void UpdateVerifyTick() {
+    if (!verify_pending_ || ++verify_frames_ < 90) return;
+    verify_pending_ = false;
+    const fs::path install = paths_.launcher_dir;
+    std::error_code ec;
+    fs::remove_all(upd::BackupDir(install), ec);
+    fs::remove_all(upd::TmpDir(install), ec);
+    fs::remove(upd::JournalPath(install), ec);
+    Log("update: the new version has started properly; the old files were removed");
+    upd::LogLine(install, "verified: the new launcher started; backup removed");
   }
 
   // The first-run wizard (unless automation said otherwise: it would cover every screenshot).
@@ -981,6 +1192,9 @@ class App {
     else if (st.op == "keys_hot") key_hot_force_ = std::atoi(st.a.c_str());
     else if (st.op == "titles_view") s.titles_view = st.a == "grid" ? 1 : 0;
     else if (st.op == "show_update") want_update_popup_ = Update().state == UpdateInfo::kAvailable;
+    else if (st.op == "update_install") StartInstall(Update());  // Session 81 tests: UPDATE NOW
+    else if (st.op == "update_finish") { if (job_ && job_->stage == 4) FinishInstall(Update()); }  // RESTART AND FINISH
+    else if (st.op == "update_cancel") { if (job_) job_->prog.cancel = true; }
     else if (st.op == "capture") LaunchCapture(st.a);
     else if (st.op == "wait_game_start") return game_proc_ == nullptr || WaitForInputIdle(game_proc_, 0) != WAIT_TIMEOUT;
     else if (st.op == "kill_game") {  // a test of the crash dialog: end the game with this exit code
@@ -1046,6 +1260,8 @@ class App {
     PerfTestPopup();  // Session 39
     CheckPopup();     // Session 77
     UpdatePopup();
+    UpdateFailPopup();
+    UpdateVerifyTick();
     KeysPopup();  // Session 67
     LogUpdateOnce();
     ImGui::End();
@@ -1293,8 +1509,10 @@ class App {
       ImGui::OpenPopup("report"), want_report_popup_ = false;
     ReportPopup();
     {  // Session 31: the update notice, when there is one
-      const float uh = 46 * d;
-      if (UpdateNotice(ImVec2(p.x0 + margin, y - gap - uh), fw) > 0) y -= uh + gap;
+      // Session 81 (Jarrod): the button's bottom edge lines up with the Report a problem box (the slant's top corner
+      // pokes out by sk), and it sits a touch higher.
+      const float uh = 46 * d, sk = uh * 0.22f, lift = 4 * d;
+      if (UpdateNotice(ImVec2(p.x0 + margin, y - gap - lift - uh), fw + sk) > 0) y -= uh + gap + lift;
     }
     if (game_proc_) {
       const float px = 17 * d;
@@ -1483,6 +1701,10 @@ class App {
       ts = MenuTextSize(sub_px * 0.9f, ver.c_str());
       MenuText(dl, ImVec2(cx - ts.x / 2, y), sub_px * 0.9f, IM_COL32_WHITE, ver.c_str());
       y += ts.y;
+      const char* by = "BY JARRODFENG";
+      ts = MenuTextSize(sub_px * 0.6f, by);
+      MenuText(dl, ImVec2(cx - ts.x / 2, y + 2 * d), sub_px * 0.6f, IM_COL32(255, 255, 255, 140), by);
+      y += ts.y + 2 * d;
     } else {
       MenuText(dl, ImVec2(o.x, y), 48 * d, IM_COL32_WHITE, "WWE 2K14");
       y += 60 * d;
@@ -2748,6 +2970,10 @@ class App {
     std::string recent;
     for (const std::string& m : recent_log_) recent += m + "\n";
     files.emplace_back("launcher_messages.txt", Redact(recent));
+    {  // Session 81: the self-update helper's notes (why an update failed)
+      const std::string ul = ReadTail(upd::LogPath(paths_.launcher_dir), 1u << 20);
+      if (!ul.empty()) files.emplace_back("update_log.txt", Redact(ul));
+    }
     files.insert(files.begin(), {"about.txt", Redact(about)});
 
     bool zipped = false;
@@ -4229,6 +4455,13 @@ class App {
     }
     ImGui::BeginGroup();
     ImGui::Dummy(ImVec2(0, logo.y * 0.18f));
+    {  // the heading with the author's byline to its right, in the sub-heading style
+      const float px = ImGui::GetStyle().FontSizeBase * 1.15f * d, by_px = px * 0.7f;
+      const ImVec2 at = ImGui::GetCursorScreenPos(), sz = MenuTextSize(px, "NATIVE PC RECOMPILATION");
+      const ImVec2 bs = MenuTextSize(by_px, " - BY JARRODFENG");
+      MenuText(ImGui::GetWindowDrawList(), ImVec2(at.x + sz.x, at.y + sz.y - bs.y - 1 * d), by_px,
+               IM_COL32(255, 255, 255, 150), " - BY JARRODFENG");
+    }
     Heading("NATIVE PC RECOMPILATION", 1.15f);
     ImGui::Text("%s", Version());
     ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
@@ -6047,9 +6280,12 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--titles-view") out.push_back({"titles_view", next()});
     // Session 31: update check tests.
     else if (a == "--update-check") app.update_force_ = true;          // check even in a +dev build
-    else if (a == "--update-file") app.update_file_ = next(), app.update_force_ = true;  // GitHub's answer from a file
+    else if (a == "--update-file") app.update_file_ = next(), app.update_force_ = true, app.update_test_files_ = true;  // GitHub's answer from a file
     else if (a == "--update-version") app.update_version_ = next();   // pretend this version
     else if (a == "--show-update") out.push_back({"show_update"});
+    else if (a == "--update-install") out.push_back({"update_install"});  // Session 81 tests: UPDATE NOW, then
+    else if (a == "--update-finish") out.push_back({"update_finish"});    // RESTART AND FINISH (when it is ready)
+    else if (a == "--update-cancel") out.push_back({"update_cancel"});
     else if (a == "--capture") out.push_back({"capture", next()});
     else if (a == "--kill-game") out.push_back({"kill_game", next()});
     else if (a == "--wizard-step") out.push_back({"wizard_step", next()});
@@ -6062,6 +6298,12 @@ std::vector<Step> ParseArgs(App& app) {
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
+  {  // Session 81: the update helper (a copy of this exe in %TEMP%, update_install.h): no window, no Direct3D
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv && argc >= 3 && (std::wstring(argv[1]) == L"--apply-update" || std::wstring(argv[1]) == L"--restore-update"))
+      return upd::RunHelper(std::vector<std::wstring>(argv + 1, argv + argc));
+  }
   CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   ImGui_ImplWin32_EnableDpiAwareness();
   const float dpi = ImGui_ImplWin32_GetDpiScaleForMonitor(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY));

@@ -1,0 +1,287 @@
+# harness: fastforward
+# Session 80, written by tools\native\passab_multi.py: Session 82: the owned frame off / on (milestone 1).
+#   arm off: gpu_native_owned_frame=false
+#   arm on: gpu_native_owned_frame=true
+# Per scene: warm-up 60 frames per arm, then 8 cycles x 4 pass-logged frames per arm; labels <scene>_<arm>.
+on_fail quit
+log bench: start s80_owned_multi (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 30000
+log scene=brock
+wait_frames 180
+cvar gpu_native_owned_frame false
+wait_frames 60
+cvar gpu_native_owned_frame true
+wait_frames 60
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: brock_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: brock_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: brock_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: brock_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: brock_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: brock_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: brock_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: brock_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: brock_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_file 324.bik2 30000
+log scene=bryan
+wait_frames 320
+cvar gpu_native_owned_frame false
+wait_frames 60
+cvar gpu_native_owned_frame true
+wait_frames 60
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: bryan_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: bryan_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: bryan_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: bryan_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: bryan_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: bryan_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: bryan_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: bryan_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: bryan_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 780
+cvar gpu_native_owned_frame false
+wait_frames 60
+cvar gpu_native_owned_frame true
+wait_frames 60
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: match_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: match_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: match_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: match_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: match_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: match_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: match_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 2
+log passlog: match_off
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame true
+wait_frames 2
+log passlog: match_on
+cvar gpu_native_truth_pass_log 4
+wait_frames 8
+cvar gpu_native_owned_frame false
+wait_frames 60
+log bench: done
+quit

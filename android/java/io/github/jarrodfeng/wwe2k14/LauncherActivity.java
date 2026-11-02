@@ -42,7 +42,7 @@ public class LauncherActivity extends SDLActivity {
     private static final String TAG = "wwe2k14";
     // mobile_platform.h Event::Kind
     static final int EV_GAME_PICKED = 0, EV_DLC_ADDED = 1, EV_SAVES_EXPORTED = 2, EV_SAVES_IMPORTED = 3, EV_UPDATE = 4,
-            EV_BACK = 5, EV_MESSAGE = 6, EV_DRIVER_IMPORTED = 7;
+            EV_BACK = 5, EV_MESSAGE = 6, EV_DRIVER_IMPORTED = 7, EV_UPDATE_PROGRESS = 8, EV_UPDATE_DOWNLOADED = 9;
     private static final int REQ_GAME = 7101, REQ_DLC = 7102, REQ_EXPORT = 7103, REQ_IMPORT = 7104, REQ_DRIVER = 7105;
 
     static native void nativeEvent(int kind, boolean ok, String a, String b);
@@ -254,6 +254,14 @@ public class LauncherActivity extends SDLActivity {
             int status = 0;
             HttpURLConnection c = null;
             try {
+                // Session 81 test hook, development builds only (android:debuggable): files/update_test.json is a
+                // release list as GitHub would answer, so the update screens can be tried without a real release.
+                File test = new File(getExternalFilesDir(null), "update_test.json");
+                if (isDebuggableBuild() && test.isFile()) {
+                    byte[] raw = java.nio.file.Files.readAllBytes(test.toPath());
+                    event(EV_UPDATE, true, new String(raw, StandardCharsets.UTF_8), "200");
+                    return;
+                }
                 c = (HttpURLConnection) new URL(address).openConnection();
                 c.setConnectTimeout(6000);
                 c.setReadTimeout(6000);
@@ -276,6 +284,117 @@ public class LauncherActivity extends SDLActivity {
             }
             event(EV_UPDATE, status == 200, body, Integer.toString(status));
         }, "wwe2k14-update").start();
+    }
+
+    // Session 81 (Jarrod): the launcher installs its own updates. The player presses UPDATE NOW; the APK is downloaded
+    // to Android/data/<package>/files/update/, checked against GitHub's SHA-256 and then handed to Android's own
+    // installer (one tap on its "Update this app?" screen; the first time the player also allows installs from this
+    // app). Updates only install over the same signing key. Any failure is an EV_UPDATE_DOWNLOADED with the reason.
+    private static final String UPDATE_PREFIX = "https://github.com/Jarrodfeng/wwe2k14-recomp/releases/download/";
+
+    private boolean isDebuggableBuild() {
+        return (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
+    private File updateDir() {
+        File base = getExternalFilesDir(null);
+        return base == null ? null : new File(base, "update");
+    }
+
+    /** arg = "ADDRESS SHA256". Progress goes back as EV_UPDATE_PROGRESS ("done total"). */
+    public void jDownloadUpdate(String arg) {
+        new Thread(() -> {
+            String err = null;
+            File dir = updateDir();
+            File part = dir == null ? null : new File(dir, "update.apk.part"), apk = dir == null ? null : new File(dir, "update.apk");
+            HttpURLConnection c = null;
+            try {
+                String[] p = arg.split(" ");
+                // (a development build also takes file:/// addresses: a test APK pushed into the app's own folder)
+                if (dir == null || p.length != 2 || !(p[0].startsWith(UPDATE_PREFIX) || (isDebuggableBuild() && p[0].startsWith("file:///")))) throw new java.io.IOException("unexpected download address");
+                dir.mkdirs();
+                if (apk.exists()) apk.delete();
+                InputStream src;
+                long total;
+                if (p[0].startsWith("file:///")) {  // development builds: a file in the app's own folder (test hook)
+                    File f = new File(p[0].substring(7));
+                    src = new java.io.FileInputStream(f);
+                    total = f.length();
+                } else {
+                    c = (HttpURLConnection) new URL(p[0]).openConnection();
+                    c.setConnectTimeout(10000);
+                    c.setReadTimeout(20000);
+                    c.setRequestProperty("User-Agent", "wwe2k14-launcher-android");
+                    int status = c.getResponseCode();
+                    if (status != 200) throw new java.io.IOException("GitHub answered " + status);
+                    total = c.getContentLengthLong();
+                    src = c.getInputStream();
+                }
+                long done = 0, last = 0;
+                java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+                try (InputStream in = src; OutputStream out = new FileOutputStream(part)) {
+                    byte[] buf = new byte[65536];
+                    for (int n; (n = in.read(buf)) > 0; ) {
+                        out.write(buf, 0, n);
+                        md.update(buf, 0, n);
+                        done += n;
+                        long now = System.currentTimeMillis();
+                        if (now - last > 300) {
+                            last = now;
+                            event(EV_UPDATE_PROGRESS, true, done + " " + total, null);
+                        }
+                    }
+                }
+                StringBuilder hex = new StringBuilder();
+                for (byte b : md.digest()) hex.append(String.format(Locale.ROOT, "%02x", b));
+                if (!hex.toString().equalsIgnoreCase(p[1]))
+                    throw new java.io.IOException("the download did not match GitHub's checksum; nothing was changed");
+                if (!part.renameTo(apk)) throw new java.io.IOException("the download could not be saved");
+            } catch (Exception e) {
+                Log.w(TAG, "launcher: update download failed", e);
+                err = (e.getMessage() == null ? e.toString() : e.getMessage());
+                if (part != null) part.delete();
+            } finally {
+                if (c != null) c.disconnect();
+            }
+            event(EV_UPDATE_DOWNLOADED, err == null, err == null ? "" : err, null);
+        }, "wwe2k14-update-dl").start();
+    }
+
+    /** Hands the downloaded APK to Android's installer. */
+    public void jInstallUpdate() {
+        runOnUiThread(() -> {
+            try {
+                File dir = updateDir();
+                File apk = dir == null ? null : new File(dir, "update.apk");
+                if (apk == null || !apk.isFile()) {
+                    event(EV_MESSAGE, false, "The update file is gone: download it again", null);
+                    return;
+                }
+                if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                    event(EV_MESSAGE, true, "Allow installs from this app, then come back and press INSTALL again", null);
+                    startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:" + getPackageName())));
+                    return;
+                }
+                Uri u = FileShareProvider.uriFor(getExternalFilesDir(null), apk);
+                startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/vnd.android.package-archive")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e) {
+                Log.w(TAG, "launcher: update install failed", e);
+                event(EV_MESSAGE, false, "The update could not be started: " + e.getMessage(), null);
+            }
+        });
+    }
+
+    /** The app is up to date (an update was installed or none was needed): the downloaded file is not needed any more. */
+    public void jClearUpdate() {
+        new Thread(() -> {
+            File dir = updateDir();
+            File[] files = dir == null ? null : dir.listFiles();
+            if (files != null) for (File f : files) f.delete();
+            if (dir != null) dir.delete();
+        }, "wwe2k14-update-clean").start();
     }
 
     public void jOpenUrl(String url) {

@@ -1,0 +1,21 @@
+# Session 82 (harness builder): a COPY of s82_match_shots_fast.txt (replay s80_lb_quick, the match only; keep the shots in
+# step with it: +400, +500, +600 into the match) plus the owned frame's census for two frames at the first shot:
+# `cvar gpu_native_owned_frame_log 2` right before it (a run is ~12-14 s fast-forwarded). The cvar step takes zero frames,
+# so the shots fall on the same frames as in the plain route, and owned_verdict treats the two routes as one.
+# owned_check.ps1 uses this route when its ON flags name gpu_native_owned_frame (an s82 build; an older exe has no such
+# setting and the cvar line would end the script) and prints the scoreboard + the truth work per frame from the same
+# runs. The OFF arms run this one (the cvar lines are harmless there); the ON arms run s82_match_shots_census_on.txt (the same
+# shots, plus an owned-frame flip so the truth-work summary covers match frames only). on_fail quit.
+on_fail quit
+log bench: start s82_match_shots_census
+wait_file m3.pac 3600
+log scene=match
+wait_frames 400
+cvar gpu_native_owned_frame_log 2
+screenshot s82f_a
+wait_frames 100
+screenshot s82f_b
+wait_frames 100
+screenshot s82f_c
+log bench: done
+quit

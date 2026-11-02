@@ -11,6 +11,30 @@
 #              otherwise those callers take it exclusively. Ordinary (non-benchmark) game runs only: perf numbers
 #              from a shared run are not comparable.
 #
+# BUILD class (Session 82, harness builder; Jarrod: builds should share the PC with untimed runs, only timed runs exclusive).
+#   DESIGN NOTE - why it is small and what it does NOT change:
+#   A build hold is a third kind of holder next to EXCLUSIVE and SHARED. It is made of the same two Windows primitives
+#   as a shared hold, with its own slot files (build1.json .. build<RunLockMaxBuild>.json, default 2 at once):
+#     - a record file held open read/write (the slot; its handle is what limits the count to RunLockMaxBuild), and
+#     - a READ-ONLY handle on lock.json sharing read. Shared holders keep the same handle, so builds and shared runs
+#       coexist, while an exclusive taker (new copy, or an OLD copy of this script, which only knows lock.json) finds
+#       lock.json busy: a build excludes every exclusive hold (timed runs, benchmarks, regress, build_sdk.ps1, ...)
+#       with no change to how those take the lock. The old exclusive take also never sees build records (not slot*.json).
+#   Queue: tickets carry mode 'build' (an old copy's ticket has none = exclusive, unchanged). FIFO as before: a build
+#   never overtakes an exclusive waiter (no starvation of timed runs); a build waiter goes when no exclusive ticket is
+#   ahead and fewer than RunLockMaxBuild builds are held or ahead of it. Shared waiters count only SHARED tickets ahead
+#   of them (a queued build does not take one of their 3 slots; with no build tickets the count is exactly as before).
+#   Exclusive waiters wait while a build is held (the lock.json handle already forces it; the message names the build).
+#   A build does not occupy a game slot (it runs no game) and is not limited by the 3-game cap; like a shared run it
+#   waits for a game that no live holder started (a manual session or an orphan) to end, as exclusive and shared do.
+#   Unchanged: Exclusive and Shared callers (same functions, same files, same messages; history gains only rows with
+#   mode 'build', slot 11/12). Re-entry: a child of a build hold re-enters it (a BUILD request); a SHARED or an
+#   EXCLUSIVE request inside a build hold throws (a build runs no games; review fix).
+#   Known limit (documented, review item 6): a BUILD request inside a SHARED hold re-enters that shared slot (the shared
+#   re-entry loop runs first), so a build started by a shared-hold parent takes no build slot and the 2-build cap can be
+#   exceeded; no tool does this today (fast_build / integrate are never run inside a hold). Use:  runlock.ps1 run -Build -Name N -- CMD
+#   or  Enter-RunLock -Mode Build;  Python: ensure_lock(name, build=True).
+#
 # As a library (dot-source it):
 #   . C:\Users\Jarrod\wwe2k14-recomp\tools\runlock.ps1
 #   $h = Enter-RunLock -Name 'run_and_triage selftest' [-Mode Shared]   # waits in the queue; throws on timeout
@@ -83,6 +107,7 @@ $script:RunLockQueue = Join-Path $script:RunLockDir 'queue'
 $script:RunLockLaunchFile = Join-Path $script:RunLockDir 'launch.lock'
 $script:RunLockGameNames = @('wwe2k14')
 $script:RunLockMaxShared = 3   # THE setting: shared holders at once, and wwe2k14 processes at once in shared mode
+$script:RunLockMaxBuild = 2    # BUILD class: builds at once (see the design note); they run no game
 $script:RunLockHistoryFile = Join-Path $script:RunLockDir 'history.tsv'
 $script:RunLockHistoryColumns = @('time', 'event', 'mode', 'slot', 'name', 'pid', 'waited_s', 'held_s', 'queue', 'games', 'token', 'note')
 $script:RunLockLongHoldMinutes = 10   # hold discipline: exclusive holds longer than this get a warning (never blocked)
@@ -323,7 +348,25 @@ function Get-RunLockSlots {
         [pscustomobject]@{ Slot = $_; File = $f; Rec = $r; Live = (Test-RunLockRecHeld $r) } })
 }
 
-function Get-RunLockTicketMode($t) { if ($t -and "$($t.mode)" -eq 'shared') { 'shared' } else { 'exclusive' } }
+function Get-RunLockBuildFile([int]$Slot) { Join-Path $script:RunLockDir "build$Slot.json" }
+
+# A build slot file opened the way its holder does (read/write, others may only read). $null = held, or being taken.
+function Open-RunLockBuildSlot([int]$Slot) {
+    try { return [System.IO.File]::Open((Get-RunLockBuildFile $Slot), [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::Read) }
+    catch { return $null }
+}
+
+function Get-RunLockBuildSlots {
+    @(1..$script:RunLockMaxBuild | ForEach-Object {
+        $f = Get-RunLockBuildFile $_
+        $r = Read-RunLockJson $f
+        [pscustomobject]@{ Slot = $_; File = $f; Rec = $r; Live = (Test-RunLockRecHeld $r) } })
+}
+
+function Get-RunLockTicketMode($t) {
+    $m = if ($t) { "$($t.mode)" } else { '' }
+    if ($m -eq 'shared') { 'shared' } elseif ($m -eq 'build') { 'build' } else { 'exclusive' }
+}
 
 function Get-RunLockTickets {
     if (-not (Test-Path -LiteralPath $script:RunLockQueue)) { return @() }
@@ -335,8 +378,10 @@ function Get-RunLockState {
     $exists = Test-Path -LiteralPath $script:RunLockFile
     $lock = if ($exists) { Read-RunLockJson $script:RunLockFile } else { $null }
     $slots = Get-RunLockSlots
+    $builds = Get-RunLockBuildSlots
     [pscustomobject]@{ Lock = $lock; LockFileExists = $exists; LockAlive = (Test-RunLockOwnerAlive $lock)
         Slots = $slots; LiveSlots = @($slots | Where-Object Live)
+        BuildSlots = $builds; LiveBuilds = @($builds | Where-Object Live)
         Tickets = @(Get-RunLockTickets); Games = @(Get-RunLockGameProcs) }
 }
 
@@ -369,6 +414,18 @@ function Clear-RunLockStale([switch]$Quiet, [switch]$Lock) {
             if ($cur.Rec -and -not $cur.Live) {
                 $sf.SetLength(0); $sf.Flush($true)
                 if (-not $Quiet) { "removed stale shared slot $($n): '$($cur.Rec.name)' pid $($cur.Rec.pid) since $(Format-RunLockTime $cur.Rec.acquired)" }
+            }
+        } finally { $sf.Dispose() }
+    }
+    for ($n = 1; $n -le $script:RunLockMaxBuild; $n++) {
+        if (-not (Test-Path -LiteralPath (Get-RunLockBuildFile $n))) { continue }
+        $sf = Open-RunLockBuildSlot $n
+        if (-not $sf) { continue }
+        try {
+            $cur = Read-RunLockStream $sf
+            if ($cur.Rec -and -not $cur.Live) {
+                $sf.SetLength(0); $sf.Flush($true)
+                if (-not $Quiet) { "removed stale build slot $($n): '$($cur.Rec.name)' pid $($cur.Rec.pid) since $(Format-RunLockTime $cur.Rec.acquired)" }
             }
         } finally { $sf.Dispose() }
     }
@@ -450,7 +507,7 @@ function Exit-RunLockLaunch($Stream) { if ($Stream) { try { $Stream.Dispose() } 
 
 function Enter-RunLock {
     param([string]$Name = 'unnamed', [double]$TimeoutMinutes = 240, [int]$PollMs = 2000, [switch]$Quiet,
-          [ValidateSet('Exclusive', 'Shared')][string]$Mode = 'Exclusive')
+          [ValidateSet('Exclusive', 'Shared', 'Build')][string]$Mode = 'Exclusive')
     [void][System.IO.Directory]::CreateDirectory($script:RunLockQueue)
     $max = $script:RunLockMaxShared
     # Re-entry: an ancestor (or this process, further up the stack) holds the lock and passed its token down.
@@ -472,6 +529,19 @@ function Enter-RunLock {
                 return [pscustomobject]@{ Token = $inherited; Reentrant = $true; Name = $Name; Stream = $null; LockStream = $null; Mode = 'Shared'; Slot = $sl.Slot }
             }
         }
+        foreach ($bl in (Get-RunLockBuildSlots)) {
+            if ($bl.Rec -and $bl.Rec.token -eq $inherited -and (Test-RunLockOwnerAlive $bl.Rec)) {
+                # (Review fix: a SHARED request inside a build hold throws too - run_list / run_and_triage know only
+                # exclusive and shared holds, so a game started under a build hold would share userdata_work, skip their
+                # checks and count as unowned. A build never starts games: take a shared hold beside it instead.)
+                if ($Mode -ne 'Build') {
+                    throw "[runlock] '$Name' asks for the $($Mode.ToUpperInvariant()) lock inside build slot $($bl.Slot) held by '$($bl.Rec.name)' (pid $($bl.Rec.pid)): a build hold runs no games and cannot be shared with them. Take the $($Mode.ToLowerInvariant()) lock outside the build hold."
+                }
+                if (-not $Quiet) { Write-RunLockMsg "[runlock] re-entered build slot $($bl.Slot) held by '$($bl.Rec.name)' (pid $($bl.Rec.pid)) for '$Name'" }
+                Write-RunLockHistory -Kind 'reenter' -Mode 'build' -Slot (10 + $bl.Slot) -Name $Name -Waited 0 -Token $inherited -Note "inside '$($bl.Rec.name)' pid $($bl.Rec.pid)"
+                return [pscustomobject]@{ Token = $inherited; Reentrant = $true; Name = $Name; Stream = $null; LockStream = $null; Mode = 'Build'; Slot = $bl.Slot }
+            }
+        }
     }
     # A lock this process still holds but whose token is gone (Exit-RunLock never ran): release it, or we'd wait on it.
     $held = $global:WWE2K14RunLockHeld
@@ -480,7 +550,8 @@ function Enter-RunLock {
         Exit-RunLock $held
     }
     $shared = $Mode -eq 'Shared'
-    $modeWord = if ($shared) { 'shared' } else { 'exclusive' }
+    $build = $Mode -eq 'Build'
+    $modeWord = if ($shared) { 'shared' } elseif ($build) { 'build' } else { 'exclusive' }
     $myStart = Get-RunLockProcStart $PID
     $token = [guid]::NewGuid().ToString('N')
     $ticket = Join-Path $script:RunLockQueue ('{0:D19}_{1}.json' -f [DateTime]::UtcNow.Ticks, $PID)
@@ -503,19 +574,33 @@ function Enter-RunLock {
             $idx = [array]::IndexOf($tokens, $token)
             $ahead = if ($idx -gt 0) { @($s.Tickets[0..($idx - 1)]) } else { @() }
             $exAhead = @($ahead | Where-Object { (Get-RunLockTicketMode $_) -eq 'exclusive' })
+            $shAhead = @($ahead | Where-Object { (Get-RunLockTicketMode $_) -eq 'shared' }).Count   # shared waiters count only shared tickets ahead
+            $buAhead = @($ahead | Where-Object { (Get-RunLockTicketMode $_) -eq 'build' }).Count
             $blocked = Test-RunLockRecHeld $s.Lock
             $why = $null
             $go = $false
             if ($idx -lt 0) { $why = 'own ticket not listed yet' }
             elseif ($blocked) { $why = "exclusive lock held by '$($s.Lock.name)' (pid $($s.Lock.pid), since $(Format-RunLockTime $s.Lock.acquired))" }
+            elseif ($build) {
+                # BUILD class (design note in the header): coexists with shared holders, never next to an exclusive one.
+                if ($exAhead.Count) { $why = "an exclusive waiter is ahead ('$($exAhead[0].name)'); not overtaking it" }
+                elseif ($s.LiveBuilds.Count + $buAhead -ge $script:RunLockMaxBuild) { $why = "all $($script:RunLockMaxBuild) build slots busy or claimed by earlier tickets ($($s.LiveBuilds.Count) held)" }
+                else {
+                    $holderPids = @($s.LiveSlots | ForEach-Object { [int]$_.Rec.pid })
+                    $unowned = @(Get-RunLockUnownedGames $s.Games $holderPids)
+                    if ($unowned.Count) { $why = "wwe2k14 running that no shared holder started (pid $(($unowned | ForEach-Object Id) -join ',')): a manual session or a run that outlived its launcher; waiting for it to exit" }
+                    else { $go = $true }
+                }
+            }
             elseif (-not $shared) {
                 if ($idx -ne 0) { $why = 'waiting for earlier tickets' }
                 elseif ($s.LiveSlots.Count) { $why = "$($s.LiveSlots.Count) shared holder(s) running: " + (($s.LiveSlots | ForEach-Object { "'$($_.Rec.name)' pid $($_.Rec.pid)" }) -join ', ') }
+                elseif ($s.LiveBuilds.Count) { $why = "$($s.LiveBuilds.Count) build holder(s) running: " + (($s.LiveBuilds | ForEach-Object { "'$($_.Rec.name)' pid $($_.Rec.pid)" }) -join ', ') }
                 elseif ($s.Games.Count) { $why = "free, but wwe2k14 is running (pid $(($s.Games | ForEach-Object Id) -join ','))" }
                 else { $go = $true }
             } else {
                 if ($exAhead.Count) { $why = "an exclusive waiter is ahead ('$($exAhead[0].name)'); not overtaking it" }
-                elseif ($s.LiveSlots.Count + $idx -ge $max) { $why = "all $max shared slots busy or claimed by earlier tickets ($($s.LiveSlots.Count) held)" }
+                elseif ($s.LiveSlots.Count + $shAhead -ge $max) { $why = "all $max shared slots busy or claimed by earlier tickets ($($s.LiveSlots.Count) held)" }
                 elseif ($s.Games.Count -ge $max) { $why = "$($s.Games.Count) wwe2k14 processes running (max $max)" }
                 else {
                     # Fixer (review finding 2): a game no live shared holder started (Jarrod's own play session, a
@@ -528,7 +613,7 @@ function Enter-RunLock {
                     else { $go = $true }
                 }
             }
-            if ($go -and -not $shared) {
+            if ($go -and -not $shared -and -not $build) {
                 $fs = Open-RunLockForTake
                 if ($fs) {
                     $keep = $false; $took = $null
@@ -562,8 +647,9 @@ function Enter-RunLock {
                 $why = 'lock.json is busy (being taken or released, or a shared holder is starting/finishing)'
             } elseif ($go) {
                 $got = $null; $tookSlot = $null
-                for ($n = 1; $n -le $max -and -not $got; $n++) {
-                    $sf = Open-RunLockSlot $n
+                $nSlots = if ($build) { $script:RunLockMaxBuild } else { $max }
+                for ($n = 1; $n -le $nSlots -and -not $got; $n++) {
+                    $sf = if ($build) { Open-RunLockBuildSlot $n } else { Open-RunLockSlot $n }
                     if (-not $sf) { continue }
                     $keep = $false; $lf = $null
                     try {
@@ -578,7 +664,7 @@ function Enter-RunLock {
                         $rec.slot = $n
                         Write-RunLockStream $sf $rec
                         $keep = $true; $tookSlot = $cur.Rec
-                        $got = [pscustomobject]@{ Token = $token; Reentrant = $false; Name = $Name; Stream = $sf; LockStream = $lf; Mode = 'Shared'; Slot = $n
+                        $got = [pscustomobject]@{ Token = $token; Reentrant = $false; Name = $Name; Stream = $sf; LockStream = $lf; Mode = $(if ($build) { 'Build' } else { 'Shared' }); Slot = $n
                             AcquiredAt = (Get-Date); WaitedSeconds = ((Get-Date) - $t0).TotalSeconds }
                     } catch {
                         Write-RunLockMsg "[runlock] '$Name': could not take shared slot $n ($($_.Exception.Message)); still waiting"
@@ -594,9 +680,9 @@ function Enter-RunLock {
                     $global:WWE2K14RunLockHeld = $got
                     if (-not $Quiet) {
                         if ($tookSlot) { Write-RunLockMsg "[runlock] took over shared slot $($got.Slot) from '$($tookSlot.name)' (pid $($tookSlot.pid), gone)" }
-                        Write-RunLockMsg ("[runlock] acquired SHARED slot $($got.Slot) of $max for '$Name' after {0:N0} s" -f $got.WaitedSeconds)
+                        Write-RunLockMsg ("[runlock] acquired $($modeWord.ToUpperInvariant()) slot $($got.Slot) of $nSlots for '$Name' after {0:N0} s" -f $got.WaitedSeconds)
                     }
-                    Write-RunLockHistory -Kind 'acquire' -Mode 'shared' -Slot $got.Slot -Name $Name -Waited $got.WaitedSeconds `
+                    Write-RunLockHistory -Kind 'acquire' -Mode $modeWord -Slot $(if ($build) { 10 + $got.Slot } else { $got.Slot }) -Name $Name -Waited $got.WaitedSeconds `
                         -Queue ([Math]::Max(0, $s.Tickets.Count - 1)) -Games $s.Games.Count -Token $token `
                         -Note $(if ($tookSlot) { "took over slot from '$($tookSlot.name)' pid $($tookSlot.pid)" } else { '' })
                     return $got
@@ -624,7 +710,7 @@ function Exit-RunLock {
     param($Handle, [switch]$Report)
     if (-not $Handle -or $Handle.Reentrant) { return }
     $released = $false
-    if ("$($Handle.Mode)" -eq 'Shared') {
+    if ("$($Handle.Mode)" -in 'Shared', 'Build') {
         # Empty the slot while still holding it (an empty slot reads as free), close it, then drop the read handle on
         # lock.json. The slot file itself stays (deleting it could race a taker that has just opened it).
         if ($Handle.Stream) {
@@ -668,17 +754,18 @@ function Exit-RunLock {
     if (-not $released) { return }
     # History + hold discipline, after the lock is free (never throws).
     try {
-        $exclusive = "$($Handle.Mode)" -ne 'Shared'
+        $exclusive = "$($Handle.Mode)" -notin 'Shared', 'Build'
+        $isBuild = "$($Handle.Mode)" -eq 'Build'
         $heldS = $null
         if ($Handle.PSObject.Properties['AcquiredAt'] -and $Handle.AcquiredAt) { $heldS = ((Get-Date) - $Handle.AcquiredAt).TotalSeconds }
         $q = Get-RunLockQueueInfo
         $games = @(Get-RunLockGameProcs).Count
-        Write-RunLockHistory -Kind 'release' -Mode $(if ($exclusive) { 'exclusive' } else { 'shared' }) -Slot ([int]$Handle.Slot) `
+        Write-RunLockHistory -Kind 'release' -Mode $(if ($exclusive) { 'exclusive' } elseif ($isBuild) { 'build' } else { 'shared' }) -Slot ([int]$Handle.Slot + $(if ($isBuild) { 10 } else { 0 })) `
             -Name $Handle.Name -Held $heldS -Queue $q.Count -Games $games -Token $Handle.Token `
             -Note $(if ($q.Count) { 'oldest waiter queued {0:N0} s ago' -f $q.OldestSeconds } else { '' })
         $long = $exclusive -and $null -ne $heldS -and $heldS -gt $script:RunLockLongHoldMinutes * 60
         if ($Report -or $long) {
-            $what = if ($exclusive) { 'EXCLUSIVE' } else { "SHARED slot $($Handle.Slot)" }
+            $what = if ($exclusive) { 'EXCLUSIVE' } elseif ($isBuild) { "BUILD slot $($Handle.Slot)" } else { "SHARED slot $($Handle.Slot)" }
             $dur = if ($null -ne $heldS) { Format-RunLockDuration $heldS } else { '?' }
             $behind = if ($q.Count) { "$($q.Count) waiting in the queue at release (oldest for $(Format-RunLockDuration $q.OldestSeconds))" } else { 'nobody waiting' }
             Write-RunLockMsg "[runlock] released $what '$($Handle.Name)' after $dur; $behind"
@@ -689,7 +776,8 @@ function Exit-RunLock {
 
 function Show-RunLockStatus {
     $s = Get-RunLockState
-    $mode = if (Test-RunLockOwnerAlive $s.Lock) { 'EXCLUSIVE' } elseif ($s.LiveSlots.Count) { "SHARED ($($s.LiveSlots.Count) of $script:RunLockMaxShared slots)" } else { 'free' }
+    $mode = if (Test-RunLockOwnerAlive $s.Lock) { 'EXCLUSIVE' } elseif ($s.LiveSlots.Count) { "SHARED ($($s.LiveSlots.Count) of $script:RunLockMaxShared slots)" } elseif ($s.LiveBuilds.Count) { 'BUILD only' } else { 'free' }
+    if ($mode -ne 'EXCLUSIVE' -and $s.LiveBuilds.Count -and $s.LiveSlots.Count) { $mode += " + BUILD ($($s.LiveBuilds.Count) of $script:RunLockMaxBuild)" }
     "mode: $mode"
     if ($s.Lock) {
         $state = if ($s.LockAlive) { 'held' } else { 'STALE (owner gone; the next waiter takes it over, or run clear-stale)' }
@@ -700,6 +788,7 @@ function Show-RunLockStatus {
             "WARNING: exclusive hold running for $(Format-RunLockDuration ((Get-Date) - $since).TotalSeconds) (over $($script:RunLockLongHoldMinutes) min); $(@($s.Tickets).Count) waiting. Keep an exclusive hold to ONE timed run (docs\harness\lanes.md)"
         }
     } elseif ($s.LiveSlots.Count) { 'lock: held SHARED (see slots)' }
+    elseif ($s.LiveBuilds.Count) { 'lock: held by BUILD holder(s) only (see build slots)' }
     elseif ($s.LockFileExists) { 'lock: free (lock.json is empty or unreadable, which reads as free)' }
     else { 'lock: free' }
     "shared slots (max $script:RunLockMaxShared):"
@@ -711,6 +800,16 @@ function Show-RunLockStatus {
         }
         elseif ($sl.Rec) { "  slot$($sl.Slot): STALE '$($sl.Rec.name)' pid $($sl.Rec.pid) (owner gone; taken over by the next shared waiter)" }
         else { "  slot$($sl.Slot): free" }
+    }
+    "build slots (max $script:RunLockMaxBuild; coexist with shared holders, exclude exclusive ones):"
+    foreach ($bl in $s.BuildSlots) {
+        if ($bl.Live) {
+            $since = ConvertTo-RunLockDate $bl.Rec.acquired
+            $for = if ($since) { " (for $(Format-RunLockDuration ((Get-Date) - $since).TotalSeconds))" } else { '' }
+            "  build$($bl.Slot): '$($bl.Rec.name)' pid $($bl.Rec.pid) since $(Format-RunLockTime $bl.Rec.acquired)$for"
+        }
+        elseif ($bl.Rec) { "  build$($bl.Slot): STALE '$($bl.Rec.name)' pid $($bl.Rec.pid) (owner gone; taken over by the next build waiter)" }
+        else { "  build$($bl.Slot): free" }
     }
     "queue: $($s.Tickets.Count)"
     foreach ($t in $s.Tickets) {
@@ -782,6 +881,7 @@ function Get-RunLockHolds($Rows, [datetime]$Now) {
         $st = Get-RunLockState
         if ($st.Lock -and $st.LockAlive) { $liveRecs += [pscustomobject]@{ Rec = $st.Lock; Mode = 'exclusive'; Slot = 0 } }
         foreach ($sl in $st.LiveSlots) { $liveRecs += [pscustomobject]@{ Rec = $sl.Rec; Mode = 'shared'; Slot = $sl.Slot } }
+        foreach ($bl in $st.LiveBuilds) { $liveRecs += [pscustomobject]@{ Rec = $bl.Rec; Mode = 'build'; Slot = (10 + $bl.Slot) } }
     } catch { }
     $acquired = @{}
     foreach ($h in $holds) { $acquired[$h.Token] = $true }
@@ -986,10 +1086,10 @@ function Show-RunLockReport([datetime]$From, [datetime]$To, [int]$Top = 5, [swit
         $hFrom = if ($allRows[0].Time -gt $From) { $allRows[0].Time } else { $From }
         $hSpan = ($To - $hFrom).TotalSeconds
         $acc = Measure-RunLockTimeline @($holds | ForEach-Object { [pscustomobject]@{ Start = $_.Start; End = $_.End; Key = $_.Mode } }) $hFrom $To {
-            param($c) if ([int]$c['exclusive'] -gt 0) { 'exclusive' } elseif ([int]$c['shared'] -gt 0) { "shared $([Math]::Min(3, [int]$c['shared']))" } else { 'free' } }
+            param($c) if ([int]$c['exclusive'] -gt 0) { 'exclusive' } elseif ([int]$c['shared'] -gt 0) { "shared $([Math]::Min(3, [int]$c['shared']))" } elseif ([int]$c['build'] -gt 0) { 'build only' } else { 'free' } }
         $hist = if ($hFrom -gt $From) { "history starts $($hFrom.ToString('HH:mm:ss')), so this part covers $(Format-RunLockDuration $hSpan)" } else { 'history covers the whole window' }
         "lock holds (from history.tsv; $hist):"
-        '  time free / exclusive / shared 1 / 2 / 3: ' + (Format-RunLockShares $acc @('free', 'exclusive', 'shared 1', 'shared 2', 'shared 3') $hSpan)
+        '  time free / exclusive / shared 1 / 2 / 3 / build only: ' + (Format-RunLockShares $acc @('free', 'exclusive', 'shared 1', 'shared 2', 'shared 3', 'build only') $hSpan)
         if (-not $NoLogs) {
             # Holds against games: time the lock was held but no game ran (building, analysing, mirroring user data,
             # triage, waiting inside a hold) is lane time nobody used.
@@ -1004,9 +1104,10 @@ function Show-RunLockReport([datetime]$From, [datetime]$To, [int]$Top = 5, [swit
         }
         $wr = @($rows | Where-Object { $_.Time -ge $From })
         $est = @($winHolds | Where-Object { $_.State -like 'no release*' }).Count
-        '  {0} exclusive and {1} shared holds, {2} re-entries, {3} queue timeouts{4}' -f @($winHolds | Where-Object Mode -eq 'exclusive').Count,
+        '  {0} exclusive and {1} shared holds{5}, {2} re-entries, {3} queue timeouts{4}' -f @($winHolds | Where-Object Mode -eq 'exclusive').Count,
             @($winHolds | Where-Object Mode -eq 'shared').Count, @($wr | Where-Object Kind -eq 'reenter').Count, @($wr | Where-Object Kind -eq 'timeout').Count,
-            $(if ($est) { "; $est without a release line (end estimated)" } else { '' })
+            $(if ($est) { "; $est without a release line (end estimated)" } else { '' }),
+            $(if (@($winHolds | Where-Object Mode -eq 'build').Count) { " (+ $(@($winHolds | Where-Object Mode -eq 'build').Count) build)" } else { '' })
         # 3. Waits per tool (first word of the holder name).
         $acq = @($wr | Where-Object { $_.Kind -in 'acquire', 'timeout' })
         if ($acq.Count) {
@@ -1095,10 +1196,11 @@ if ($MyInvocation.InvocationName -ne '.' -and $args.Count -gt 0) {
                     '-TimeoutMinutes' { $timeout = [double]$args[$i + 1]; $i += 2 }
                     '-Shared' { $runMode = 'Shared'; $i += 1 }
                     '-Exclusive' { $runMode = 'Exclusive'; $i += 1 }
+                    '-Build' { $runMode = 'Build'; $i += 1 }
                     default { Write-Host "runlock run: unknown option $($args[$i])"; exit 2 }
                 }
             }
-            if ($i -ge $args.Count - 1) { Write-Host 'usage: runlock.ps1 run [-Shared] [-Name NAME] [-TimeoutMinutes M] -- CMD [ARGS...]'; exit 2 }
+            if ($i -ge $args.Count - 1) { Write-Host 'usage: runlock.ps1 run [-Shared | -Build] [-Name NAME] [-TimeoutMinutes M] -- CMD [ARGS...]'; exit 2 }
             $cmd = $args[$i + 1]; $rest = @(); if ($args.Count -gt $i + 2) { $rest = $args[($i + 2)..($args.Count - 1)] }
             # Checked before queueing: a typo shouldn't wait its turn and then "succeed".
             if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { [Console]::Error.WriteLine("runlock run: command not found: $cmd"); exit 127 }

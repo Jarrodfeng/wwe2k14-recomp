@@ -1,0 +1,15 @@
+# Session 82 (P2 builder): the segment + census log for 2 frames early in the match (+284 frames, before the combine's
+# pass key is paused for repeated submission-end losses at ~+280), to see why its submission ends before its copy.
+# Run with --wwe2k14_replay_play=s80_lb_quick + the settings file + --gpu_native_owned_frame=true
+# --gpu_native_owned_frame_log=2 --wwe2k14_native_frame=true --vsync=false. on_fail quit.
+on_fail quit
+log bench: start s82_p2_combine_log
+wait_file m3.pac 3600
+log scene=match
+wait_frames 278
+log passlog: combine
+cvar gpu_native_segment_log 2
+cvar gpu_native_truth_pass_log 2
+wait_frames 60
+log bench: done
+quit

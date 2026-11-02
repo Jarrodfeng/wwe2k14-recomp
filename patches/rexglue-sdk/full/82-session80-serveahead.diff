@@ -1,0 +1,125 @@
+# ReXGlue SDK changes for WWE 2K14 (session80-serveahead): bd5a9730eb6b..bc6a731980df on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  bc6a731 Merge s80-serveahead: the frame structure, the arena screen's pass break (Session 80 overnight) - gpu_native_truth_serve_ahead: a serve that ended an open pass is remembered (the texture; the pass's colour slot and the vertex shader of the draw that opens it) and the next time that pass opens with the carried copy pending, its source image is made readable before the pass begins - the match's scene pass is no longer split once a frame. Only barriers move; shots byte-identical (5589 vs 5590), validation 0 (5591), Opus review: no bug. Off, on under the game's arc switch
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 38b0a2cb90cb83ccb3e085f2ea0e3479c873e1be..c51e996bbf76bcae3f6944485dde2ddea835ff76 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -968,6 +968,15 @@ class NativeRenderer {
+   };
+   std::vector<ServeView> serve_views_;
+   std::vector<VkImage> serve_pending_;
++  // wwe2k14 patch (Session 80, gpu_native_truth_serve_ahead): the texture whose serve ended an open pass (its image
++  // not readable inside it), and that pass's colour slot - the next time that slot's pass opens with the texture's
++  // carried copy pending, the copy's source image is made readable before the pass begins (the pass known by its
++  // colour slot and the vertex shader of the draw that opens it: the slot's other passes are left alone).
++  struct ServeAhead {
++    const void* texture = nullptr;
++    int16_t color = -1;
++    uint64_t first_vs = 0;
++  } serve_ahead_;
+   void TruthRetireServeViews(VkImage image);
+   // (A draw that samples its own colour target's image in place of a copy: that slot was renamed when the binding was
+   // served, with an empty rectangle - every pixel to come from `source` at the next flush, exact whatever follows; the
+@@ -1702,6 +1711,7 @@ class NativeRenderer {
+     // (gpu_native_truth_serve_copies: bindings served from an image, passes ended to make one readable, served
+     // images whose draw never came - a fallback.)
+     uint32_t served = 0, serve_breaks = 0, serve_lost = 0;
++    uint32_t serve_ahead = 0;  // Session 80 (gpu_native_truth_serve_ahead): images made readable before their pass
+     // (Served from a slot's live image; draws sampling their own target, its rename widened to all of it / kept empty.)
+     uint32_t served_live = 0, serve_renames = 0, serve_renames_whole = 0, serve_renames_copied = 0;
+     uint32_t carry_fresh_sets = 0;  // (carried copies run in a later submission: a fresh destination descriptor)
+@@ -1901,6 +1911,7 @@ class NativeRenderer {
+   bool truth_pass_lazy_ = false;  // Session 56: opened with CmdVkBeginRenderPassLazy (gpu_native_truth_lazy_pass_deps)
+   uint64_t truth_lazy_free_ = 0, truth_lazy_synced_ = 0;  // Session 56: the counts at the last report
+   int16_t truth_pass_color_ = -1, truth_pass_depth_ = -1;
++  uint64_t truth_pass_first_vs_ = 0;  // Session 80 (gpu_native_truth_serve_ahead): the vertex shader that opened it
+   uint32_t truth_pass_class_ = 0, truth_pass_pitch_ = 0, truth_pass_width_ = 0, truth_pass_height_ = 0;
+   uint32_t truth_pass_segment_index_ = UINT32_MAX;
+   // The tiles the open pass's images own (kept as they draw), and the tiles of the last draw rectangle (CPU time).
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 685df01bdb3ed160f23be199ea50fca8f06970f3..efd520872325c60882ea1e74d577eeee17ecb98e 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -393,6 +393,13 @@ REXCVAR_DEFINE_BOOL(gpu_native_truth_serve_copies, false, "GPU/Native",
+                     "colour target, renamed first (the combine). A red / blue swap is undone by the view. Needs "
+                     "gpu_native_truth_exact_rows for the scene (its image 720 rows, as the copy)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_native_truth_serve_ahead, false, "GPU/Native",
++                    "Session 80 (frame structure): with gpu_native_truth_serve_copies, a serve that ended an open pass "
++                    "(its image is not readable inside a pass - the match's arena screen, mid scene pass) is "
++                    "remembered: the next time that colour slot's pass opens with the texture's carried copy pending, "
++                    "the copy's source image is made readable before the pass begins (the barrier the serve would "
++                    "have recorded, restored at the pass's end) - the serve then ends nothing. Only barriers move. Live")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_debug_serve_no_swap, false, "GPU/Native",
+                     "Session 80 (diagnostic, wrong colours on purpose): gpu_native_truth_serve_copies leaves a copy's red "
+                     "/ blue swap in place - a picture check that does not change sees no served read")
+@@ -1200,6 +1207,7 @@ void NativeRenderer::RetireTruthImage(TruthImage& t) {
+ void NativeRenderer::RetireTruthAll() {
+   serve_rename_.valid = false;  // Session 80 (gpu_native_truth_serve_copies: its slot index goes)
+   serve_pending_.clear();
++  serve_ahead_ = {};  // (Session 80, gpu_native_truth_serve_ahead)
+   TruthFlushDeferred(kDeferFlushStores);  // Session 52
+   EndTruthPass();
+   ++truth_claim_epoch_;  // Session 47
+@@ -6304,6 +6312,11 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     for (const VkImage image : serve_pending_) {
+       if (std::none_of(truth_alias_read_owners_.begin(), truth_alias_read_owners_.end(),
+                        [&](const std::pair<VkImage, bool>& o) { return o.first == image; })) {
++        // (Session 80, gpu_native_truth_serve_ahead: remembered - the texture whose carried copy this image is the
++        // source of, and the pass it ends: its colour slot and the vertex shader of the draw that opened it.)
++        for (const DeferredResolve& d : truth_deferred_) {
++          if (d.pinned && d.image == image) serve_ahead_ = {d.texture, truth_pass_color_, truth_pass_first_vs_};
++        }
+         EndTruthPass();
+         ++truth_counts_.serve_breaks;
+         break;
+@@ -6762,6 +6775,25 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+         }
+       }
+     }
++    // Session 80 (gpu_native_truth_serve_ahead): the colour slot whose pass a serve ended last time - the source image
++    // of the texture's carried copy (the last write into it, as TruthServeView finds it; a plain colour copy), never
++    // an attachment of this pass, made readable with the served ones below.
++    if (serve_ahead_.texture && serve_ahead_.color == color && serve_ahead_.first_vs == draw.vertex_shader_hash &&
++        REXCVAR_GET(gpu_native_truth_serve_ahead) && REXCVAR_GET(gpu_native_truth_serve_copies)) {
++      const DeferredResolve* e = nullptr;
++      for (const DeferredResolve& d : truth_deferred_) {
++        if (d.texture == serve_ahead_.texture) e = &d;
++      }
++      const auto attached = [&](VkImage image) {
++        return image == c_image.image || image == d_image.image || image == c_image.draw_image ||
++               image == d_image.draw_image;
++      };
++      if (e && e->pinned && e->plain && !e->depth && e->image != VK_NULL_HANDLE && !attached(e->image) &&
++          std::find(serve_pending_.begin(), serve_pending_.end(), e->image) == serve_pending_.end()) {
++        serve_pending_.push_back(e->image);
++        ++truth_counts_.serve_ahead;
++      }
++    }
+     // Session 80 (gpu_native_truth_serve_copies): the images this pass samples in place of a copy, readable until it
+     // ends (TruthRestoreAliasOwners puts them back in their attachment layout).
+     if (!serve_pending_.empty()) {
+@@ -6905,6 +6937,7 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     truth_pass_real_depth_ = d_real; truth_pass_real_color_ = c_image.base != kTruthScratchBase;
+     truth_pass_color_ = color;
+     truth_pass_depth_ = depth;
++    truth_pass_first_vs_ = draw.vertex_shader_hash;  // (Session 80, gpu_native_truth_serve_ahead)
+     truth_pass_class_ = draw.truth_class;
+     truth_pass_pitch_ = pitch;
+     truth_pass_width_ = pass_width;
+@@ -7878,9 +7911,10 @@ void NativeRenderer::LogTruthCensus() {
+       // (gpu_native_truth_serve_copies: from a slot's live image; draws sampling their own target - renamed, then
+       // written whole or the old pixels copied.)
+       REXGPU_INFO("[native][truth] served per frame: from a live image {:.2f}; own target renamed {:.2f} (written whole "
+-                  "{:.2f}, pixels copied {:.2f}); carried copies run in a later submission {:.2f}",
++                  "{:.2f}, pixels copied {:.2f}); carried copies run in a later submission {:.2f}; images made "
++                  "readable before their pass {:.2f}",
+                   pf(c.served_live), pf(c.serve_renames), pf(c.serve_renames_whole), pf(c.serve_renames_copied),
+-                  pf(c.carry_fresh_sets));
++                  pf(c.carry_fresh_sets), pf(c.serve_ahead));
+     }
+     if (c.dead_passes || c.dead_pass_kept) {  // Session 80 (gpu_native_truth_drop_dead_passes)
+       REXGPU_INFO("[native][truth] dead passes turned off per frame: {:.2f}; cleared by the next pass but kept {:.2f}",

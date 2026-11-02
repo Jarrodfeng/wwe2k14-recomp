@@ -27,6 +27,8 @@ REPO = r'C:\Users\Jarrod\wwe2k14-recomp'
 RUNLOCK_PS1 = os.path.join(REPO, 'tools', 'runlock.ps1')
 LOCK_DIR = os.path.join(REPO, 'out', 'harness', 'runlock')
 LOCK_JSON = os.path.join(LOCK_DIR, 'lock.json')   # exclusive holder; shared holders: slot<N>.json next to it
+# (Session 82: BUILD class holders: build<N>.json; they coexist with shared holders and exclude exclusive ones, see
+# the design note in tools/runlock.ps1.)
 
 _k32 = ctypes.WinDLL('kernel32', use_last_error=True)
 _k32.CreateFileW.restype = wt.HANDLE
@@ -119,9 +121,24 @@ def read_slots():
     return out
 
 
+def read_build_slots():
+    """{build slot number: record} of the BUILD holders' build<N>.json files that carry a record (live or not)."""
+    out = {}
+    try:
+        names = os.listdir(LOCK_DIR)
+    except OSError:
+        return out
+    for n in names:
+        if n.startswith('build') and n.endswith('.json') and n[5:-5].isdigit():
+            rec = _read_rec(os.path.join(LOCK_DIR, n))
+            if rec:
+                out[int(n[5:-5])] = rec
+    return out
+
+
 def held_by_us():
-    """'exclusive' or 'shared' when this process inherited the token of a live holder (exclusive lock.json, or a
-    shared slot file); '' otherwise (falsy, so old `if held_by_us():` callers keep working)."""
+    """'exclusive', 'shared' or 'build' when this process inherited the token of a live holder (exclusive lock.json,
+    a shared slot file or a build slot file); '' otherwise (falsy, so old `if held_by_us():` callers keep working)."""
     tok = os.environ.get('WWE2K14_RUNLOCK_TOKEN')
     if not tok:
         return ''
@@ -131,22 +148,28 @@ def held_by_us():
     for rec in read_slots().values():
         if rec.get('token') == tok and _owner_alive(rec):
             return 'shared'
+    for rec in read_build_slots().values():
+        if rec.get('token') == tok and _owner_alive(rec):
+            return 'build'
     return ''
 
 
-def ensure_lock(name, timeout_minutes=240, shared=False):
+# (Known limit, runlock.ps1 header: build=True inside a SHARED hold re-enters the shared slot, so the 2-build cap can be exceeded.)
+def ensure_lock(name, timeout_minutes=240, shared=False, build=False):
     held = held_by_us()
-    if held == 'exclusive' or (held == 'shared' and shared):
+    if held == 'exclusive' or (held == 'shared' and (shared or build)) or (held == 'build' and build):
         return
-    if held == 'shared':
-        sys.stderr.write('[runlock] %s needs the EXCLUSIVE run lock but runs inside a shared hold (its parent took a '
-                         'shared slot); it would wait on its own parent forever. Take the exclusive lock in the parent '
-                         '(e.g. run_list -Exclusive).\n' % name)
+    if held in ('shared', 'build'):
+        # (Review fix: a shared request inside a build hold exits too: a build runs no games.)
+        want = 'build' if build else 'shared' if shared else 'EXCLUSIVE'
+        sys.stderr.write('[runlock] %s needs the %s run lock but runs inside a %s hold (its parent took a %s slot); '
+                         'it cannot get it there (an exclusive one would wait on its own parent forever). Take the lock '
+                         'you need in the parent (e.g. run_list -Exclusive).\n' % (name, want, held, held))
         sys.exit(1)
     argv = getattr(sys, 'orig_argv', None)   # 3.10+: keeps -I / -X utf8 / -O / -m
     args = list(argv[1:]) if argv else list(sys.argv)
     cmd = ['pwsh', '-NoProfile', '-File', RUNLOCK_PS1, 'run', '-Name', name,
-           '-TimeoutMinutes', str(timeout_minutes)] + (['-Shared'] if shared else []) + ['--', sys.executable] + args
+           '-TimeoutMinutes', str(timeout_minutes)] + (['-Build'] if build else ['-Shared'] if shared else []) + ['--', sys.executable] + args
     sys.stdout.flush()
     sys.stderr.flush()
     sys.exit(subprocess.call(cmd))

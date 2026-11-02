@@ -68,7 +68,7 @@ def main():
         print('branches not merged into main (newest first): ' + ', '.join(u.strip() for u in unmerged[:5]) +
               (' ... (%d)' % len(unmerged) if len(unmerged) > 5 else ''))
     lock = run(['pwsh', '-NoProfile', '-File', os.path.join(REPO, 'tools', 'runlock.ps1'), 'status'])
-    keep = [l.strip() for l in lock.splitlines() if re.match(r'\s*(mode|lock|slot\d|queue|game processes)', l)]
+    keep = [l.strip() for l in lock.splitlines() if re.match(r'\s*(mode|lock|slot\d|build\d|queue|game processes)', l)]
     print('run lock: ' + ' | '.join(k for k in keep if 'free' not in k or k.startswith(('mode', 'lock'))))
     for build in ('win-amd64-release', 'win-amd64-coverage'):
         path, num = newest_log(build)

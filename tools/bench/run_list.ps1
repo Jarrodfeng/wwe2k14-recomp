@@ -185,7 +185,13 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     $flags = "--user_data_root=$R\out\bench\$Work --cache_root=$R\out\bench\$Work\cache --wwe2k14_timeline=true --wwe2k14_input_script=$s"
     $why = Get-RunListRealTimeReason $s "$ScriptExtra $Extra"
     if ($why) { Write-Host "[run_list] $(Split-Path $s -Leaf): normal speed ($why)" }
-    else { $flags += ' --vsync=false'; Write-Host "[run_list] $(Split-Path $s -Leaf): fast-forward (vsync off)" }
+    else {
+        $flags += ' --vsync=false'; Write-Host "[run_list] $(Split-Path $s -Leaf): fast-forward (vsync off)"
+        # Session 82 (Jarrod: each new test exe starts with sound he has to mute in the mixer): fast-forwarded runs are
+        # muted - the SDK's audio_mute only zeroes the samples handed to SDL (sdl_audio_driver.cpp ~200), the game's
+        # audio work and its timing are unchanged. Normal-speed runs (watched, audio checks) keep their sound.
+        if ("$ScriptExtra $Extra" -notmatch '(^|\s)--audio_mute=') { $flags += ' --audio_mute=true' }
+    }
     $win = Get-RunListWindowFlags $s "$ScriptExtra $Extra" $(if ($Lock.Mode -eq 'Shared') { [int]$Lock.Slot } else { 0 })
     if ($win[0]) { $flags += " $($win[0])" }
     Write-Host "[run_list] $(Split-Path $s -Leaf): window $($win[1])"

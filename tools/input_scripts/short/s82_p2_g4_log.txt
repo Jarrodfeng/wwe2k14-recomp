@@ -1,0 +1,15 @@
+# Session 82 (P2 builder, G4): the segment + census log for 6 frames from match frame +486 (about game frame 2765; the damage maps' first mip-chain passes at 2768).
+# pass key is paused for repeated submission-end losses at ~+280), to see why its submission ends before its copy.
+# Run with --wwe2k14_replay_play=s80_lb_quick + the settings file + --gpu_native_owned_frame=true
+# --gpu_native_owned_frame_log=2 --wwe2k14_native_frame=true --vsync=false. on_fail quit.
+on_fail quit
+log bench: start s82_p2_g4_log
+wait_file m3.pac 3600
+log scene=match
+wait_frames 486
+log passlog: g4
+cvar gpu_native_segment_log 6
+cvar gpu_native_truth_pass_log 6
+wait_frames 60
+log bench: done
+quit

@@ -1,0 +1,20 @@
+# harness: fast-forward ok (Session 82: in-run A/B of the lean path's multi-base + same-values (state-written draws going lean on an earlier base) - on / off every 120 frames through the match; owned frame on throughout)
+# Run with --wwe2k14_replay_play=s80_lb_quick --gpu_native_owned_frame=true --wwe2k14_timeline=true --vulkan_gpu_timestamps=true --wwe2k14_file_trace=true, -Exclusive;
+# read with py tools\native\ab_gpu.py RUN --metric busy (LOGS=<exe folder>\logs for a live_ exe). on_fail quit.
+on_fail quit
+log bench: start s82_lean_ab
+wait_file m3.pac 3600
+log scene=match
+wait_frames 120
+repeat 12
+cvar gpu_native_lean_multi_base true
+cvar gpu_native_lean_same_values true
+log ab: mode 1
+wait_frames 120
+cvar gpu_native_lean_multi_base false
+cvar gpu_native_lean_same_values false
+log ab: mode 0
+wait_frames 120
+end_repeat
+log bench: done
+quit
