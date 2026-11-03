@@ -9,8 +9,10 @@
 //     ring at random, stores a reason (2 / 3 / 4) at its +68 and calls sub_8259B1E8(wrestler, 0), which re-checks
 //     sub_825999F8 and calls the trigger sub_8259A5A0(manager, wrestler).
 // Settings:
-//   --wwe2k14_runin=true        sub_825999F8 returns 1 (logged once): the manager is created in any match and triggers
-//                               are allowed. UNSAFE outside simple 1v1s (the game's own condition excludes Rumbles etc.).
+//   --wwe2k14_runin=true        sub_825999F8 is re-checked with G+32 set (logged once): the manager is created in every
+//                               match the game's own simple-match rules allow (1v1 exhibitions; not Rumbles etc.).
+//                               Session 83 (GitHub #92): forcing the whole answer to 1, as before, put the manager into
+//                               a 20-man Rumble, and every finisher / signature / running move froze both wrestlers.
 //   F9 / cvar wwe2k14_runin_now 1  (hotkey / script) at the next frame, call the game's trigger sub_8259B1E8(wrestler, 0)
 //                               for the wrestler in slot --wwe2k14_runin_target (default -1 = a wrestler the trigger's
 //                               team check accepts: engaged with an opponent of another team, else one not on team 0);
@@ -57,8 +59,9 @@
 #include "replay.h"            // run-in events in recordings (Session 17)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_runin, false, "wwe2k14",
-                    "Run-ins (Session 16 experiment): force the game's run-in enable check (sub_825999F8) to pass, so "
-                    "its interference manager exists in any match. Unsafe outside simple 1v1s. See src/runin.h");
+                    "Run-ins (Session 16 experiment): turn on the game's run-in setting for its enable check "
+                    "(sub_825999F8), so its interference manager exists in every match the game's own rules allow "
+                    "(simple 1v1s, not Rumbles). See src/runin.h");
 REXCVAR_DEFINE_INT32(wwe2k14_runin_now, 0, "wwe2k14",
                      "Run-ins: set to 1 (cvar in a script) to call the game's trigger once at the next frame");
 REXCVAR_DEFINE_INT32(wwe2k14_runin_char, -1, "wwe2k14",
@@ -88,6 +91,8 @@ REX_EXTERN(sub_8259B1E8);
 namespace wwe2k14::runin {
 
 constexpr uint32_t kManagerPtr = 0x83763B58;
+// G+32, the byte sub_825999F8 reads as `lbz r11,32(r3)` (G from sub_827D7578; address Session 16 item 9).
+constexpr uint32_t kRuninSettingAddr = 0x8376AB14;
 constexpr uint32_t kSlotTable = 0x836F38D0;
 inline std::atomic<bool> g_forced_logged{false};
 inline void (*g_prev_hook)(uint64_t) = nullptr;
@@ -297,19 +302,27 @@ inline void Install() {
   g_prev_hook = wwe2k14::g_vdswap_hook;
   wwe2k14::g_vdswap_hook = &OnSwap;
   replay::g_event_handlers.push_back(&OnReplayEvent);  // "runin ..." lines of a recording being played
-  REXLOG_INFO("[wwe2k14][runin] run-in experiment armed: enable check forced, trigger with `cvar wwe2k14_runin_now 1`");
+  REXLOG_INFO("[wwe2k14][runin] run-in experiment armed: run-in setting on where the game's rules allow it, trigger with `cvar wwe2k14_runin_now 1`");
 }
 
 }  // namespace wwe2k14::runin
 
-// The game's run-in enable check (see the header): forced to 1 with --wwe2k14_runin.
+// The game's run-in enable check (see the header). With --wwe2k14_runin only its settings byte G+32 is set, for one
+// re-check: the game's own simple-match rules still decide (Session 83, GitHub #92: forcing the whole answer to 1 put a
+// run-in manager into a 20-man Rumble, and every finisher / signature there froze both wrestlers for good).
 REX_HOOK_RAW(sub_825999F8) {
+  const PPCContext entry = ctx;
   __imp__sub_825999F8(ctx, base);
-  if (REXCVAR_GET(wwe2k14_runin) && ctx.r3.u32 == 0) {
-    ctx.r3.u64 = 1;
-    if (!wwe2k14::runin::g_forced_logged.exchange(true))
-      REXLOG_INFO("[wwe2k14][runin] enable check sub_825999F8 forced to 1 (frame {})", wwe2k14::g_guest_frame.load());
-  }
+  if (!REXCVAR_GET(wwe2k14_runin) || ctx.r3.u32 != 0 || base[wwe2k14::runin::kRuninSettingAddr] != 0) return;
+  const uint64_t lr = ctx.lr;
+  ctx = entry;
+  base[wwe2k14::runin::kRuninSettingAddr] = 1;
+  __imp__sub_825999F8(ctx, base);
+  base[wwe2k14::runin::kRuninSettingAddr] = 0;
+  ctx.lr = lr;
+  if (!wwe2k14::runin::g_forced_logged.exchange(true))
+    REXLOG_INFO("[wwe2k14][runin] enable check sub_825999F8 with the run-in setting on: {} (frame {}{})", ctx.r3.u32,
+                wwe2k14::g_guest_frame.load(), ctx.r3.u32 ? "" : ", the game's rules exclude this match");
 }
 
 // --wwe2k14_runin_probe (Session 17, Track 2 diagnosis): who calls the run-in functions, with what.

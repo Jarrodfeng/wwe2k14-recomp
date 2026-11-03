@@ -4131,7 +4131,7 @@ class App {
     ImGui::Dummy(ImVec2(0, 8 * Dpi()));
     SubHeading("IN THE GAME");
     OptionToggle("CINECAM", s.cinecam, true, "Free camera: F8 in a match.");
-    OptionToggle("RUN-INS", s.runin, true, "F9 in a match: another wrestler interferes (experimental).");
+    OptionToggle("RUN-INS", s.runin, true, "F9 in a 1-on-1 match: another wrestler interferes (experimental).");
     OptionToggle("PHOTO MODE", s.photo_mode, true,
                  "F10 (or both sticks clicked, held) in a match: the scene nearly stops, a free camera, no HUD, depth "
                  "of field; A / Enter saves a PNG to Pictures\\WWE 2K14.");
@@ -4269,15 +4269,18 @@ class App {
   // appears only when it was picked in the game's menu.
   void FrameRateRow(Settings& t) {
     // Session 37: "30" (frame_rate 3) for weak PCs, after UNCAPPED; CLASSIC (0) last when it was picked in the game.
-    std::vector<const char*> names{"60", "120", "UNCAPPED", "30"};
+    // Session 83 (Jarrod: re-label it): 30 runs matches in a mode the game only used for entrances (#63: no Rumble bell /
+    // intro); EXPERIMENTAL until matches keep 60 updates and only draw every other frame (PLAYBOOK ideas).
+    std::vector<const char*> names{"60", "120", "UNCAPPED", "30 (EXPERIMENTAL)"};
     int fi = t.frame_rate == 2 ? (t.refresh_hz == 120 ? 1 : 2) : t.frame_rate == 3 ? 3 : 0;
     if (t.frame_rate == 0) names.push_back("CLASSIC"), fi = 4;
     const int hz = hw_.refresh_hz;
     std::string note = fi == 0   ? "Entrances and matches at 60."
                        : fi == 1 ? "Entrances and matches at 120."
                        : fi == 2 ? "Matches at your monitor's rate (" + std::to_string(hz) + " Hz), entrances at up to 120."
-                       : fi == 3 ? "Entrances and matches at 30, for weaker PCs (below 60 the game would run in slow "
-                                   "motion). The match timer counts at half rate."
+                       : fi == 3 ? "Experimental, for weaker PCs: entrances and matches at 30. The game was made for 60 "
+                                   "in matches, so some match timings can be off (the match timer counts at half rate, "
+                                   "get-ups take longer). Use 60 if anything looks or sounds wrong."
                                  : "Entrances at 30, matches at 60 (picked in the game's own menu).";
     if ((fi == 1 || fi == 2) && hz <= 60) note += " Your monitor runs at " + std::to_string(hz) + " Hz: this needs a faster one.";
     if (OptionRow("FRAME RATE", fi, names.data(), int(names.size()), true, note.c_str())) {

@@ -1,0 +1,227 @@
+# ReXGlue SDK changes for WWE 2K14 (session83-bugs): a0ff9cf71b48..ded47622450c on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  ded4762 wwe2k14 Session 83 (MNK): opposite stick keys - the newest wins instead of cancelling to centre; taps between polls count once (GitHub #77 ladder minigame on keyboard)
+#  b2991f8 wwe2k14 Session 83 (WIDE): gpu_wide_post_vs - full-screen passes after the post chain marker (30 Years old-footage filter) are not squeezed as HUD (GitHub #69/#98)
+
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 50877ec8fd311114e5fd49470db457cbb2890a97..e485deb8de11b8b4616a1d0ada9be9f1458ddf56 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -1548,6 +1548,10 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool wide_menu_frame_ = false;  // Session 33 (WIDE): the previous frame had no scene depth resolve (a menu)
+   uint64_t hide_hud_vs_ = 0;
+   std::string hide_hud_vs_text_;
++  // Session 83 (WIDE): gpu_wide_post_vs, full-screen passes after the post chain's marker left unsqueezed.
++  bool IsWidePostVs(uint64_t vs_hash);
++  std::vector<uint64_t> wide_post_vs_;
++  std::string wide_post_vs_text_;
+   // Inside the swap's refresh callback, after the gamma pass wrote dlss_in_: DLSS (if this frame has its inputs) and
+   // the composite into `guest_output_view` (GENERAL).
+   void DlssRecord(VkImageView guest_output_view, uint32_t width, uint32_t height, uint32_t out_width,
+diff --git a/include/rex/input/mnk/mnk_input_driver.h b/include/rex/input/mnk/mnk_input_driver.h
+index c8751b7b10677fe595864f4d4749197224f1cacd..ccc683f460606a5702131db3fe5423bc39fc397f 100644
+--- a/include/rex/input/mnk/mnk_input_driver.h
++++ b/include/rex/input/mnk/mnk_input_driver.h
+@@ -75,6 +75,10 @@ class MnkInputDriver final : public InputDriver,
+ 
+   std::mutex state_mutex_;
+   bool key_down_[256] = {};
++  // wwe2k14 patch (Session 83): press order (newest of two opposite stick keys wins) and taps since the last poll.
++  uint32_t key_press_seq_[256] = {};
++  uint32_t key_press_counter_ = 0;
++  bool key_tapped_[256] = {};
+ 
+   // Mouse delta tracking. Fractional because relative motion arrives in
+   // fractions of a pixel, and truncating each event drops slow movement.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 902d568f8387577fac8866278dd077db1b2a0522..e1631ec32d4d94018526fdfe9f6ef7317f245289 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -316,6 +316,10 @@ REXCVAR_DEFINE_DOUBLE(gpu_tall_factor, 1.0, "GPU",
+                       "Screens taller than 16:9 (anamorphic Vert+): the same draws as gpu_wide_factor get clip-space "
+                       "y / this factor (the scene shows this much more vertically, the HUD is squeezed by as much, the "
+                       "presenter's stretch brings both back). (16/9) / window aspect; 1 = off");
++REXCVAR_DEFINE_STRING(gpu_wide_post_vs, "1456901233B6564C,032E8FAC979E01DA", "GPU",
++                      "Session 83: vertex shader hashes (comma-separated) of full-screen passes drawn after the post "
++                      "chain's last pass (gpu_dlss_hud_after_vs) that gpu_wide_factor / gpu_tall_factor leave alone "
++                      "(2K14: the 30 Years of WrestleMania old-footage filter); empty = every such draw squeezed as HUD");
+ REXCVAR_DEFINE_INT32(gpu_wide_min_width, 1200, "GPU",
+                      "Session 73: gpu_wide_factor / gpu_tall_factor squeeze scene draws at least this many guest pixels "
+                      "wide (the screen's passes; the game's 1040-wide skin texture passes stay as they are). Was "
+@@ -5356,6 +5360,21 @@ static void FsrEvaluateCallback(VkCommandBuffer command_buffer, const void* data
+ // wwe2k14 patch (Session 61): after a draw is recorded - the DLSS pre-HUD snapshot (Session 24) and the hide-HUD /
+ // wide detection (Session 33) of the post chain's last pass. IssueDraw and (Session 61: truth frames take that pass
+ // through it) IssueDrawLean both call it.
++// wwe2k14 patch (Session 83, WIDE): one of gpu_wide_post_vs (parsed again only when the setting changes).
++bool VulkanCommandProcessor::IsWidePostVs(uint64_t vs_hash) {
++  const std::string text = REXCVAR_GET(gpu_wide_post_vs);
++  if (text != wide_post_vs_text_) {
++    wide_post_vs_text_ = text;
++    wide_post_vs_.clear();
++    for (size_t pos = 0; pos < text.size();) {
++      const size_t comma = std::min(text.find(',', pos), text.size());
++      if (const uint64_t h = std::strtoull(text.substr(pos, comma - pos).c_str(), nullptr, 16)) wide_post_vs_.push_back(h);
++      pos = comma + 1;
++    }
++  }
++  return std::find(wide_post_vs_.begin(), wide_post_vs_.end(), vs_hash) != wide_post_vs_.end();
++}
++
+ void VulkanCommandProcessor::AfterPostChainCheck(const Shader& vertex_shader) {
+   if (REXCVAR_GET(gpu_dlss)) {  // wwe2k14 patch (Session 24, DLSS): the picture before the HUD
+     DlssMaybeSnapshot(vertex_shader);
+@@ -10484,8 +10503,13 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     // are left alone (attempt 2, run 2527: squeezing them left the sides stale).
+     const auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
+     const bool screen_space = prim_type == xenos::PrimitiveType::kRectangleList || !vte.vport_x_scale_ena;
++    // Session 83 (GitHub #69 / #98): full-screen passes the game draws after the post chain's marker (the 30 Years
++    // old-footage filter: a screen copy read back by 33B6564C, then the 979E01DA quad) are not HUD: squeezed, they
++    // left the sides unfiltered and drew a second, offset copy of the picture.
++    const bool post_after_marker = hide_hud_after_pass_ && vertex_shader && IsWidePostVs(vertex_shader->ucode_data_hash());
+     // A frame after one without a scene depth resolve is a menu (2D only): all of it is squeezed (a centred 16:9).
+-    if ((scene && !screen_space) || hide_hud_after_pass_ || wide_menu_frame_ || REXCVAR_GET(gpu_wide_all)) {
++    if ((scene && !screen_space) || (hide_hud_after_pass_ && !post_after_marker) || wide_menu_frame_ ||
++        REXCVAR_GET(gpu_wide_all)) {
+       if (wide > 1.001f && wide < 8.0f) {
+         viewport_info.ndc_scale[0] /= wide;
+         viewport_info.ndc_offset[0] /= wide;
+diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
+index 3f9422dd46ddbf6e32d163cd54cacf2ef7908ca7..078c6a6640757be0c14f66e4b812dfb2e9b1b7c4 100644
+--- a/src/input/mnk/mnk_input_driver.cpp
++++ b/src/input/mnk/mnk_input_driver.cpp
+@@ -122,6 +122,20 @@ std::string_view TrimSpaces(std::string_view s) {
+   return s;
+ }
+ 
++// wwe2k14 patch (Session 83): the newest press (key_press_seq_) among a bind's keys that are down now; 0 = none.
++uint32_t BindPressSeq(const bool (&key_down)[256], const uint32_t (&seq)[256], std::string_view rest) {
++  uint32_t newest = 0;
++  while (!rest.empty()) {
++    const size_t comma = rest.find(',');
++    std::string_view token = TrimSpaces(rest.substr(0, comma));
++    rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
++    TakeModifiers(token);
++    const auto idx = static_cast<uint16_t>(rex::ui::ParseVirtualKey(token));
++    if (idx != 0 && idx < 256 && key_down[idx]) newest = std::max(newest, seq[idx]);
++  }
++  return newest;
++}
++
+ bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
+   uint8_t want = TakeModifiers(token);
+   if (want != live_mods) {
+@@ -274,62 +288,62 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+ 
+   std::lock_guard lock(state_mutex_);
+ 
++  // wwe2k14 patch (Session 83, GitHub #77): a key counts if it is down now or went down since the last poll (a quick
++  // tap between two of the game's polls was lost), then the tap marks are cleared.
++  bool seen[256];
++  for (int i = 0; i < 256; ++i) seen[i] = key_down_[i] || key_tapped_[i];
++  std::memset(key_tapped_, 0, sizeof(key_tapped_));
++
+   uint16_t buttons = 0;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_a)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_a)))
+     buttons |= X_INPUT_GAMEPAD_A;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_b)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_b)))
+     buttons |= X_INPUT_GAMEPAD_B;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_x)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_x)))
+     buttons |= X_INPUT_GAMEPAD_X;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_y)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_y)))
+     buttons |= X_INPUT_GAMEPAD_Y;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_left_shoulder)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_left_shoulder)))
+     buttons |= X_INPUT_GAMEPAD_LEFT_SHOULDER;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_right_shoulder)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_right_shoulder)))
+     buttons |= X_INPUT_GAMEPAD_RIGHT_SHOULDER;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_press)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_lstick_press)))
+     buttons |= X_INPUT_GAMEPAD_LEFT_THUMB;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_press)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_rstick_press)))
+     buttons |= X_INPUT_GAMEPAD_RIGHT_THUMB;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_back)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_back)))
+     buttons |= X_INPUT_GAMEPAD_BACK;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_start)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_start)))
+     buttons |= X_INPUT_GAMEPAD_START;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_guide)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_guide)))
+     buttons |= X_INPUT_GAMEPAD_GUIDE;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_up)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_dpad_up)))
+     buttons |= X_INPUT_GAMEPAD_DPAD_UP;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_down)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_dpad_down)))
+     buttons |= X_INPUT_GAMEPAD_DPAD_DOWN;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_left)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_dpad_left)))
+     buttons |= X_INPUT_GAMEPAD_DPAD_LEFT;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_right)))
++  if (IsBindPressed(seen, REXCVAR_GET(keybind_dpad_right)))
+     buttons |= X_INPUT_GAMEPAD_DPAD_RIGHT;
+ 
+-  uint8_t lt = IsBindPressed(key_down_, REXCVAR_GET(keybind_left_trigger)) ? 0xFF : 0;
+-  uint8_t rt = IsBindPressed(key_down_, REXCVAR_GET(keybind_right_trigger)) ? 0xFF : 0;
+-
+-  int32_t lx = 0;
+-  int32_t ly = 0;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_left)))
+-    lx -= INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_right)))
+-    lx += INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_up)))
+-    ly += INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_down)))
+-    ly -= INT16_MAX;
+-
+-  int32_t rx = 0;
+-  int32_t ry = 0;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_left)))
+-    rx -= INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_right)))
+-    rx += INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_up)))
+-    ry += INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_down)))
+-    ry -= INT16_MAX;
++  uint8_t lt = IsBindPressed(seen, REXCVAR_GET(keybind_left_trigger)) ? 0xFF : 0;
++  uint8_t rt = IsBindPressed(seen, REXCVAR_GET(keybind_right_trigger)) ? 0xFF : 0;
++
++  // wwe2k14 patch (Session 83, GitHub #77): two opposite keys of a stick no longer cancel to the centre: the one pressed
++  // last wins, as a real stick goes straight from up to down (a quick up-then-down on the keyboard overlapped for a
++  // moment and read as "centre", which the ladder's up / down minigame may not accept).
++  auto axis = [&](const std::string& neg_bind, const std::string& pos_bind) -> int32_t {
++    const bool neg = IsBindPressed(seen, neg_bind), pos = IsBindPressed(seen, pos_bind);
++    if (neg && pos) {
++      return BindPressSeq(seen, key_press_seq_, neg_bind) > BindPressSeq(seen, key_press_seq_, pos_bind) ? -INT16_MAX
++                                                                                                           : INT16_MAX;
++    }
++    return neg ? -INT16_MAX : pos ? INT16_MAX : 0;
++  };
++  int32_t lx = axis(REXCVAR_GET(keybind_lstick_left), REXCVAR_GET(keybind_lstick_right));
++  int32_t ly = axis(REXCVAR_GET(keybind_lstick_down), REXCVAR_GET(keybind_lstick_up));
++  int32_t rx = axis(REXCVAR_GET(keybind_rstick_left), REXCVAR_GET(keybind_rstick_right));
++  int32_t ry = axis(REXCVAR_GET(keybind_rstick_down), REXCVAR_GET(keybind_rstick_up));
+ 
+   if (REXCVAR_GET(mnk_mouse) && IsMouseLookActive()) {
+     double sensitivity = REXCVAR_GET(mnk_sensitivity);
+@@ -476,6 +490,12 @@ void MnkInputDriver::RecenterCursorFromUIThread(int32_t x, int32_t y) {
+ 
+ void MnkInputDriver::SetKeyState(uint16_t vk, bool down) {
+   if (vk < 256) {
++    // wwe2k14 patch (Session 83, GitHub #77): remember when each key went down (the newest of two opposite stick keys
++    // wins) and that it went down at all (a tap released before the game's next poll still counts once).
++    if (down && !key_down_[vk]) {
++      key_press_seq_[vk] = ++key_press_counter_;
++      key_tapped_[vk] = true;
++    }
+     key_down_[vk] = down;
+   }
+ }

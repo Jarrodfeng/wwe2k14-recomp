@@ -1,0 +1,44 @@
+# Session 83 (GitHub #77): which stick fills the game's per-frame input record (byte 0 = the direction the ladder belt
+# catch decodes, sub_8260EA68). Quick 1v1, the script is player 1's pad; traces the record setter sub_8241DAB0 (r4 =
+# the 4-byte record) while it holds neutral / left stick down / right stick down / right stick up. Coverage build.
+# Use with: --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=343:0,324
+#   --wwe2k14_launch_skip_entrances=true. set = buttons LT RT LX LY RX RY.
+on_fail quit
+log s83: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+set 0x0000 0 0 0 0 0 0
+wait_file M3.PAC 36000
+wait_state match_clock !=0 3600 2 optional
+wait_frames 240
+cvar wwe2k14_trace 0x8241DAB0/600*r4
+log s83: phase neutral
+set 0x0000 0 0 0 0 0 0
+wait_frames 20
+log s83: phase left stick down
+set 0x0000 0 0 0 -32767 0 0
+wait_frames 20
+log s83: phase neutral 2
+set 0x0000 0 0 0 0 0 0
+wait_frames 20
+log s83: phase right stick down
+set 0x0000 0 0 0 0 0 -32767
+wait_frames 20
+log s83: phase neutral 3
+set 0x0000 0 0 0 0 0 0
+wait_frames 20
+log s83: phase right stick up
+set 0x0000 0 0 0 0 0 32767
+wait_frames 20
+log s83: phase end
+set 0x0000 0 0 0 0 0 0
+wait_frames 20
+quit

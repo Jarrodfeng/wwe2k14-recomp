@@ -148,8 +148,16 @@ REXCVAR_DEFINE_INT32(wwe2k14_android_pin_cpu, -1, "wwe2k14",
                      "Session 63 (Android, diagnosis): run the game on this CPU core only (-1 = off)");
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_mount_cache, false, "wwe2k14",
-                    "Mount <user data>/cache_partition as the Xbox 360 HDD cache partition (cache:)");
+// Session 83 (GitHub #61 / #80): default on. MATCH HIGHLIGHTS needs it: sub_8260AC58 checks cache:\ for 157 MB free
+// (2400 x 64 KB), creates cache:\Spectacular.rps at that size and only then sets the replay flag 0x83767CF8; without
+// cache: the post-match menu's MATCH HIGHLIGHTS was off in every build. The game also creates CAR.cac / EditEx.cac.
+REXCVAR_DEFINE_BOOL(wwe2k14_present_mailbox, false, "wwe2k14",
+                    "Session 83 (GitHub #79): with vsync on, present MAILBOX instead of the SDK's IMMEDIATE (no tearing "
+                    "on screens without G-SYNC / FreeSync). Off by default: it made entrances choppier in the v0.2.17 "
+                    "release check");
+REXCVAR_DEFINE_BOOL(wwe2k14_mount_cache, true, "wwe2k14",
+                    "Mount <user data>/cache_partition as the Xbox 360 HDD cache partition (cache:); MATCH HIGHLIGHTS "
+                    "needs it (the game keeps its replay file there)");
 
 class Wwe2k14App : public rex::ReXApp {
  public:
@@ -541,6 +549,20 @@ class Wwe2k14App : public rex::ReXApp {
         if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
       }
     }
+    // Session 83 (GitHub #79, an Intel Iris Xe laptop at 60 Hz: tearing in matches): the SDK presents IMMEDIATE when
+    // the driver offers it (for variable refresh), so every screen without G-SYNC / FreeSync tore. With vsync on (every
+    // player's default) mailbox instead: every frame shown, no tearing, no wait (Session 22 at 165 Hz, Jarrod: "no
+    // tearing, exceptionally smooth"). vsync off (fast-forwarded test runs) keeps immediate. Only if left at default.
+    // v0.2.17 release check (2026-11-03, Jarrod: "Ship without it"): MAILBOX made entrances choppier on the PC (frames
+    // over 20 ms 128 / 285 vs 32 / 33 with IMMEDIATE, release.ps1 entrance check, build logs 026 / 027): off by default
+    // (--wwe2k14_present_mailbox) until that is fixed.
+    if (REXCVAR_GET(wwe2k14_present_mailbox)) {
+      const std::string vsync = rex::cvar::GetFlagByName("vsync");
+      if (vsync != "false" && vsync != "0" &&
+          rex::cvar::GetFlagSource("vulkan_allow_present_mode_immediate") == rex::cvar::Source::kDefault) {
+        rex::cvar::SetFlagByName("vulkan_allow_present_mode_immediate", "false");
+      }
+    }
     // Session 31: vulkan_device = the dedicated GPU (or --wwe2k14_gpu), if not set (after the plugin registered it).
     if (REXCVAR_GET(wwe2k14_gpu_backend) != "d3d12") wwe2k14::gpu_pick::Choose();
     wwe2k14::intel_exact_mul::Configure();  // Session 76: an Intel tester's black eyes in entrances (unconfirmed cause)
@@ -763,7 +785,14 @@ class Wwe2k14App : public rex::ReXApp {
     std::error_code ec;
     std::filesystem::create_directories(host_path, ec);
     auto* file_system = runtime()->file_system();
-    auto device = std::make_unique<rex::filesystem::HostPathDevice>(kMountPath, host_path, false);
+    // Session 83: a host folder reports a 64 MB volume (128 K units of 512 bytes, host_path_device.h), under the 157 MB
+    // free that MATCH HIGHLIGHTS checks for before it creates cache:\Spectacular.rps; report a 2 GB one like the 360's.
+    struct CacheDevice : rex::filesystem::HostPathDevice {
+      using HostPathDevice::HostPathDevice;
+      uint32_t total_allocation_units() const override { return 4 * 1024 * 1024; }
+      uint32_t available_allocation_units() const override { return 4 * 1024 * 1024; }
+    };
+    auto device = std::make_unique<CacheDevice>(kMountPath, host_path, false);
     if (!device->Initialize() || !file_system->RegisterDevice(std::move(device)) ||
         !file_system->RegisterSymbolicLink("cache:", kMountPath)) {
       REXLOG_WARN("[wwe2k14] failed to mount cache: at {}", host_path.string());

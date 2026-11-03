@@ -118,13 +118,23 @@ inline int32_t ActiveHz() {
   return n;
 }
 
+// Session 83 (GitHub #63): the update rate when the frame-rate word deliberately says something else; 0 = the word is
+// the rate. Step 30 in a match (FRAME RATE 30) keeps the word at the game's 60: the game reads a word of 30 as "an
+// entrance / cinematic" (the only time the 360 ran at 30) and takes those paths in the match - `sub_8250CFA8` picks
+// another parameter set and the Royal Rumble's ring bell and ring announcer intro never play (runs 5763, 061-064).
+// The time fields still step 1/30 s, and the guest vblank runs at 30 Hz instead of the word's present interval 2.
+inline std::atomic<uint32_t> g_effective_rate{0};
+inline std::atomic<bool> g_keep_word_vblank_set{false};
+
 // Writes the fields for game word g scaled to step rate hz (hz 0 = unscaled, the game's own values for 25-60).
 inline void WriteFields(uint8_t* base, uint32_t g, int32_t hz) {
   if (g == 0) return;
   uint32_t s = hz ? uint32_t((uint64_t(g) * uint32_t(hz) + 30) / 60) : g;
   if (s < 25) s = g;  // e.g. a stock 30 fps entrance at step 30 would be 15: not a rate the game knows
+  const bool keep_word = hz == 30 && g == 60 && s == 30;
+  g_effective_rate.store(keep_word ? s : 0, std::memory_order_relaxed);
   const float rate = float(s);
-  StoreU32(base, kWord, s);
+  StoreU32(base, kWord, keep_word ? g : s);
   StoreF32(base, kBlock + 0x1C, 1.0f / rate);
   StoreF32(base, kBlock + 0x20, rate);
   StoreF32(base, kBlock + 0x24, 1000.0f / rate);
@@ -136,7 +146,19 @@ inline void WriteFields(uint8_t* base, uint32_t g, int32_t hz) {
 // With --wwe2k14_step_vblank: the guest vblank follows the update rate. The present interval is 1 at any scaled word
 // >= 60, so one update per vblank: vblank rate = scaled rate (0 = the video mode's rate while held or off).
 inline void ApplyVblank(uint32_t g, int32_t hz) {
-  if (!REXCVAR_GET(wwe2k14_step_vblank)) return;
+  // Session 83: step 30 with the word kept at 60 always needs the 30 Hz vblank (present interval 1 at word 60).
+  if (const uint32_t keep = g_effective_rate.load(std::memory_order_relaxed)) {
+    rex::cvar::SetFlagByName("gpu_vblank_rate_override_hz", std::to_string(keep));
+    g_keep_word_vblank_set.store(true, std::memory_order_relaxed);
+    return;
+  }
+  if (!REXCVAR_GET(wwe2k14_step_vblank)) {
+    if (g_keep_word_vblank_set.exchange(false, std::memory_order_relaxed)) {
+      rex::cvar::SetFlagByName("gpu_vblank_rate_override_hz", "0");  // only the rate this code set
+    }
+    return;
+  }
+  g_keep_word_vblank_set.store(false, std::memory_order_relaxed);
   const uint32_t s = hz ? uint32_t((uint64_t(g) * uint32_t(hz) + 30) / 60) : 0;
   rex::cvar::SetFlagByName("gpu_vblank_rate_override_hz", std::to_string(s));
 }
@@ -159,6 +181,7 @@ inline void Wrap(F Original, PPCContext& ctx, uint8_t* base) {
   }
   g_game_word.store(g2, std::memory_order_relaxed);
   if (hz) WriteFields(base, g2, hz);
+  else g_effective_rate.store(0, std::memory_order_relaxed);  // Session 83: the game's own word and rate again
   if (g2 != g || hz != g_applied_hz.load(std::memory_order_relaxed)) ApplyVblank(g2, hz);
   g_applied_hz.store(hz, std::memory_order_relaxed);
 }
@@ -173,7 +196,9 @@ inline void SyncDetTime(uint8_t* base) {
   if (!rex::det::Enabled() || !REXCVAR_GET(wwe2k14_replay_time_follows_step)) return;
   const uint32_t w = LoadU32(base, kWord);
   if (w < 25 || w > 1000) return;  // block not set up yet
-  const int32_t hz = (w == 30 || w == 25) ? int32_t(2 * w) : int32_t(w);
+  // Session 83: with the word kept at 60 for step 30 each frame is one 30 Hz vblank (present interval 1).
+  const uint32_t keep = g_effective_rate.load(std::memory_order_relaxed);
+  const int32_t hz = keep ? int32_t(keep) : (w == 30 || w == 25) ? int32_t(2 * w) : int32_t(w);
   if (hz == g_det_time_hz) return;
   g_det_time_hz = hz;
   rex::cvar::SetFlagByName("det_frames_time_hz", std::to_string(hz));
@@ -214,7 +239,9 @@ inline void OnFrameInner(uint8_t* base, uint64_t frame);
 inline void OnFrame(uint8_t* base, uint64_t frame) {
   OnFrameInner(base, frame);
   // Session 73 (frame_word.h): the frame-rate word for the code that judges frame times; each change logged.
-  const uint32_t word = LoadU32(base, kWord);
+  // Session 83: the real update rate when the word is kept at 60 for step 30 (a 33 ms frame is on time there).
+  const uint32_t keep = g_effective_rate.load(std::memory_order_relaxed);
+  const uint32_t word = keep ? keep : LoadU32(base, kWord);
   if (g_frame_word.exchange(word, std::memory_order_relaxed) != word && word >= 25 && word <= 1000) {
     REXLOG_INFO("[wwe2k14][step] frame-rate word {} at frame {} (frame budget {:.1f} ms)", word, frame,
                 1000.0 / double(word));
@@ -245,6 +272,18 @@ inline void OnFrameInner(uint8_t* base, uint64_t frame) {
 }
 
 }  // namespace wwe2k14::step_rate
+
+// Session 83 (GitHub #63, config/timing_hooks.toml): sub_82AB6268's timed cue fires only when now == target, and at
+// step 30 (word kept at 60, each update 2 units) now can jump over the target. Here "reached this update" counts as
+// equal: 0 <= now - target < units per update (2 at step 30). At the game's own rates the window is 1 = the original
+// test, so nothing changes there. r11 (now) is reloaded right after the compare on both paths.
+void wwe2k14_timed_cue_reach(PPCRegister& r9, PPCRegister& r11) {
+  const uint32_t keep = wwe2k14::step_rate::g_effective_rate.load(std::memory_order_relaxed);
+  if (keep == 0 || keep >= 60) return;
+  const uint32_t units = (60 + keep - 1) / keep;  // 2 at 30
+  const uint32_t target = r9.u32, now = r11.u32;
+  if (now != target && now > target && now - target < units) r11.u64 = target;
+}
 
 REX_HOOK_RAW(sub_82BB6BB0) { wwe2k14::step_rate::Wrap(__imp__sub_82BB6BB0, ctx, base); }
 REX_HOOK_RAW(sub_82BB6D50) { wwe2k14::step_rate::Wrap(__imp__sub_82BB6D50, ctx, base); }

@@ -1,0 +1,10 @@
+# Session 83 (GitHub #63): timed sound cues at FRAME RATE 30.
+# sub_82AB6268 (a per-frame sound / cue update, runs from boot) fires a timed cue (cue 0x18966 via sub_824F6578, then
+# state 3) only when its target time at object +8 EQUALS now = sub_823159C0() * 10000 + int(sub_82315A80()), compared
+# by `cmplw cr6,r9,r11` at 0x82AB6314 (r9 = target, r11 = now). The position steps 2 units per update at step 30,
+# so an odd target is jumped over: the Royal Rumble's ring bell and ring announcer intro never played (runs 5763,
+# 5764; coverage 061 / 063 vs 065 / 066). src/step_rate.h wwe2k14_timed_cue_reach.
+[[midasm_hook]]
+address = 0x82AB6314
+name = "wwe2k14_timed_cue_reach"
+registers = ["r9", "r11"]

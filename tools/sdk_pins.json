@@ -12377,6 +12377,62 @@
           "size": 11561472
         }
       ]
+    },
+    {
+      "id": "pin-b2991f8-1103-1121",
+      "sdk_commit": "b2991f80c454ab92ac174c4785e0312f112cd857",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-11-03",
+      "built": "build_sdk.ps1 -Run s83a, 2026-11-03T11:20:57 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s83a.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 83: gpu_wide_post_vs (30 Years filter in full screen)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "335ae327638634726eabb9674a69196c28a9e1150a5f5a9ebed9a0635cc6317f",
+          "size": 3646464
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "9a583562c7ff2e1ea864154bd992a39686dfc5cbdfe6d44181a710f25644394a",
+          "size": 16231424
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "6ca7c5b1c199c36feb46d309e051f2bd07bf8aa06fcc5a12f50e32bacf0304db",
+          "size": 11561472
+        }
+      ]
+    },
+    {
+      "id": "pin-ded4762-1103-1239",
+      "sdk_commit": "ded47622450c334d617894368ef60bd22a68bdb7",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-11-03",
+      "built": "build_sdk.ps1 -Run s83b, 2026-11-03T12:39:46 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s83b.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 83: keyboard stick keys (newest wins, taps latched)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "9c4eb5f1acdb61a5f6e3c812cbd5db27d81eb42a65a7ed5425b44f04351ccd9a",
+          "size": 3646464
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "2b5b7811547b5e6345ce3c4689d055a2f185539a0a9155caf61fb38a4b7826db",
+          "size": 16231424
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "48adf9907fc8b0737fc4ce712b15b98f55c59513463e34ae2e2b54206158193d",
+          "size": 11563008
+        }
+      ]
     }
   ]
 }

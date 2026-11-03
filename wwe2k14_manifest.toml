@@ -26,7 +26,7 @@ cr_as_local = true
 ctr_as_local = true
 xer_as_local = true
 reserved_as_local = true
-includes = ["config/hints_scan_001.toml", "config/hints_scan_002.toml", "config/hints_scan_003.toml", "config/hints_scan_004.toml", "config/hints_live.toml", "config/switch_tables.toml", "config/hints_disasm_verified.toml", "config/timeline_hooks.toml", "config/s7_pacing_hooks.toml", "config/s7_tiling_hooks.toml", "config/determinism_hooks.toml", "config/s8_barrier_probe.toml", "config/fp_probe_hooks.toml", "config/scenario_hooks.toml"]
+includes = ["config/hints_scan_001.toml", "config/hints_scan_002.toml", "config/hints_scan_003.toml", "config/hints_scan_004.toml", "config/hints_live.toml", "config/switch_tables.toml", "config/hints_disasm_verified.toml", "config/timeline_hooks.toml", "config/s7_pacing_hooks.toml", "config/s7_tiling_hooks.toml", "config/determinism_hooks.toml", "config/s8_barrier_probe.toml", "config/fp_probe_hooks.toml", "config/scenario_hooks.toml", "config/timing_hooks.toml"]
 
 [entrypoint.functions]
 # Function-entry hints fixing the 4 "UnresolvedCall ... target not in any function" errors from codegen run 001

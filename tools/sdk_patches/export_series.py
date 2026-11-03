@@ -111,6 +111,7 @@ STEPS = [
     ('session80-ownsteps', '561b4bfe0d173a87538e5481361eafcc02115415'),
     ('session80-ownpasses', '623cc9842d1351a8146a5ba7f78be002e5114729'),
     ('session82-owned', 'a0ff9cf71b48c2d62ab9356bde0601a58ca6f05f'),
+    ('session83-bugs', 'ded47622450c334d617894368ef60bd22a68bdb7'),  # gpu_wide_post_vs (b2991f8), keyboard stick keys
 ]
 
 

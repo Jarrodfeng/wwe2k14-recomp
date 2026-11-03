@@ -1,0 +1,27 @@
+# Session 83: CPU vs CPU ladder match (quick launch type 72, entrances skipped), played to its end or 15 game minutes,
+# for a runtime trace of the belt catch (coverage build + --wwe2k14_trace; GitHub #77). Untested route; untimed.
+# Use with: --wwe2k14_launch=@quick --wwe2k14_quick_type=72 --wwe2k14_launch_participants=343,324
+#   --wwe2k14_launch_skip_entrances=true. Needs the frozen user data.
+on_fail quit
+log s83: start
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log s83: main menu (the launcher fires after its idle frames)
+wait_file M3.PAC 36000
+log s83: match scene
+wait_state match_clock !=0 3600 2 optional
+log s83: match running
+screenshot s83_ladder_start
+wait_state 0x8376ACCC !=0 54000 2 optional
+log s83: match decided (or 15 minutes passed)
+screenshot s83_ladder_end
+wait_frames 60
+quit

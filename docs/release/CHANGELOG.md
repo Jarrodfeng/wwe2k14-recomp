@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.2.17
+
+A bug fix release: four fixes from your reports, plus a keyboard fix for the ladder match.
+
+- **Royal Rumble: wrestlers no longer freeze on a finisher.** With RUN-INS switched on in the launcher, any finisher,
+  signature or running move in a Royal Rumble froze both wrestlers for good while the rest of the arena carried on.
+  The cause: my run-in switch turned on the game's interference system in every match, including the ones the game
+  itself keeps it out of. Now it only adds run-ins where the game allows them (one-on-one matches). Reported on
+  GitHub (#92, #93).
+- **Match highlights and post-match replays work.** After a match, the replay of the finish now plays and MATCH
+  HIGHLIGHTS can be picked; neither had ever worked. The game keeps its replays on the Xbox 360's hard-drive cache,
+  which wasn't there. It now gets one in your user data folder (about 750 MB; the game sizes these files itself).
+  Reported on GitHub (#61, #80).
+- **30 Years of WrestleMania in full screen: no more double picture.** In the old-era matches (WrestleMania I to
+  X8) with the picture filling a wider screen, part of the screen showed the old-footage colouring and the rest a
+  second, shifted copy of the picture. The game draws that colouring after its picture is done, where my full screen
+  mode treated it like the HUD and squeezed it into the middle. Now it covers the whole screen; the soft dark edge
+  around the picture stays 16:9. Reported on GitHub (#69, #98).
+- **Royal Rumble: the ring bell and the announcer's intro are back at FRAME RATE 30.** With the 30 fps setting the
+  Rumble started silent (crowd only): the game plays some sounds at an exact moment, and at 30 fps its clock jumped
+  over that moment. Reported on GitHub (#63).
+- **FRAME RATE 30 is now marked experimental.** The game was made to run matches at 60, so some timings can still be
+  off at 30 (the match timer counts at half rate, get-ups take longer). Use 60 if anything looks or sounds wrong.
+- **Keyboard: the right stick behaves more like a real stick.** Pressing up and down together no longer snaps the
+  stick back to the centre (the key pressed last wins), and a very quick tap is no longer missed. This is for the
+  ladder match's belt grab on the keyboard (GitHub #77); I couldn't test the belt grab itself yet, so please tell me
+  whether it works for you now.
+
 ## v0.2.16
 
 Matches now hold 60 fps on my Intel test laptop: the NATIVE renderer draws the whole match frame itself, without going
@@ -19,6 +47,10 @@ through the Xbox 360's way of drawing at all.
 - **The same picture.** I compared it with v0.2.15's at 720p and 1440p: identical or within a level or two of
   brightness in a few pixels. It's on with the NATIVE renderer (the default); the extra flag
   `--gpu_native_owned_frame=false` (Settings -> Advanced) brings back v0.2.15's NATIVE.
+- **The launcher now installs its own updates.** From this version on, UPDATE NOW downloads the new release, checks it
+  against the release's SHA-256, and RESTART AND FINISH swaps the files in, keeping a backup and putting it back if
+  anything goes wrong (UPDATE FAILED then says why, with REPORT A PROBLEM). Release notes now show with their
+  formatting. **Download v0.2.16 by hand this once:** v0.2.15 and older launchers can't install updates themselves.
 - **Gameplay is unchanged.**
 
 ## v0.2.15

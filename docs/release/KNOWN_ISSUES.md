@@ -69,8 +69,13 @@
   the game's on-screen keyboard has.
 - The LIGHT renderer (now only an advanced flag) can crash on older Intel graphics (HD 520).
 - NATIVE on graphics cards without fragment shader interlock (older AMD drivers / graphics) and the LIGHT fallback
-  have not been tested on such a card by me yet (only on my NVIDIA card forced onto the same path). With FRAME RATE
-  30 the match timer (and anything else the game counts in frames) runs at half speed.
+  have not been tested on such a card by me yet (only on my NVIDIA card forced onto the same path).
+- Screen tearing on monitors without G-SYNC / FreeSync (most laptops): the game shows each frame the moment it is
+  ready. A fix is ready but made entrances a little choppier in my tests, so it is off for now; to try it, add
+  `--wwe2k14_present_mailbox=true` in Settings -> Advanced (extra flags). GitHub #79.
+- FRAME RATE 30 is experimental: the game was made to run matches at 60, so some match timings can be off. The match
+  timer (and anything else the game counts in frames) runs at half speed, and get-ups take longer. Use 60 if anything
+  looks or sounds wrong.
 - 360p - 540p and 1080p: the speed gain on integrated graphics has not been measured by me yet (no such PC here).
 - v0.2.3's NATIVE speed-ups were checked and measured on my NVIDIA card only. If pictures look wrong on yours (shadows,
   reflections, the crowd), please send a report (launcher: Report a problem).

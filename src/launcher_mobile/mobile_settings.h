@@ -41,7 +41,7 @@ struct FrameRate {
   const char* name;
   int value;
 };
-inline constexpr FrameRate kFrameRates[] = {{"60 FPS", 1}, {"60 MATCHES, 30 ENTRANCES", 0}, {"30 FPS (BATTERY)", 3}};
+inline constexpr FrameRate kFrameRates[] = {{"60 FPS", 1}, {"60 MATCHES, 30 ENTRANCES", 0}, {"30 FPS (EXPERIMENTAL)", 3}};  // Session 83 (Jarrod): was "(BATTERY)"
 
 // The game's languages (launcher_core.h AutoLanguage: the runtime's user_language ids that change its text).
 struct Language {
