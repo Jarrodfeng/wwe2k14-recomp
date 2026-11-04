@@ -23,6 +23,7 @@
 #include "android_memory.h"  // Session 73: Android's memory warnings (GameActivity.onTrimMemory)
 #include "crash_handler.h"
 #include "gpu_timeline.h"
+#include "d3d_owned.h"  // --wwe2k14_d3d_owned (Session 87, the D3D-layer stack in one switch, default off)
 #include "pacing_hooks.h"
 #include "tiling_hooks.h"
 #include "kernel_overrides.h"
@@ -76,6 +77,7 @@
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
 #include "post_swap.h"  // Session 72: our post-effect shaders (gpu_native_shader_swap)
 #include "scene_swap.h"  // Session 80: our own scene material shaders (--wwe2k14_scene_shaders, off)
+#include "scene_vs_swap.h"  // Session 87 stage 4: our own arena vertex shaders (--wwe2k14_vs_swap, off)
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
 #include "replay_watch.h"  // Session 63: log a runaway render-command replay; S73 b78: end it (default on Android)
 #include "xdet_check.h"  // Session 77 (P7): --wwe2k14_xdet_check, the tester determinism check's profile
@@ -310,24 +312,17 @@ class Wwe2k14App : public rex::ReXApp {
                                std::pair{"readback_resolve_batch_min_bytes", "16385"}}) {
       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
     }
-    // Session 80 (WORKAROUND, cause not found; Jarrod 2026-11-02: "we'll safely rebuild the APK without it"): the
-    // arc's carried copies (gpu_native_truth_carry_copies, and serve_copies on top of it) lit the match crowd wrong on
-    // the Adreno 830 - the left half washed out, the right half magenta, following the arena's lights; every arena.
-    // Bisected on the phone (runs 162-176): carry off = clean (175), serve off alone = still wrong (176). The crowd's
-    // vertex shader reads the arena lighting map (fetch 16, page 0x159DC, 512x512) copied at the previous frame's end.
-    // Not on the PC, not even with the phone's render path and readback settings (5712-5714), and synchronization
-    // validation finds no hazard in the match (5716). Off on phones (set here, so the arc switch keeps it off); next:
-    // that copy's hashes phone vs PC (tools\android\resolve_hash_compare.py).
-    for (auto [name, value] : {std::pair{"gpu_native_truth_carry_copies", "false"},
-                               std::pair{"gpu_native_truth_serve_copies", "false"}}) {
-      if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
-    }
+    // (Session 80 kept gpu_native_truth_carry_copies / serve_copies off here: they lit the match crowd wrong on the
+    // Adreno 830, cause not found. Session 84, Jarrod: "ideally we don't need the workaround anymore" - removed: the
+    // match is owned now (its lighting map copy is the owned frame's own), and the entrance check of the build without
+    // it decides; the copies' settings are the PC's again.)
     for (const auto& [name, value] : wwe2k14::gfxs::NativeRendererFlags()) {
       // (Session 80: gpu_native_truth_color_none on again - its bug fixed (one-draw passes were given LOAD_OP_NONE /
       // STORE_OP_NONE), phone run 164 clean with it on; Jarrod: "rebuild the APK safely with it on".)
       if (name == "readback_resolve_batch") continue;
-      // (Session 82: the owned frame is PC-only until a phone run of it - never run on an Adreno.)
-      if (name == "gpu_native_owned_frame") continue;
+      // (Session 82: the owned frame was PC-only until a phone run of it. Session 84, Jarrod: "Yes, on for phones" - on
+      // the host render target path after SDK 3a3e130 / f527e63; phone runs 187 / 188 on the Adreno 830: no visual
+      // errors, GPU 11.7 vs 12.9 ms a match frame.)
       // (Session 72, Jarrod: "build into the android version": gpu_native_shader_swap included - our copy of the post
       // pass; first run on a phone GPU is his, android-v0.1.2.)
       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
@@ -446,6 +441,8 @@ class Wwe2k14App : public rex::ReXApp {
     }
     // Session 79 (HD 520 arc): --wwe2k14_native_frame, the arc's switch (src\native_frame.h).
     wwe2k14::native_frame::Apply();
+    // Session 87: --wwe2k14_d3d_owned, the whole D3D-layer stack in one experimental switch (src\d3d_owned.h).
+    wwe2k14::d3d_owned::Apply();
 
     // Session 43 (stretch S4): --wwe2k14_preset_deck (docs\native\STEAM_DECK.md): as LOW, but 60 fps (the Deck's GPU is
     // ~4x a UHD 620; its screen is 1280x800 at 60 Hz). Set before the 1440p preset, so it keeps only its no-MSAA /
@@ -643,6 +640,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::load_pipeline_wait::Install();  // Session 57 (tester bug 1): no skipped draws during in-game loads
     wwe2k14::post_swap::Install();  // Session 72: our post-effect shaders (used with gpu_native_shader_swap)
     wwe2k14::scene_swap::Install();  // Session 80: our own scene material shaders (--wwe2k14_scene_shaders)
+    wwe2k14::scene_vs_swap::Install();  // Session 87 stage 4: our own arena vertex shaders (registered always; --wwe2k14_vs_swap turns them on)
     // Session 58: the session timeline for Report a problem (snapshots off in harness runs unless asked for).
     wwe2k14::session_log::Install(!REXCVAR_GET(wwe2k14_input_script).empty() || !REXCVAR_GET(wwe2k14_live).empty());
     wwe2k14::StartTimelineIfRequested();

@@ -1,0 +1,14 @@
+# Session 85: log the draws of vertex shader 0E2A3DF5BAA2CA18 (index buffer address, constants c76-c78) for one frame at +600.
+on_fail quit
+log bench: start s85_probe
+wait_file m3.pac 3600
+log scene=match
+wait_frames 600
+cvar gpu_debug_draw_probe 0E2A3DF5BAA2CA18
+cvar gpu_debug_draw_probe_consts 76-78
+cvar gpu_debug_draw_probe_path C:/Users/Jarrod/wwe2k14-recomp/out/s85/probe_0e2a.csv
+cvar gpu_debug_draw_probe_frames 1
+wait_frames 6
+screenshot s85p0
+log bench: done
+quit

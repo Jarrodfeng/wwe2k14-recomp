@@ -66,7 +66,10 @@ ivec2 Size(texture2DArray t, sampler s) { return textureSize(sampler2DArray(t, s
 vec4 Fetch(texture2DArray t, sampler s, ivec2 p) { return texelFetch(sampler2DArray(t, s), ivec3(p, 0), 0); }
 
 layout(location = 0) in vec4 in_texcoord;
-layout(location = 0) out vec4 out_color;
+// Session 87 (stage 4): the colour goes through xenos_ps.glsl's XeOutputColor (alpha test, exponent bias, the 360's gamma, the
+// target's quantize), as the translation's epilogue does it: registered with kOwnEpilogue (src\post_swap.h), so the swap takes
+// every draw of the shader. xenos_ps.glsl declares out_color and the system constants.
+#include "../scene/xenos_ps.glsl"
 
 vec3 Tap(vec2 p) { return Lod(t_scene, s_scene, p).rgb; }
 // The game's luma: c252 holds the weights for blue, red, green.
@@ -214,5 +217,5 @@ void main() {
   if (C32.x != 0.0) color += Lod(t_glare, s_glare, uv).rgb * C32.x;
 #endif
 #endif
-  out_color = vec4(color, 1.0);
+  XeOutputColor(vec4(color, 1.0));
 }

@@ -1,0 +1,515 @@
+# ReXGlue SDK changes for WWE 2K14 (session85-settings): f527e636ba3f..86722be5bd70 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  86722be wwe2k14 Session 85: shadow chain redo after review - state in shadow_chain.h (no header layout change), chain limited to caster surfaces, rim-light pass kept, fail-safe re-prime, latched cvar
+#  b885e1f wwe2k14 Session 85: review fixes - crowd entry gate leaves the held first member to SceneCrowdAfterDraw, binary rule for the ringside model, density counter reset; DoF up-to-date bit cleared around combine draws
+#  47c8f18 Merge s85sh: whole-chain shadow skip (Session 85)
+#  b651536 wwe2k14 Session 85: crowd density also gates the ringside spectator model (vs 0E2A3DF5 into the scene target only; the small-target figures stay)
+#  af13c6d wwe2k14 Session 85: gpu_scene_crowd_density also at the draw entry (crowd members the game draws outside the queued runs: ~140 a frame at 0%)
+#  b73846e wwe2k14 Session 85 (WIP): gpu_scene_crowd_density, gpu_depth_of_field, gpu_dynamic_shadows (caster draws skipped; whole-pass skip still to do)
+
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 28ac9ba74bff3a4c43572fc96772e1ef0e256e57..b0a6e5a2e2486609064b6c6327070594e4b58b98 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -35,6 +35,7 @@
+ #include <rex/perf/timeline.h>
+ #include <rex/chrono/clock.h>
+ #include <rex/graphics/command_processor.h>
++#include "shadow_chain.h"  // wwe2k14 patch (Session 85, gpu_dynamic_shadows)
+ #include "half2_state.h"  // wwe2k14 patch (Session 48, HALF2): complete for the destructor
+ #include <rex/graphics/pipeline/shader/shader.h>
+ #include <rex/graphics/flags.h>
+@@ -104,6 +105,15 @@ REXCVAR_DEFINE_INT32(gpu_scene_crowd_thin_keep, 2, "GPU",
+                      "many is kept (2 = every other one, as before; 4 = a quarter of them; the same members each frame). "
+                      "Not exact: a sparser far crowd - judged by eye")
+     .range(1, 16);
++REXCVAR_DEFINE_INT32(gpu_scene_crowd_density, 100, "GPU",
++                     "wwe2k14 (Session 85, Jarrod 2026-11-03: a percentage, 10% steps, 0% allowed, evenly spread): the "
++                     "share of the crowd drawn, in percent. Each member has a fixed rank from a hash of its world "
++                     "position and is drawn when the rank is below this, so the kept members are spread evenly over the "
++                     "arena and the same ones stay from frame to frame. 100 = the normal look (off); 0 = no crowd. "
++                     "Applies to the queued crowd runs (wwe2k14_scene_crowd 1), after the cull and the thinning")
++    .range(0, 100);
++
++static uint64_t g_crowd_density_dropped = 0;  // Session 85: members left out by gpu_scene_crowd_density (command thread)
+ 
+ REXCVAR_DECLARE(double, gpu_wide_factor);  // Session 73: the crowd cull's view (vulkan/command_processor.cpp)
+ REXCVAR_DECLARE(double, gpu_tall_factor);
+@@ -243,6 +253,55 @@ REXCVAR_DEFINE_INT32(gpu_tiling_log_frames, 0, "GPU",
+                      "swap) to tiling_*.csv in gpu_anatomy_path's directory (anatomy_NNN_%d.csv -> "
+                      "tiling_NNN_%d.csv), then reset to 0");
+ 
++REXCVAR_DECLARE(bool, gpu_dynamic_shadows);  // wwe2k14 patch (Session 85): defined in vulkan/command_processor.cpp
++
++// wwe2k14 patch (Session 85, gpu_dynamic_shadows false): the shadow chain's frame end (state: shadow_chain.h). The
++// setting is latched here, once per frame; a frame with no caster and no chain draw ends the chain (menus, loads);
++// kPrime consecutive active frames prime it (draws run, casters skipped, copy destinations noted), then it is skipped
++// whole. A skipped copy to an unknown destination re-primes from the next frame.
++void ShadowChainFrameEnd(uint64_t frame) {
++  using namespace wwe_shadow_chain;
++  State& s = g;
++  const bool want_off = !REXCVAR_GET(gpu_dynamic_shadows);
++  if (!want_off && !s.off) return;  // (the default: nothing but this test)
++  const auto reset = [&s]() {
++    s.skip = s.disabled = s.reprime_pending = false;
++    s.primed = 0;
++    s.keys.clear();
++    s.excluded.clear();
++    s.dests.clear();
++  };
++  if (want_off != s.off) {
++    reset();
++    s.off = want_off;
++    s.seen = s.casters = 0;
++    return;
++  }
++  const bool active = s.casters || s.seen;
++  if (!active) {
++    reset();
++  } else if (s.reprime_pending) {
++    s.reprime_pending = false;
++    s.skip = false;
++    s.primed = 0;
++    ++s.reprimes;
++  } else if (s.skip) {
++    ++s.frames_skipped;
++  } else {
++    ++s.frames_primed;
++    if (s.primed < kPrime) ++s.primed;
++    s.skip = s.primed >= kPrime && !s.disabled && !s.keys.empty() && !s.dests.empty();
++  }
++  s.seen = s.casters = 0;
++  if (frame % 600 == 0 && (s.draws_skipped || s.copies_skipped || s.frames_primed)) {
++    REXGPU_INFO("[shadow] dynamic shadows OFF, chain to frame {}: frames primed {}, skipped {}; draws skipped {}, copies "
++                "skipped {}, re-primes {}, surfaces {}, destinations {}{}",
++                frame, s.frames_primed, s.frames_skipped, s.draws_skipped, s.copies_skipped, s.reprimes, s.keys.size(),
++                s.dests.size(), s.disabled ? " (disabled: too many)" : "");
++    s.draws_skipped = s.copies_skipped = s.reprimes = s.frames_skipped = s.frames_primed = 0;
++  }
++}
++
+ namespace rex::graphics {
+ 
+ using namespace rex::graphics::xenos;
+@@ -2288,6 +2347,9 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+     shadow_drawn_ = shadow_skipped_ = shadow_copies_skipped_ = shadow_copies_kept_clear_ = 0;
+     shadow_frames_by_skips_[0] = shadow_frames_by_skips_[1] = shadow_frames_by_skips_[2] = 0;
+   }
++  // wwe2k14 patch (Session 85, gpu_dynamic_shadows false): the shadow chain's frame end - a frame without shadow casters
++  // (state in src\graphics\shadow_chain.h, not in this class: the layout of its data is shared with the game exe).
++  ShadowChainFrameEnd(shadow_frame_);
+   SkipFrameDrawsLatch();  // wwe2k14 patch (Session 15): gpu_skip_frame_draws for the next frame
+   // wwe2k14 patch (Session 6, COUNTERS): write a captured frame's rows (after the swap, outside the timed draws)
+   // and start or end a frame-anatomy capture.
+@@ -3298,6 +3360,27 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+   if (const int32_t cull = REXCVAR_GET(gpu_scene_crowd_cull)) {
+     if (SceneCrowdCull(run.others, kept) && cull == 2) list = &kept;
+   }
++  // wwe2k14 patch (Session 85, gpu_scene_crowd_density): of the members left, only those whose fixed rank (a hash of
++  // the world position c76.w c77.w c78.w) is below the percentage; the run's first member too when our crowd renderer
++  // holds it (else the game has drawn it already), so 0% is an empty arena.
++  std::vector<uint32_t> dense;
++  if (const int32_t density = REXCVAR_GET(gpu_scene_crowd_density); density < 100) {
++    const auto rank = [](const uint32_t* w) {
++      uint32_t h = w[3] * 0x9E3779B1u ^ w[7] * 0x85EBCA77u ^ w[11] * 0xC2B2AE3Du;
++      h ^= h >> 16, h *= 0x7FEB352Du, h ^= h >> 15, h *= 0x846CA68Bu, h ^= h >> 16;  // (a finalizer: uniform ranks)
++      return int32_t(h % 100u);
++    };
++    dense.reserve(list->size());
++    for (size_t k = 0; k + 12 <= list->size(); k += 12) {
++      if (rank(list->data() + k) < density) dense.insert(dense.end(), list->begin() + k, list->begin() + k + 12);
++      else ++g_crowd_density_dropped;
++    }
++    list = &dense;
++    if (first_guard.armed && rank(now) >= density) {
++      first_guard.armed = false;
++      ++g_crowd_density_dropped;
++    }
++  }
+   // The omitted members: each one's c76-c78 written as its op-21 record would have left them (the library's flush
+   // writes the whole group c76-c79; c79 is unchanged), then its draw as the packet's would be issued.
+   const uint32_t members = uint32_t(list->size() / 12);
+@@ -3552,13 +3635,15 @@ void CommandProcessor::SceneCrowdFrameEnd() {
+     const double n = double(frame - st.first_frame);
+     REXGPU_INFO("[scene][crowd] cull ({}): frames {}-{}, per frame: runs {:.1f} (judged {:.1f}; not judged: shader "
+                 "{:.1f}, clipping / viewport {:.1f}, mesh {:.1f}), members {:.1f}, outside the view {:.1f} ({:.1f}%), "
+-                "thinned (gpu_scene_crowd_thin) {:.1f}",
++                "thinned (gpu_scene_crowd_thin) {:.1f}, queued members left out by gpu_scene_crowd_density {:.1f}",
+                 REXCVAR_GET(gpu_scene_crowd_cull) == 2 ? "not drawn" : "counted", st.first_frame, frame, cs.runs / n,
+                 cs.judged / n, cs.not_judged_shader / n, cs.not_judged_state / n, cs.not_judged_mesh / n,
+                 cs.members / n, cs.outside / n, cs.members ? 100.0 * double(cs.outside) / double(cs.members) : 0.0,
+-                cs.thinned / n);
++                cs.thinned / n, g_crowd_density_dropped / n);
++    g_crowd_density_dropped = 0;
+     cs = SceneCrowdCullStats();
+   }
++  g_crowd_density_dropped = 0;  // (Session 85: every window, also with the cull off)
+   st = SceneCrowdStats();
+   st.first_frame = frame;
+ }
+diff --git a/src/graphics/shadow_chain.h b/src/graphics/shadow_chain.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..d6934072521bfb070dcde72cdcc8d1280aa85597
+--- /dev/null
++++ b/src/graphics/shadow_chain.h
+@@ -0,0 +1,39 @@
++// wwe2k14 patch (Session 85, gpu_dynamic_shadows false): the shadow chain's state.
++//
++// File-level state, NOT members of CommandProcessor: the game exe compiles that class's inline accessors against the
++// header, so a data member added there moves the members behind it (Session 85 review). One GPU command thread.
++//
++// What the chain is: the render surfaces (colour info + depth info, pitch left out) that drew a known dynamic shadow
++// caster while priming (the wrestler / props shadow maps A and B, the circle shadows, the ring mask casters), with their
++// own flat fills and blurs. Primed = run kPrime frames with the casters skipped (the maps' textures are written once as
++// empty = lit); after that every draw and copy of those surfaces is skipped, so the textures keep that content.
++// Never the chain: a surface that drew the rim-light pass (ps D03E7D4C), its blur (632189BA) or the copy quad (7ABDFEFB).
++#pragma once
++
++#include <cstdint>
++#include <vector>
++
++namespace wwe_shadow_chain {
++
++constexpr uint32_t kPrime = 8;          // frames run with casters skipped before the chain is skipped
++constexpr size_t kMaxDests = 64;        // known copy destinations; more = fail safe (never skip)
++constexpr size_t kMaxKeys = 16;
++
++struct State {
++  bool off = false;              // gpu_dynamic_shadows false, latched at the swap (a toggle never acts inside a frame)
++  bool skip = false;             // this frame: the chain's draws and copies are skipped
++  bool disabled = false;         // too many destinations / surfaces: normal rendering until the chain goes quiet
++  bool reprime_pending = false;  // a copy to an unknown destination was skipped: prime again from the next frame
++  uint32_t primed = 0, casters = 0, seen = 0;  // consecutive priming frames; this frame's caster / chain draws
++  std::vector<uint64_t> keys;      // chain surfaces
++  std::vector<uint64_t> excluded;  // surfaces that drew the rim pass / its blur / the copy quad
++  std::vector<uint32_t> dests;     // copy destinations (RB_COPY_DEST_BASE) seen while priming
++  uint64_t draws_skipped = 0, copies_skipped = 0, reprimes = 0, frames_skipped = 0, frames_primed = 0;
++};
++
++inline State g;
++
++}  // namespace wwe_shadow_chain
++
++// (Defined in vulkan/command_processor.cpp, where the cvar lives; called by the swap in command_processor.cpp.)
++void ShadowChainFrameEnd(uint64_t frame);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 6fc7c3909dbe7f6471b926738d4a5e836d119f44..7030259875b21998144a1c671f9575cf06987265 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -60,6 +60,7 @@
+ #include "s58_stats.h"  // wwe2k14 patch (Session 58)
+ #include "native/shader_swap.h"  // wwe2k14 patch (Session 72, gpu_native_shader_swap)
+ #include <rex/perf/frame_events.h>  // Session 73 (what a frame did)
++#include "../shadow_chain.h"  // wwe2k14 patch (Session 85, gpu_dynamic_shadows)
+ #include "../pipeline/shader/spirv_relaxed_precision.h"  // wwe2k14 patch (Session 73, characters at full precision)
+ #include <rex/graphics/vulkan/native/native_renderer.h>  // wwe2k14 patch (Session 38, NATIVE)
+ #include <rex/graphics/vulkan/pipeline_cache.h>
+@@ -156,6 +157,15 @@ REXCVAR_DEFINE_BOOL(gpu_shadow_half_rate, false, "GPU",
+                     "Session 80 (look lever): the wrestlers' shadow maps (pixel shader DA494C9383E18961) drawn every "
+                     "other frame, the frame between reusing the previous map; [shadow] census lines. Off by default")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DECLARE(int32_t, gpu_scene_crowd_density);  // Session 85 (src\graphics\command_processor.cpp)
++REXCVAR_DEFINE_BOOL(gpu_dynamic_shadows, true, "GPU",
++                    "Session 85 (Jarrod 2026-11-03: \"any dynamic shadows, things that aren't prebaked should go off\"): "
++                    "false = the dynamic shadow casters are not drawn (the wrestlers' shadow-map casters, pixel shader "
++                    "DA494C93; the circle shadows D05BFEA1; the ring mask / props casters, vertex shaders A96C8C4D / "
++                    "A878C3FD with the flat pixel shader A4A965C1). The maps keep the game's own clears and copies, so the "
++                    "receivers read an empty map = unshadowed. Baked lighting stays. [shadow] off lines every 600 frames. "
++                    "On by default (today's look)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(gpu_session_stats_frames, 600, "GPU",
+                      "Session 58 (problem reports): every this many guest frames, an [s58][gpu] line when pipelines "
+                      "were made or draws skipped since the last one (and at least every 3600 frames): pipelines made "
+@@ -590,6 +600,13 @@ REXCVAR_DEFINE_BOOL(vulkan_float_constant_runs, false, "GPU/Vulkan",
+ REXCVAR_DEFINE_BOOL(vulkan_float_constant_runs_verify, false, "GPU/Vulkan",
+                     "With vulkan_float_constant_runs: also gather the float constants one at a "
+                     "time, compare and log mismatches ([s6][CP3])");
++// wwe2k14 patch (Session 85, Jarrod 2026-11-03): the launcher's DEPTH OF FIELD switch. False = the combine passes' depth
++// of field blur ramps are zeroed where their pixel constants are uploaded (docs\systems\post_effects.md).
++REXCVAR_DEFINE_BOOL(gpu_depth_of_field, true, "GPU",
++                    "Session 85 (Jarrod, 2026-11-03): the game's depth of field. False = the blur of out-of-focus areas is off "
++                    "everywhere (the match and entrance combine passes, our swapped copies and Enhanced, the game's own "
++                    "translated pass, the free camera's DoF too); the FXAA, bloom, glare and the depth tint stay. Vulkan backend "
++                    "only (the D3D12 backend ignores it)");
+ // wwe2k14 patch (Session 6, RESID): the vertex buffer residency cache (Xenia Canary 3e1b0c715a, dropped
+ // again by Canary in c2674b19d2) skips SharedMemory::RequestRange in IssueDraw for a vertex fetch constant
+ // that is still in sync this frame, or whose address and size equal its last request. A vertex buffer the
+@@ -4414,6 +4431,72 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
+   gamma_ramp_pwl_current_frame_ = UINT32_MAX;
+ }
+ 
++// wwe2k14 patch (Session 85, gpu_dynamic_shadows): which dynamic shadow caster a draw is (0 none, 1 wrestler map caster,
++// 2 circle shadow, 3 ring mask / props caster). Hashes from the Session 80 owned-steps list (native_frame.h) and
++// docs/native/WRESTLER_DRAWS_MAP.md. The ring casters are told by their vertex shader AND the flat pixel shader, so
++// the main pass's own draws of the same meshes (other pixel shaders) stay.
++static uint32_t DynamicShadowCasterKind(uint64_t ps_hash, uint64_t vs_hash) {
++  if (ps_hash == 0xDA494C9383E18961ull) return 1;
++  if (ps_hash == 0xD05BFEA12F4350ADull) return 2;
++  if (ps_hash == 0xA4A965C189287B99ull && (vs_hash == 0xA96C8C4D28D28F80ull || vs_hash == 0xA878C3FD5E27FB35ull)) return 3;
++  return 0;
++}
++
++// wwe2k14 patch (Session 85, gpu_dynamic_shadows): the shadow chain's surface key (colour info with its format, depth
++// info with its format; the pitch is left out: a pass draws its flat fills at half the pitch) and its pitch test (the
++// maps' 512-wide targets read 481-560 in the register, the fills 280 - a draw at 280 counts only as the flat fill).
++static uint64_t ShadowChainKey(const RegisterFile& regs) {
++  return uint64_t(regs[XE_GPU_REG_RB_COLOR_INFO] & 0xF0FFFu) | (uint64_t(regs[XE_GPU_REG_RB_DEPTH_INFO] & 0x1FFFFu) << 20);
++}
++static bool ShadowChainPitchOk(const RegisterFile& regs, uint64_t ps_hash, bool copy) {
++  const uint32_t pitch = regs[XE_GPU_REG_RB_SURFACE_INFO] & 0x3FFF;
++  return (pitch > 480 && pitch <= 560) || (pitch == 280 && (copy || ps_hash == 0xA4A965C189287B99ull));
++}
++static bool ShadowChainHas(const std::vector<uint64_t>& v, uint64_t key) {
++  return std::find(v.begin(), v.end(), key) != v.end();
++}
++// The pass shaders whose surfaces are never the chain: the rim-light pass (D03E7D4C), its blur (632189BA), and the copy
++// quad (7ABDFEFB).
++static bool ShadowChainNotShadow(uint64_t ps_hash) {
++  return ps_hash == 0xD03E7D4C719B0EDBull || ps_hash == 0x632189BAFAE233F0ull || ps_hash == 0x7ABDFEFBCADB4BF9ull;
++}
++
++// wwe2k14 patch (Session 85, gpu_dynamic_shadows): the per-window count of skipped caster draws (one INFO line per 600
++// guest frames while the setting is false).
++static void DynamicShadowsNoteSkip(uint32_t kind, uint64_t frame) {
++  static uint64_t counts[4] = {}, window = UINT64_MAX;
++  const uint64_t w = frame / 600;
++  if (window != UINT64_MAX && w != window) {
++    REXGPU_INFO("[shadow] dynamic shadows OFF, frames {}-{}: caster draws skipped: wrestler maps {}, circle {}, ring/props {}",
++                window * 600, window * 600 + 599, counts[1], counts[2], counts[3]);
++    counts[1] = counts[2] = counts[3] = 0;
++  }
++  window = w;
++  ++counts[kind];
++}
++
++// wwe2k14 patch (Session 85, gpu_scene_crowd_density): a crowd member draw (the three known crowd vertex shaders, as
++// the crowd cull knows them) whose fixed rank - the same hash of its world position c76.w c77.w c78.w as the queued
++// members' (src\graphics\command_processor.cpp) - is not below the density. Draws the game made outside the queued runs
++// (~140 a frame in the match at 0%, anatomy run 21) are reached here; the queued ones too, consistently.
++// Also the skinned-model vertex shader 0E2A3DF5BAA2CA18 - but only into the scene's own render target (pitch >= 640: run
++// 035's probe: it draws 15 ~220-index figures into an 80-wide target, which stay, and one 1443-index person at an
++// arena position in the 1280-wide scene pass: the lone ringside spectator that was left at 0%, run 028 / 035).
++static bool CrowdDensityRejects(const RegisterFile& regs, uint64_t vs_hash, int32_t density) {
++  if (vs_hash == 0x0E2A3DF5BAA2CA18ull) {
++    if ((regs[XE_GPU_REG_RB_SURFACE_INFO] & 0x3FFFu) < 640u) return false;
++    // A skinned shader: its c76-c78 may be an animated bone, so a rank of those bits could flicker at 10-90%. Binary:
++    // present at any density above 0, gone at 0 (review, Opus).
++    return density == 0;
++  } else if (vs_hash != 0xD5E2FCC9F76BC40Cull && vs_hash != 0xC1028A64EFCF8229ull && vs_hash != 0x183CC64A4C4E96ACull) {
++    return false;
++  }
++  constexpr uint32_t kVsConst = 0x4000 + 4 * 76;  // VS float constant c76
++  uint32_t h = regs[kVsConst + 3] * 0x9E3779B1u ^ regs[kVsConst + 7] * 0x85EBCA77u ^ regs[kVsConst + 11] * 0xC2B2AE3Du;
++  h ^= h >> 16, h *= 0x7FEB352Du, h ^= h >> 15, h *= 0x846CA68Bu, h ^= h >> 16;
++  return int32_t(h % 100u) >= density;
++}
++
+ // wwe2k14 patch (Session 58, problem reports): the [s58][gpu] summary line (s58_stats.h).
+ static void S58GpuSummary(uint64_t frame, const ui::vulkan::VulkanDevice* device) {
+   const int32_t every = REXCVAR_GET(gpu_session_stats_frames);
+@@ -9919,6 +10002,65 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     const auto it = std::find(nf_dead_targets_.begin(), nf_dead_targets_.end(), NfRt0Key());
+     if (it != nf_dead_targets_.end()) nf_dead_targets_.erase(it);
+   }
++  // wwe2k14 patch (Session 85, gpu_dynamic_shadows false): the dynamic shadow casters are not drawn. Before everything
++  // else, so the owned frame and the truth path both never see them; the passes' clears and copies stay (an empty map).
++  if (wwe_shadow_chain::g.off && active_vertex_shader()) {
++    namespace sc = wwe_shadow_chain;
++    sc::State& chain = sc::g;
++    // (A depth-only draw has no pixel shader: hash 0.)
++    const uint64_t shadow_ps_hash = active_pixel_shader() ? active_pixel_shader()->ucode_data_hash() : 0;
++    const uint32_t kind = DynamicShadowCasterKind(shadow_ps_hash, active_vertex_shader()->ucode_data_hash());
++    const uint64_t chain_key = ShadowChainKey(regs);
++    if (kind) {
++      // The surface that drew a caster is a chain surface (unless it also drew the rim pass, see below).
++      ++chain.casters;
++      if (!ShadowChainHas(chain.excluded, chain_key) && !ShadowChainHas(chain.keys, chain_key)) {
++        if (chain.keys.size() < sc::kMaxKeys) {
++          chain.keys.push_back(chain_key);
++        } else {
++          chain.disabled = true;
++        }
++      }
++      DynamicShadowsNoteSkip(kind, frame_current_);
++      anatomy_skip_reason_ = kAnatomySkipOther;
++      repeat_prev_.valid = false;
++      lean_.valid = false;
++      return true;
++    }
++    // wwe2k14 patch (Session 85): the rest of the chain's surfaces (their flat fills, blurs) - skipped whole once the
++    // chain is primed; run (and counted as the chain being active) while it primes. A surface that draws the rim-light
++    // pass, its blur or the copy quad is not a shadow surface: out of the chain for good.
++    if (REXCVAR_GET(readback_resolve_override) <= 0) {
++      if (ShadowChainNotShadow(shadow_ps_hash)) {
++        if (!ShadowChainHas(chain.excluded, chain_key) && chain.excluded.size() < 64) chain.excluded.push_back(chain_key);
++        const auto it = std::find(chain.keys.begin(), chain.keys.end(), chain_key);
++        if (it != chain.keys.end()) {
++          chain.keys.erase(it);
++          if (chain.skip) chain.reprime_pending = true;
++        }
++      } else if (ShadowChainHas(chain.keys, chain_key) && ShadowChainPitchOk(regs, shadow_ps_hash, false)) {
++        ++chain.seen;
++        if (chain.skip && !memexport_used_vertex) {
++          ++chain.draws_skipped;
++          anatomy_skip_reason_ = kAnatomySkipOther;
++          repeat_prev_.valid = false;
++          lean_.valid = false;
++          return true;
++        }
++      }
++    }
++  }
++  // wwe2k14 patch (Session 85, gpu_scene_crowd_density): a crowd member above the percentage is not drawn.
++  // (Not a run's first member that our crowd renderer holds - own_crowd_skip_draw_: it must record its state without a draw
++  // call; SceneCrowdAfterDraw applies the same rank to it. Review, Opus.)
++  if (const int32_t density = REXCVAR_GET(gpu_scene_crowd_density); density < 100 && !own_crowd_skip_draw_ &&
++      active_vertex_shader() &&
++      CrowdDensityRejects(*register_file_, active_vertex_shader()->ucode_data_hash(), density)) {
++    anatomy_skip_reason_ = kAnatomySkipOther;
++    repeat_prev_.valid = false;
++    lean_.valid = false;
++    return true;
++  }
+   // wwe2k14 patch (Session 80, HD 520 arc look lever, gpu_shadow_half_rate; Jarrod 2026-11-01: "Every other frame"):
+   // the wrestlers' shadow maps (their shadows on themselves and each other: pixel shader DA494C9383E18961 into the
+   // 512x512 maps; runs 5397 / 5398) drawn on alternate frames. A target whose wrestler shadow draws were drawn in the
+@@ -12265,6 +12407,22 @@ bool VulkanCommandProcessor::IssueDrawLean(xenos::PrimitiveType prim_type, uint3
+   if (REXCVAR_GET(gpu_native_lean_draws_library) && library_kind != 1 && library_kind != 2) {
+     return full(kLeanNotLibrary);
+   }
++  // wwe2k14 patch (Session 85, gpu_dynamic_shadows): the caster draws take the full path, where they are skipped.
++  if (wwe_shadow_chain::g.off && active_pixel_shader() && active_vertex_shader() &&
++      DynamicShadowCasterKind(active_pixel_shader()->ucode_data_hash(), active_vertex_shader()->ucode_data_hash())) {
++    return full(kLeanMode);
++  }
++  // wwe2k14 patch (Session 85, gpu_scene_crowd_density): the crowd member draws take the full path, where they are skipped.
++  if (const int32_t density = REXCVAR_GET(gpu_scene_crowd_density); density < 100 && !own_crowd_skip_draw_ &&
++      active_vertex_shader() &&
++      CrowdDensityRejects(*register_file_, active_vertex_shader()->ucode_data_hash(), density)) {
++    return full(kLeanMode);
++  }
++  // wwe2k14 patch (Session 85): every draw on the shadow passes' target sizes takes the full path (the chain's draws are
++  // skipped there; the rim pass's draws are told apart there).
++  if (wwe_shadow_chain::g.off && ShadowChainPitchOk(*register_file_, 0, true)) {
++    return full(kLeanMode);
++  }
+   // wwe2k14 patch (Session 80, gpu_shadow_half_rate): the wrestlers' shadow draws take the full path, where the lever
+   // skips them (only these: every other draw stays lean).
+   if (REXCVAR_GET(gpu_shadow_half_rate) && active_pixel_shader() &&
+@@ -13634,6 +13792,34 @@ bool VulkanCommandProcessor::IssueCopy() {
+       }
+     }
+   }
++  // wwe2k14 patch (Session 85, gpu_dynamic_shadows false): a copy out of a chain surface (the draws above) - while
++  // priming its destination is noted (a known texture of the chain); once primed it is skipped, the texture keeps the lit
++  // content (a copy that also clears is skipped too: the chain's passes clear with their own draws). A destination not
++  // noted is skipped as well (its pass's draws were skipped: the copy would read EDRAM garbage) and the chain primes
++  // again from the next frame; past kMaxDests destinations the chain is switched off (normal rendering).
++  if (wwe_shadow_chain::g.off && REXCVAR_GET(readback_resolve_override) <= 0 &&
++      ShadowChainHas(wwe_shadow_chain::g.keys, ShadowChainKey(*register_file_)) &&
++      ShadowChainPitchOk(*register_file_, 0, true)) {
++    namespace sc = wwe_shadow_chain;
++    sc::State& chain = sc::g;
++    const uint32_t dest = (*register_file_)[XE_GPU_REG_RB_COPY_DEST_BASE];
++    const bool known = std::find(chain.dests.begin(), chain.dests.end(), dest) != chain.dests.end();
++    if (chain.skip) {
++      ++chain.copies_skipped;
++      if (!known) {
++        chain.reprime_pending = true;
++        if (chain.dests.size() >= sc::kMaxDests) chain.disabled = true;
++      }
++      return true;
++    }
++    if (!known) {
++      if (chain.dests.size() < sc::kMaxDests) {
++        chain.dests.push_back(dest);
++      } else {
++        chain.disabled = true;
++      }
++    }
++  }
+   // wwe2k14 patch (Session 80, gpu_shadow_half_rate): the copy that ends the open wrestler shadow map (out of its
+   // target) - the map is counted as this target's next one of the frame; a skipped map's copy is skipped (the texture
+   // keeps the previous frame's map), unless it also clears (kept: a later surface may rely on the clear; counted, its
+@@ -17837,6 +18023,23 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   } else {
+     std::memset(current_float_constant_map_pixel_, 0, sizeof(current_float_constant_map_pixel_));
+   }
++  // wwe2k14 patch (Session 85, gpu_depth_of_field = false; review, Opus): the zeroed combine constants make the bound pixel
++  // buffer differ from what the registers gather to, so the 'up to date' bit cannot be trusted across a combine / non-
++  // combine neighbour with the same register set: the bit is cleared for a combine draw and for the draw after one (and
++  // after the cvar flips back to true). Command thread only.
++  {
++    static bool dof_zeroed_bound = false;
++    const bool dof_off = !REXCVAR_GET(gpu_depth_of_field);
++    bool combine = false;
++    if (dof_off && pixel_shader) {
++      const uint64_t dof_hash = pixel_shader->ucode_data_hash();
++      combine = dof_hash == 0x1233F68C15FDF948ull || dof_hash == 0x4E2CD8031D93DE3Eull;
++    }
++    if (combine || dof_zeroed_bound) {
++      current_constant_buffers_up_to_date_ &= ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel);
++    }
++    dof_zeroed_bound = combine;
++  }
+ 
+   // wwe2k14 patch (Session 6, CP7): vulkan_constants_dynamic_offsets state, null if off (latched at setup).
+   ConstantsDynamicOffsets* const constants_dynamic = constants_dynamic_offsets_.get();
+@@ -17846,6 +18049,41 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+ 
+   // wwe2k14 patch (Session 59, vulkan_constants_reuse_identical).
+   const bool constants_reuse = REXCVAR_GET(vulkan_constants_reuse_identical);
++  // wwe2k14 patch (Session 85, gpu_depth_of_field = false): the match combine (1233F68C15FDF948) and the entrance combine
++  // (4E2CD8031D93DE3E) blend toward the blurred copies by clamp((c21.x - z) * c20.x + c21.z, c21.z, 1) (near) and
++  // clamp((z - c21.y) * c20.y + c21.z, c21.z, c20.w) (far). With c20.x = c20.w = c21.z = 0 both weights are 0: no blur,
++  // in the game's own translation, our Original copy and Enhanced (its bokeh radius follows the same far ramp). The
++  // constants are changed in the gathered bytes (position = rank among the shader's used registers), so every path that
++  // uploads them (reuse, shadow, pool) carries the change.
++  const auto zero_depth_of_field = [&](uint8_t* base) {
++    if (!pixel_shader || !base || REXCVAR_GET(gpu_depth_of_field)) return;
++    const uint64_t hash = pixel_shader->ucode_data_hash();
++    if (hash != 0x1233F68C15FDF948ull && hash != 0x4E2CD8031D93DE3Eull) return;
++    const Shader::ConstantRegisterMap& map = pixel_shader->constant_register_map();
++    const auto rank = [&](uint32_t reg) -> int {
++      if (!(map.float_bitmap[reg >> 6] & (1ull << (reg & 63)))) return -1;
++      uint32_t n = 0;
++      for (uint32_t i = 0; i < (reg >> 6); ++i) n += uint32_t(std::popcount(map.float_bitmap[i]));
++      n += uint32_t(std::popcount(map.float_bitmap[reg >> 6] & ((1ull << (reg & 63)) - 1)));
++      return int(n);
++    };
++    const int r20 = rank(20), r21 = rank(21);
++    if (r20 < 0 || r21 < 0) return;
++    float zero = 0.0f;
++    std::memcpy(base + size_t(r20) * 16 + 0, &zero, 4);   // c20.x: the near ramp's slope
++    std::memcpy(base + size_t(r20) * 16 + 12, &zero, 4);  // c20.w: the far blend's cap
++    std::memcpy(base + size_t(r21) * 16 + 8, &zero, 4);   // c21.z: the ramps' floor
++    static uint64_t window_first_frame = UINT64_MAX, window_count = 0, total = 0;
++    ++window_count;
++    ++total;
++    if (window_first_frame == UINT64_MAX) window_first_frame = frame_current_;
++    if (frame_current_ - window_first_frame >= 600) {
++      REXGPU_INFO("[s85][dof] gpu_depth_of_field = false: {} combine passes forced to no depth of field in frames {}-{} "
++                  "({} in all)", window_count, window_first_frame, frame_current_, total);
++      window_first_frame = frame_current_;
++      window_count = 0;
++    }
++  };
+   const auto gather_float = [&](uint8_t* dst, const uint32_t* float_regs, const uint64_t* map) {
+     if (REXCVAR_GET(vulkan_float_constant_runs)) {
+       GatherFloatConstantRuns(dst, float_regs, map);
+@@ -17997,6 +18235,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       bool reused = false;
+       if (reuse_shadow) {
+         gather_float(reuse_shadow, &regs[XE_GPU_REG_SHADER_CONSTANT_256_X], current_float_constant_map_pixel_);
++        zero_depth_of_field(reuse_shadow);  // wwe2k14 patch (Session 85)
+         reused = ConstantsTryReuse(SpirvShaderTranslator::kConstantBufferFloatPixel, reuse_shadow, float_constants_size);
+       }
+       if (reused) {
+@@ -18045,6 +18284,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+           }
+         }
+       }
++      if (!reuse_shadow) zero_depth_of_field(float_shadow ? float_shadow : float_pool_mapping);  // wwe2k14 patch (Session 85)
+       if (float_shadow) {  // wwe2k14 patch (Session 7b, REBAR)
+         std::memcpy(float_pool_mapping, float_shadow, float_constants_size);
+       }

@@ -12433,6 +12433,90 @@
           "size": 11563008
         }
       ]
+    },
+    {
+      "id": "pin-f527e63-1103-1609",
+      "sdk_commit": "f527e636ba3f4293770d9315207e783e0012eec1",
+      "sdk_branch": "s84-android",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-11-03",
+      "built": "build_sdk.ps1 -Run s84b, 2026-11-03T16:09:08 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s84b.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "s84 step 2: owned viewport/scissor through CP tracking",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "9c4eb5f1acdb61a5f6e3c812cbd5db27d81eb42a65a7ed5425b44f04351ccd9a",
+          "size": 3646464
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "419c26fc1f4360886a4a5f3710b77eb8b78c1d9505aea3e44f80f048c10ba2ec",
+          "size": 16231424
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "48adf9907fc8b0737fc4ce712b15b98f55c59513463e34ae2e2b54206158193d",
+          "size": 11563008
+        }
+      ]
+    },
+    {
+      "id": "pin-86722be-1103-1747",
+      "sdk_commit": "86722be5bd70ef6fe989cdee2621a0f40252ec05",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-11-03",
+      "built": "build_sdk.ps1 -Run s85, 2026-11-03T17:47:52 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s85.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 85: gpu_dynamic_shadows / gpu_depth_of_field / gpu_scene_crowd_density (patch step 89)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "9c4eb5f1acdb61a5f6e3c812cbd5db27d81eb42a65a7ed5425b44f04351ccd9a",
+          "size": 3646464
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "1626cd8c0705084eb013724f40e552664c0e6a925b41ab8cc2dd4a7d1f6a70a0",
+          "size": 16250880
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "48adf9907fc8b0737fc4ce712b15b98f55c59513463e34ae2e2b54206158193d",
+          "size": 11563008
+        }
+      ]
+    },
+    {
+      "id": "pin-243729c-1104-0759",
+      "sdk_commit": "243729cc23d08370777ccb77babac344fabc9367",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-11-04",
+      "built": "build_sdk.ps1 -Run s87, 2026-11-04T07:59:16 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s87.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "Session 87: the D3D layer (stages 1-4, chains, skip translation, textures by object, crowd all); every switch default off",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "03653c87e41a967291bccb02fcac4d336a985051395faa14403fa792d7d76ad8",
+          "size": 3646464
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "6a0b24b32d93d91fc7aa0b0a8a7e47b23406b7af7bfccd0b8cd2784fe75418f8",
+          "size": 16848384
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "74a507da003a463e282f89738ffebbae589858606698febbf5a47f3a49c2d909",
+          "size": 11563520
+        }
+      ]
     }
   ]
 }

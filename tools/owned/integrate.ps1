@@ -22,7 +22,9 @@
 # Call it in-process from PowerShell or with pwsh -File (-Branches takes a comma/space separated list as one string).
 param([string]$Branches = '', [string]$Worktree = 'C:\Users\Jarrod\wwe2k14-recomp\thirdparty\sdk-wt\s82-int', [string]$Name = 'int',
       [string]$OnFlags = '--gpu_native_owned_frame=true', [switch]$NoMerge, [switch]$DryRun, [switch]$NoValidation,
-      [switch]$NoEntrance, [switch]$NoGames)
+      [switch]$NoEntrance, [switch]$NoGames, [string]$ExeSource = '')
+# (Session 87: -ExeSource DIR = fast_build's -ExeSource, the exe folder to stage instead of the main one: an exe built in a worktree
+# against another SDK install.)
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $SdkSrc = "$R\thirdparty\rexglue-sdk-src"
 Set-Location $R
@@ -97,7 +99,8 @@ if ($DryRun) {
 
 # --- 2. fast build
 $tb = Get-Date
-$bo = @(& pwsh -NoProfile -File "$R\tools\owned\fast_build.ps1" -Worktree $Worktree -Name $Name 2>&1)
+$fbArgs = @('-Worktree', $Worktree, '-Name', $Name); if ($ExeSource) { $fbArgs += @('-ExeSource', $ExeSource) }
+$bo = @(& pwsh -NoProfile -File "$R\tools\owned\fast_build.ps1" @fbArgs 2>&1)
 $bo | ForEach-Object { Add-Content -LiteralPath $logFile -Value "$_" }
 $bo | Where-Object { "$_" -match '^(fast_build |build |configure|\[runlock\] acquired|.*FAILED|.*failed)' } | ForEach-Object { Write-Host "$_" }
 $exeLine = @($bo | Where-Object { "$_" -match '^FAST_BUILD_EXE ' }) | Select-Object -Last 1
@@ -108,7 +111,7 @@ Say "build: $buildLine"
 $summary.Add("build: $buildLine")
 
 # --- 3. pre-flight
-$pf = @(& "$R\tools\owned\preflight.ps1" -Exe $exe -Entrance 2>&1)
+$pf = @(& "$R\tools\owned\preflight.ps1" -Exe $exe -Entrance -ExeSource $ExeSource 2>&1)
 $pf | ForEach-Object { Say "$_" }
 if ($LASTEXITCODE -ne 0) { Stop-Here 'pre-flight failed: no game was launched' 6 }
 if ($NoGames) { Say 'no games (-NoGames): stopping after build + pre-flight'; exit 0 }
@@ -137,7 +140,9 @@ if (-not $NoEntrance) {
     if (-not (Test-Path $set)) { Set-Content -NoNewline -Path $set -Value '{"renderer": 2, "frame_rate": 1, "resolution": 0}' }
     $ent = 'tools\input_scripts\short\s82_ent_shots.txt'
     $common = "--wwe2k14_replay_play=s82_lb_quick_ent --wwe2k14_use_launcher_settings=true --wwe2k14_native_frame=true --vsync=false --game_data_root=$R\game_data\extracted --wwe2k14_replay_dir=$R\out\replays --wwe2k14_scenario_dir=$R\out\scenarios"
-    $extras = @("--wwe2k14_settings_file=$set $OnFlags", "--wwe2k14_settings_file=$set --gpu_native_own_steps=0")
+    # (Session 87: the owned frame is on by default in NATIVE since v0.2.16 - the off arm turns it off too, as owned_check's
+    # off arms do since Session 84, or both arms were owned and the pair compared owned with owned.)
+    $extras = @("--wwe2k14_settings_file=$set $OnFlags", "--wwe2k14_settings_file=$set --gpu_native_own_steps=0 --gpu_native_owned_frame=false")
     $eo = @(& "$R\tools\bench\run_list.ps1" -Scripts @($ent, $ent) -ScriptExtras $extras -Parallel 2 -Extra $common -Exe $exe 2>&1)
     $eo | Where-Object { "$_" -match ' -> wwe2k14_\d+' } | ForEach-Object { Say "$_" }
     $eruns = @($eo | ForEach-Object { if ("$_" -match ' -> wwe2k14_(\d+)') { $Matches[1] } })

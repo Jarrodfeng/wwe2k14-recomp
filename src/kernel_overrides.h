@@ -15,7 +15,10 @@
 #include <rex/system/xmemory.h>
 #include <rex/system/xtypes.h>
 
+#include <rex/filesystem/entry.h>
+
 #include <atomic>
+#include <cctype>
 #include <cstdint>
 #include <string>
 
@@ -80,6 +83,9 @@ REXCVAR_DEFINE_BOOL(wwe2k14_phys_alloc_fast_fail, false, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_phys_alloc_fast_fail_verify, false, "wwe2k14",
                     "wwe2k14_phys_alloc_fast_fail: still call ReXGlue for each skipped request and log a mismatch if "
                     "it succeeds (the allocation is then kept and returned)");
+REXCVAR_DEFINE_BOOL(wwe2k14_cache_all_files, false, "wwe2k14",
+                    "Session 88: let the game open cache:\\CAR.cac and cache:\\EditEx.cac (refused by default: suspected "
+                    "cause of v0.2.17's endless loading screens; only MATCH HIGHLIGHTS' file uses cache:)");
 
 namespace wwe2k14 {
 
@@ -213,6 +219,28 @@ inline uint32_t NtCreateFileOverride(mapped_u32 handle_out, uint32_t desired_acc
                                      mapped_u64 allocation_size_ptr, uint32_t file_attributes,
                                      uint32_t share_access, uint32_t creation_disposition,
                                      uint32_t create_options) {
+  // Session 88 (endless loading screens in v0.2.17: Defeat / Defend the Streak, Create an Entrance, the moveset
+  // editor; unconfirmed cause): v0.2.17 mounted cache: (MATCH HIGHLIGHTS), which also switched on the game's two
+  // large caches that no earlier build had: CAR.cac (sub_822AE1B0 -> sub_822B41A0, 200 MB) and EditEx.cac
+  // (sub_823011C0, 400 MB). Both are refused here exactly as without cache: (v0.2.16 and before: no such file), so
+  // only the highlights file (Spectacular.rps) uses the partition. --wwe2k14_cache_all_files lets them through.
+  if (!REXCVAR_GET(wwe2k14_cache_all_files)) {
+    using rex::X_HANDLE;  // (the status / handle macros below name these unqualified)
+    using rex::X_STATUS;
+    std::string path = GuestObjectPath(object_attrs);
+    for (auto& c : path) c = char(std::tolower(uint8_t(c)));
+    if (path.find("cache:") != std::string::npos &&
+        (path.ends_with("\\car.cac") || path.ends_with("\\editex.cac"))) {
+      if (io_status_block) {
+        io_status_block->status = X_STATUS_NO_SUCH_FILE;
+        io_status_block->information = uint32_t(rex::filesystem::FileAction::kDoesNotExist);
+      }
+      *handle_out = X_INVALID_HANDLE_VALUE;
+      LogFileOpen("NtCreateFile", object_attrs, creation_disposition, desired_access, X_STATUS_NO_SUCH_FILE,
+                  handle_out);
+      return X_STATUS_NO_SUCH_FILE;
+    }
+  }
   mods::OpenRedirect redirect(object_attrs);  // no-op unless --wwe2k14_mods and a replacement exists
   uint32_t result = rex::kernel::xboxkrnl::NtCreateFile_entry(
       handle_out, desired_access, object_attrs, io_status_block, allocation_size_ptr, file_attributes,
@@ -277,6 +305,8 @@ inline void VdSwapOverride(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped
   ProfilerOnSwap();
   rex::kernel::xboxkrnl::VdSwap_entry(buffer_ptr, fetch_ptr, unk2, unk3, unk4, frontbuffer_ptr,
                                       texture_format_ptr, color_space_ptr, width, height);
+  // Session 87 stage 2 (2b): the swap's words VdSwap_entry just formed, queued for the no-ring consumer (no-op unless attached).
+  wwe2k14::d3d_noring::AfterVdSwap(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0), buffer_ptr.guest_address());
 }
 
 }  // namespace wwe2k14

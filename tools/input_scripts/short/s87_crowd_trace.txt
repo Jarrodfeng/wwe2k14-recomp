@@ -1,0 +1,21 @@
+# Session 87 step 1 (diagnostic, 1 run, COVERAGE build): which crowd loop records the entrances' ~1,400-2,000 billboard
+# draws a frame. Counts the callers of the op-15 draw recorder sub_82BB10C0 (docs\systems\draw_submit.md: crowd sites
+# 0x82518D60 / 0x82518E68 in sub_82518950, 0x825192D0 / 0x825194B4 in sub_82518EB8, 0x82518574 in the block loop,
+# 0x825130C4 in the 2D card) over 20,000 calls at Brock +300 and at Bryan +440, and the calls of the three crowd loops.
+# Run with --wwe2k14_replay_play=s82_lb_quick_ent, the NATIVE 720p settings file, fast-forwarded. on_fail quit.
+on_fail quit
+log bench: start s87_crowd_trace
+wait_file 343.bik2 3600
+log scene=tron_343
+wait_frames 300
+log trace: brock
+cvar wwe2k14_trace 0x82BB10C0/20000@callers,0x82518950/40@callers,0x82518EB8/40@callers,0x825185B0/40@callers
+wait_frames 60
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+log trace: bryan
+cvar wwe2k14_trace 0x82BB10C0/20000@callers,0x82518950/40@callers,0x82518EB8/40@callers,0x825185B0/40@callers
+wait_frames 60
+log bench: done
+quit

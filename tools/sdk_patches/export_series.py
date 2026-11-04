@@ -112,6 +112,9 @@ STEPS = [
     ('session80-ownpasses', '623cc9842d1351a8146a5ba7f78be002e5114729'),
     ('session82-owned', 'a0ff9cf71b48c2d62ab9356bde0601a58ca6f05f'),
     ('session83-bugs', 'ded47622450c334d617894368ef60bd22a68bdb7'),  # gpu_wide_post_vs (b2991f8), keyboard stick keys
+    ('session84-android', 'f527e636ba3f4293770d9315207e783e0012eec1'),  # owned frame on host RT: clear depth range, viewport tracking
+    ('session85-settings', '86722be5bd70ef6fe989cdee2621a0f40252ec05'),  # gpu_dynamic_shadows / gpu_depth_of_field / gpu_scene_crowd_density
+    ('session87-d3d-layer', '243729cc23d08370777ccb77babac344fabc9367'),  # the D3D layer: no ring, own input, own shaders, textures by object, chains (switches off)
 ]
 
 

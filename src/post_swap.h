@@ -44,10 +44,14 @@ inline constexpr uint8_t kEntranceCombineFloats[] = {20, 21, 27, 29, 30, 31, 32,
 // scene's own two resolves into the same two images (run 4560's segment log): NATIVE leaves it out there.
 inline constexpr uint64_t kRestoreColorDepth = 0x9A836B68E3F8F0B0ull;
 
+// (Session 87, stage 4: the combines end in xenos_ps.glsl's XeOutputColor, so they are registered with their own epilogue: the
+// swap takes every draw of them, and no registered shader keeps the translator.)
+inline constexpr uint32_t kOwnEpilogue = 1;
+
 template <size_t N, size_t M>
 inline bool Register(rex::graphics::CommandProcessor* cp, uint64_t hash, const uint32_t (&words)[N],
                      const uint8_t (&floats)[M], const char* name) {
-  return cp->RegisterNativeShaderSwap(hash, words, N, floats, M, name);
+  return cp->RegisterNativeShaderSwap(hash, words, N, floats, M, name, kOwnEpilogue);
 }
 
 // Once, after the graphics system exists (OnPostSetup).

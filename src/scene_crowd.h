@@ -11,6 +11,13 @@
 // member recorded as always, the matrices queued too; the command processor checks them against the draws.
 // Our hooks only change which of the game's records reach the command list; nothing the game computes changes.
 // Off (the default): one cvar read per call of the three recorders, then the recorder as before.
+//
+// Session 87 (wwe2k14_scene_crowd_cards, with wwe2k14_scene_crowd): the crowd's flat cards take the same way. The card
+// loop sub_82512F70 (one call per block, from sub_825185B0; listing 0x82512F70) records per visible member the matrix
+// as c76-c78 (op 21, bl 0x82BB27D8 at 0x825130AC, r4 = 76, r5 = r1+112, r6 = 3) and one 4-index strip (op 15, bl
+// 0x82BB10C0 at 0x825130C4); its frame is 224 bytes (stwu r1,-224 at 0x82512F78), the record scratch r1+80. Run 067
+// (coverage trace of 0x82BB10C0's callers): ~14,000 of 20,000 recorded draws in Brock's and Bryan's entrances come
+// from 0x825130C8, ~1,400 a frame - most of the entrances' draws. A run is one call (one block).
 #pragma once
 
 #include <bit>
@@ -28,6 +35,10 @@ REXCVAR_DEFINE_INT32(wwe2k14_scene_crowd, 0, "wwe2k14",
                      "Session 50: the crowd drawn from its members' matrices (SCENE_MAP.md section 7): 0 off; 1 each crowd "
                      "group's first member recorded, the others queued to the command processor, which draws them; 2 "
                      "verify (every member recorded as always and queued; the command processor checks the queue)");
+REXCVAR_DEFINE_BOOL(wwe2k14_scene_crowd_cards, false, "wwe2k14",
+                    "Session 87 (with wwe2k14_scene_crowd): the crowd's flat cards (sub_82512F70, ~1,400 draws a frame in "
+                    "the entrances) queued as the 3D crowd's members are: each block's first card recorded, the others "
+                    "drawn by the command processor at that draw");
 
 namespace wwe2k14::scene_crowd {
 
@@ -37,9 +48,19 @@ inline constexpr uint32_t kGroupReturn = 0x82518450;  // after bl 0x82BB0F30 (th
 inline constexpr uint32_t kFrameSize = 368;           // stwu r1,-368 at 0x82518348
 inline constexpr uint32_t kScratch = 192;             // the record scratch: addi r3,r1,192 (0x82518530)
 inline constexpr uint32_t kMatrix = 128;              // the member matrix: addi r5,r1,128 (0x82518524)
+// The card loop sub_82512F70 (Session 87; listing 0x82512F70).
+inline constexpr uint32_t kCardOp21Return = 0x825130B0;  // after bl 0x82BB27D8 at 0x825130AC
+inline constexpr uint32_t kCardOp15Return = 0x825130C8;  // after bl 0x82BB10C0 at 0x825130C4 (trace run 067)
+inline constexpr uint32_t kCardFrameSize = 224;          // stwu r1,-224 at 0x82512F78
+inline constexpr uint32_t kCardScratch = 80;             // addi r3,r1,80 (0x82513088)
+inline constexpr uint32_t kCardMatrix = 112;             // addi r5,r1,112 (0x8251307C)
 
 struct Run {
   int mode = 0;
+  // The site of the open run: the block draw's or the card loop's return addresses and frame offsets.
+  uint32_t op15_return = kOp15Return;
+  uint32_t scratch = kScratch;
+  uint32_t matrix = kMatrix;
   bool first_valid = false;  // the first member's constants recorded
   bool open = false;         // ... and its draw: the others are queued from here on
   bool cur_valid = false;
@@ -68,6 +89,7 @@ REX_EXTERN(__imp__sub_82BB27D8);
 REX_EXTERN(__imp__sub_82BB10C0);
 REX_EXTERN(__imp__sub_82BB0F30);
 REX_EXTERN(__imp__sub_82518340);
+REX_EXTERN(__imp__sub_82512F70);
 
 inline void wwe2k14::scene_crowd::Flush(PPCContext& ctx, uint8_t* base, uint32_t frame_r1) {
   Run& r = t_run;
@@ -77,12 +99,12 @@ inline void wwe2k14::scene_crowd::Flush(PPCContext& ctx, uint8_t* base, uint32_t
       // The last member's matrix where its record read it, and its op-21 record (the library's shadow c76-c78 then
       // ends as the original records leave it); called inside the block's frame, as the block calls it.
       const uint32_t* last = r.others.data() + 12 * size_t(count - 1);
-      for (uint32_t i = 0; i < 12; ++i) Store32(base, frame_r1 + kMatrix + 4 * i, last[i]);
+      for (uint32_t i = 0; i < 12; ++i) Store32(base, frame_r1 + r.matrix + 4 * i, last[i]);
       PPCContext saved = ctx;
       ctx.r1.u64 = frame_r1;
-      ctx.r3.u64 = frame_r1 + kScratch;
+      ctx.r3.u64 = frame_r1 + r.scratch;
       ctx.r4.u64 = 76;
-      ctx.r5.u64 = frame_r1 + kMatrix;
+      ctx.r5.u64 = frame_r1 + r.matrix;
       ctx.r6.u64 = 3;
       __imp__sub_82BB27D8(ctx, base);
       ctx = saved;
@@ -106,12 +128,20 @@ REX_HOOK_RAW(sub_82BB27D8) {
   if (mode && !r.first_valid) {
     if (rex::graphics::CommandProcessor* cp = wwe2k14::half2::Cp(); !cp || cp->scene_crowd_blocked()) mode = 0;
   }
-  if ((!mode && !r.first_valid) || uint32_t(ctx.lr) != kOp21Return || ctx.r4.u32 != 76 || ctx.r6.u32 != 3) {
+  // (Session 87: the card loop's site too, with its own switch; an open run continues only at its own site.)
+  const uint32_t lr = uint32_t(ctx.lr);
+  const bool card = lr == kCardOp21Return && (r.first_valid ? r.op15_return == kCardOp15Return
+                                                             : REXCVAR_GET(wwe2k14_scene_crowd_cards));
+  const bool block = lr == kOp21Return && (!r.first_valid || r.op15_return == kOp15Return);
+  if ((!mode && !r.first_valid) || !(block || card) || ctx.r4.u32 != 76 || ctx.r6.u32 != 3) {
     __imp__sub_82BB27D8(ctx, base);
     return;
   }
   if (!r.first_valid) {
     r.mode = mode;
+    r.op15_return = card ? kCardOp15Return : kOp15Return;
+    r.scratch = card ? kCardScratch : kScratch;
+    r.matrix = card ? kCardMatrix : kMatrix;
     ReadMatrix(base, ctx.r5.u32, r.first);
     r.first_valid = true;
     __imp__sub_82BB27D8(ctx, base);
@@ -131,7 +161,7 @@ REX_HOOK_RAW(sub_82BB27D8) {
 REX_HOOK_RAW(sub_82BB10C0) {
   using namespace wwe2k14::scene_crowd;
   Run& r = t_run;
-  if (!r.first_valid || uint32_t(ctx.lr) != kOp15Return) {
+  if (!r.first_valid || uint32_t(ctx.lr) != r.op15_return) {
     __imp__sub_82BB10C0(ctx, base);
     return;
   }
@@ -152,7 +182,9 @@ REX_HOOK_RAW(sub_82BB10C0) {
 // The next group's op 14 (SetStreamSource): the previous group's run ends before it.
 REX_HOOK_RAW(sub_82BB0F30) {
   using namespace wwe2k14::scene_crowd;
-  if (t_run.first_valid && uint32_t(ctx.lr) == kGroupReturn) Flush(ctx, base, ctx.r1.u32);
+  if (t_run.first_valid && t_run.op15_return == kOp15Return && uint32_t(ctx.lr) == kGroupReturn) {
+    Flush(ctx, base, ctx.r1.u32);
+  }
   __imp__sub_82BB0F30(ctx, base);
 }
 
@@ -161,5 +193,13 @@ REX_HOOK_RAW(sub_82518340) {
   using namespace wwe2k14::scene_crowd;
   const uint32_t entry_r1 = ctx.r1.u32;
   __imp__sub_82518340(ctx, base);
-  if (t_run.first_valid) Flush(ctx, base, entry_r1 - kFrameSize);
+  if (t_run.first_valid && t_run.op15_return == kOp15Return) Flush(ctx, base, entry_r1 - kFrameSize);
+}
+
+// Session 87: the card loop's end (one block's cards = one run).
+REX_HOOK_RAW(sub_82512F70) {
+  using namespace wwe2k14::scene_crowd;
+  const uint32_t entry_r1 = ctx.r1.u32;
+  __imp__sub_82512F70(ctx, base);
+  if (t_run.first_valid && t_run.op15_return == kCardOp15Return) Flush(ctx, base, entry_r1 - kCardFrameSize);
 }

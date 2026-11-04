@@ -71,10 +71,13 @@ if ($Exe) {
 }
 $exeArg = if ($Exe) { @{ Exe = $Exe } } else { @{} }
 # (On arms first: they start in the first lanes; the off arms are the references.)
+# (Session 84: the owned frame is on by default since v0.2.17 - the off arms turn it off too, or they were owned as well and
+# the verdict found no reference: "no owned-off run of the same scale / route / replay given".)
+$off = '--gpu_native_own_steps=0 --gpu_native_owned_frame=false'
 $extras = @("--wwe2k14_settings_file=$($settings['720']) $on$valid".Trim(),
             "--wwe2k14_settings_file=$($settings['1440']) $on$valid".Trim(),
-            "--wwe2k14_settings_file=$($settings['720']) --gpu_native_own_steps=0",
-            "--wwe2k14_settings_file=$($settings['1440']) --gpu_native_own_steps=0")
+            "--wwe2k14_settings_file=$($settings['720']) $off",
+            "--wwe2k14_settings_file=$($settings['1440']) $off")
 $out = & "$root\tools\bench\run_list.ps1" -Scripts @($scriptOn, $scriptOn, $script, $script) -ScriptExtras $extras `
   -Parallel 3 -Extra $common @exeArg 2>&1
 $out | Where-Object { "$_" -match ' -> wwe2k14_\d+' } | ForEach-Object { "$_" }

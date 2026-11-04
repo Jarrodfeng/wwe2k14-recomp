@@ -24,7 +24,7 @@ New-Item -ItemType Directory -Force "$stage\wwe2k14-recomp" | Out-Null
 # 1. Committed files of HEAD, minus GitHub's exclusions (same list as publish_github.ps1), plus the Android notes.
 $exclude = @('^CLAUDE\.md$', '^PLAYBOOK\.md$', '^MORNING_REPORT\.md$', '^SESSION[^/]*\.md$', '^docs/(?!release/)',
              '^\.claude/', '^\.mcp\.json$', '^db/(?!ids/)', '^tools/labelling/prompts/', '^tools/release/release\.ps1$',
-             '^[^/]+_PLAN\.md$', '^[^/]+_prompt\.md$')
+             '^[^/]+_PLAN\.md$', '^[^/]+_prompt\.md$', '^STATUS\.md$', '^[^/]+_ARC\.md$')
 # The Android notes the helper needs, kept although GitHub leaves them out.
 $keepAnyway = @('ANDROID_PLAN.md', 'docs/research/android_port_s62.md')
 $tar = "$share\head_$stamp.tar"

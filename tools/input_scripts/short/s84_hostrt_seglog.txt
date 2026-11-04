@@ -1,0 +1,14 @@
+# Session 84 (step 2 diagnosis 2 of 2): one match frame's segment log with the owned frame on, for the phone's render path
+# on the PC (--wwe2k14_test_no_interlock=true). Question: do the game's clears reach OwnedHoldClear / TruthRecordDraw on
+# host render targets, and which test turns them down ("clear not held (owned_steps.cpp:LINE)", "[native][seg] ... clear")?
+# Replay s80_lb_quick with --gpu_native_owned_frame=true and owned_check's settings_native720.json.
+on_fail quit
+log bench: start s84_hostrt_seglog
+wait_file m3.pac 3600
+log scene=match
+wait_frames 400
+cvar gpu_native_owned_frame_log 1
+cvar gpu_native_segment_log 1
+wait_frames 10
+log bench: done
+quit

@@ -16,6 +16,8 @@
 //                3 30 everywhere (Session 37: weak PCs; the launcher only)
 //   refresh_hz   high refresh: game steps per second (0 = the monitor's)
 //   original_look  the original 720p / 4x MSAA / 30 fps entrance look (Advanced)
+//   true_native  Session 87 (Jarrod: "an advanced launcher toggle, called true native"): the whole D3D-layer stack
+//                (--wwe2k14_d3d_owned, src\d3d_owned.h); NATIVE only, experimental, default off (Advanced)
 //   texture_filter 0 standard (the game's own filtering since Session 80; the forced 4x before), 1 8x, 2 16x (Session 33)
 //   renderer     0 accurate, 1 light (Session 37), 2 native (Session 41: accurate + the native renderer). Session 51
 //                (Jarrod, 2026-10-22: "NATIVE for everyone"): 2 is the default; ACCURATE and LIGHT are fallbacks
@@ -67,10 +69,16 @@ struct Choice {
                            // (the accurate renderer with the native renderer drawing the scene, --gpu_native=2);
                            // Session 51: 2 by default (Jarrod: "NATIVE for everyone")
   int post_effects = 0;    // Session 72: 0 original (our copy of the game's pass), 1 enhanced; NATIVE only
+  // Session 85 (Jarrod: individual graphics settings; launcher only, NATIVE only; defaults = today's look)
+  bool shadows = true;         // false: no dynamic shadows (gpu_dynamic_shadows)
+  bool depth_of_field = true;  // false: no depth-of-field blur (gpu_depth_of_field)
+  int crowd_density = 100;     // 0..100 in steps of 10 (gpu_scene_crowd_density)
+  bool true_native = false;    // Session 87: the D3D-layer stack (--wwe2k14_d3d_owned); launcher Advanced, NATIVE only
   std::string dlss_dir;
   bool operator==(const Choice& o) const {
     return upscale == o.upscale && resolution == o.resolution && draw_height == o.draw_height &&
-           frame_rate == o.frame_rate && texture_filter == o.texture_filter;
+           frame_rate == o.frame_rate && texture_filter == o.texture_filter && shadows == o.shadows &&
+           depth_of_field == o.depth_of_field && crowd_density == o.crowd_density;
   }
 };
 
@@ -155,6 +163,9 @@ inline int RendererFromFlags(const std::string& flags) {
   return value == "native" ? 2 : value == "light" ? 1 : value == "accurate" ? 0 : -1;
 }
 
+// Session 85: crowd density to 0..100 in steps of 10 (rounded to the nearest step).
+inline int RoundCrowdDensity(int v) { return (std::clamp(v, 0, 100) + 5) / 10 * 10; }
+
 // Which of the keys the file has (a key that is absent says nothing: the caller keeps what the game is running).
 struct Present {
   bool upscale = false, resolution = false, frame_rate = false, refresh_hz = false, original_look = false;
@@ -204,6 +215,12 @@ inline Present Parse(const std::string& json, Choice& c) {
   GetString(json, "dlss_dir", c.dlss_dir);
   GetInt(json, "post_effects", c.post_effects);  // Session 72 (the launcher's Settings -> Graphics)
   c.post_effects = std::clamp(c.post_effects, 0, 1);
+  // Session 85: missing keys keep the defaults (shadows on, depth of field on, crowd 100%).
+  GetBool(json, "shadows", c.shadows);
+  GetBool(json, "depth_of_field", c.depth_of_field);
+  GetInt(json, "crowd_density", c.crowd_density);
+  c.crowd_density = RoundCrowdDensity(c.crowd_density);
+  GetBool(json, "true_native", c.true_native);  // Session 87 (launcher Advanced; missing = off)
   c.upscale = std::clamp(c.upscale, 0, 7);
   c.resolution = std::clamp(c.resolution, 0, 2);
   c.draw_height = ValidDrawHeight(c.resolution, c.draw_height);
@@ -668,6 +685,15 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
     for (const auto& [name, value] : NativeRendererFlags()) f.push_back({name, value});
   // Session 72: Enhanced post effects (the default, original, is our copy of the game's pass: no flag).
   if (c.renderer == 2 && c.post_effects == 1) f.push_back({"wwe2k14_post_enhanced", "true"});
+  // Session 85 (Jarrod): shadows / depth of field / crowd density, NATIVE only, flags only when not the default.
+  if (c.renderer == 2) {
+    if (!c.shadows) f.push_back({"gpu_dynamic_shadows", "false"});
+    if (!c.depth_of_field) f.push_back({"gpu_depth_of_field", "false"});
+    const int crowd = RoundCrowdDensity(c.crowd_density);
+    if (crowd < 100) f.push_back({"gpu_scene_crowd_density", std::to_string(crowd)});
+  }
+  // Session 87 (Jarrod: "true native"): the game's Direct3D calls to our own renderer, the whole stack in one switch.
+  if (c.renderer == 2 && c.true_native) f.push_back({"wwe2k14_d3d_owned", "true"});
   // Session 54: NATIVE drawing below the whole size (no upscaler: DLAA / DLSS / FSR turn truth frames off; the SDK
   // logs and ignores a height it cannot draw).
   if (c.renderer == 2 && c.upscale == 0 && !c.original_look && ValidDrawHeight(c.resolution, c.draw_height))

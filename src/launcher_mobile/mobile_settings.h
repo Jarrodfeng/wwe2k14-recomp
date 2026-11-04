@@ -63,6 +63,12 @@ struct Settings {
   int language = 0;        // kLanguages id; 0 = automatic
   bool dlc = true;
   std::string dlc_off;     // switched-off pack ids, "3,5"
+  // Session 85 (Jarrod: "same work let's get it into android"): as the PC launcher's SHADOWS, CROWD DENSITY and DEPTH OF
+  // FIELD (gfx_settings.h): defaults = the normal look; the SDK cvars gpu_dynamic_shadows, gpu_scene_crowd_density (0-100,
+  // 10% steps) and gpu_depth_of_field.
+  bool shadows = true;
+  bool depth_of_field = true;
+  int crowd_density = 100;
   // Touch controls (ANDROID_PLAN F1, Jarrod 2026-10-28): 0 automatic (hidden while a controller is connected),
   // 1 always, 2 off; size and opacity in percent; a short vibration on each press (off by default).
   int touch_mode = 0;
@@ -156,8 +162,10 @@ inline Settings LoadSettings(const fs::path& p) {
     Get(j, "big_cores", s.big_cores);
     Get(j, "sgsr", s.sgsr), Get(j, "performance", s.performance), Get(j, "fast_shaders", s.fast_shaders);
     Get(j, "perf_overlay", s.perf_overlay);
+    Get(j, "shadows", s.shadows), Get(j, "depth_of_field", s.depth_of_field), Get(j, "crowd_density", s.crowd_density);
   } catch (...) {
   }
+  s.crowd_density = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;  // Session 85
   if (s.frame_rate != 0 && s.frame_rate != 1 && s.frame_rate != 3) s.frame_rate = 1;
   s.texture_filter = std::clamp(s.texture_filter, 0, 2);
   s.aspect = std::clamp(s.aspect, 0, 1);
@@ -182,7 +190,8 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"big_cores", s.big_cores},         {"sgsr", s.sgsr},
                             {"performance", s.performance},     {"fast_shaders", s.fast_shaders},
                             {"drivers_ok", s.drivers_ok},       {"drivers_bad", s.drivers_bad},
-                            {"perf_overlay", s.perf_overlay}};
+                            {"perf_overlay", s.perf_overlay},   {"shadows", s.shadows},
+                            {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density}};
   std::error_code ec;
   fs::create_directories(p.parent_path(), ec);
   const fs::path tmp = p.string() + ".tmp";
@@ -237,6 +246,11 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   if (draw_height) f.push_back("--gpu_native_truth_draw_height=" + std::to_string(draw_height));
   if (s.sgsr || s.performance) f.push_back("--present_effect=sgsr");
   if (s.performance) f.push_back("--gpu_scene_crowd_cull=2");
+  // Session 85: the PC launcher's SHADOWS / CROWD DENSITY / DEPTH OF FIELD (flags only when not the default).
+  if (!s.shadows) f.push_back("--gpu_dynamic_shadows=false");
+  if (!s.depth_of_field) f.push_back("--gpu_depth_of_field=false");
+  if (const int crowd = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10; crowd < 100)
+    f.push_back("--gpu_scene_crowd_density=" + std::to_string(crowd));
   // Session 73: Fast shaders off for now (on Jarrod's Adreno 830 the title and the match went black, only the ring's
   // banner left: half precision breaks values the PC's driver never runs at 16 bits). The setting stays, unused.
   // Session 73 (static in the background with fill-the-screen, Jarrod's phone only): truth passes keep colour with

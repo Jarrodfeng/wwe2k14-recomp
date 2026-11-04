@@ -2404,7 +2404,8 @@ class App {
     return files + "gpu " + dev.name + " driver " + std::to_string(dev.driver_version) + "; renderer " +
            std::to_string(s.renderer) + " resolution " + std::to_string(s.resolution) + " draw_height " +
            std::to_string(s.draw_height) + " upscale " + std::to_string(s.upscale) + " original_look " +
-           std::to_string(int(s.original_look)) + " post_effects " + std::to_string(s.post_effects) + "; extra " +
+           std::to_string(int(s.original_look)) + " post_effects " + std::to_string(s.post_effects) +
+           "; extra " +
            s.extra;  // Session 72: the post effects choice swaps two pipelines
   }
   fs::path PrecompileStampPath() const { return fs::path(settings_path).parent_path() / "precompile_stamp.txt"; }
@@ -3050,6 +3051,8 @@ class App {
     t.renderer = perf_runs_[perf_step_].renderer;
     // The LOW preset's resolution and frame rate for both games (only the renderer differs), no upscaler.
     t.resolution = 0, t.draw_height = 0, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
+    t.shadows = t.depth_of_field = true, t.crowd_density = 100;  // Session 85: test results compare like with like
+    t.true_native = false;  // Session 87: the performance test runs the default renderer
     t.mods = false, t.cinecam = t.photo_mode = t.runin = false, t.perf_report = 0;
     t.scenario = "@quick", t.quick_type = 0, t.quick_ids = "343,324", t.quick_cpu_only = true, t.quick_arena = -1;
     t.skip_entrances = false;
@@ -4220,7 +4223,7 @@ class App {
     const int sug = SuggestResolution(hw_);
     char rnote[200];
     std::snprintf(rnote, sizeof(rnote), "%sYour monitor: %dx%d at %d Hz; suggested %s.",
-                  s.original_look ? "Original look is on (Graphics): 720p. "
+                  s.original_look ? "Original look is on (Advanced): 720p. "
                   : dlss          ? "The upscaler picks the size itself (Graphics). "
                                   : "",
                   hw_.screen_w, hw_.screen_h, hw_.refresh_hz, kRes[sug]);
@@ -4391,15 +4394,21 @@ class App {
       }
       ImGui::Dummy(ImVec2(0, 6 * d));
     }
-    // Session 33: anisotropic filtering (the game always had 4x forced by the runtime; 8x / 16x sharpen floors,
-    // ramps and mats seen at an angle). Changes at once from the game's own GRAPHICS screen too. Session 80 (Jarrod):
-    // STANDARD is the game's own filtering, no longer the forced 4x.
-    static constexpr const char* kTf[] = {"STANDARD", "8X", "16X"};
-    static constexpr const char* kTfNote[] = {"The game's own texture filtering.",
-                                              "8x anisotropic filtering: sharper floors and ramps at an angle.",
-                                              "16x anisotropic filtering: the sharpest floors and ramps at an angle."};
-    s.texture_filter = std::clamp(s.texture_filter, 0, 2);
-    OptionRow("TEXTURE FILTERING", s.texture_filter, kTf, 3, true, kTfNote[s.texture_filter]);
+    // Session 85 (Jarrod's order: UPSCALING, SHADOWS, CROWD DENSITY, DEPTH OF FIELD, POST EFFECTS, TEXTURE FILTERING).
+    // The three are NATIVE-only flags (gfx_settings.h GraphicsFlags); crowd density is read when the game starts.
+    OptionToggle("SHADOWS", s.shadows, true,
+                 "Dynamic shadows from wrestlers, ropes and props. Turning them off is faster on weaker graphics cards; "
+                 "the arena's baked lighting stays.");
+    static constexpr const char* kCrowd[] = {"0%", "10%", "20%", "30%", "40%", "50%",
+                                             "60%", "70%", "80%", "90%", "100%"};
+    int crowd = std::clamp(wwe2k14::gfxs::RoundCrowdDensity(s.crowd_density) / 10, 0, 10);
+    if (OptionRow("CROWD DENSITY", crowd, kCrowd, 11, true,
+                  "How much of the crowd is drawn, spread evenly over the arena. 100% is the normal look; 0% is an empty "
+                  "arena. Takes effect when the game starts."))
+      s.crowd_density = crowd * 10;
+    OptionToggle("DEPTH OF FIELD", s.depth_of_field, true,
+                 "The blur on the background behind the wrestlers. Off also removes it from Enhanced post effects and "
+                 "Photo mode.");
     // Session 72 (Jarrod: "cheaper copy default and then enhanced as an extra option in the launcher"): the final post
     // pass (src\post_swap.h): our copy of the game's, or Enhanced.
     static constexpr const char* kPost[] = {"ORIGINAL", "ENHANCED"};
@@ -4417,8 +4426,16 @@ class App {
       OptionRow("POST EFFECTS", shown, kPost, 2, false,
                 "Not with upscaling yet: with DLSS, DLAA or FSR the game's own post effects are used.");
     }
-    OptionToggle("ORIGINAL LOOK", s.original_look, true,
-                 "The Xbox 360 picture: 720p, the game's 4x MSAA, 30 fps entrances.");
+    // Session 33: anisotropic filtering (the game always had 4x forced by the runtime; 8x / 16x sharpen floors,
+    // ramps and mats seen at an angle). Changes at once from the game's own GRAPHICS screen too. Session 80 (Jarrod):
+    // STANDARD is the game's own filtering, no longer the forced 4x. Session 85: after POST EFFECTS.
+    static constexpr const char* kTf[] = {"STANDARD", "8X", "16X"};
+    static constexpr const char* kTfNote[] = {"The game's own texture filtering.",
+                                              "8x anisotropic filtering: sharper floors and ramps at an angle.",
+                                              "16x anisotropic filtering: the sharpest floors and ramps at an angle."};
+    s.texture_filter = std::clamp(s.texture_filter, 0, 2);
+    OptionRow("TEXTURE FILTERING", s.texture_filter, kTf, 3, true, kTfNote[s.texture_filter]);
+    // (ORIGINAL LOOK moved to Advanced, Session 85.)
   }
 
   // ---------------- About (Session 31: its own page; was a section of Settings). The project, its links, credits
@@ -4535,6 +4552,13 @@ class App {
     }
     // Session 27: the logo import's Session 25 route (counted presses, no screen checks), a fallback.
     OptionToggle("LOGO IMPORT: OLD ROUTE", s.logo_legacy_route, true, "Counted presses, no screen checks (a fallback).");
+    // Session 85 (Jarrod: "hide Original look ... put it in advanced"): moved here from the Graphics page.
+    OptionToggle("ORIGINAL LOOK", s.original_look, true,
+                 "The Xbox 360 picture: 720p, the game's 4x MSAA, 30 fps entrances.");
+    // Session 87 (Jarrod: "an advanced launcher toggle, called true native"): --wwe2k14_d3d_owned. NATIVE only.
+    OptionToggle("TRUE NATIVE", s.true_native, s.renderer == 2,
+                 "Experimental: the game's drawing goes straight to our own renderer, no Xbox 360 GPU emulation in "
+                 "between. Tested in the Lesnar vs Bryan scene; other arenas and modes are untested.");
     ImGui::Dummy(ImVec2(0, 6 * dpi));
     ImGui::SetNextItemWidth(-200 * dpi);
     ImGui::InputTextWithHint("Extra flags", "--name=value ...", &s.extra);

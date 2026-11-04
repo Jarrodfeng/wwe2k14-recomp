@@ -1,0 +1,41 @@
+# Session 87 step 0 (diagnostic, 1 run on the PC): what the entrances' draws are, per pass, and who reads each copy.
+# Run with --wwe2k14_replay_play=s82_lb_quick_ent, the NATIVE 720p settings file (owned frame on), fast-forwarded.
+# At Brock +300, Bryan +440 (the frames s82_ent_shots.txt shoots) and the match +600: the owned-frame census and the
+# segment log for 2 frames (passes, draws, copies, readers: tools\native\copy_graph.py, scoreboard.py), then one
+# frame-anatomy frame (one CSV row per draw and copy: tools\native\anatomy_passes.py). The lean path is off in the
+# anatomy frame only. The [native][lean] lines (every 300 frames) give the draw-path mix. on_fail quit.
+on_fail quit
+log bench: start s87_ent_frame_log
+wait_file 343.bik2 3600
+log scene=tron_343
+mark 1 tron_343
+wait_frames 298
+cvar gpu_native_owned_frame_log 2
+cvar gpu_native_segment_log 2
+wait_frames 4
+cvar gpu_anatomy_capture 1
+wait_frames 4
+screenshot s87_brock
+wait_file 324.bik2 20000
+log scene=tron_324
+mark 2 tron_324
+wait_frames 436
+cvar gpu_native_owned_frame_log 2
+cvar gpu_native_segment_log 2
+wait_frames 4
+cvar gpu_anatomy_capture 1
+wait_frames 4
+screenshot s87_bryan
+wait_file M3.PAC 30000
+log scene=match
+mark 3 match
+wait_frames 598
+cvar gpu_native_owned_frame_log 2
+cvar gpu_native_segment_log 2
+wait_frames 4
+cvar gpu_anatomy_capture 1
+wait_frames 4
+screenshot s87_match
+wait_frames 60
+log bench: done
+quit

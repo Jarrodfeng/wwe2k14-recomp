@@ -3,8 +3,8 @@
   py tools/harness/session_start.py
 
 Prints, compactly: the time; git branch, uncommitted files, the last commits and branches not merged into main; the
-run lock and any running game; the newest run of each build with its times and what it checked; the newest START
-HERE heading of PLAYBOOK.md; free disk space. Read-only (git, files, runlock.ps1 status).
+run lock and any running game; the newest run of each build with its times and what it checked; STATUS.md's title
+line and its first "Next" item (Session 86); free disk space. Read-only (git, files, runlock.ps1 status).
 """
 import os
 import re
@@ -78,14 +78,17 @@ def main():
         checks = run([sys.executable, os.path.join(REPO, 'tools', 'harness', 'run_verdict.py'), str(num),
                       '--exe-dir', os.path.join(REPO, 'out', 'build', build), '--no-sheet'])
         print('newest run (%s): %03d, %s -> %s; %s' % (build.replace('win-amd64-', ''), num, first, last[6:], checks))
+    # Session 86: STATUS.md replaced the PLAYBOOK's START HERE sections; its title line carries the update time.
     try:
-        with open(os.path.join(REPO, 'PLAYBOOK.md'), encoding='utf-8', errors='replace') as f:
-            for line in f:
-                if line.startswith('## START HERE'):
-                    print('PLAYBOOK: ' + line.strip()[3:])
-                    break
+        with open(os.path.join(REPO, 'STATUS.md'), encoding='utf-8', errors='replace') as f:
+            text = f.read().splitlines()
+        print('STATUS: ' + (text[0].lstrip('#').strip() if text else '(empty)'))
+        after = text[next((i for i, l in enumerate(text) if l.startswith('## Next')), len(text)) + 1:]
+        first = next((l.strip() for l in after if l.strip()[:1] in ('-', '*') or l.strip()[:2] == '1.'), None)
+        if first:
+            print('  next: ' + first.lstrip('-* ')[:150])
     except OSError:
-        pass
+        print('STATUS: STATUS.md missing')
     free = shutil.disk_usage(REPO).free / 2**30
     print('disk: %.0f GB free on %s' % (free, os.path.splitdrive(REPO)[0] or '/'))
     print('MCP: %s' % ('wwe2k14-live in .mcp.json' if os.path.exists(os.path.join(REPO, '.mcp.json')) else 'none'))

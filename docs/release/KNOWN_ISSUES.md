@@ -1,3 +1,6 @@
+- TRUE NATIVE (new in v0.2.18, Settings -> Advanced, off by default) has only been tested with Lesnar vs Bryan on
+  my PC (NVIDIA). Other arenas, match types, created superstars, the menus outside that match and other graphics
+  cards are untested with it. If something looks wrong or freezes, switch it off.
 - The whole-frame NATIVE drawing (new in v0.2.16) was checked on my PC (NVIDIA RTX 4090) at 720p and 1440p and
   measured on my Intel laptop at 720p, with Lesnar vs Bryan (both entrances and the match). Other arenas, match types
   (Royal Rumble, six-man), 4K and AMD graphics have not been looked at with it yet. Anything it can't draw falls back

@@ -4,7 +4,7 @@
 #   & .\tools\owned\preflight.ps1 -Exe C:\Users\Jarrod\wwe2k14-recomp\out\harness\bisect\exe\live_p0\wwe2k14.exe
 #   -Entrance  also checks the quick entrance replay's files    -MinFreeGB N (default 10): free RAM wanted for 3 lanes
 # Prints one line per check ("ok" / "FAIL"); exit 0 when all pass, 1 otherwise. Reads only.
-param([Parameter(Mandatory)][string]$Exe, [switch]$Entrance, [double]$MinFreeGB = 10)
+param([Parameter(Mandatory)][string]$Exe, [switch]$Entrance, [double]$MinFreeGB = 10, [string]$ExeSource = '')
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $fails = 0
 function Chk([string]$what, [bool]$ok, [string]$detail = '') {
@@ -30,7 +30,7 @@ foreach ($n in 'rexgpu-xenos.dll', 'rexruntime.dll') {
 # folder's copy differs; a stale one means the folder was not built since the main exe was rebuilt.
 if ((Split-Path -Leaf $dir) -like 'live_*') {
     foreach ($n in 'wwe2k14.exe', 'amd_fidelityfx_vk.dll') {
-        $m = "$R\out\build\win-amd64-release\$n"; $f = Join-Path $dir $n
+        $m = Join-Path $(if ($ExeSource) { $ExeSource } else { "$R\out\build\win-amd64-release" }) $n; $f = Join-Path $dir $n
         if ((Test-Path -LiteralPath $m) -and (Test-Path -LiteralPath $f)) {
             $same = ((Get-Item -LiteralPath $m).Length -eq (Get-Item -LiteralPath $f).Length) -and ((Get-Item -LiteralPath $m).LastWriteTimeUtc -eq (Get-Item -LiteralPath $f).LastWriteTimeUtc)
             Chk "$n equals the main folder's copy (a live_ folder follows the main exe)" $same 'run tools\owned\fast_build.ps1 again: it re-copies the main exe files'

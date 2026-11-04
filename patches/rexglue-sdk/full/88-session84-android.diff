@@ -1,0 +1,73 @@
+# ReXGlue SDK changes for WWE 2K14 (session84-android): ded47622450c..f527e636ba3f on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  f527e63 wwe2k14 Session 84: owned draws set the viewport and scissor through the command processor's tracking (as truth draws) - on the host render target path a private 'already bound' kept the guest draw's halved 20e4 viewport: owned scene draws in 0..0.5, the crowd (set directly) over the wrestlers (RenderDoc, run 5780)
+#  3a3e130 wwe2k14 Session 84: NativeClearDepth checks the guest's depth range on the host render target path (the halved 20e4 range refused every clear there: no owned pass could start from one; PC run 5770)
+
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index ed6eedef06ea600013388c42622d928d3abd1dc0..a5dd8e4957ec2ef150aba3b92936dbc61caf0fe6 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -2088,8 +2088,7 @@ class NativeRenderer {
+     VkDescriptorSet sets[SpirvShaderTranslator::kDescriptorSetCount] = {};
+     uint32_t dynamic_count = 0;
+     uint32_t dynamic[SpirvShaderTranslator::kConstantBufferCount] = {};
+-    VkViewport viewport = {};
+-    VkRect2D scissor = {};
++    // (Session 84: no viewport / scissor here - those go through the command processor's tracking, OwnedRecordDraw.)
+     float bias[2] = {};
+     float blend[4] = {};
+     bool stencil_valid = false;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index e1631ec32d4d94018526fdfe9f6ef7317f245289..6fc7c3909dbe7f6471b926738d4a5e836d119f44 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -8116,7 +8116,17 @@ float VulkanCommandProcessor::NativeClearDepth(xenos::PrimitiveType prim_type, c
+   if (mode_cntl.poly_offset_front_enable || mode_cntl.poly_offset_back_enable || mode_cntl.poly_offset_para_enable) {
+     return refuse(__LINE__, float(clip_cntl.clip_disable));
+   }
+-  if (viewport_info.z_min != 0.0f || viewport_info.z_max != 1.0f) return refuse(__LINE__);
++  // wwe2k14 patch (Session 84): the guest's range, as NativeDescribeDraw gives truth draws (Session 54) - on the host
++  // render target path a 20e4 depth surface's range is halved, and every clear there was refused (z 0..0.5): its depth
++  // and colour unknown, so no owned pass could start from it (the phone's render path; PC run 5770).
++  float z_min = viewport_info.z_min, z_max = viewport_info.z_max;
++  if (render_target_cache_->GetPath() == RenderTargetCache::Path::kHostRenderTargets && native_ && native_->truth() &&
++      draw_util::GetNormalizedDepthControl(regs).z_enable &&
++      regs.Get<reg::RB_DEPTH_INFO>().depth_format == xenos::DepthRenderTargetFormat::kD24FS8) {
++    z_min = std::min(1.0f, z_min * 2.0f);
++    z_max = std::min(1.0f, z_max * 2.0f);
++  }
++  if (z_min != 0.0f || z_max != 1.0f) return refuse(__LINE__);
+   if (!ShaderInterpreter::CanInterpretShader(vertex_shader)) return refuse(__LINE__);
+   if (!rename_interpreter_) rename_interpreter_ = std::make_unique<ShaderInterpreter>(regs, *memory_);
+   struct PositionSink : ShaderInterpreter::ExportSink {
+diff --git a/src/graphics/vulkan/native/owned_steps.cpp b/src/graphics/vulkan/native/owned_steps.cpp
+index 35ef8305a95b9b87be414854d161421a10fcd92a..035772a106bf66cdbe762c93357327de12e52fc9 100644
+--- a/src/graphics/vulkan/native/owned_steps.cpp
++++ b/src/graphics/vulkan/native/owned_steps.cpp
+@@ -1041,12 +1041,22 @@ bool NativeRenderer::OwnedRecord(const Draw& draw, const int32_t rect[4]) {
+   if (p.half) {  // (look lever: the pass's image is half the box)
+     viewport.x *= 0.5f, viewport.y *= 0.5f, viewport.width *= 0.5f, viewport.height *= 0.5f;
+   }
+-  if (emit(!dedupe || std::memcmp(&ob.viewport, &viewport, sizeof(viewport)))) cb.CmdVkSetViewport(0, 1, &viewport);
+-  ob.viewport = viewport;
+   const VkRect2D scissor = p.half ? VkRect2D{{rect[0] / 2, rect[1] / 2}, {uint32_t(rect[2] - rect[0] + 1) / 2, uint32_t(rect[3] - rect[1] + 1) / 2}}
+                                   : VkRect2D{{rect[0], rect[1]}, {uint32_t(rect[2] - rect[0]), uint32_t(rect[3] - rect[1])}};
+-  if (emit(!dedupe || std::memcmp(&ob.scissor, &scissor, sizeof(scissor)))) cb.CmdVkSetScissor(0, 1, &scissor);
+-  ob.scissor = scissor;
++  // (Session 84: the viewport and scissor through the command processor's tracking, as TruthRecordDraw - it records the
++  // guest draw's own before the claim, into this command buffer. On the host render target path that viewport is the
++  // halved 20e4 range and ours the guest's, so a private "already bound" skipped ours: every owned scene draw but the
++  // crowd's (set directly) drew in 0..0.5 and the crowd covered the wrestlers (RenderDoc, run 5780).)
++  if (dedupe) {
++    command_processor_.SetViewport(viewport);
++    command_processor_.SetScissor(scissor);
++    cmds += 2;
++  } else {
++    emit(true);
++    cb.CmdVkSetViewport(0, 1, &viewport);
++    emit(true);
++    cb.CmdVkSetScissor(0, 1, &scissor);
++  }
+   if (emit(!dedupe || ob.bias[0] != draw.raster.depth_bias_constant || ob.bias[1] != draw.raster.depth_bias_slope)) {
+     cb.CmdVkSetDepthBias(draw.raster.depth_bias_constant, 0.0f, draw.raster.depth_bias_slope);
+   }

@@ -1,0 +1,26 @@
+# Session 87 step 0 (diagnostic, 1 run on the PC): the GPU pieces of Brock's (+300) and Bryan's (+440) entrance frames
+# and the match (+600), 8 pass-logged frames each, read with tools\native\owned_pieces.py --frames RUN (the PC gives the
+# shape; the Surface's milliseconds are ~8x). Run with --wwe2k14_replay_play=s82_lb_quick_ent, the NATIVE 720p
+# settings file (owned frame on), --vulkan_gpu_timestamps=true --gpu_native_gpu_timers=true, fast-forwarded. on_fail quit.
+on_fail quit
+log bench: start s87_ent_gpu_log
+wait_file 343.bik2 3600
+log scene=tron_343
+wait_frames 300
+log passlog: brock
+cvar gpu_native_truth_pass_log 8
+wait_frames 12
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+log passlog: bryan
+cvar gpu_native_truth_pass_log 8
+wait_frames 12
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 600
+log passlog: match
+cvar gpu_native_truth_pass_log 8
+wait_frames 12
+log bench: done
+quit

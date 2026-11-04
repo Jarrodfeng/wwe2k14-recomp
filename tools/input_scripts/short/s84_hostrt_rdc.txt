@@ -1,0 +1,15 @@
+# Session 84 (step 2, the host-RT owned picture fault): one RenderDoc capture of a settled match frame with the owned frame
+# on, on the phone's render path on the PC. Question: which input of the owned scene comes out dark (the wrestlers, the
+# referee and the ring posts near black, the whole picture darker; 5771 vs 5778 / 5775)?
+# Replay s80_lb_quick, --wwe2k14_test_no_interlock=true --gpu_native_owned_frame=true, owned_check's settings_native720.json,
+# RenderDoc on PATH + ENABLE_VULKAN_RENDERDOC_CAPTURE=1. The capture lands in %TEMP%\RenderDoc (game imagery: local only).
+on_fail quit
+log bench: start s84_hostrt_rdc
+wait_file m3.pac 3600
+log scene=match
+wait_frames 400
+screenshot s84_rdc_before
+cvar gpu_native_debug_rdc_now true
+wait_frames 30
+log bench: done
+quit

@@ -1,0 +1,22 @@
+# Session 85: which vertex shader draws the lone spectator that stays at crowd density 0? One shot per stage at the
+# same match moment (replay s80_lb_quick, +600), each stage adding vertex shaders to gpu_debug_skip_vertex_shader.
+on_fail quit
+log bench: start s85_crowd_bisect
+wait_file m3.pac 3600
+log scene=match
+wait_frames 600
+screenshot s85b0
+cvar gpu_debug_skip_vertex_shader 0E2A3DF5BAA2CA18
+wait_frames 3
+screenshot s85b1
+cvar gpu_debug_skip_vertex_shader 0E2A3DF5BAA2CA18,CAA5A55D7869AA08,0093A3F475E9BA3F
+wait_frames 3
+screenshot s85b2
+cvar gpu_debug_skip_vertex_shader 0E2A3DF5BAA2CA18,CAA5A55D7869AA08,0093A3F475E9BA3F,2A2E40D0D036855D,C18C56D2C1C2D589,13B1BADF537A2BFF
+wait_frames 3
+screenshot s85b3
+cvar gpu_debug_skip_vertex_shader 0E2A3DF5BAA2CA18,CAA5A55D7869AA08,0093A3F475E9BA3F,2A2E40D0D036855D,C18C56D2C1C2D589,13B1BADF537A2BFF,080ACF65B1E3A6E1,A0C9935FB47C5A28,962408F804CE9071,2A3E3B9E6EDE114E,4B04CB1F86EEE25B,E50620DCD7526CF0
+wait_frames 3
+screenshot s85b4
+log bench: done
+quit

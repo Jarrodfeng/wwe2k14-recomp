@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.2.18
+
+A fix for v0.2.17's endless loading screens, new graphics settings in the launcher, and an experimental renderer
+switch.
+
+- **No more endless loading screens.** Since v0.2.17 some loading screens never finished, most often in Defeat the
+  Streak / Defend the Streak, Create an Entrance and the moveset editor. The cause: v0.2.17 gave the game an Xbox 360
+  hard-drive cache so MATCH HIGHLIGHTS could work, and the game then also switched on two large caches of its own
+  that had never been used here before. Those two are now turned away, as they were in every version before v0.2.17;
+  MATCH HIGHLIGHTS and post-match replays keep working. If you played v0.2.17, the files `CAR.cac` and `EditEx.cac`
+  in your user data's `cache_partition` folder (about 600 MB) are no longer used and can be deleted.
+- **New graphics settings: SHADOWS, CROWD DENSITY and DEPTH OF FIELD.** The launcher's Graphics page can now turn
+  the shadows off, thin the crowd in 10% steps, and turn the background blur off, for more speed on weaker PCs. They
+  work with the NATIVE renderer. The defaults keep the game's look. ORIGINAL LOOK moved to Settings -> Advanced.
+- **NATIVE on graphics cards without fragment shader interlock.** On these cards (some older AMD cards and
+  drivers) most of the match frame fell back from v0.2.16's faster whole-frame drawing to the older, slower way: the
+  game's screen clears weren't understood on that path. Two fixes, and now the whole match frame takes the fast path
+  there too, with the same picture. Tested on my NVIDIA card forced onto that path, and on a phone (which uses it).
+- **TRUE NATIVE (experimental, off by default).** A new switch in Settings -> Advanced that hands the game's drawing
+  straight to my own renderer, with my own shaders, instead of going through the Xbox 360's graphics commands. I have
+  only tested it with Lesnar vs Bryan (both entrances and the match) on my PC. Leave it off unless you want to try
+  it, and please send a report if something looks wrong.
+
 ## v0.2.17
 
 A bug fix release: four fixes from your reports, plus a keyboard fix for the ladder match.

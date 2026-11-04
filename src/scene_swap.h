@@ -16,6 +16,7 @@
 #include "half2_hooks.h"  // wwe2k14::half2::Cp()
 #include "scene/spirv/crowd_entrance.h"
 #include "scene/spirv/crowd_match.h"
+#include "scene/spirv/own_crowd_card_vert.h"
 #include "scene/spirv/own_crowd_entrance.h"
 #include "scene/spirv/own_crowd_entrance_vert.h"
 #include "scene/spirv/own_crowd_match.h"
@@ -390,6 +391,10 @@ inline const ArenaMaterial kWrestlerMore[] = {
 // default). By the run's guest vertex shader: the match's lit crowd, the entrances' (lighting map per pixel).
 inline constexpr uint64_t kCrowdMatchVs = 0x183CC64A4C4E96ACull;
 inline constexpr uint64_t kCrowdEntranceVs = 0xC1028A64EFCF8229ull;
+// Session 87 (step 1 piece 2): the crowd's flat cards (T_Audience, pixel shader EFC4EFCB5FC51945; 4-dword card
+// vertices), flags 1 (the lighting map read per pixel, as the entrances') + 2 (a card mesh). Its pixel shader is the
+// entrances' own: sprite x vertex colour (white) x lighting map x c184.z.
+inline constexpr uint64_t kCrowdCardVs = 0xD5E2FCC9F76BC40Cull;
 
 inline void InstallOwnCrowd(rex::graphics::CommandProcessor* cp) {
   int ok = 0;
@@ -398,6 +403,8 @@ inline void InstallOwnCrowd(rex::graphics::CommandProcessor* cp) {
   ok += cp->RegisterNativeOwnCrowd(kCrowdEntranceVs, own_crowd_entrance_vert_spv,
                                    std::size(own_crowd_entrance_vert_spv), own_crowd_entrance_spv,
                                    std::size(own_crowd_entrance_spv), 1);
+  ok += cp->RegisterNativeOwnCrowd(kCrowdCardVs, own_crowd_card_vert_spv, std::size(own_crowd_card_vert_spv),
+                                   own_crowd_entrance_spv, std::size(own_crowd_entrance_spv), 1 | 2);
   REXLOG_INFO("[wwe2k14][scene_swap] own crowd programs registered: {} (gpu_native_own_crowd = {})", ok,
               rex::cvar::GetFlagByName("gpu_native_own_crowd"));
 }
@@ -485,10 +492,13 @@ inline void Install() {
       ok += cp->RegisterNativeShaderSwap(m.hash, m.spv, m.words, m.floats, m.float_count, m.name, kOwnEpilogue);
     }
   }
+  // (Session 87 stage 4: with its own epilogue - crowd_match.frag ends in xenos_ps.glsl's XeOutputColor - so the draws whose
+  // colour epilogue is not idle (alpha test / exponent bias / gamma) no longer keep the translation.)
   ok += cp->RegisterNativeShaderSwap(kCrowdMatch, crowd_match_spv, std::size(crowd_match_spv), nullptr, 0,
-                                     "crowd (match)");
+                                     "crowd (match)", kOwnEpilogue);
   ok += cp->RegisterNativeShaderSwap(kCrowdEntrance, crowd_entrance_spv, std::size(crowd_entrance_spv),
-                                     kCrowdEntranceFloats, std::size(kCrowdEntranceFloats), "crowd (entrance)");
+                                     kCrowdEntranceFloats, std::size(kCrowdEntranceFloats), "crowd (entrance)",
+                                     kOwnEpilogue);  // (Session 87 stage 4: crowd_entrance.frag ends in XeOutputColor)
   REXLOG_INFO("[wwe2k14][scene_swap] scene shaders registered: {} (gpu_native_shader_swap = {})", ok,
               rex::cvar::GetFlagByName("gpu_native_shader_swap"));
 }

@@ -1,0 +1,14 @@
+# Session 85: one frame-anatomy capture of the match with crowd density 0 - which shader pairs draw the crowd members
+# that the density gate does not reach (the near band that stays at 0%). Replay s80_lb_quick, 400 frames into the match.
+on_fail quit
+log bench: start s85_crowd_anatomy
+wait_file m3.pac 3600
+log scene=match
+wait_frames 400
+cvar gpu_anatomy_capture 1
+wait_frames 20
+screenshot s85c0
+cvar gpu_anatomy_capture 0
+wait_frames 5
+log bench: done
+quit

@@ -250,6 +250,12 @@ inline void AroundWriter(uint32_t kind, PPCContext& ctx, uint8_t* base) {
 
 }  // namespace wwe2k14::half2
 
+#include "d3d_layer.h"  // Session 87: --wwe2k14_d3d_layer (the indexed-draw writer replaced by a record built from the device)
+#include "d3d_layer_copy.h"    // F2: Clear / Resolve / GPR split / tiling hooks (their own REX_HOOK_RAWs; active only with the layer)
+#include "d3d_layer_inline.h"  // F3: the inline-vertex draw pair (Begin / End below)
+#include "d3d_noring.h"        // Session 87 stage 2 (2a / 2b): no ring for the scene (hooks 0x82CB3300, 0x82CB6510, 0x82CB63D0, 0x82CB5EF0)
+#include "d3d_textures.h"      // Session 87 stage 4: texture objects (registry hooks; the draw writers above call d3d_tex::OnDraw), glued last
+
 REX_EXTERN(__imp__sub_82CB19E0);
 REX_EXTERN(__imp__sub_82CBD7C0);
 REX_EXTERN(__imp__sub_82CBE368);
@@ -287,8 +293,34 @@ REX_HOOK_RAW(sub_82CBE368) {
 REX_EXTERN(__imp__sub_82CB1520);
 REX_EXTERN(__imp__sub_82CB4B00);
 REX_EXTERN(__imp__sub_82CAEA30);
-REX_HOOK_RAW(sub_82CB19E0) { wwe2k14::half2::AroundWriter<__imp__sub_82CB19E0>(1, ctx, base); }
-REX_HOOK_RAW(sub_82CB1520) { wwe2k14::half2::AroundWriter<__imp__sub_82CB1520>(2, ctx, base); }
+// Session 87: the layered indexed draw with its fallback noted for stage 2's stray census (the packets the original writer
+// left in the segment are then counted under its name).
+inline void LayeredWriterNoted(PPCContext& ctx, uint8_t* base) {
+  const uint32_t dev = ctx.r3.u32;
+  const uint32_t before = wwe2k14::d3d_layer::Ld32(base, dev + 48);
+  if (wwe2k14::d3d_layer::IndexedDraw(ctx, base)) return;
+  __imp__sub_82CB19E0(ctx, base);
+  wwe2k14::d3d_noring::NoteWriter("fallback: indexed draw 0x82CB19E0", before, wwe2k14::d3d_layer::Ld32(base, dev + 48));
+}
+REX_HOOK_RAW(sub_82CB19E0) {
+  // Session 87: the D3D layer's writer (its own state flush into a token, then the original writer for the draw packets;
+  // the original untouched when the switch is off or on a counted fallback), inside the half2 wrapper as before.
+  if (REXCVAR_GET(wwe2k14_d3d_layer)) {
+    wwe2k14::half2::AroundWriter<LayeredWriterNoted>(1, ctx, base);
+    return;
+  }
+  wwe2k14::half2::AroundWriter<__imp__sub_82CB19E0>(1, ctx, base);
+}
+REX_EXTERN(__imp__sub_82CB1510);
+REX_HOOK_RAW(sub_82CB1520) {
+  // Session 87 (F3): the layer's BeginVertices (the draw is then ours end to end: no library packets, no half2 entry).
+  if (wwe2k14::d3d_inline::Begin(ctx, base)) return;
+  wwe2k14::half2::AroundWriter<__imp__sub_82CB1520>(2, ctx, base);
+}
+REX_HOOK_RAW(sub_82CB1510) {
+  if (wwe2k14::d3d_inline::End(ctx, base)) return;
+  __imp__sub_82CB1510(ctx, base);
+}
 // The library's clear (0x82CB4B00, db d3d_clear_impl) and resolve core (0x82CAEA30): attributed as kinds 3 / 4 (r3 =
 // the device in both, listings).
 REX_HOOK_RAW(sub_82CB4B00) { wwe2k14::half2::AroundWriter<__imp__sub_82CB4B00>(3, ctx, base); }

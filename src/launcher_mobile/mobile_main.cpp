@@ -942,6 +942,17 @@ class App {
     if (Toggle("Dynamic resolution", s_.dynamic_res, "Sharper when it can, smoother when it must")) Save();
     Note("When the phone cannot keep up (heat, busy entrances) the game draws a little smaller for a while, then "
          "goes back up.");
+    // Session 85: the PC launcher's SHADOWS, CROWD DENSITY and DEPTH OF FIELD.
+    GroupTitle("EFFECTS");
+    if (Toggle("Shadows", s_.shadows, "Dynamic shadows from wrestlers, ropes and props")) Save();
+    Note("Turning them off is faster on weaker phones; the arena's baked lighting stays.");
+    if (Slider("Crowd density", s_.crowd_density, 0, 100, "%d%%")) {
+      s_.crowd_density = (std::clamp(s_.crowd_density, 0, 100) + 5) / 10 * 10;
+      Save();
+    }
+    Note("How much of the crowd is drawn, spread evenly over the arena. 100% is the normal look; 0% is an empty arena. "
+         "Takes effect when the game starts.");
+    if (Toggle("Depth of field", s_.depth_of_field, "The blur on the background behind the wrestlers")) Save();
     GroupTitle("FRAME RATE");
     for (const auto& f : kFrameRates)
       if (Choice(f.name, s_.frame_rate == f.value)) s_.frame_rate = f.value, Save();
