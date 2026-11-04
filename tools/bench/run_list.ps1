@@ -436,6 +436,33 @@ foreach ($s in @($Scripts)) {
 # game opens a relative path from the exe folder ("can't open script") and played the attract demo. Hand the game the
 # absolute path of the file the check found.
 $Scripts = @(foreach ($s in @($Scripts)) { (Resolve-Path -LiteralPath (Resolve-RunListScript "$s")).Path })
+# Session 89 (scene routes carry their own setup): a header line (first 40 lines) "# harness: flags --a=1 --b=2" (several
+# lines add up; values without spaces) puts those flags at the front of the script's -ScriptExtras entry. A flag the
+# caller sets itself (-ScriptExtras entry or -Extra) is left out of the header's: a flag given twice makes CLI11 drop
+# every later startup flag (LESSONS). Printed per run: "[run_list] <script>: header flags ...".
+$runListHeaderMerged = @(); $runListHeaderAny = $false
+for ($i = 0; $i -lt @($Scripts).Count; $i++) {
+    $ownExtra = if ($i -lt @($ScriptExtras).Count) { "$(@($ScriptExtras)[$i])" } else { '' }
+    $callerFlags = "$ownExtra $Extra"
+    $hdrLines = @(Get-Content -LiteralPath @($Scripts)[$i] -TotalCount 40 | Select-String -Pattern '^#\s*harness:\s*flags\s+(.+)$' | ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() })
+    $hdrAdd = @()
+    # (review: only --flag tokens, and one per flag name - the last one wins - so a header can never pass a flag twice.)
+    $hdrTokens = [ordered]@{}
+    foreach ($tok in @(($hdrLines -join ' ') -split '\s+' | Where-Object { $_ })) {
+        if ($tok -notmatch '^--[\w.]+') { Write-Host "[run_list] $(Split-Path -Leaf @($Scripts)[$i]): header token '$tok' ignored (not a --flag)"; continue }
+        $hdrTokens[($tok -split '=', 2)[0]] = $tok
+    }
+    foreach ($tok in @($hdrTokens.Values)) {
+        $fname = ($tok -split '=', 2)[0]
+        if ($callerFlags -match "(^|\s)$([regex]::Escape($fname))(=|\s|$)") {
+            Write-Host "[run_list] $(Split-Path -Leaf @($Scripts)[$i]): header flag $tok left out (the caller sets $fname)"; continue
+        }
+        $hdrAdd += $tok
+    }
+    if ($hdrAdd.Count) { $runListHeaderAny = $true; Write-Host "[run_list] $(Split-Path -Leaf @($Scripts)[$i]): header flags $($hdrAdd -join ' ')" }
+    $runListHeaderMerged += "$(($hdrAdd -join ' ')) $ownExtra".Trim()
+}
+if ($runListHeaderAny) { $ScriptExtras = $runListHeaderMerged }
 # Session 14 (load_times runs 1024-1027 without a launch flag sat at the main menu): a route whose header says
 # "Use with --wwe2k14_launch" needs a --wwe2k14_launch= flag in -Extra or its -ScriptExtras entry.
 for ($i = 0; $i -lt @($Scripts).Count; $i++) {

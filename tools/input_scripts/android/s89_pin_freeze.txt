@@ -1,0 +1,23 @@
+# Session 89 (phone pinfall freeze: the match ends with a pin, the wrestlers freeze, no post-match; Jarrod reproduced it on
+# his phone, log 048): boots and launches John Cena (139) vs The Undertaker (103), arena 6, entrances skipped (the match of
+# log 048), then ENDS at the bell so the real controller drives the match (Jarrod plays it to a pinfall). Run with the
+# flight recorder dumping every 3000 frames, so the dumps after a freeze show what each game thread is blocked on:
+#   pwsh -File tools\android\run.ps1 -Run NNN -Seconds 60 -KeepRunning -Shots 0 -Route tools\input_scripts\android\s89_pin_freeze.txt -Scenario lesnar_bryan -GameArgs "<launch flags> --wwe2k14_flight_recorder=true --wwe2k14_flight_test=dump@6000,dump@9000,..."
+# (SESSION89_SUMMARY.md has the exact line). Title presses from launch_boot_watch.txt. on_fail quit.
+on_fail quit
+log bench: start s89_pin_freeze (launch, then the controller)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 6000
+log scene=match (the controller takes over now)

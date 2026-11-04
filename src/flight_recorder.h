@@ -132,6 +132,11 @@ REXCVAR_DEFINE_INT32(wwe2k14_flight_gpu_dump_records, 48, "wwe2k14",
                      "Flight recorder: newest GPU checkpoint records in a dump (needs vulkan_flight_gpu_records)");
 REXCVAR_DEFINE_INT32(wwe2k14_flight_max_hang_dumps, 5, "wwe2k14",
                      "Flight recorder: at most this many hang dumps per run (0 = no limit)");
+REXCVAR_DEFINE_BOOL(wwe2k14_cache_trace, false, "wwe2k14",
+                    "Session 89 (the phone pinfall freeze): trace the cache: partition's files (MATCH HIGHLIGHTS' "
+                    "Spectacular.rps): every read / write / seek / query / flush / close on them ([wwe2k14][cachefile], "
+                    "with start lines), the kernel waits of the threads that use them ([wwe2k14][cachewait]) and every "
+                    "set / release / clear of the objects those threads wait on ([wwe2k14][cachesignal]). Noisy");
 REXCVAR_DEFINE_STRING(wwe2k14_flight_test, "", "wwe2k14",
                       "Debug: forced failures for the flight recorder, comma-separated: hang@FRAME[:SECONDS], "
                       "crash@FRAME, abort@FRAME, dump@FRAME, bench@FRAME (time the recording cost)");
@@ -170,6 +175,13 @@ uint32_t NtClose_entry(uint32_t handle);
 uint32_t NtWriteFile_entry(uint32_t file_handle, uint32_t event_handle, uint32_t apc_routine, mapped_void apc_context,
                            ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block, mapped_void buffer,
                            uint32_t buffer_length, mapped_u64 byte_offset_ptr);
+// (Session 89: watched for cache: handles only - xboxkrnl_io_info.cpp / xboxkrnl_io.cpp.)
+uint32_t NtQueryInformationFile_entry(uint32_t file_handle, ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
+                                      mapped_void info_ptr, uint32_t info_length, uint32_t info_class);
+uint32_t NtSetInformationFile_entry(uint32_t file_handle, ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
+                                    mapped_void info_ptr, uint32_t info_length, uint32_t info_class);
+uint32_t NtFlushBuffersFile_entry(uint32_t file_handle, ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block);
+uint32_t NtReleaseMutant_entry(uint32_t mutant_handle, uint32_t unknown);
 }  // namespace rex::kernel::xboxkrnl
 
 namespace wwe2k14 {
@@ -1327,36 +1339,99 @@ inline void FlightOnFileOpen(bool open_call, const std::string& path, uint32_t d
 // ---------------------------------------------------------------------------------------------------------------
 namespace xk = rex::kernel::xboxkrnl;
 
+// Session 89 (diagnosis 4: on the phone the recorder thread sleeps in a futex wait with no timeout right after its
+// 16 KB header read): a thread that just made a cache: file call logs its next kCacheWaitBudget kernel waits
+// ([wwe2k14][cachewait] start / end, object, timeout), so the wait that never ends is named. (The budget is set in
+// CacheHandlePath, below.)
+inline constexpr int kCacheWaitBudget = 60;
+inline thread_local int t_cache_wait_budget = 0;
+// Session 89 (diagnosis 5): the handles those threads waited on; every set / release / clear aimed at one of them is
+// logged as [wwe2k14][cachesignal] (who wakes the recorder, and which signal never comes on the phone).
+inline std::mutex g_cache_wait_objects_mutex;
+inline std::vector<uint32_t> g_cache_wait_objects;
+inline std::atomic<uint32_t> g_cache_wait_objects_n{0};
+inline void CacheWaitObjectAdd(uint32_t handle) {
+  std::lock_guard<std::mutex> lock(g_cache_wait_objects_mutex);
+  if (std::find(g_cache_wait_objects.begin(), g_cache_wait_objects.end(), handle) != g_cache_wait_objects.end()) return;
+  if (g_cache_wait_objects.size() >= 32) return;
+  g_cache_wait_objects.push_back(handle);
+  g_cache_wait_objects_n.store(uint32_t(g_cache_wait_objects.size()), std::memory_order_relaxed);
+}
+inline bool CacheWaitObjectWatched(uint32_t handle) {
+  if (!g_cache_wait_objects_n.load(std::memory_order_relaxed)) return false;
+  std::lock_guard<std::mutex> lock(g_cache_wait_objects_mutex);
+  return std::find(g_cache_wait_objects.begin(), g_cache_wait_objects.end(), handle) != g_cache_wait_objects.end();
+}
+inline void CacheSignalLog(const char* what, uint32_t handle, uint32_t arg, uint32_t result) {
+  if (!CacheWaitObjectWatched(handle)) return;
+  REXLOG_INFO("[wwe2k14][cachesignal] {} 0x{:08X} (arg {}) -> 0x{:08X} frame={}", what, handle, arg, result,
+              g_guest_frame.load());
+}
+struct CacheThreadWait {
+  const char* kind;
+  uint32_t object, count;
+  bool on;
+  std::chrono::steady_clock::time_point t0;
+  CacheThreadWait(const char* k, uint32_t obj, uint32_t n, mapped_u64 timeout_ptr)
+      : kind(k), object(obj), count(n), on(t_cache_wait_budget > 0) {
+    if (!on) return;
+    --t_cache_wait_budget;
+    if (object >> 24 == 0xF8) CacheWaitObjectAdd(object);  // (handles only, not KeWait object pointers)
+    t0 = std::chrono::steady_clock::now();
+    const uint32_t ms = FlightTimeoutMs(timeout_ptr);
+    REXLOG_INFO("[wwe2k14][cachewait] {} start object 0x{:08X}{} timeout {} frame={}", kind, object,
+                count > 1 ? fmt::format(" (+{} more)", count - 1) : "",
+                ms == 0xFFFFFFFFu ? std::string("none") : fmt::format("{} ms", ms), g_guest_frame.load());
+  }
+  uint32_t Done(uint32_t result) {
+    if (on) {
+      const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+      REXLOG_INFO("[wwe2k14][cachewait] {} object 0x{:08X} -> 0x{:08X} after {} ms frame={}", kind, object, result,
+                  ms.count(), g_guest_frame.load());
+    }
+    return result;
+  }
+};
+
 inline uint32_t FlightNtWaitForSingleObjectEx(uint32_t handle, uint32_t wait_mode, uint32_t alertable,
                                               mapped_u64 timeout_ptr) {
-  if (!FlightOn()) return xk::NtWaitForSingleObjectEx_entry(handle, wait_mode, alertable, timeout_ptr);
+  CacheThreadWait cw("NtWaitForSingleObjectEx", handle, 1, timeout_ptr);
+  if (!FlightOn()) return cw.Done(xk::NtWaitForSingleObjectEx_entry(handle, wait_mode, alertable, timeout_ptr));
   FlightCall call(kFlightNtWait, handle, FlightTimeoutMs(timeout_ptr), alertable);
-  return call.Done(xk::NtWaitForSingleObjectEx_entry(handle, wait_mode, alertable, timeout_ptr));
+  return cw.Done(call.Done(xk::NtWaitForSingleObjectEx_entry(handle, wait_mode, alertable, timeout_ptr)));
 }
 inline uint32_t FlightKeWaitForSingleObject(mapped_void object_ptr, uint32_t wait_reason, uint32_t processor_mode,
                                             uint32_t alertable, mapped_u64 timeout_ptr) {
-  if (!FlightOn()) return xk::KeWaitForSingleObject_entry(object_ptr, wait_reason, processor_mode, alertable, timeout_ptr);
+  CacheThreadWait cw("KeWaitForSingleObject", object_ptr.guest_address(), 1, timeout_ptr);
+  if (!FlightOn())
+    return cw.Done(xk::KeWaitForSingleObject_entry(object_ptr, wait_reason, processor_mode, alertable, timeout_ptr));
   FlightCall call(kFlightKeWait, object_ptr.guest_address(), FlightTimeoutMs(timeout_ptr), alertable, wait_reason);
-  return call.Done(xk::KeWaitForSingleObject_entry(object_ptr, wait_reason, processor_mode, alertable, timeout_ptr));
+  return cw.Done(
+      call.Done(xk::KeWaitForSingleObject_entry(object_ptr, wait_reason, processor_mode, alertable, timeout_ptr)));
 }
 inline uint32_t FlightKeWaitForMultipleObjects(uint32_t count, mapped_u32 objects_ptr, uint32_t wait_type,
                                                uint32_t wait_reason, uint32_t processor_mode, uint32_t alertable,
                                                mapped_u64 timeout_ptr, mapped_void wait_block_array_ptr) {
+  CacheThreadWait cw("KeWaitForMultipleObjects", objects_ptr && count ? uint32_t(*objects_ptr) : 0, count,
+                     timeout_ptr);
   if (!FlightOn())
-    return xk::KeWaitForMultipleObjects_entry(count, objects_ptr, wait_type, wait_reason, processor_mode, alertable,
-                                              timeout_ptr, wait_block_array_ptr);
+    return cw.Done(xk::KeWaitForMultipleObjects_entry(count, objects_ptr, wait_type, wait_reason, processor_mode,
+                                                      alertable, timeout_ptr, wait_block_array_ptr));
   FlightCall call(kFlightKeWaitMulti, count, FlightTimeoutMs(timeout_ptr), wait_type,
                   objects_ptr && count ? uint32_t(*objects_ptr) : 0);
-  return call.Done(xk::KeWaitForMultipleObjects_entry(count, objects_ptr, wait_type, wait_reason, processor_mode,
-                                                      alertable, timeout_ptr, wait_block_array_ptr));
+  return cw.Done(call.Done(xk::KeWaitForMultipleObjects_entry(count, objects_ptr, wait_type, wait_reason,
+                                                              processor_mode, alertable, timeout_ptr,
+                                                              wait_block_array_ptr)));
 }
 inline uint32_t FlightNtWaitForMultipleObjectsEx(uint32_t count, mapped_u32 handles, uint32_t wait_type,
                                                  uint32_t wait_mode, uint32_t alertable, mapped_u64 timeout_ptr) {
+  CacheThreadWait cw("NtWaitForMultipleObjectsEx", handles && count ? uint32_t(*handles) : 0, count, timeout_ptr);
   if (!FlightOn())
-    return xk::NtWaitForMultipleObjectsEx_entry(count, handles, wait_type, wait_mode, alertable, timeout_ptr);
+    return cw.Done(xk::NtWaitForMultipleObjectsEx_entry(count, handles, wait_type, wait_mode, alertable, timeout_ptr));
   FlightCall call(kFlightNtWaitMulti, count, FlightTimeoutMs(timeout_ptr), wait_type,
                   handles && count ? uint32_t(*handles) : 0);
-  return call.Done(xk::NtWaitForMultipleObjectsEx_entry(count, handles, wait_type, wait_mode, alertable, timeout_ptr));
+  return cw.Done(
+      call.Done(xk::NtWaitForMultipleObjectsEx_entry(count, handles, wait_type, wait_mode, alertable, timeout_ptr)));
 }
 inline uint32_t FlightKeDelayExecutionThread(uint32_t processor_mode, uint32_t alertable, mapped_u64 interval_ptr) {
   // Session 8 task B: wwe2k14::sleep::Delay (precise_sleep.h) = ReXGlue's KeDelayExecutionThread_entry unless
@@ -1389,19 +1464,42 @@ inline uint32_t FlightNtCreateEvent(mapped_u32 handle_ptr, ppc_ptr_t<rex::system
   return call.Done(result);
 }
 inline uint32_t FlightNtSetEvent(uint32_t handle, mapped_u32 previous_state_ptr) {
-  if (!FlightOn()) return xk::NtSetEvent_entry(handle, previous_state_ptr);
-  FlightCall call(kFlightNtSetEvent, handle);
-  return call.Done(xk::NtSetEvent_entry(handle, previous_state_ptr));
+  uint32_t result;
+  if (!FlightOn()) {
+    result = xk::NtSetEvent_entry(handle, previous_state_ptr);
+  } else {
+    FlightCall call(kFlightNtSetEvent, handle);
+    result = call.Done(xk::NtSetEvent_entry(handle, previous_state_ptr));
+  }
+  CacheSignalLog("NtSetEvent", handle, 0, result);
+  return result;
 }
 inline uint32_t FlightNtClearEvent(uint32_t handle) {
-  if (!FlightOn()) return xk::NtClearEvent_entry(handle);
-  FlightCall call(kFlightNtClearEvent, handle);
-  return call.Done(xk::NtClearEvent_entry(handle));
+  uint32_t result;
+  if (!FlightOn()) {
+    result = xk::NtClearEvent_entry(handle);
+  } else {
+    FlightCall call(kFlightNtClearEvent, handle);
+    result = call.Done(xk::NtClearEvent_entry(handle));
+  }
+  CacheSignalLog("NtClearEvent", handle, 0, result);
+  return result;
 }
 inline uint32_t FlightNtReleaseSemaphore(uint32_t handle, uint32_t count, mapped_u32 previous_count_ptr) {
-  if (!FlightOn()) return xk::NtReleaseSemaphore_entry(handle, count, previous_count_ptr);
-  FlightCall call(kFlightSemRelease, handle, count);
-  return call.Done(xk::NtReleaseSemaphore_entry(handle, count, previous_count_ptr));
+  uint32_t result;
+  if (!FlightOn()) {
+    result = xk::NtReleaseSemaphore_entry(handle, count, previous_count_ptr);
+  } else {
+    FlightCall call(kFlightSemRelease, handle, count);
+    result = call.Done(xk::NtReleaseSemaphore_entry(handle, count, previous_count_ptr));
+  }
+  CacheSignalLog("NtReleaseSemaphore", handle, count, result);
+  return result;
+}
+inline uint32_t CacheNtReleaseMutant(uint32_t handle, uint32_t unknown) {
+  const uint32_t result = xk::NtReleaseMutant_entry(handle, unknown);
+  CacheSignalLog("NtReleaseMutant", handle, unknown, result);
+  return result;
 }
 inline uint32_t FlightExCreateThread(mapped_u32 handle_ptr, uint32_t stack_size, mapped_u32 thread_id_ptr,
                                      uint32_t xapi_thread_startup, mapped_void start_address,
@@ -1452,21 +1550,133 @@ inline void FlightMmFreePhysicalMemory(uint32_t type, uint32_t base_address) {
   FlightNote(kFlightPFree, base_address, type);
   xk::MmFreePhysicalMemory_entry(type, base_address);
 }
+// Session 89 (a phone report: a match froze for good at its pinfall - wrestlers still, the arena drawn on - right after
+// the game had opened MATCH HIGHLIGHTS' cache:\Spectacular.rps for writing; the open-only file log could not say
+// whether that write ever finished): every handle opened on cache: is watched, always, and each write / read / close
+// on it is logged as [wwe2k14][cachefile] (with the result and the I/O status). Cost when nothing on cache: is open:
+// one relaxed atomic load per write / read / close.
+inline std::mutex g_cache_handles_mutex;
+inline std::map<uint32_t, std::string> g_cache_handles;
+inline std::atomic<uint32_t> g_cache_handles_n{0};
+inline void CacheHandleOpened(uint32_t handle, const std::string& path) {
+  // (Session 89: everything below - [cachefile], [cachewait], [cachesignal] - follows from a watched handle, so this
+  // one switch turns it all on; off by default: ~30% of a match's log lines when on.)
+  if (!REXCVAR_GET(wwe2k14_cache_trace)) return;
+  std::lock_guard<std::mutex> lock(g_cache_handles_mutex);
+  g_cache_handles[handle] = path;
+  g_cache_handles_n.store(uint32_t(g_cache_handles.size()), std::memory_order_relaxed);
+}
+inline bool CacheHandlePath(uint32_t handle, std::string* path, bool erase = false) {
+  if (!g_cache_handles_n.load(std::memory_order_relaxed)) return false;
+  std::lock_guard<std::mutex> lock(g_cache_handles_mutex);
+  auto it = g_cache_handles.find(handle);
+  if (it == g_cache_handles.end()) return false;
+  *path = it->second;
+  t_cache_wait_budget = kCacheWaitBudget;
+  if (erase) {
+    g_cache_handles.erase(it);
+    g_cache_handles_n.store(uint32_t(g_cache_handles.size()), std::memory_order_relaxed);
+  }
+  return true;
+}
+// (Session 89, diagnosis 3: the phone's recorder made one 16 KB read and then nothing, where the PC streams ~1,600
+// reads / writes a match. A "start" line before each call, with the host thread, names a call that never returns.)
+inline void CacheFileLogStart(const char* what, const std::string& path, uint32_t handle, uint64_t offset,
+                              uint32_t length) {
+  REXLOG_INFO("[wwe2k14][cachefile] {} start '{}' handle=0x{:X} offset=0x{:X} len=0x{:X} frame={}", what, path, handle,
+              offset, length, g_guest_frame.load());
+}
+inline void CacheFileLog(const char* what, const std::string& path, uint32_t handle, uint64_t offset, uint32_t length,
+                         uint32_t event_handle, uint32_t apc, uint32_t result,
+                         ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block) {
+  REXLOG_INFO("[wwe2k14][cachefile] {} '{}' handle=0x{:X} offset=0x{:X} len=0x{:X} event=0x{:X} apc=0x{:08X} -> "
+              "0x{:08X}{} frame={}",
+              what, path, handle, offset, length, event_handle, apc, result,
+              io_status_block ? fmt::format(" (io status 0x{:08X}, info 0x{:X})", uint32_t(io_status_block->status),
+                                            uint32_t(io_status_block->information))
+                              : std::string(),
+              g_guest_frame.load());
+}
+
 inline uint32_t FlightNtClose(uint32_t handle) {
-  if (!FlightOn()) return xk::NtClose_entry(handle);
-  FlightCall call(kFlightClose, handle);
-  return call.Done(xk::NtClose_entry(handle));
+  std::string cache_path;
+  const bool cache = CacheHandlePath(handle, &cache_path, true);
+  uint32_t result;
+  if (!FlightOn()) {
+    result = xk::NtClose_entry(handle);
+  } else {
+    FlightCall call(kFlightClose, handle);
+    result = call.Done(xk::NtClose_entry(handle));
+  }
+  if (cache) {
+    REXLOG_INFO("[wwe2k14][cachefile] close '{}' handle=0x{:X} -> 0x{:08X} frame={}", cache_path, handle, result,
+                g_guest_frame.load());
+  }
+  return result;
 }
 inline uint32_t FlightNtWriteFile(uint32_t file_handle, uint32_t event_handle, uint32_t apc_routine,
                                   mapped_void apc_context, ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
                                   mapped_void buffer, uint32_t buffer_length, mapped_u64 byte_offset_ptr) {
-  if (!FlightOn())
-    return xk::NtWriteFile_entry(file_handle, event_handle, apc_routine, apc_context, io_status_block, buffer,
-                                 buffer_length, byte_offset_ptr);
-  FlightCall call(kFlightWrite, file_handle, buffer_length,
-                  byte_offset_ptr ? uint32_t(uint64_t(*byte_offset_ptr)) : 0xFFFFFFFFu);
-  return call.Done(xk::NtWriteFile_entry(file_handle, event_handle, apc_routine, apc_context, io_status_block, buffer,
-                                         buffer_length, byte_offset_ptr));
+  std::string cache_path;
+  const bool cache = CacheHandlePath(file_handle, &cache_path);
+  const uint64_t offset = byte_offset_ptr ? uint64_t(*byte_offset_ptr) : ~0ull;
+  if (cache) CacheFileLogStart("write", cache_path, file_handle, offset, buffer_length);
+  uint32_t result;
+  if (!FlightOn()) {
+    result = xk::NtWriteFile_entry(file_handle, event_handle, apc_routine, apc_context, io_status_block, buffer,
+                                   buffer_length, byte_offset_ptr);
+  } else {
+    FlightCall call(kFlightWrite, file_handle, buffer_length,
+                    byte_offset_ptr ? uint32_t(uint64_t(*byte_offset_ptr)) : 0xFFFFFFFFu);
+    result = call.Done(xk::NtWriteFile_entry(file_handle, event_handle, apc_routine, apc_context, io_status_block,
+                                             buffer, buffer_length, byte_offset_ptr));
+  }
+  if (cache) {
+    CacheFileLog("write", cache_path, file_handle, offset, buffer_length, event_handle, apc_routine, result,
+                 io_status_block);
+  }
+  return result;
+}
+// Session 89 (diagnosis 3): the other file calls a recorder can make between its reads and writes, watched for cache:
+// handles only (start + end lines); every other handle goes straight to ReXGlue.
+inline uint32_t CacheNtQueryInformationFile(uint32_t file_handle,
+                                            ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
+                                            mapped_void info_ptr, uint32_t info_length, uint32_t info_class) {
+  std::string cache_path;
+  if (!CacheHandlePath(file_handle, &cache_path))
+    return xk::NtQueryInformationFile_entry(file_handle, io_status_block, info_ptr, info_length, info_class);
+  REXLOG_INFO("[wwe2k14][cachefile] query start '{}' handle=0x{:X} class {} len 0x{:X} frame={}", cache_path,
+              file_handle, info_class, info_length, g_guest_frame.load());
+  const uint32_t result =
+      xk::NtQueryInformationFile_entry(file_handle, io_status_block, info_ptr, info_length, info_class);
+  REXLOG_INFO("[wwe2k14][cachefile] query '{}' handle=0x{:X} class {} -> 0x{:08X} frame={}", cache_path, file_handle,
+              info_class, result, g_guest_frame.load());
+  return result;
+}
+inline uint32_t CacheNtSetInformationFile(uint32_t file_handle,
+                                          ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
+                                          mapped_void info_ptr, uint32_t info_length, uint32_t info_class) {
+  std::string cache_path;
+  if (!CacheHandlePath(file_handle, &cache_path))
+    return xk::NtSetInformationFile_entry(file_handle, io_status_block, info_ptr, info_length, info_class);
+  REXLOG_INFO("[wwe2k14][cachefile] set start '{}' handle=0x{:X} class {} len 0x{:X} frame={}", cache_path,
+              file_handle, info_class, info_length, g_guest_frame.load());
+  const uint32_t result =
+      xk::NtSetInformationFile_entry(file_handle, io_status_block, info_ptr, info_length, info_class);
+  REXLOG_INFO("[wwe2k14][cachefile] set '{}' handle=0x{:X} class {} -> 0x{:08X} frame={}", cache_path, file_handle,
+              info_class, result, g_guest_frame.load());
+  return result;
+}
+inline uint32_t CacheNtFlushBuffersFile(uint32_t file_handle,
+                                        ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block) {
+  std::string cache_path;
+  if (!CacheHandlePath(file_handle, &cache_path)) return xk::NtFlushBuffersFile_entry(file_handle, io_status_block);
+  REXLOG_INFO("[wwe2k14][cachefile] flush start '{}' handle=0x{:X} frame={}", cache_path, file_handle,
+              g_guest_frame.load());
+  const uint32_t result = xk::NtFlushBuffersFile_entry(file_handle, io_status_block);
+  REXLOG_INFO("[wwe2k14][cachefile] flush '{}' handle=0x{:X} -> 0x{:08X} frame={}", cache_path, file_handle, result,
+              g_guest_frame.load());
+  return result;
 }
 
 }  // namespace wwe2k14
@@ -1490,3 +1700,7 @@ REX_HOOK(__imp__NtFreeVirtualMemory, wwe2k14::FlightNtFreeVirtualMemory)
 REX_HOOK(__imp__MmFreePhysicalMemory, wwe2k14::FlightMmFreePhysicalMemory)
 REX_HOOK(__imp__NtClose, wwe2k14::FlightNtClose)
 REX_HOOK(__imp__NtWriteFile, wwe2k14::FlightNtWriteFile)
+REX_HOOK(__imp__NtQueryInformationFile, wwe2k14::CacheNtQueryInformationFile)
+REX_HOOK(__imp__NtSetInformationFile, wwe2k14::CacheNtSetInformationFile)
+REX_HOOK(__imp__NtFlushBuffersFile, wwe2k14::CacheNtFlushBuffersFile)
+REX_HOOK(__imp__NtReleaseMutant, wwe2k14::CacheNtReleaseMutant)

@@ -1,0 +1,22 @@
+# Session 89: owned_check -Route brock, the OFF arms. Plays the replay s89_brock (Brock out first as captured, seed 1;
+# recorded by s89_record_brock.txt to step 15 + 400): shots at Brock's entrance step 15 + 100 and + 240, the owned frame's
+# per-pass census for two frames at the first shot (`cvar gpu_native_owned_frame_log 2`; harmless with the owned frame off).
+# The ON arms run s89_brock_census_on.txt (+ an owned-frame flip at step 15, so their summary covers entrance frames only);
+# owned_verdict treats the two as one route. on_fail quit.
+on_fail quit
+log bench: start s89_brock_census
+wait_file 343.bik2 3600
+log scene=tron_343
+mark 1 tron_343
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+wait_frames 50
+cvar gpu_native_owned_frame_log 2
+wait_frames 50
+screenshot s89k_a
+wait_frames 140
+screenshot s89k_b
+wait_frames 33
+log bench: done
+quit

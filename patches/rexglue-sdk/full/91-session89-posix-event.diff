@@ -1,0 +1,79 @@
+# ReXGlue SDK changes for WWE 2K14 (session89-posix-event): 243729cc23d0..958c1a923d95 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  958c1a9 POSIX events: comment corrected after review (timeouts; what the fix does not cover)
+#  0e69049 POSIX events: Win32 auto-reset semantics - a Set releases one blocked waiter (lost second wake-up froze WWE 2K14's highlights recorder on Android)
+
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+index 4472702c58e0789e8edf4086246bdcda6c4e0ed7..45150ffb7d1f5a2e9bb281816669edd86ce6755b 100644
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -307,12 +307,16 @@ class PosixConditionBase {
+     if (predicate()) {
+       executed = true;
+     } else {
++      // wwe2k14 patch (Session 89): count the threads blocked here, so an auto-reset event can hand a Signal to one of
++      // them (PosixCondition<Event>::Signal) instead of only setting a flag two Signals would share.
++      ++waiters_;
+       if (timeout == std::chrono::milliseconds::max()) {
+         cond_.wait(lock, predicate);
+         executed = true;  // Did not time out;
+       } else {
+         executed = cond_.wait_for(lock, timeout, predicate);
+       }
++      --waiters_;
+     }
+     if (executed) {
+       post_execution();
+@@ -460,6 +464,7 @@ class PosixConditionBase {
+   inline virtual void post_execution() = 0;
+   std::condition_variable cond_;
+   std::mutex mutex_;
++  size_t waiters_ = 0;  // (Session 89) threads blocked in Wait() on this object, under mutex_
+ };
+ 
+ // There really is no native POSIX handle for a single wait/signal construct
+@@ -476,9 +481,23 @@ class PosixCondition<Event> : public PosixConditionBase {
+       : signal_(initial_state), manual_reset_(manual_reset) {}
+   virtual ~PosixCondition() = default;
+ 
++  // wwe2k14 patch (Session 89, the phone pinfall freeze): Win32 auto-reset semantics. Setting an auto-reset event
++  // that a thread waits on releases that thread and leaves the event NOT signalled, so a second Set before the woken
++  // thread runs signals it again. The old code only set signal_ = true and let the woken thread clear it when it ran:
++  // two Sets before it ran were one wake-up. WWE 2K14's highlights recorder is woken by two quick Sets at the bell
++  // (one per job); Windows kept both, Android lost the second, the recorder slept for good and the match end waited on
++  // it (frozen wrestlers after every pinfall). Now a Set with more blocked waiters than releases already handed out
++  // hands one release to a waiter (released_); otherwise it signals the event as before. Manual-reset events are
++  // unchanged. (A counted waiter cannot time out past its release: wait_for re-checks the predicate under the lock.
++  // Not covered (as before this patch, review of 0e69049): WaitMultiple's polling callers and alertable / det_frames
++  // waits in 1 ms Wait() slices are not counted in waiters_, so two quick Sets can still merge for them.)
+   bool Signal() override {
+     auto lock = std::unique_lock<std::mutex>(mutex_);
+-    signal_ = true;
++    if (!manual_reset_ && waiters_ > released_) {
++      ++released_;
++    } else {
++      signal_ = true;
++    }
+     cond_.notify_all();
+     return true;
+   }
+@@ -489,14 +508,17 @@ class PosixCondition<Event> : public PosixConditionBase {
+   }
+ 
+  private:
+-  inline bool signaled() const override { return signal_; }
++  inline bool signaled() const override { return signal_ || released_ > 0; }
+   inline void post_execution() override {
+-    if (!manual_reset_) {
++    if (released_ > 0) {
++      --released_;  // a release handed to a waiter: the event itself stays as it was
++    } else if (!manual_reset_) {
+       signal_ = false;
+     }
+   }
+   bool signal_;
+   const bool manual_reset_;
++  size_t released_ = 0;  // (Session 89) Sets handed to blocked waiters, not yet taken
+ };
+ 
+ template <>

@@ -29,6 +29,9 @@ newest one given), and judged:
 --dir EXEDIR: the runs were made by another exe (owned_check.ps1 -Exe): its logs/ and captures/ are read from there.
 --shots-only A B: only the shot comparison of two runs (A as "on", B as "off"), whatever their flags - for trying the
 tolerance on any pair.
+--ab A B [B2]: Session 89, an A/B of two arms that may both be "on" (e.g. cards on vs off, two switches): A's shots vs
+B's with the same tolerance, noise from B2 (a second run of arm B) when given, and both arms' census side by side
+(owned share, truth work, pauses, validation). Exit 1 only when a shot is OVER.
 An "on" run is one with gpu_native_own_steps listed or gpu_native_owned_frame=true (logged as modified).
 
 Prints one block per pair and "OWNED VERDICT PASS / WARN / FAIL"; exit code 0 / 0 / 1.
@@ -84,13 +87,19 @@ MATCH_WINDOW_MIN = 0.9
 # settled match frames is judged against OWNED_SHARE_MIN; any other window is reported as information.
 SETTLE_FRAMES = 300
 SCENE_MATCH = re.compile(r'scene=match \(frame (\d+)\)')
+# Session 89: routes with no match by design (owned_check -Route bryan): their owned share is information, not the 95%
+# match bar. Any other route without a scene=match line is judged as before (review: key on the route, not on mf).
+NO_MATCH_ROUTES = ('s89_bryan_shots.txt', 's89_bryan_census.txt', 's89_brock_census.txt')
 TRUTH_WORK = re.compile(r'TRUTH WORK per frame: ([^\[;]*)')
 
 
 def route_name(value):
     """The route's file name; the census variant counts as the plain quick route (same shots on the same frames)."""
     n = Path(value).name
-    return 's82_match_shots_fast.txt' if n in ('s82_match_shots_census.txt', 's82_match_shots_census_on.txt') else n
+    if n in ('s82_match_shots_census.txt', 's82_match_shots_census_on.txt'):
+        return 's82_match_shots_fast.txt'
+    # (Session 89: an entrance census route's ON version - same shots, + an owned-frame flip - counts as the route itself.)
+    return n[:-len('_on.txt')] + '.txt' if n.startswith('s89_') and n.endswith('_census_on.txt') else n
 PAUSE = re.compile(r'\[native\]\[owned\] frame (\d+): (ps|vs) ([0-9A-F]{16}) not owned for 600 frames \((.*)\)')
 CENSUS = re.compile(r'owned steps per frame: draws into our images ([\d.]+) in passes [\d.]+ \(resumed [\d.]+\), '
                     r'their copies left out ([\d.]+).*?; refused ([\d.]+)')
@@ -229,7 +238,15 @@ def judge_owned_frame(on):
             worse('FAIL')
         else:
             frac = chosen['owned'] / float(max(1, chosen['passes']))
-            if sh is None or sh >= MATCH_WINDOW_MIN:
+            if sh is None and on['route'] in NO_MATCH_ROUTES:
+                # (Session 89: a route with no match - owned_check -Route bryan, an entrance only - has no settled match
+                # window; the 95% bar is a match bar, so the share is information here, as for entrance-heavy windows.)
+                lines.append(f"  owned frame (information, not judged: no scene=match in this route): {100.0 * frac:.1f}% of "
+                             f"passes owned over frames {chosen['a']}-{chosen['b']}")
+                if on['shot_frames'] and chosen['b'] < max(on['shot_frames']):
+                    lines.append(f"  owned frame: that window ends at frame {chosen['b']}, before the shots (frames "
+                                 f"{min(on['shot_frames'])}-{max(on['shot_frames'])}): the census does not describe the shot frames")
+            elif sh >= MATCH_WINDOW_MIN:
                 tag = f"{100.0 * frac:.1f}% of passes owned over {chosen['a']}-{chosen['b']}" + \
                       ('' if sh is None else f' ({100.0 * sh:.0f}% match frames)')
                 if frac < OWNED_SHARE_MIN:
@@ -376,15 +393,18 @@ def find_off_runs(off, known, skip=None):
     return found
 
 
-def compare_shots(on, off, exact=False, known=()):
+def compare_shots(on, off, exact=False, known=(), twin=None, search=True):
     """Per shot: identical / within tolerance / OVER (or, with exact, DIFFERS). Returns (bad, lines, rows, identical,
-    within, noise note); rows feed the picture sheet: (name, on path, off path, heat array or None, note)."""
+    within, noise note); rows feed the picture sheet: (name, on path, off path, heat array or None, note).
+    twin (Session 89, --ab): the second run of the B arm to take the noise from, instead of searching owned-off runs.
+    search=False (--ab): never search the log folder for other runs (review: with no B2 an unrelated neighbouring run,
+    even another A run, became the "known version" and passed every shot)."""
     lines, rows, bad, ident, within = [], [], 0, 0, 0
-    others = [] if exact else find_off_runs(off, known, on["run"])
+    others = [] if exact else ([twin] if twin else (find_off_runs(off, known, on["run"]) if search else []))
     twin = others[0] if others else None
     noise_note = ''
     if not exact:
-        noise_note = (f"  noise: share over {TOL_SMALL} between off runs {off['run']} and {twin['run']}" if twin else
+        noise_note = (f"  noise: share over {TOL_SMALL} between reference runs {off['run']} and {twin['run']}" if twin else
                       "  noise: no second owned-off run of the same route / scale / exe in the log folder - noise = 0")
     for name in sorted(set(on['shots']) | set(off['shots'])):
         a, b = CAPTURES / f"{on['prefix']}_{name}", CAPTURES / f"{off['prefix']}_{name}"
@@ -524,10 +544,10 @@ def queue_over_sheet(on, off, rows, sheet, exact):
     return len(over)
 
 
-def shots_report(on, off, exact, known=()):
+def shots_report(on, off, exact, known=(), twin=None, off_label='owned off', search=True):
     """The shot lines + sheet for one pair; returns (bad, text lines)."""
-    bad, lines, rows, ident, within, noise_note = compare_shots(on, off, exact, known)
-    head = f"  shots vs {off['run']} (owned off): "
+    bad, lines, rows, ident, within, noise_note = compare_shots(on, off, exact, known, twin, search)
+    head = f"  shots vs {off['run']} ({off_label}): "
     if bad:
         head += f'{bad} ' + ('FAIL' if exact else 'OVER / FAIL')
         head += f', {ident} identical' + ('' if exact else f', {within} within tolerance')
@@ -543,6 +563,50 @@ def shots_report(on, off, exact, known=()):
     return bad, out
 
 
+def census_line(r):
+    """One line of what a run's owned frame did (Session 89, --ab): the last 600-frame summary, truth work, pauses,
+    validation errors."""
+    parts = []
+    if r['summaries']:
+        s = r['summaries'][-1]
+        share = 100.0 * s['owned'] / s['passes'] if s['passes'] else 0.0
+        parts.append(f"frames {s['a']}-{s['b']}: passes {s['passes']} owned {s['owned']} ({share:.2f}%) fallback {s['fallback']}")
+        if s['truth']:
+            parts.append(f"truth work {s['truth']}")
+    else:
+        parts.append('no owned-frame summary')
+    inexact = sum(1 for p in r['pauses'] if any(x in p[2] for x in INEXACT))
+    parts.append(f"pauses {len(r['pauses'])} ({inexact} inexact)")
+    if r['validation']:
+        parts.append(f"validation errors {r['validation_errors']}")
+    return '; '.join(parts)
+
+
+def ab_report(runs, exact):
+    """Session 89 (Session 87 compared two "on" arms by hand and missed the block rule): --ab A B [B2] judges arm A's
+    shots against arm B's with the same tolerance as on vs off, the noise taken from B2 (a second run of arm B) when
+    given, and prints both arms' census side by side. Neither arm has to be 'off'. FAIL only on shots."""
+    if len(runs) not in (2, 3):
+        sys.exit('--ab takes A B [B2]: two runs (arm A, arm B) and optionally a second run of arm B for the noise')
+    a, b = runs[0], runs[1]
+    twin = runs[2] if len(runs) == 3 else None
+    if (a['scale'], a['route'], a['replay']) != (b['scale'], b['route'], b['replay']):
+        print(f"  NOTE: the arms differ in scale / route / replay: {a['scale']}/{a['route']}/{a['replay'] or '-'} vs "
+              f"{b['scale']}/{b['route']}/{b['replay'] or '-'}")
+    print(f"== A/B: arm A run {a['run']} vs arm B run {b['run']}" + (f" (noise: B's second run {twin['run']})" if twin else
+                                                                    ' (no second B run: noise 0)'))
+    bad, out = shots_report(a, b, exact, runs, twin=twin, off_label='arm B', search=False)
+    if not twin:
+        out = [l for l in out if 'noise: no second owned-off run' not in l]
+    print('\n'.join(out))
+    print(f"  census A {a['run']}: {census_line(a)}")
+    print(f"  census B {b['run']}: {census_line(b)}")
+    if twin:
+        print(f"  census B {twin['run']}: {census_line(twin)}")
+    print(f"A/B SHOTS {'FAIL' if bad else 'PASS'}")
+    return 1 if bad else 0
+
+
 def main():
     global LOGS, CAPTURES
     args = sys.argv[1:]
@@ -555,9 +619,13 @@ def main():
         exe = exe if exe.is_absolute() else ROOT / exe
         LOGS, CAPTURES = exe / 'logs', exe / 'captures'
         del args[i:i + 2]
+    ab = '--ab' in args
+    args = [a for a in args if a != '--ab']
     runs = [read_run(int(a)) for a in args]
     if not runs:
         sys.exit(__doc__)
+    if ab:
+        return ab_report(runs, exact)
     if shots_only:
         if len(runs) != 2:
             sys.exit('--shots-only takes exactly two runs: ON OFF')

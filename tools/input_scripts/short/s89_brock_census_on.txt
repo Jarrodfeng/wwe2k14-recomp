@@ -1,0 +1,26 @@
+# Session 89: owned_check -Route brock, the ON arms' version of s89_brock_census.txt (the same shots on the same frames:
+# Brock's step 15 + 100 / + 240). The owned frame is flipped off and on at step 15 so the summary printed by the flip off
+# after the last shot covers step 15 + 2 .. + 243 only (Brock's entrance frames). Census at the first shot. Only for arms
+# with the owned frame on (owned_check.ps1 picks it). on_fail quit.
+on_fail quit
+log bench: start s89_brock_census_on
+wait_file 343.bik2 3600
+log scene=tron_343
+mark 1 tron_343
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+cvar gpu_native_owned_frame false
+wait_frames 2
+cvar gpu_native_owned_frame true
+wait_frames 48
+cvar gpu_native_owned_frame_log 2
+wait_frames 50
+screenshot s89k_a
+wait_frames 140
+screenshot s89k_b
+wait_frames 3
+cvar gpu_native_owned_frame false
+wait_frames 30
+log bench: done
+quit

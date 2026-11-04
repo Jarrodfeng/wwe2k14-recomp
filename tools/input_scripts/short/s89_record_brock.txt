@@ -1,0 +1,22 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --wwe2k14_replay_record=s89_brock
+# Session 89: records the replay s89_brock (out\replays\s89_brock.rec, local only) for owned_check -Route brock: the
+# lesnar_bryan launch as captured (Brock 343 in slot 0 comes out first, fixed seed 1, BG04), from boot to 400 frames after
+# his entrance step 15 (the census routes s89_brock_census*.txt stop at step 15 + 273). Playing it needs only
+# --wwe2k14_replay_play=s89_brock.
+# One command: & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\short\s89_record_brock.txt')
+# Re-record only when the launch or the replay format changes. on_fail quit.
+# The recorder never overwrites: with NAME.rec present it writes NAME_2.rec. Move the old file aside first (Session 89 kept
+# the tron + 600 Bryan recording as out\replays\old\s89_bryan_first_tron600.rec).
+on_fail quit
+log bench: start s89_record_brock
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+wait_file 343.bik2 1800
+log scene=tron_343
+mark 1 tron_343
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15
+mark 2 step15
+wait_frames 400
+log bench: done
+quit

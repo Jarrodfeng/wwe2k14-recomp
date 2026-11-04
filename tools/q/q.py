@@ -709,6 +709,12 @@ def cmd_info(con, args, m):
 # ---------------------------------------------------------------- main
 
 def main(argv=None):
+    # Session 89: `q.py map ...` = the harness knowledge map (tools\q\qmap.py; no index needed).
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == 'map':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qmap
+        return qmap.main(argv[1:])
     ap = argparse.ArgumentParser(prog='q', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--json', action='store_true', help='machine-readable output')

@@ -29,7 +29,14 @@
 # In-process only (pwsh -File mangles the strings). Settings files: out\owned_check\settings_native720 / 1440.json
 # (made here if missing; NATIVE, 60 fps). The quick replay is recorded by tools\input_scripts\short\
 # s80_record_lb_quick.txt (see its header) into out\replays\s80_lb_quick.rec.
-param([ValidateSet('quick', 'full')][string]$Route = 'quick', [string]$Steps = '', [string]$More = '',
+#   & .\tools\native\owned_check.ps1 -Route bryan     Session 89: replay s89_bryan_first + s89_bryan_census.txt (Bryan
+#                                                     out FIRST; shots at his step 15 + 100 / + 240 with the per-pass
+#                                                     census at the first; the ON arms run s89_bryan_census_on.txt, whose
+#                                                     owned-frame flip at step 15 makes the summary cover entrance frames
+#                                                     only). Record the replay once: short\s89_record_bryan_first.txt
+#   & .\tools\native\owned_check.ps1 -Route brock     the same for Brock's entrance: replay s89_brock (short\
+#                                                     s89_record_brock.txt) + s89_brock_census[_on].txt
+param([ValidateSet('quick', 'full', 'bryan', 'brock')][string]$Route = 'quick', [string]$Steps = '', [string]$More = '',
       [switch]$Validation, [string]$Verdict = '', [string]$Exe = '', [string]$OnFlags = '', [switch]$Exact,
       [switch]$NoCensus)
 $root = 'C:\Users\Jarrod\wwe2k14-recomp'
@@ -41,8 +48,15 @@ if ($Verdict) {
   py -I "$root\tools\native\owned_verdict.py" @($vArgs) @($Verdict -split '[ ,]+' | Where-Object { $_ })
   exit $LASTEXITCODE
 }
-$replay = if ($Route -eq 'quick') { 's80_lb_quick' } else { 's21_lb' }
-$script = if ($Route -eq 'quick') { 'tools\input_scripts\short\s82_match_shots_fast.txt' } else { 'tools\input_scripts\short\s72_swap_shots.txt' }
+$replay = switch ($Route) { 'quick' { 's80_lb_quick' } 'bryan' { 's89_bryan_first' } 'brock' { 's89_brock' } default { 's21_lb' } }
+$script = switch ($Route) {
+  'quick' { 'tools\input_scripts\short\s82_match_shots_fast.txt' }
+  'bryan' { 'tools\input_scripts\short\s89_bryan_census.txt' }
+  'brock' { 'tools\input_scripts\short\s89_brock_census.txt' }
+  default { 'tools\input_scripts\short\s72_swap_shots.txt' }
+}
+# (Session 89: the entrance routes always carry the census - every exe since Session 82 has gpu_native_owned_frame_log.)
+if ($Route -in 'bryan', 'brock') { $scriptOn = $script -replace '\.txt$', '_on.txt' }
 if ($Route -eq 'quick' -and -not $NoCensus -and $OnFlags -match 'gpu_native_owned_frame') {
   $script = 'tools\input_scripts\short\s82_match_shots_census.txt'
   $scriptOn = 'tools\input_scripts\short\s82_match_shots_census_on.txt'   # the ON arms: + a flip, so the truth-work summary is match-only

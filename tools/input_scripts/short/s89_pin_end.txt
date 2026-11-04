@@ -1,0 +1,23 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=6 --wwe2k14_launch_participants=139,103 --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1
+# Session 89 (the phone pinfall freeze, phone logs 048 / 049): the same match on the PC - John Cena (139) vs The
+# Undertaker (103), arena 6, CPU vs CPU, entrances skipped - played to its result (finish type 0x8376ACCC != 0), then
+# 2400 frames (40 s): a normal end shows the post-match replay (a read open of cache:\Spectacular.rps) and the winner
+# scene (EVT*.PAC). The [wwe2k14][cachefile] lines (c585519) give the highlights file's writes / reads / closes to compare
+# with the phone's. One command: & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\short\s89_pin_end.txt')
+# on_fail quit.
+on_fail quit
+log bench: start s89_pin_end
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 6000
+log scene=match
+wait_state 0x8376ACCC !=0 60000 2
+log bench: match decided (finish type set)
+screenshot pin_0
+wait_frames 600
+screenshot pin_600
+wait_frames 1800
+screenshot pin_2400
+log bench: done (40 s after the result)
+quit

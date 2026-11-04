@@ -45,7 +45,10 @@ $exclude = @('^CLAUDE\.md$', '^PLAYBOOK\.md$', '^MORNING_REPORT\.md$', '^SESSION
              '^[^/]+_PLAN\.md$', '^[^/]+_prompt\.md$',
              # Session 86 (docs rework): STATUS.md (the current state, our notes) and root *_ARC.md briefs
              # (HD520_ARC.md had been published: no _PLAN suffix).
-             '^STATUS\.md$', '^[^/]+_ARC\.md$')
+             '^STATUS\.md$', '^[^/]+_ARC\.md$',
+             # Session 89 (Jarrod: "Exclude map, push"): the knowledge map's hand entries (our notes, like db/; q.py
+             # map still answers from the code without them).
+             '^tools/q/map/')
 $all = git ls-tree -r --name-only $head
 $drop = @($all | Where-Object { $p = $_; $exclude | Where-Object { $p -match $_ } })
 $keep = @($all | Where-Object { $drop -notcontains $_ })

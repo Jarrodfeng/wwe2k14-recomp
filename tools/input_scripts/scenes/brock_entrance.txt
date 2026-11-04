@@ -1,0 +1,33 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 89 scene route: Brock Lesnar's entrance on its own. The lesnar_bryan launch as captured (Brock 343 in slot 0
+# comes out first; Over the Limit BG04, Quick pace), fixed seed 1. Quits 600 frames (10 s of game time) after his
+# entrance reaches step 15 (Jarrod: "end entrance runs 10 seconds after Step 15"): no Bryan, no match. Fast-forwarded,
+# the 600 frames can be less than 10 s of entrance (it follows the wall clock); -Exclusive / -RealTime runs are 10 s.
+# Boot pipelines skipped (Jarrod, for runs like this): the 406 stored pipelines are made on first use, not at boot (a boot
+# that made them took 2-18 s, runs 5805 / 5812). For a TIMED run pass -Extra '--vulkan_stored_pipelines_at_boot=true'
+# (the caller's flag wins), or the compiles land inside the measured scene.
+# One command: & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\scenes\brock_entrance.txt') (fast-forwarded;
+# -Exclusive for a timed run). Marks: 1 tron_343, 2 step15, 3 end. Shots sc_brock_300 (tron +300, as s82_ent_shots'
+# Brock +300), sc_brock_s15, sc_brock_s15_300 are local only. Scene map: tools\q\map\scenes.toml. on_fail quit.
+on_fail quit
+log bench: start scene brock_entrance
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+mark 1 tron_343
+wait_frames 300
+screenshot sc_brock_300
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+screenshot sc_brock_s15
+wait_frames 300
+screenshot sc_brock_s15_300
+wait_frames 300
+log scene=end (step 15 + 600 frames)
+mark 3 end
+log bench: done
+quit

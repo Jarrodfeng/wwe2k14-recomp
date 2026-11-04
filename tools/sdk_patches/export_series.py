@@ -115,6 +115,7 @@ STEPS = [
     ('session84-android', 'f527e636ba3f4293770d9315207e783e0012eec1'),  # owned frame on host RT: clear depth range, viewport tracking
     ('session85-settings', '86722be5bd70ef6fe989cdee2621a0f40252ec05'),  # gpu_dynamic_shadows / gpu_depth_of_field / gpu_scene_crowd_density
     ('session87-d3d-layer', '243729cc23d08370777ccb77babac344fabc9367'),  # the D3D layer: no ring, own input, own shaders, textures by object, chains (switches off)
+    ('session89-posix-event', '958c1a923d9581f870a7957971337050fec872ef'),  # POSIX auto-reset events keep Win32 semantics (the phone pinfall freeze)
 ]
 
 

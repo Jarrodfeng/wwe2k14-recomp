@@ -218,13 +218,27 @@ inline uint32_t NtReadFileTraceOverride(uint32_t file_handle, uint32_t event_han
       if (apc_routine_ptr.guest_address() && offset != ~0ull) FileTraceScanOnce(path, offset, buffer_length);
     }
   }
-  if (!FlightOn())
-    return rex::kernel::xboxkrnl::NtReadFile_entry(file_handle, event_handle, apc_routine_ptr, apc_context,
-                                                   io_status_block, buffer, buffer_length, byte_offset_ptr);
-  FlightCall flight(kFlightRead, file_handle, buffer_length,  // --wwe2k14_flight_recorder (task 11)
-                    byte_offset_ptr ? uint32_t(uint64_t(*byte_offset_ptr)) : 0xFFFFFFFFu);
-  return flight.Done(rex::kernel::xboxkrnl::NtReadFile_entry(file_handle, event_handle, apc_routine_ptr, apc_context,
-                                                             io_status_block, buffer, buffer_length, byte_offset_ptr));
+  // Session 89: reads of cache: files (MATCH HIGHLIGHTS) are logged always, [wwe2k14][cachefile] (flight_recorder.h).
+  std::string cache_path;
+  const bool cache = CacheHandlePath(file_handle, &cache_path);
+  const uint64_t cache_offset = byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : ~0ull;
+  if (cache) CacheFileLogStart("read", cache_path, file_handle, cache_offset, buffer_length);
+  uint32_t result;
+  if (!FlightOn()) {
+    result = rex::kernel::xboxkrnl::NtReadFile_entry(file_handle, event_handle, apc_routine_ptr, apc_context,
+                                                     io_status_block, buffer, buffer_length, byte_offset_ptr);
+  } else {
+    FlightCall flight(kFlightRead, file_handle, buffer_length,  // --wwe2k14_flight_recorder (task 11)
+                      byte_offset_ptr ? uint32_t(uint64_t(*byte_offset_ptr)) : 0xFFFFFFFFu);
+    result = flight.Done(rex::kernel::xboxkrnl::NtReadFile_entry(file_handle, event_handle, apc_routine_ptr,
+                                                                 apc_context, io_status_block, buffer, buffer_length,
+                                                                 byte_offset_ptr));
+  }
+  if (cache) {
+    CacheFileLog("read", cache_path, file_handle, cache_offset, buffer_length, event_handle,
+                 apc_routine_ptr.guest_address(), result, io_status_block);
+  }
+  return result;
 }
 
 }  // namespace wwe2k14

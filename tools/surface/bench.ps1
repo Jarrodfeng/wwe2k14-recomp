@@ -11,6 +11,8 @@
 #           the Intel per-pass split (read on the PC: tools\native\pass_roles.py / pass_log.py)
 #   frames  frame times at NORMAL speed, 60 fps, true 720p, native frame on (profile_lesnar_bryan route, launched):
 #           against 16.7 ms per scene (tools\bench\bench_report.py)
+#   frames_bryan / frames_brock / frames_match (Session 89, ask for them with -Only): one scene each, normal speed,
+#           fixed seed 1, quits at the scene's end (tools\input_scripts\scenes\)
 #   mul     the Intel multiply rule: the same frames run with --wwe2k14_intel_exact_mul=0 (exact rule off): its cost
 #   cold    first launch with our shader cache emptied (a fresh -UserData copy): shader preparation time. The driver's
 #           own cache (%LOCALAPPDATA%Low\Intel\ShaderCache) is moved aside ONLY with -ColdDriver (Jarrod's call), and
@@ -157,6 +159,20 @@ if ($Only -contains 'arc') {
 }
 if ($Only -contains 'frames') {
   Invoke-Step 'frames' 'profile_lesnar_bryan.txt' @('--wwe2k14_launch=lesnar_bryan') $false -Threads $true
+}
+# Session 89 (per-scene frames, not in the default list): one scene per run at NORMAL speed, fixed seed 1 (Bryan's camera
+# variant pinned), entrances quitting 10 s after their step 15 and the match 10 s after its clock starts (Jarrod)
+# (tools\input_scripts\scenes\; pushed flat into Routes with
+# nav\boot_to_menu.txt, which they include). frames_bryan = Bryan out FIRST (participants 324,343), so his entrance
+# starts ~6 s after the launch instead of after Brock's. The flags here repeat the routes' '# harness: flags' headers
+# (the Surface bench does not read them). Read: py tools\native\frames_fps.py CSV name:first:last (prints the seed).
+$sceneSteps = [ordered]@{
+  'frames_bryan' = @('bryan_entrance.txt', @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_launch_participants=324,343', '--wwe2k14_fixed_seed=1'))
+  'frames_brock' = @('brock_entrance.txt', @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_fixed_seed=1'))
+  'frames_match' = @('match.txt', @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_launch_skip_entrances=true', '--wwe2k14_fixed_seed=1'))
+}
+foreach ($k in $sceneSteps.Keys) {
+  if ($Only -contains $k) { Invoke-Step $k $sceneSteps[$k][0] $sceneSteps[$k][1] $false -Threads $true }
 }
 # pinned (Session 79, not in the default list): the frames run held to 2 cores / 4 threads (the i3-6100U's count; the
 # Surface's i5 has 4 / 8), with every thread's CPU time: the CPU budget at 60 fps on a 4-thread laptop.

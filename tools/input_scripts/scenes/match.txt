@@ -1,0 +1,28 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 89 scene route: the Lesnar vs Bryan match on its own (entrances skipped by the launcher; Over the Limit BG04,
+# Quick pace, fixed seed 1). Counts from the match clock running ("in the ring", LESSONS: not M3.PAC or scene_word), shots
+# at clock +300 / +540, quits at clock +600 = 10 s of match (Jarrod: "we don't need to be in a match for any more than 10
+# seconds if we're just getting shots or checking things"). Boot + load to the clock are ~12 s of the run.
+# Boot pipelines skipped (Jarrod, for runs like this): the 406 stored pipelines are made on first use, not at boot (a boot
+# that made them took 2-18 s, runs 5805 / 5812). For a TIMED run pass -Extra '--vulkan_stored_pipelines_at_boot=true'
+# (the caller's flag wins), or the compiles land inside the measured scene.
+# One command: & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\scenes\match.txt') (fast-forwarded;
+# -Exclusive for a timed run). Marks: 1 match_clock (running), 2 end. Shots sc_match_* are local only.
+# Scene map: tools\q\map\scenes.toml. on_fail quit.
+on_fail quit
+log bench: start scene match
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match
+mark 1 match_clock
+wait_frames 300
+screenshot sc_match_300
+wait_frames 240
+screenshot sc_match_540
+wait_frames 60
+log scene=end (match clock +600)
+mark 2 end
+log bench: done
+quit

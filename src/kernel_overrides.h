@@ -199,6 +199,13 @@ inline void LogFileOpen(const char* call, ppc_ptr_t<rex::system::X_OBJECT_ATTRIB
   if (result == 0 && g_readback_file_hook) g_readback_file_hook(path, g_guest_frame.load());  // --wwe2k14_readback_loads
   BootSkipOnFileOpen(g_guest_frame.load());            // --wwe2k14_skip_boot_screens bookkeeping
   FileTraceOnOpen(path, result, handle_out ? uint32_t(*handle_out) : 0);  // no-op unless --wwe2k14_file_trace
+  // Session 89: watch cache: handles (MATCH HIGHLIGHTS' Spectacular.rps) - their writes / reads / closes are logged
+  // ([wwe2k14][cachefile], flight_recorder.h).
+  if (result == 0 && handle_out && path.size() >= 6) {
+    std::string lower = path.substr(0, 6);
+    for (auto& c : lower) c = char(std::tolower(uint8_t(c)));
+    if (lower == "cache:") CacheHandleOpened(uint32_t(*handle_out), path);
+  }
   FlightOnFileOpen(call[2] == 'O', path, disposition, access, result == 0 && handle_out ? uint32_t(*handle_out) : 0,
                    result);  // no-op unless --wwe2k14_flight_recorder
   if (!REXCVAR_GET(wwe2k14_log_file_opens)) return;
