@@ -25,6 +25,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <optional>
 #include <regex>
@@ -109,6 +110,7 @@ struct Settings {
   bool shadows = true;         // Session 85: dynamic shadows (false = off; gfx_settings.h)
   bool depth_of_field = true;  // Session 85: depth-of-field blur
   int crowd_density = 100;     // Session 85: 0..100 in steps of 10
+  int quality_tier = 0;        // Session 93: 0 AUTO (LOW on integrated graphics), 1 LOW, 2 STANDARD (gfx_settings.h)
   bool discord = false;        // Session 33: Discord status (off by default)
   int aspect = 0;              // Session 33: 0 = 16:9 (the game's own), 1 = auto (the monitor's: ultrawide Hor+)
   bool photo_mode = false;     // Session 33: photo mode (F10 / L3 + R3 in a match)
@@ -147,7 +149,7 @@ struct Settings {
   int refresh_hz = 0;          // high refresh: game steps per second (0 = the monitor's refresh rate)
   int perf_report = -1;        // write logs\perf_report_NNN.txt: 1 on, 0 off, -1 the build's default (playtest: on)
   bool original_look = false;  // the original 720p / 4x MSAA / 30 fps entrance look (Advanced)
-  bool true_native = false;    // Session 87: TRUE NATIVE, the D3D-layer stack (Advanced, experimental)
+  bool true_native = true;     // Session 87: TRUE NATIVE, the D3D-layer stack (Advanced). Session 93: the default
   int page = 0;               // 0 Play, 1 Mods, 2 Settings, 3 About (Session 31)
   int mods_tab = 0;            // 0 Trons, 1 Titles, 2 Logos, 3 Music (Session 75)
   bool runin = false;          // run-ins: F9 in a match (Session 16 experiment)
@@ -180,7 +182,7 @@ inline void to_json(json& j, const Settings& s) {
   j = json{{"game_exe", s.game_exe}, {"mods_dir", s.mods_dir}, {"scenario", s.scenario}, {"preset", s.preset},
            {"mods", s.mods}, {"skip_entrances", s.skip_entrances}, {"logo_legacy_route", s.logo_legacy_route}, {"quick_mode", s.quick_mode}, {"quick_type", s.quick_type}, {"quick_arena", s.quick_arena}, {"quick_ids", s.quick_ids}, {"quick_cpu_only", s.quick_cpu_only}, {"cinecam", s.cinecam}, {"look", s.look},
            {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"post_effects", s.post_effects},
-           {"shadows", s.shadows}, {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density},
+           {"shadows", s.shadows}, {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density}, {"quality_tier", s.quality_tier},
            {"dlss_dir", s.dlss_dir},
            {"fsr_note", s.fsr_note}, {"renderer", s.renderer}, {"settings_version", s.settings_version},
            {"discord", s.discord}, {"discord_app_id", s.discord_app_id}, {"aspect", s.aspect},
@@ -218,6 +220,8 @@ inline void from_json(const json& j, Settings& s) {
   // Session 85: missing keys keep the defaults (shadows on, depth of field on, crowd 100%).
   Get(j, "shadows", s.shadows), Get(j, "depth_of_field", s.depth_of_field), Get(j, "crowd_density", s.crowd_density);
   s.crowd_density = wwe2k14::gfxs::RoundCrowdDensity(s.crowd_density);
+  Get(j, "quality_tier", s.quality_tier);  // Session 93: a missing key = 0 AUTO
+  s.quality_tier = std::clamp(s.quality_tier, 0, 2);
   Get(j, "fsr_note", s.fsr_note), Get(j, "renderer", s.renderer);
   // Session 51 (Jarrod, 2026-10-22: "NATIVE for everyone"): a file from before it with the old default renderer
   // (ACCURATE) moves to NATIVE once; the next save writes the version, so a renderer picked after that stays.
@@ -242,6 +246,9 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "first_run_done", s.first_run_done), Get(j, "resolution", s.resolution), Get(j, "frame_rate", s.frame_rate);
   Get(j, "refresh_hz", s.refresh_hz), Get(j, "perf_report", s.perf_report), Get(j, "original_look", s.original_look);
   Get(j, "true_native", s.true_native);  // Session 87
+  // Session 93 (Jarrod, 2026-11-06 01:1x: "True native should become the default, even retroactively"): a file from
+  // before settings_version 4 moves to TRUE NATIVE once; the next save writes version 4, so an OFF picked after stays.
+  if (version < 4) s.true_native = true;
   Get(j, "page", s.page), Get(j, "mods_tab", s.mods_tab), Get(j, "runin", s.runin), Get(j, "keyboard", s.keyboard);
   Get(j, "keyboard_own_player", s.keyboard_own_player);
   Get(j, "language", s.language), Get(j, "gpu", s.gpu), Get(j, "windowed", s.windowed), Get(j, "titles_view", s.titles_view), Get(j, "check_updates", s.check_updates);
@@ -324,6 +331,9 @@ struct Paths {
 
 // The monitor's refresh rate (the App fills it in at start; used by the "High refresh" frame rate).
 inline int g_monitor_hz = 60;
+// Session 93: the card the game will use for a GRAPHICS CARD choice (the App sets it): true when it is an integrated GPU;
+// the name goes to the second argument. Unset (nothing known) = a desktop GPU.
+inline std::function<bool(const std::string&, std::string*)> g_gpu_probe;
 // The performance report's default when the player hasn't chosen (playtest builds: on; the App sets it).
 inline bool g_perf_report_default = false;
 
@@ -1158,6 +1168,20 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     c.renderer = s.renderer;              // Session 37 (Session 61: NATIVE, or the performance test's own run)
     // Session 61: the advanced flag --wwe2k14_renderer=light|accurate in Extra flags picks the renderer's flags.
     if (const int r = wwe2k14::gfxs::RendererFromFlags(s.extra); r >= 0) c.renderer = r;
+    // Session 93: the quality tier (AUTO -> LOW on integrated graphics). The note for the game's log has no spaces or
+    // quotes (the harness mode quotes the whole flag list: LOW_auto_integrated); the game prints it readable. The original
+    // look and the LIGHT / ACCURATE renderers do nothing with LOW: then the note says STANDARD.
+    c.quality_tier = s.quality_tier;
+    {
+      std::string gpu_name, unused;
+      const bool integrated = g_gpu_probe ? g_gpu_probe(s.gpu, &gpu_name) : false;
+      c.low = wwe2k14::gfxs::ResolveQualityTier(s.quality_tier, false, integrated, gpu_name, &unused) == 1;
+      const std::string reason = s.quality_tier != 0 ? "chosen" : integrated ? "auto_integrated" : "auto_desktop";
+      std::string tag = c.low ? "LOW_" + reason : "STANDARD_" + reason;
+      if (c.low && c.original_look) c.low = false, tag = "STANDARD_original_look";
+      else if (c.low && c.renderer != 2) c.low = false, tag = "STANDARD_other_renderer";
+      f.push_back("--wwe2k14_quality_note=" + tag);
+    }
     // The player's own NVIDIA folder, else the files bundled with a release (Session 25, Jarrod: ship them). Session
     // 31: a folder of their own that has no NVIDIA files (moved, deleted) falls back to the bundled ones too.
     const std::string dir = HasStreamline(s.dlss_dir) || p.nvidia.empty() ? s.dlss_dir : PathStr(p.nvidia);

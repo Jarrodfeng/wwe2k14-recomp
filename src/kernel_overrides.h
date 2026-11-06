@@ -33,6 +33,7 @@
 #include "load_turbo.h"  // --wwe2k14_load_turbo / _boot / _menu (Session 12, default off)
 #include <rex/det.h>
 #include "boot_skip.h"   // --wwe2k14_skip_boot_screens (Session 12, default off)
+#include "event_bus.h"   // --wwe2k14_events (Session 91 step 7, default off): the game's transitions as events
 #include "mods.h"        // --wwe2k14_mods (Session 17 item 1A, default off)
 #include "step_rate.h"   // --wwe2k14_step_hz (Session 19 item 10, default off)
 #include "discord_status.h"  // --wwe2k14_discord (Session 33 item 3, default off)
@@ -198,6 +199,7 @@ inline void LogFileOpen(const char* call, ppc_ptr_t<rex::system::X_OBJECT_ATTRIB
   if (result == 0) g_load_turbo.OnFileOpened(path);    // no-op unless --wwe2k14_load_turbo*
   if (result == 0 && g_readback_file_hook) g_readback_file_hook(path, g_guest_frame.load());  // --wwe2k14_readback_loads
   BootSkipOnFileOpen(g_guest_frame.load());            // --wwe2k14_skip_boot_screens bookkeeping
+  if (result == 0) events::OnFileOpened(path, g_guest_frame.load());  // --wwe2k14_events: archive loads
   FileTraceOnOpen(path, result, handle_out ? uint32_t(*handle_out) : 0);  // no-op unless --wwe2k14_file_trace
   // Session 89: watch cache: handles (MATCH HIGHLIGHTS' Spectacular.rps) - their writes / reads / closes are logged
   // ([wwe2k14][cachefile], flight_recorder.h).

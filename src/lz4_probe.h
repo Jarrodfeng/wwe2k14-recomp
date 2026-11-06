@@ -9,6 +9,7 @@
 #pragma once
 
 #include <rex/cvar.h>
+#include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/ppc/context.h>
@@ -38,7 +39,7 @@ REX_HOOK_RAW(sub_82C50408) {
   }
   using namespace wwe2k14::lz4_probe;
   const uint32_t dst = ctx.r3.u32, src = ctx.r5.u32;
-  const uint8_t* s = base + src + (src >= 0xE0000000u ? 0x1000u : 0u);
+  const uint8_t* s = base + src + ::rex::memory::detail::PhysicalHostOffset(src);
   const uint32_t f8 = Le32(s + 8), f12 = Le32(s + 12);
   const auto t0 = std::chrono::steady_clock::now();
   __imp__sub_82C50408(ctx, base);

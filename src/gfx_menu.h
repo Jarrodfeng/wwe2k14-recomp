@@ -71,6 +71,10 @@ REXCVAR_DEFINE_BOOL(wwe2k14_use_launcher_settings, !wwe2k14::gfx_menu::IsDevBuil
 REXCVAR_DEFINE_STRING(wwe2k14_settings_file, "", "wwe2k14",
                       "Session 28: the settings file the GRAPHICS menu and --wwe2k14_use_launcher_settings read and "
                       "write; empty = %APPDATA%\\wwe2k14-launcher\\settings.json (the launcher's)");
+REXCVAR_DEFINE_STRING(wwe2k14_quality_note, "", "wwe2k14",
+                      "Session 93: the quality tier a launcher resolved for this start, as text for the game log "
+                      "('LOW (auto: integrated GPU ...)'). The launcher builds the flags itself; this only carries the "
+                      "reason into the log (no effect on the game)");
 REXCVAR_DEFINE_INT32(wwe2k14_gfxmenu_msg_type, 3, "wwe2k14",
                      "Debug (Session 28): the message box type of the restart message (2 = YES / NO as the game's own "
                      "question; 3..5 tried in run 2108+)");
@@ -224,6 +228,18 @@ inline void ConfigureTextureFilter() {
               rex::cvar::GetFlagByName("anisotropic_override"));
 }
 
+// Session 93: with the launcher's flags (it resolves the tier itself) the reason arrives as --wwe2k14_quality_note.
+inline bool g_tier_low = false;  // Session 93: this start runs the LOW tier (the file's, or the launcher's note)
+inline void LogQualityNote() {
+  const std::string note = REXCVAR_GET(wwe2k14_quality_note);
+  if (note.empty()) return;
+  // (The launcher's note has no spaces: LOW_auto_integrated; readable here.)
+  std::string text = note;
+  std::replace(text.begin(), text.end(), '_', ' ');
+  g_tier_low = note.rfind("LOW", 0) == 0;
+  REXLOG_INFO("[wwe2k14] quality tier: {}", text);
+}
+
 inline gfxs::Choice g_running;       // what this run does now (after the startup apply and live changes)
 inline bool g_streamline_running = false;  // the NVIDIA runtime was loaded at start (DLAA can switch on and off live)
 inline std::string g_dlss_dir;       // the runtime folder (found at start)
@@ -242,6 +258,36 @@ inline void ApplyLauncherSettings() {
                 gfxs::Utf8(path));
   gfxs::Choice c;
   gfxs::Parse(json, c);
+  // Session 93: the quality tier (the setting AUTO / LOW / STANDARD -> this start's tier) from the card the game will
+  // use (gpu_pick runs later in OnPreSetup, so the list is read here the same way: --wwe2k14_gpu, else the discrete
+  // GPU with the most memory, else the first).
+  {
+    bool integrated = false;
+    std::string gpu_name;
+#if defined(__ANDROID__)
+    const bool phone = true;
+#else
+    const bool phone = false;
+    if (c.quality_tier == 0) {
+      vkdev::Device dev;
+      if (gpu_pick::Target(dev)) integrated = dev.integrated(), gpu_name = dev.name;  // (one listing, as Choose() reads it)
+    }
+#endif
+    std::string why;
+    c.low = gfxs::ResolveQualityTier(c.quality_tier, phone, integrated, gpu_name, &why) == 1;
+    // (The file's tier does nothing with the original look or another renderer: no "LOW" then.)
+    const int renderer_from_flag = gfxs::RendererFromFlags("--wwe2k14_renderer=" + REXCVAR_GET(wwe2k14_renderer));
+    if (c.low && (c.original_look || c.renderer != 2 || (renderer_from_flag >= 0 && renderer_from_flag != 2))) {
+      c.low = false;
+      why = c.original_look ? "STANDARD (original look is on)" : "STANDARD (not the NATIVE renderer)";
+    }
+    g_tier_low = c.low;
+    static bool logged = false;
+    if (!logged) {
+      logged = true;
+      REXLOG_INFO("[wwe2k14] quality tier: {}", why);
+    }
+  }
   // Session 61: the renderer from the advanced flag only (the file's is always NATIVE now).
   if (const int r = gfxs::RendererFromFlags("--wwe2k14_renderer=" + REXCVAR_GET(wwe2k14_renderer)); r >= 0)
     c.renderer = r;
@@ -312,6 +358,13 @@ inline void CaptureRunning() {
   if (FlagInt("wwe2k14_step_hz") > 60) r.frame_rate = 2, r.refresh_hz = int(FlagInt("wwe2k14_step_hz"));
   else if (!FlagIsTrue("wwe2k14_entrance_60fps")) r.frame_rate = 0;
   else r.frame_rate = 1;
+  // Session 93: the LOW tier drew 720p where the file says 1440p: the menu and its restart test compare against the file's
+  // choice (the tier is not a change the player made).
+  if (g_tier_low && r.upscale == 0 && r.resolution == 0 && r.draw_height == 0) {
+    gfxs::Choice fc;
+    gfxs::Parse(gfxs::ReadFile(SettingsFile()), fc);
+    if (fc.upscale == 0 && fc.draw_height == 0 && fc.resolution == 1) r.resolution = 1;
+  }
   g_running = r;
   g_dlss_dir = rex::cvar::GetFlagByName("vulkan_streamline_dir");
   g_streamline_running = !g_dlss_dir.empty() && (FlagIsTrue("wwe2k14_dlaa") || FlagIsTrue("wwe2k14_dlss"));

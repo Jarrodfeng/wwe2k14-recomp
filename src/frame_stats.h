@@ -68,6 +68,7 @@
 
 #if defined(__ANDROID__)
 #include "android_perf_hint.h"  // Session 64: each frame's length to the phone's CPU governor
+#include "android_pace.h"       // Session 93: present pacing, thermal headroom, the M5c pace gate switch
 #include "android_driver.h"     // Session 72: the custom driver's trial file goes after a few hundred frames
 #include "android_frame_rate.h"  // Session 73: the screen's refresh rate set for a 60 fps source
 #endif
@@ -208,6 +209,7 @@ class FrameStats {
 #if defined(__ANDROID__)
     // The frame's length and the GPU's time (b77: the hint session reports GPU time too where Android has it, API 35).
     if (!g_frame_time_ignore_next.load(std::memory_order_relaxed)) perf_hint::g_perf_hint.OnFrame(ms, last_gpu_ms_);
+    android_pace::OnFrame();  // Session 93: present pacing's frame rate, the thermal headroom (all off by default)
 #endif
     KeepWarm(now, ms);
     const int gpu_mhz = GpuClockMhz();

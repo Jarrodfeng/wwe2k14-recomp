@@ -23,6 +23,8 @@
 #include "android_memory.h"  // Session 73: Android's memory warnings (GameActivity.onTrimMemory)
 #include "crash_handler.h"
 #include "gpu_timeline.h"
+#include "android_pace.h"  // Session 93: --wwe2k14_android_pace_gate / _thermal, present pacing's start lines
+#include "low_ram.h"  // --wwe2k14_low_ram (Session 94)
 #include "d3d_owned.h"  // --wwe2k14_d3d_owned (Session 87, the D3D-layer stack in one switch, default off)
 #include "pacing_hooks.h"
 #include "tiling_hooks.h"
@@ -72,6 +74,7 @@
 #include "keybinds_save.h"  // Session 53: the keyboard binds saved in the save folder (--wwe2k14_save_keybinds)
 #include "keyboard_typing.h"  // Session 55: --wwe2k14_keyboard_typing (the PC keyboard types into the game's keyboard)
 #include "keyboard_player.h"  // Session 76: --wwe2k14_keyboard_own_player (the keyboard is a player of its own)
+#include "focus_widget.h"  // Session 91: which input widget has the input, and its cursor (the navigator's game_where)
 #include "mouse_menu.h"  // Session 67: --wwe2k14_mouse_menus (the mouse points, clicks and scrolls in the list menus)
 #include "create_readback.h"  // Session 57: --wwe2k14_readback_sequences (exact readback in the create modes, default on)
 #include "load_pipeline_wait.h"  // Session 57: --wwe2k14_load_pipeline_wait (no skipped draws during in-game loads)
@@ -209,6 +212,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::blackbox::Step("set-up: Vulkan driver chosen (src/android_driver.h)");
 #endif
     // Session 16 item 1: replay mode preset and a playback file's seed / settings, before anything reads them.
+    wwe2k14::gfx_menu::LogQualityNote();  // Session 93: the quality tier a launcher resolved (its flags carry the reason)
     wwe2k14::gfx_menu::ApplyLauncherSettings();  // Session 28: graphics settings from the launcher's file (release builds)
     if (REXCVAR_GET(wwe2k14_use_launcher_settings))  // Session 32: the DLC switches too
       wwe2k14::dlc::ApplyLauncherSettings(wwe2k14::gfx_menu::SettingsFile());
@@ -442,7 +446,11 @@ class Wwe2k14App : public rex::ReXApp {
     // Session 79 (HD 520 arc): --wwe2k14_native_frame, the arc's switch (src\native_frame.h).
     wwe2k14::native_frame::Apply();
     // Session 87: --wwe2k14_d3d_owned, the whole D3D-layer stack in one experimental switch (src\d3d_owned.h).
+    // Session 94 (idea 12): --wwe2k14_low_ram, smaller sizes on a phone under 6 GB; before d3d_owned::Apply so its 1024 MB budget yields.
+    wwe2k14::low_ram::Apply();
     wwe2k14::d3d_owned::Apply();
+    // Session 93 (idea 14): --wwe2k14_android_pace_gate and the start lines of the pacing switches (src\android_pace.h).
+    wwe2k14::android_pace::Apply();
 
     // Session 43 (stretch S4): --wwe2k14_preset_deck (docs\native\STEAM_DECK.md): as LOW, but 60 fps (the Deck's GPU is
     // ~4x a UHD 620; its screen is 1280x800 at 60 Hz). Set before the 1440p preset, so it keeps only its no-MSAA /

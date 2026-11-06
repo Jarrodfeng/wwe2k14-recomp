@@ -34,9 +34,29 @@ namespace wwe2k14::gpu_pick {
 inline bool g_known = false;  // g_chosen is filled in
 inline vkdev::Device g_chosen;
 
+// Session 93: the one device listing of this start (Choose() and the settings-file path both use it).
+inline const std::vector<vkdev::Device>& Listing() {
+  static std::vector<vkdev::Device> devs = vkdev::List();
+  return devs;
+}
+// Session 93: the device the game will use, the same rule as Choose() (--vulkan_device when set, else --wwe2k14_gpu, else
+// the discrete GPU with the most memory, else the first), read before Choose() runs (the settings-file path's quality
+// tier). False when nothing is listed.
+inline bool Target(vkdev::Device& out) {
+  const std::vector<vkdev::Device>& devs = Listing();
+  if (devs.empty()) return false;
+  if (rex::cvar::GetFlagSource("vulkan_device") != rex::cvar::Source::kDefault) {
+    const int forced = std::atoi(rex::cvar::GetFlagByName("vulkan_device").c_str());
+    if (forced >= 0 && forced < int(devs.size())) return out = devs[size_t(forced)], true;
+  }
+  const int pick = vkdev::Pick(devs, REXCVAR_GET(wwe2k14_gpu));
+  if (pick < 0) return false;
+  return out = devs[size_t(pick)], true;
+}
+
 inline void Choose() {
 #ifdef _WIN32
-  const std::vector<vkdev::Device> devs = vkdev::List();
+  const std::vector<vkdev::Device>& devs = Listing();
   if (devs.empty()) {
     REXLOG_WARN("[wwe2k14][gpu] no Vulkan devices listed: the SDK picks the device");
     return;

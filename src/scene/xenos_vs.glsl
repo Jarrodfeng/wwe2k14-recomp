@@ -6,8 +6,12 @@
 // Include before the shader's own constants block (set 1 binding 1, packed in register order for the registers the
 // shader was written for) and after nothing else.
 
+// Session 93 (the per-draw storage window): the shared memory is ONE storage buffer binding on every GPU. On a GPU whose
+// maxStorageBufferRange is below 512 MiB the SDK binds a WINDOW of it per draw (vulkan_shared_memory_window) and passes the
+// window's first dword in the system constants (offset 512, the translator's shared_memory_window_base_dwords; 0 whenever the
+// window mode is off); every address is shifted by it here, as the translator's LoadUint32FromSharedMemory does. An address
+// outside the window reads 0 (an explicit range check). One compile serves every GPU (Session 92's split variants _s2 / _s4 are gone).
 layout(set = 0, binding = 0, std430) restrict readonly buffer XeSharedMemory { uint shared_memory[]; };
-
 layout(set = 1, binding = 0, std140) uniform XeSystemConstants {
   layout(offset = 0) uint flags;                      // bit 8: x, y divided by w; bit 9: z divided by w; bit 10: w is not a reciprocal
   layout(offset = 8) uint vertex_index_endian;        // the host index buffer's byte order (xenos::Endian)
@@ -22,7 +26,13 @@ layout(set = 1, binding = 0, std140) uniform XeSystemConstants {
   layout(offset = 192) uint vertex_texture_signs;      // texture_swizzled_signs[1].x: fetch constant 16's four channels, 2 bits each (xenos_vs_tex.glsl)
   layout(offset = 496) uint vertex_index_min;
   layout(offset = 500) uint vertex_index_max;
+  layout(offset = 512) uint shared_memory_window_base_dwords;  // Session 93: the shared memory window's first dword (0 unless the host windows the memory)
 } xe_system;
+
+uint XeSharedMemoryLoad(int address) {  // an address outside the (window of the) buffer reads 0: robustBufferAccess v1 alone does not promise that
+  uint r = uint(address) - xe_system.shared_memory_window_base_dwords;
+  return r < uint(shared_memory.length()) ? shared_memory[r] : 0u;
+}
 
 layout(set = 1, binding = 4, std140) uniform XeFetchConstants { uvec4 fetch_constants[48]; } xe_fetch;
 
@@ -65,7 +75,7 @@ int XeVertexAddress(uint index, int stride, int fetch_constant) {
   return int(base >> 2u) + int(index) * stride;
 }
 
-uint XeFetchDword(int address) { return XeSwap8in32(shared_memory[address]); }
+uint XeFetchDword(int address) { return XeSwap8in32(XeSharedMemoryLoad(address)); }
 float XeFetchFloat(int address) { return uintBitsToFloat(XeFetchDword(address)); }
 
 // The translation's last step: the guest position (its w a reciprocal unless flagged) into the host's clip space.

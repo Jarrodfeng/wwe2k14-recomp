@@ -11,16 +11,22 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 
@@ -33,6 +39,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.json.JSONObject;
+
 import org.libsdl.app.SDLActivity;
 
 public class GameActivity extends SDLActivity {
@@ -40,12 +48,25 @@ public class GameActivity extends SDLActivity {
     static final String EXTRA_ARGS = "wwe2k14.args", EXTRA_GAME_URI = "wwe2k14.game_uri", EXTRA_TOUCH = "wwe2k14.touch";
     // The launcher's placeholder for the game file the game's process opens itself (mobile_settings.h kGameFdToken).
     private static final String GAME_FD_TOKEN = "@GAME_FD@";
+    private static final String PRECOMPILE_ARG = "--wwe2k14_precompile=";
 
     private TouchOverlay overlay;
     private OnBackInvokedCallback backCallback;
     private AlertDialog quitDialog;
     private boolean fromArgsFile;
     private BroadcastReceiver batteryReceiver;
+
+    // Session 93 (M6 step 2, the shader translation store): the launcher starts the game once in its precompile mode
+    // (--wwe2k14_precompile=FILE, src/precompile.h) before the first PLAY after an install, an update or a setting that
+    // changes the store's key. This activity shows its progress ("Preparing shaders 120 / 462") from the progress file,
+    // and when the game has written its last state (done / timeout) ends the process and brings the launcher back with a
+    // marker file (<files>/precompile_return.txt: the state, or "cancelled"); the launcher then starts the real game.
+    // The game itself does not quit in this mode on Android (precompile.h): an app shutdown is the old exit crash.
+    private String precompileFile;
+    private TextView precompileText;
+    private Handler precompileHandler;
+    private long precompileStart;
+    private static final long PRECOMPILE_DEADLINE_MS = 15 * 60 * 1000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,6 +100,15 @@ public class GameActivity extends SDLActivity {
                     ViewGroup.LayoutParams.MATCH_PARENT));
         }
 
+        // (SDL calls getArguments() later, on its own thread: the precompile argument is read from the intent here.)
+        if (!fromArgsFile) {
+            String[] launched = getIntent().getStringArrayExtra(EXTRA_ARGS);
+            if (launched != null)
+                for (String a : launched)
+                    if (a.startsWith(PRECOMPILE_ARG)) precompileFile = a.substring(PRECOMPILE_ARG.length());
+        }
+        if (precompileFile != null && mLayout != null) startPrecompileWatch();
+
         // Back asks first (Android 13+ with predictive back: this callback; older: onBackPressed below).
         if (Build.VERSION.SDK_INT >= 33) {
             backCallback = this::askQuit;
@@ -104,6 +134,7 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected void onDestroy() {
+        if (precompileHandler != null) precompileHandler.removeCallbacksAndMessages(null);
         if (batteryReceiver != null) {
             try {
                 unregisterReceiver(batteryReceiver);
@@ -153,7 +184,74 @@ public class GameActivity extends SDLActivity {
     // ANDROID_PLAN known issues, cannot happen this way). finish() first so Android does not bring this activity back.
     private void quitToLauncher() {
         Log.i(TAG, "quit to the launcher");
+        if (precompileFile != null) writePrecompileReturn("cancelled");
         blackBoxNote("the player quit to the launcher");  // Session 73: a normal end (phone_check.h LastRun)
+        startActivity(new Intent(this, LauncherActivity.class));
+        finish();
+        overridePendingTransition(0, 0);
+        android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
+    // Session 93: the precompile's progress line and its end (see the fields above).
+    private void startPrecompileWatch() {
+        precompileText = new TextView(this);
+        precompileText.setTextColor(Color.WHITE);
+        precompileText.setBackgroundColor(Color.argb(200, 0, 0, 0));
+        precompileText.setTextSize(18);
+        precompileText.setGravity(Gravity.CENTER);
+        precompileText.setPadding(40, 24, 40, 24);
+        precompileText.setText("Preparing shaders...");
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+        lp.bottomMargin = 80;
+        mLayout.addView(precompileText, lp);
+        precompileStart = System.currentTimeMillis();
+        precompileHandler = new Handler(Looper.getMainLooper());
+        precompileHandler.postDelayed(this::pollPrecompile, 300);
+    }
+
+    private void pollPrecompile() {
+        String state = "starting";
+        String line = "Preparing shaders...";
+        try (BufferedReader r = new BufferedReader(
+                new InputStreamReader(new FileInputStream(new File(precompileFile)), StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String l;
+            while ((l = r.readLine()) != null) sb.append(l);
+            JSONObject j = new JSONObject(sb.toString());
+            state = j.optString("state", state);
+            int m6Done = j.optInt("m6_done", 0), m6Total = j.optInt("m6_total", 0);
+            int made = j.optInt("made", 0), total = j.optInt("total", 0);
+            if (m6Total > 0 && m6Done < m6Total) line = "Preparing shaders " + m6Done + " / " + m6Total;
+            else if (total > 0 && made < total) line = "Preparing pipelines " + made + " / " + total;
+            else if (state.equals("done")) line = "Shaders ready";
+        } catch (Exception e) {
+            // (Not written yet, or caught mid-write: the game renames a whole file into place; the next poll reads it.)
+        }
+        precompileText.setText(line);
+        boolean over = System.currentTimeMillis() - precompileStart > PRECOMPILE_DEADLINE_MS;
+        if (state.equals("done") || state.equals("timeout") || over) {
+            Log.i(TAG, "precompile ended: " + (over ? "deadline" : state));
+            endPrecompile(over ? "timeout" : state);
+            return;
+        }
+        precompileHandler.postDelayed(this::pollPrecompile, 300);
+    }
+
+    private void writePrecompileReturn(String state) {
+        try (FileOutputStream out = new FileOutputStream(new File(filesDir(), "precompile_return.txt"), false)) {
+            out.write((state + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            Log.w(TAG, "precompile return marker failed", e);
+        }
+    }
+
+    // The launcher back (it starts the game), this process ended at once as quitToLauncher does.
+    private void endPrecompile(String state) {
+        blackBoxNote("the shader precompile ended: " + state + " (quit to the launcher)");  // (LastRun reads that as a normal end)
+        writePrecompileReturn(state);
         startActivity(new Intent(this, LauncherActivity.class));
         finish();
         overridePendingTransition(0, 0);
@@ -198,6 +296,7 @@ public class GameActivity extends SDLActivity {
         if (given == null) return new String[0];
         String fd = null;
         for (String a : given) {
+            if (a.startsWith(PRECOMPILE_ARG)) precompileFile = a.substring(PRECOMPILE_ARG.length());
             if (a.contains(GAME_FD_TOKEN)) {
                 if (fd == null) fd = openGameFile(getIntent().getStringExtra(EXTRA_GAME_URI));
                 if (fd == null) continue;  // the game then says it has no game files

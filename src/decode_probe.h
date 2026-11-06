@@ -65,6 +65,7 @@
 #pragma once
 
 #include <rex/cvar.h>
+#include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/ppc/context.h>
@@ -169,7 +170,7 @@ inline double TicksMs(int64_t ticks) { return double(ticks) / TicksPerMs(); }
 
 // Same address translation as the generated code (REX_RAW_ADDR in generated/default/wwe2k14_pch.h on Windows).
 inline uint8_t* GuestPtr(uint8_t* base, uint32_t addr) {
-  return base + addr + ((addr >= 0xE0000000u) ? 0x1000u : 0u);
+  return base + addr + ::rex::memory::detail::PhysicalHostOffset(addr);
 }
 
 // The native decoder lives in native_bpe.h since Session 11 (shared with the offline corpus test).

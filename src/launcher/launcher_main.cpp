@@ -771,6 +771,12 @@ class App {
     if (!override_user_data.empty()) s.user_data_dir = override_user_data;
     hw_ = DetectHardware(hwnd_);
     if (hw_.refresh_hz > 0) g_monitor_hz = hw_.refresh_hz;
+    // Session 93: the quality tier's AUTO asks which card the game will use.
+    g_gpu_probe = [this](const std::string& gpu, std::string* name) {
+      const wwe2k14::vkdev::Device d = ChosenDevice(gpu);
+      if (name) *name = d.name;
+      return d.integrated();
+    };
     if (s.first_run_done && s.loaded_version < 3 && MigrateForDevice(s) && save_settings) SaveSettings(settings_path, s);
     g_perf_report_default = IsPlaytest();
     Reload();
@@ -2403,9 +2409,12 @@ class App {
     }
     return files + "gpu " + dev.name + " driver " + std::to_string(dev.driver_version) + "; renderer " +
            std::to_string(s.renderer) + " resolution " + std::to_string(s.resolution) + " draw_height " +
-           std::to_string(s.draw_height) + " upscale " + std::to_string(s.upscale) + " original_look " +
+           std::to_string(s.draw_height) + " upscale " + std::to_string(s.upscale) + " quality_tier " +
+           std::to_string(s.quality_tier) + " original_look " +
            std::to_string(int(s.original_look)) + " post_effects " + std::to_string(s.post_effects) +
-           "; extra " +
+           // Session 92 M6: TRUE NATIVE has its own translation store (the precompile fills it from the list's V lines),
+           // so turning it on or off must run the precompile again.
+           " true_native " + std::to_string(int(s.true_native)) + "; extra " +
            s.extra;  // Session 72: the post effects choice swaps two pipelines
   }
   fs::path PrecompileStampPath() const { return fs::path(settings_path).parent_path() / "precompile_stamp.txt"; }
@@ -3052,7 +3061,8 @@ class App {
     // The LOW preset's resolution and frame rate for both games (only the renderer differs), no upscaler.
     t.resolution = 0, t.draw_height = 0, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
     t.shadows = t.depth_of_field = true, t.crowd_density = 100;  // Session 85: test results compare like with like
-    t.true_native = false;  // Session 87: the performance test runs the default renderer
+    t.quality_tier = 2;  // Session 93: the test runs STANDARD whatever the card (AUTO would pick LOW on integrated graphics)
+    t.true_native = true;  // Session 87: the performance test runs the default renderer (Session 93: TRUE NATIVE)
     t.mods = false, t.cinecam = t.photo_mode = t.runin = false, t.perf_report = 0;
     t.scenario = "@quick", t.quick_type = 0, t.quick_ids = "343,324", t.quick_cpu_only = true, t.quick_arena = -1;
     t.skip_entrances = false;
@@ -4218,6 +4228,25 @@ class App {
     s.aspect = std::clamp(s.aspect, 0, 1);
     OptionRow("ASPECT", s.aspect, kAspect, 2, true, anote);
 
+    // Session 93 (Jarrod: the low-end tier is chosen automatically from the GPU class, with a launcher override).
+    {
+      static constexpr const char* kTier[] = {"AUTO", "LOW", "STANDARD"};
+      const wwe2k14::vkdev::Device tdev = ChosenDevice(s.gpu);
+      std::string why;
+      const int tier = wwe2k14::gfxs::ResolveQualityTier(s.quality_tier, false, tdev.integrated(), tdev.name, &why);
+      s.quality_tier = std::clamp(s.quality_tier, 0, 2);
+      // (LOW does nothing with the original look or a LIGHT / ACCURATE override: say STANDARD then.)
+      const int rend = wwe2k14::gfxs::RendererFromFlags(s.extra);
+      if (tier == 1 && s.original_look) why = "STANDARD (original look is on)";
+      else if (tier == 1 && rend >= 0 && rend != 2) why = "STANDARD (not the NATIVE renderer)";
+      std::string tnote =
+          "AUTO picks LOW on integrated graphics and phones. LOW draws 1440p at 720p and sharpens it up to your screen "
+          "(SGSR), with the crowd at 70%; anything you set yourself (an upscaler, a drawing size, 4K, a crowd "
+          "setting) stays as you set it. STANDARD is the normal look. Now: " + why + ".";
+      if (tier == 1 && s.draw_height) tnote += " Your drawing size is kept; LOW adds SGSR and the crowd.";
+      OptionRow("QUALITY", s.quality_tier, kTier, 3, true, tnote.c_str());
+    }
+
     const bool dlss = (s.upscale >= 2 && s.upscale <= 4) || s.upscale == 6 || s.upscale == 7;  // S33: or FSR Q / P
     static constexpr const char* kRes[] = {"720P", "1440P", "4K"};
     const int sug = SuggestResolution(hw_);
@@ -4557,8 +4586,8 @@ class App {
                  "The Xbox 360 picture: 720p, the game's 4x MSAA, 30 fps entrances.");
     // Session 87 (Jarrod: "an advanced launcher toggle, called true native"): --wwe2k14_d3d_owned. NATIVE only.
     OptionToggle("TRUE NATIVE", s.true_native, s.renderer == 2,
-                 "Experimental: the game's drawing goes straight to our own renderer, no Xbox 360 GPU emulation in "
-                 "between. Tested in the Lesnar vs Bryan scene; other arenas and modes are untested.");
+                 "On by default: the game's drawing goes straight to our own renderer, no Xbox 360 GPU emulation in "
+                 "between. Turn it off if the picture breaks for you (the older NATIVE renderer then draws).");
     ImGui::Dummy(ImVec2(0, 6 * dpi));
     ImGui::SetNextItemWidth(-200 * dpi);
     ImGui::InputTextWithHint("Extra flags", "--name=value ...", &s.extra);

@@ -1,0 +1,448 @@
+# Session 92: the proof table. One [[feature]] per switch (or per bit of a bit-mask switch): what value means "on",
+# and which log lines PROVE it engaged at run time (the `modified: X = 'Y'` line only proves the value was set).
+# Read by tools\harness\feature_proof.py (used by tools\native\owned_check.ps1 and tools\census). ADD AN ENTRY WHEN A
+# SWITCH IS ADDED: the checker lists every switch a run set (with the prefixes in [meta]) that has no entry.
+#
+#   name      the label printed (unique; `requires` names these)
+#   cvar      the switch name (as in the `modified:` line / --cvar=value)
+#   on        values that mean on (strings, compared case-insensitively)       } use `bit` instead of `on` for a bit-mask
+#   bit       a bit of an integer switch: on when (value & bit) != 0             } switch (gpu_d3d_owned_front)
+#   requires  other feature names that must be PROVEN in the same run (host queue first)
+#   proofs    ALL must pass. Each is { what, any = [regex, ...], gt = N }:
+#             the proof passes when ANY regex matches a log line; if a regex has a capture group 1 the number must be
+#             > gt (default 0) on at least one line (the largest over the log is printed). No group = a match is enough.
+#
+# Source of each line: the S92 logs of 2026-11-05 (the exact text, see the builder hand-back).
+
+[meta]
+# switches with these prefixes that a run sets and that have NO entry are listed (never fail a run): the table must grow
+watch_prefixes = ["gpu_d3d_", "wwe2k14_d3d_", "gpu_native_owned", "render_target_path", "vulkan_shared_memory", "vulkan_emulate_limits", "vulkan_emulate_no_bc", "vulkan_texture_transcode"]
+
+[[feature]]
+name = "d3d_owned"
+cvar = "wwe2k14_d3d_owned"
+on = ["true", "1"]
+proofs = [
+  { what = "the D3D-layer stack on", any = ['\[d3d_owned\] the D3D-layer stack on'] },
+  { what = "host queue attached", any = ['\[d3d\]\[noring\] host queue attached'] },
+]
+
+# Session 92 M6 (piece C; the SDK piece A/B log line texts are ASSUMED from docs/native/d3d/S92_M6_DESIGN.md section 3: the
+# `[m6][store]` line at store open, `store hits N` in the `[d3d][free]` windows - check the regexes against the first run).
+[[feature]]
+name = "M6_store"
+cvar = "gpu_m6_store"
+on = ["true", "1"]
+requires = ["d3d_owned"]
+proofs = [
+  { what = "the translation store opened", any = ['\[m6\]\[store\] .+: \d+ translations'] },
+  { what = "the store counted (hits or first-sight misses: a check exe's new GPU module starts an empty store, Session 93)", any = ['store hits \d+', '\[m6\]\[miss\] '] },
+]
+
+[[feature]]
+name = "owned_only"
+cvar = "gpu_native_owned_only"
+on = ["true", "1"]
+requires = ["d3d_owned"]
+proofs = [{ what = "the owned-only latch on", any = ['\[native\]\[owned-only\] frames \d+-\d+: latch on'] }]
+
+[[feature]]
+name = "M2d_fbo"
+cvar = "render_target_path_vulkan"
+on = ["fbo"]
+requires = ["owned_only"]
+proofs = [{ what = "no EDRAM buffer made", any = ['\[owned-only\] EDRAM buffer: not made'] }]
+
+[[feature]]
+name = "M3a_owned_resolve"
+cvar = "gpu_d3d_owned_resolve"
+on = ["true", "1"]
+requires = ["owned_only"]
+proofs = [{ what = "resolves served from the owned frame", any = ['\[d3d\]\[owned-resolve\] \d+ record resolves: served from the owned frame (\d+)'] }]
+
+[[feature]]
+name = "M3b_owned_present"
+cvar = "gpu_d3d_owned_present"
+on = ["true", "1"]
+requires = ["owned_only"]
+proofs = [{ what = "presents as data", any = ['\[d3d\]\[owned-present\] after \d+ presents: as data (\d+)'] }]
+
+[[feature]]
+name = "M5a_sync_direct"
+cvar = "gpu_d3d_sync_direct"
+on = ["true", "1"]
+requires = ["d3d_owned"]
+proofs = [{ what = "direct guest-word waits", any = ['direct guest-word waits (\d+)'] }]
+
+[[feature]]
+name = "M5b_sync_events"
+cvar = "gpu_d3d_sync_events"
+on = ["true", "1"]
+requires = ["M5a_sync_direct"]
+# (vblank wakes can stay 0 in a run whose waits never block; the producer's idle wakes are the other half of M5b)
+proofs = [{ what = "vblank or idle wakes", any = ['vblank wakes (\d+)', 'idle wakes (\d+)'] }]
+
+[[feature]]
+name = "M5b_drop_coher"
+cvar = "wwe2k14_d3d_drop_coher"
+on = ["true", "1"]
+requires = ["d3d_owned"]
+proofs = [{ what = "coherency handshakes dropped", any = ['coherency handshakes dropped (\d+)'] }]
+
+[[feature]]
+name = "M5c_pace_gate"
+cvar = "gpu_d3d_pace_gate"
+on = ["true", "1"]
+requires = ["M5b_sync_events"]
+proofs = [{ what = "pace gates opened", any = ['\[d3d\]\[pace\] after \d+ presents.*gates opened (\d+)'] }]
+
+# gpu_d3d_owned_front: a bit mask. Each bit has its own per-window line (the SDK prints them only with that bit on).
+[[feature]]
+name = "M4a_front_decoder"
+cvar = "gpu_d3d_owned_front"
+bit = 1
+requires = ["d3d_owned"]
+proofs = [{ what = "packet items decoded", any = ['\[d3d\]\[front\] frames \d+-\d+: packet items decoded (\d+)'] }]
+
+[[feature]]
+name = "M4b_front_draw"
+cvar = "gpu_d3d_owned_front"
+bit = 2
+requires = ["M4a_front_decoder"]
+# (Session 92 M4f-B: the shadow compares only draws the OLD path drew - with M4f-A / B typing (nearly) every draw its claim count is 0 in an
+# engaged run, so the window line printing is the engagement proof, as for M4c)
+proofs = [{ what = "M4b window line, or superseded (every draw typed by M4f-A leaves the shadow nothing to compare: no line)", any = ['\[d3d\]\[front\] M4b frames \d+-\d+: claims \d+', 'M4f-A frames \d+-\d+: token draw items offered \d+, drawn by the typed front end (\d+)'] }]
+
+[[feature]]
+name = "M4c_front_bind"
+cvar = "gpu_d3d_owned_front"
+bit = 4
+requires = ["M4b_front_draw"]
+# (its counters are 0 in a window with no draw built; the window line printing is the engagement proof)
+proofs = [{ what = "M4c window line, or superseded by typed draws (M4f-A)", any = ['\[d3d\]\[front\] M4c frames \d+-\d+', 'M4f-A frames \d+-\d+: token draw items offered \d+, drawn by the typed front end (\d+)'] }]
+
+[[feature]]
+name = "M4d_front_memo"
+cvar = "gpu_d3d_owned_front"
+bit = 8
+requires = ["M4c_front_bind"]
+proofs = [{ what = "M4d window line, or superseded by typed draws (M4f-A)", any = ['\[d3d\]\[front\] M4d frames \d+-\d+', 'M4f-A frames \d+-\d+: token draw items offered \d+, drawn by the typed front end (\d+)'] }]
+
+[[feature]]
+name = "M4e_front_copies"
+cvar = "gpu_d3d_owned_front"
+bit = 16
+requires = ["M4a_front_decoder"]
+proofs = [{ what = "clears paired, or superseded (M4f-B owns the clears and types the inline draws: the shadow pairs nothing)", any = ['\[d3d\]\[front\] M4e frames \d+-\d+: clears paired (\d+)', '\[native\]\[pend\] frames \d+-\d+'] }]
+
+[[feature]]
+name = "M4f_A_typed_draw"
+cvar = "gpu_d3d_owned_front"
+bit = 32
+# (the typed draw needs the decoder, not the M4b / M4c shadow compares - those may be off or have nothing to compare)
+requires = ["M4a_front_decoder"]
+proofs = [{ what = "token draws drawn by the typed front end", any = ['\[d3d\]\[front\] M4f-A frames \d+-\d+: token draw items offered \d+, drawn by the typed front end (\d+)'] }]
+
+[[feature]]
+name = "M4f_B_typed_kinds"
+cvar = "gpu_d3d_owned_front"
+bit = 64
+requires = ["M4f_A_typed_draw"]
+# (Session 92) B1's kinds append to the M4f-A line; B2's pending clears print their own line (only with bits 32 + 64 on). Either
+# kind drawn typed proves B1 engaged; the pend line printing proves B2's gate is on (its counters may be 0 in a window without refusals).
+proofs = [{ what = "crowd members / cover / bounds rectangles drawn by the typed front end", any = ['M4f-B typed: crowd members (\d+)', 'M4f-B typed: .*cover rectangles (\d+)', 'M4f-B typed: .*bounds rectangles (\d+)'] },
+          { what = "pending-clear line (owned clears on)", any = ['\[native\]\[pend\] frames \d+-\d+'] }]
+
+[[feature]]
+name = "M4f_C_cut"
+cvar = "gpu_d3d_owned_front"
+bit = 128
+requires = ["M4f_A_typed_draw"]
+# (Session 92) The cut latches at the queue's attach only with every entry wired; a NOT-latched line says why. Engaged = the executor ran items.
+proofs = [{ what = "items executed by the record decoder (the cut)", any = ['\[d3d\]\[cut\] frames \d+-\d+: executor items (\d+)'] }]
+
+[[feature]]
+name = "M4f_C_poison"
+cvar = "gpu_d3d_cut_poison"
+on = ["true", "1"]
+requires = ["M4f_C_cut"]
+proofs = [{ what = "register file poisoned at the latch frame", any = ['\[d3d\]\[cut\] register file poisoned'] }]
+
+# Session 93 (idea 14, Android pacing; the SDK lines are from branch s93-pace's vulkan_presenter.cpp, the game lines from
+# src\android_pace.h / android_thermal.h - ASSUMED texts until the first phone run: check the regexes against it).
+[[feature]]
+name = "S93_display_timing"
+cvar = "present_display_timing"
+on = ["true", "1"]
+# "ext present=yes ... cycles per frame=2" proves the extension was enabled and the refresh rate known; the window line's paced
+# count proves presents carried a desired time (it is 0 on a display whose rate is no whole multiple of the game's: then the
+# "cycles per frame=none" line is the honest outcome, so only the first proof is required)
+proofs = [{ what = "VK_GOOGLE_display_timing present, refresh known", any = ['\[pace\] display timing: ext present=yes refresh=[\d.]+ ms cycles per frame=(?:\d+|none)'] }]
+
+[[feature]]
+name = "S93_android_thermal"
+cvar = "wwe2k14_android_thermal"
+on = ["true", "1"]
+proofs = [{ what = "thermal headroom read", any = ['\[pace\]\[thermal\] headroom [\d.]+'] }]
+
+[[feature]]
+name = "S93_android_pace_gate"
+cvar = "wwe2k14_android_pace_gate"
+on = ["true", "1"]
+requires = ["M5c_pace_gate"]
+proofs = [{ what = "the game set gpu_d3d_pace_gate", any = ['\[pace\] pace gate: gpu_d3d_pace_gate=true'] }]
+
+# Session 93 (idea 5, branch s93-crowd; the texts are from thirdparty\sdk-wt\s93-crowd\...\own_crowd.cpp and d3d_inline_draw.cpp). The crowd line prints only
+# when a lean window had calls; the merge's proof is the window line saying the merge is on AND a merged-run count above 0 is NOT required (the
+# adjacency may be 0: that outcome is what the counters are for), so the proof is the line with "merge is on".
+[[feature]]
+name = "S93_crowd_lean"
+cvar = "gpu_native_own_crowd_lean"
+on = ["true", "1"]
+proofs = [
+  { what = "lean objects made (dynamic-offset sets)", any = ['\[native\]\[own_crowd\] objects made \(ring .*lean: dynamic-offset sets'] },
+  { what = "lean window line: calls recorded", any = ['\[crowd\]\[lean\] \d+ frames: calls (\d+)'] },
+]
+
+[[feature]]
+name = "S93_crowd_merge"
+cvar = "gpu_native_own_crowd_merge"
+on = ["true", "1"]
+requires = ["S93_crowd_lean"]
+proofs = [{ what = "lean window line with the merge on", any = ['\[crowd\]\[lean\] \d+ frames: .*the merge is on\)'] }]
+
+[[feature]]
+name = "S93_inline_host_ring"
+cvar = "gpu_d3d_inline_host_ring"
+on = ["true", "1"]
+proofs = [{ what = "inline draws staged on pages of their own", any = ['\[d3d\]\[inline\] ring \(gpu_d3d_inline_host_ring\) frames \d+-\d+: (\d+) inline draws staged'] }]
+
+# Session 93 (idea 3, branch s93-tiler; the text is from thirdparty\sdk-wt\s93-tiler\...\owned_steps.cpp, the "[native][owned-tiler]" window line, printed with the switch off too).
+[[feature]]
+name = "S93_tiler_passes"
+cvar = "gpu_owned_tiler_passes"
+on = ["true", "1"]
+proofs = [
+  { what = "tiler window line with the switch on", any = ['\[native\]\[owned-tiler\] frames \d+-\d+: switch ON; resumes \d+ \(with depth of their own \d+, WITHOUT \d+ -> no-depth variant used (\d+)\)'] },
+  { what = "images made with a format list", any = ['images with a format list (\d+)'] },
+]
+
+# Session 93 (idea 1, branch s93-window; the text is from thirdparty\sdk-wt\s93-window\src\graphics\vulkan\command_processor.cpp: the setup line and SharedMemoryWindowFrameEnd).
+[[feature]]
+name = "S93_storage_window"
+cvar = "vulkan_shared_memory_window"
+on = ["on", "true", "1"]
+proofs = [
+  { what = "the window mode latched", any = ['\[storage-window\] on \('] },
+  { what = "draws drawn through a window", any = ['\[storage-window\] frames \d+-\d+: draws windowed (\d+)'] },
+]
+
+[[feature]]
+name = "S93_storage_window_auto_128"
+cvar = "vulkan_emulate_limits"
+on = ["maxStorageBufferRange=134217728"]
+proofs = [
+  { what = "auto engaged under the emulated 128 MiB limit", any = ['\[storage-window\] on \(auto, maxStorageBufferRange 128 MiB\)'] },
+  { what = "draws drawn through a window", any = ['\[storage-window\] frames \d+-\d+: draws windowed (\d+)'] },
+]
+
+# Session 93 (ideas 4 and 13, SDK branch s93-memo; the line texts are from owned_front_draw.cpp PrintOwnWindow, printed every 600 guest frames only with
+# gpu_d3d_typed_memo_reuse or gpu_d3d_typed_repeat on: "[d3d][memo] per frames A-B: typed draws prepared N (reuse on): hits H (P% of draws; epoch fast path F, hashed X, ...), ...").
+[[feature]]
+name = "S93_typed_memo_reuse"
+cvar = "gpu_d3d_typed_memo_reuse"
+on = ["true", "1"]
+requires = ["M4f_C_cut"]
+proofs = [
+  { what = "typed draws prepared from the memo", any = ['\[d3d\]\[memo\] per frames \d+-\d+: typed draws prepared \d+ \(reuse on\): hits (\d+) '] },
+  { what = "the epoch fast path took hits", any = ['epoch fast path (\d+), hashed'] },
+]
+
+[[feature]]
+name = "S93_typed_memo_verify"
+cvar = "gpu_d3d_typed_memo_verify"
+on = ["true", "1"]
+requires = ["S93_typed_memo_reuse"]
+proofs = [
+  { what = "hits rebuilt from scratch and compared", any = ['verify on: compared (\d+), draws with a mismatch'] },
+  { what = "0 draws with a mismatch (the bar of the check)", any = ['verify on: compared [1-9]\d*, draws with a mismatch 0 \('] },
+]
+
+[[feature]]
+name = "S93_typed_repeat"
+cvar = "gpu_d3d_typed_repeat"
+on = ["true", "1"]
+requires = ["M4f_C_cut"]
+proofs = [
+  { what = "draws seen as repeats of the previous typed draw", any = ['typed repeats on: checked \d+, candidates (\d+),'] },
+  { what = "repeats drawn by RepeatDrawFast over the typed constants", any = ['tried \d+, repeated (\d+) \(RepeatDrawFast\)'] },
+]
+
+# (the window line prints only with the memo or the repeat on: the timers switch is proved by its own word in that line)
+[[feature]]
+name = "S93_typed_timers_off"
+cvar = "gpu_d3d_typed_timers"
+on = ["false", "0"]
+proofs = [{ what = "the typed clocks are off (the figures of the M4f-A line print 0)", any = ['timers off', 'whole typed draw 0\.0 us a frame'] }]
+
+# Session 93 (idea 2, SDK branch s93-astc): BC textures on GPUs without BC. Lines from texture_cache.cpp Initialize ("[tex][transcode] DXT1 -> ASTC_4x4 (BC missing,
+# ASTC_4x4 sampled+filter yes)", or "-> RGBA8 (BC missing, no target: ...)" when the GPU lacks the target) and EndFrame (every 600 frames while anything was transcoded:
+# "[tex][transcode] last 600 frames: blocks DXT1->ASTC N (L loads), ..."). On the PC (BC present, ASTC / ETC2 absent) only the cvar pair with vulkan_emulate_no_bc can be
+# proved, and only the selection line: the transcode itself needs a GPU with ASTC / EAC (Mali, Adreno); there add the proof 'last 600 frames: blocks DXT1->ASTC (\d+)' (not required here: the PC cannot print it).
+[[feature]]
+name = "S93_emulate_no_bc"
+cvar = "vulkan_emulate_no_bc"
+on = ["true", "1"]
+proofs = [{ what = "BC1 treated as missing (the selection line says emulated)", any = ['\[tex\]\[transcode\] DXT1 -> .* \(BC missing \[emulated\]'] }]
+
+[[feature]]
+name = "S93_texture_transcode"
+cvar = "vulkan_texture_transcode"
+on = ["true", "1"]
+requires = ["S93_emulate_no_bc"]
+proofs = [
+  { what = "the transcode target was probed and the choice logged (ASTC if supported, else the RGBA8 fallback with the reason)", any = ['\[tex\]\[transcode\] DXT1 -> (?:ASTC_4x4 \(BC missing.*sampled\+filter yes, chosen by vulkan_texture_transcode\)|RGBA8 \(BC missing.*no target: ASTC_4x4 sampled\+filter no\))'] },
+]
+
+# Session 93 (idea 6, SDK branch s93-quirks): the driver quirks table (src/ui/vulkan/gpu_quirks*.cpp). Lines printed at device creation: the header
+# "[quirks] GPU <name> vendor 0x.... driver id=N (NAME) <version> class phone|igpu|desktop|cpu", then one "[quirks] <rule>: <switch>=<value> (<reason>)" per applied rule
+# ("... NOT APPLIED (<why>) ..." when held back; "[quirks] <rule>: info (...)" for log-only ones). Texts are from gpu_quirks_apply.cpp / gpu_quirks.cpp.
+[[feature]]
+name = "S93_gpu_quirks"
+cvar = "gpu_quirks"
+on = ["true", "1"]
+proofs = [
+  { what = "the GPU was detected and classed (header line)", any = ['\[quirks\] GPU .+ vendor 0x[0-9A-Fa-f]{4} driver id=\d+ \(\w+\) .+ class (?:phone|igpu|desktop|cpu)'] },
+  { what = "the rules were evaluated with the master switch on (the master line says gpu_quirks=true)", any = ['\[quirks\] master gpu_quirks=true'] },
+]
+
+[[feature]]
+name = "S93_gpu_quirks_off"
+cvar = "gpu_quirks"
+on = ["false", "0"]
+proofs = [{ what = "detection + log only: the master line says gpu_quirks=false and rules print NOT APPLIED (gpu_quirks=false) or info only", any = ['\[quirks\] master gpu_quirks=false'] }]
+
+[[feature]]
+name = "S93_emulate_gpu"
+cvar = "vulkan_emulate_gpu"
+# the "on" test is an exact value match: these are the two specs the session-93 checks use (any other spec: add its exact string here)
+on = ["5143:512.800.55:Adreno (TM) 830", "13B5:r49p1:Mali-G715:integrated"]
+proofs = [{ what = "the table saw the emulated GPU", any = ['\[quirks\] vulkan_emulate_gpu: the table sees'] }]
+
+[[feature]]
+name = "S93_quirks_mobile_no_gs"
+cvar = "gpu_quirks_mobile_no_gs"
+on = ["true", "1"]
+requires = ["S93_gpu_quirks"]
+proofs = [{ what = "the three geometry-shader switches were set by the rule (phone class only; Session 94: on by default, so a desktop / iGPU class line counts as 'not applicable'; on a desktop class nothing is set, so use vulkan_emulate_gpu with a phone GPU)", any = ['\[quirks\] mobile_no_gs: vulkan_force_expand_rectangle_lists_in_vs=true', '\[quirks\] GPU .+ class (?:desktop|igpu|cpu)'] }]
+
+[[feature]]
+name = "S93_quirks_advisory"
+cvar = "gpu_quirks_advisory"
+on = ["true", "1"]
+requires = ["S93_gpu_quirks"]
+proofs = [{ what = "an advisory rule applied (Qualcomm / Turnip: one pipeline compile thread; needs vulkan_emulate_gpu on the PC)", any = ['\[quirks\] qcom_pipeline_threads: vulkan_pipeline_creation_threads=1 \('] }]
+
+[[feature]]
+name = "S93_robust_buffer_access_off"
+cvar = "vulkan_robust_buffer_access"
+on = ["false", "0"]
+proofs = [{ what = "robustBufferAccess left off at device creation", any = ['\* robustBufferAccess left off \(vulkan_robust_buffer_access=false\)'] }]
+
+[[feature]]
+name = "S93_custom_border_color_off"
+cvar = "vulkan_allow_custom_border_color"
+on = ["false", "0"]
+proofs = [{ what = "the custom border colour feature left off at device creation (when the device has the extension)", any = ['\* customBorderColors left off \(vulkan_allow_custom_border_color=false\)'] }]
+
+[[feature]]
+name = "S93_texture_transcode_eac"
+cvar = "vulkan_texture_transcode_eac"
+on = ["true", "1"]
+requires = ["S93_texture_transcode"]
+proofs = [{ what = "the EAC choice for DXT5A was logged (EAC_R11 chosen by this switch, or the R8 fallback with the reason)", any = ['\[tex\]\[transcode\] DXT5A -> (?:EAC_R11 \(BC missing.*chosen by vulkan_texture_transcode_eac\)|R8 \(BC missing.*no target: EAC_R11 sampled\+filter no\))'] }]
+
+[[feature]]
+name = "S93_shader_mediump"
+cvar = "wwe2k14_shader_mediump"
+on = ["true", "1"]
+proofs = [{ what = "the post combines' mediump variants registered (the ORIGINAL combines; Enhanced keeps full precision)", any = ['\[post_swap\] mediump variants registered [12] \('] }, { what = "the arena materials' mediump variants registered (9 of the shipped list; needs wwe2k14_scene_shaders)", any = ['\[scene_swap\] mediump variants registered [1-9] \('] }]
+
+[[feature]]
+name = "S93_eds"
+cvar = "vulkan_extended_dynamic_state"
+on = ["true", "1"]
+proofs = [{ what = "the start line says on (device ext + quirks bit 1 + host render target path allow it)", any = ['\[eds\] extended dynamic state: on \('] }, { what = "the window line: pipelines created, keys collapsed, dynamic-state sets issued", any = ['\[eds\] frames \d+-\d+: pipelines created \d+, pipeline keys collapsed \d+'] }]
+
+[[feature]]
+name = "S93_phase0_census"
+cvar = "gpu_d3d_phase0_census"
+on = ["true", "1"]
+proofs = [{ what = "the phase 0 census printed its window summary (draws, ours share, census cost)", any = ['\[d3d\]\[phase0\] frames \d+-\d+: \d+ frames with draws, draws \d+'] }, { what = "the mirror line (distinct vertex ranges, bytes) printed", any = ['\[d3d\]\[phase0\]\[mirror\] frames \d+-\d+: distinct vertex ranges \d+'] }, { what = "the match line (matched draws between guest frames) printed", any = ['\[d3d\]\[phase0\]\[match\] draws with a previous frame \d+'] }]
+
+[[feature]]
+name = "S93_cull_ours"
+cvar = "gpu_d3d_cull_ours"
+on = ["true", "1"]
+proofs = [{ what = "the cull window line printed (our draws, refusals by guard, tested, culled)", any = ['\[d3d\]\[cull\] frames \d+-\d+: our draws \d+'] }, { what = "draws were tested against the view (the bounds known, the box test ran)", any = ['tested [1-9]\d*: culled \d+'] }]
+
+# ---- Session 94 (the builders' proposed lines, from their hand-backs; not yet seen in a log - check at M1) ----
+[[feature]]
+name = "S94_required_selfcheck"
+cvar = "gpu_quirks"
+on = ["true", "1"]
+proofs = [{ what = "the boot self-check of the renderer's required formats ran", any = ['\[quirks\] required: (\d+) rows checked'] }]
+
+[[feature]]
+name = "S94_vs_expand"
+cvar = "gpu_native_vs_expand"
+on = ["true", "1"]
+proofs = [{ what = "the vs-expand summary printed (counts 0 when the route draws no rect / point list: the quick match route has none)", any = ['\[native\] vs-expand: draws described so far'] },{ what = "no geometry-shader pipeline was made", any = ['geometry-shader pipelines made 0\b'] }]
+
+[[feature]]
+name = "S94_image_format_list"
+cvar = "gpu_owned_image_format_list"
+on = ["true", "1"]
+proofs = [{ what = "owned images carry format lists (AFBC on Mali)", any = ['\[native\] format lists on: (\d+) images listed'] }]
+
+[[feature]]
+name = "S94_transient_attachments"
+cvar = "gpu_owned_transient_attachments"
+on = ["true", "1"]
+proofs = [{ what = "the transient scratch depth summary printed (0 transient on a GPU without lazily allocated memory)", any = ['\[native\] transient attachments on: \d+ scratch depths transient'] }]
+
+[[feature]]
+name = "S94_16bit_substitute"
+cvar = "vulkan_texture_16bit_filter_substitute"
+on = ["on"]
+proofs = [{ what = "a 16-bit format took its filterable substitute", any = ['\[tex\] 16-bit substitute: \S+ -> \S+'] }]
+
+[[feature]]
+name = "S94_typed_lean_bind"
+cvar = "gpu_d3d_typed_lean_bind"
+on = ["true", "1"]
+proofs = [{ what = "lean bind on", any = ['\[d3d\]\[typed\] lean_bind on'] }, { what = "system constants skipped by the lean bind (the draw us figure prints 0 with the typed timers off)", any = ['\[d3d\]\[typed\] draw us/frame \d+ .*system constants skipped (\d+)'] }]
+
+[[feature]]
+name = "S94_record_lean"
+cvar = "wwe2k14_d3d_record_lean"
+on = ["true", "1"]
+proofs = [{ what = "the game-thread record line printed with lean on (with --wwe2k14_d3d_rec_timer=true; without the timer, a default since S94 M1, the D3D-layer stack line stands in)", any = ['\[d3d_owned\] the D3D-layer stack on', '\[d3d\]\[rec\] game-thread record ms/frame avg [0-9.]+ .*record_lean on'] }]
+
+[[feature]]
+name = "S94_instance_world"
+cvar = "gpu_native_instance_world"
+on = ["true", "1"]
+proofs = [{ what = "world instancing latched", any = ['\[native\] world instancing on'] }]
+
+[[feature]]
+name = "S94_low_ram"
+cvar = "wwe2k14_low_ram"
+on = ["on"]
+proofs = [{ what = "the low-RAM sizes applied", any = ['\[quirks\] low_ram: forced RAM \d+ MB -> frame budget'] }]
+
+[[feature]]
+name = "S94_shared_memory_direct"
+cvar = "vulkan_shared_memory_direct"
+on = ["1", "2", "-1"]
+proofs = [{ what = "direct uploads initialised (mode 1 count-only or 2 mapped)", any = ['\[s94\]\[DIRECT\] init: mode (?:1|2|-1)'] }]

@@ -88,7 +88,15 @@ void main() {
   vec3 half_sum = in_view.xyz * InvLength(dot(in_view.xyz, in_view.xyz)) - C8.xyz;
   vec3 h = half_sum * InvLength(dot(half_sum, half_sum));
   float highlight = PowAbs(max(dot(n, h), C254.y), C202.x);
+#ifdef MEDIUMP
+  // MEDIUMP: colour maths only (b8_mediump_notes.md); the normal, the highlight power and the shadow stay highp.
+  mediump vec3 mC200 = C200.xyz;
+  mediump float mS = C201.x * color.a;
+  mediump float mHl = highlight;
+  mediump vec3 spec = (mC200 * mS) * mHl;
+#else
   vec3 spec = (C200.xyz * (C201.x * color.a)) * highlight;
+#endif
 
   // The shadow.
   float ramp = clamp(Mul0(in_shadow.z - C168.x, 1.0 / (C168.y - C168.x)) - C168.z, 0.0, 1.0);
@@ -106,6 +114,28 @@ void main() {
   float d1 = max(dot(n, -C9.xyz), C74.y);
   float d2 = max(dot(n, -C10.xyz), C74.z);
   float d3 = max(dot(n, -C11.xyz), C74.w);
+#ifdef MEDIUMP
+  mediump float m0 = d0, m1 = d1, m2 = d2, m3 = d3;  // N.L terms in [0, 1]
+  mediump vec3 mC0 = C0.xyz, mC1 = C1.xyz, mC2 = C2.xyz, mC3 = C3.xyz;
+  mediump vec3 lights = m3 * mC3;
+  lights = m2 * mC2 + lights;
+  lights = m1 * mC1 + lights;
+  lights = m0 * mC0 + lights;
+  float ambient_mix = dot(n, C180.xyz) * C254.x + C254.x;
+  mediump float mAmb = ambient_mix;
+  mediump vec3 mC181 = C181.xyz, mC182 = C182.xyz, mC189 = C189.xyz, mC190 = C190.xyz;
+  mediump vec3 ambient = (mC182 - mC181) * mAmb + mC181;
+  mediump vec3 lighting = lights * mC190 + mC189 * ambient;
+
+  mediump float mLit = lit;
+  mediump vec3 mCol = color.rgb;
+  mediump vec3 mVc = in_color.rgb;
+  mediump float mHs = in_uv.z;
+  mediump vec3 mLm = light_map;
+  mediump vec3 lit_color = (mCol * mVc) * mLit;
+  mediump vec3 lit_spec = (spec * mHs) * mLit;
+  XeOutputColor(vec4(mLm * (lit_color * lighting + lit_spec), in_color.a));
+#else
   vec3 lights = d3 * C3.xyz;
   lights = d2 * C2.xyz + lights;
   lights = d1 * C1.xyz + lights;
@@ -117,4 +147,5 @@ void main() {
   vec3 lit_color = (color.rgb * in_color.rgb) * lit;
   vec3 lit_spec = (spec * in_uv.z) * lit;
   XeOutputColor(vec4(light_map * (lit_color * lighting + lit_spec), in_color.a));
+#endif
 }

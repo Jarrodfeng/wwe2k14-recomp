@@ -35,6 +35,15 @@ void main() {
   vec3 light = texture(sampler2DArray(t_light, s_light), vec3(in_light_uv.xy, 0.0)).rgb * C184.z;
   vec4 color = texture(sampler2DArray(t_color, s_color), vec3(in_uv.xy, 0.0), C248.x);
   float highlight = ArenaHighlight(in_normal.xyz, in_view.xyz, C8.xyz, C255.x, C202.x);
+#ifdef MEDIUMP
+  mediump float mS = color.a * C201.x;
+  mediump vec3 mC200 = C200.xyz;
+  mediump float mHl = highlight;
+  mediump vec3 mLight = light, mCol = color.rgb, mVc = in_color.rgb;
+  mediump vec3 rgb = (mS * mC200) * mHl + mCol * mVc;
+  XeOutputColor(vec4(mLight * rgb, in_color.a));
+#else
   vec3 rgb = ((color.a * C201.x) * C200.xyz) * highlight + color.rgb * in_color.rgb;
   XeOutputColor(vec4(light * rgb, in_color.a));
+#endif
 }

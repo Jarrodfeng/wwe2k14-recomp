@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <dlfcn.h>
+#include <sys/system_properties.h>
 #include <unistd.h>
 
 #include "mobile_platform.h"
@@ -123,6 +124,12 @@ void Init(int, char**) {
 
 fs::path FilesDir() { return g_files; }
 const char* Name() { return "android"; }
+
+std::string DeviceKey() {
+  char fp[PROP_VALUE_MAX] = {};
+  __system_property_get("ro.build.fingerprint", fp);
+  return fp[0] ? fp : "unknown-device";
+}
 // liblauncher.so sits in the app's native library folder: its own path tells where (no JNI call needed).
 fs::path NativeLibDir() {
   Dl_info info{};

@@ -1,6 +1,9 @@
-- TRUE NATIVE (new in v0.2.18, Settings -> Advanced, off by default) has only been tested with Lesnar vs Bryan on
-  my PC (NVIDIA). Other arenas, match types, created superstars, the menus outside that match and other graphics
-  cards are untested with it. If something looks wrong or freezes, switch it off.
+- Pyro in a few entrances (Brock Lesnar's, for example) makes TRUE NATIVE stutter while it is on screen: on my PC the
+  frame rate dips for a second or two there, where NATIVE kept up. I am working on it; if it bothers you, switch TRUE NATIVE
+  off in Settings -> Advanced.
+- TRUE NATIVE (the default since v0.2.19) was taken through the arenas, the roster with the DLC wrestlers, all 62 match
+  types and the modes on my PC (NVIDIA RTX 4090). AMD and Intel graphics are untested with it. If something looks wrong
+  or freezes, switch it off in Settings -> Advanced and send a report (launcher: Report a problem).
 - The whole-frame NATIVE drawing (new in v0.2.16) was checked on my PC (NVIDIA RTX 4090) at 720p and 1440p and
   measured on my Intel laptop at 720p, with Lesnar vs Bryan (both entrances and the match). Other arenas, match types
   (Royal Rumble, six-man), 4K and AMD graphics have not been looked at with it yet. Anything it can't draw falls back
@@ -13,7 +16,6 @@
   been looked at yet. If something looks wrong (a missing or oddly coloured part of the arena, the crowd or a
   superstar, flicker), the extra flag `--wwe2k14_native_frame=false` (Settings -> Advanced) brings back v0.2.14's
   NATIVE; please send a report too (launcher: Report a problem).
-- This release is for Windows only; the Android build follows after it has been tested on phones.
 - The keyboard as its own player (new in v0.2.14) was tested with a simulated second controller, not by two people
   yet. With four controllers the keyboard shares player 1 again. Not tried yet: a controller switching off in the
   middle of a match (with no controller left, the keyboard becomes player 1 until the controller is back).

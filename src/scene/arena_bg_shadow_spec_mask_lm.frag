@@ -74,7 +74,15 @@ void main() {
   vec3 base = color.rgb * in_color.rgb;
 
   float highlight = Highlight(in_normal.xyz, in_view.xyz, C8.xyz, C255.y, C202.x);
+#ifdef MEDIUMP
+  mediump float mS = color.a * C201.x;
+  mediump vec3 mC200 = C200.xyz;
+  mediump float mHl = highlight;
+  mediump float mHs = in_uv.z;
+  mediump vec3 spec = ((mS * mC200) * mHl) * mHs;
+#else
   vec3 spec = (((color.a * C201.x) * C200.xyz) * highlight) * in_uv.z;
+#endif
 
   float ramp = clamp(Mul0(in_shadow.z - C168.x, 1.0 / (C168.y - C168.x)) - C168.z, 0.0, 1.0);
   float red = clamp((ramp - shadow.x) * C169.z, 0.0, 1.0);
@@ -86,6 +94,12 @@ void main() {
   float shade = max((C168.w * height) * term_a, (height * C169.x) * term_b);
 
   float lit = one - shade;
+#ifdef MEDIUMP
+  mediump vec3 mBase = base, mLight = light;
+  mediump float mLit = lit;
+  mediump vec3 rgb = mLight * (mBase * mLit + spec * mLit);
+#else
   vec3 rgb = light * (base * lit + spec * lit);
+#endif
   XeOutputColor(vec4(rgb, in_color.a));
 }

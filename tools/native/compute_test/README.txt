@@ -10,6 +10,13 @@ Parts
                                 gpu_native_debug_rdc_now) dump one draw's / dispatch's sampled textures, read-write textures and
                                 targets, raw, with a manifest (5 s, no game).
 
+  transcode_test.py             (Session 93) bit test of the BC1 -> ASTC 4x4, BC4 -> EAC R11, BC5 -> EAC RG11 texture load shaders of the
+                                SDK (thirdparty\sdk-wt\s93-astc\src\graphics\shadersulkan_glsl	exture_transcode_cs.glsl): addressing vs the shipped
+                                load shaders, CPU BC / ASTC / EAC decoders, error tables; synthetic corpus, no game data.
+                                py -I tools
+ative\compute_test	ranscode_test.py [--blocks N] [--only addr,ref,bc1,bc4,bc5]
+                                (run_compute.exe --bind takes S/N = descriptor set S, binding N since Session 93.)
+
 Loop
   1. Once per pass: & .\tools\native\compute_test\dump_pass.ps1 -Rdc <capture.rdc> -Ps <pixel shader hash from texdiff> [-Nth 0]
      (or -Draw N / -Event ID) -Out out\native\compute_test\<pass>. The manifest names every file, its size and format.

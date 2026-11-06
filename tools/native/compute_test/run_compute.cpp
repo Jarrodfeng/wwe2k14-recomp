@@ -2,7 +2,7 @@
 // loader from the Vulkan SDK (C:\VulkanSDK), built by build.ps1 with the repo's clang. Used by compute_test.py.
 //
 //   run_compute.exe --spv shader.spv [--entry main] --groups X Y Z [--push file.bin]
-//       --bind BINDING:KIND:FORMAT:W:H:INFILE ...   (all in descriptor set 0)
+//       --bind BINDING:KIND:FORMAT:W:H:INFILE ...   (BINDING is N = set 0, or S/N = descriptor set S binding N; Session 93)
 //       --out  BINDING:OUTFILE ...                  (read back after the dispatch: kinds img and ssbo)
 //   KIND   tex   combined image sampler (nearest, clamp to edge), read only
 //          img   storage image (read / write, layout GENERAL)
@@ -42,6 +42,7 @@ static const Fmt kFormats[] = {
 
 struct Binding {
   uint32_t index = 0;
+  uint32_t set = 0;
   std::string kind, infile, outfile;
   const Fmt* fmt = nullptr;
   uint32_t w = 0, h = 0;
@@ -95,7 +96,7 @@ int main(int argc, char** argv) {
   std::string spv, entry = "main", push_file;
   uint32_t groups[3] = {1, 1, 1};
   std::vector<Binding> binds;
-  std::map<uint32_t, std::string> outs;
+  std::map<uint32_t, std::string> outs;  // key = set * 1000 + binding
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
     if (a == "--spv" && i + 1 < argc) spv = argv[++i];
@@ -115,7 +116,11 @@ int main(int argc, char** argv) {
       }
       if (p.size() != 6) { fprintf(stderr, "run_compute: bad --bind %s\n", s.c_str()); return 2; }
       Binding b;
-      b.index = uint32_t(atoi(p[0].c_str()));
+      {
+        size_t sl = p[0].find('/');
+        if (sl != std::string::npos) { b.set = uint32_t(atoi(p[0].substr(0, sl).c_str())); b.index = uint32_t(atoi(p[0].substr(sl + 1).c_str())); }
+        else b.index = uint32_t(atoi(p[0].c_str()));
+      }
       b.kind = p[1];
       for (const Fmt& f : kFormats) if (p[2] == f.name) b.fmt = &f;
       b.w = uint32_t(atoi(p[3].c_str()));
@@ -127,7 +132,10 @@ int main(int argc, char** argv) {
     } else if (a == "--out" && i + 1 < argc) {
       std::string s = argv[++i];
       size_t q = s.find(':');
-      outs[uint32_t(atoi(s.substr(0, q).c_str()))] = s.substr(q + 1);
+      std::string k = s.substr(0, q);
+      size_t sl = k.find('/');
+      uint32_t key = sl == std::string::npos ? uint32_t(atoi(k.c_str())) : uint32_t(atoi(k.substr(0, sl).c_str())) * 1000 + uint32_t(atoi(k.substr(sl + 1).c_str()));
+      outs[key] = s.substr(q + 1);
     } else { fprintf(stderr, "run_compute: unknown argument %s\n", a.c_str()); return 2; }
   }
   if (spv.empty()) { fprintf(stderr, "run_compute: --spv is required\n"); return 2; }
@@ -237,27 +245,37 @@ int main(int argc, char** argv) {
     }
   }
 
-  // Layout, pipeline, descriptors.
-  std::vector<VkDescriptorSetLayoutBinding> lb;
-  for (Binding& b : binds) {
-    VkDescriptorSetLayoutBinding x{};
-    x.binding = b.index;
-    x.descriptorCount = 1;
-    x.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    x.descriptorType = b.kind == "tex" ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-                     : b.kind == "img" ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
-                     : b.kind == "ssbo" ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    lb.push_back(x);
+  // Layout, pipeline, descriptors (one layout / set per descriptor set number used; Session 93: more than set 0).
+  uint32_t set_count = 1;
+  for (Binding& b : binds) set_count = std::max(set_count, b.set + 1);
+  auto dtype = [](const Binding& b) {
+    return b.kind == "tex" ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+         : b.kind == "img" ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+         : b.kind == "ssbo" ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  };
+  std::vector<VkDescriptorSetLayout> dsls(set_count);
+  std::map<VkDescriptorType, uint32_t> counts;
+  for (uint32_t si_ = 0; si_ < set_count; ++si_) {
+    std::vector<VkDescriptorSetLayoutBinding> lb;
+    for (Binding& b : binds) {
+      if (b.set != si_) continue;
+      VkDescriptorSetLayoutBinding x{};
+      x.binding = b.index;
+      x.descriptorCount = 1;
+      x.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+      x.descriptorType = dtype(b);
+      counts[x.descriptorType]++;
+      lb.push_back(x);
+    }
+    VkDescriptorSetLayoutCreateInfo dli{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    dli.bindingCount = uint32_t(lb.size());
+    dli.pBindings = lb.data();
+    VK(vkCreateDescriptorSetLayout(g_dev, &dli, nullptr, &dsls[si_]));
   }
-  VkDescriptorSetLayoutCreateInfo dli{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  dli.bindingCount = uint32_t(lb.size());
-  dli.pBindings = lb.data();
-  VkDescriptorSetLayout dsl;
-  VK(vkCreateDescriptorSetLayout(g_dev, &dli, nullptr, &dsl));
   VkPushConstantRange pcr{VK_SHADER_STAGE_COMPUTE_BIT, 0, uint32_t((push.size() + 3) & ~size_t(3))};
   VkPipelineLayoutCreateInfo pli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  pli.setLayoutCount = 1;
-  pli.pSetLayouts = &dsl;
+  pli.setLayoutCount = set_count;
+  pli.pSetLayouts = dsls.data();
   if (!push.empty()) { pli.pushConstantRangeCount = 1; pli.pPushConstantRanges = &pcr; }
   VkPipelineLayout pl;
   VK(vkCreatePipelineLayout(g_dev, &pli, nullptr, &pl));
@@ -271,32 +289,30 @@ int main(int argc, char** argv) {
   cpci.layout = pl;
   VkPipeline pipe;
   VK(vkCreateComputePipelines(g_dev, VK_NULL_HANDLE, 1, &cpci, nullptr, &pipe));
-  std::map<VkDescriptorType, uint32_t> counts;
-  for (auto& x : lb) counts[x.descriptorType]++;
   std::vector<VkDescriptorPoolSize> ps;
   for (auto& kv : counts) ps.push_back({kv.first, kv.second});
   VkDescriptorPoolCreateInfo dpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  dpi.maxSets = 1;
+  dpi.maxSets = set_count;
   dpi.poolSizeCount = uint32_t(ps.size());
   dpi.pPoolSizes = ps.data();
   VkDescriptorPool dp;
   VK(vkCreateDescriptorPool(g_dev, &dpi, nullptr, &dp));
   VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   dai.descriptorPool = dp;
-  dai.descriptorSetCount = 1;
-  dai.pSetLayouts = &dsl;
-  VkDescriptorSet ds;
-  VK(vkAllocateDescriptorSets(g_dev, &dai, &ds));
+  dai.descriptorSetCount = set_count;
+  dai.pSetLayouts = dsls.data();
+  std::vector<VkDescriptorSet> dss(set_count);
+  VK(vkAllocateDescriptorSets(g_dev, &dai, dss.data()));
   std::vector<VkDescriptorImageInfo> ii(binds.size());
   std::vector<VkDescriptorBufferInfo> bi(binds.size());
   std::vector<VkWriteDescriptorSet> wr;
   for (size_t i = 0; i < binds.size(); ++i) {
     Binding& b = binds[i];
     VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    w.dstSet = ds;
+    w.dstSet = dss[b.set];
     w.dstBinding = b.index;
     w.descriptorCount = 1;
-    w.descriptorType = lb[i].descriptorType;
+    w.descriptorType = dtype(b);
     if (b.kind == "tex") { ii[i] = {sampler, b.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}; w.pImageInfo = &ii[i]; }
     else if (b.kind == "img") { ii[i] = {VK_NULL_HANDLE, b.view, VK_IMAGE_LAYOUT_GENERAL}; w.pImageInfo = &ii[i]; }
     else { bi[i] = {b.buf, 0, b.bytes}; w.pBufferInfo = &bi[i]; }
@@ -340,7 +356,7 @@ int main(int argc, char** argv) {
   vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
   vkCmdResetQueryPool(cb, qp, 0, 2);
   vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
-  vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pl, 0, 1, &ds, 0, nullptr);
+  vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pl, 0, set_count, dss.data(), 0, nullptr);
   if (!push.empty()) {
     std::vector<uint8_t> padded(pcr.size, 0);
     memcpy(padded.data(), push.data(), push.size());
@@ -352,7 +368,7 @@ int main(int argc, char** argv) {
   VkMemoryBarrier mb2{VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT};
   vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &mb2, 0, nullptr, 0, nullptr);
   for (Binding& b : binds) {
-    if (!outs.count(b.index) || b.kind == "tex" || b.kind == "ubo") continue;
+    if (!outs.count(b.set * 1000 + b.index) || b.kind == "tex" || b.kind == "ubo") continue;
     if (b.buf) {
       VkBufferCopy c{0, 0, b.bytes};
       vkCmdCopyBuffer(cb, b.buf, b.staging, 1, &c);
@@ -378,7 +394,7 @@ int main(int argc, char** argv) {
   vkGetQueryPoolResults(g_dev, qp, 0, 2, sizeof(ts), ts, 8, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
   printf("dispatch %u x %u x %u: %.1f us\n", groups[0], groups[1], groups[2], double(ts[1] - ts[0]) * props.limits.timestampPeriod / 1000.0);
   for (Binding& b : binds) {
-    auto it = outs.find(b.index);
+    auto it = outs.find(b.set * 1000 + b.index);
     if (it == outs.end()) continue;
     if (b.kind == "tex" || b.kind == "ubo") { fprintf(stderr, "run_compute: binding %u (%s) cannot be read back\n", b.index, b.kind.c_str()); return 2; }
     std::ofstream f(it->second, std::ios::binary);

@@ -22,6 +22,8 @@
 #include <rex/logging.h>
 
 #include "half2_hooks.h"  // wwe2k14::half2::Cp()
+#include "scene_vs_instance.h"  // Session 94 (gpu_native_instance_world): the instancing variants
+#include "scene_vs_multiview.h"  // Session 94 (gpu_d3d_decouple bit 3): the multiview variants
 #include "scene/spirv/arena_vs_bg_vert.h"
 #include "scene/spirv/arena_vs_bg_bump_vert.h"
 #include "scene/spirv/arena_vs_bg_lm_vert.h"
@@ -113,6 +115,8 @@ struct VertexMaterial {
   uint32_t flags;         // kDynamic or 0
   uint32_t stride_words;  // the one vertex stream the shader reads: dwords a vertex ...
   uint32_t fetch_constant;  // ... in this vertex fetch constant (95 = fetch constants dwords 190 / 191; the library's shaders: 0)
+  // (Session 93: the Session 92 split variants spv_s2 / spv_s4 are gone: one compile reads the shared memory through the
+  // per-draw window base on every GPU, see src\scene\xenos_vs.glsl.)
 };
 
 // The float constant registers each shader reads, ascending (the packing its SPIR-V assumes; BuildVertex refuses a draw
@@ -327,8 +331,10 @@ inline bool RegisterOne(Cp* cp, const VertexMaterial& m) {
                   cp->RegisterNativeVertexSwap(m.hash, m.spv, m.words, m.floats, m.float_count, m.name, m.flags,
                                                m.stride_words, m.fetch_constant);
                 }) {
-    return cp->RegisterNativeVertexSwap(m.hash, m.spv, m.words, m.floats, m.float_count, m.name, m.flags,
-                                        m.stride_words, m.fetch_constant);
+    const bool ok = cp->RegisterNativeVertexSwap(m.hash, m.spv, m.words, m.floats, m.float_count, m.name, m.flags,
+                                                 m.stride_words, m.fetch_constant);
+    return ok;
+
   } else {
     if (m.flags || m.stride_words != 8 || m.fetch_constant != 95) return false;
     return cp->RegisterNativeVertexSwap(m.hash, m.spv, m.words, m.floats, m.float_count, m.name);
@@ -349,6 +355,8 @@ inline void Install() {
   for (const VertexMaterial& m : kArenaVertexShaders) {
     ok += RegisterOne(cp, m) ? 1 : 0;
   }
+  scene_vs_instance::RegisterAll(cp, kArenaVertexShaders, std::size(kArenaVertexShaders));  // Session 94
+  scene_vs_multiview::RegisterAll(cp, kArenaVertexShaders, std::size(kArenaVertexShaders));  // Session 94 (gpu_d3d_decouple bit 3)
   REXLOG_INFO("[wwe2k14][scene_vs_swap] vertex shaders registered: {} of {} (gpu_native_vs_swap = {})", ok,
               std::size(kArenaVertexShaders), rex::cvar::GetFlagByName("gpu_native_vs_swap"));
 }

@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.19
+
+TRUE NATIVE, my own renderer, is now the default, and it is faster than when I first showed it in v0.2.18.
+
+- **TRUE NATIVE is now on by default.** In v0.2.18 it was an experiment I had only tried on one match. Since then I have taken it through the whole game on my PC: the arenas, the roster including the DLC wrestlers, all 62 match types and the modes, with full entrances, and it now draws all of it itself. Everyone who updates gets it, including people whose launcher had NATIVE saved. The TRUE NATIVE switch is still in Settings -> Advanced: if something looks wrong on your PC, turn it off and send me a report (launcher: Report a problem).
+- **It no longer falls back to the Xbox 360's way of drawing.** Early TRUE NATIVE still handed parts of a frame back to the old 360-style path. That fallback is gone: anything my renderer cannot draw is counted and logged instead. On my PC the pictures stayed within my check's tolerance, and a timed Lesnar vs Bryan match at normal speed ran at the same 60.0 fps as before.
+- **Faster.** Measured on my PC (RTX 4090) at 720p with the frame limiter off, Lesnar vs Bryan, one run each way: Brock's entrance went from 155 to 218 fps on average, Bryan's from 171 to 210, and the match from 247 to 288. A second round of trimming (less work per object the game draws) added about 2% on top, and the match's 1% low went from 197 to 209 fps. The causes: the game asks for the same drawing work many times a frame and my renderer now reuses the answer; the crowd is drawn in fewer, bigger batches; and objects outside the camera's view are skipped. One test each on one PC, limiter off, so the gain at a normal 60 fps cap will be smaller.
+- **A steadier crowd.** Thinning the crowd with CROWD DENSITY used to make spectators pop in and out as the camera moved. The cut-off is now steadier.
+- **30 Years of WrestleMania matches load again in TRUE NATIVE.** Picking one could crash on load, and its opening arena could draw black. Both are fixed, and Heenan's clothes now draw correctly.
+- **The picture no longer freezes after minimising the window.** Minimising the game and restoring it could leave the picture frozen while the game kept running at 60 fps behind it. Cause: the window's drawing surface was lost and was only re-created if the window size changed. It is now re-created when the window is restored; I checked it with a minimise and restore.
+- **Integrated graphics: automatic LOW quality.** QUALITY AUTO now picks LOW on integrated graphics (for example Intel laptops): the picture is drawn at 720p and scaled up with a sharpening upscaler, and the crowd is thinned to 70%. You can change it by hand in the launcher. I have checked that it chooses the right settings, but not yet measured how much faster it is. Other graphics cards keep STANDARD, unchanged.
+- **Shaders are prepared before you play.** The launcher's PREPARING SHADERS step now also converts the extra shaders TRUE NATIVE needs, from your own game files, so the game does not stutter converting them mid-match. Nothing from the game is shipped: the list I ship only names which shaders to prepare.
+- **Graphics cards that can only see a small slice of memory.** Some GPUs can address only 128 MiB of memory at once, which gave broken shapes in TRUE NATIVE. The game now detects this and works around it. I tested it on my PC by pretending to be such a card; real cards are tested on phones (see the Android notes).
+- **Dynamic resolution works with TRUE NATIVE.** With DYNAMIC RESOLUTION on in the launcher, the game now lowers the 3D scene's resolution a little when frames run slow (the menus and the HUD stay sharp), as it already did for NATIVE. On my PC a forced 75% looked only slightly softer, with everything in place. It stays behind its toggle.
+- **Vulkan 1.1 compatibility.** A GPU stuck on Vulkan 1.1 (typical of older phones) rejects the game's shader data layout. The game now asks for the two extensions that allow it. Checked against an emulated Mali-G57 profile (12 errors before, 0 after), not on a real one.
+
 ## v0.2.18
 
 A fix for v0.2.17's endless loading screens, new graphics settings in the launcher, and an experimental renderer

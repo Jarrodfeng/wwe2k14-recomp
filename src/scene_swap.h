@@ -34,6 +34,15 @@
 #include "scene/spirv/wrestler_skin_plain.h"
 #include "scene/spirv/wrestler_skin_plain_entrance.h"
 #include "scene/spirv/arena_bg.h"
+#include "scene/spirv/arena_bg_bump_lm_mp.h"
+#include "scene/spirv/arena_bg_shadow_lm_mp.h"
+#include "scene/spirv/arena_bg_shadow_spec_mask_lm_mp.h"
+#include "scene/spirv/arena_bg_spec_mask_lm_mp.h"
+#include "scene/spirv/arena_prop_bump_mp.h"
+#include "scene/spirv/arena_prop_bump_reflect_mp.h"
+#include "scene/spirv/arena_prop_bump_rope2_mp.h"
+#include "scene/spirv/arena_prop_bump_rope_mp.h"
+#include "scene/spirv/arena_prop_spec_mask_lm_mp.h"
 #include "scene/spirv/arena_bg_lm.h"
 #include "scene/spirv/arena_bg_shadow.h"
 #include "scene/spirv/arena_bg_shadow_plain.h"
@@ -91,6 +100,7 @@
 #include "scene/spirv/arena_prop_spec.h"
 #include "scene/spirv/arena_prop_spec_mask.h"
 
+REXCVAR_DECLARE(bool, wwe2k14_shader_mediump);  // (src\post_swap.h)
 REXCVAR_DEFINE_BOOL(wwe2k14_scene_shaders, false, "wwe2k14",
                     "Session 80 (with gpu_native_shader_swap, on in NATIVE's list; read at start): our own shaders for "
                     "every pixel shader of the match and the entrances (OWN_RENDERER_PLAN.md) in place of the game's "
@@ -371,6 +381,25 @@ inline constexpr uint8_t kSkin2Floats[] = {4,   12,  52,  53,  54,  142, 144, 15
 inline constexpr uint8_t kSkin2EntranceFloats[] = {0,   1,   2,   3,   4,   8,   9,   10,  11,  12,  142, 144,
                                                    155, 156, 158, 161, 162, 166, 168, 169, 170, 180, 181, 182,
                                                    187, 189, 190, 195, 197, 199, 201, 204, 205, 218, 254, 255};
+// Session 93 (idea 8, --wwe2k14_shader_mediump): the arena materials that have a second compile with hand-placed mediump
+// colour maths (tools\postuild_shaders.ps1 $MediumpShaders; out\s938_mediump_notes.md), by the guest hash.
+struct MediumpVariant {
+  uint64_t hash;
+  const uint32_t* spv;
+  size_t words;
+};
+inline const MediumpVariant kMediumpVariants[] = {
+    {0x2B8A869CF01395DBull, arena_prop_bump_mp_spv, std::size(arena_prop_bump_mp_spv)},
+    {0xAFB4E9E073971D7Aull, arena_prop_bump_rope_mp_spv, std::size(arena_prop_bump_rope_mp_spv)},
+    {0xC61723668154F870ull, arena_prop_bump_rope2_mp_spv, std::size(arena_prop_bump_rope2_mp_spv)},
+    {0x741439F55F5B15D4ull, arena_prop_bump_reflect_mp_spv, std::size(arena_prop_bump_reflect_mp_spv)},
+    {0xF7FA89EF70876EFFull, arena_prop_spec_mask_lm_mp_spv, std::size(arena_prop_spec_mask_lm_mp_spv)},
+    {0xAA33C0D66574EE32ull, arena_bg_spec_mask_lm_mp_spv, std::size(arena_bg_spec_mask_lm_mp_spv)},
+    {0xED3793930D3A2C1Dull, arena_bg_shadow_lm_mp_spv, std::size(arena_bg_shadow_lm_mp_spv)},
+    {0xA0A9844B8A45CC6Bull, arena_bg_bump_lm_mp_spv, std::size(arena_bg_bump_lm_mp_spv)},
+    {0x9B46FDF960C4CC1Full, arena_bg_shadow_spec_mask_lm_mp_spv, std::size(arena_bg_shadow_spec_mask_lm_mp_spv)},
+};
+
 inline const ArenaMaterial kWrestlerMore[] = {
     {0xCA3E51C5BA993041ull, wrestler_trans_spv, std::size(wrestler_trans_spv), kTransFloats, std::size(kTransFloats),
      "wrestler trans (yCh_trans)"},
@@ -480,8 +509,26 @@ inline void Install() {
                                      "wrestler skin plain (match)", kOwnEpilogue);
   ok += cp->RegisterNativeShaderSwap(kWrestlerSkinPlainEntrance, wrestler_skin_plain_entrance_spv, std::size(wrestler_skin_plain_entrance_spv), kWrestlerSkinPlainEntranceFloats, std::size(kWrestlerSkinPlainEntranceFloats),
                                      "wrestler skin plain (entrance)", kOwnEpilogue);
+  const bool mediump = REXCVAR_GET(wwe2k14_shader_mediump);
+  int mediump_registered = 0;
   for (const ArenaMaterial& m : kArenaMaterials) {
-    ok += cp->RegisterNativeShaderSwap(m.hash, m.spv, m.words, m.floats, m.float_count, m.name, kOwnEpilogue);
+    const uint32_t* spv = m.spv;
+    size_t words = m.words;
+    if (mediump) {
+      for (const MediumpVariant& v : kMediumpVariants) {
+        if (v.hash == m.hash) {
+          spv = v.spv;
+          words = v.words;
+          ++mediump_registered;
+          break;
+        }
+      }
+    }
+    ok += cp->RegisterNativeShaderSwap(m.hash, spv, words, m.floats, m.float_count, m.name, kOwnEpilogue);
+  }
+  if (mediump) {
+    REXLOG_INFO("[wwe2k14][scene_swap] mediump variants registered {} (arena materials; the wrestlers, crowd and side passes stay highp)",
+                mediump_registered);
   }
   for (const ArenaMaterial& m : kWrestlerMore) {
     ok += cp->RegisterNativeShaderSwap(m.hash, m.spv, m.words, m.floats, m.float_count, m.name, kOwnEpilogue);

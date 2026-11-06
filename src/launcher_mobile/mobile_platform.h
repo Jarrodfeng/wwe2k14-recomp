@@ -89,6 +89,9 @@ void StartGame(const std::vector<std::string>& args, const std::string& game_add
 // Session 74: the touch controls' edit screen (TouchEditActivity) at this Size / Opacity; it saves
 // FilesDir()/touch_layout.txt (no file = the default places).
 void EditTouchLayout(int size, int opacity);
+// Session 93 (M6 step 2): what identifies this phone's GPU stack for the shader precompile's stamp - the build fingerprint
+// (a system update can change the Vulkan driver, and with it the translator's device limits). "desktop" on the PC test build.
+std::string DeviceKey();
 // Leaves the app (Back on the main page).
 void Quit();
 // The screen's size in pixels, landscape (width >= height).

@@ -21,6 +21,7 @@
 #pragma once
 
 #include <bit>
+#include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -76,7 +77,7 @@ inline void ReadMatrix(const uint8_t* base, uint32_t address, uint32_t out[12]) 
 
 inline void Store32(uint8_t* base, uint32_t address, uint32_t value) {
   const uint32_t be = std::byteswap(value);
-  std::memcpy(base + address + (address >= 0xE0000000u ? 0x1000u : 0u), &be, 4);
+  std::memcpy(base + address + ::rex::memory::detail::PhysicalHostOffset(address), &be, 4);
 }
 
 // The run ends (the next group's op 14, or the block's end): the closing record (mode 1) and the queue entry.

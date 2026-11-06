@@ -34,8 +34,10 @@
 #pragma once
 
 #include <array>
+#include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -102,27 +104,53 @@ struct Stats {
   std::array<std::atomic<bool>, kReasonCount> logged{};
 };
 inline Stats g_stats;
+
+// Session 94 ([d3d][rec]): the game thread's record-building time, sampled on 1 guest frame in 8 (no clock read on the other
+// seven). Used by the indexed draw here and by the inline draw's Begin / End (src\d3d_layer_inline.h).
+struct RecClock {
+  std::atomic<uint64_t> ns{0}, calls{0}, frames{0}, last_frame{~0ull};
+};
+inline RecClock g_rec;
+struct RecScope {
+  bool on = false;
+  std::chrono::steady_clock::time_point t0;
+  RecScope() {
+    const uint64_t f = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
+    if ((f & 7) != 0) return;
+    static const bool timer = REXCVAR_GET(wwe2k14_d3d_rec_timer);  // Session 94 review: off by default (no cost on the default path)
+    if (!timer) return;
+    on = true;
+    if (g_rec.last_frame.exchange(f, std::memory_order_relaxed) != f) g_rec.frames.fetch_add(1, std::memory_order_relaxed);
+    t0 = std::chrono::steady_clock::now();
+  }
+  ~RecScope() {
+    if (!on) return;
+    const auto dt = std::chrono::steady_clock::now() - t0;
+    g_rec.ns.fetch_add(uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(dt).count()), std::memory_order_relaxed);
+    g_rec.calls.fetch_add(1, std::memory_order_relaxed);
+  }
+};
 inline std::atomic<uint32_t> g_seq{0};
 inline std::atomic<uint64_t> g_census_frame{0};
 inline std::atomic<int> g_abi{-1};          // -1 unknown, 0 absent, 1 present
 
 inline uint32_t Ld32(const uint8_t* base, uint32_t a) {
   uint32_t be;
-  std::memcpy(&be, base + a + (a >= 0xE0000000u ? 0x1000u : 0u), 4);
+  std::memcpy(&be, base + a + ::rex::memory::detail::PhysicalHostOffset(a), 4);
   return std::byteswap(be);
 }
 inline void St32(uint8_t* base, uint32_t a, uint32_t v) {
   const uint32_t be = std::byteswap(v);
-  std::memcpy(base + a + (a >= 0xE0000000u ? 0x1000u : 0u), &be, 4);
+  std::memcpy(base + a + ::rex::memory::detail::PhysicalHostOffset(a), &be, 4);
 }
 inline uint64_t Ld64(const uint8_t* base, uint32_t a) {
   uint64_t be;
-  std::memcpy(&be, base + a + (a >= 0xE0000000u ? 0x1000u : 0u), 8);
+  std::memcpy(&be, base + a + ::rex::memory::detail::PhysicalHostOffset(a), 8);
   return std::byteswap(be);
 }
 inline void St64(uint8_t* base, uint32_t a, uint64_t v) {
   const uint64_t be = std::byteswap(v);
-  std::memcpy(base + a + (a >= 0xE0000000u ? 0x1000u : 0u), &be, 8);
+  std::memcpy(base + a + ::rex::memory::detail::PhysicalHostOffset(a), &be, 8);
 }
 
 // rldicr rA,rS,SH,ME: rotate left SH, keep the top ME+1 bits (PowerPC bit 0 = the most significant).
@@ -160,6 +188,18 @@ inline void CensusMaybe() {
   const uint64_t shaders = s.shader_items.exchange(0, std::memory_order_relaxed);
   const uint64_t chunks = s.chunks.exchange(0, std::memory_order_relaxed);
   const uint64_t empty = s.empty_state.exchange(0, std::memory_order_relaxed);
+  {
+    const uint64_t rns = g_rec.ns.exchange(0, std::memory_order_relaxed), rcalls = g_rec.calls.exchange(0, std::memory_order_relaxed),
+                   rframes = g_rec.frames.exchange(0, std::memory_order_relaxed);
+    if (rframes) {
+      REXLOG_INFO("[d3d][rec] game-thread record ms/frame avg {:.3f} (calls {:.0f} a frame; indexed + inline draws, sampled on {} "
+                  "frames, 1 in 8; record_lean {}; vertex-shader copy cache hits {} misses {})",
+                  double(rns) / 1e6 / double(rframes), double(rcalls) / double(rframes), rframes,
+                  REXCVAR_GET(wwe2k14_d3d_record_lean) ? "on" : "off",
+                  wwe2k14::d3d_bind::g_stat_fast_hits.load(std::memory_order_relaxed),
+                  wwe2k14::d3d_bind::g_stat_fast_misses.load(std::memory_order_relaxed));
+    }
+  }
   if (!draws && !fb_total) return;
   REXLOG_INFO("[d3d] frames {}-{}: indexed draws taken {} ({} draw chunks, {} with no dirty state), tokens {} ({} dwords "
               "written), {} register runs ({} registers), {} shader loads; fallbacks {}{}",
@@ -300,6 +340,7 @@ inline void FallbackBind(wwe2k14::d3d_bind::Fail f) {
 // runs the original.
 inline bool IndexedDraw(PPCContext& ctx, uint8_t* base) {
   if (!REXCVAR_GET(wwe2k14_d3d_layer)) return false;
+  RecScope rec_scope;  // Session 94: [d3d][rec] sample
   if (!AbiPresent()) {
     Fallback(kSdkNoToken, "the SDK build has no token packet");
     return false;
@@ -349,7 +390,7 @@ inline bool IndexedDraw(PPCContext& ctx, uint8_t* base) {
   // 2. The shader bind is planned first (it reads the device, writes nothing); every fallback decision is made before the
   // plan's device words are committed. The bind runs after the float flushes in the original, which only matters for the order
   // of the record's items, kept below.
-  wwe2k14::d3d_bind::BindPlan plan;
+  static thread_local wwe2k14::d3d_bind::BindPlan plan;  // (Session 94: reused, Plan() resets it; no per-draw vector allocations)
   bool binds = false;
   uint64_t r30 = m_main;
   if (m_main && (uint32_t(m_main) & 0x1E0000u)) {

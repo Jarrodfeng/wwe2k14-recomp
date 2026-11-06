@@ -1,0 +1,27 @@
+# Session 90 (T-pose, where the 12 spectator draws land): s89_bryan_census.txt + the segment log (every pass / draw / copy) for the 2 frames of shot a, same route for the TRUE NATIVE and truth arms (no owned-frame flip, so both arms run their own default). One-off diagnosis route.
+# Session 89 (Jarrod: "re-tool the owned frames to check for them earlier ... screencaps at new timings for the shorter
+# runs"): owned_check -Route bryan, the OFF arms. Plays the replay s89_bryan_first (Bryan out FIRST, seed 1; recorded by
+# s89_record_bryan_first.txt to step 15 + 400): shots at Bryan's entrance step 15 + 100 and + 240 (Jarrod: Bryan's runs end
+# 5 s after step 15), with the owned frame's per-pass census for two frames at the first shot (`cvar
+# gpu_native_owned_frame_log 2` 50 frames before it; the cvar step takes zero frames, harmless with the owned frame off).
+# The ON arms run s89_bryan_census_on.txt: the same shots on the same frames plus an owned-frame flip at step 15, so their
+# 600-frame summary covers entrance frames only. owned_verdict treats the two as one route. on_fail quit.
+on_fail quit
+log bench: start s89_bryan_census
+wait_file 324.bik2 3600
+log scene=tron_324
+mark 1 tron_324
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Bryan's entrance step 15)
+mark 2 step15
+wait_frames 50
+cvar gpu_native_owned_frame_log 2
+wait_frames 50
+cvar gpu_native_segment_log 2
+cvar gpu_native_owned_frame_log 2
+screenshot s89b_a
+wait_frames 140
+screenshot s89b_b
+wait_frames 33
+log bench: done
+quit

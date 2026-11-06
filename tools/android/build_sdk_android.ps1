@@ -4,22 +4,25 @@
 #   pwsh -File tools\android\build_sdk_android.ps1 -Run a01 -Reconfigure  re-run CMake first (first build, CMake edits)
 # The PC SDK build (tools\build_sdk.ps1, out/build/win-amd64) is untouched; the install is never registered in the
 # CMake user package registry, so the PC game build can never find it.
+#   -SourceRoot <worktree>: build that SDK worktree (S93) in out/android/sdk-build-arm64-wt (or -BuildDir), installing to the shared prefix
 #   -KeepGoing: ninja -k 0 (build every file it can; lists all failures in one pass while porting)
-param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 16, [switch]$KeepGoing, [string]$AllowBranch = '')
+param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 16, [switch]$KeepGoing, [string]$AllowBranch = '', [string]$SourceRoot = '', [string]$BuildDir = '')
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Continue'
 . "$ProjectRoot\tools\runlock.ps1"
 
 $sdk   = "$ProjectRoot\thirdparty\rexglue-sdk-src"
-$build = $AndroidDirs.SdkBuild
+$build = if ($BuildDir) { $BuildDir } elseif ($SourceRoot) { "$($AndroidDirs.SdkBuild)-wt" } else { $AndroidDirs.SdkBuild }
 $inst  = $AndroidDirs.SdkInstall
 [void][System.IO.Directory]::CreateDirectory("$ProjectRoot\logs\android")
 $log = "$ProjectRoot\logs\android\sdk_$Run.log"
 
 $branch = git -C $sdk branch --show-current
+if ($SourceRoot) { $sdk = (Resolve-Path $SourceRoot).Path; $branch = 'android' }  # S93: build a worktree (own build dir, shared install); the main checkout stays untouched
 if ($branch -ne 'android' -and $branch -ne $AllowBranch) { "build_sdk_android.ps1: the SDK is on '$branch', not 'android'"; exit 2 }
 
-$lock = Enter-RunLock -Name "build_sdk_android.ps1 $Run"
+# Session 92: BUILD class (like fast_build): this writes only under out\android, so it shares the PC with untimed runs.
+$lock = Enter-RunLock -Name "build_sdk_android.ps1 $Run" -Mode Build
 try {
 $t0 = Get-Date
 "== SDK android build $Run, $(Get-Date -Format 'yyyy-MM-dd HH:mm'), SDK $(git -C $sdk log --oneline -1)" | Out-File $log

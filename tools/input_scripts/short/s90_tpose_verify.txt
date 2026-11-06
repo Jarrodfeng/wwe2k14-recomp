@@ -1,0 +1,32 @@
+# Session 90 (T-pose diagnosis, run 2 of the 2 Jarrod OK'd): s89_bryan_census_on.txt + the D3D feed's verify mode from step 15 and a draw probe of the skinned spectator VS CB5B16DA at shot a (docs\native\d3d\S90_TPOSE.md Q4). One-off diagnosis route.
+# Session 89: owned_check -Route bryan, the ON arms' version of s89_bryan_census.txt (the same shots on the same frames:
+# Bryan's step 15 + 100 / + 240; owned_verdict treats both as one route). The owned frame is flipped off and on at step 15
+# so the summary printed by the flip off after the last shot ("TRUTH WORK per frame", it resets at every flip) covers
+# step 15 + 2 .. + 243 only: Bryan's entrance frames, not the boot and the load (Session 89's first -Route bryan check
+# reported frames 1801-2400, which ended before its shots). The per-pass census (two frames) is logged at the first shot.
+# Only for arms with the owned frame on (owned_check.ps1 picks it). on_fail quit.
+on_fail quit
+log bench: start s89_bryan_census_on
+wait_file 324.bik2 3600
+log scene=tron_324
+mark 1 tron_324
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Bryan's entrance step 15)
+mark 2 step15
+cvar gpu_d3d_own_input_verify true
+cvar gpu_native_owned_frame false
+wait_frames 2
+cvar gpu_native_owned_frame true
+wait_frames 48
+cvar gpu_native_owned_frame_log 2
+wait_frames 50
+screenshot s89b_a
+cvar gpu_debug_draw_probe_frames 1
+cvar gpu_native_census 3
+wait_frames 140
+screenshot s89b_b
+wait_frames 3
+cvar gpu_native_owned_frame false
+wait_frames 30
+log bench: done
+quit

@@ -17,6 +17,8 @@
 #include "post/spirv/entrance_combine_probe.h"
 #include "post/spirv/match_combine_enhanced.h"
 #include "post/spirv/match_combine_original.h"
+#include "post/spirv/entrance_combine_original_mp.h"
+#include "post/spirv/match_combine_original_mp.h"
 #include "post/spirv/match_combine_probe.h"
 
 REXCVAR_DEFINE_BOOL(wwe2k14_post_enhanced, false, "wwe2k14",
@@ -24,6 +26,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_post_enhanced, false, "wwe2k14",
                     "effects (the background depth of field as a lens-like disc blur; the launcher's POST EFFECTS: "
                     "ENHANCED); false = our cheaper copy of the game's own pass, step for step (Jarrod, 2026-10-28: the "
                     "default)");
+REXCVAR_DEFINE_BOOL(wwe2k14_shader_mediump, false, "wwe2k14",
+                    "Session 93 (idea 8; read at start; with gpu_native_shader_swap): the second compile of the ALU-heavy arena "
+                    "materials (src/scene_swap.h: 9 shaders) and of the ORIGINAL post combines (src/post_swap.h: 2) whose colour "
+                    "maths is hand-placed mediump (RelaxedPrecision; out\s93\b8_mediump_notes.md) - ALU and registers on Mali / "
+                    "Adreno / iGPUs; NVIDIA usually ignores it. false = the full-precision shaders, exactly as before");
 REXCVAR_DEFINE_INT32(wwe2k14_post_swap_probe, 0, "wwe2k14",
                      "Session 72 (diagnostic, needs gpu_native_shader_swap; read at start): 1 = in place of the match and "
                      "entrance combines, probes that paint the passes' inputs and constants for a screenshot "
@@ -65,6 +72,7 @@ inline void Install() {
   const bool probe = REXCVAR_GET(wwe2k14_post_swap_probe) == 1;
   const bool enhanced = REXCVAR_GET(wwe2k14_post_enhanced);
   int ok = 0;
+  int mediump_registered = 0;
   if (probe) {
     ok += Register(cp, kMatchCombine, match_combine_probe_spv, kMatchCombineFloats, "match combine: probe");
     ok += Register(cp, kEntranceCombine, entrance_combine_probe_spv, kEntranceCombineFloats, "entrance combine: probe");
@@ -72,10 +80,20 @@ inline void Install() {
     ok += Register(cp, kMatchCombine, match_combine_enhanced_spv, kMatchCombineFloats, "match combine: Enhanced");
     ok += Register(cp, kEntranceCombine, entrance_combine_enhanced_spv, kEntranceCombineFloats,
                    "entrance combine: Enhanced");
+  } else if (REXCVAR_GET(wwe2k14_shader_mediump)) {
+    // Session 93 (idea 8): the same pass with the colour blends in half precision (FXAA and the depth ramps stay highp).
+    ok += Register(cp, kMatchCombine, match_combine_original_mp_spv, kMatchCombineFloats, "match combine: original (mediump)");
+    ok += Register(cp, kEntranceCombine, entrance_combine_original_mp_spv, kEntranceCombineFloats,
+                   "entrance combine: original (mediump)");
+    mediump_registered = 2;
   } else {
     ok += Register(cp, kMatchCombine, match_combine_original_spv, kMatchCombineFloats, "match combine: original");
     ok += Register(cp, kEntranceCombine, entrance_combine_original_spv, kEntranceCombineFloats,
                    "entrance combine: original");
+  }
+  if (REXCVAR_GET(wwe2k14_shader_mediump)) {
+    REXLOG_INFO("[wwe2k14][post_swap] mediump variants registered {} (post combines; Enhanced / probe keep full precision)",
+                mediump_registered);
   }
   REXLOG_INFO("[wwe2k14][post_swap] replacement shaders registered: {} ({}; gpu_native_shader_swap = {})", ok,
               probe ? "probes" : enhanced ? "Enhanced" : "original", rex::cvar::GetFlagByName("gpu_native_shader_swap"));

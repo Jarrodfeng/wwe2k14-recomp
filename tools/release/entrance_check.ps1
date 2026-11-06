@@ -7,6 +7,12 @@
 #     Session 70 run 001 of the v0.2.7 release; local only, never shipped);
 #   - NATIVE at 720p (a test settings file), the shipped shader list, no precompile (the in-game path: a player may
 #     skip the precompile);
+#   - Session 94 (read, 0 runs): the settings file carries settings_version 2, so the game moves it to TRUE NATIVE once
+#     (the default since Session 93, src\gfx_settings.h: a file below version 4 moves to TRUE NATIVE) - exactly what an
+#     upgrading player gets. TRUE NATIVE has no EDRAM buffer (render_target_path fbo), so it reads the
+#     545408B2.native.fbo.vk.xnps store, not the old .fsi one checked below: the old NATIVE store is present but unused,
+#     and every TRUE NATIVE pipeline compiles cold - the upgrader's real first run. The .fsi guard stays (the folder's
+#     frozen save comes with it).
 #   - route short\s70_entrance_rt.txt: Brock vs Bryan, both entrances and 600 match frames in real time (~3 min,
 #     exclusive).
 # PASS: both entrances and the match without a frame over -MaxFrameMs (500) and with at most -MaxLostS (2.0 s) lost
@@ -27,7 +33,7 @@ if (-not (Test-Path "$R\out\bench\$data\cache\shaders\shareable\545408B2.native.
   }
 }
 $settings = "$R\out\release\entrance_check_settings.json"
-Set-Content -Path $settings -Value '{"renderer": 2, "resolution": 0, "frame_rate": 1, "settings_version": 2}' -NoNewline
+Set-Content -Path $settings -Value '{"renderer": 2, "resolution": 0, "frame_rate": 1, "quality_tier": 2, "settings_version": 2}' -NoNewline
 $nv = "$R\out\release\entrance_check_nvcache"
 if (Test-Path $nv) { Remove-Item -Recurse -Force $nv }
 New-Item -ItemType Directory -Force $nv | Out-Null

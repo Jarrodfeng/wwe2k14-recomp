@@ -1,0 +1,30 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=44 --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 90 step 3 (TRUE NATIVE outside the bench): match.txt in another arena - WrestleMania X-Seven (arena 44,
+# db\ids\arenas.json; the lesnar_bryan capture with the arena override, tools\scenarios\README.md). Shots at match clock
+# +300 / +540 with the owned-frame per-pass census at the first; the owned frame is flipped off at the end so its summary
+# covers the match frames since the flip at +250 (as s89_*_census_on.txt). ON arms only (--wwe2k14_d3d_owned=true): the
+# flip turns the owned frame ON, so a reference run of this route would not be a truth-path run (LESSONS: an A/B arm
+# sets its own flags). Untimed, fast-forwarded. on_fail quit.
+on_fail quit
+log bench: start scene s90_arena44
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match
+mark 1 match_clock
+wait_frames 250
+cvar gpu_native_owned_frame false
+wait_frames 2
+cvar gpu_native_owned_frame true
+wait_frames 46
+cvar gpu_native_owned_frame_log 2
+wait_frames 2
+screenshot s90_a44_300
+wait_frames 240
+screenshot s90_a44_540
+wait_frames 3
+cvar gpu_native_owned_frame false
+wait_frames 30
+log bench: done
+quit

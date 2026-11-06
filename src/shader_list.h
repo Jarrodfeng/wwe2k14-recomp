@@ -120,7 +120,7 @@ inline bool IndexPac(std::string_view guest_path, std::unordered_map<uint64_t, s
 
 struct Stats {
   uint32_t shaders_listed = 0, shaders_had = 0, shaders_added = 0, shaders_missing = 0, shaders_bad = 0;
-  uint32_t pipelines_added = 0, native_added = 0;
+  uint32_t pipelines_added = 0, native_added = 0, variants_listed = 0, variants_added = 0;
 };
 
 // A storage file of fixed-size records after a header: the record hashes in it (the first 8 bytes of each), or false
@@ -173,6 +173,13 @@ inline void Import(const std::filesystem::path& cache_root) {
   std::vector<uint8_t> xsh_header;
   std::unordered_map<std::string, std::vector<uint8_t>> headers;  // "fsi" / "fbo" / "native-fsi" / "native-fbo"
   std::unordered_map<std::string, std::vector<std::vector<uint8_t>>> records;
+  // Session 92 M6: `V <emu|nat> <VS|PS> <hash> <modification> <native_ext> <scale_x> <scale_y>` = a translation variant the
+  // player's precompile must translate (keys only, no shader code). Made into 40-byte records of 545408B2.vk.xvar, which
+  // the SDK's GPU module reads (the interface is the file, not a call):
+  //   [0..8) XXH3-64 of bytes 8..40 | [8] native (0 emulated, 1 NATIVE) | [9] type (0 VS, 1 PS) | [10..12) zero |
+  //   [12..20) ucode hash | [20..28) modification | [28..32) native_ext | [32..36) scale x (f32) | [36..40) scale y (f32)
+  // Header `H xvar`: 'XVAR', format 1, Modification::kVersion 12, record size 40 (u32 little endian each).
+  std::vector<std::vector<uint8_t>> variants;
   std::string line;
   while (std::getline(lf, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();  // (a checkout with CRLF line ends)
@@ -201,6 +208,21 @@ inline void Import(const std::filesystem::path& cache_root) {
           continue;  // image / image-patched: the library's own shaders (met at the first frames anyway)
         }
         shaders.push_back(std::move(s));
+      } else if (w[0] == "V" && w.size() == 8) {
+        std::vector<uint8_t> rec(40, 0);
+        rec[8] = w[1] == "nat" ? 1 : 0;
+        rec[9] = w[2] == "PS" ? 1 : 0;
+        const uint64_t hash = std::stoull(w[3], nullptr, 16), mod = std::stoull(w[4], nullptr, 16);
+        const uint32_t ext = uint32_t(std::stoul(w[5], nullptr, 16));
+        const float sx = std::stof(w[6]), sy = std::stof(w[7]);
+        std::memcpy(rec.data() + 12, &hash, 8);
+        std::memcpy(rec.data() + 20, &mod, 8);
+        std::memcpy(rec.data() + 28, &ext, 4);
+        std::memcpy(rec.data() + 32, &sx, 4);
+        std::memcpy(rec.data() + 36, &sy, 4);
+        const uint64_t check = XXH3_64bits(rec.data() + 8, 32);
+        std::memcpy(rec.data(), &check, 8);
+        variants.push_back(std::move(rec));
       } else if (w[0] == "H" && w.size() == 3) {
         if (w[1] == "xsh") xsh_header = Hex(w[2]);
         else headers[w[1]] = Hex(w[2]);
@@ -326,12 +348,35 @@ inline void Import(const std::filesystem::path& cache_root) {
       ++(std::strncmp(k.key, "native", 6) == 0 ? st.native_added : st.pipelines_added);
     }
   }
+  // Translation variants (M6): the file the SDK's precompile reads. A header that is not the list's (another modification
+  // encoding or record size) leaves it alone: logged, and the player's own store still fills itself in play.
+  // (Only with the translation store on - TRUE NATIVE: gpu_m6_store; a default NATIVE player gets no .xvar.)
+  auto xv = headers.find("xvar");
+  if (!variants.empty() && rex::cvar::GetFlagByName("gpu_m6_store") == "true") {
+    st.variants_listed = uint32_t(variants.size());
+    const std::filesystem::path path = dir / "545408B2.vk.xvar";
+    std::unordered_set<uint64_t> have_variants;
+    if (xv == headers.end() || xv->second.size() != 16) {
+      REXLOG_WARN("[wwe2k14][shaders] the list has V lines but no `H xvar` header: translation variants not added");
+    } else if (!OpenRecords(path, xv->second, 40, have_variants)) {
+      REXLOG_WARN("[wwe2k14][shaders] 545408B2.vk.xvar: its header is not the list's (another version): variants not added");
+    } else {
+      std::ofstream o(path, std::ios::binary | std::ios::app);
+      for (const std::vector<uint8_t>& rec : variants) {
+        uint64_t hh;
+        std::memcpy(&hh, rec.data(), 8);
+        if (!have_variants.insert(hh).second) continue;
+        o.write(reinterpret_cast<const char*>(rec.data()), std::streamsize(rec.size()));
+        ++st.variants_added;
+      }
+    }
+  }
   const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
   REXLOG_INFO("[wwe2k14][shaders] list {}: {} shaders ({} stored already, {} added from the game files, {} not found, "
-              "{} failed the hash check), {} pipelines{} + {} native pipelines added ({:.0f} ms)",
+              "{} failed the hash check), {} pipelines{} + {} native pipelines added, {} translation variants ({} added) ({:.0f} ms)",
               list_path.filename().string(), st.shaders_listed, st.shaders_had, st.shaders_added, st.shaders_missing,
               st.shaders_bad, st.pipelines_added, native_truth ? " (NATIVE: the emulated path's left out)" : "",
-              st.native_added, ms);
+              st.native_added, st.variants_listed, st.variants_added, ms);
 }
 
 }  // namespace wwe2k14::shader_list

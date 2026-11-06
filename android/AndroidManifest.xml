@@ -7,8 +7,8 @@
      game_logo.png"). INTERNET: the launcher's update check only (GitHub's latest-release address). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.jarrodfeng.wwe2k14"
-    android:versionCode="17"
-    android:versionName="android-v0.2.4"
+    android:versionCode="18"
+    android:versionName="android-v0.2.5"
     android:installLocation="auto">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="36" />

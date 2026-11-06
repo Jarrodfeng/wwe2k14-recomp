@@ -1,0 +1,6 @@
+# Session 94 (gpu_sweep.ps1): Intel Gen9 (HD 520 / UHD 620) on the OLD OEM driver era 100.x (Windows). NOT from a real log of ours: values from
+# docs\research\gpu_matrix_s93.md section 2.6 (100.x: 128 MiB storage range, no EDS / VIDS / robustness2) and rule table section 3 #8, #17
+# (Intel Windows: VIDS off, shaderFloat16 off). Driver "100.7212" = the 2-part Intel Windows number (31.0.100.7212). Intel keeps BCn and D24S8,
+# so no format gaps are emulated. The tier ("igpu") and the quirks table for INTEL_PROPRIETARY_WINDOWS fire from vendor 8086.
+# Storage alignment 16 cannot be emulated beyond the PC's own (min limits only go up).
+intel_gen9	--vulkan_emulate_gpu=8086:100.7212:IntelHD520:integrated --vulkan_emulate_limits=maxStorageBufferRange=134217728 --vulkan_emulate_disable=VK_EXT_extended_dynamic_state,VK_EXT_extended_dynamic_state2,VK_EXT_extended_dynamic_state3,VK_EXT_vertex_input_dynamic_state,VK_EXT_robustness2,nullDescriptor,shaderFloat16,VK_EXT_memory_budget

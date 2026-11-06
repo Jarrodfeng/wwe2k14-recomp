@@ -33,7 +33,9 @@ if (-not (Test-Path "$($AndroidDirs.SdkInstall)\lib\cmake\rexglue\rexglueConfig.
 $pcRexglue = @("$ProjectRoot\thirdparty\rexglue-sdk-vulkan\bin\rexglue.exe", "$ProjectRoot\thirdparty\rexglue-sdk\bin\rexglue.exe") |
     Where-Object { Test-Path $_ } | Select-Object -First 1
 
-$lock = Enter-RunLock -Name "build_game_android.ps1 $Run"
+# Session 92: BUILD class (like fast_build): this writes only under out\android (+ codegen, which PC builds - exclusive
+# holders - never overlap), so it shares the PC with untimed runs instead of waiting for every game to close.
+$lock = Enter-RunLock -Name "build_game_android.ps1 $Run" -Mode Build
 try {
 $t0 = Get-Date
 "== game android build $Run, $(Get-Date -Format 'yyyy-MM-dd HH:mm'), $(git -C $ProjectRoot log --oneline -1)" | Out-File $log

@@ -40,6 +40,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <rex/cvar.h>
@@ -53,6 +54,15 @@ REXCVAR_DEFINE_BOOL(wwe2k14_d3d_bind_verify, false, "wwe2k14",
                     "Session 87 (D3D layer shader bind): compare each patched vertex-shader copy with the shader object's own "
                     "microcode when the library's slot cache says it holds the same patch (declaration id and strides equal), "
                     "and count / log differences ([d3d] bind verify)");
+
+REXCVAR_DEFINE_BOOL(wwe2k14_d3d_record_lean, false, "wwe2k14",
+                    "Session 94 (idea 5, game-thread cost of TRUE NATIVE's record building): per-call trims in the D3D layer that "
+                    "cannot change a record's bytes - the texture slot walk visits only the dirty slots (no shadow reads of the "
+                    "clean ones) and the patched vertex-shader copy is found by a per-thread cache validated by comparing the "
+                    "source bytes instead of hashing them ([d3d][rec] lines)");
+REXCVAR_DEFINE_BOOL(wwe2k14_d3d_rec_timer, false, "wwe2k14",
+                    "Session 94: time the game thread's D3D record building on 1 guest frame in 8 and print [d3d][rec] every 600 "
+                    "frames (diagnostic; off = no clock reads, no line; a bench pair passes it in both arms)");
 
 REX_EXTERN(sub_82CBD910);
 
@@ -92,36 +102,54 @@ struct BindPlan {
   bool write_strides = false;     // +12264 / +12272 <- strides (16 bytes: streams 0-7, 8-15)
   uint8_t strides[16] = {};
   uint8_t b69 = 0, b70 = 0, b71 = 0;  // the flag bytes' new values
+  // Session 94: back to a fresh plan but keeping the vectors' capacity (a per-draw plan reused per thread allocates nothing).
+  void Reset() {
+    nothing = false;
+    mask = 0;
+    hiz_event = false;
+    runs.clear();
+    values.clear();
+    ps_literal_runs = 0;
+    has_ps = has_vs = false;
+    pixel_shader.guest_address = pixel_shader.dword_count = 0;
+    pixel_shader.inline_words.clear();
+    vertex_shader.guest_address = vertex_shader.dword_count = 0;
+    vertex_shader.inline_words.clear();
+    words.clear();
+    write_strides = false;
+    std::memset(strides, 0, sizeof(strides));
+    b69 = b70 = b71 = 0;
+  }
 };
 
 // ---- guest memory helpers (the game's accessors: big-endian, the E-heap 4 KB shift) -----------------------------------
 inline uint32_t Ld32(const uint8_t* base, uint32_t a) {
   uint32_t be;
-  std::memcpy(&be, base + a + (a >= 0xE0000000u ? 0x1000u : 0u), 4);
+  std::memcpy(&be, base + a + ::rex::memory::detail::PhysicalHostOffset(a), 4);
   return std::byteswap(be);
 }
 inline uint64_t Ld64(const uint8_t* base, uint32_t a) {
   uint64_t be;
-  std::memcpy(&be, base + a + (a >= 0xE0000000u ? 0x1000u : 0u), 8);
+  std::memcpy(&be, base + a + ::rex::memory::detail::PhysicalHostOffset(a), 8);
   return std::byteswap(be);
 }
 inline uint32_t Ld16(const uint8_t* base, uint32_t a) {
   uint16_t be;
-  std::memcpy(&be, base + a + (a >= 0xE0000000u ? 0x1000u : 0u), 2);
+  std::memcpy(&be, base + a + ::rex::memory::detail::PhysicalHostOffset(a), 2);
   return std::byteswap(be);
 }
 inline void St32(uint8_t* base, uint32_t a, uint32_t v) {
   const uint32_t be = std::byteswap(v);
-  std::memcpy(base + a + (a >= 0xE0000000u ? 0x1000u : 0u), &be, 4);
+  std::memcpy(base + a + ::rex::memory::detail::PhysicalHostOffset(a), &be, 4);
 }
-inline const uint8_t* Host(const uint8_t* base, uint32_t a) { return base + a + (a >= 0xE0000000u ? 0x1000u : 0u); }
-inline uint8_t* Host(uint8_t* base, uint32_t a) { return base + a + (a >= 0xE0000000u ? 0x1000u : 0u); }
+inline const uint8_t* Host(const uint8_t* base, uint32_t a) { return base + a + ::rex::memory::detail::PhysicalHostOffset(a); }
+inline uint8_t* Host(uint8_t* base, uint32_t a) { return base + a + ::rex::memory::detail::PhysicalHostOffset(a); }
 
 // The library's GPU address form of a virtual address (listing 0x82CBE264-0x82CBE2CC): the low 29 bits plus 0x1000 for the
 // 4 KB-page physical view.
 inline uint32_t PhysForm(uint32_t a) { return (((a >> 20) + 512) & 0x1000u) + (a & 0x1FFFFFFFu); }
 
-// ---- the private region (physical heap, 64 KB pages: the A view, no address shift) ----------------------------------------
+// ---- the private region (Session 90: GUEST VIRTUAL heap, 64 KB pages, no address shift; none of the game physical pool) ----------------------------------------
 inline constexpr uint32_t kRegionBytes = 4u << 20;
 inline constexpr uint32_t kArgBytes = 4096;  // [0, 4096): the stride argument; copies follow
 struct Region {
@@ -135,13 +163,14 @@ inline bool EnsureRegion() {
   if (g_region.virt) return true;
   if (g_region.failed) return false;
   auto* memory = REX_KERNEL_MEMORY();
-  rex::memory::BaseHeap* heap = memory->LookupHeapByType(true, 0x10000);
+  rex::memory::BaseHeap* heap = memory->LookupHeapByType(false, 0x10000);
   uint32_t address = 0;
   if (heap && heap->Alloc(kRegionBytes, 0x10000, rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
                           rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite, false, &address)) {
     g_region.virt = address;
-    REXLOG_INFO("[d3d] shader-bind region: {} bytes at guest {:08X} (physical {:08X})", kRegionBytes, address,
-                memory->GetPhysicalAddress(address));
+    REXLOG_INFO("[d3d][mem] shader-bind region: {} bytes at guest virtual {:08X}; taken from the game's physical pool: 0 bytes "
+                "(patched microcode reaches the SDK as an IM_LOAD address with bit 31 set = guest virtual)",
+                kRegionBytes, address);
     return true;
   }
   g_region.failed = true;
@@ -181,8 +210,8 @@ inline uint64_t Hash64(const uint8_t* p, size_t n) {
 // a plain copy (patch = false: the shaders that need no fetch patch, or no declaration). Layer draws always load a copy of ours
 // and never the object's own memory: a fallback draw running the original bind can patch that in place, and the library's
 // fence stamp on it (vs + 416 variant + 64) is not mirrored. Found or made. Fail: no region / bad input.
-inline Fail PatchedVertexShader(PPCContext& ctx, uint8_t* base, uint32_t dev, uint32_t vs, uint32_t decl,
-                                const uint8_t strides[24], bool patch, PatchedCopy& out) {
+inline Fail PatchedVertexShaderSlow(PPCContext& ctx, uint8_t* base, uint32_t dev, uint32_t vs, uint32_t decl,
+                                    const uint8_t strides[24], bool patch, PatchedCopy& out) {
   const uint32_t rec = VariantRecord(base, vs, 0);
   const uint32_t ucode_offset = Ld32(base, rec + 872), bytes = Ld32(base, rec + 876);
   const uint32_t count = patch ? Ld32(base, decl + 24) : 0;
@@ -222,7 +251,7 @@ inline Fail PatchedVertexShader(PPCContext& ctx, uint8_t* base, uint32_t dev, ui
   std::memcpy(Host(base, copy), source, bytes);
   PatchedCopy c;
   c.virt = copy;
-  c.physical = REX_KERNEL_MEMORY()->GetPhysicalAddress(copy);
+  c.physical = 0x80000000u | copy;  // (Session 90: guest virtual tag, bit 31; SDK d3d_shader_tag.h)
   c.dwords = bytes >> 2;
   if (!patch) {
     g_copies.emplace(std::move(key), c);
@@ -255,6 +284,67 @@ inline Fail PatchedVertexShader(PPCContext& ctx, uint8_t* base, uint32_t dev, ui
   g_stat_copies.fetch_add(1, std::memory_order_relaxed);
   out = c;
   return Fail::kNone;
+}
+
+// Session 94 (wwe2k14_d3d_record_lean): the slow path above hashes the shader's whole microcode (and the 348 pristine bytes) on
+// every vertex-shader change to build its string key. This front cache is per thread (no lock), keyed by a hash of the SMALL inputs
+// only, and a hit is accepted only when the skey inputs are byte-equal and the source / pristine bytes compare equal to the
+// snapshot taken when the entry was stored - so a hit finds exactly the copy the slow path's key (which hashes the same bytes)
+// would find. The copies are never removed from g_copies, so a stored entry stays valid.
+struct FastEntry {
+  std::vector<uint8_t> skey, source, pristine;
+  PatchedCopy copy;
+};
+inline thread_local std::unordered_map<uint64_t, FastEntry> t_fast;
+inline thread_local std::vector<uint8_t> t_skey;
+inline std::atomic<uint64_t> g_stat_fast_hits{0}, g_stat_fast_misses{0};
+
+inline Fail PatchedVertexShader(PPCContext& ctx, uint8_t* base, uint32_t dev, uint32_t vs, uint32_t decl,
+                                const uint8_t strides[24], bool patch, PatchedCopy& out) {
+  if (!REXCVAR_GET(wwe2k14_d3d_record_lean)) return PatchedVertexShaderSlow(ctx, base, dev, vs, decl, strides, patch, out);
+  const uint32_t rec = VariantRecord(base, vs, 0);
+  const uint32_t ucode_offset = Ld32(base, rec + 872), bytes = Ld32(base, rec + 876);
+  const uint32_t count = patch ? Ld32(base, decl + 24) : 0;
+  if (!bytes || (bytes & 3) || bytes > (256u << 10) || count > 64) return PatchedVertexShaderSlow(ctx, base, dev, vs, decl, strides, patch, out);
+  const uint8_t* source = Host(base, Ld32(base, vs + 32) + ucode_offset);
+  const uint8_t* pristine = Host(base, vs + 68);
+  constexpr size_t kPristine = 416 - 68;
+  std::vector<uint8_t>& skey = t_skey;
+  skey.clear();
+  auto put = [&](const void* p, size_t n) { skey.insert(skey.end(), static_cast<const uint8_t*>(p), static_cast<const uint8_t*>(p) + n); };
+  const uint8_t tag = patch ? 'P' : 'C';
+  put(&tag, 1);
+  put(&vs, 4);
+  put(&ucode_offset, 4);
+  put(&bytes, 4);
+  if (patch) {
+    put(&count, 4);
+    put(Host(base, decl + 52), 12 * count);
+    put(strides, 24);
+  }
+  const uint64_t fk = Hash64(skey.data(), skey.size());
+  if (auto it = t_fast.find(fk); it != t_fast.end()) {
+    const FastEntry& e = it->second;
+    if (e.skey == skey && e.source.size() == bytes && std::memcmp(e.source.data(), source, bytes) == 0 &&
+        (!patch || std::memcmp(e.pristine.data(), pristine, kPristine) == 0)) {
+      g_stat_reused.fetch_add(1, std::memory_order_relaxed);
+      g_stat_fast_hits.fetch_add(1, std::memory_order_relaxed);
+      out = e.copy;
+      return Fail::kNone;
+    }
+  }
+  g_stat_fast_misses.fetch_add(1, std::memory_order_relaxed);
+  // Snapshot BEFORE the slow path: a patch routine writes the private copy, never the object's own bytes, but take it first anyway.
+  FastEntry e;
+  e.skey = skey;
+  e.source.assign(source, source + bytes);
+  if (patch) e.pristine.assign(pristine, pristine + kPristine);
+  const Fail f = PatchedVertexShaderSlow(ctx, base, dev, vs, decl, strides, patch, out);
+  if (f == Fail::kNone) {
+    e.copy = out;
+    t_fast[fk] = std::move(e);
+  }
+  return f;
 }
 
 // The runtime check of "our copy has the content the library's patched copy has": when the library's slot cache holds the same
@@ -360,7 +450,7 @@ inline uint64_t HizPrepass(const uint8_t* base, uint32_t dev, uint64_t m, uint32
 // raised by the stride rule where it applies); stride0_dword = the stream-0 stride byte for this draw (stride / 4) for an inline
 // draw, or ~0u to use the device's +12904 as it is.
 inline Fail Plan(PPCContext& ctx, uint8_t* base, uint32_t dev, uint64_t mask, uint32_t stride0_dword, BindPlan& p) {
-  p = BindPlan{};
+  p.Reset();
   uint64_t m = mask;
   uint8_t b69 = base[dev + 11069], b70 = base[dev + 11070], b71 = base[dev + 11071];
   uint32_t d10560 = Ld32(base, dev + 10560), d10580 = Ld32(base, dev + 10580), d10372 = Ld32(base, dev + 10372),

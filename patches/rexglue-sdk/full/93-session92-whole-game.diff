@@ -1,0 +1,2392 @@
+# ReXGlue SDK changes for WWE 2K14 (session92-whole-game): 224e5d66781f..2ec4d65863cd on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  2ec4d65 Session 92 M2a: failure-read fixes 1,2,3,6 (parked drops noted, dead drop not blocked by records, rect-copy gate off under the latch, second clear held)
+#  0adc2e6 Session 92 M2a: second review fixes (record supersession only between live sides, restore stencil clear guarded, dropped depth clears mark pending/parked stale)
+#  9915036 Session 92 M2a: review fixes (copies keep pages, front copies written, record supersession by tick, restore does not flush, latch latched per frame)
+#  b37998d Session 92 M2a: the owned-only latch (gpu_native_owned_only): no hand-backs, replays, pauses, dirty tiles or truth images under TRUE NATIVE; per-surface newest records; drops counted
+#  fdac8c4 Merge branch 's92-damage' into wwe2k14-local
+#  eb1632f Session 92: E1 review fixes: held clears for the depth refuse, committed pass sources need a dirty depth entry, edram-free colour pass refused, counter labels
+#  7213ebc Session 92: E1 colour-only owned passes get depth copied from our image holding the slot's newest depth; E2 held frames do not age the front page (TRUE NATIVE)
+#  96bf0db Session 92: cube derivation review fixes: reuse dead cube entries, learn-drop re-derive counts as contradiction, OwnedWatchSync after drops
+#  e428ae6 Session 92: lighting-cube derivation survives stale cubes (TRUE NATIVE): stale learned cube drops only itself, older overlapped derived cube dropped, narrow same-frame kill switch, window counters
+#  b5efaa7 Merge branch 's92-start' into wwe2k14-local
+#  a1c9ec3 Session 92 M0: free-from-the-360 counters, log only ([d3d][free] line per owned-frame window under TRUE NATIVE)
+#  ebbf792 Session 92: window-fix re-review minors - retry backs off 100 ms -> 1 s on repeated failure, honest retry log, paint request when already paintable, no duplicate reconnect on DISPLAY_CHANGED
+#  42d7010 Session 92: review fixes - null repaint_needed_out crash, RecoverConnectionFromUIThread (no rebuild of a healthy swapchain), recovery flag reset, failure log once per episode, ANativeWindow reference, consume paint request when off-monitor
+#  e212083 Session 92: presenter retries the reconnect after an outdated swapchain; RESTORED/EXPOSED/DISPLAY_CHANGED force a reconnect; log the silent swapchain failures
+
+diff --git a/include/rex/graphics/free_counters.h b/include/rex/graphics/free_counters.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..4b0ba0276eaf29cfc8f66fe758d8fd98447d5eaa
+--- /dev/null
++++ b/include/rex/graphics/free_counters.h
+@@ -0,0 +1,75 @@
++#pragma once
++// wwe2k14 patch (Session 92, M0): the "free from the 360" counters. LOG ONLY: what of the 360 machinery still runs
++// under TRUE NATIVE, printed as one `[d3d][free]` line per owned-frame window (OwnedFrameSummary), then reset.
++// Cheap by design: a relaxed load + store (no locked RMW) on the hot counters (a lost increment between the two CP sides
++// is accepted: these are census numbers); the translator's counter is a real atomic add (workers); the first-time shader
++// set takes a mutex only when a shader is translated (never per call). Inline variables: one copy in the SDK library.
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <set>
++#include <string>
++
++#include <rex/logging.h>
++
++namespace rex::graphics::free_counters {
++
++struct Counters {
++  std::atomic<uint64_t> truth_entries{0};    // NativeRenderer::TruthRecordDraw entries
++  std::atomic<uint64_t> translator_runs{0};  // ShaderTranslator::TranslateAnalyzedShader calls (any thread)
++  std::atomic<uint64_t> packets{0};          // CommandProcessor::ExecutePacket(RingBuffer*) calls
++  std::atomic<uint64_t> image_stores{0};     // registers stored into the D3D feed's register image (D3dFeedAccess::Apply)
++  std::atomic<uint64_t> write_registers{0};  // CommandProcessor::WriteRegister calls
++  std::atomic<uint64_t> wait_reg_mem{0};     // ExecutePacketType3_WAIT_REG_MEM calls
++  std::atomic<uint64_t> answers_walks{0};    // d3d_noring's answers-side NfRunRingPacketForDraw walks
++  std::atomic<uint64_t> clear_stock{0};      // D3dCopyAccess::ClearStock (clears drawn the library's way)
++};
++
++inline Counters g_c;
++inline std::mutex g_shader_mutex;
++inline std::set<uint64_t> g_seen_shaders;
++inline std::string g_new_shaders;  // "VS 0x..., PS 0x..." translated for the first time since the last line (<= 16)
++inline uint32_t g_new_shader_count = 0;
++
++inline void Bump(std::atomic<uint64_t>& a, uint64_t n = 1) {
++  a.store(a.load(std::memory_order_relaxed) + n, std::memory_order_relaxed);
++}
++
++// A guest shader went through the translator. is_vertex: VS, else PS.
++inline void NoteTranslation(bool is_vertex, uint64_t hash) {
++  g_c.translator_runs.fetch_add(1, std::memory_order_relaxed);
++  std::lock_guard<std::mutex> lock(g_shader_mutex);
++  if (!g_seen_shaders.insert(hash ^ (is_vertex ? 0 : 0x8000000000000001ull)).second) return;
++  ++g_new_shader_count;
++  if (g_new_shader_count <= 16) {
++    char buf[40];
++    std::snprintf(buf, sizeof buf, "%s0x%016llX", g_new_shaders.empty() ? (is_vertex ? "VS " : "PS ") : (is_vertex ? ", VS " : ", PS "),
++                  static_cast<unsigned long long>(hash));
++    g_new_shaders += buf;
++  }
++}
++
++// Print (when `print`) and reset. frames A-B = the window.
++inline void PrintAndReset(bool print, int64_t first, int64_t last) {
++  const auto take = [](std::atomic<uint64_t>& a) { return a.exchange(0, std::memory_order_relaxed); };
++  const uint64_t te = take(g_c.truth_entries), tr = take(g_c.translator_runs), pk = take(g_c.packets),
++                 is = take(g_c.image_stores), wr = take(g_c.write_registers), wm = take(g_c.wait_reg_mem),
++                 aw = take(g_c.answers_walks), cs = take(g_c.clear_stock);
++  std::string fresh;
++  uint32_t fresh_count;
++  {
++    std::lock_guard<std::mutex> lock(g_shader_mutex);
++    fresh = std::move(g_new_shaders);
++    fresh_count = g_new_shader_count;
++    g_new_shaders.clear();
++    g_new_shader_count = 0;
++  }
++  if (!print) return;
++  REXGPU_INFO("[d3d][free] frames {}-{}: truth entries {}, translator runs {} (new shaders: {}{}), packets executed {}, register writes {} "
++              "(feed image stores {}, WriteRegister calls {}), wait_reg_mem {}, answers-side walks {}, record clears drawn the library's way {}",
++              first, last, te, tr, fresh.empty() ? "none" : fresh,
++              fresh_count > 16 ? ", ... (" + std::to_string(fresh_count) + " in all)" : std::string(), pk, is + wr, is, wr, wm, aw, cs);
++}
++
++}  // namespace rex::graphics::free_counters
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 158a46140344a601bafecb1ea3942ba237014d12..e317d0d1632780463802f44015d1d827f5215706 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -217,6 +217,9 @@ struct Draw {
+   // not from a guest draw: it has no pipeline. The owned frame may hold it as a pass's start; a truth path that is asked
+   // to draw it cannot (counted, logged loudly: D3dNoteClearLost).
+   bool d3d_record = false;
++  // wwe2k14 patch (Session 92, M2a, gpu_native_owned_only): the claim refused this draw (a TruthReason) but the latch claims it anyway so the
++  // emulated tier is never reached: TruthRecordDraw drops it (counted, named). 0 = a normal claim.
++  uint8_t claim_refused = 0;
+ };
+ 
+ class NativeRenderer {
+@@ -2271,6 +2274,7 @@ class NativeRenderer {
+     // write-backs that kept the old replay / were refused, by reason.)
+     uint32_t wb_written[5] = {}, wb_front = 0, wb_loaded_parked = 0, wb_unplanned = 0, wb_dest_ours = 0, wb_only_ours = 0, wb_planned = 0, wb_rect = 0, wb_window_pauses = 0, wb_window_loads = 0;
+     std::vector<std::pair<std::string, uint32_t>> wb_refused;
++    uint32_t k4444_unloaded_wb = 0;  // (Session 92: damage-map resets written back from our image)
+     uint32_t ch_dmerge = 0, ch_resumed = 0, ch_loaded = 0, ch_conv016 = 0, ch_front_served = 0, ch_front_lost = 0, ch_swap_unserved = 0;
+     std::vector<std::pair<int, uint32_t>> lose_lines;
+     uint32_t ch_site_sub = 0, ch_site_frame = 0, ch_site_write = 0, ch_commit_frame = 0, ch_commit_write = 0, ch_draw_replays = 0;
+@@ -2626,6 +2630,10 @@ class NativeRenderer {
+     uint32_t host_width = 0, host_height = 0;  // and host pixels
+     int16_t image = -1;
+     uint64_t frame = 0, submission = 0;
++    // (Session 92, M2a, gpu_native_owned_only: the pass's newest-draw tick (E1's depth source picks the newest holder of a depth slot by it); a
++    // surface's newest record (owned_newest_) is a committed pass whose colour / depth a later pass of the surface has replaced.)
++    uint64_t last_tick = 0, depth_tick = 0;  // (depth_tick: the last draw / clear / copy that wrote its depth)
++    bool rec_colour_gone = false, rec_depth_gone = false;
+     std::bitset<2048> tiles;  // the EDRAM tiles our image stands for (the box's colour tiles; depth ones with depth)
+     std::vector<Draw> draws;
+     // (Session 87, review A2: the owned images the kept draws above sampled - a detach of one of these images is refused
+@@ -2715,6 +2723,25 @@ class NativeRenderer {
+   // recorded into that pass as a native clear - the clear the library draws with its clear shaders is never a draw on our side.)
+   bool OwnedDepthClearInPass(const Draw& draw);
+   bool OwnedChains() const;  // (Session 87: gpu_native_owned_frame_chains)
++  bool OwnedHoldsStencil(int16_t depth_slot, uint32_t pitch_tiles, const int32_t rect[4]);  // (Session 92, D1: ClaimTruth)
++  // Session 92, M2a (gpu_native_owned_only; docs\native\d3d\S92_M2_DESIGN.md section 4): under TRUE NATIVE nothing is handed back to the truth path
++  // - a draw our frame does not take is dropped (counted, named), a copy is served from a pass / the surface's newest record, written, or dropped,
++  // no replay, no pause, no dirty tile, no truth image. OwnedOnly() = the cvar && chains && the owned frame on, released by a hard owned failure.
++  bool OwnedOnly() const;
++  void OwnedDropDraw(const Draw& draw);                       // (TruthRecordDraw: the draw OwnedTakeDraw did not take)
++  void OwnedNoteClaimDrop(uint32_t truth_reason, const Draw& draw);  // (ClaimTruth: a refusal claimed instead)
++  void OwnedNoteFallbackIgnored(uint32_t truth_reason);       // (TruthFallback under the latch)
++  void OwnedNoteNewest(const OwnedPass& q);                   // (a pass that ends: its surface's newest record)
++  void OwnedRecordsTrim(const char* why);
++  void OwnedMarkDepthStale(int16_t depth_slot);  // (a depth clear of the slot was dropped / replaced it: records, parked and the pending pass holding it lose that depth)
++  void OwnedSupersedeRecords(uint32_t base, uint32_t pitch, uint32_t kind, int16_t depth_slot);  // (a pass of this surface starts: older records lose their colour / depth)
++  void OwnedEndAsIs(const char* why);                         // (a pending pass whose copy did not follow: committed and ended, no replay)
++  std::vector<OwnedPass> owned_newest_;                       // (per surface: the newest committed pass, holds its image)
++  uint64_t owned_tick_ = 0;
++  bool owned_only_released_logged_ = false;
++  bool owned_only_latched_ = false;  // (the cvar as of the last frame boundary - OwnedRefreshFrame)
++  uint32_t m2a_loaded_from_record_ = 0, m2a_loaded_no_record_ = 0;  // (owned_start.cpp: a start that keeps content - resumed from a record / none held)
++  void OwnedCountUnprovenStencil(const Draw& draw);  // (Session 92: census only)
+   // (Session 87, gpu_native_owned_frame_depth_clear_pend: a depth-only clear of a depth surface no owned pass has is PENDING - not run in the
+   // truth path as a pass of its own. It runs there (the saved draw replayed) only if something consults that depth first within the
+   // submission: a draw that uses the same depth surface, a copy of that depth, the EDRAM write-out. Else it is dropped at the submission's
+diff --git a/include/rex/ui/presenter.h b/include/rex/ui/presenter.h
+index bd7964303dfe7c171160a702271cf4c06a34582d..48edea8678ecc517d3582ee1f67328e5f4bd527e 100644
+--- a/include/rex/ui/presenter.h
++++ b/include/rex/ui/presenter.h
+@@ -359,6 +359,8 @@ class Presenter {
+   void SetWindowSurfaceFromUIThread(Window* new_window, Surface* new_surface);
+   void OnSurfaceMonitorUpdateFromUIThread(bool old_monitor_potentially_disconnected);
+   void OnSurfaceResizeFromUIThread();
++  // wwe2k14 patch (Session 92): reconnect only if the connection is not paintable (never rebuilds a healthy one).
++  void RecoverConnectionFromUIThread();
+ 
+   // For calling from the platform paint event handler. Refreshes the surface
+   // connection if needed, and also paints if possible and if needed (if there
+@@ -1033,6 +1035,13 @@ class Presenter {
+   };
+   OnceStats once_stats_;
+   uint64_t once_log_last_ms_ = 0;
++  // wwe2k14 patch (Session 92): true from a paint that found the connection outdated until it is paintable again;
++  // keeps retrying the reconnect (bounded, ~100 ms) when the first reconnect failed.
++  bool outdated_recovery_ = false;
++  uint64_t outdated_retry_ms_ = 0;
++  // Session 92 (re-review b): the retry interval doubles after each failed retry, up to 1 s (a persistent failure
++  // at a non-zero size otherwise re-creates a VkSurface and logs errors ~10 times a second); 100 ms per new episode.
++  uint64_t outdated_retry_interval_ms_ = 100;
+   uint32_t guest_output_mailbox_writable_ = 1;
+   // The guest output images may be consumed by two operations - painting, and
+   // capturing to a CPU-side buffer. These two usually never happen in parallel
+diff --git a/include/rex/ui/surface_android.h b/include/rex/ui/surface_android.h
+index ab0576bbdf9969cd3c3f8c3fbbc6ebb9f96aad84..48103e10e780facb07a938a8066ac85050580877 100644
+--- a/include/rex/ui/surface_android.h
++++ b/include/rex/ui/surface_android.h
+@@ -18,7 +18,13 @@ namespace ui {
+ 
+ class AndroidNativeWindowSurface final : public Surface {
+  public:
+-  explicit AndroidNativeWindowSurface(ANativeWindow* window) : window_(window) {}
++  explicit AndroidNativeWindowSurface(ANativeWindow* window) : window_(window) {
++    // wwe2k14 patch (Session 92): SDL may release its reference on the Java thread; hold our own.
++    if (window_) ANativeWindow_acquire(window_);
++  }
++  ~AndroidNativeWindowSurface() override {
++    if (window_) ANativeWindow_release(window_);
++  }
+ 
+   TypeIndex GetType() const override { return kTypeIndex_AndroidNativeWindow; }
+   ANativeWindow* window() const { return window_; }
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index eda2e8152e002a0a615b8639c4453d00b0439675..7bce9e34b5b6934d6603f9f5a4662762402ea9e2 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -50,6 +50,7 @@
+ #include <rex/graphics/util/draw_extent_estimator.h>
+ #include <rex/graphics/xenos.h>
+ #include <rex/graphics/d3d_tex.h>
++#include <rex/graphics/free_counters.h>
+ #include <rex/logging.h>
+ #include <rex/math.h>
+ #include <rex/memory.h>
+@@ -1120,6 +1121,7 @@ uint32_t CommandProcessor::ReadRegisterValue(uint32_t index) const {
+ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+   // wwe2k14 patch (Session 6, CP1B): gpu_type0_block_split skips this for "plain" registers; any register given
+   // side effects here must be added to kRegisterSplitIntervals and IsPlainRegisterWrite.
++  rex::graphics::free_counters::Bump(rex::graphics::free_counters::g_c.write_registers);  // (Session 92 M0: log-only counter)
+   RegisterFile& regs = *register_file_;
+   if (index >= RegisterFile::kRegisterCount) {
+     auto [it, inserted] = extended_register_values_.insert_or_assign(index, value);
+@@ -1807,6 +1809,7 @@ void CommandProcessor::NfFrameLog() {
+ }
+ 
+ bool CommandProcessor::ExecutePacket(memory::RingBuffer* reader) {
++  rex::graphics::free_counters::Bump(rex::graphics::free_counters::g_c.packets);  // (Session 92 M0: log-only counter)
+   // wwe2k14 patch (Session 78, NATIVE FRAME): where the answers side is in the current segment (the drawing side
+   // catches up to here before a guest-visible point); the measurement hooks belong to the drawing side.
+   if (nf_role_ == NfRole::kAnswers) {
+@@ -2847,6 +2850,7 @@ bool CommandProcessor::ExecutePacketType3_INDIRECT_BUFFER(memory::RingBuffer* re
+ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reader, uint32_t packet,
+                                                        uint32_t count) {
+   SCOPE_profile_cpu_f("gpu");
++  rex::graphics::free_counters::Bump(rex::graphics::free_counters::g_c.wait_reg_mem);  // (Session 92 M0: log-only counter)
+ 
+   // wait until a register or memory location is a specific value
+ 
+diff --git a/src/graphics/d3d_noring.cpp b/src/graphics/d3d_noring.cpp
+index 6a27f530734541267b2db7bed0e4c8727ef9f1e2..842983bcf4a25edfd8000cbaf5ca395040b1abc4 100644
+--- a/src/graphics/d3d_noring.cpp
++++ b/src/graphics/d3d_noring.cpp
+@@ -30,6 +30,7 @@
+ #include <rex/graphics/graphics_system.h>
+ #include <rex/graphics/d3d_tex.h>
+ #include <rex/graphics/xenos.h>
++#include <rex/graphics/free_counters.h>
+ #include <rex/logging.h>
+ #include <rex/memory.h>
+ #include <rex/system/xmemory.h>
+@@ -166,6 +167,7 @@ bool CommandProcessor::D3dNoringRunPackets(const uint32_t* words, uint32_t count
+       const uint32_t header = peek.ReadAndSwap<uint32_t>();
+       const uint32_t opcode = (header >> 8) & 0x7F;
+       if (header && !((header >> 30) == 3 && (opcode == xenos::PM4_INDIRECT_BUFFER || opcode == xenos::PM4_INDIRECT_BUFFER_PFD))) {
++        rex::graphics::free_counters::Bump(rex::graphics::free_counters::g_c.answers_walks);  // (Session 92 M0: log-only counter)
+         NfRunRingPacketForDraw(reader);
+       }
+     }
+diff --git a/src/graphics/pipeline/shader/translator.cpp b/src/graphics/pipeline/shader/translator.cpp
+index c36c44f4f68fe7ba34a20b447b97a98c91240127..b40a228f1f257515f2cc46995a7d5aa40a6e65a7 100644
+--- a/src/graphics/pipeline/shader/translator.cpp
++++ b/src/graphics/pipeline/shader/translator.cpp
+@@ -18,6 +18,7 @@
+ 
+ #include <rex/assert.h>
+ #include <rex/graphics/flags.h>
++#include <rex/graphics/free_counters.h>
+ #include <rex/graphics/pipeline/shader/translator.h>
+ #include <rex/logging.h>
+ #include <rex/math.h>
+@@ -752,6 +753,7 @@ bool ShaderTranslator::TranslateAnalyzedShader(Shader::Translation& translation)
+     return false;
+   }
+   translation_ = &translation;
++  rex::graphics::free_counters::NoteTranslation(shader.type() == xenos::ShaderType::kVertex, shader.ucode_data_hash());  // (Session 92 M0: log-only)
+ 
+   Reset();
+ 
+diff --git a/src/graphics/vulkan/native/d3d_copy_records.cpp b/src/graphics/vulkan/native/d3d_copy_records.cpp
+index 9af0c0034a5c80f36c26735f0e0646565a825e93..490122977ad44a462d95fdb707890ade659669b0 100644
+--- a/src/graphics/vulkan/native/d3d_copy_records.cpp
++++ b/src/graphics/vulkan/native/d3d_copy_records.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include <rex/graphics/d3d_copy.h>
++#include <rex/graphics/free_counters.h>
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
+ #include <rex/memory/ring_buffer.h>
+@@ -94,6 +95,7 @@ bool D3dCopyAccess::Execute(CommandProcessor& base, uint32_t kind, const uint32_
+         ++g_census.clears_stock_hold_off;
+       }
+       ++g_census.clears_stock;
++      rex::graphics::free_counters::Bump(rex::graphics::free_counters::g_c.clear_stock);
+       return ClearStock(cp, sem, count);
+     }
+     case kD3dCopyGprSplit:
+diff --git a/src/graphics/vulkan/native/d3d_feed.cpp b/src/graphics/vulkan/native/d3d_feed.cpp
+index 3253ce7b8b27b718e6e8ed2101fbcb8847ed201d..1cb051e8a826b27377194bd79b7b5f1d58d54ccd 100644
+--- a/src/graphics/vulkan/native/d3d_feed.cpp
++++ b/src/graphics/vulkan/native/d3d_feed.cpp
+@@ -31,6 +31,7 @@
+ #include <rex/graphics/register_file.h>
+ #include <rex/graphics/registers.h>
+ #include <rex/cvar.h>
++#include <rex/graphics/free_counters.h>
+ #include <rex/logging.h>
+ #include <rex/memory/ring_buffer.h>
+ 
+@@ -238,6 +239,7 @@ void D3dFeedAccess::Notify(VCP& cp, Piece piece, uint32_t first, uint32_t count,
+ // Stores `n` values for registers first.. into the image; with `notify`, the notifications; with `track`, pending.
+ void D3dFeedAccess::Apply(VCP& cp, uint32_t first, uint32_t n, const uint32_t* values, bool notify, bool track) {
+   uint32_t* const image = g_f.image->values;
++  rex::graphics::free_counters::Bump(rex::graphics::free_counters::g_c.image_stores, n);  // (Session 92 M0: log-only counter)
+   uint32_t i = 0;
+   while (i < n) {
+     const uint32_t reg = first + i;
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 165bc352d64db548e098c2969535c9292ccb3643..db825db67ee66580b964d64c7f08adf448249137 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -5202,6 +5202,7 @@ bool NativeRenderer::Claim(Draw& draw) {
+   declined_pending_ = false;
+   claim_retry_ = false;
+   draw.truth = false;
++  draw.claim_refused = 0;  // Session 92 (M2a)
+   // Session 46: a truth frame claims every draw it can draw (a refusal ends truth for the frame: ClaimTruth).
+   if (truth_ && replacing_) return ClaimTruth(draw);
+   // Session 42: after the scene's colour resolve, post-processing draws (gpu_native_post); with
+@@ -5826,6 +5827,10 @@ void NativeRenderer::OnResolve(uint32_t copy_source, uint32_t surface_info, uint
+   // done natively yet: the boundary write-out first, the rest of the frame exact.
+   if (truth_ && replacing_) {
+     if (!clears) return;
++    if (OwnedOnly()) {  // Session 92 (M2a, gpu_native_owned_only): a clearing resolve does not end the frame - counted, the copy part is served as any (expected: none)
++      OwnedNoteFallbackIgnored(2);
++      return;
++    }
+     TruthFallback(2, nullptr);
+   }
+   if (replacing_) {
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 71bc41f5ebcdc0389a1b8ba17ddbae33c3c66898..5390657841e5cbf875f692bf71a982500276424c 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -25,6 +25,7 @@
+ #include <rex/cvar.h>
+ #include <rex/filesystem.h>  // Session 73 (the stored truth images)
+ #include <rex/perf/frame_events.h>  // Session 73 (what a frame did)
++#include <rex/graphics/free_counters.h>
+ #include <rex/logging.h>
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include <rex/ui/vulkan/util.h>
+@@ -48,6 +49,7 @@ REXCVAR_DEFINE_INT32(gpu_native_truth_draw_height, 0, "GPU/Native",
+                      "next frame end")
+     .range(0, 4320)
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DECLARE(bool, gpu_native_owned_only);  // wwe2k14 patch (Session 92, M2a): defined in owned_steps.cpp
+ // wwe2k14 patch (Session 73, the long frame at every scene start; TruthStorageOpen / TruthPrewarmImages).
+ REXCVAR_DEFINE_BOOL(gpu_native_truth_prewarm, true, "GPU/Native",
+                     "Session 73: remember the truth images this install has made (<cache>/shaders/shareable/"
+@@ -844,7 +846,17 @@ int16_t NativeRenderer::TruthFindImage(uint32_t base, uint32_t pitch_tiles, uint
+ }
+ 
+ bool NativeRenderer::ClaimTruth(Draw& draw) {
++  const bool owned_only = OwnedOnly();  // Session 92 (M2a)
+   const auto refuse = [&](uint32_t reason) {
++    if (owned_only) {
++      // Session 92 (M2a, gpu_native_owned_only): nothing is handed back - the draw is claimed (owned, truth) and TruthRecordDraw drops it, counted
++      // and named by this reason; the emulated tier is never reached. A draw with no pipeline (yet) is skipped there, as ever.
++      OwnedNoteClaimDrop(reason, draw);
++      draw.claim_refused = uint8_t(reason);
++      draw.truth = draw.post = draw.owned = true;
++      draw.truth_epoch = truth_claim_epoch_;
++      return true;
++    }
+     truth_fallback_reason_ = reason;
+     claim_retry_ = true;  // the caller ends the render pass, BeforeEmulatedEdramAccess falls back, claims again
+     if (truth_reason_logged_[reason] < 6) {
+@@ -882,7 +894,8 @@ bool NativeRenderer::ClaimTruth(Draw& draw) {
+   }
+   // A stencil draw (not a clear): only over tiles whose stencil its depth image holds (a truth clear's, while the
+   // image owns the tile); elsewhere the stencil is the EDRAM's or another surface's - the frame falls back.
+-  if (draw.raster.stencil && !draw.fast_clear) {
++  // (Session 92, M2a: under the latch stencil is ours - the draw reaches OwnedTakeDraw, which takes it into a pass that keeps the depth's stencil or drops it.)
++  if (!owned_only && draw.raster.stencil && !draw.fast_clear) {
+     draw.truth_sx = uint8_t(sx);
+     draw.truth_sy = uint8_t(sy);
+     int32_t rect[4];
+@@ -899,7 +912,12 @@ bool NativeRenderer::ClaimTruth(Draw& draw) {
+     if (gy1 > whole_rows && gx1 > gx0) return refuse(kTruthStencil);
+     if (gx1 > gx0 && gy1 > gy0) {
+       const std::bitset<2048> tiles = EdramTiles(d_image.base, d_image.pitch_tiles, false, gx0, gy0, gx1, gy1);
+-      if ((tiles & ~(d_image.stencil_valid & d_image.owned)).any()) return refuse(kTruthStencil);  // (Session 47)
++      // (Session 92, D1, TRUE NATIVE: tiles inside the box of an owned pass that keeps this depth's stencil count as held - the scene's
++      // clears are our pass's load-op clear, never a truth clear, so stencil_valid is never set for them; OwnedMarkDirty / OwnedMaterialize
++      // make the truth image's stencil ours before a truth draw reads it.)
++      if ((tiles & ~(d_image.stencil_valid & d_image.owned)).any() && !OwnedHoldsStencil(depth, d_image.pitch_tiles, rect)) {
++        return refuse(kTruthStencil);  // (Session 47)
++      }
+     }
+   }
+   draw.truth = true;
+@@ -1495,6 +1513,7 @@ void NativeRenderer::TruthStorageNote(const TruthImage& image) {
+ 
+ // From TruthOnFrameEnd (outside any pass, before a truth frame): a few stored images made.
+ void NativeRenderer::TruthPrewarmImages() {
++  if (REXCVAR_GET(gpu_native_owned_only)) return;  // Session 92 (M2a): no truth image is made ahead (d3d_owned.h also sets gpu_native_truth_prewarm=false)
+   if (truth_prewarm_.empty() && truth_spare_prewarm_.empty()) return;
+   uint32_t scale_x = 1, scale_y = 1;
+   command_processor_.NativeResolutionScale(scale_x, scale_y);
+@@ -6204,6 +6223,10 @@ void NativeRenderer::TruthWriteOut() {
+ }
+ 
+ void NativeRenderer::TruthFallback(uint32_t reason, const Draw* draw) {
++  if (OwnedOnly()) {  // Session 92 (M2a): a fallen frame does not exist under the latch - counted, ignored (the frame goes on as a truth frame of owned passes)
++    OwnedNoteFallbackIgnored(reason);
++    return;
++  }
+   serve_rename_.valid = false;  // Session 80 (gpu_native_truth_serve_copies: its pixels copied by this flush)
+   TruthFlushDeferred(kDeferFlushFallback);  // Session 52
+   truth_counts_.serve_lost += uint32_t(serve_pending_.size());  // Session 80 (gpu_native_truth_serve_copies)
+@@ -6373,6 +6396,7 @@ void NativeRenderer::TruthRestoreAliasOwners() {
+ }
+ 
+ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
++  rex::graphics::free_counters::Bump(rex::graphics::free_counters::g_c.truth_entries);  // (Session 92 M0: log-only counter)
+   // Session 90 (black arena, S90_BLACK_ARENA.md 9): "this draw is its pass's load-op clear" (truth_skip_clear_draw_,
+   // Session 80 gpu_native_truth_clear_load) belongs to the call whose pass start decided it. A nested recording (a held
+   // clear flushed from OwnedTakeDraw / OwnedHoldClear / OwnedTakeDrawImpl through OwnedFlushHeld) used to leave the flag
+@@ -6404,6 +6428,13 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+       if (depth == 1) r.truth_outer_draw_ = nullptr;
+     }
+   } skip_scope(*this, draw);
++  // wwe2k14 patch (Session 92, M2a, gpu_native_owned_only): nothing below the owned frame is reached - a draw our frame does not take (or whose claim was
++  // refused) is dropped, counted and named (OwnedDropDraw); no clear lost into the truth path, no dirty tile, no truth pass.
++  if (OwnedOnly()) {
++    if (!draw.claim_refused && OwnedTakeDraw(draw)) return;
++    OwnedDropDraw(draw);
++    return;
++  }
+   // wwe2k14 patch (Session 80, gpu_native_own_steps; owned_steps.cpp): an owned step's draw goes into our image.
+   if (OwnedTakeDraw(draw)) return;
+   // wwe2k14 patch (Session 87, D3D layer F2): a clear built from the game's device state has no pipeline - the truth
+@@ -6416,6 +6447,7 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   // it clears leave the set once its draw command is recorded, below.)
+   owned_clean_pending_.clear();
+   if (!owned_dirty_.empty()) OwnedDirtyBeforeDraw(draw);
++  if (draw.raster.stencil && !draw.fast_clear) OwnedCountUnprovenStencil(draw);  // (Session 92: census only, TRUE NATIVE)
+   // wwe2k14 patch (Session 79, diagnostic): who breaks the lazy pass chains, while the segment log runs.
+   command_processor_.deferred_command_buffer().capture_break_stack = segment_log_frames_ > 0;
+   // wwe2k14 patch (Session 79, NF-D look-ahead diagnostic, gpu_native_frame_batch_log N): which native-frame catch-up
+diff --git a/src/graphics/vulkan/native/owned_feedback.cpp b/src/graphics/vulkan/native/owned_feedback.cpp
+index 5f6fb345a21d61c6ab072e092cbc83b27ed8b9a3..2a7b72e3ce376c6b6e3e31f9e21bfd4e1bec2bfe 100644
+--- a/src/graphics/vulkan/native/owned_feedback.cpp
++++ b/src/graphics/vulkan/native/owned_feedback.cpp
+@@ -45,6 +45,22 @@ VkImageMemoryBarrier FbBarrier(VkImage image, uint32_t base_level, uint32_t leve
+   b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, base_level, level_count, base_layer, layer_count};
+   return b;
+ }
++// Session 92 (cube derivation survives stale cubes): file-level state (no new members in the header the game exe includes).
++std::vector<uint32_t> g_cube_last_copy;  // per owned_feedback_ index: the frame a face copy of ours last wrote that cube
++uint32_t g_cube_stale_dropped = 0, g_cube_older_dropped = 0, g_cube_contradicted = 0, g_cube_reused = 0;
++// Per owned_feedback_ index: the frame the entry was dropped (0xFFFFFFFF = never), the base page it had, and whether a learn dropped it.
++std::vector<uint32_t> g_cube_drop_frame, g_cube_drop_page;
++std::vector<uint8_t> g_cube_drop_learn;
++void NoteCubeDrop(size_t i, uint32_t frame, uint32_t page, bool learn) {
++  if (g_cube_drop_frame.size() <= i) {
++    g_cube_drop_frame.resize(i + 1, 0xFFFFFFFFu);
++    g_cube_drop_page.resize(i + 1, 0);
++    g_cube_drop_learn.resize(i + 1, 0);
++  }
++  g_cube_drop_frame[i] = frame;
++  g_cube_drop_page[i] = page;
++  g_cube_drop_learn[i] = learn ? 1 : 0;
++}
+ }  // namespace
+ 
+ int16_t NativeRenderer::OwnedBlitUp(const OwnedPass& p) {
+@@ -156,13 +172,36 @@ void NativeRenderer::OwnedCubeLearned(uint32_t base_page, uint32_t width, uint32
+                                       [&](const OwnedPage& q) { return q.feedback == dead; }),
+                        owned_pages_.end());
+     command_processor_.NativeOwnedPagesChanged();
++    const uint32_t dropped_page = f.page;
+     f.page = 0;
++    if (OwnedChains()) {
++      OwnedWatchSync();
++      if (f.cube) NoteCubeDrop(i, uint32_t(frame_), dropped_page, true);
++      // (Session 92, TRUE NATIVE: a learned cube overlapping ours is normally a STALE cube of ours - the game moved its cubes between
++      // entrance segments - so only that one is dropped and deriving goes on; the next face copy derives the cube at its new base.
++      // Only a cube our copies wrote in this very frame being contradicted is a wrong guess: derivation ends after 2 such cases.)
++      if (i < g_cube_last_copy.size() && g_cube_last_copy[i] == uint32_t(frame_)) {
++        ++g_cube_contradicted;
++        if (g_cube_contradicted >= 2) owned_cube_derive_off_ = true;
++      } else {
++        ++g_cube_stale_dropped;
++      }
++      continue;
++    }
+     // (Review: our faces were never written to memory, so this cube stays blank until the game builds it again - the guess is
+     // wrong for this game: no more cubes are derived; they are replayed on the truth path as before.)
+     owned_cube_derive_off_ = true;
+   }
+ }
+ 
++void OwnedCubeCounters(uint32_t& stale, uint32_t& older, uint32_t& contradicted, uint32_t& reused, bool reset) {
++  stale = g_cube_stale_dropped;
++  older = g_cube_older_dropped;
++  contradicted = g_cube_contradicted;
++  reused = g_cube_reused;
++  if (reset) g_cube_stale_dropped = g_cube_older_dropped = g_cube_reused = 0;  // (the contradictions are cumulative: they decide the kill switch)
++}
++
+ int NativeRenderer::OwnedFeedbackCopy(const draw_util::ResolveInfo& info, uint32_t sx, uint32_t sy, uint32_t w,
+                                       uint32_t h, uint32_t dx, uint32_t dy, bool swap, bool cube) {
+   OwnedPass& p = owned_pending_;
+@@ -218,8 +257,61 @@ int NativeRenderer::OwnedFeedbackCopy(const draw_util::ResolveInfo& info, uint32
+                                     owned_feedback_[fi].layers != layers);
+   bool held = false;  // (a page of ours stands for it now: its levels hold what the game's copies made)
+   for (const OwnedPage& q : owned_pages_) held = held || (fi >= 0 && q.feedback == fi);
+-  if (fi < 0 || recreate) {
+-    const uint64_t bytes = uint64_t(host_w) * host_h * 4u * 4u / 3u;
++  if ((fi < 0 || recreate) && cube && OwnedChains()) {
++    // (Session 92, TRUE NATIVE: two cubes cannot share memory - an older derived cube of ours overlapping the new one at another base page
++    // is the game's old cube, stale now: dropped.)
++    const uint32_t new_pages = std::max(1u, layers * ((w0 * h0 * 4u) >> 12));
++    for (size_t j = 0; j < owned_feedback_.size(); ++j) {
++      OwnedFeedback& o = owned_feedback_[j];
++      if (!o.cube || o.page == 0 || o.page == tex_page || scale == 0) continue;
++      const uint32_t o_pages = std::max(1u, o.layers * (((o.width / scale) * (o.height / scale) * 4u) >> 12));
++      if (o.page >= tex_page + new_pages || tex_page >= o.page + o_pages) continue;
++      // (Views are left as the learn drop leaves them: commands recorded earlier may still use them.)
++      const int16_t dead = int16_t(j);
++      owned_pages_.erase(std::remove_if(owned_pages_.begin(), owned_pages_.end(),
++                                        [&](const OwnedPage& q) { return q.feedback == dead; }),
++                         owned_pages_.end());
++      command_processor_.NativeOwnedPagesChanged();
++      OwnedWatchSync();
++      REXGPU_INFO("[native][owned] frame {}: the cube derived at page 0x{:05X} overlaps the new cube at 0x{:05X}: the older one dropped",
++                  frame_, o.page, tex_page);
++      NoteCubeDrop(j, uint32_t(frame_), o.page, false);
++      o.page = 0;
++      ++g_cube_older_dropped;
++    }
++  }
++  bool reused = false;
++  if (fi < 0 && cube && OwnedChains()) {
++    // (Hardening: a cube re-derived at the base page a learn dropped within the last 2 frames - the cache keeps loading a cube that
++    // contradicts ours before our strips run - is a contradiction too; the drop / re-derive loop must trip the switch.)
++    for (size_t j = 0; j < owned_feedback_.size() && j < g_cube_drop_frame.size(); ++j) {
++      if (owned_feedback_[j].page != 0 || !g_cube_drop_learn[j] || g_cube_drop_page[j] != tex_page) continue;
++      g_cube_drop_learn[j] = 0;
++      if (g_cube_drop_frame[j] != 0xFFFFFFFFu && uint32_t(frame_) - g_cube_drop_frame[j] <= 2) {
++        ++g_cube_contradicted;
++        if (g_cube_contradicted >= 2) owned_cube_derive_off_ = true;
++      }
++    }
++    // (Reuse a dead cube entry of the same shape, dropped in an earlier frame: its image, memory and views stay in use instead of a
++    // new image every move. It is left in SHADER_READ_ONLY, the layout the !held clear below starts from.)
++    for (size_t j = 0; j < owned_feedback_.size() && j < g_cube_drop_frame.size(); ++j) {
++      OwnedFeedback& o = owned_feedback_[j];
++      if (o.page != 0 || !o.cube || o.image == VK_NULL_HANDLE || g_cube_drop_frame[j] == 0xFFFFFFFFu ||
++          g_cube_drop_frame[j] >= uint32_t(frame_) || o.width != host_w || o.height != host_h || o.levels != levels ||
++          o.layers != layers) {
++        continue;
++      }
++      o.page = tex_page;
++      fi = int16_t(j);
++      reused = true;
++      ++g_cube_reused;
++      g_cube_drop_frame[j] = 0xFFFFFFFFu;
++      g_cube_drop_learn[j] = 0;
++      break;
++    }
++  }
++  if ((fi < 0 || recreate) && !reused) {
++    const uint64_t bytes =uint64_t(host_w) * host_h * 4u * 4u / 3u;
+     if (owned_frame_on_ && OwnedOverBudget(bytes * layers)) {
+       // (Session 87, chains, run 023: at 1440p the owned images fill the budget to within a few MB (510 of 512); one extra 2560x1440 image made before the
+       // first feedback copy left no room for the 11 MB texture and every later copy of the damage / sweat maps failed here for ever - nothing was evicted for
+@@ -288,6 +380,10 @@ int NativeRenderer::OwnedFeedbackCopy(const draw_util::ResolveInfo& info, uint32
+                 tex_page, host_w, host_h, levels, layers, cube ? " (a cube)" : "");
+   }
+   OwnedFeedback& f = owned_feedback_[fi];
++  if (cube && OwnedChains()) {  // (Session 92: the frame a copy of ours last wrote this cube - the narrow kill switch's evidence)
++    if (g_cube_last_copy.size() <= size_t(fi)) g_cube_last_copy.resize(owned_feedback_.size(), 0xFFFFFFFFu);
++    g_cube_last_copy[fi] = uint32_t(frame_);
++  }
+   OwnedCommit();  // (our pass's render pass ends; a defined start has nothing to mark dirty)
+   p.feedback_pass = true;
+   DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
+diff --git a/src/graphics/vulkan/native/owned_post.cpp b/src/graphics/vulkan/native/owned_post.cpp
+index 4cb809917da4ebdcdf2d642278117b61d5693b18..2f18d785e804208444479266bd26f151bea99bf7 100644
+--- a/src/graphics/vulkan/native/owned_post.cpp
++++ b/src/graphics/vulkan/native/owned_post.cpp
+@@ -35,6 +35,9 @@ REXCVAR_DEFINE_BOOL(gpu_native_owned_shadow_half, false, "GPU/Native",
+ 
+ namespace rex::graphics::vulkan::native {
+ 
++// Session 92 (E2): read and reset by OwnedFrameSummary (owned_steps.cpp).
++uint32_t g_s92_held_not_aging = 0;
++
+ bool NativeRenderer::OwnedPostHalfWanted(const Draw& draw, bool covered, bool cleared, uint32_t scale_x, uint32_t scale_y,
+                                          uint32_t width, uint32_t height, bool depth_kept, uint32_t pitch) const {
+   if (scale_x != 1 || scale_y != 1 || ((width | height) & 1)) return false;
+@@ -162,10 +165,19 @@ VkImageView NativeRenderer::OwnedSwapView(uint32_t base_page, uint32_t width, ui
+ 
+ bool NativeRenderer::OwnedPresentOk(uint32_t page, uint32_t width, uint32_t height, uint32_t format, uint32_t endian,
+                                     bool scaled) const {
++  // Session 92 (E2, TRUE NATIVE): a frame held while pipelines are made returns before the swap (no OwnedSwapView), so frame_ runs on while no
++  // page is read: staleness is measured against the newest swap seen of any page then, not frame_.
++  uint64_t now = frame_;
++  if (OwnedChains()) {
++    uint64_t newest = 0;
++    for (const OwnedSwapSeen& s : owned_swap_seen_) newest = std::max<uint64_t>(newest, s.frame);
++    now = std::min<uint64_t>(now, newest);
++  }
+   for (const OwnedSwapSeen& s : owned_swap_seen_) {
+     // (Seen lately: the front buffers alternate - a page is read every second frame or so.)
+     if (s.page == page && s.page && s.width == width && s.height == height && s.format == format &&
+-        s.endian == endian && s.scaled == scaled && s.frame + 16 >= frame_) {
++        s.endian == endian && s.scaled == scaled && s.frame + 16 >= now) {
++      if (s.frame + 16 < frame_) ++g_s92_held_not_aging;
+       return true;
+     }
+   }
+diff --git a/src/graphics/vulkan/native/owned_start.cpp b/src/graphics/vulkan/native/owned_start.cpp
+index aaa516d14ecd0e74823433878797b96b34b1ebd0..444eb7897031e47b7933dffbfa2853705ff016bb 100644
+--- a/src/graphics/vulkan/native/owned_start.cpp
++++ b/src/graphics/vulkan/native/owned_start.cpp
+@@ -210,6 +210,35 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+       return true;
+     }
+   }
++  if (keeps_content && !owned_pending_.valid && OwnedOnly()) {
++    // Session 92, M2a (design 4 item 4): the surface's newest record - a pass that ended - is resumed like a parked one (no load from the truth path
++    // exists): the newest one whose box holds the draw and whose colour no later pass has replaced. None: the start below is the converted one (a
++    // cleared box) - counted, the first named, so a missing record shows as a picture question, not silently.
++    const uint32_t rpitch = std::max(1u, ((draw.surface_info & 0x3FFF) * draw.truth_sx + 79) / 80);
++    for (size_t ri = owned_newest_.size(); ri-- > 0;) {
++      const OwnedPass& q = owned_newest_[ri];
++      if (q.base != (draw.color_info & 0xFFF) || q.pitch_tiles != rpitch || q.kind != uint32_t(draw.truth_class) || !q.committed || q.rec_colour_gone ||
++          rect[0] < 0 || rect[1] < 0 || rect[2] > int32_t(q.host_width) || rect[3] > int32_t(q.host_height)) {
++        continue;
++      }
++      OwnedPass taken = std::move(owned_newest_[ri]);
++      owned_newest_.erase(owned_newest_.begin() + ri);
++      owned_pending_ = std::move(taken);
++      owned_pending_.valid = true;
++      owned_pending_.committed = true;
++      owned_pending_.open = false;
++      ++m2a_loaded_from_record_;
++      ctx.start = kOwnedStartResumed;
++      return true;
++    }
++    ++m2a_loaded_no_record_;
++    static uint32_t no_record_logged = 0;
++    if (no_record_logged < 12) {
++      ++no_record_logged;
++      REXGPU_INFO("[native][owned-only] frame {}: a start that keeps content finds no record of its surface: ps {:016X} surface {}/{} class {} rect {},{}-{},{} ({} records)",
++                  frame_, draw.pixel_shader_hash, draw.color_info & 0xFFF, rpitch, draw.truth_class, rect[0], rect[1], rect[2], rect[3], owned_newest_.size());
++    }
++  }
+   // (Session 90, Q: the same-surface parked DEFINED starts are not replayed on the truth path for the load - their pixels are in their own images, which are
+   // copied into the new image below (their drawn rectangles), oldest first. Only the ones whose image cannot be copied keep the replay.)
+   std::vector<OwnedPass> composite;
+@@ -334,6 +363,8 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+   p.host_height = height;
+   p.image = index;
+   p.frame = frame_;
++  p.last_tick = ++owned_tick_;  // (Session 92, M2a)
++  p.rec_colour_gone = p.rec_depth_gone = false;
+   p.draws_since_color = p.draws_since_depth = 0;
+   p.copy_color_page = p.copy_depth_page = 0;
+   p.submission = command_processor_.GetCurrentSubmission();
+@@ -355,6 +386,7 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+   OwnedDropParkedIf("the same surface starts again", [&](const OwnedPass& q) {
+     return q.base == p.base && q.pitch_tiles == p.pitch_tiles && q.kind == p.kind;
+   });
++  OwnedSupersedeRecords(p.base, p.pitch_tiles, p.kind, -1);  // (Session 92, M2a, review D4)
+   owned_restorable_.erase(std::remove_if(owned_restorable_.begin(), owned_restorable_.end(), [&](const OwnedPass& q) {
+     return q.base == p.base && q.pitch_tiles == p.pitch_tiles && q.kind == p.kind;
+   }), owned_restorable_.end());
+diff --git a/src/graphics/vulkan/native/owned_steps.cpp b/src/graphics/vulkan/native/owned_steps.cpp
+index da30c8f18d31922eaa8a86932f382d67254933dc..7789770794d5a167b9fc72397700fef1ce2e6ecf 100644
+--- a/src/graphics/vulkan/native/owned_steps.cpp
++++ b/src/graphics/vulkan/native/owned_steps.cpp
+@@ -20,6 +20,7 @@
+ // repo).
+ 
+ #include <rex/graphics/vulkan/native/native_renderer.h>
++#include <rex/graphics/free_counters.h>
+ 
+ #include <algorithm>
+ #include <string_view>
+@@ -180,8 +181,42 @@ REXCVAR_DEFINE_BOOL(gpu_native_own_steps_debug_materialize, false, "GPU/Native",
+                     "Session 80 (diagnostic): an owned pass's dirty tiles copied into the truth images right at its copy "
+                     "(the copy-back path's check: same-frame shots equal to the owned steps off)");
+ 
++REXCVAR_DEFINE_BOOL(gpu_native_owned_only, false, "GPU/Native",
++                    "Session 92 (M2a, docs\\native\\d3d\\S92_M2_DESIGN.md section 4): the owned-only latch. With the owned frame and its chains on (TRUE NATIVE), "
++                    "nothing is handed back to the 360 truth path: a draw the owned frame does not take is dropped (counted, named), a refused claim is "
++                    "claimed and dropped, no replay, no pause, no dirty tile, no truth image at a commit; a copy is served from the pass, from the "
++                    "surface's newest record (a pass that ended), written from our image, or dropped (counted by source line). Set by src\\d3d_owned.h "
++                    "with gpu_native_truth_prewarm=false. A hard owned failure releases it for the session. Default off: nothing changes");
++
+ namespace rex::graphics::vulkan::native {
+ 
++namespace {
++// Session 92 (M2a): the latch's counters, file level (no new header members for them); printed by OwnedFrameSummary as
++// "[native][owned-only]" and reset with the window. Strings group the drops by signature.
++struct M2aStats {
++  uint32_t draws_dropped = 0, draws_skipped_pipeline = 0, draws_skipped_empty = 0, claims_dropped = 0;
++  uint32_t draw_reasons[16] = {};
++  uint32_t copies_written_after_loss = 0, drops_kept_page = 0, readback_dropped = 0, front_dropped = 0, front_written = 0;
++  uint32_t copies_dropped = 0, from_record = 0, replays_avoided = 0, fallbacks_ignored = 0, writeouts_ignored = 0, pauses_avoided = 0;
++  uint32_t clearing_resolves = 0, held_dropped = 0, dclear_dropped = 0, records_noted = 0, records_evicted = 0, records_superseded = 0;
++  uint32_t loaded_from_record = 0, loaded_no_record = 0, depth_from_record = 0, lost_clears = 0, latch_released = 0;
++  std::vector<std::pair<std::string, uint32_t>> draw_groups, copy_groups, avoided_why;
++};
++M2aStats g_m2a;
++void M2aGroup(std::vector<std::pair<std::string, uint32_t>>& groups, const std::string& key, size_t cap = 96) {
++  for (auto& g : groups) {
++    if (g.first == key) {
++      ++g.second;
++      return;
++    }
++  }
++  if (groups.size() < cap) groups.emplace_back(key, 1u);
++}
++}  // namespace
++
++// Session 92: the lighting-cube derivation counters (owned_feedback.cpp)
++void OwnedCubeCounters(uint32_t& stale, uint32_t& older, uint32_t& contradicted, uint32_t& reused, bool reset);
++
+ // Session 82 (P2, diagnostic): every state change of the 1280x720 scene pass (base 0 pitch 16), in the census window.
+ #define OWNED_SCENE_LOG(pass_, ...)                                                              do {                                                                                             if (owned_frame_logging_ && (pass_).base == 0 && (pass_).pitch_tiles == 16) REXGPU_INFO(__VA_ARGS__);   } while (0)
+ 
+@@ -250,7 +285,10 @@ bool NativeRenderer::OwnedImageHeld(int16_t image) const {
+          // (Session 82, P2, review: a pass the front buffer's composite dropped, kept for its restore - its image is not free.)
+          std::any_of(owned_restorable_.begin(), owned_restorable_.end(), [&](const OwnedPass& q) { return q.image == image; }) ||
+          std::any_of(owned_pages_.begin(), owned_pages_.end(), [&](const OwnedPage& p) { return p.image == image; }) ||
+-         std::any_of(owned_dirty_.begin(), owned_dirty_.end(), [&](const OwnedDirty& d) { return d.image == image; });
++         std::any_of(owned_dirty_.begin(), owned_dirty_.end(), [&](const OwnedDirty& d) { return d.image == image; }) ||
++         // (Session 92, M2a: a surface's newest record - the image a later copy or start is served from - is held until a later pass replaces it
++         // or the budget trims it (OwnedEvictFor).)
++         std::any_of(owned_newest_.begin(), owned_newest_.end(), [&](const OwnedPass& q) { return q.image == image; });
+ }
+ 
+ void NativeRenderer::OwnedRetireImage(size_t index) {
+@@ -310,7 +348,31 @@ void NativeRenderer::OwnedEvictFor(uint64_t more, int16_t keep) {
+       if (!o.width || int16_t(i) == keep || OwnedImageHeld(int16_t(i))) continue;
+       if (best < 0 || o.used < owned_images_[best].used) best = int(i);
+     }
+-    if (best < 0) return;
++    if (best < 0) {
++      // (Session 92, M2a: a surface's newest record is the last to go - the oldest one's hold is let go, then the image is a free one. A record
++      // the keep image belongs to stays; an image a page or a pending pass still uses is held by them (OwnedImageHeld) and is not retired.)
++      if (OwnedOnly() && !owned_newest_.empty()) {
++        size_t oldest = SIZE_MAX;
++        for (size_t i = 0; i < owned_newest_.size(); ++i) {
++          const int16_t img = owned_newest_[i].image;
++          if (img == keep) continue;
++          // (Review C4: only a record whose image nothing else holds frees anything.)
++          if ((owned_pending_.valid && owned_pending_.image == img) ||
++              std::any_of(owned_parked_.begin(), owned_parked_.end(), [&](const OwnedPass& q) { return q.image == img; }) ||
++              std::any_of(owned_restorable_.begin(), owned_restorable_.end(), [&](const OwnedPass& q) { return q.image == img; }) ||
++              std::any_of(owned_pages_.begin(), owned_pages_.end(), [&](const OwnedPage& pg) { return pg.image == img; })) {
++            continue;
++          }
++          if (oldest == SIZE_MAX || owned_newest_[i].last_tick < owned_newest_[oldest].last_tick) oldest = i;
++        }
++        if (oldest != SIZE_MAX) {
++          owned_newest_.erase(owned_newest_.begin() + oldest);
++          ++g_m2a.records_evicted;
++          continue;
++        }
++      }
++      return;
++    }
+     OwnedRetireImage(size_t(best));
+   }
+ }
+@@ -753,6 +815,7 @@ void NativeRenderer::OwnedReplayPending(const char* why, bool pause, bool replay
+   // without its draws). (A committed pass - copied already, its tiles dirty - just ends.)
+   OwnedPass& p = owned_pending_;
+   if (!p.valid) return;
++  if (OwnedOnly()) return OwnedEndAsIs(why);  // (Session 92, M2a: nothing to replay into - the pass ends as it is, its image the surface's newest record)
+   // (chains: a LOADED start holds what the truth path held, so its replay - the draws over that content - is exact: no reason to pause its key.)
+   if (pause && OwnedChains() && p.start_kind == kOwnedStartResumed) pause = false;
+   if (p.committed && !(replay_committed && p.edram_free && !p.draws.empty())) return OwnedEndCommitted(why);
+@@ -774,6 +837,7 @@ void NativeRenderer::OwnedReplayPending(const char* why, bool pause, bool replay
+ }
+ 
+ void NativeRenderer::OwnedReplayDraws() {
++  if (OwnedOnly()) return;  // (Session 92, M2a: no replay exists under the latch; every caller is gated - this is the net)
+   OwnedPass& p = owned_pending_;
+   // (What the draw being recorded was given for its served bindings is its own, kept across the replays - each
+   // TruthRecordDraw drops serve_pending_ at its end; owned draws never had served bindings.)
+@@ -1222,7 +1286,12 @@ bool NativeRenderer::OwnedRecord(const Draw& draw, const int32_t rect[4]) {
+   OwnedAlphaProbe(draw);  // (Session 82: a candidate draw's probe, right after the draw)
+   // (Session 82, P2: a defined-start pass keeps its draws past the commit - it owes the EDRAM nothing, so a later copy of it
+   // the owned frame cannot serve is exact by replaying them, OwnedReplayPending; the others are never replayed once copied.)
+-  const bool keeps_draws = (!p.committed || p.edram_free) && !p.carried_defined;  // (Session 90: a carried defined start has no draws to replay - a partial list would be wrong)
++  // (Session 92, M2a: under the latch nothing is ever replayed - no draw is kept, no served image, no sampled-image list.)
++  const bool keeps_draws = (!p.committed || p.edram_free) && !p.carried_defined && !OwnedOnly();  // (Session 90: a carried defined start has no draws to replay - a partial list would be wrong)
++  p.last_tick = ++owned_tick_;
++  if ((draw.color_write_mask & 0xF) != 0) p.rec_colour_gone = false;  // (a pass taken up from a record that draws on: what it holds is current again)
++  if (draw.truth_depth >= 0 && draw.raster.depth_write) p.rec_depth_gone = false;
++  if (draw.truth_depth >= 0 && (draw.raster.depth_write || draw.raster.stencil)) p.depth_tick = p.last_tick;
+   if (keeps_draws && !serve_pending_.empty()) p.serves.emplace_back(p.draws.size(), serve_pending_);
+   // (What this draw was given for its served bindings is spent - TruthRecordDraw's scope drops it at its end.)
+   serve_pending_.clear();
+@@ -1360,7 +1429,8 @@ bool NativeRenderer::OwnedDepthClearInPass(const Draw& draw) {
+   command_processor_.deferred_command_buffer().CmdVkClearAttachments(1, &clear, 1, &clear_rect);
+   p.draws_depth = true;
+   p.draws_stencil = p.draws_stencil || stencil_used;
+-  p.draws.push_back(draw);  // (review F4a: a replay of the pass needs the clear too)
++  if (!OwnedOnly()) p.draws.push_back(draw);  // (review F4a: a replay of the pass needs the clear too; Session 92, M2a: none under the latch)
++  p.last_tick = p.depth_tick = ++owned_tick_;
+   ++st.depth_clear_taken;
+   ++truth_counts_.owned_clears_dropped;  // (a clear our pass absorbed: counted with the dropped ones)
+   return true;
+@@ -1382,6 +1452,14 @@ bool NativeRenderer::OwnedDepthClearPend(const Draw& d) {
+   for (const OwnedDirty& e : owned_dirty_) {
+     if (e.slot == d.truth_depth && (e.aspects & VK_IMAGE_ASPECT_DEPTH_BIT) && e.tiles.any()) return false;
+   }
++  if (OwnedOnly()) {  // (Session 92, M2a: the surface's newest record plays the dirty entry's part - an image of ours holds this depth)
++    for (const OwnedPass& q : owned_newest_) {
++      if (q.depth && !q.rec_depth_gone && q.depth_slot == d.truth_depth) return false;
++    }
++    for (const OwnedPass& q : owned_parked_) {  // (review D8)
++      if (q.depth && q.depth_slot == d.truth_depth) return false;
++    }
++  }
+   if (owned_depth_clears_.size() >= 8) return false;
+   OwnedPendingDepthClear e;
+   e.draw = d;
+@@ -1418,6 +1496,17 @@ void NativeRenderer::OwnedDepthClearsFlush(const char* why, int32_t only_slot, i
+     }
+   }
+   if (take.empty()) return;
++  if (OwnedOnly()) {  // (Session 92, M2a: no truth path to run them in - dropped, counted; "dclear_dropped" of the frame's end does the same)
++    g_m2a.dclear_dropped += uint32_t(take.size());
++    for (const OwnedPendingDepthClear& e : take) OwnedMarkDepthStale(e.slot);  // (review D8: a dropped depth clear leaves what holds that depth stale)
++    static uint32_t logged = 0;
++    if (logged < 12) {
++      ++logged;
++      REXGPU_INFO("[native][owned-only] frame {}: {} pending depth-only clear(s) dropped ({}): depth slot {} vs {:016X} ps {:016X}", frame_, take.size(), why,
++                  take[0].slot, take[0].draw.vertex_shader_hash, take[0].draw.pixel_shader_hash);
++    }
++    return;
++  }
+   // (As OwnedFlushHeld: what the draw being recorded was given for its served bindings is its own, kept across.)
+   std::vector<VkImage> serve_pending;
+   serve_pending.swap(serve_pending_);
+@@ -1463,6 +1552,10 @@ void NativeRenderer::OwnedDepthClearsConsult(const Draw& draw) {
+ void NativeRenderer::OwnedDepthClearsDrop() {
+   for (const OwnedPendingDepthClear& e : owned_depth_clears_) {
+     ++owned_frame_stats_.dclear_dropped;
++    if (OwnedOnly()) {  // (Session 92, M2a, review D8)
++      ++g_m2a.dclear_dropped;
++      OwnedMarkDepthStale(e.slot);
++    }
+     bool found = false;
+     for (auto& d : owned_depth_dropped_) {
+       if (d.first == e.slot) {
+@@ -1528,6 +1621,9 @@ bool NativeRenderer::OwnedHoldClear(const Draw& draw) {
+           } else {
+             OwnedReplayPending("a held clear of its depth surface", false);
+           }
++          if (OwnedOnly() && depth >= 0 && (draw.raster.depth_write || draw.raster.stencil)) {  // (review D2; failure read 1b: only a clear that writes depth / stencil: the clear replaces that depth - the record just noted holds the old one)
++            OwnedMarkDepthStale(depth);
++          }
+         } else if (OwnedPassDeadUnder(draw)) {
+           // (follow-up item 5: a pass nobody copied, whose box and depth this clear writes whole, is dead: it ends, uncommitted - no dirty tiles.)
+           OwnedPass& dp = owned_pending_;
+@@ -1606,6 +1702,33 @@ bool NativeRenderer::OwnedHoldClear(const Draw& draw) {
+   }
+   if (!trial.valid) {
+     // (not a clear the owned frame can hold: the truth path takes it, after those before it - chains: those of another surface become a pass)
++    if (OwnedOnly()) {
++      // Failure read fix 6: a second clear of the surface in another colour. The held ones become a pass of ours; this clear starts a new held set (it is
++      // not dropped) - the pass just begun is parked first, as for any clear of the same colour surface (review F10).
++      OwnedFlushHeld(true);
++      if (OwnedChains() && owned_pending_.valid && owned_pending_.chain_pass && owned_pending_.base == (draw.color_info & 0xFFF) &&
++          owned_pending_.pitch_tiles == pitch && owned_pending_.kind == uint32_t(draw.truth_class)) {
++        OwnedParkOrReplay("a clear of the same colour surface follows the pass just begun");
++        OwnedDropParkedIf("a held clear over its tiles or surface", [&](const OwnedPass& q) {
++          return q.base == (draw.color_info & 0xFFF) && q.pitch_tiles == pitch && q.kind == uint32_t(draw.truth_class);
++        });
++      }
++      if (owned_held_.draws.empty()) {
++        ClearsInfo fresh;
++        ClearsAccumulate(fresh, draw, rect, true, writes_color, d_real, c.kind);
++        if (fresh.valid) {
++          owned_held_.info = fresh;
++          owned_held_.color = color;
++          owned_held_.depth = depth;
++          owned_held_.kind = draw.truth_class;
++          owned_held_.draws.push_back(draw);
++          serve_pending_.clear();
++          serve_rename_.valid = false;
++          return true;
++        }
++      }
++      return hold_no(__LINE__);
++    }
+     OwnedFlushHeld(OwnedChains() && owned_held_.color != color && (depth < 0 || owned_held_.depth != depth));
+     return hold_no(__LINE__);
+   }
+@@ -1622,7 +1745,28 @@ bool NativeRenderer::OwnedHoldClear(const Draw& draw) {
+ 
+ void NativeRenderer::OwnedFlushHeld(bool as_pass, int site) {
+   if (owned_held_.draws.empty()) return;
+-  if (as_pass && OwnedChains() && OwnedBeginClearedPass()) return;  // (Session 87: the clears are a pass of ours, not truth work)
++  const bool only = OwnedOnly();
++  if ((as_pass || only) && OwnedChains() && OwnedBeginClearedPass()) return;  // (Session 87: the clears are a pass of ours, not truth work; Session 92, M2a: always, under the latch)
++  if (only) {
++    // (Session 92, M2a: the held clears could not become a pass of ours (budget, a shape, a paused key ...) and there is no truth path to run them in:
++    // dropped, counted by what they were - M2c turns these into the surface's pending clear.)
++    const uint32_t n = uint32_t(owned_held_.draws.size());
++    g_m2a.held_dropped += n;
++    for (const Draw& d : owned_held_.draws) {
++      if (d.d3d_record) ++g_m2a.lost_clears;
++    }
++    static uint32_t logged = 0;
++    if (logged < 16) {
++      ++logged;
++      const Draw& d = owned_held_.draws.front();
++      REXGPU_INFO("[native][owned-only] frame {}: {} held clear(s) dropped (owned_steps.cpp:{}): colour slot {} depth slot {} class {} record {} {}", frame_, n, site,
++                  owned_held_.color, owned_held_.depth, d.truth_class, d.d3d_record, owned_flush_note_);
++    }
++    owned_held_.draws.clear();
++    owned_held_.info = ClearsInfo();
++    owned_flush_note_.clear();
++    return;
++  }
+   std::vector<Draw> draws;
+   draws.swap(owned_held_.draws);
+   const std::string flush_note = std::move(owned_flush_note_);
+@@ -1658,12 +1802,12 @@ bool NativeRenderer::OwnedCopyOfPass(const draw_util::ResolveInfo& info, const O
+   // depth: the pass's depth surface - never by EDRAM tiles it happens to share with other surfaces (they are all at base 0 here).
+   if (!q.valid) return false;
+   if (info.IsCopyingDepth()) {
+-    return q.depth && q.depth_slot >= 0 && size_t(q.depth_slot) < truth_images_.size() &&
++    return q.depth && !q.rec_depth_gone && q.depth_slot >= 0 && size_t(q.depth_slot) < truth_images_.size() &&
+            uint32_t(info.depth_original_base) == truth_images_[q.depth_slot].base;
+   }
+   const auto fmt = xenos::ColorRenderTargetFormat(uint32_t(info.color_edram_info.format));
+   const bool is_rgba8 = fmt == xenos::ColorRenderTargetFormat::k_8_8_8_8;
+-  return uint32_t(info.color_original_base) == q.base && info.color_edram_info.pitch_tiles == (q.pitch_tiles << (q.is_64bpp ? 1 : 0)) &&
++  return !q.rec_colour_gone && uint32_t(info.color_original_base) == q.base && info.color_edram_info.pitch_tiles == (q.pitch_tiles << (q.is_64bpp ? 1 : 0)) &&
+          bool(info.color_edram_info.format_is_64bpp) == q.is_64bpp && is_rgba8 == (q.kind == 1);
+ }
+ 
+@@ -1764,6 +1908,7 @@ bool NativeRenderer::OwnedBeginClearedPass() {
+   p.host_height = height;
+   p.image = index;
+   p.frame = frame_;
++  p.last_tick = ++owned_tick_;  // (Session 92, M2a)
+   p.submission = command_processor_.GetCurrentSubmission();
+   p.tiles = EdramTiles(base, pitch, is_64bpp, 0, 0, p.width, p.height);
+   if (keep_depth) p.tiles |= EdramTiles(truth_images_[depth].base, pitch, false, 0, 0, p.width, p.height);
+@@ -1788,6 +1933,8 @@ bool NativeRenderer::OwnedBeginClearedPass() {
+   OwnedDropParkedIf("the same surface starts again", [&](const OwnedPass& q) {
+     return q.base == p.base && q.pitch_tiles == p.pitch_tiles && q.kind == p.kind;  // (review F7's drop by depth slot is NOT done: it dropped the scene pass the restore draw needs, run 12)
+   });
++  if (keep_depth) p.depth_tick = p.last_tick;  // (Session 92, M2a)
++  OwnedSupersedeRecords(p.base, p.pitch_tiles, p.kind, p.depth ? p.depth_slot : int16_t(-1));  // (review D4)
+   {
+     const int32_t rec = OwnedFrameNewPass(first);
+     OwnedFramePass& r = owned_frame_passes_[rec];
+@@ -1906,6 +2053,7 @@ void NativeRenderer::OwnedClaimClearTiles(const OwnedPass& p) {
+   // Design review F3: clears held for a pass never ran in the truth path, so no truth image owns the box - the dirty tiles a commit marks
+   // would then be skipped by OwnedMaterialize (it copies only into tiles the image owns) and a truth reader would see the old EDRAM.
+   // The box (colour, and the depth the clears wrote) is claimed for the truth images here, as the truth pass of the clears would have.
++  if (OwnedOnly()) return;  // (Session 92, M2a: no truth image is made or claimed at a commit)
+   if (p.half || p.color_slot < 0 || size_t(p.color_slot) >= truth_images_.size()) return;
+   EndTruthPass();
+   command_processor_.EndRenderPass();  // (review: EnsureTruthImage may record a flush / a grow copy - outside any render pass)
+@@ -1939,6 +2087,7 @@ void NativeRenderer::OwnedClaimClearTiles(const OwnedPass& p) {
+ void NativeRenderer::OwnedReplayParkedPass(OwnedPass q, const char* why) {
+   // The draws of a pass parked without its copy, recorded into the truth path now (the same submission: their sets and constants hold), as a
+   // pending pass lost before its copy is replayed; the pending pass is set aside meanwhile (its render pass ends, a later draw resumes it).
++  if (OwnedOnly()) return;  // (Session 92, M2a: no replay under the latch - every caller is gated; the pass q is simply not replayed)
+   OwnedPass& p = owned_pending_;
+   if (p.valid && p.open) OwnedEndPass();
+   OwnedPass saved = std::move(p);
+@@ -1984,6 +2133,7 @@ bool NativeRenderer::OwnedLoadFromTruth(int16_t slot, int16_t image, uint32_t wi
+   // Session 87, chains (design "Scene-change composite"): the box of a surface the truth path holds content of, copied once into our image. The dirty tiles of
+   // our own earlier passes go into the truth image first; only the tiles that image owns are copied (the rest of the box is transparent black, as the
+   // converted start had it); the image is left in its attachment layout for a render pass that loads.
++  if (OwnedOnly()) return false;  // (Session 92, M2a: the truth path holds nothing of any surface; a resumed start comes from the surface's newest record - OwnedStartExtra)
+   if (!OwnedChains() || !owned_frame_on_ || owned_materializing_ || slot < 0 || size_t(slot) >= truth_images_.size() || image < 0 ||
+       size_t(image) >= owned_images_.size()) {
+     return false;
+@@ -2074,6 +2224,21 @@ void NativeRenderer::OwnedHeldBeforeTextures() {
+   OwnedFlushHeld(true);
+ }
+ 
++extern uint32_t g_s92_held_not_aging;  // (Session 92, E2: owned_post.cpp)
++namespace {
++// Session 92 (the "start / format" family): file-level counters (no new members in the header the exe includes), read and
++// reset by OwnedFrameSummary - colour-less draws joined to the owned pass holding their depth, and restores begun from held clears.
++struct S92Stats {
++  uint32_t joined = 0, no_depth_pass = 0, outside_box = 0, no_stencil = 0, held_clears = 0;
++  uint32_t restores_taken = 0, restores_no_held = 0, restores_not_cleared = 0;
++  uint32_t fallen_front_drops = 0, stencil_claims = 0, unproven_stencil = 0;  // (C, D1)
++  // (E1: a depth-using draw's colour-only pass given depth.)
++  uint32_t depth_given = 0, depth_from_dirty = 0, depth_from_pass = 0;
++  uint32_t depth_held = 0, depth_edram_free = 0, depth_no_colour = 0, depth_no_source = 0, depth_size = 0, depth_half = 0, depth_stencil = 0, depth_budget = 0;
++};
++S92Stats g_s92;
++}  // namespace
++
+ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+   if (owned_replaying_) return false;
+   OwnedPass& p = owned_pending_;
+@@ -2095,6 +2260,9 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+     // path let a draw fall to the truth path without a reason.)
+     if (site && frame) OwnedNoteRefusal(kOwnedReasonStart, fmt::format("no reason, owned_steps.cpp:{}", site));
+     if (refused) ++truth_counts_.owned_refused;
++    // Session 92, M2a: under the latch the draw is dropped by TruthRecordDraw (OwnedDropDraw) - it touches no pending or parked pass, pauses nothing,
++    // replays nothing: the passes of other draws and their copies go on as they are.
++    if (OwnedOnly()) return false;
+     if (!owned_parked_.empty()) {
+       const auto dt = OwnedDrawTiles(draw);
+       const bool chains = OwnedChains();  // (Session 87: by surface, not by shared tiles)
+@@ -2276,8 +2444,14 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+                                                 rt_format == xenos::ColorRenderTargetFormat::k_16_16_16_16);
+   // (Session 82: a multisampled surface first - its target is no owned class either.)
+   if (draw.truth_sx != 1 || draw.truth_sy != 1) return refuse("kind", kOwnedReasonMsaa);
+-  if ((!(draw.truth_class == 1 && rt_format == xenos::ColorRenderTargetFormat::k_8_8_8_8) && !rgba16) ||
+-      draw.truth_color < 0) {
++  // (Session 92, mechanism A: a colour-less draw - no colour target, colour mask 0, depth and / or stencil - is not refused as
++  // "format": it joins the owned pass that holds its depth slot, below. Its colour_info is meaningless, so the format and class
++  // tests do not apply to it.)
++  const bool colourless = frame && OwnedChains() && draw.truth_color < 0 && (draw.color_write_mask & 0xF) == 0 && draw.truth_depth >= 0 &&
++                          (draw.raster.depth_test || draw.raster.depth_write || draw.raster.stencil) && !draw.fast_clear &&
++                          !draw.memexport && !draw.restore;
++  if (!colourless && ((!(draw.truth_class == 1 && rt_format == xenos::ColorRenderTargetFormat::k_8_8_8_8) && !rgba16) ||
++                      draw.truth_color < 0)) {
+     return refuse("target", kOwnedReasonFormat);
+   }
+   const bool is_64bpp = xenos::IsColorRenderTargetFormat64bpp(rt_format);
+@@ -2320,8 +2494,12 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+   // A draw of the pass waiting for its copy: the same surface and images, inside its box, depth and stencil only where
+   // our image holds them.
+   const auto fits_of = [&](const OwnedPass& q) {
+-    return q.base == base && q.pitch_tiles == pitch && draw.truth_color == q.color_slot &&
+-           draw.truth_class == q.kind && (!depth_used || (q.depth && draw.truth_depth == q.depth_slot)) &&
++    if (colourless) {  // (Session 92: matched on the depth slot, not the colour base / slot / class; same pitch, inside the box, stencil kept when used)
++      return q.kind == 1 && q.pitch_tiles == pitch && q.depth && !q.rec_depth_gone && draw.truth_depth == q.depth_slot && (!draw.raster.stencil || q.stencil) &&
++             rect[0] >= 0 && rect[1] >= 0 && rect[2] <= int32_t(q.host_width) && rect[3] <= int32_t(q.host_height);
++    }
++    return !q.rec_colour_gone && q.base == base && q.pitch_tiles == pitch && draw.truth_color == q.color_slot &&
++           draw.truth_class == q.kind && (!depth_used || (q.depth && !q.rec_depth_gone && draw.truth_depth == q.depth_slot)) &&
+            (!draw.raster.stencil || q.stencil) && rect[0] >= 0 && rect[1] >= 0 &&
+            rect[2] <= int32_t(q.host_width) && rect[3] <= int32_t(q.host_height);
+   };
+@@ -2357,7 +2535,45 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+   // Session 82 (P2): a restore draw (the 360 puts a scene's colour and depth back from the two copies it took out) over a
+   // pass of ours that holds the surface, covering its whole box: nothing to restore - our image never lost them. Left out
+   // like a dropped dead draw. Else the truth path's, as before.
++  if (colourless) {
++    // Session 92, mechanism A: recorded into the pass that holds this draw's depth slot, with the pass's colour attachment bound
++    // and the draw's own colour write mask 0 (its pipeline's; as the truth path records such a draw into an open pass).
++    // Clears held for that depth would run after the draw in the pass: those go the old way.
++    if (p.valid && fits_of(p)) {
++      if (!owned_held_.draws.empty() && owned_held_.depth == draw.truth_depth) {
++        ++g_s92.held_clears;
++        return refuse("target", kOwnedReasonFormat, "no colour target: clears held for its depth");
++      }
++      if (OwnedRecord(draw, rect)) {
++        ++g_s92.joined;
++        return true;
++      }
++      return not_taken(true, __LINE__);
++    }
++    // Refused: why. (Nothing holds the depth / the pass has no stencil / the draw is outside the pass's box or pitch.)
++    bool depth_pass = false, stencil_missing = false;
++    const auto look = [&](const OwnedPass& q) {
++      if (!q.valid || !q.depth || q.depth_slot != draw.truth_depth) return;
++      depth_pass = true;
++      if (draw.raster.stencil && !q.stencil) stencil_missing = true;
++    };
++    look(p);
++    for (const OwnedPass& q : owned_parked_) look(q);
++    const char* detail;
++    if (!depth_pass) {
++      ++g_s92.no_depth_pass;
++      detail = "no colour target, no owned pass holds its depth";
++    } else if (stencil_missing) {
++      ++g_s92.no_stencil;
++      detail = "no colour target, the owned pass keeps no stencil";
++    } else {
++      ++g_s92.outside_box;
++      detail = "no colour target, outside the owned pass's box";
++    }
++    return refuse("target", kOwnedReasonFormat, detail);
++  }
+   bool restore_recorded = false;  // (Session 87)
++  bool restore_from_held = false;  // (Session 92, mechanism B: this restore begins a pass from the clears held for its surface)
+   if (draw.restore && owned_frame_logging_) {
+     std::string parked;
+     for (const OwnedPass& q : owned_parked_) parked += fmt::format(" [{} {}]", q.base, q.pitch_tiles);
+@@ -2408,9 +2624,240 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+     // so it is recorded into the pass like any draw. The clears held for the surface before it are dead under it.)
+     if (!(frame && REXCVAR_GET(gpu_native_owned_frame_restore_draw) && p.valid && fits_of(p) && rect[0] == 0 && rect[1] == 0 &&
+           rect[2] >= int32_t(p.host_width) && rect[3] >= int32_t(p.host_height))) {
+-      return refuse("kind", kOwnedReasonOther, "restore");
++      // Session 92, mechanism B (S90_BLACK_ARENA 8.5 item 2): no pass of ours holds the surface, but the clears held for it are whole
++      // and this restore draws the whole of their box - they are its cleared start (colour + depth + stencil as the clears left them),
++      // and the restore is recorded as the pass's first draw. The same conditions as the cleared start below (which decides again;
++      // a restore it does not clear is refused there as before). Nothing goes through the truth path: no per-call flag to nest.
++      bool take = false;
++      if (frame && OwnedChains() && REXCVAR_GET(gpu_native_owned_frame_restore_draw) && !(p.valid && fits_of(p))) {
++        if (owned_held_.draws.empty()) {
++          ++g_s92.restores_no_held;
++        } else {
++          const ClearsInfo& hc = owned_held_.info;
++          const bool keep_d = hc.uses_depth && hc.depth && owned_held_.depth >= 0;
++          const bool keep_s = keep_d && hc.stencil;
++          const bool depth_used_r = draw.truth_depth >= 0 && (draw.raster.depth_test || draw.raster.depth_write || draw.raster.stencil);
++          take = owned_held_.color == draw.truth_color && hc.valid && hc.rect[0] == 0 && hc.rect[1] == 0 && hc.rect[2] > 0 &&
++                 hc.rect[3] > 0 && hc.rect[2] <= 4096 && hc.rect[3] <= 4096 && hc.rect[2] % int32_t(scale_x) == 0 &&
++                 hc.rect[3] % int32_t(scale_y) == 0 && hc.area == uint64_t(hc.rect[2]) * uint64_t(hc.rect[3]) && !rgba16 &&
++                 rect[0] == 0 && rect[1] == 0 && rect[2] == hc.rect[2] && rect[3] == hc.rect[3] &&
++                 (!depth_used_r || (keep_d && draw.truth_depth == owned_held_.depth)) && (!draw.raster.stencil || keep_s) &&
++                 (!hc.uses_depth || keep_d) && (!hc.stencil_touched || keep_s);
++          if (!take) ++g_s92.restores_not_cleared;
++        }
++      }
++      if (!take) return refuse("kind", kOwnedReasonOther, "restore");
++      restore_from_held = true;
++    } else {
++      restore_recorded = true;
++    }
++  }
++  // Session 92 (E1, TRUE NATIVE): a depth-using draw whose colour fits a colour-only pass of ours (scratch depth) - Jericho (Retro)'s entrance
++  // effect: ~881 blended depth-tested quads a frame onto the combine's image. If one of our images holds the newest pixels of its depth slot
++  // (a dirty entry, or a pass with that depth slot), the colour pass gets a depth image of its own, filled by a copy of that one (depth +
++  // stencil); the draw and the frame's other quads then fit and record normally. No image of ours holds the depth: refused as before, counted.
++  if (frame && OwnedChains() && depth_used && !draw.fast_clear && !draw.restore && !(p.valid && fits_of(p)) &&
++      size_t(draw.truth_depth) < truth_images_.size()) {
++    const auto colour_match = [&](const OwnedPass& q) {
++      return q.valid && q.base == base && q.pitch_tiles == pitch && draw.truth_color == q.color_slot && draw.truth_class == q.kind &&
++             rect[0] >= 0 && rect[1] >= 0 && rect[2] <= int32_t(q.host_width) && rect[3] <= int32_t(q.host_height);
++    };
++    const TruthImage& dt = truth_images_[draw.truth_depth];
++    bool saw_size = false, saw_stencil = false;
++    struct Source {
++      bool ok = false, stencil = false, pass = false;
++      int16_t image = -1;
++    };
++    // The image of ours that holds slot D's newest pixels, for the colour pass c (its size, a different image).
++    const auto find_source = [&](const OwnedPass& c) {
++      Source s;
++      const auto size_ok = [&](int16_t index) {
++        if (index < 0 || size_t(index) >= owned_images_.size() || index == c.image || c.image < 0 || size_t(c.image) >= owned_images_.size()) return false;
++        const OwnedImage& so = owned_images_[index];
++        if (so.depth == VK_NULL_HANDLE) return false;
++        if (so.width != owned_images_[c.image].width || so.height != owned_images_[c.image].height) {
++          saw_size = true;
++          return false;
++        }
++        return true;
++      };
++      if (OwnedOnly()) {
++        // Session 92, M2a: the truth images own no tile and there are no dirty entries - the newest holder of slot D's depth is found among our
++        // passes (pending, parked) and the surfaces' newest records by the tick of their last draw; the colour pass gets a copy of that image's depth.
++        const OwnedPass* best = nullptr;
++        bool best_record = false;
++        const auto consider = [&](const OwnedPass& q, bool record) {
++          if (!q.valid || &q == &c || q.image == c.image || !q.depth || q.depth_slot != draw.truth_depth || q.half || q.rec_depth_gone) return;
++          if (!best || q.depth_tick > best->depth_tick) {  // (review D3: the last write of the DEPTH, not of the pass)
++            best = &q;
++            best_record = record;
++          }
++        };
++        consider(p, false);
++        for (const OwnedPass& q : owned_parked_) consider(q, false);
++        for (const OwnedPass& q : owned_newest_) consider(q, true);
++        if (!best || !size_ok(best->image)) return s;
++        if (draw.raster.stencil && !best->stencil) {
++          saw_stencil = true;
++          return s;
++        }
++        s.ok = true;
++        s.pass = !best_record;
++        s.image = best->image;
++        s.stencil = best->stencil;
++        return s;
++      }
++      const std::bitset<2048> box = EdramTiles(dt.base, dt.pitch_tiles, dt.is_64bpp(), 0, 0, c.width, c.height) & dt.owned;
++      const auto from_pass = [&](const OwnedPass& q) {
++        if (s.ok || !q.valid || &q == &c || !q.depth || q.depth_slot != draw.truth_depth || q.half || !size_ok(q.image)) return;
++        if (q.committed) {  // (review: a committed pass's depth is the newest only while a dirty depth entry of its image says so)
++          bool newest = false;
++          for (const OwnedDirty& e : owned_dirty_) {
++            if (e.slot == draw.truth_depth && e.image == q.image && (e.aspects & VK_IMAGE_ASPECT_DEPTH_BIT) && box.any() && (box & ~e.tiles).none()) newest = true;
++          }
++          if (!newest) return;
++        }
++        if (draw.raster.stencil && !q.stencil) {
++          saw_stencil = true;
++          return;
++        }
++        s.ok = s.pass = true;
++        s.image = q.image;
++        s.stencil = q.stencil;
++      };
++      from_pass(p);
++      for (size_t i = owned_parked_.size(); i-- > 0;) from_pass(owned_parked_[i]);
++      if (s.ok) return s;
++      if (box.none()) return s;
++      for (size_t i = owned_dirty_.size(); i-- > 0;) {
++        const OwnedDirty& e = owned_dirty_[i];
++        if (e.slot != draw.truth_depth || !(e.aspects & VK_IMAGE_ASPECT_DEPTH_BIT) || (box & ~e.tiles).any() || !size_ok(e.image)) continue;
++        bool stencil = false;
++        for (const OwnedDirty& f : owned_dirty_) {
++          if (f.slot == e.slot && f.image == e.image && (f.aspects & VK_IMAGE_ASPECT_STENCIL_BIT) && (box & ~f.tiles).none()) stencil = true;
++        }
++        if (draw.raster.stencil && !stencil) {
++          saw_stencil = true;
++          continue;
++        }
++        s.ok = true;
++        s.stencil = stencil;
++        s.image = e.image;
++        return s;
++      }
++      return s;
++    };
++    // The colour pass: the pending one, else the newest parked one.
++    const OwnedPass* cand = nullptr;
++    bool cand_parked = false;
++    size_t cand_index = 0;
++    if (colour_match(p)) {
++      cand = &p;
++    } else {
++      for (size_t i = owned_parked_.size(); i-- > 0;) {
++        if (colour_match(owned_parked_[i])) {
++          cand = &owned_parked_[i];
++          cand_parked = true;
++          cand_index = i;
++          break;
++        }
++      }
++    }
++    if (!cand || cand->depth || !cand->started) {
++      ++g_s92.depth_no_colour;
++    } else if (cand->edram_free && !OwnedOnly()) {  // (Session 92, M2a: the truth holds nothing of any pass - an edram-free colour pass is as good as any)
++      ++g_s92.depth_edram_free;  // (review: the truth holds nothing of it - the quads' depth would live only in this image)
++    } else if (cand->half) {
++      ++g_s92.depth_half;
++    } else if (!owned_held_.draws.empty() && owned_held_.depth == draw.truth_depth) {
++      ++g_s92.depth_held;  // (review: clears held for this depth must run first - the old path flushes them)
++    } else {
++      Source src = find_source(*cand);
++      if (!src.ok) {
++        if (saw_size) ++g_s92.depth_size;
++        else if (saw_stencil) ++g_s92.depth_stencil;
++        else ++g_s92.depth_no_source;
++      } else {
++        if (cand_parked) {
++          OwnedPass taken_up = std::move(owned_parked_[cand_index]);
++          owned_parked_.erase(owned_parked_.begin() + cand_index);
++          if (p.valid) {
++            if (p.committed) OwnedEndCommitted("another parked pass is taken up (depth)");
++            else OwnedParkOrReplay("another parked pass is taken up (depth)");
++          }
++          owned_pending_ = std::move(taken_up);
++          if (OwnedChains()) ++owned_frame_stats_.ch_takenup;
++          if (owned_pending_.carried_defined) ++owned_frame_stats_.ch_carried_taken_draw;
++          src = find_source(owned_pending_);  // (the pass that was pending may have been replayed)
++        }
++        if (!src.ok) {
++          if (saw_size) ++g_s92.depth_size;
++          else if (saw_stencil) ++g_s92.depth_stencil;
++          else ++g_s92.depth_no_source;
++        } else {
++          const int16_t ci = p.image, si = src.image;
++          OwnedTouch(si);
++          OwnedTouch(ci);
++          // (Copy commands: no render pass of the truth path or the command processor may be open - as at a resume.)
++          OwnedEndPass();
++          EndTruthPass();
++          command_processor_.EndRenderPass();
++          command_processor_.SubmitBarriers(true);
++          if (!OwnedEnsureDepth(ci) || owned_images_[si].depth == VK_NULL_HANDLE) {
++            ++g_s92.depth_budget;
++          } else {
++            const OwnedImage& s = owned_images_[si];
++            OwnedImage& d = owned_images_[ci];
++            const bool src_depth_read = s.depth_read;
++            constexpr VkImageAspectFlags kDS = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
++            DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++            const uint32_t timer = OwnedTimerBegin("depth_into_colour_pass", d.width, d.height);
++            VkImageMemoryBarrier barriers[2];
++            barriers[0] = OwnedBarrier(s.depth, kDS, src_depth_read ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
++                                       VK_ACCESS_TRANSFER_READ_BIT,
++                                       src_depth_read ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
++                                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
++            barriers[1] = OwnedBarrier(d.depth, kDS, kOwnedAnyWrite, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
++                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
++            cb.CmdVkPipelineBarrier(kOwnedShaderStages | kOwnedAttachmentStages | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                                    0, 0, nullptr, 0, nullptr, 2, barriers);
++            VkImageCopy region = {};
++            region.srcSubresource = region.dstSubresource = {kDS, 0, 0, 1};
++            region.extent = {d.width, d.height, 1};
++            cb.CmdVkCopyImage(s.depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, d.depth, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
++            barriers[0] = OwnedBarrier(s.depth, kDS, 0,
++                                       src_depth_read ? VK_ACCESS_SHADER_READ_BIT
++                                                      : VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
++                                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                                       src_depth_read ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
++            barriers[1] = OwnedBarrier(d.depth, kDS, VK_ACCESS_TRANSFER_WRITE_BIT,
++                                       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
++                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
++            cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, kOwnedShaderStages | kOwnedAttachmentStages | VK_PIPELINE_STAGE_TRANSFER_BIT,
++                                    0, 0, nullptr, 0, nullptr, 2, barriers);
++            OwnedTimerEnd(timer);
++            d.depth_read = false;
++            p.depth = true;
++            p.depth_slot = draw.truth_depth;
++            p.stencil = src.stencil;
++            p.depth_tick = ++owned_tick_;
++            p.rec_depth_gone = false;
++            p.tiles |= EdramTiles(dt.base, pitch, false, 0, 0, p.width, p.height);
++            ++g_s92.depth_given;
++            if (src.pass) ++g_s92.depth_from_pass;
++            else ++g_s92.depth_from_dirty;
++            if (!src.pass && OwnedOnly()) ++g_m2a.depth_from_record;
++            static uint32_t logged = 0;
++            if (logged < 8 || owned_frame_logging_) {
++              ++logged;
++              REXGPU_INFO("[native][owned] frame {}: the colour-only pass base {} pitch {} ({}x{}) is given depth slot {} copied from our image {} ({}, stencil {}) for vs {:016X} ps {:016X}",
++                          frame_, p.base, p.pitch_tiles, p.host_width, p.host_height, p.depth_slot, si, src.pass ? "a pass" : (OwnedOnly() ? "a surface record" : "a dirty entry"),
++                          src.stencil, draw.vertex_shader_hash, draw.pixel_shader_hash);
++            }
++          }
++        }
++      }
+     }
+-    restore_recorded = true;
+   }
+   if (p.valid) {
+     const bool fits = fits_of(p) && !(OwnedChains() && p.chain_unkeyed && (OwnedPaused(OwnedKeyOf(draw)) || OwnedPresentKeyed(OwnedKeyOf(draw))));  // (review F5)
+@@ -2419,6 +2866,7 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+       // they wrote - they lie inside the box, their depth is the pass's own, no stencil clear, and the restore writes all colour channels
+       // and depth. Else they go into the truth path first, as for any draw; and they are dropped only once the draw is recorded.)
+       bool drop_held = false;
++      bool forced_drop = false, forced_stencil_ok = false;  // (Session 92, M2a, review D6)
+       if (restore_recorded && !owned_held_.draws.empty() && owned_held_.color == draw.truth_color) {
+         const ClearsInfo& hc = owned_held_.info;
+         // (Diagnosis run 024: Bryan's restore clears fail on the stencil alone - the whole box, the pass's depth, mask 0xF, depth
+@@ -2438,7 +2886,18 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+                         p.host_height, owned_held_.depth, p.depth_slot, hc.stencil_touched, draw.color_write_mask & 0xF,
+                         draw.raster.depth_write);
+           }
+-          OwnedFlushHeld();
++          if (OwnedOnly()) {
++            // Session 92, M2a (review D6): a flush here would switch the pass under the draw (a new pass of the held clears' surface). The restore rewrites
++            // colour and depth over the box: the held clears are dropped, counted, their stencil clear applied in the pass after the draw (the drop_held branch).
++            g_m2a.held_dropped += uint32_t(owned_held_.draws.size());
++            drop_held = true;
++            forced_drop = true;
++            // (The in-pass stencil clear only where the original condition's box and stencil parts hold - else the clears are just dropped: restore_stencil_lost.)
++            forced_stencil_ok = hc.valid && !p.half && hc.rect[0] >= 0 && hc.rect[1] >= 0 && hc.rect[2] <= int32_t(p.host_width) &&
++                                hc.rect[3] <= int32_t(p.host_height) && owned_held_.depth == p.depth_slot && hc.stencil && !draw.raster.stencil;
++          } else {
++            OwnedFlushHeld();
++          }
+         }
+       }
+       if (p.chain_unkeyed) {  // (Session 87: a pass begun by a clear is keyed by its first draw's pixel shader, as a pass started by a draw is)
+@@ -2450,7 +2909,7 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+           ++owned_frame_stats_.restore_drawn;
+           if (drop_held) {
+             const ClearsInfo& hc = owned_held_.info;
+-            if (hc.stencil_touched && p.open) {
++            if (hc.stencil_touched && p.open && (!forced_drop || forced_stencil_ok)) {
+               VkClearAttachment clear = {};
+               clear.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+               clear.clearValue.depthStencil = {0.0f, uint32_t(hc.stencil_value)};
+@@ -2525,6 +2984,7 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+   const bool cleared = clears_box && (!depth_used || (keep_depth && draw.truth_depth == clears_depth_slot)) &&
+                        (!draw.raster.stencil || keep_stencil) &&
+                        (!covered || (pc.rect[2] == rect[2] && pc.rect[3] == rect[3])) && held_whole;
++  if (restore_from_held && !cleared) return refuse("kind", kOwnedReasonOther, "restore");  // (Session 92: the start below is the held clears' or nothing)
+   if (OwnedChains() && frame && !draw.fast_clear && !command_processor_.NativeReadbackActive() && OwnedKeyDead(key)) {
+     // (Session 87, chains: Bryan's shadow-map passes (0/7/0 ps DA494C93) are dead - no sampler reads their copies - and their depth-tested draws cannot start a pass
+     // from colour-only clears. A dead pass is dropped whole, as the cleared case above drops it: the first draw with its clears, then the pass's other draws
+@@ -2544,6 +3004,13 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+       for (const OwnedDirty& d : owned_dirty_) {
+         if (d.slot == slot && (d.aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))) return false;
+       }
++      // (Failure read fix 2: under the latch a long-lived record does not block the dead drop - the tile overlap that released the dirty entries is gone; the
++      // dead drop marks the slot stale instead, below.)
++      if (!OwnedOnly()) {
++        for (const OwnedPass& q : owned_newest_) {
++          if (q.depth && !q.rec_depth_gone && q.depth_slot == slot) return false;
++        }
++      }
+       return true;
+     };
+     const bool depth_ok = !(draw.raster.depth_write || draw.raster.stencil) || depth_slot_free(draw.truth_depth);
+@@ -2558,6 +3025,7 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+       }
+       serve_pending_.clear();
+       serve_rename_.valid = false;
++      if (OwnedOnly() && (draw.raster.depth_write || draw.raster.stencil)) OwnedMarkDepthStale(draw.truth_depth);
+       ++owned_frame_stats_.dropped_draws;
+       ++owned_frame_stats_.ch_dead_depthless;
+       return true;
+@@ -2702,6 +3170,8 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+   p.host_height = height;
+   p.image = index;
+   p.frame = frame_;
++  p.last_tick = ++owned_tick_;  // (Session 92, M2a)
++  p.rec_colour_gone = p.rec_depth_gone = false;
+   p.draws_since_color = p.draws_since_depth = 0;
+   p.copy_color_page = p.copy_depth_page = 0;
+   p.submission = command_processor_.GetCurrentSubmission();
+@@ -2742,6 +3212,8 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+   OwnedDropParkedIf("the same surface starts again", [&](const OwnedPass& q) {
+     return q.base == p.base && q.pitch_tiles == p.pitch_tiles && q.kind == p.kind;  // (review F7's drop by depth slot is NOT done: it dropped the scene pass the restore draw needs, run 12)
+   });
++  if (keep_depth) p.depth_tick = p.last_tick;  // (Session 92, M2a)
++  OwnedSupersedeRecords(p.base, p.pitch_tiles, p.kind, p.depth ? p.depth_slot : int16_t(-1));  // (review D4)
+   p.loaded_start = false;
+   p.edram_free = false;
+   p.start_kind = cleared ? uint8_t(kOwnedStartCleared) : uint8_t(kOwnedStartCovered);
+@@ -2772,7 +3244,13 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+                 keep_depth ? "depth kept" : "no depth", keep_stencil ? " + stencil" : "",
+                 p.clears_ours ? "ours" : "kept", clears_loaded, draw.color_info, pc.depth_value, pc.stencil_value);
+   }
+-  if (OwnedRecord(draw, rect)) return true;
++  if (OwnedRecord(draw, rect)) {
++    if (restore_from_held) {
++      ++g_s92.restores_taken;  // (Session 92)
++      ++owned_frame_stats_.restore_drawn;
++    }
++    return true;
++  }
+   return not_taken(true, __LINE__);  // (Session 82: no depth image within the budget - the pass was dropped before it began)
+ }
+ 
+@@ -2804,6 +3282,10 @@ void NativeRenderer::OwnedEndCommitted(const char* why) {
+   // holds them; nothing to replay.
+   OwnedPass& p = owned_pending_;
+   OwnedEndPass();
++  if (OwnedOnly() && p.valid) {
++    // Session 92, M2a (review D2): every pass that ends is noted; a newer noted pass of its surface (or its depth slot) supersedes it by tick.
++    OwnedNoteNewest(p);
++  }
+   p.valid = false;
+   p.committed = false;
+   p.draws.clear();
+@@ -2811,7 +3293,21 @@ void NativeRenderer::OwnedEndCommitted(const char* why) {
+   p.serves.clear();
+ }
+ 
++void NativeRenderer::OwnedEndAsIs(const char* why) {
++  // Session 92, M2a: a pending pass whose copy did not follow (a loss before: replayed into the truth images). Nothing to replay into - its pixels are
++  // in our image: committed (no tiles marked) and ended, its image the surface's newest record. Counted by why.
++  OwnedPass& p = owned_pending_;
++  if (!p.valid) return;
++  if (!p.committed) {
++    ++g_m2a.replays_avoided;
++    M2aGroup(g_m2a.avoided_why, why);
++    OwnedCommit();
++  }
++  OwnedEndCommitted(why);
++}
++
+ void NativeRenderer::OwnedMarkDirty(bool dropped) {
++  if (OwnedOnly()) return;  // (Session 92, M2a: no truth image gets dirty tiles - the surface's newest record is the pass's image)
+   // The truth images' tiles of the box: without its draws (and, dropped, its clears) - dirty, ours to copy in before
+   // anything reads them. A pass from a covering draw too when its colour image owns every tile of the box (its draws
+   // write every pixel of the box: our image is what the surface holds there); else its tiles are left as they were -
+@@ -2885,7 +3381,8 @@ void NativeRenderer::OwnedMarkDirty(bool dropped) {
+   add(p.color_slot, VK_IMAGE_ASPECT_COLOR_BIT);
+   if (p.depth) {
+     if ((dropped && p.clears_depth) || p.draws_depth) add(p.depth_slot, VK_IMAGE_ASPECT_DEPTH_BIT);
+-    if (p.stencil && ((dropped && p.clears_stencil) || p.draws_stencil)) add(p.depth_slot, VK_IMAGE_ASPECT_STENCIL_BIT);
++    // (Session 92, part D2, TRUE NATIVE: a pass that keeps stencil always leaves it dirty - the truth path may use it (ClaimTruth lets a stencil draw through over it).)
++    if (p.stencil && (OwnedChains() || (dropped && p.clears_stencil) || p.draws_stencil)) add(p.depth_slot, VK_IMAGE_ASPECT_STENCIL_BIT);
+   }
+   if (REXCVAR_GET(gpu_native_own_steps_debug_materialize)) {
+     for (OwnedDirty& e : owned_dirty_) {
+@@ -2945,6 +3442,20 @@ void NativeRenderer::OwnedDropParkedIf(const char* why, const std::function<bool
+       REXGPU_INFO("[native][seg] frame {} the parked pass (base {} pitch {}) is dropped: {}", frame_,
+                   owned_parked_[i].base, owned_parked_[i].pitch_tiles, why);
+     }
++    // (Session 92, M2a: a parked pass that ends with its submission or its frame is its surface's newest record; the other reasons - a clear of the
++    // surface, a new pass of it, its pixels taken into a loaded start - supersede it.)
++    if (OwnedOnly()) {
++      // (Failure read fix 1: EVERY dropped parked pass is noted - a pass holds two surfaces. When the reason replaces its colour (a clear or a new pass of the
++      // surface, its pixels taken into a loaded start) it stays only as its depth slot's record, until a pass holding that slot supersedes it - the scene pass
++      // parked after its resolves, dropped by the combine's covered start, was the E1 depth source.)
++      const bool ends = reason == "the submission ends" || reason == "the frame ends" || reason == "a write-out";
++      if (reason == "a held clear over its tiles or surface") {  // (review D2: the clear replaces that surface's content - older records lose it too)
++        OwnedSupersedeRecords(owned_parked_[i].base, owned_parked_[i].pitch_tiles, owned_parked_[i].kind, -1);
++      }
++      OwnedPass dropped = owned_parked_[i];
++      if (!ends) dropped.rec_colour_gone = true;
++      OwnedNoteNewest(dropped);
++    }
+     owned_parked_.erase(owned_parked_.begin() + i);
+   }
+   // (Oldest first: they were found newest first.)
+@@ -2956,7 +3467,7 @@ void NativeRenderer::OwnedParkOrReplay(const char* why) {
+   if (!p.valid) return;
+   OWNED_SCENE_LOG(p, "[native][owned][scene] frame {}: park or replay base {} pitch {}: committed {} same submission {} ({})", frame_, p.base, p.pitch_tiles, p.committed, p.submission == command_processor_.GetCurrentSubmission(), why);
+   const bool chains = OwnedChains() && owned_frame_on_;
+-  if (chains && !p.committed && (p.edram_free || p.start_kind == kOwnedStartCovered || OwnedTruthHolds())) {  // (review F2: a defined start keeps its draws, and is replayed if it is dropped before its copy)
++  if (chains && !p.committed && (p.edram_free || p.start_kind == kOwnedStartCovered || OwnedTruthHolds() || OwnedOnly())) {  // (review F2: a defined start keeps its draws, and is replayed if it is dropped before its copy; Session 92, M2a: every pass is parked, none replayed)
+     if (p.edram_free) p.chain_parked = true;
+     // (Session 87, design B: an uncommitted pass is parked too. Its pixels are in our image and its tiles become dirty - as at a submission's end,
+     // where a pass the truth images can be given later is committed without its copy - so nothing needs replaying; its copy comes later.)
+@@ -2974,6 +3485,7 @@ void NativeRenderer::OwnedParkOrReplay(const char* why) {
+       OwnedPass evicted = std::move(owned_parked_.front());
+       if (evicted.carried_defined) ++owned_frame_stats_.ch_carried_dropped[6];
+       owned_parked_.erase(owned_parked_.begin());
++      if (OwnedOnly()) OwnedNoteNewest(evicted);  // (Session 92, M2a: the oldest parked pass becomes its surface's newest record, not a loss)
+       if (chains && evicted.chain_parked && evicted.edram_free && !evicted.draws.empty()) {
+         ++owned_frame_stats_.ch_replay_by[6];
+         OwnedReplayParkedPass(std::move(evicted), "evicted from the parked passes");
+@@ -2993,6 +3505,7 @@ bool NativeRenderer::OwnedTruthHolds(const OwnedPass& p) const {
+   // Whether the truth images get the pass's pixels as dirty tiles (OwnedMarkDirty): a pass from its clears, or from a
+   // covering draw when its colour image owns every tile of the box. Else only our image holds them (the ring
+   // downscale: its tiles are the shadow map's) - a copy of it is exact only served from our image.
++  if (OwnedOnly()) return false;  // (Session 92, M2a: the truth images hold nothing of any pass - only our image does; every "only our image holds it" path is the right one)
+   if (p.cleared) return true;
+   if (p.color_slot < 0 || size_t(p.color_slot) >= truth_images_.size()) return false;
+   const TruthImage& t = truth_images_[p.color_slot];
+@@ -3533,6 +4046,23 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+     if (reads_color || reads_depth) OwnedFlushHeld(true);
+   }
+   if (!owned_depth_clears_.empty() && info.IsCopyingDepth()) OwnedDepthClearsFlush("a copy reads that depth", -1, int64_t(info.depth_original_base));  // (Session 87)
++  if (OwnedChains() && owned_frame_on_ && (!truth_ || !replacing_) && info.copy_dest_extent_length && !owned_pages_.empty()) {
++    // Session 92, part C (TRUE NATIVE only): a frame that fell back to the truth path still runs the game's own copy, which writes this memory -
++    // every owned page it overlaps (feedback pages too) is the game's again, as unmap() below does for a served frame. Else the presenter keeps
++    // showing the stale page of ours (the black ladder match).
++    const uint64_t start = info.copy_dest_extent_start, end = start + info.copy_dest_extent_length;
++    const size_t before = owned_pages_.size();
++    owned_pages_.erase(std::remove_if(owned_pages_.begin(), owned_pages_.end(),
++                                      [&](const OwnedPage& q) {
++                                        return start < uint64_t(q.extent_start) + q.extent_length && uint64_t(q.extent_start) < end;
++                                      }),
++                       owned_pages_.end());
++    if (owned_pages_.size() != before) {
++      g_s92.fallen_front_drops += uint32_t(before - owned_pages_.size());
++      command_processor_.NativeOwnedPagesChanged();
++      OwnedWatchSync();
++    }
++  }
+   if (!truth_ || !replacing_ || !info.copy_dest_extent_length) return false;
+   if (owned_watch_pending_.load(std::memory_order_acquire)) OwnedDrainCpuWrites();
+   const uint32_t page = (info.copy_dest_base >> 12) & 0x1FFFF;
+@@ -3581,6 +4111,22 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+       break;
+     }
+   }
++  if (OwnedOnly() && !owned_newest_.empty() && !(p.valid && OwnedCopyOfPass(info, p))) {
++    // Session 92, M2a (design 4 item 6): a copy of a surface no pass of ours holds now is served from the surface's newest record - a pass that ended
++    // (a submission's or a frame's end, a loss that used to be replayed) - taken up as a committed pass and served by the pass-copy code below.
++    for (size_t ri = owned_newest_.size(); ri-- > 0;) {
++      if (!OwnedCopyOfPass(info, owned_newest_[ri])) continue;
++      OwnedPass taken_up = std::move(owned_newest_[ri]);
++      owned_newest_.erase(owned_newest_.begin() + ri);
++      if (p.valid) OwnedParkOrReplay("a copy of a surface's newest record");
++      owned_pending_ = std::move(taken_up);
++      owned_pending_.valid = true;
++      owned_pending_.committed = true;
++      owned_pending_.open = false;
++      ++g_m2a.from_record;
++      break;
++    }
++  }
+   if (!OwnedChains()) {
+     // (A copy that runs from the truth images over a parked pass only our image holds would read stale tiles.)
+     const auto cannot = [&](const OwnedPass& q) {
+@@ -3617,7 +4163,53 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+     if (kind == 2) ++r.dead, ++owned_frame_stats_.dead;
+     if (kind == 3) ++r.written_back, ++owned_frame_stats_.written_back;
+   };
+-  const auto from_truth = [&]() {
++  const auto from_truth = [&](int line = __builtin_LINE()) {
++    if (OwnedOnly()) {
++      // Session 92, M2a (design 4 item 6): there is no truth copy to run. A copy of a surface of a pass or a record was taken up above; this one has
++      // no image of ours (or a shape/page our copy code cannot serve): DROPPED - the destination pages are the game's memory as they are (unmap), the
++      // copy counted by the source line. M2c fills these with a defined value.
++      if (!noted) note(-1);
++      if (owned_wb_planned_) {
++        // (Review C6: a write-back was planned - the copy IS written from our image by the cache's destination block; the destination is the game's
++        // memory again (unmap), counted as written, not dropped.)
++        unmap();
++        ++g_m2a.copies_written_after_loss;
++        return true;
++      }
++      // (Review C1: a dropped copy keeps the pages of ours that cover its destination - the cache marks a scaled destination resolved but nothing writes it, so an
++      // unmap would leave garbage: cube feedback pages, damage maps and a front page stay as they were. Counted: "kept a page".)
++      {
++        const uint64_t dstart = info.copy_dest_extent_start, dend = dstart + info.copy_dest_extent_length;
++        for (const OwnedPage& q : owned_pages_) {
++          if (dstart < uint64_t(q.extent_start) + q.extent_length && uint64_t(q.extent_start) < dend) {
++            ++g_m2a.drops_kept_page;
++            break;
++          }
++        }
++      }
++      ++g_m2a.copies_dropped;
++      if (command_processor_.NativeCopyReadsBack()) ++g_m2a.readback_dropped;  // (review C3: the bar says 0)
++      for (const uint32_t f : owned_front_pages_) {
++        if (f && (f == page || f == texture_page)) {
++          ++g_m2a.front_dropped;
++          break;
++        }
++      }
++      M2aGroup(g_m2a.copy_groups, fmt::format("{} {}x{} base {} pitch {} -> page {:05X} fmt {}", info.IsCopyingDepth() ? "depth" : "colour",
++                                                uint32_t(info.coordinate_info.width_div_8) * 8, uint32_t(info.height_div_8) * 8,
++                                                uint32_t(info.IsCopyingDepth() ? info.depth_original_base : info.color_original_base),
++                                                uint32_t(info.color_edram_info.pitch_tiles), page, uint32_t(info.copy_dest_info.copy_dest_format)) + fmt::format(" (line {})", line));
++      static uint32_t logged = 0;
++      if (logged < 24) {
++        ++logged;
++        REXGPU_INFO("[native][owned-only] frame {}: a copy is dropped (owned_steps.cpp:{}): {} {}x{} base {} pitch {} into page 0x{:05X} (texture 0x{:05X}) dest format {}; EDRAM offset {},{}; pending pass {} (base {} pitch {}), {} records",
++                    frame_, line, info.IsCopyingDepth() ? "depth" : "colour", uint32_t(info.coordinate_info.width_div_8) * 8, uint32_t(info.height_div_8) * 8,
++                    uint32_t(info.IsCopyingDepth() ? info.depth_original_base : info.color_original_base), uint32_t(info.color_edram_info.pitch_tiles), page,
++                    texture_page, uint32_t(info.copy_dest_info.copy_dest_format), uint32_t(info.coordinate_info.edram_offset_x_div_8) * 8,
++                    uint32_t(info.coordinate_info.edram_offset_y_div_8) * 8, p.valid, p.base, p.pitch_tiles, owned_newest_.size());
++      }
++      return true;
++    }
+     if (!noted) note(-1);
+     if (OwnedChains() && owned_frame_on_ && !owned_frame_end_carried_.empty() && !info.IsCopyingDepth()) {
+       // (Session 90, detection only: a copy that runs from the truth tiles of a surface whose carried defined start was dropped at the last frame's end.)
+@@ -3652,7 +4244,7 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+                                      [&](const OwnedPage& q) { return q.page == texture_page && q.feedback >= 0; });  // (review: feedback pages only)
+   // (A committed pass whose pixels only our image holds (a covered start the truth images cannot hold) cannot be read back: a replay is
+   // impossible and the game's copy would read tiles that never had its draws - an inexact pause. Served, as before the window rule.)
+-  const bool only_ours = p.valid && p.committed && !p.edram_free && !OwnedTruthHolds(p);
++  const bool only_ours = p.valid && p.committed && !p.edram_free && !OwnedTruthHolds(p) && !OwnedOnly();  // (Session 92, M2a: under the latch every pass is "only ours" - a read-back copy is written from our image or dropped, never run by the game)
+   if (only_ours && owned_frame_on_ && !dest_ours && command_processor_.NativeCopyReadsBack()) {
+     ++owned_frame_stats_.ch_only_ours_readback;  // (review A9: the removed readback guard reopens this case - counted)
+     // (Session 82, P2: the case with no exact answer yet - a copy the CPU reads, of a committed pass only our image holds: served, the CPU
+@@ -3718,6 +4310,16 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+       note(2);
+       return true;
+     }
++    // Session 92, M2a (design 4 item 6): the pass cannot serve this copy (a shape, a page, a front copy the swap would not read ...) and nothing replays it:
++    // the copy is DROPPED, counted by the line that lost it; the pass is untouched (it may serve a later copy, or end as its surface's newest record).
++    if (OwnedOnly()) {
++      if (OwnedChains()) {
++        auto& ll = owned_frame_stats_.lose_lines;
++        auto it = std::find_if(ll.begin(), ll.end(), [&](const std::pair<int, uint32_t>& e) { return e.first == g_owned_lose_line; });
++        if (it != ll.end()) ++it->second; else if (ll.size() < 64) ll.emplace_back(g_owned_lose_line, 1u);
++      }
++      return from_truth(g_owned_lose_line);
++    }
+     // (The first ones logged with the copy against the box.)
+     static uint32_t losses_logged = 0;
+     static uint32_t ps9c_logged = 0;
+@@ -3909,7 +4511,7 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+                   uint32_t(info.copy_dest_info.copy_dest_format), p.committed ? "ended" : "replayed", p.kind, p.edram_free,
+                   p.feedback_pass, p.copy_count, p.draws.size());
+     }
+-    if (OwnedChains() && REXCVAR_GET(gpu_native_owned_frame_readback_materialise) && p.valid && !p.edram_free && !p.half && !front &&
++    if (OwnedChains() && !OwnedOnly() && REXCVAR_GET(gpu_native_owned_frame_readback_materialise) && p.valid && !p.edram_free && !p.half && !front &&
+         p.color_slot >= 0 && size_t(p.color_slot) < truth_images_.size()) {
+       // (Session 87, chains, kept behind gpu_native_owned_frame_readback_materialise for one A/B: the bytes the CPU reads are the pass's pixels - they go to the truth image as its dirty tiles (OwnedCommit) and the game's own copy runs from
+       // there. Only when the truth image owns every tile of the box - else replayed.)
+@@ -3954,7 +4556,27 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+         if ((u.first == page || u.first == texture_page) && frame_ < u.second) page_unserved = true;  // (review A2)
+       }
+     }
+-    const bool front_unserved = OwnedChains() ? (p.start_kind == kOwnedStartConverted || page_unserved) : p.edram_free;
++    // Session 92, M2a (review C2): a front copy is never unmap-dropped under the latch. The converted-start term goes (a converted start is a defined box, the
++    // best image there is), and a front copy the swap cannot read from our image is WRITTEN into the page's memory from it (the front write-back, as the
++    // wb_rect shape below); only when no writer exists is it dropped, keeping the page (from_truth).
++    const bool front_unserved = OwnedChains() ? ((p.start_kind == kOwnedStartConverted && !OwnedOnly()) || page_unserved) : p.edram_free;
++    const auto front_write = [&]() -> bool {
++      if (!OwnedOnly() || p.half) return false;
++      std::string why;
++      if (!OwnedWbPlan(info, sx, sy, w, h, gap, /*front=*/true, why)) {
++        OwnedWbRefused("front: " + why);
++        return false;
++      }
++      owned_wb_planned_ = true;
++      OwnedCommit();
++      ++p.copy_count;
++      unmap();
++      ++owned_frame_stats_.wb_rect;
++      ++g_m2a.front_written;
++      p.chain_parked = false;
++      note(3);
++      return true;
++    };
+     if (!whole || p.kind != 1 || d.copy_dest_format != xenos::ColorFormat::k_8_8_8_8 || front_unserved) {
+       if (OwnedChains()) {
+         static uint32_t front_logged = 0;
+@@ -3965,6 +4587,7 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+                       int(p.start_kind), p.draws.size());
+         }
+       }
++      if (front_write()) return true;
+       return OWNED_LOSE(true);
+     }
+     if (!OwnedPresentOk(page, w, h, uint32_t(d.copy_dest_format), uint32_t(d.copy_dest_endian), scaled_now)) {
+@@ -3986,6 +4609,7 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+         owned_wb_.front = true;
+         front = false;
+       } else {
++        if (front_write()) return true;
+         return OWNED_LOSE(true, seen);
+       }
+     }
+@@ -4018,6 +4642,31 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+       note(1);
+       return true;
+     }
++    // Session 92 (damage-map resets): a texture the cache has not seen loaded yet has no key, so no feedback texture can take the copy - it is
++    // written from our image instead (the pass's cleared box; the cache's writer puts it where the stock copy would, and learns the key at the
++    // first load). Not for a packed-tail strip of a known feedback texture (feedback_pass): that stays dropped below.
++    if (OwnedChains() && owned_frame_on_ && !p.feedback_pass && !dest_ours && !front && !p.half) {
++      bool planned = owned_wb_planned_;
++      if (!planned) {
++        std::string k_why;
++        if (OwnedWbPlan(info, sx, sy, w, h, gap, false, k_why)) {
++          owned_wb_planned_ = true;
++          ++owned_frame_stats_.wb_planned;
++          planned = true;
++        } else {
++          OwnedWbRefused("k_4_4_4_4 texture not loaded yet: " + k_why);
++        }
++      }
++      if (planned) {
++        OwnedCommit();
++        ++p.copy_count;
++        unmap();
++        ++owned_frame_stats_.k4444_unloaded_wb;
++        p.chain_parked = false;
++        note(3);
++        return true;
++      }
++    }
+     return OWNED_LOSE(false, true, false);  // (no pause: the packed tail's strips, a texture not seen loaded yet ...)
+   }
+   // The page of ours a rectangle may go into: a 16-bit page image the rectangle is filled into, or (8-bit) a page's
+@@ -4053,7 +4702,7 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+       command_processor_.NativeReadbackActive() && p.width >= 512) {
+     return OWNED_LOSE(front, true, false);
+   }
+-  if (!truth_holds && !p.committed) {
++  if (!truth_holds && !p.committed && !OwnedOnly()) {  // (failure read fix 3: the gate only guards a replay - none exists under the latch; the 16-bit rectangle page path below is reached)
+     bool served = whole || fills_held() || takes();
+     if (whole && (p.kind == 2 || gap || OwnedContinues(p, 1))) {
+       unmap();
+@@ -4078,7 +4727,7 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+       OwnedPause(p.key, p.producers, "a copy of a pass only our image holds run as the game's");
+     }
+     OwnedEndCommitted("a copy run as the game's from our pixels");
+-    note(3);
++    if (!OwnedOnly() || owned_wb_planned_) note(3);  // (review C6: under the latch a lost copy is not "written back" unless it is)
+     return from_truth();
+   };
+   // A plain copy of the pass: committed (its clears' pass off, its tiles dirty - the first time).
+@@ -4303,7 +4952,7 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+       ++truth_counts_.owned_refused;
+       OwnedPause(held->key, held->producers, "a rectangle copy into its page it cannot take");
+     }
+-    note(3);
++    if (!OwnedOnly() || owned_wb_planned_) note(3);
+     if (!truth_holds) return stale();  // (a committed pass only our image holds: its earlier draws not in the truth)
+     return from_truth();
+   }
+@@ -4474,6 +5123,8 @@ void NativeRenderer::OwnedMaterialize(OwnedDirty& e, const std::bitset<2048>& wh
+                           kOwnedShaderStages | kOwnedAttachmentStages | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                           nullptr, 2, barriers);
+   OwnedTimerEnd(timer, uint32_t(tiles.count()));  // (draws = the tiles copied)
++  // Session 92, part D3 (TRUE NATIVE): the truth image now holds our stencil in these tiles.
++  if (OwnedChains() && (d.aspects & VK_IMAGE_ASPECT_STENCIL_BIT)) truth_images_[d.slot].stencil_valid |= tiles;
+   truth_counts_.owned_materialized += uint32_t(tiles.count());
+   ++owned_frame_stats_.mat_calls;
+   owned_frame_stats_.mat_tiles += uint32_t(tiles.count());
+@@ -4602,6 +5253,10 @@ void NativeRenderer::OwnedDirtyBeforeRead(const std::bitset<2048>& tiles, int16_
+ }
+ 
+ void NativeRenderer::OwnedBeforeWriteOut() {
++  if (OwnedOnly()) {  // (Session 92, M2a: no write-out exists - TruthFallback is ignored; nothing is materialised or replayed. Counted if it is ever reached)
++    ++g_m2a.writeouts_ignored;
++    return;
++  }
+   // Every image goes into the EDRAM: an owned pass still waiting for its copy is replayed into them, every dirty tile
+   // gets our pixels. (Not from inside a copy-in's flush - a failure's write-out there leaves them.)
+   // (chains: the held clears are a pass of ours - a load-op clear, no sets needed - then written out with the rest, never a truth pass.)
+@@ -4677,7 +5332,7 @@ void NativeRenderer::OwnedOnSubmissionEnd() {
+   // before.)
+   // (A covered start - every pixel of its box drawn - is held by our image whole whatever the truth images' tiles say: the
+   // combine's pass, since the scene is owned and no truth pass writes those tiles any more.)
+-  if (owned_frame_on_ && (OwnedTruthHolds() || owned_pending_.start_kind == kOwnedStartCovered)) {
++  if (owned_frame_on_ && (OwnedTruthHolds() || owned_pending_.start_kind == kOwnedStartCovered || OwnedOnly())) {  // (Session 92, M2a: every pass - nothing replays)
+     OwnedCommit();
+     ++owned_frame_stats_.sub_commits;
+     if (segment_log_frames_ > 0) {
+@@ -5065,6 +5720,7 @@ void NativeRenderer::OwnedOnFrameEnd() {
+     OwnedCommit();
+     ++owned_frame_stats_.ch_commit_frame;
+   }
++  if (owned_pending_.valid && OwnedOnly()) OwnedEndAsIs("the frame ends");  // (Session 92, M2a: committed if it was not, ended - its image the surface's newest record)
+   if (owned_pending_.valid && owned_pending_.committed) OwnedEndCommitted("the frame ends");
+   owned_continued_.erase(std::remove_if(owned_continued_.begin(), owned_continued_.end(),
+                                         [&](const OwnedContinued& c) { return c.frame + 120 < frame_; }),
+@@ -5222,6 +5878,11 @@ void NativeRenderer::OwnedPause(const OwnedPassKey& key, const std::vector<std::
+                                 const char* why) {
+   // (Session 82: with the owned frame on, a loss pauses the pass - its surface and first pixel shader - for 600 frames,
+   // not every shader that drew it, frame-wide; else the listed shaders, as before.)
++  if (OwnedOnly()) {  // (Session 92, M2a: nothing to protect without a truth path - no pause; counted by why)
++    ++g_m2a.pauses_avoided;
++    M2aGroup(g_m2a.avoided_why, std::string("pause: ") + why);
++    return;
++  }
+   if (!owned_frame_on_) return OwnedDisableAll(producers, why);
+   if (OwnedPaused(key)) return;
+   owned_paused_.erase(std::remove_if(owned_paused_.begin(), owned_paused_.end(),
+@@ -5374,6 +6035,8 @@ void NativeRenderer::OwnedFrameFinish() {
+ void NativeRenderer::OwnedFrameSummary() {
+   OwnedFrameStats& st = owned_frame_stats_;
+   if (!st.frames) return;
++  // (Session 92 M0: the "free from the 360" counters, one line per window under TRUE NATIVE; reset either way)
++  rex::graphics::free_counters::PrintAndReset(OwnedChains(), st.first_frame, st.first_frame + st.frames - 1);
+   std::string reasons;
+   for (uint32_t i = 1; i < kOwnedReasonCount; ++i) {
+     if (!st.reasons[i]) continue;
+@@ -5430,6 +6093,13 @@ void NativeRenderer::OwnedFrameSummary() {
+                 "rect, whether a truth pass was open, whether an owned pass was parked), top {} of {}:{}",
+                 st.first_frame, st.first_frame + st.frames - 1, std::min<size_t>(groups.size(), 10), groups.size(), top);
+   }
++  if (OwnedChains()) {  // (Session 92: the lighting-cube derivation, per window; the contradictions are cumulative)
++    uint32_t cube_stale = 0, cube_older = 0, cube_contra = 0, cube_reused = 0;
++    OwnedCubeCounters(cube_stale, cube_older, cube_contra, cube_reused, true);
++    REXGPU_INFO("[native][owned-frame] frames {}-{}: cube derivation: stale cubes dropped {}, older derived dropped {}, same-frame contradictions {}, dead cubes reused {}, owned images {} MB, derivation off: {}",
++                st.first_frame, st.first_frame + st.frames - 1, cube_stale, cube_older, cube_contra, cube_reused,
++                owned_bytes_ >> 20, owned_cube_derive_off_ ? "yes" : "no");
++  }
+   if (OwnedChains()) {
+     REXGPU_INFO("[native][owned-frame] frames {}-{}: owned surfaces: clears into our images {} (colour + depth {} / colour {}; class 1 {} / class 2 {}), "
+                 "passes started by a clear {} (declined, back to the truth path: {}), depth-only clears into a pass {} (waited {}) / pended {} (dropped {}, run in the truth path {}), "
+@@ -5465,6 +6135,8 @@ void NativeRenderer::OwnedFrameSummary() {
+                   st.first_frame, st.first_frame + st.frames - 1, st.wb_written[0] + st.wb_written[1] + st.wb_written[2] + st.wb_written[3] + st.wb_written[4],
+                   st.wb_written[0], st.wb_written[1], st.wb_written[2], st.wb_written[3], st.wb_written[4], st.wb_rect, st.wb_window_pauses, st.wb_window_loads, st.wb_planned, st.wb_dest_ours, st.wb_only_ours, st.wb_front,
+                   refused.empty() ? "none" : refused, st.wb_unplanned, st.wb_loaded_parked, st.ch_readback_mat);
++      REXGPU_INFO("[native][owned-frame] frames {}-{}: damage-map resets written back from our image {}", st.first_frame, st.first_frame + st.frames - 1,
++                  st.k4444_unloaded_wb);
+     }
+   }
+   REXGPU_INFO("[native][owned-frame] frames {}-{}: passes {} owned {} fallback {} (by reason: {}), copies served {} / "
+@@ -5476,6 +6148,54 @@ void NativeRenderer::OwnedFrameSummary() {
+               st.clears_kept, st.pauses, st.reader_events, st.no_pipeline, st.flip_kept, owned_images_.size(),
+               owned_page_images_.size(), owned_scratch_depths_.size(), owned_bytes_ >> 20, st.presented, st.post_boxes,
+               st.sub_commits, lost.empty() ? "" : "; lost by [", lost.empty() ? costs : lost + "]" + costs);
++  // Session 92: the start / format family.
++  if (OwnedChains()) {
++    REXGPU_INFO("[native][owned-frame] frames {}-{}: colour-less draws joined {} / refused {} [no depth pass {}, outside box {}, stencil {}, held clears {}]; "
++                "restores taken from held clears {} (refused: no held clears {}, not cleared {}); front copies in a fallen frame: pages dropped {}; "
++                "stencil claims allowed by an owned pass's stencil {}; stencil draws over unproven stencil {}",
++                st.first_frame, st.first_frame + st.frames - 1, g_s92.joined,
++                g_s92.no_depth_pass + g_s92.outside_box + g_s92.no_stencil + g_s92.held_clears, g_s92.no_depth_pass, g_s92.outside_box,
++                g_s92.no_stencil, g_s92.held_clears, g_s92.restores_taken, g_s92.restores_no_held, g_s92.restores_not_cleared,
++                g_s92.fallen_front_drops, g_s92.stencil_claims, g_s92.unproven_stencil);
++    REXGPU_INFO("[native][owned-frame] frames {}-{}: colour-only passes given depth {} (from a dirty entry {}, from a pass {}) (refused: no depth image of ours {}, "
++                "no colour pass or an ordinary start (not a refusal) {}, edram-free pass {}, held clears for its depth {}, size {}, half {}, stencil {}, budget {}); held frames not aging the front page {}",
++                st.first_frame, st.first_frame + st.frames - 1, g_s92.depth_given, g_s92.depth_from_dirty, g_s92.depth_from_pass,
++                g_s92.depth_no_source, g_s92.depth_no_colour, g_s92.depth_edram_free, g_s92.depth_held, g_s92.depth_size, g_s92.depth_half, g_s92.depth_stencil, g_s92.depth_budget,
++                g_s92_held_not_aging);
++  }
++  if (REXCVAR_GET(gpu_native_owned_only)) {
++    // Session 92, M2a: the owned-only latch's window line (docs\native\d3d\S92_M2_DESIGN.md section 4 item 7).
++    const auto top = [](std::vector<std::pair<std::string, uint32_t>> groups, size_t n) {
++      std::sort(groups.begin(), groups.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
++      std::string out;
++      for (size_t i = 0; i < groups.size() && i < n; ++i) out += fmt::format("{}{} x{}", out.empty() ? "" : "; ", groups[i].first, groups[i].second);
++      return out.empty() ? std::string("none") : out;
++    };
++    std::string by_reason;
++    for (uint32_t i = 0; i < 16; ++i) {
++      if (!g_m2a.draw_reasons[i]) continue;
++      by_reason += fmt::format("{}{} {}", by_reason.empty() ? "" : ", ", i == 15 ? "claim refused" : OwnedReasonName(i), g_m2a.draw_reasons[i]);
++    }
++    uint32_t truth_images_alive = 0;
++    for (const TruthImage& t : truth_images_) truth_images_alive += t.image != VK_NULL_HANDLE ? 1u : 0u;
++    REXGPU_INFO("[native][owned-only] frames {}-{}: latch {}; draws dropped {} (by reason: {}; claims refused and dropped {}), skipped for no pipeline {} / no pixels {}; "
++                "copies dropped {} (that kept a page of ours {}; CPU read-backs dropped {} [bar 0]; front copies dropped {} [bar 0]), written after a loss {}, front copies written {}; copies served from a surface record {}; replays avoided {}; pauses avoided {}; fallbacks ignored {} (clearing resolves {}, write-outs {}); "
++                "held clears dropped {} (record clears lost {}), pending depth-only clears dropped {}; surface records {} live ({} noted, {} superseded, {} evicted); "
++                "starts resumed from a record {} (none {}); colour-only passes given depth from a record {}; truth images alive {} of {} slots; latch released {}",
++                st.first_frame, st.first_frame + st.frames - 1, OwnedOnly() ? "on" : "RELEASED", g_m2a.draws_dropped, by_reason.empty() ? "none" : by_reason,
++                g_m2a.claims_dropped, g_m2a.draws_skipped_pipeline, g_m2a.draws_skipped_empty, g_m2a.copies_dropped, g_m2a.drops_kept_page, g_m2a.readback_dropped, g_m2a.front_dropped,
++                g_m2a.copies_written_after_loss, g_m2a.front_written, g_m2a.from_record, g_m2a.replays_avoided,
++                g_m2a.pauses_avoided, g_m2a.fallbacks_ignored, g_m2a.clearing_resolves, g_m2a.writeouts_ignored, g_m2a.held_dropped, g_m2a.lost_clears,
++                g_m2a.dclear_dropped, owned_newest_.size(), g_m2a.records_noted, g_m2a.records_superseded, g_m2a.records_evicted, m2a_loaded_from_record_,
++                m2a_loaded_no_record_, g_m2a.depth_from_record, truth_images_alive, truth_images_.size(), g_m2a.latch_released);
++    REXGPU_INFO("[native][owned-only] frames {}-{}: top draw drops [{}]", st.first_frame, st.first_frame + st.frames - 1, top(g_m2a.draw_groups, 12));
++    REXGPU_INFO("[native][owned-only] frames {}-{}: copies dropped by source [{}]; replays / pauses avoided by why [{}]", st.first_frame, st.first_frame + st.frames - 1,
++                top(g_m2a.copy_groups, 12), top(g_m2a.avoided_why, 10));
++  }
++  g_m2a = M2aStats();
++  m2a_loaded_from_record_ = m2a_loaded_no_record_ = 0;
++  g_s92_held_not_aging = 0;
++  g_s92 = S92Stats();
+   st = OwnedFrameStats();
+ }
+ 
+@@ -5483,6 +6203,14 @@ void NativeRenderer::OwnedRefreshFrame() {
+   // Once a frame, at its end: the switch (a change applies from the next frame) and the census log window.
+   const bool on = REXCVAR_GET(gpu_native_owned_frame);
+   if (on != owned_frame_on_) OwnedFrameFlip(on);
++  owned_only_latched_ = REXCVAR_GET(gpu_native_owned_only);  // (latched at the frame boundary: a mid-frame change never splits a frame)
++  if (!OwnedOnly() && !owned_newest_.empty()) owned_newest_.clear();  // (review C7: records pinned after a release / a switch-off)
++  if (owned_only_latched_ && owned_frame_on_ && (owned_failed_ || truth_failed_) && !owned_only_released_logged_) {
++    owned_only_released_logged_ = true;  // (Session 92, M2a: the hard failure releases the latch for the session - the old path is the only safety)
++    ++g_m2a.latch_released;
++    REXGPU_ERROR("[native][owned-only] frame {}: the owned-only latch is RELEASED for the session ({}) - the truth path is the only safety left", frame_,
++                 owned_failed_ ? "owned images failed" : "the truth objects failed");
++  }
+   // The log: the cvar > 0 turns the per-pass lines on for the frames the segment log covers (the routes set that live);
+   // set live to another value > 0 it logs that many frames from the next one.
+   const int32_t n = REXCVAR_GET(gpu_native_owned_frame_log);
+@@ -5505,6 +6233,7 @@ void NativeRenderer::OwnedFrameFlip(bool on) {
+     // Off: every owned state goes back to the truth path - the dirty tiles' pixels copied in; owned pages stay mapped
+     // until the game's next copy into them (no write-back: nothing reads the texture until then).
+     if (owned_pending_.valid) OwnedReplayPending("the owned frame turns off");
++    owned_newest_.clear();  // (Session 92, M2a: the surfaces' newest records go with the owned frame)
+     OwnedPruneDirty();
+     for (OwnedDirty& e : owned_dirty_) OwnedMaterialize(e, e.tiles);
+     OwnedPruneDirty();
+@@ -5713,6 +6442,7 @@ void NativeRenderer::OwnedDestroy() {
+   owned_pool_ = VK_NULL_HANDLE;
+   owned_pages_.clear();
+   owned_dirty_.clear();
++  owned_newest_.clear();
+   for (auto& passes : owned_render_passes_) {
+     for (VkRenderPass& rp : passes) ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyRenderPass, device, rp);
+   }
+@@ -5720,4 +6450,208 @@ void NativeRenderer::OwnedDestroy() {
+ 
+ bool NativeRenderer::OwnedChains() const { return REXCVAR_GET(gpu_native_owned_frame_chains); }
+ 
++// ---- Session 92, M2a: the owned-only latch (gpu_native_owned_only; docs\native\d3d\S92_M2_DESIGN.md section 4) -------------------------------------
++
++bool NativeRenderer::OwnedOnly() const {
++  // The cvar, with the owned frame and its chains on (TRUE NATIVE). A hard owned failure (owned images cannot be made, the truth objects failed)
++  // releases it - the old path is the only safety left for that; OwnedRefreshFrame logs the release loudly, once.
++  return owned_only_latched_ && owned_frame_on_ && !owned_failed_ && !truth_failed_ && OwnedChains();
++}
++
++void NativeRenderer::OwnedNoteClaimDrop(uint32_t truth_reason, const Draw& draw) {
++  ++g_m2a.claims_dropped;
++  M2aGroup(g_m2a.draw_groups, fmt::format("claim refused ({}): ps {:016X} vs {:016X}", TruthReasonName(truth_reason), draw.pixel_shader_hash, draw.vertex_shader_hash));
++  static uint32_t logged = 0;
++  if (logged < 24) {
++    ++logged;
++    REXGPU_INFO("[native][owned-only] frame {}: claim refused ({}), claimed and dropped: vs {:016X} ps {:016X} primitive {} supported {} pitch {} msaa {} colour 0x{:08X} "
++                "depth 0x{:08X} masks 0x{:X} depth test {} write {} stencil {} fast clear {} shader {}",
++                frame_, TruthReasonName(truth_reason), draw.vertex_shader_hash, draw.pixel_shader_hash, draw.guest_primitive, draw.raster.supported,
++                draw.surface_info & 0x3FFF, (draw.surface_info >> 16) & 3, draw.color_info, draw.depth_info, draw.color_mask_all, draw.raster.depth_test,
++                draw.raster.depth_write, draw.raster.stencil, draw.fast_clear, draw.pixel_shader != VK_NULL_HANDLE);
++  }
++}
++
++void NativeRenderer::OwnedNoteFallbackIgnored(uint32_t truth_reason) {
++  ++g_m2a.fallbacks_ignored;
++  if (std::string_view(TruthReasonName(truth_reason)) == "clearing resolve") ++g_m2a.clearing_resolves;
++  static uint32_t logged = 0;
++  if (logged < 8) {
++    ++logged;
++    REXGPU_INFO("[native][owned-only] frame {}: a truth fallback ({}) is ignored - the frame goes on", frame_, TruthReasonName(truth_reason));
++  }
++}
++
++void NativeRenderer::OwnedDropDraw(const Draw& draw) {
++  // A draw the owned frame did not take (or whose claim was refused): nothing is recorded, no pass is touched. Skipped (not dropped): no pipeline yet
++  // (as the truth path skips it) and a draw of no pixels. Else counted by the reason OwnedTakeDrawImpl noted and the draw's signature.
++  serve_pending_.clear();
++  serve_rename_.valid = false;
++  const std::string detail = owned_frame_pending_detail_;
++  const uint8_t reason = owned_frame_pending_reason_;
++  owned_frame_pending_reason_ = kOwnedReasonNone;
++  owned_frame_pending_detail_.clear();
++  const bool refused_claim = draw.claim_refused != 0;
++  if (!refused_claim && draw.pipeline == VK_NULL_HANDLE && !draw.d3d_record) {  // (review D1: a refused claim has no pipeline too - it is a drop)
++    ++g_m2a.draws_skipped_pipeline;
++    return;
++  }
++  int32_t rect[4] = {0, 0, 0, 0};
++  if (!refused_claim) {
++    TruthDrawRect(draw, rect);
++    if (rect[2] <= rect[0] || rect[3] <= rect[1]) {
++      ++g_m2a.draws_skipped_empty;
++      return;
++    }
++  }
++  if (draw.fast_clear && draw.truth_depth >= 0 && draw.raster.depth_write) OwnedMarkDepthStale(draw.truth_depth);  // (review D8: a dropped depth-writing clear)
++  ++g_m2a.draws_dropped;
++  ++g_m2a.draw_reasons[refused_claim ? 15 : std::min<uint32_t>(reason, 14u)];
++  if (draw.d3d_record) {
++    ++g_m2a.lost_clears;
++    D3dNoteClearLost("owned-only drop");
++  }
++  const std::string why = refused_claim ? fmt::format("claim/{}", TruthReasonName(draw.claim_refused))
++                                        : fmt::format("{}/{}", OwnedReasonName(reason), owned_flushing_held_ ? std::string("flushed clear") : detail);
++  const std::string sig = fmt::format("{} ps {:016X} vs {:016X} cls {} blend {:08X} z {}{} st {} mask {:X} fc {} rect {},{}-{},{}", why, draw.pixel_shader_hash,
++                                      draw.vertex_shader_hash, draw.truth_class, draw.blend_control, draw.raster.depth_test ? "t" : "-",
++                                      draw.raster.depth_write ? "w" : "-", draw.raster.stencil, draw.color_write_mask & 0xF, draw.fast_clear, rect[0],
++                                      rect[1], rect[2], rect[3]);
++  M2aGroup(g_m2a.draw_groups, sig);
++  static uint32_t logged = 0;
++  if (logged < 24) {
++    ++logged;
++    REXGPU_INFO("[native][owned-only] frame {}: draw dropped: {} (surface colour 0x{:08X} depth 0x{:08X} pitch {}; pass pending {} base {} pitch {}, {} records)", frame_,
++                sig, draw.color_info, draw.depth_info, draw.surface_info & 0x3FFF, owned_pending_.valid, owned_pending_.base, owned_pending_.pitch_tiles,
++                owned_newest_.size());
++  }
++}
++
++void NativeRenderer::OwnedRecordsTrim(const char* why) {
++  // At most 24 records (an image each); the oldest by its last draw goes first. Also the budget trims them (OwnedEvictFor).
++  (void)why;
++  while (owned_newest_.size() > 24) {
++    size_t oldest = 0;
++    for (size_t i = 1; i < owned_newest_.size(); ++i) {
++      if (owned_newest_[i].last_tick < owned_newest_[oldest].last_tick) oldest = i;
++    }
++    owned_newest_.erase(owned_newest_.begin() + oldest);
++    ++g_m2a.records_evicted;
++  }
++}
++
++void NativeRenderer::OwnedNoteNewest(const OwnedPass& qin) {
++  // A pass that ends (its copy served or not) is its surface's newest record: its image, box, depth / stencil and the tick of its last draw, kept as a
++  // committed pass a later copy or start takes up. A record of the same image is replaced; an older record of the same colour surface loses its colour, of
++  // the same depth slot its depth (E1 and the copy code read the flags); both gone = erased. The image is held (OwnedImageHeld) until then.
++  if (qin.image < 0 || size_t(qin.image) >= owned_images_.size() || !owned_images_[qin.image].width) return;
++  OwnedPass q = qin;
++  q.valid = true;
++  q.committed = true;
++  q.open = false;
++  q.draws.clear();
++  q.crowd_calls.clear();
++  q.serves.clear();
++  q.held_clears.clear();
++  q.kept_sampled.clear();
++  q.census = -1;  // (a record outlives the frame whose census it pointed into)
++  q.chain_parked = false;
++  if (!q.last_tick) q.last_tick = ++owned_tick_;
++  for (size_t i = 0; i < owned_newest_.size();) {
++    OwnedPass& r = owned_newest_[i];
++    if (r.image == q.image) {
++      owned_newest_.erase(owned_newest_.begin() + i);
++      continue;
++    }
++    // (Review D3: the notes come in any order - the frame end notes parked passes newest first - so the NEWER of the two by tick keeps the surface /
++    // the depth slot, whichever is noted last.)
++    // (Only when both sides are live: a side that already lost its colour / depth cannot take it from the other.)
++    if (r.base == q.base && r.pitch_tiles == q.pitch_tiles && r.kind == q.kind) {
++      if (!q.rec_colour_gone && !r.rec_colour_gone) {
++        if (r.last_tick > q.last_tick) q.rec_colour_gone = true;
++        else r.rec_colour_gone = true;
++      } else if (!q.rec_colour_gone) {
++        // r already lost it
++      }
++    }
++    if (q.depth && r.depth && r.depth_slot == q.depth_slot && !q.rec_depth_gone && !r.rec_depth_gone) {
++      if (r.depth_tick > q.depth_tick) q.rec_depth_gone = true;
++      else r.rec_depth_gone = true;
++    }
++    if (r.rec_colour_gone && (!r.depth || r.rec_depth_gone)) {
++      owned_newest_.erase(owned_newest_.begin() + i);
++      ++g_m2a.records_superseded;
++      continue;
++    }
++    ++i;
++  }
++  if (q.rec_colour_gone && (!q.depth || q.rec_depth_gone)) {  // (an older pass noted late: nothing of it is the newest)
++    ++g_m2a.records_superseded;
++    return;
++  }
++  owned_newest_.push_back(std::move(q));
++  ++g_m2a.records_noted;
++  OwnedRecordsTrim("noted");
++}
++
++void NativeRenderer::OwnedMarkDepthStale(int16_t depth_slot) {
++  if (depth_slot < 0) return;
++  for (OwnedPass& r : owned_newest_) {
++    if (r.depth && r.depth_slot == depth_slot) r.rec_depth_gone = true;
++  }
++  for (OwnedPass& r : owned_parked_) {
++    if (r.depth && r.depth_slot == depth_slot) r.rec_depth_gone = true;
++  }
++  if (owned_pending_.valid && owned_pending_.depth && owned_pending_.depth_slot == depth_slot) owned_pending_.rec_depth_gone = true;
++}
++
++void NativeRenderer::OwnedSupersedeRecords(uint32_t base, uint32_t pitch, uint32_t kind, int16_t depth_slot) {
++  // Session 92, M2a (review D4): a pass of this surface starts - the older records' colour (and the depth slot it keeps) is no longer the newest. A record
++  // with nothing newest left is let go.
++  if (!OwnedOnly()) return;
++  for (size_t i = 0; i < owned_newest_.size();) {
++    OwnedPass& r = owned_newest_[i];
++    if (r.base == base && r.pitch_tiles == pitch && r.kind == kind) r.rec_colour_gone = true;
++    if (depth_slot >= 0 && r.depth && r.depth_slot == depth_slot) r.rec_depth_gone = true;
++    if (r.rec_colour_gone && (!r.depth || r.rec_depth_gone)) {
++      owned_newest_.erase(owned_newest_.begin() + i);
++      ++g_m2a.records_superseded;
++      continue;
++    }
++    ++i;
++  }
++}
++
++// Session 92, part D1 (TRUE NATIVE): an owned pass (pending or parked) keeps the stencil of this depth slot and its box holds the rect - its stencil is
++// the surface's there (a stencil draw is not refused for lack of a truth clear).
++// Session 92 (census only, TRUE NATIVE): a stencil draw recorded by the truth path whose covered tiles are not all stencil_valid & owned of its
++// depth image - the Session 47 test ClaimTruth applies, redone after OwnedDirtyBeforeDraw. Counts; changes nothing.
++void NativeRenderer::OwnedCountUnprovenStencil(const Draw& draw) {
++  if (!owned_frame_on_ || !OwnedChains() || draw.truth_depth < 0 || size_t(draw.truth_depth) >= truth_images_.size()) return;
++  int32_t rect[4];
++  TruthDrawRect(draw, rect);
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  const TruthImage& d_image = truth_images_[draw.truth_depth];
++  const uint32_t gx0 = uint32_t(std::max(rect[0], 0)) / scale_x, gy0 = uint32_t(std::max(rect[1], 0)) / scale_y;
++  const uint32_t gx1 = (uint32_t(std::max(rect[2], rect[0])) + scale_x - 1) / scale_x;
++  const uint32_t image_rows = (2048u + d_image.row_tiles() - 1) / d_image.row_tiles() * 16;
++  const uint32_t gy1 = std::min((uint32_t(std::max(rect[3], rect[1])) + scale_y - 1) / scale_y, image_rows);
++  if (gx1 <= gx0 || gy1 <= gy0) return;
++  const std::bitset<2048> tiles = EdramTiles(d_image.base, d_image.pitch_tiles, false, gx0, gy0, gx1, gy1);
++  if ((tiles & ~(d_image.stencil_valid & d_image.owned)).any()) ++g_s92.unproven_stencil;
++}
++
++bool NativeRenderer::OwnedHoldsStencil(int16_t depth_slot, uint32_t pitch_tiles, const int32_t rect[4]) {
++  if (!owned_frame_on_ || !OwnedChains()) return false;
++  const auto holds = [&](const OwnedPass& q) {
++    return q.valid && q.depth && q.stencil && q.depth_slot == depth_slot && q.pitch_tiles == pitch_tiles && rect[0] >= 0 && rect[1] >= 0 &&
++           rect[2] <= int32_t(q.host_width) && rect[3] <= int32_t(q.host_height);
++  };
++  bool yes = holds(owned_pending_);
++  for (size_t i = 0; !yes && i < owned_parked_.size(); ++i) yes = holds(owned_parked_[i]);
++  if (yes) ++g_s92.stencil_claims;
++  return yes;
++}
++
+ }  // namespace rex::graphics::vulkan::native
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+index ebadbc7dc21251df4b9df8c7de994e035fe6a40a..6e7076202e7eb8651236fec5c0ed774c5bad3673 100644
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -362,6 +362,8 @@ void Presenter::SetWindowSurfaceFromUIThread(Window* new_window, Surface* new_su
+     return;
+   }
+ 
++  outdated_recovery_ = false;  // wwe2k14 patch (Session 92): must not outlive its surface
++
+   // Disconnect from the current surface.
+   if (surface_) {
+     // Take ownership of painting, and also stop accepting paint requests from
+@@ -425,6 +427,46 @@ void Presenter::OnSurfaceMonitorUpdateFromUIThread(bool old_monitor_potentially_
+   }
+ 
+   UpdateSurfaceMonitorFromUIThread(old_monitor_potentially_disconnected);
++  RecoverConnectionFromUIThread();
++}
++
++void Presenter::RecoverConnectionFromUIThread() {
++  // wwe2k14 patch (Session 92): called on window RESTORED / EXPOSED / DISPLAY_CHANGED. Unlike
++  // OnSurfaceResizeFromUIThread, it never rebuilds a healthy (paintable) swapchain; it only reconnects an outdated
++  // or unconnected one, and starts the bounded retry loop if that fails.
++  assert_false(is_executing_ui_drawers_);
++  if (!surface_ || !window_) {
++    return;
++  }
++  if (paint_mode_ == PaintMode::kGuestOutputThreadImmediately) {
++    SetPaintModeFromUIThread(PaintMode::kUIThreadOnRequest);
++  }
++  if (surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedPaintable) {
++    SetPaintModeFromUIThread(GetDesiredPaintModeFromUIThread(true));
++    // Re-review (c): the window may come back (restored / back on a monitor) while no guest frame arrives; requests
++    // are coalesced, so asking for one paint is cheap.
++    RequestPaintOrConnectionRecoveryViaWindow(true);
++    return;
++  }
++  if (surface_paint_connection_state_ ==
++      SurfacePaintConnectionState::kUnconnectedSurfaceReportedUnusable) {
++    return;
++  }
++  bool request_repaint = false;
++  UpdateSurfacePaintConnectionFromUIThread(&request_repaint, true);
++  if (surface_paint_connection_state_ != SurfacePaintConnectionState::kConnectedPaintable) {
++    if (!outdated_recovery_) {
++      outdated_retry_interval_ms_ = 100;
++    }
++    outdated_recovery_ = true;
++    outdated_retry_ms_ = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                                      std::chrono::steady_clock::now().time_since_epoch())
++                                      .count());
++    request_repaint = true;
++  }
++  if (request_repaint) {
++    RequestPaintOrConnectionRecoveryViaWindow(true);
++  }
+ }
+ 
+ void Presenter::OnSurfaceResizeFromUIThread() {
+@@ -463,6 +505,10 @@ void Presenter::PaintFromUIThread(bool force_paint) {
+   // OS (which will still be live even if the window goes outside any monitor).
+   // But a surface check still won't cause harm, for simplicity.
+   if (!InSurfaceOnMonitorFromUIThread()) {
++    // wwe2k14 patch (Session 92): consume the request, or every later
++    // RequestPaintOrConnectionRecoveryViaWindow returns early without pushing a paint. The monitor-update event
++    // (OnSurfaceMonitorUpdateFromUIThread) asks again.
++    ui_thread_paint_requested_.store(false, std::memory_order_relaxed);
+     return;
+   }
+ 
+@@ -506,7 +552,43 @@ void Presenter::PaintFromUIThread(bool force_paint) {
+     // Try to recover from the connection becoming outdated in the previous
+     // paint.
+     if (surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedOutdated) {
++      outdated_recovery_ = true;
++      outdated_retry_interval_ms_ = 100;
+       UpdateSurfacePaintConnectionFromUIThread(nullptr, false);
++      outdated_retry_ms_ = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                                        std::chrono::steady_clock::now().time_since_epoch())
++                                        .count());
++      if (surface_paint_connection_state_ ==
++          SurfacePaintConnectionState::kUnconnectedRetryAtStateChange) {
++        REXLOG_INFO("Presenter: reconnect after an outdated swapchain failed, will retry (100 ms, backing off to 1 s)");
++      } else if (surface_paint_connection_state_ != SurfacePaintConnectionState::kConnectedPaintable) {
++        REXLOG_INFO("Presenter: reconnect after an outdated swapchain failed, the surface reported unusable (no retry)");
++      }
++    } else if (outdated_recovery_ &&
++               surface_paint_connection_state_ ==
++                   SurfacePaintConnectionState::kUnconnectedRetryAtStateChange) {
++      // wwe2k14 patch (Session 92): the reconnect failed (zero-area surface, minimised, ...) and only a changed
++      // size would retry; retry here at a bounded rate instead.
++      const uint64_t retry_now_ms = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                                                 std::chrono::steady_clock::now().time_since_epoch())
++                                                 .count());
++      if (retry_now_ms - outdated_retry_ms_ >= outdated_retry_interval_ms_) {
++        outdated_retry_ms_ = retry_now_ms;
++        bool retry_repaint = false;
++        UpdateSurfacePaintConnectionFromUIThread(&retry_repaint, false);
++        if (surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedPaintable) {
++          REXLOG_INFO("Presenter: reconnected after an outdated swapchain");
++          outdated_retry_interval_ms_ = 100;
++          if (retry_repaint) {
++            request_repaint_immediately = true;
++          }
++        } else {
++          outdated_retry_interval_ms_ = std::min<uint64_t>(outdated_retry_interval_ms_ * 2, 1000);
++        }
++      }
++    }
++    if (surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedPaintable) {
++      outdated_recovery_ = false;
+     }
+     // If still paintable or recovered successfully, paint.
+     if (surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedPaintable) {
+@@ -591,6 +673,15 @@ void Presenter::PaintFromUIThread(bool force_paint) {
+     // actually in a paintable state).
+     if (surface_paint_connection_state_ != SurfacePaintConnectionState::kConnectedPaintable) {
+       SetPaintModeFromUIThread(PaintMode::kNone);
++      if (outdated_recovery_ &&
++          surface_paint_connection_state_ == SurfacePaintConnectionState::kUnconnectedRetryAtStateChange) {
++        // wwe2k14 patch (Session 92): keep asking for a paint; the retry above is rate-limited to ~100 ms, and the
++        // short sleep keeps the repaint requests from becoming a busy loop.
++        std::this_thread::sleep_for(std::chrono::milliseconds(10));
++        request_repaint_immediately = true;
++      } else {
++        outdated_recovery_ = false;
++      }
+     }
+   }
+ 
+@@ -1502,7 +1593,8 @@ void Presenter::UpdateSurfacePaintConnectionFromUIThread(bool* repaint_needed_ou
+           surface_paint_connection_has_implicit_vsync_ = is_vsync_implicit;
+           surface_width_in_paint_connection_ = surface_width;
+           surface_height_in_paint_connection_ = surface_height;
+-          if (!is_reconnect) {
++          outdated_recovery_ = false;
++          if (!is_reconnect && repaint_needed_out) {
+             *repaint_needed_out = true;
+           }
+           break;
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 22899988be7f272bd6f6f34761713a0e5c07a7cf..0c67d469b8cd8fa90707b3f047a4b2b20cc1fe26 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -28,6 +28,9 @@
+ #include <rex/ui/vulkan/presenter.h>
+ #include <rex/ui/vulkan/util.h>
+ 
++// wwe2k14 patch (Session 92): log a swapchain-creation failure once per failure episode.
++static std::atomic<bool> g_swapchain_failure_logged{false};
++
+ #if defined(REX_HAS_FIDELITYFX_RUNTIME) && REX_HAS_FIDELITYFX_RUNTIME
+ #include <ffx_api/ffx_api.h>
+ #include <ffx_api/ffx_upscale.h>
+@@ -1187,6 +1190,9 @@ VkSwapchainKHR VulkanPresenter::PaintContext::CreateSwapchainForVulkanSurface(
+   if (!image_extent.width || !image_extent.height ||
+       image_extent.width > max_framebuffer_extent.width ||
+       image_extent.height > max_framebuffer_extent.height) {
++    if (!g_swapchain_failure_logged.exchange(true)) REXLOG_INFO("VulkanPresenter: no swapchain created: image extent {}x{} unusable (requested {}x{}, max framebuffer {}x{})",
++                image_extent.width, image_extent.height, width, height, max_framebuffer_extent.width,
++                max_framebuffer_extent.height);
+     return VK_NULL_HANDLE;
+   }
+ 
+@@ -1221,6 +1227,8 @@ VkSwapchainKHR VulkanPresenter::PaintContext::CreateSwapchainForVulkanSurface(
+   if (queue_family_index_present == UINT32_MAX) {
+     // Not unusable though - may become presentable if the window (with the same
+     // surface) moved to a different display, for instance.
++    if (!g_swapchain_failure_logged.exchange(true)) REXLOG_INFO("VulkanPresenter: no swapchain created: no queue family can present to the surface ({}x{})", width,
++                height);
+     return VK_NULL_HANDLE;
+   }
+ 
+@@ -1448,6 +1456,7 @@ VkSwapchainKHR VulkanPresenter::PaintContext::CreateSwapchainForVulkanSurface(
+     REXLOG_ERROR("VulkanPresenter: Failed to create a swapchain");
+     return VK_NULL_HANDLE;
+   }
++  g_swapchain_failure_logged.store(false);
+   REXLOG_INFO(
+       "VulkanPresenter: Created {}x{} swapchain with format {}, color space "
+       "{}, presentation mode {}",
+@@ -1626,7 +1635,7 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(bool execute_ui_draw
+       // on some platforms).
+       REXLOG_INFO(
+           "VulkanPresenter: Presentation to the swapchain image has been "
+-          "dropped as the swapchain or the surface has become outdated");
++          "dropped as the swapchain or the surface has become outdated (acquire)");
+       return PaintResult::kNotPresentedConnectionOutdated;
+     default:
+       REXLOG_ERROR("VulkanPresenter: Failed to acquire the swapchain image");
+@@ -2331,7 +2340,7 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(bool execute_ui_draw
+       // on some platforms).
+       REXLOG_INFO(
+           "VulkanPresenter: Presentation to the swapchain image has been "
+-          "dropped as the swapchain or the surface has become outdated");
++          "dropped as the swapchain or the surface has become outdated (present)");
+       // Note that the semaphore wait (followed by reset) has been enqueued,
+       // however, this should have no effect on anything here likely.
+       return PaintResult::kNotPresentedConnectionOutdated;
+diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
+index e43947bd77edb403dac4fa36e3516552d82921c6..1f44832eca2fbb0f0e4d385c09e57a24cccc2e35 100644
+--- a/src/ui/window_sdl.cpp
++++ b/src/ui/window_sdl.cpp
+@@ -529,6 +529,8 @@ void WindowSDL::HandleWindowEvent(SDL_Event& event) {
+     }
+     case SDL_EVENT_WINDOW_DISPLAY_CHANGED: {
+       MonitorUpdateEvent e(this, true);
++      // wwe2k14 patch (Session 92): OnMonitorUpdate -> Presenter::OnSurfaceMonitorUpdateFromUIThread already calls
++      // RecoverConnectionFromUIThread (a second explicit call made a second connect attempt at once on a failure).
+       OnMonitorUpdate(e);
+       break;
+     }
+@@ -540,12 +542,21 @@ void WindowSDL::HandleWindowEvent(SDL_Event& event) {
+       break;
+     case SDL_EVENT_WINDOW_EXPOSED:
+       // The platform cannot retain the previous image; force the paint.
++      // wwe2k14 patch (Session 92): also a forced reconnect, a swapchain made outdated while hidden / minimised
++      // is otherwise never rebuilt at an unchanged size.
++      if (presenter() && HasSurface()) {
++        presenter()->RecoverConnectionFromUIThread();
++      }
+       OnPaint(true);
+       break;
+     case SDL_EVENT_WINDOW_MINIMIZED:
+       OnMinimized(destruction_receiver);
+       break;
+     case SDL_EVENT_WINDOW_RESTORED:
++      // wwe2k14 patch (Session 92): forced reconnect (no-op without a presenter / surface).
++      if (presenter() && HasSurface()) {
++        presenter()->RecoverConnectionFromUIThread();
++      }
+       OnRestored(destruction_receiver);
+       break;
+     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:

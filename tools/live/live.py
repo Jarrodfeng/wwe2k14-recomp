@@ -209,8 +209,10 @@ def bookmark(name='main', width=1280):
 
 
 def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=7200, boot_wait=180, exe='',
-          window='behind', coverage=False, data=''):
-    """Starts a game with the live channel through run_list (background). -> text."""
+          window='behind', coverage=False, data='', keep_shaders=''):
+    """Starts a game with the live channel through run_list (background). -> text.
+    keep_shaders (Session 92): a folder - run_list copies the run's shader storage there when the game ends
+    (`-KeepShaderStorage`; merge with tools\\shaders\\merge_storage.py)."""
     try:
         fields, _ = parse(request(name, '!status', connect_wait=0.3))
         return 'already running: run %s, frame %s (live channel %s)' % (fields.get('run'), fields.get('frame'), name)
@@ -231,6 +233,8 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
         flags += ' --wwe2k14_bookmark_auto_ms=50'
     if '--wwe2k14_bookmark_clip_fps=' not in extra:
         flags += ' --wwe2k14_bookmark_clip_fps=10'
+    if '--wwe2k14_events=' not in extra:  # Session 91: the event bus (src/event_bus.h; tools/live/events.py)
+        flags += ' --wwe2k14_events=true'
     if '--wwe2k14_settings_file=' not in extra:
         # CLAUDE.md: test runs that can reach the GRAPHICS menu never touch Jarrod's launcher settings.
         flags += ' --wwe2k14_settings_file=%s' % os.path.join(OUT, 'settings_%s.json' % name)
@@ -250,6 +254,9 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
                                                                   (' -Exe %s' % q(exe)) if exe else '', win)
     if data:  # Session 32: another frozen save copy under out\bench (run_list -Data, e.g. userdata_unlocked)
         cmd += ' -Data %s' % q(data)
+    if keep_shaders:  # Session 92: the final census keeps every item's pipeline storage (shader_list.txt coverage)
+        os.makedirs(keep_shaders, exist_ok=True)
+        cmd += ' -KeepShaderStorage %s' % q(keep_shaders)
     log_path = os.path.join(OUT, 'start_%s.log' % name)
     # A hidden console, not DETACHED_PROCESS: pwsh without a console exits at once without running anything (Session
     # 29, first try). Break away from the caller's job when allowed, so the game outlives the command that started it.

@@ -37,6 +37,8 @@ void Init(int argc, char** argv) {
 
 fs::path FilesDir() { return g_files; }
 const char* Name() { return "desktop"; }
+
+std::string DeviceKey() { return "desktop"; }
 fs::path NativeLibDir() { return {}; }
 fs::path DriversDir() { return g_files / "drivers"; }
 void ImportDriver(const fs::path&) {

@@ -116,6 +116,14 @@ STEPS = [
     ('session85-settings', '86722be5bd70ef6fe989cdee2621a0f40252ec05'),  # gpu_dynamic_shadows / gpu_depth_of_field / gpu_scene_crowd_density
     ('session87-d3d-layer', '243729cc23d08370777ccb77babac344fabc9367'),  # the D3D layer: no ring, own input, own shaders, textures by object, chains (switches off)
     ('session89-posix-event', '958c1a923d9581f870a7957971337050fec872ef'),  # POSIX auto-reset events keep Win32 semantics (the phone pinfall freeze)
+    ('session90-ownership', '224e5d66781f79003f19c2d4f62a4e4c4efe70af'),  # TRUE NATIVE 100% on the bench: carried passes, crowd restore, guest memory 0 bytes, read-back write-back, stable thinning, Adreno interface, load-op flag scope
+    ('session92-whole-game', '2ec4d65863cd7ebfbf2e0090110ca305d10212de'),  # TRUE NATIVE across the whole game: frozen window, M0 counters, stencil volumes / ladder, lighting cubes, Jericho burst + held swaps, damage-map resets, M2a owned-only latch (off)
+    ('session92-free', '8b81e2c45a28a341874b7031ff89cedc37ce5a7d'),  # free from the 360: M2 no truth path / EDRAM, M3 resolves + present as data, M4 the cut, M5 sync, M6 the translation store, split-aware vertex shaders
+    ('session93-perf-compat', '3e88dc162e1017dbdff8cc206e577a25f2b5800e'),  # per-draw storage windows (Adreno 720), quirks table, BC1->ASTC, tiler passes, typed memo reuse, lean crowd, inline staging, display-timing pacing, M6 phone precompile tail, EDS (off), boot barrier fix
+    ('session93-cull-merge', 'decd7e4923adc40687c76e7e042e5baf1732eaf0'),  # phase-0 census (gpu_d3d_phase0_census), the frustum cull of our arena draws (gpu_d3d_cull_ours), the real crowd merge (first-member state + checkpoint markers), all off
+    ('session93-mali-post', '0ba44dde857cd134ea11b0ffd955b85d4872c8c2'),  # TRUE NATIVE no longer needs RGBA32F blending (Mali-G720 r49p1 black screen); post warnings name the missing part
+    ('session93-hoist-barrier', 'a89047e045acf7242d1e8438b966a0043a918211'),  # the hoist stream's closing barrier names every read (the stuck reversal indicator on Adreno with storage windows); compute writes carry SHADER_WRITE
+    ('session94-speedrun', '20594b5913f0e48757124302e64b7b872afbe73f'),  # Session 94: boot self-check of required formats + features, no-GS typed draws, format lists / transient depth / tiler scene reset, pre-rotation, BC-less textures round 2, lean bind, instancing (off), direct uploads (off), phone footprint, dynamic resolution under TRUE NATIVE (off), Vulkan 1.1 layout features, decoupling multiview + blend (off)
 ]
 
 

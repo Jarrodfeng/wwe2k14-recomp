@@ -1,0 +1,30 @@
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1
+# harness: realtime (the entrance follows the wall clock; shots must land on the intro's wide shot)
+# Session 90 black-arena diagnosis (docs\native\d3d\S90_BLACK_ARENA.md): a copy of scenes\s90_heenan_entrance.txt that
+# turns on the owned-frame census per pass and the segment log for 2 frames inside the intro's wide shot ("LOS ANGELES,
+# CA"), between shots heenan_01 and heenan_02, then ends after shot 06 (the first stage shot). EVTDSC0's wait is optional:
+# run 5876 opened it before the wait began (a faster menu) and failed; ENTRANCE07's wait catches the load either way.
+on_fail quit
+log bench: start s90_arena_diag
+include boot_to_menu
+include menu_to_wm30
+wait_frames 120
+press A 6
+wait_frames 114
+press A 7
+wait_frames 100
+press A 7
+wait_file EVTDSC0.PAC 600 optional
+log bench: match loading (the third A, as Jarrod's recording: EVTDSC0 opens; no presses until the entrance)
+wait_file ENTRANCE07.PAC 3600
+wait_frames 884
+press_until_file A ENTRANCE00.PAC 4 120 6
+log scene=heenan_entrance
+screenshot_every 60 heenan
+wait_frames 100
+log bench: census on (2 frames of the wide shot)
+cvar gpu_native_owned_frame_log 2
+cvar gpu_native_segment_log 2
+wait_frames 280
+log bench: done
+quit

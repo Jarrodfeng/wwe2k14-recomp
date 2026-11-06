@@ -1,0 +1,28 @@
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1
+# harness: realtime (the entrance follows the wall clock; shots must land on Heenan's walk-out)
+# Session 90: 30 Years match 1 (WrestleMania 2, Hogan vs King Kong Bundy) with the entrances kept: Heenan walks out with
+# Bundy - his tuxedo (black, silver trim, red bow tie; out\live\3887_s58_fix_heenan.jpg, run 5870 bookmark 3) is built
+# on the GPU and read back by the CPU: the garbled-attire check of the readback path. Built from Jarrod's recording
+# out\input\s90_heenan_rec.txt (run 5870): DOWN + A into 30 YEARS (menu_to_wm30), then A, +114 A, +100 A (CH249 is Big John Studd's card preview, not the match load) -> EVTDSC0.PAC, the match loads by itself;
+# (frame 8258); ENTRANCE07.PAC at 10466; one A at 11350 (+884) -> ENTRANCE00.PAC at
+# 11362; Heenan on screen at ~11951 (+589). Shots every 60 frames from ENTRANCE00 for 1200 frames. on_fail quit.
+on_fail quit
+log bench: start s90_heenan_entrance
+include boot_to_menu
+include menu_to_wm30
+wait_frames 120
+press A 6
+wait_frames 114
+press A 7
+wait_frames 100
+press A 7
+wait_file EVTDSC0.PAC 600
+log bench: match loading (the third A, as Jarrod's recording: EVTDSC0 opens; no presses until the entrance)
+wait_file ENTRANCE07.PAC 3600
+wait_frames 884
+press_until_file A ENTRANCE00.PAC 4 120 6
+log scene=heenan_entrance
+screenshot_every 60 heenan
+wait_frames 1200
+log bench: done
+quit

@@ -55,6 +55,37 @@ meaning = "target of the highlighted item: a menu id below 1000, else a code; -1
 evidence = "db/menu_ui.json SM+368 (high); live run 239: 2 at 1925 (main menu, PLAY highlighted), 7 at 1996, 2000 at 2016, -1 at 2032"
 confidence = "high (live)"
 
+[screen_mode]
+chain = "0x8392945C>11412>32"
+meaning = "screen controller mode (Session 91 atlas): 0 none, 1 match setup UI, 2 setup confirmed (launch), 5 30 Years start, 6 MATCH RULES / CREDITS, 9 Create a Superstar entry, 12 Create a Logo entry, 15 UNIVERSE, 16 IN-GAME MANUAL, 17 UNLOCKABLES, 19 MY WWE, 20 TITLE MATCH, 21 / 22 TOURNAMENTS, 23 option page (no handler), 24 code 3001; docs/systems/game_atlas.md"
+evidence = "static: sub_82839E80 loads [SM+11412] and tail-calls sub_8286B530 -> sub_8286B388 (switch on +32 over 22 handlers); modes per code written by sub_82867C48 (reader a, out/harness/atlas/readers/a_screens.md)"
+confidence = "static only (Session 91); use log_state until a run confirms the values"
+
+[screen_code]
+chain = "0x8392945C>11412>4"
+signed = true
+meaning = "the menu id / screen code the screen controller last saw (copy of SM+364 taken when it changes)"
+evidence = "static: sub_82867C48 compares SM+364 with ctl+4 and stores the new id there (0x82867C58-0x82867C70, reader a)"
+confidence = "static only (Session 91)"
+
+[setup_stage]
+chain = "0x8392945C>11412>40"
+meaning = "the match setup screen's stage (controller mode 1, handler sub_82868900): 0 init, 1 wait, 2 build the select screen, 3 screen up, 9 accepted, 10 back to the list"
+evidence = "static: out/harness/atlas/readers/b_select.md (reader b, Session 91); run 5907's screenshots: the setup screens reached by menu id alone were still a bare background"
+confidence = "static only (Session 91): the navigator waits on it optionally"
+
+[msgbox]
+chain = "0x839294BC>16"
+meaning = "the game's message box state: 5 idle, 1 opening, 2 waiting for an answer (B does nothing on a YES / NO box; A answers), 3 answered"
+evidence = "docs/systems/menus.md 'The game's message box' (Session 28: vtable 0x82047548, post sub_8291FCA0, run 2149 B leaves it up)"
+confidence = "high (Session 28 live); used by the Session 91 navigator to answer a box before going back"
+
+[msgbox_button]
+chain = "0x839294BC>64"
+meaning = "the message box's selected button: 0 YES, 1 NO (YES / NO boxes open on NO)"
+evidence = "docs/systems/menus.md 'The game's message box' (Session 28, run 2149: LEFT puts the highlight on YES)"
+confidence = "high (Session 28 live)"
+
 [exit_action]
 chain = "0x83929434"
 meaning = "main-menu exit action code: 1 = launch exhibition match"

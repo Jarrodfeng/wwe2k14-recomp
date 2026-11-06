@@ -1,0 +1,35 @@
+# ReXGlue SDK changes for WWE 2K14 (session93-hoist-barrier): 0ba44dde857c..a89047e045ac on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  a89047e Session 93: the hoist stream's closing barrier names every read (SHADER / UNIFORM / VERTEX_ATTRIBUTE / INDEX / TRANSFER), the stuck reversal indicator on Adreno with storage windows; compute writes to the shared memory carry SHADER_WRITE
+
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0275aceef21b5f083f88ae6666d8ed87beb62b93..0c9209fef3e0dd673d8c0a7551e7174204634748 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -16652,7 +16652,12 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       hoist_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+       hoist_barrier.pNext = nullptr;
+       hoist_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+-      hoist_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
++      // Session 93 (the stuck reversal indicator on Adreno with storage windows): name every read the hoisted pages
++      // feed. MEMORY_READ alone is valid Vulkan, but a driver that invalidates its texture / storage read cache only on
++      // SHADER_READ kept a HUD sprite's previous vertices (out\s93\reversal_stuck_read.md).
++      hoist_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT |
++                                    VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
++                                    VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+       hoist_command_buffer_.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &hoist_barrier, 0,
+                                                  nullptr, 0, nullptr);
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index a387e660bb641638baa9dc30fe3afabd09249c9c..f45c0b667a5a1a42b96da6530d7c5782acc8468a 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -1141,7 +1141,7 @@ void VulkanSharedMemory::GetUsageMasks(Usage usage, VkPipelineStageFlags& stage_
+   switch (usage) {
+     case Usage::kComputeWrite:
+       stage_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+-      access_mask = VK_ACCESS_SHADER_READ_BIT;
++      access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;  // Session 93: compute WRITES (were made available by nothing)
+       return;
+     case Usage::kTransferDestination:
+       stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;

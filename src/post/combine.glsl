@@ -178,6 +178,48 @@ vec3 BSpline(texture2DArray t, sampler s, vec2 uv) {
 }
 #endif
 
+#if defined(MEDIUMP) && !defined(ENHANCED)
+// Session 93 (idea 8, notes: out/s93/b8_mediump_notes.md): the ORIGINAL combine with its colour blends in half precision.
+// The FXAA (taps, luma, direction, the four / two-tap choice) and every ramp built from the depth (z, f, k) stay
+// highp; only the colour mix toward the blurs / the tint colour / bloom and glare are mediump. Colours are in [0, ~2].
+void main() {
+  vec2 uv = in_texcoord.xy;
+  vec3 color_full = ConsoleFxaa(uv, in_texcoord.zw);
+  mediump vec3 color = color_full;
+  float one = C252.w;
+  float depth = Lod(t_depth, s_depth, uv).x;
+  float z = one - depth;
+  if (C21.x > z) {
+    float f = clamp((C21.x - z) * C20.x + C21.z, C21.z, one);
+    mediump float mf = f;
+    mediump vec3 near_blur = Lod(t_blur_a, s_blur_a, uv).rgb;
+    color += (near_blur - color) * mf;
+  } else {
+    float f = clamp((z - C21.y) * C20.y + C21.z, C21.z, C20.w);
+    mediump float mf = f;
+    mediump vec3 far_blur = Lod(t_blur_b, s_blur_b, uv).rgb;
+    color += (far_blur - color) * mf;
+  }
+  float span = one - C30.x;
+  float k = C29.x * (1.0 / span) * max(span - depth, C255.x);
+  mediump float mk = k;
+  mediump vec3 mC27 = C27.xyz;
+  color += (mC27 - color) * mk;
+#ifdef ENTRANCE
+  if (C31.x != 0.0) {
+    mediump float mS = C31.x;
+    mediump vec3 bloom = Lod(t_bloom, s_bloom, uv).rgb;
+    color += bloom * mS;
+  }
+  if (C32.x != 0.0) {
+    mediump float mS = C32.x;
+    mediump vec3 glare = Lod(t_glare, s_glare, uv).rgb;
+    color += glare * mS;
+  }
+#endif
+  XeOutputColor(vec4(color, 1.0));
+}
+#else
 void main() {
   vec2 uv = in_texcoord.xy;
   vec3 color = ConsoleFxaa(uv, in_texcoord.zw);
@@ -219,3 +261,4 @@ void main() {
 #endif
   XeOutputColor(vec4(color, 1.0));
 }
+#endif

@@ -1,0 +1,6 @@
+# Session 94 (gpu_sweep.ps1): PowerVR BXM-8-256 (Imagination proprietary). NOT from a real log of ours: values from docs\research\gpu_matrix_s93.md
+# section 2.4 (128 MiB storage range on every report, no BC, BXM has EDS1/2/3 + robustness2 so those are NOT removed) and the S73 profile pvr_noalign
+# (profiles_pvr2.tsv: 64 varyings, 8 fragment output resources, no fillModeNonSolid / anisotropy / FSI / stencil export; gpuinfo-derived).
+# Matrix, unconfirmed on a device: "no 16-bit texture formats" (PPSSPP), cull distances not honoured. Storage alignment 4 cannot be emulated
+# (min limits only go up). Driver number 1.386.1368 = the PPSSPP swapchain-rounding boundary [S2], a placeholder.
+powervr_bxm	--vulkan_emulate_gpu=1010:1.386.1368:PowerVRBXM-8-256:integrated --vulkan_emulate_limits=maxStorageBufferRange=134217728,maxVertexOutputComponents=64,maxFragmentInputComponents=64,maxFragmentCombinedOutputResources=8 --vulkan_require_fill_mode_non_solid=false --vulkan_emulate_disable=fillModeNonSolid,samplerAnisotropy,shaderDenormFlushToZeroFloat32,shaderRoundingModeRTEFloat32,fragmentShaderSampleInterlock,fragmentShaderPixelInterlock,VK_EXT_shader_stencil_export,shaderCullDistance,shaderClipDistance --vulkan_emulate_formats=131-146 --vulkan_emulate_no_bc=true

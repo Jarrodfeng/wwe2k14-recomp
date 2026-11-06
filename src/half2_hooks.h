@@ -14,6 +14,7 @@
 #pragma once
 
 #include <atomic>
+#include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -58,7 +59,7 @@ inline constexpr uint32_t kPixelShaderOffset = 13068;   // the pixel shader obje
 // The generated code's address translation (REX_RAW_ADDR: 0xE0000000 and up sit 4 KB further on Windows).
 inline uint32_t Load32(const uint8_t* base, uint32_t address) {
   uint32_t be;
-  std::memcpy(&be, base + address + (address >= 0xE0000000u ? 0x1000u : 0u), 4);
+  std::memcpy(&be, base + address + ::rex::memory::detail::PhysicalHostOffset(address), 4);
   return std::byteswap(be);
 }
 
@@ -364,7 +365,7 @@ namespace wwe2k14::half2 {
 inline bool g_no_gpu_set = false;  // (step 3) the no-GPU bit is set by this hook
 inline uint8_t* NoGpuByte(uint8_t* base, uint32_t device) {
   const uint32_t address = device + kNoGpuByteOffset;
-  return base + address + (address >= 0xE0000000u ? 0x1000u : 0u);
+  return base + address + ::rex::memory::detail::PhysicalHostOffset(address);
 }
 }  // namespace wwe2k14::half2
 REX_HOOK_RAW(sub_82CB37C0) {

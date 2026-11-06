@@ -187,6 +187,61 @@ inline void CheckVulkan(std::vector<Line>& out) {
   } else {
     out.push_back({0, "GPU features: everything the game needs"});
   }
+  // Session 94 (idea 13): the formats TRUE NATIVE's renderer needs. A SMALL COPY of the NONE-fallback core of the SDK's
+  // required table (thirdparty\rexglue-sdk-src\src\ui\vulkan\gpu_quirks_apply.cpp, kRequiredRows - that file is the
+  // authority; keep this in step). Names a missing format in phone.txt before the player launches.
+  auto format_props = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties>(
+      gipa(instance, "vkGetPhysicalDeviceFormatProperties"));
+  if (format_props) {
+    constexpr VkFormatFeatureFlags kSampled = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    constexpr VkFormatFeatureFlags kLinear = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    constexpr VkFormatFeatureFlags kColor = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+    constexpr VkFormatFeatureFlags kBlend = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT;
+    constexpr VkFormatFeatureFlags kDepth = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    constexpr VkFormatFeatureFlags kXfer = VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+    struct Need {
+      VkFormat format;
+      const char* name;
+      VkFormatFeatureFlags bits;
+      const char* what;
+    };
+    const Need needs[] = {
+        {VK_FORMAT_R8G8B8A8_UNORM, "RGBA8", kColor | kSampled | kLinear | kXfer, "colour target"},
+        {VK_FORMAT_R8G8B8A8_UNORM, "RGBA8 blend", kBlend, "blended 8-bit draws"},
+        {VK_FORMAT_R16G16B16A16_SNORM, "RGBA16 signed", kColor | kSampled | kXfer, "16-bit colour target"},
+        {VK_FORMAT_R8G8B8A8_SNORM, "RGBA8 signed", kSampled, "signed texture views"},
+        {VK_FORMAT_R16G16B16A16_SNORM, "RGBA16 signed sampling", kSampled, "signed 16-bit texture views"},
+        {VK_FORMAT_R16G16_SNORM, "RG16 signed", kSampled, "signed 16-bit pair views"},
+        {VK_FORMAT_R32G32B32A32_SFLOAT, "RGBA32 float", kColor | kSampled, "post targets"},
+    };
+    std::string lacking;
+    for (const Need& n : needs) {
+      VkFormatProperties fp = {};
+      format_props(device, n.format, &fp);
+      if ((fp.optimalTilingFeatures & n.bits) != n.bits) lacking += std::string(lacking.empty() ? "" : ", ") + n.name + " (" + n.what + ")";
+    }
+    // Depth: D32S8 or D24S8, either one, with depth attachment + sampling (EnsurePostObjects' rule); transfers on the chosen one.
+    bool depth_ok = false;
+    for (VkFormat d : {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT}) {
+      VkFormatProperties fp = {};
+      format_props(device, d, &fp);
+      const VkFormatFeatureFlags want = kDepth | kSampled;
+      if ((fp.optimalTilingFeatures & want) == want) {
+        // (the first format that passes is the one the game picks; its transfers are needed separately)
+        if (VK_API_VERSION_MINOR(p.apiVersion) >= 1 && (fp.optimalTilingFeatures & kXfer) != kXfer) {
+          lacking += std::string(lacking.empty() ? "" : ", ") + "depth transfers";
+        }
+        depth_ok = true;
+        break;
+      }
+    }
+    if (!depth_ok) lacking += std::string(lacking.empty() ? "" : ", ") + "depth + stencil (D32S8 or D24S8)";
+    if (!lacking.empty()) {
+      out.push_back({1, "GPU formats missing (system driver; a custom driver may differ; the game may show a black screen or lose effects): " + lacking});
+    } else {
+      out.push_back({0, "GPU formats: the colour, depth and post formats the game draws with are there (system driver; a custom driver may differ)"});
+    }
+  }
   if (destroy) destroy(instance, nullptr);
 }
 

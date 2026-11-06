@@ -51,6 +51,48 @@ TOOLS = [
          'names': {'type': 'string', 'description': 'snippet names, separated by spaces'},
          'screenshot': {'type': 'boolean'}, 'width': {'type': 'integer'},
          'timeout': {'type': 'integer', 'description': 'seconds (default 120)'}, 'name': NAME_PROP}}},
+    {'name': 'game_where',
+     'description': 'Session 91 navigator: which screen the live game is on (atlas node id and its path name from the '
+                    'main menu), the highlighted item ("item i of n", its label, where A leads), the raw states.',
+     'inputSchema': {'type': 'object', 'properties': {'name': NAME_PROP}}},
+    {'name': 'game_nav',
+     'description': 'Session 91 navigator: go to any screen of the atlas (docs/systems/game_atlas.json) from wherever '
+                    'the game is. target: a node id (list:7, setup:0, rules:49, screen:1300, mode:caw, ...) or words '
+                    'of its path name ("one on one > ladder", "options", "create a superstar", "royal rumble > 30"); '
+                    'ambiguous words return the choices. Presses are state-confirmed, wrong screens re-plan, unknown '
+                    'screens recover with B. Returns the plan log and where it ended.',
+     'inputSchema': {'type': 'object', 'required': ['target'], 'properties': {
+         'target': {'type': 'string'}, 'screenshot': {'type': 'boolean'}, 'name': NAME_PROP}}},
+    {'name': 'game_match',
+     'description': 'Session 91 match builder: build and launch any match from names, through the game\'s own menu '
+                    'path (tools/atlas/match.py; the navigator first takes the game to the main menu). spec: parts '
+                    'separated by ";" - the wrestlers ("Daniel Bryan vs Brock Lesnar" or "Cena, Orton, Bryan, ..."), '
+                    'type=<path name or number> ("one on one > ladder", "royal rumble > 30"), arena=<name>, '
+                    'pace=normal|quick|epic, players=<humans, default 1>, rumble=<N random | names>, title=T0/T1, '
+                    'o=K:V raw rule bytes. Names match by their words in any order (fewest extra words wins: "Cena" '
+                    '= John Cena, "Retro Cena" = John Cena (Retro)); an unsure name returns candidates "Name (#id)": '
+                    'pick one and pass "#id" in its place. lookup="words" (what=wrestler|arena) lists candidates '
+                    'with ids without building. dry=true returns the numeric spec only. Returns when the match '
+                    'sequence starts.',
+     'inputSchema': {'type': 'object', 'properties': {
+         'spec': {'type': 'string'}, 'lookup': {'type': 'string'},
+         'what': {'type': 'string', 'enum': ['wrestler', 'arena']},
+         'dry': {'type': 'boolean'}, 'compare': {'type': 'string'},
+         'screenshot': {'type': 'boolean'}, 'name': NAME_PROP}}},
+    {'name': 'game_events',
+     'description': 'Session 91 event bus: the game\'s transitions as they happened (src/event_bus.h; on in every '
+                    'live game): seq (mode changes), screen (menu id / screen mode), exit (exit actions), msgbox, '
+                    'match (clock_started, finish), entrance (step per slot), load (archives). last=N (default 30), '
+                    'kind="seq,match" to filter.',
+     'inputSchema': {'type': 'object', 'properties': {'last': {'type': 'integer'}, 'kind': {'type': 'string'},
+                                                       'name': NAME_PROP}}},
+    {'name': 'game_match_state',
+     'description': 'Session 91 match state snapshot (src/event_bus.h): the match clock (frames), the referee\'s mode '
+                    '(0 watch, 1 pin count, 3 DQ count, 5 count-out) and count, the finish (type + name, winner / '
+                    'loser), and every wrestler: slot, character id (db/ids/characters.json), team, role (1 = referee), '
+                    'state (0 active, 1 apron, 4 eliminated, 5 over the top), health / max. Names are filled in from '
+                    'db/ids. "not in a match" outside one.',
+     'inputSchema': {'type': 'object', 'properties': {'name': NAME_PROP}}},
     {'name': 'game_screenshot',
      'description': 'Screenshot of the live game, returned as an image (default 1280 px wide).',
      'inputSchema': {'type': 'object', 'properties': {'width': {'type': 'integer'}, 'name': NAME_PROP}}},
@@ -113,6 +155,65 @@ def call(tool, args):
         cmd += ['--run', str(int(fields.get('run'))), '--top', str(int(args.get('top') or 40))]
         out = subprocess.run(cmd, capture_output=True, text=True)
         return [text((out.stdout + out.stderr).strip())], out.returncode != 0
+    if tool == 'game_match_state':  # Session 91 step 8: the match snapshot (tools/live/events.py snapshot)
+        import events
+        snap = events.snapshot(name)
+        if not snap:
+            return [text('not in a match')], False
+        try:
+            with open(os.path.join(live.REPO, 'db', 'ids', 'characters.json'), encoding='utf-8') as f:
+                names = {e['id']: e['name'] for e in json.load(f)['entries']}
+        except (OSError, ValueError, KeyError):
+            names = {}
+        for w in snap.get('wrestlers', []):
+            w['name'] = names.get(w.get('id'), '?')
+        return [text(json.dumps(snap, indent=1))], False
+    if tool == 'game_events':  # Session 91 step 7: the event bus (tools/live/events.py)
+        import events
+        fields, _ = live.parse(live.request(name, '!status'))
+        ev = events.Events(int(fields.get('run')))
+        kinds = set(str(args.get('kind') or '').split(',')) - {''}
+        got = [e for e in ev.read() if not kinds or e.get('kind') in kinds][-int(args.get('last') or 30):]
+        return [text('\n'.join(json.dumps(e) for e in got) or 'no events (is --wwe2k14_events on?)')], False
+    if tool == 'game_match':  # Session 91: the match builder (tools/atlas/match.py)
+        sys.path.insert(0, os.path.join(live.REPO, 'tools', 'atlas'))
+        import match
+        if args.get('lookup'):  # candidates with ids, for the caller to choose from (then "#id" in the spec)
+            hits = match.lookup(args['lookup'], args.get('what') or 'wrestler')
+            return [text('\n'.join('#%d  %s' % h for h in hits) or 'no match')], False
+        try:
+            spec, summary = match.build_spec(args['spec'])
+        except match.SpecError as x:
+            return [text('SPEC: %s' % x)], True
+        if args.get('dry'):
+            return [text('spec: %s (%s)' % (spec, summary))], False
+        lines = []
+        try:
+            failed, st = match.run(spec, name, args.get('compare') or '', True, say=lines.append)
+        except match.nav.Lost as x:
+            return [text('LOST on the way to the main menu: %s' % x)], True
+        content = [text('%s\nspec: %s (%s)\n%s' % ('\n'.join(lines), spec, summary,
+                                                  'FAILED: %s' % failed if failed else 'match sequence started'))]
+        if args.get('screenshot'):
+            _, _, pairs = live.run_batch(name, ['wait_frames 600'], 120, True, 1280)
+            content += [image(jpg) for _, jpg in pairs if jpg]
+        return content, bool(failed)
+    if tool in ('game_where', 'game_nav'):  # Session 91: the navigator (tools/atlas/nav.py)
+        sys.path.insert(0, os.path.join(live.REPO, 'tools', 'atlas'))
+        import nav
+        n = nav.Nav(name)
+        if tool == 'game_where':
+            w = n.where()
+            return [text('%s\nstates: %s\ntext: %s' % (nav.Nav.describe(w), w['states'], w['text']))], False
+        try:
+            out, bad = '\n'.join(n.go(args['target'])), False
+        except nav.Lost as x:
+            out, bad = 'LOST: %s' % x, True
+        content = [text(out)]
+        if args.get('screenshot'):
+            _, _, pairs = live.run_batch(name, [], 60, True, 1280)
+            content += [image(jpg) for _, jpg in pairs if jpg]
+        return content, bad
     if tool == 'game_text':  # Session 30
         return [text(live.request(name, '!text').replace('\n.\n', '\n').rstrip())], False
     if tool in ('game_status', 'game_stop'):

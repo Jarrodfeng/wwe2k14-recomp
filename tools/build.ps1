@@ -107,6 +107,10 @@ if ($CheckOnly) {
 . "$repo\tools\runlock.ps1"
 $ErrorActionPreference = 'Continue'
 Set-Location $repo
+# Session 90 guard: no hard-coded 0xE0000000+ host offset (it is 0x1000 on Windows only; the phone read every TRUE
+# NATIVE fence 4 KB off). Use ::rex::memory::detail::PhysicalHostOffset / GuestPtr. tools\analysis\fix_e0_offset.py.
+& py -I "$repo\tools\analysis\fix_e0_offset.py" --check src | Select-Object -Last 3
+if ($LASTEXITCODE -ne 0) { "build.ps1: NOT BUILT - hard-coded 0xE0000000 offset(s) in src (see above)"; exit 5 }
 try { $lock = Enter-RunLock -Name "build.ps1 $Preset $Run" -TimeoutMinutes $LockWaitMinutes }
 catch {
     "build.ps1: NOT BUILT, the run lock was not free within $LockWaitMinutes min ($($_.Exception.Message)). Quit the " +

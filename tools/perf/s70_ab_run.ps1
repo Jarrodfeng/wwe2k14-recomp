@@ -42,7 +42,7 @@ if (-not (Test-Path (Join-Path $binDir 'wwe2k14.exe'))) {
 }
 if (-not $Settings) {
   $Settings = Join-Path $R 'out\s70\settings_native720.json'
-  if (-not (Test-Path $Settings)) { Set-Content -Path $Settings -Value '{"renderer": 2, "resolution": 0, "frame_rate": 1, "settings_version": 2}' -NoNewline }
+  if (-not (Test-Path $Settings)) { Set-Content -Path $Settings -Value '{"renderer": 2, "resolution": 0, "frame_rate": 1, "quality_tier": 2, "settings_version": 2}' -NoNewline }
 }
 $flags = "--game_data_root=$R\game_data\extracted --wwe2k14_settings_file=$Settings --wwe2k14_launch=@quick " +
          '--wwe2k14_quick_type=0 --wwe2k14_launch_participants=343,324 --gpu_session_stats_frames=60'

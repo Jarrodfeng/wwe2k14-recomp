@@ -137,7 +137,7 @@ if (-not $NoEntrance) {
     Say ''
     Say '== quick entrance replay (s82_lb_quick_ent, 720p NATIVE settings), on vs off in one batch'
     $set = "$R\out\owned_check\settings_native720.json"
-    if (-not (Test-Path $set)) { Set-Content -NoNewline -Path $set -Value '{"renderer": 2, "frame_rate": 1, "resolution": 0}' }
+    if (-not (Test-Path $set)) { Set-Content -NoNewline -Path $set -Value '{"renderer": 2, "frame_rate": 1, "resolution": 0, "quality_tier": 2}' }
     $ent = 'tools\input_scripts\short\s82_ent_shots.txt'
     $common = "--wwe2k14_replay_play=s82_lb_quick_ent --wwe2k14_use_launcher_settings=true --wwe2k14_native_frame=true --vsync=false --game_data_root=$R\game_data\extracted --wwe2k14_replay_dir=$R\out\replays --wwe2k14_scenario_dir=$R\out\scenarios"
     # (Session 87: the owned frame is on by default in NATIVE since v0.2.16 - the off arm turns it off too, as owned_check's

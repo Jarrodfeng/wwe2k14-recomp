@@ -1,0 +1,2159 @@
+# ReXGlue SDK changes for WWE 2K14 (session93-cull-merge): 3e88dc162e10..decd7e4923ad on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  decd7e4 Merge branch 's93-merge' into s93-int2
+#  8718c26 Merge branch 's93-cull' into s93-int2
+#  3d8cf2e Merge branch 's93-merge' into s93-int2
+#  8af0439 Merge branch 's93-cull' into s93-int2
+#  d91eea8 Merge branch 's93-merge' into s93-int2
+#  8b13a9f Session 93: cull_ours review fixes (NoteBreak pass guard, budget retry, position-only sample, reset index, ranges, bindings, FrameEnd every frame)
+#  00af450 Session 93: gpu_d3d_cull_ours - our arena draws the camera cannot see are not drawn (shared draw_bounds helper, cull_ours guards, [d3d][cull] window line)
+#  a511bf6 Session 93: gpu_d3d_phase0_census - log-only phase 0 census for the memory mirror and the decoupled rendering designs
+
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 6e9a526ddc4e5a99e503f0aba1ff2000861f873e..7b55421b29a16f1f2e090179fa4b3359d8360b9d 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -202,6 +202,113 @@ class DeferredCommandBuffer {
+     args->instance_count += count;
+     return true;
+   }
++  // wwe2k14 patch (Session 93, gpu_native_own_crowd_merge): as AddInstancesToLastIndexedDraw, but commands may follow the draw: from
++  // `expect_stream_end` (the stream's size right after our draw) to the stream's end there may be only the state commands a crowd
++  // run's first member recorded (pipeline, descriptor set, index buffer, viewport, scissor, depth bias, blend constants and stencil
++  // binds - turned into no-ops: the caller compared their values with what our draw drew with) and host-side descriptor writes and
++  // no-ops (kept). A barrier, timestamp, checkpoint, push constant, draw, pass command or anything else refuses (nothing changed;
++  // `refused_stream` tells it from a draw that is not ours). The scan resumes where the last merge stopped.
++  bool MergeInstancesIntoLastIndexedDraw(uint32_t count, uint32_t expect_index_count, size_t expect_stream_end,
++                                         bool& refused_stream) {
++    refused_stream = false;
++    if (barrier_pending_ || last_draw_end_ != expect_stream_end || !last_draw_indexed_ ||
++        expect_stream_end > command_stream_.size()) {
++      return false;
++    }
++    auto* draw_args = reinterpret_cast<ArgsVkDrawIndexed*>(command_stream_.data() + last_draw_args_);
++    if (draw_args->index_count != expect_index_count) return false;
++    const size_t begin = merged_scan_end_ != SIZE_MAX && merged_scan_end_ >= expect_stream_end &&
++                                 merged_scan_end_ <= command_stream_.size()
++                             ? merged_scan_end_
++                             : expect_stream_end;
++    const auto nopable = [](Command c) {
++      switch (c) {
++        case Command::kVkBindDescriptorSets:
++        case Command::kVkBindIndexBuffer:
++        case Command::kVkBindPipeline:
++        case Command::kVkSetBlendConstants:
++        case Command::kVkSetDepthBias:
++        case Command::kVkSetScissor:
++        case Command::kVkSetStencilCompareMask:
++        case Command::kVkSetStencilReference:
++        case Command::kVkSetStencilWriteMask:
++        case Command::kVkSetViewport:
++          return true;
++        default:
++          return false;
++      }
++    };
++    size_t at = begin;
++    while (at < command_stream_.size()) {
++      const auto& header = *reinterpret_cast<const CommandHeader*>(command_stream_.data() + at);
++      if (!nopable(header.command) && header.command != Command::kNop && header.command != Command::kVkUpdateDescriptorSets &&
++          header.command != Command::kVkSetCheckpointNV) {  // (a marker, kept in place)
++        refused_stream = true;
++        if (size_t(header.command) < kMergeRefusalKinds) ++merge_refused_by_[size_t(header.command)];  // (log only)
++        return false;
++      }
++      at += kCommandHeaderSizeElements + header.arguments_size_elements;
++    }
++    if (at != command_stream_.size()) {
++      refused_stream = true;
++      return false;
++    }
++    for (at = begin; at < command_stream_.size();) {
++      auto& header = *reinterpret_cast<CommandHeader*>(command_stream_.data() + at);
++      at += kCommandHeaderSizeElements + header.arguments_size_elements;
++      if (nopable(header.command)) header.command = Command::kNop;
++    }
++    draw_args->instance_count += count;
++    debug_last_constants_set_ = VK_NULL_HANDLE;  // (the bind that could have set it is a no-op now)
++    merged_scan_end_ = command_stream_.size();
++    return true;
++  }
++  // (Session 93, log only) which command refused each merge: counts by Command value, and the names.
++  static constexpr size_t kMergeRefusalKinds = 64;
++  uint64_t merge_refused_by_[kMergeRefusalKinds] = {};
++  static const char* CommandName(size_t c) {
++    switch (Command(c)) {
++      case Command::kVkBeginRenderPass: return "kVkBeginRenderPass";
++      case Command::kVkBeginQuery: return "kVkBeginQuery";
++      case Command::kVkBindDescriptorSets: return "kVkBindDescriptorSets";
++      case Command::kVkBindIndexBuffer: return "kVkBindIndexBuffer";
++      case Command::kVkBindPipeline: return "kVkBindPipeline";
++      case Command::kVkBindVertexBuffers: return "kVkBindVertexBuffers";
++      case Command::kVkClearAttachments: return "kVkClearAttachments";
++      case Command::kVkClearColorImage: return "kVkClearColorImage";
++      case Command::kVkCopyBuffer: return "kVkCopyBuffer";
++      case Command::kVkCopyBufferToImage: return "kVkCopyBufferToImage";
++      case Command::kVkCopyImageToBuffer: return "kVkCopyImageToBuffer";
++      case Command::kVkCopyQueryPoolResults: return "kVkCopyQueryPoolResults";
++      case Command::kVkDispatch: return "kVkDispatch";
++      case Command::kVkDraw: return "kVkDraw";
++      case Command::kVkDrawIndexed: return "kVkDrawIndexed";
++      case Command::kVkEndQuery: return "kVkEndQuery";
++      case Command::kVkEndRenderPass: return "kVkEndRenderPass";
++      case Command::kVkBeginRendering: return "kVkBeginRendering";
++      case Command::kVkEndRendering: return "kVkEndRendering";
++      case Command::kVkPipelineBarrier: return "kVkPipelineBarrier";
++      case Command::kVkPushConstants: return "kVkPushConstants";
++      case Command::kVkResetQueryPool: return "kVkResetQueryPool";
++      case Command::kVkSetBlendConstants: return "kVkSetBlendConstants";
++      case Command::kVkSetCheckpointNV: return "kVkSetCheckpointNV";
++      case Command::kVkSetDepthBias: return "kVkSetDepthBias";
++      case Command::kVkSetEdsState: return "kVkSetEdsState";
++      case Command::kVkSetScissor: return "kVkSetScissor";
++      case Command::kVkSetStencilCompareMask: return "kVkSetStencilCompareMask";
++      case Command::kVkSetStencilReference: return "kVkSetStencilReference";
++      case Command::kVkSetStencilWriteMask: return "kVkSetStencilWriteMask";
++      case Command::kVkSetViewport: return "kVkSetViewport";
++      case Command::kVkUpdateDescriptorSets: return "kVkUpdateDescriptorSets";
++      case Command::kVkWriteTimestamp: return "kVkWriteTimestamp";
++      case Command::kVkCopyImage: return "kVkCopyImage";
++      case Command::kHostCallback: return "kHostCallback";
++      case Command::kVkBlitImage: return "kVkBlitImage";
++      case Command::kVkClearDepthStencilImage: return "kVkClearDepthStencilImage";
++      case Command::kNop: return "kNop";
++      default: return "?";
++    }
++  }
+   void ExecuteStream(const std::vector<uintmax_t>& stream, VkCommandBuffer command_buffer) const;
+ 
+   // wwe2k14 patch (Session 7c, CAUSES): measurement only, nothing recorded changes. Running counts of recorded
+@@ -1118,7 +1225,9 @@ class DeferredCommandBuffer {
+     last_draw_args_ = size_t(reinterpret_cast<const uintmax_t*>(args) - command_stream_.data());
+     last_draw_end_ = command_stream_.size();
+     last_draw_indexed_ = indexed;
++    merged_scan_end_ = SIZE_MAX;  // (Session 93)
+   }
++  size_t merged_scan_end_ = SIZE_MAX;  // wwe2k14 patch (Session 93): where MergeInstancesIntoLastIndexedDraw stopped scanning after the last draw
+   size_t last_draw_args_ = 0;
+   size_t last_draw_end_ = SIZE_MAX;
+   bool last_draw_indexed_ = false;
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index a4f26458ac0caed86ae9475f043242c2d20ab550..e580a412ec0cbe07da39268a6aee0bc27730d4e8 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -36,6 +36,7 @@
+ #include <chrono>
+ #include <condition_variable>
+ #include <cstdint>
++#include <cstring>
+ #include <cstdio>
+ #include <deque>
+ #include <filesystem>
+@@ -2092,8 +2093,46 @@ class NativeRenderer {
+   VkPipelineLayout own_crowd_dyn_layout_ = VK_NULL_HANDLE;
+   std::unordered_map<const uint32_t*, VkShaderModule> own_crowd_module_ptr_;
+   // The call recorded last (the merge compares a new run with it; the counters compare even with the merge off).
++  // Session 93 (gpu_native_own_crowd_merge): the dynamic state a crowd run's first member recorded (truth pass or owned pass), compared
++  // between runs - equal state and nothing but state commands between two calls lets the later run join the earlier call.
++  struct OwnCrowdStateSig {
++    VkViewport viewport = {};
++    VkRect2D scissor = {};
++    float bias[2] = {};
++    float blend[4] = {};
++    bool stencil_on = false;
++    uint8_t stencil[2][3] = {};
++    bool Equals(const OwnCrowdStateSig& o) const {
++      return std::memcmp(&viewport, &o.viewport, sizeof(viewport)) == 0 && std::memcmp(&scissor, &o.scissor, sizeof(scissor)) == 0 &&
++             std::memcmp(bias, o.bias, sizeof(bias)) == 0 && std::memcmp(blend, o.blend, sizeof(blend)) == 0 &&
++             stencil_on == o.stencil_on && std::memcmp(stencil, o.stencil, sizeof(stencil)) == 0;
++    }
++  };
++  OwnCrowdStateSig own_crowd_sig_;       // (the last first member's, valid while own_crowd_sig_valid_)
++  bool own_crowd_sig_valid_ = false;     // set by a draw with own_skip_call (truth or owned record), cleared by every other draw and by RecordOwnCrowd
++  bool own_crowd_call_sig_valid_ = false;  // (RecordOwnCrowd's copy of the flag for the run in hand)
++  void OwnCrowdNoteSig(const VkViewport& viewport, const VkRect2D& scissor, float bias_constant, float bias_slope,
++                       const float blend[4], bool stencil_on, const uint8_t refs[2], const uint8_t read_masks[2],
++                       const uint8_t write_masks[2]) {
++    own_crowd_sig_ = {};
++    own_crowd_sig_.viewport = viewport;
++    own_crowd_sig_.scissor = scissor;
++    own_crowd_sig_.bias[0] = bias_constant;
++    own_crowd_sig_.bias[1] = bias_slope;
++    std::memcpy(own_crowd_sig_.blend, blend, sizeof(own_crowd_sig_.blend));
++    own_crowd_sig_.stencil_on = stencil_on;
++    if (stencil_on) {
++      for (int f = 0; f < 2; ++f) {
++        own_crowd_sig_.stencil[f][0] = refs[f];
++        own_crowd_sig_.stencil[f][1] = read_masks[f];
++        own_crowd_sig_.stencil[f][2] = write_masks[f];
++      }
++    }
++    own_crowd_sig_valid_ = true;
++  }
+   struct OwnCrowdOpen {
+-    bool valid = false, in_owned = false;
++    bool valid = false, in_owned = false, sig_valid = false;
++    OwnCrowdStateSig sig;
+     uint64_t submission = 0, mesh_hash = 0;
+     uint32_t slice = 0;
+     PipelineKey key = {};
+@@ -2113,6 +2152,9 @@ class NativeRenderer {
+   struct {
+     uint64_t calls = 0, eq_prev = 0, eq_prev_adjacent = 0, merged_runs = 0, merged_members = 0, sets_reused = 0,
+              sets_made = 0, flushes = 0, flush_kb = 0, program_hits = 0, size_declines = 0;
++    // (Session 93, the merge) runs equal to the previous call that were not merged, by why: the first member's state differs / the
++    // stream holds more than state since the call / the ring or the owned pass's call list did not fit.
++    uint64_t merge_no_state = 0, merge_no_stream = 0, merge_no_fit = 0, merge_no_list = 0;
+   } own_crowd_lean_stats_;
+   std::vector<std::pair<uint64_t, const void*>> own_crowd_program_cache_;  // (vertex shader hash -> OwnCrowdProgram*; Session 93)
+   uint32_t own_crowd_program_cache_gen_ = 0;
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index 763923b8f60a536417ccc016c63e3a0b052d77cf..766f85266e94a530eba7712e73af897b0b1f84b5 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -76,6 +76,9 @@ set(REXGPU_XENOS_VULKAN_SOURCES
+     vulkan/native/d3d_copy_records.cpp  # wwe2k14 patch (Session 87, D3D layer F2)
+     vulkan/native/owned_resolve.cpp  # wwe2k14 patch (Session 92, M3a)
+     vulkan/native/owned_record.cpp  # wwe2k14 patch (Session 92, M4a)
++    vulkan/native/phase0_census.cpp  # wwe2k14 patch (Session 93): the log-only phase 0 census (gpu_d3d_phase0_census)
++    vulkan/native/draw_bounds.cpp  # wwe2k14 patch (Session 93): mesh bounds + the box test (census, cull_ours)
++    vulkan/native/cull_ours.cpp  # wwe2k14 patch (Session 93): gpu_d3d_cull_ours, our off-screen draws are not drawn
+     vulkan/native/owned_front_own.cpp  # wwe2k14 patch (Session 92, M4f-C): the typed draw + the cut's entries
+     vulkan/native/owned_front_notify.cpp  # wwe2k14 patch (Session 92, M4f-C): the notifications + the cut's processor effects (out of d3d_feed.cpp)
+     vulkan/native/owned_front_draw.cpp  # wwe2k14 patch (Session 92, M4b)
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index a7d357cdb1623167f2044740dace36b30bb4cb7a..0275aceef21b5f083f88ae6666d8ed87beb62b93 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -60,6 +60,8 @@
+ #include <rex/graphics/vulkan/command_processor.h>
+ #include "s58_stats.h"  // wwe2k14 patch (Session 58)
+ #include "native/owned_record.h"  // wwe2k14 patch (Session 92, M4f-C): OwnedServeTargets
++#include "native/phase0_census.h"  // wwe2k14 patch (Session 93)
++#include "native/cull_ours.h"  // wwe2k14 patch (Session 93, gpu_d3d_cull_ours)
+ #include "native/shader_swap.h"  // wwe2k14 patch (Session 72, gpu_native_shader_swap)
+ #include "../crowd_member_hook.h"  // wwe2k14 patch (Session 92, M4f-B)
+ #include "native/restore/restore_color_depth.h"  // wwe2k14 patch (Session 87, stage 4): the restore shader (our SPIR-V)
+@@ -89,6 +91,7 @@ REXCVAR_DEFINE_BOOL(vulkan_flight_gpu_records, false, "GPU/Vulkan",
+ 
+ // wwe2k14 patch (Session 16, MATTE): find and dump the game's depth resolves (for depth mattes). Both default off.
+ // wwe2k14 patch (Session 20, RECSTATS)
++REXCVAR_DECLARE(bool, gpu_d3d_cull_ours);  // (Session 93: defined in native/cull_ours.cpp)
+ REXCVAR_DECLARE(bool, gpu_native_owned_alpha_learn);  // wwe2k14 patch (Session 82, owned_steps.cpp)
+ REXCVAR_DECLARE(bool, gpu_native_owned_alpha_learn_constants);
+ REXCVAR_DECLARE(bool, gpu_native_truth_clear_attachments);  // wwe2k14 patch (Session 56, native_truth.cpp)
+@@ -2534,6 +2537,8 @@ VulkanCommandProcessor::VulkanCommandProcessor(VulkanGraphicsSystem* graphics_sy
+   rex::graphics::g_own_crowd_frame_hook = [](rex::graphics::CommandProcessor* cp) {
+     auto* v = static_cast<VulkanCommandProcessor*>(cp);
+     if (v->native_) v->native_->OwnCrowdOnFrameEnd(true);
++    Phase0FrameEnd();  // (Session 93, gpu_d3d_phase0_census: log-only; does nothing when the switch is off)
++    cull_ours::FrameEnd();  // (Session 93, gpu_d3d_cull_ours: the frame boundary of the cull cache; the window line)
+   };
+ }
+ 
+diff --git a/src/graphics/vulkan/native/cull_ours.cpp b/src/graphics/vulkan/native/cull_ours.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..1df4104e47eeaace076e62286d187022ae708055
+--- /dev/null
++++ b/src/graphics/vulkan/native/cull_ours.cpp
+@@ -0,0 +1,304 @@
++// wwe2k14 patch (Session 93, idea 13): see cull_ours.h.
++//
++// A draw is skipped only when ALL of these hold (each is a counted refusal, [d3d][cull] window line):
++//  - gpu_d3d_cull_ours on; a draw item of the cut (the caller), not a crowd member, not an inline draw (a DMA index buffer);
++//  - its vertex shader is one of ours AND position-exact (shader_swap::VertexBoxCullable: the plain arena materials; not skinned, not bump, not particles);
++//  - the vertex transform is the plain one (VTE: xy not pre-divided, w not reciprocal), the primitive a triangle list / strip / fan / quad list (a rectangle list's 4th
++//    vertex is not in the box, points and lines expand);
++//  - no occlusion query and no viz query on the draw; neither shader exports to memory (both analysed, the caller);
++//  - the renderer's pass is already open and the previous drawn draw had the same render-target words, with no break between (a refused / old-path / inline draw, a clear or
++//    resolve, the end of the renderer's pass: NoteBreak); a skipped first draw never decides a pass's structure, and a frame's first draw is never skipped;
++//  - the vertex shader has one binding, in the registered fetch constant, 8 dwords a vertex (the caller); all bytes read lie in the 512 MiB physical space;
++//  - the mesh's bounds are known: the box of the vertices [min, max] + base the indices name (scanned once per mesh identity = index address + count + format + base vertex +
++//    the vertex fetch constant's two words), all w == 1; a mesh seen for the first time is drawn that time; re-checked once a frame against a sample of the index and vertex
++//    bytes (a change = a new scan, the draw is drawn), and re-scanned in full every 600 frames (staggered);
++//  - the test proves invisibility: all 8 corners outside the same x or y clip plane (1% margin) or all behind the eye; z > w alone never culls;
++//  - the host clip space of the draw is the guest's (the caller's viewport callback, required: the test is repeated in the host viewport's clip space, ndc scale / offset on x / y; no wide / tall factor).
++// The caller keeps the typed / bound state as the other cut skips do (repeat base and lean base invalidated).
++#include "cull_ours.h"
++
++#include <algorithm>
++#include <cstdint>
++#include <cstring>
++#include <string>
++#include <unordered_map>
++
++#include <rex/cvar.h>
++#include <rex/graphics/xenos.h>
++#include <rex/hash.h>
++#include <rex/logging.h>
++#include <rex/system/xmemory.h>
++
++#include "draw_bounds.h"
++#include "owned_record.h"
++#include "shader_swap.h"
++
++REXCVAR_DEFINE_BOOL(gpu_d3d_cull_ours, false, "GPU/Native",
++                    "Session 93 (idea 13, docs\\native\\d3d\\S93_MIRROR_DESIGN.md section 4, needs the cut and gpu_native_vs_swap): a draw of OUR arena vertex shaders (the plain "
++                    "materials) whose mesh box a conservative test proves outside the view (all corners beyond the same x / y clip plane, or behind the eye) is not drawn. "
++                    "Never a draw with an occlusion / viz query, memexport, a crowd member, an inline draw, the first draw of a pass, or a mesh whose bounds are not known yet. "
++                    "[d3d][cull] lines per 600 guest frames. Off = nothing runs.");
++
++namespace rex::graphics::vulkan::cull_ours {
++
++namespace {
++
++constexpr uint32_t kWindowFrames = 600;
++constexpr uint32_t kRescanFrames = 600;
++constexpr uint32_t kBudgetPerFrame = 400000;  // indices + vertices read per guest frame
++
++inline uint64_t Mix(uint64_t a, uint64_t b) {
++  a ^= b + 0x9E3779B97F4A7C15ull + (a << 6) + (a >> 2);
++  return a;
++}
++inline double Pct(uint64_t a, uint64_t b) { return b ? 100.0 * double(a) / double(b) : 0.0; }
++
++struct Entry {
++  bool scanned = false;  // the indices were read (min_i / max_i valid)
++  bool no_box = false;   // not boxable (range, non-finite, unsupported indices): not retried until the next full rescan
++  bool w_not_one = false;
++  bool has_box = false;
++  uint32_t min_i = 0, max_i = 0;
++  uint64_t born = 0;              // the frame of the last full scan
++  uint64_t checked = UINT64_MAX;  // the last frame the sample was compared
++  uint64_t sample = 0;
++  draw_bounds::Box box;
++};
++
++struct Window {
++  uint64_t first_frame = 0, frames_with_draws = 0;
++  uint64_t ours = 0, cullable_shader = 0, not_cullable_shader = 0;
++  uint64_t r_crowd = 0, r_inline = 0, r_vte = 0, r_prim = 0, r_occlusion = 0, r_shaders = 0, r_pass = 0, r_fetch = 0, r_no_bounds = 0, r_w_not_one = 0, r_viewport = 0;
++  uint64_t tested = 0, visible = 0, z_only = 0, culled_xy = 0, culled_behind = 0;
++  uint64_t scans = 0, rescans = 0, sample_changes = 0, budget_skips = 0, scan_indices = 0, box_vertices = 0;
++};
++
++struct ShaderInfo {
++  bool ours = false, cullable = false;
++  uint32_t fetch = 95;
++};
++
++struct State {
++  uint64_t frame_no = 0;
++  Window w;
++  bool started = false;
++  uint32_t budget = kBudgetPerFrame;
++  bool last_valid = false;
++  uint64_t last_pass_key = 0;
++  std::unordered_map<uint64_t, Entry> meshes;
++  std::unordered_map<uint64_t, ShaderInfo> shaders;
++  uint64_t shaders_generation = 0;
++  uint64_t frame_draws = 0;
++};
++State g;
++
++uint64_t PassKey(const OwnedRecordState& s) { return Mix(Mix(s.color_info[0].value, s.depth_info.value), s.surface_info.value); }
++
++// A sample of what the box was made from: 128 bytes of the index buffer at 3 places and up to 4 used vertices at 3 places (position dwords).
++uint64_t Sample(rex::memory::Memory* mem, const OwnedRecordState& s, uint32_t vb_start, uint32_t vb_size, uint32_t stride_bytes, uint32_t first, uint32_t last) {
++  uint64_t h = 0x9876543;
++  const uint32_t isz = s.draw_initiator.index_size == xenos::IndexFormat::kInt16 ? 2 : 4;
++  uint32_t n = s.draw_initiator.num_indices;
++  n = std::min(n, s.dma_size.num_words * (4 / isz));
++  const uint64_t ibytes = uint64_t(n) * isz;
++  const uint32_t ibase = s.dma_base & ~(isz - 1);
++  for (int k = 0; k < 3; ++k) {
++    const uint64_t off = ibytes > 128 ? (ibytes - 128) * uint64_t(k) / 2 : 0;
++    const uint32_t len = uint32_t(std::min<uint64_t>(128, ibytes - off));
++    if (len) h = Mix(h, XXH3_64bits(mem->TranslatePhysical<const uint8_t*>(ibase + uint32_t(off)), len));
++  }
++  const uint64_t vcount = uint64_t(last) - first + 1;
++  for (int k = 0; k < 3; ++k) {  // up to 4 used vertices at 3 places; of each the position dwords 0-3 (what the box is made from)
++    const uint64_t v0 = uint64_t(first) + (vcount > 4 ? (vcount - 4) * uint64_t(k) / 2 : 0);
++    const uint64_t cnt = std::min<uint64_t>(4, uint64_t(first) + vcount - v0);
++    for (uint64_t j = 0; j < cnt; ++j) {
++      const uint64_t off = (v0 + j) * stride_bytes;
++      if (off + 16 <= vb_size) h = Mix(h, XXH3_64bits(mem->TranslatePhysical<const uint8_t*>(vb_start + uint32_t(off)), 16));
++    }
++  }
++  return h | 1;
++}
++
++void Print() {
++  const Window& w = g.w;
++  const double fr = double(std::max<uint64_t>(1, w.frames_with_draws));
++  const uint64_t culled = w.culled_xy + w.culled_behind;
++  REXGPU_INFO(
++      "[d3d][cull] frames {}-{}: our draws {} ({:.1f} a frame), shader cullable {} / not {}; refused: crowd member {}, inline {}, vte format {}, primitive {}, occlusion / viz {}, shaders unknown / memexport {}, "
++      "pass not open / first draw {}, fetch not a vertex stream {}, bounds not known yet {}, w != 1 {}, viewport {}; tested {}: culled {} ({:.1f}% of tested, {:.1f} a frame; off-screen x/y {}, behind the eye {}), "
++      "visible {} (z > w only {}); mesh scans {} ({} indices, {} vertices; full rescans {}, sample changes {}, budget skips {}), meshes cached {}",
++      w.first_frame, g.frame_no, w.ours, double(w.ours) / fr, w.cullable_shader, w.not_cullable_shader, w.r_crowd, w.r_inline, w.r_vte, w.r_prim, w.r_occlusion, w.r_shaders, w.r_pass, w.r_fetch,
++      w.r_no_bounds, w.r_w_not_one, w.r_viewport, w.tested, culled, Pct(culled, w.tested), double(culled) / fr, w.culled_xy, w.culled_behind, w.visible, w.z_only, w.scans, w.scan_indices,
++      w.box_vertices, w.rescans, w.sample_changes, w.budget_skips, g.meshes.size());
++}
++
++}  // namespace
++
++void NoteDrawn(const OwnedRecordState& s) {
++  g.last_valid = true;
++  g.last_pass_key = PassKey(s);
++}
++
++const ShaderInfo& ShaderOf(uint64_t vs_hash) {
++  if (g.shaders_generation != shader_swap::TranslationGeneration()) {
++    g.shaders.clear();
++    g.shaders_generation = shader_swap::TranslationGeneration();
++  }
++  auto sit = g.shaders.find(vs_hash);
++  if (sit == g.shaders.end()) {
++    ShaderInfo info;
++    info.ours = shader_swap::VertexTakes(vs_hash);
++    std::string why;
++    info.cullable = shader_swap::VertexBoxCullable(vs_hash, &info.fetch, &why);
++    REXGPU_INFO("[d3d][cull] shader {:016X} {}: cullable {} (reason: {})", vs_hash, info.ours ? "ours" : "not ours", info.cullable ? "yes" : "no", why.empty() ? "not ours" : why);
++    sit = g.shaders.emplace(vs_hash, info).first;
++  }
++  return sit->second;
++}
++
++bool CullableShader(uint64_t vs_hash) { return ShaderOf(vs_hash).cullable; }
++uint32_t CullableFetch(uint64_t vs_hash) { return ShaderOf(vs_hash).fetch; }
++
++void NoteBreak() { g.last_valid = false; }
++
++bool Evaluate(const Request& r) {
++  const OwnedRecordState& s = *r.s;
++  Window& w = g.w;
++  if (!g.started) {
++    g.started = true;
++    w.first_frame = g.frame_no;
++  }
++  ++g.frame_draws;
++  const uint64_t vs_hash = s.shader[0].hash;
++  const ShaderInfo& si = ShaderOf(vs_hash);
++  if (!si.ours) return false;
++  ++w.ours;
++  if (!si.cullable) return ++w.not_cullable_shader, false;
++  ++w.cullable_shader;
++  if (r.crowd_member) return ++w.r_crowd, false;
++  if (s.inline_draw || s.draw_initiator.source_select != xenos::SourceSelect::kDMA) return ++w.r_inline, false;
++  if (s.vte_cntl.vtx_xy_fmt || !s.vte_cntl.vtx_w0_fmt) return ++w.r_vte, false;
++  switch (s.draw_initiator.prim_type) {
++    case xenos::PrimitiveType::kTriangleList:
++    case xenos::PrimitiveType::kTriangleStrip:
++    case xenos::PrimitiveType::kTriangleFan:
++    case xenos::PrimitiveType::kQuadList:
++      break;
++    default:
++      return ++w.r_prim, false;
++  }
++  if (r.occlusion_query || s.viz_query_cntl.viz_query_ena || s.draw_viz_query) return ++w.r_occlusion, false;
++  if (!r.shaders_known) return ++w.r_shaders, false;
++  if (!r.truth_pass_open || !g.last_valid || g.last_pass_key != PassKey(s)) return ++w.r_pass, false;
++
++  // ---- the vertex stream (our shaders read one stream, 8 dwords a vertex, in the registered fetch constant)
++  if (si.fetch >= 96) return ++w.r_fetch, false;
++  xenos::xe_gpu_vertex_fetch_t f;
++  std::memcpy(&f, &s.fetch[si.fetch * 2], sizeof(f));
++  if (f.type != xenos::FetchConstantType::kVertex || !f.size) return ++w.r_fetch, false;
++  const uint32_t vb_start = f.address * 4, vb_size = f.size * 4;
++  const uint32_t base = s.indx_offset.indx_offset;
++
++  // ---- the mesh's bounds
++  const uint32_t isz = s.draw_initiator.index_size == xenos::IndexFormat::kInt16 ? 2 : 4;
++  // (everything read below must lie in the 512 MiB physical space)
++  const uint32_t n_avail = std::min(s.draw_initiator.num_indices, s.dma_size.num_words * (4 / isz));
++  if (uint64_t(f.address) * 4 + uint64_t(f.size) * 4 > 0x20000000ull || uint64_t(s.dma_base & ~(isz - 1)) + uint64_t(n_avail) * isz > 0x20000000ull) return ++w.r_fetch, false;
++  const uint64_t key = Mix(Mix(Mix(s.dma_base, s.draw_initiator.num_indices), uint64_t(s.dma_size.swap_mode) << 8 | uint64_t(isz)),
++                           Mix(Mix(base, s.fetch[si.fetch * 2]), s.fetch[si.fetch * 2 + 1]));
++  Entry& e = g.meshes[key];
++  bool fresh = false;
++  if ((e.scanned || e.no_box) && g.frame_no - e.born >= kRescanFrames + (key & 63)) {  // the periodic full rescan (staggered)
++    e = Entry();
++    ++w.rescans;
++  }
++  if (e.has_box && e.checked != g.frame_no) {
++    // the once-a-frame check of the data the box was made from
++    const uint64_t sample = Sample(r.mem, s, vb_start, vb_size, 32, e.min_i + base, e.max_i + base);
++    e.checked = g.frame_no;
++    if (sample != e.sample) {
++      ++w.sample_changes;
++      e = Entry();
++    }
++  }
++  if (!e.scanned && !e.no_box && n_avail > kBudgetPerFrame) e.no_box = true;  // (can never fit the per-frame allowance)
++  if (!e.scanned && !e.no_box) {
++    draw_bounds::IndexScan sc;
++    const draw_bounds::ScanStatus st = draw_bounds::ScanIndices(r.mem, s, g.budget, sc);
++    if (st == draw_bounds::ScanStatus::kBudget) return ++w.budget_skips, ++w.r_no_bounds, false;
++    ++w.scans;
++    w.scan_indices += sc.n;
++    e.born = g.frame_no;
++    e.checked = g.frame_no;
++    if (st != draw_bounds::ScanStatus::kOk) {
++      e.no_box = true;
++    } else {
++      e.scanned = true;  // (kept when only the box waits for the budget: then only BuildBox is retried)
++      e.min_i = sc.min_i;
++      e.max_i = sc.max_i;
++    }
++    fresh = true;  // (the first time a mesh is seen: its bounds are only built now - drawn this time)
++  }
++  if (e.scanned && !e.has_box && !e.no_box) {
++    if (uint64_t(e.max_i) - e.min_i + 1 > kBudgetPerFrame) {
++      e.no_box = true;
++    } else {
++      uint32_t read = 0;
++      const draw_bounds::BoxStatus bs = draw_bounds::BuildBox(r.mem, e.min_i, e.max_i, vb_start, vb_size, 8, base, f.endian, g.budget, e.box, read);
++      w.box_vertices += read;
++      if (bs == draw_bounds::BoxStatus::kBudget) return ++w.budget_skips, ++w.r_no_bounds, false;
++      e.w_not_one = bs == draw_bounds::BoxStatus::kWNotOne;
++      e.no_box = bs != draw_bounds::BoxStatus::kOk;
++      e.has_box = bs == draw_bounds::BoxStatus::kOk;
++      if (e.has_box) e.sample = Sample(r.mem, s, vb_start, vb_size, 32, e.min_i + base, e.max_i + base);
++      fresh = true;
++    }
++  }
++  if (e.w_not_one) return ++w.r_w_not_one, false;
++  if (!e.has_box) return ++w.r_no_bounds, false;
++  if (fresh) return ++w.r_no_bounds, false;
++
++  // ---- the test
++  ++w.tested;
++  const int t = draw_bounds::BoxTest(s.vs_float, e.box);
++  if (t == 3) ++w.z_only;
++  if (t != 1 && t != 2) return ++w.visible, false;
++  float host[4];
++  if (!r.viewport || !r.viewport(r.viewport_ctx, host)) return ++w.r_viewport, false;
++  if (t == 1) {  // (behind the eye needs no transform: x' and y' scale with w, which the viewport transform leaves alone)
++    // the test again in the clip space the host really clips in (scale / offset of the draw's host viewport); culled only when it still holds
++    static uint32_t logged = 0;
++    const int h = draw_bounds::BoxTest(s.vs_float, e.box, host);
++    if (logged < 8) {
++      ++logged;
++      REXGPU_INFO("[d3d][cull] viewport sample {}: scale {:.5f} {:.5f} offset {:.5f} {:.5f}: plain test {}, host-space test {}", logged, host[0], host[1], host[2], host[3], t, h);
++    }
++    if (h != 1 && h != 2) return ++w.r_viewport, false;
++  }
++  (t == 1 ? w.culled_xy : w.culled_behind) += 1;
++  return true;
++}
++
++void FrameEnd() {
++  ++g.frame_no;
++  g.budget = kBudgetPerFrame;
++  g.last_valid = false;  // (a new frame's first draw opens its pass: never skipped)
++  if (g.frame_draws) ++g.w.frames_with_draws;
++  g.frame_draws = 0;
++  if (g.started && g.frame_no - g.w.first_frame >= kWindowFrames) {
++    Print();
++    // entries not touched for two windows go (a map that only grows is a leak across arenas)
++    for (auto it = g.meshes.begin(); it != g.meshes.end();) {
++      const uint64_t last = it->second.checked == UINT64_MAX ? it->second.born : it->second.checked;
++      if (g.frame_no - last > 2 * kWindowFrames) {
++        it = g.meshes.erase(it);
++      } else {
++        ++it;
++      }
++    }
++    g.w = Window();
++    g.started = false;
++  }
++}
++
++}  // namespace rex::graphics::vulkan::cull_ours
+diff --git a/src/graphics/vulkan/native/cull_ours.h b/src/graphics/vulkan/native/cull_ours.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..1cf0e3476316aab726958a2ee6e3776bcde32dac
+--- /dev/null
++++ b/src/graphics/vulkan/native/cull_ours.h
+@@ -0,0 +1,46 @@
++// wwe2k14 patch (Session 93, idea 13: docs\native\d3d\S93_MIRROR_DESIGN.md section 4): the draw cut of OUR arena draws the camera cannot see (gpu_d3d_cull_ours,
++// default false). The typed draw (D3dDirectAccess::TypedDraw, under the cut) asks Evaluate for every draw item; true = the draw is skipped (counted as a cut skip;
++// nothing of it is drawn, requested or recorded). The test is the census' (draw_bounds.h): the mesh's object-space box through the model matrix c76-c78 and the
++// view-projection c56-c59, a 1% margin; only for the shaders whose position is exactly that (shader_swap::VertexBoxCullable). Everything that makes a skip unsafe
++// is a counted refusal: see the list in cull_ours.cpp. File statics only. Off (the cvar) = nothing here runs.
++#pragma once
++
++#include <cstdint>
++
++namespace rex::memory {
++class Memory;
++}
++
++namespace rex::graphics::vulkan {
++
++struct OwnedRecordState;
++
++namespace cull_ours {
++
++struct Request {
++  rex::memory::Memory* mem = nullptr;
++  const OwnedRecordState* s = nullptr;
++  bool crowd_member = false;
++  bool occlusion_query = false;  // an occlusion query is active
++  bool truth_pass_open = false;  // the renderer's pass is open (a skipped first draw must not decide a pass's structure)
++  bool shaders_known = false;    // the active vertex + pixel shaders are the draw's, analysed, neither writes memory (memexport), and the vertex shader has the one 8-dword binding in the registered fetch constant
++  // The guard only the command processor can answer; asked only for a draw the box test would cull: the host clip space of the draw is the guest's (x, y: scale 1, offset ~0).
++  // Fills the draw's host viewport transform {scale x, scale y, offset x, offset y}; false = refuse (empty viewport, wide / tall factor).
++  bool (*viewport)(void* ctx, float* host_xy) = nullptr;
++  void* viewport_ctx = nullptr;
++};
++
++// Whether the vertex shader is one of ours with a position the box test knows (shader_swap::VertexBoxCullable); cached per shader. CullableFetch = its stream's fetch constant.
++bool CullableShader(uint64_t vs_hash);
++uint32_t CullableFetch(uint64_t vs_hash);
++// true = skip the draw. Always call NoteDrawn(s) for a draw that is not skipped (it carries the pass identity the next draw's guard compares with).
++bool Evaluate(const Request& r);
++void NoteDrawn(const OwnedRecordState& s);
++// Anything that is not a drawn typed draw item (a refused or old-path draw, an inline draw, a clear / resolve, the end of the renderer's pass) ends "the pass the previous
++// drawn draw continues": the next draw is drawn.
++void NoteBreak();
++// One guest frame boundary; prints the window line every 600 of them.
++void FrameEnd();
++
++}  // namespace cull_ours
++}  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/native/d3d_direct_access.h b/src/graphics/vulkan/native/d3d_direct_access.h
+index 64821da0dc8ecf40f66d812be086be5536fa86a2..111e92e90934ea938a9176830630aa58538e1d13 100644
+--- a/src/graphics/vulkan/native/d3d_direct_access.h
++++ b/src/graphics/vulkan/native/d3d_direct_access.h
+@@ -119,6 +119,7 @@ struct D3dDirectAccess {
+   static bool InlineDraw(VCP& cp, uint32_t viz_query, uint32_t initiator, bool& drawn);
+   // M4f-C (the cut): the executor's entry points, on the LIVE typed state (owned_front_own.cpp). Final: true = drawn, or dropped and counted by reason.
+   static bool CutDraw(CommandProcessor& cp, const OwnedRecordState& live, uint32_t item_index);
++  static bool CutCullOurs(VCP& cp, const OwnedRecordState& s, bool crowd_member);  // Session 93 (gpu_d3d_cull_ours): true = an off-screen draw of ours, not drawn
+   static const char* CutPreDrawSkip(VCP& cp, const OwnedRecordState& s);  // M4f-C: hide HUD / shadow chain / half-rate shadows / crowd density from typed words; nullptr = draw
+   static bool CutInline(CommandProcessor& cp, const OwnedRecordState& live, const uint32_t* record, uint32_t dwords);
+ };
+diff --git a/src/graphics/vulkan/native/draw_bounds.cpp b/src/graphics/vulkan/native/draw_bounds.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..ed2c8cc0573769a16ced18a28b89a08cca8a3859
+--- /dev/null
++++ b/src/graphics/vulkan/native/draw_bounds.cpp
+@@ -0,0 +1,140 @@
++// wwe2k14 patch (Session 93): see draw_bounds.h. The code is the census' ScanMesh / BuildBox / BoxTest, moved here as they were.
++#include "draw_bounds.h"
++
++#include <algorithm>
++#include <cmath>
++#include <cstring>
++
++#include <rex/system/xmemory.h>
++
++#include "owned_record.h"
++
++namespace rex::graphics::vulkan::draw_bounds {
++
++namespace {
++constexpr uint64_t kPhysicalBytes = 0x20000000ull;
++inline float F(uint32_t bits) {
++  float f;
++  std::memcpy(&f, &bits, sizeof(f));
++  return f;
++}
++}  // namespace
++
++ScanStatus ScanIndices(rex::memory::Memory* mem, const OwnedRecordState& s, uint32_t& budget, IndexScan& out) {
++  const bool is16 = s.draw_initiator.index_size == xenos::IndexFormat::kInt16;
++  const uint32_t isz = is16 ? 2 : 4;
++  uint32_t n = s.draw_initiator.num_indices;
++  const uint32_t avail = s.dma_size.num_words * (4 / isz);
++  if (n > avail) n = avail;
++  const xenos::Endian endian = s.dma_size.swap_mode;
++  if (is16 ? (endian != xenos::Endian::kNone && endian != xenos::Endian::k8in16) : false) return ScanStatus::kUnsupported;
++  if (!n || n > 2000000) return ScanStatus::kUnsupported;
++  if (uint64_t(s.dma_base & ~(isz - 1)) + uint64_t(n) * isz > kPhysicalBytes) return ScanStatus::kUnsupported;  // (outside the 512 MiB physical space)
++  if (budget < n) return ScanStatus::kBudget;
++  budget -= n;
++  out.n = n;
++  uint32_t mn = 0xFFFFFFFFu, mx = 0;
++  bool resets = false;
++  const uint32_t base = s.dma_base & ~(isz - 1);
++  // The primitive reset index is skipped only when the reset is on (multi_prim_ib_ena) and the value equals reset_indx (24 bits; the low 16 for 16-bit indices).
++  const bool reset_on = s.sc_mode_cntl.multi_prim_ib_ena != 0;
++  const uint32_t reset16 = s.reset_indx.value & 0xFFFFu, reset32 = s.reset_indx.value & 0xFFFFFFu;
++  if (is16) {
++    const uint16_t* p = mem->TranslatePhysical<const uint16_t*>(base);
++    for (uint32_t i = 0; i < n; ++i) {
++      const uint32_t v = xenos::GpuSwap(p[i], endian);
++      if (reset_on && v == reset16) {
++        resets = true;
++        continue;
++      }
++      mn = std::min(mn, v);
++      mx = std::max(mx, v);
++    }
++  } else {
++    const uint32_t* p = mem->TranslatePhysical<const uint32_t*>(base);
++    for (uint32_t i = 0; i < n; ++i) {
++      const uint32_t v = xenos::GpuSwap(p[i], endian);
++      if (reset_on && (v & 0xFFFFFFu) == reset32) {
++        resets = true;
++        continue;
++      }
++      mn = std::min(mn, v);
++      mx = std::max(mx, v);
++    }
++  }
++  if (mn == 0xFFFFFFFFu) return ScanStatus::kEmpty;
++  out.min_i = mn;
++  out.max_i = mx;
++  out.resets = resets;
++  return ScanStatus::kOk;
++}
++
++BoxStatus BuildBox(rex::memory::Memory* mem, uint32_t min_i, uint32_t max_i, uint32_t vb_start_byte, uint32_t vb_size_bytes, uint32_t stride_words, uint32_t base,
++                   xenos::Endian endian, uint32_t& budget, Box& out, uint32_t& vertices_read) {
++  vertices_read = 0;
++  const uint32_t first = min_i + base, last = max_i + base;
++  const uint64_t stride = uint64_t(stride_words) * 4;
++  if (last < first || uint64_t(last) * stride + 16 > vb_size_bytes) return BoxStatus::kRejected;
++  if (uint64_t(vb_start_byte) + vb_size_bytes > kPhysicalBytes) return BoxStatus::kRejected;
++  const uint32_t count = last - first + 1;
++  if (count > 200000) return BoxStatus::kRejected;
++  if (budget < count) return BoxStatus::kBudget;
++  budget -= count;
++  vertices_read = count;
++  float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
++  bool w_ok = true;
++  const uint8_t* vb = mem->TranslatePhysical<const uint8_t*>(vb_start_byte);
++  for (uint32_t v = first; v <= last; ++v) {
++    uint32_t w[4];
++    std::memcpy(w, vb + uint64_t(v) * stride, 16);
++    for (int k = 0; k < 4; ++k) w[k] = xenos::GpuSwap(w[k], endian);
++    const float x = F(w[0]), y = F(w[1]), z = F(w[2]), wf = F(w[3]);
++    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || !std::isfinite(wf)) return BoxStatus::kRejected;
++    if (wf != 1.0f) w_ok = false;
++    lo[0] = std::min(lo[0], x);
++    lo[1] = std::min(lo[1], y);
++    lo[2] = std::min(lo[2], z);
++    hi[0] = std::max(hi[0], x);
++    hi[1] = std::max(hi[1], y);
++    hi[2] = std::max(hi[2], z);
++  }
++  std::memcpy(out.lo, lo, sizeof(lo));
++  std::memcpy(out.hi, hi, sizeof(hi));
++  return w_ok ? BoxStatus::kOk : BoxStatus::kWNotOne;
++}
++
++int BoxTest(const uint32_t* vs_float, const Box& m, const float* host) {
++  const float* c76 = reinterpret_cast<const float*>(vs_float + 4 * 76);
++  const float* c77 = reinterpret_cast<const float*>(vs_float + 4 * 77);
++  const float* c78 = reinterpret_cast<const float*>(vs_float + 4 * 78);
++  const float* cam[4];
++  for (int k = 0; k < 4; ++k) cam[k] = reinterpret_cast<const float*>(vs_float + 4 * (56 + k));
++  bool all_behind = true;
++  bool out[5] = {true, true, true, true, true};  // x < -w, x > w, y < -w, y > w, z > w
++  const float margin = 1.01f;
++  for (int c = 0; c < 8; ++c) {
++    const float p[4] = {(c & 1) ? m.hi[0] : m.lo[0], (c & 2) ? m.hi[1] : m.lo[1], (c & 4) ? m.hi[2] : m.lo[2], 1.0f};
++    const float wx = p[0] * c76[0] + p[1] * c76[1] + p[2] * c76[2] + p[3] * c76[3];
++    const float wy = p[0] * c77[0] + p[1] * c77[1] + p[2] * c77[2] + p[3] * c77[3];
++    const float wz = p[0] * c78[0] + p[1] * c78[1] + p[2] * c78[2] + p[3] * c78[3];
++    float q[4];
++    for (int k = 0; k < 4; ++k) q[k] = wx * cam[k][0] + wy * cam[k][1] + wz * cam[k][2] + cam[k][3];
++    if (host) {
++      q[0] = q[0] * host[0] + q[3] * host[2];
++      q[1] = q[1] * host[1] + q[3] * host[3];
++    }
++    if (!(q[3] <= 0.0f)) all_behind = false;
++    const bool pos = q[3] > 0.0f;
++    out[0] &= pos && q[0] < -q[3] * margin;
++    out[1] &= pos && q[0] > q[3] * margin;
++    out[2] &= pos && q[1] < -q[3] * margin;
++    out[3] &= pos && q[1] > q[3] * margin;
++    out[4] &= pos && q[2] > q[3] * margin;
++  }
++  if (all_behind) return 2;
++  if (out[0] || out[1] || out[2] || out[3]) return 1;
++  if (out[4]) return 3;
++  return 0;
++}
++
++}  // namespace rex::graphics::vulkan::draw_bounds
+diff --git a/src/graphics/vulkan/native/draw_bounds.h b/src/graphics/vulkan/native/draw_bounds.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..09d65551a1720defede3402cc91b9ebd30cd4ecb
+--- /dev/null
++++ b/src/graphics/vulkan/native/draw_bounds.h
+@@ -0,0 +1,46 @@
++// wwe2k14 patch (Session 93): the object-space bounds of a draw's mesh and the conservative off-screen test, shared by the phase 0 census
++// (phase0_census.cpp, log only) and the draw cut of our arena draws (cull_ours.cpp, gpu_d3d_cull_ours). Pure functions over guest memory and the typed
++// vertex float bank; no state of their own (the caller owns the caches and the scan budget). Moved out of the census unchanged: the census' numbers do not move.
++#pragma once
++
++#include <cstdint>
++
++#include <rex/graphics/xenos.h>
++
++namespace rex::memory {
++class Memory;
++}
++
++namespace rex::graphics::vulkan {
++
++struct OwnedRecordState;
++
++namespace draw_bounds {
++
++enum class ScanStatus { kOk, kUnsupported /* never retry */, kBudget /* retry next frame */, kEmpty /* no valid index: never retry */ };
++struct IndexScan {
++  uint32_t n = 0;  // the indices read (counted by the census)
++  uint32_t min_i = 0, max_i = 0;
++  bool resets = false;
++};
++// Reads the draw's DMA indices once (the draw's own words in `s`); `budget` is the caller's per-frame allowance of indices + vertices read (decremented).
++ScanStatus ScanIndices(rex::memory::Memory* mem, const OwnedRecordState& s, uint32_t& budget, IndexScan& out);
++
++struct Box {
++  float lo[3] = {}, hi[3] = {};
++};
++enum class BoxStatus { kOk, kWNotOne /* a vertex with w != 1: not cullable */, kRejected /* out of range, too many vertices, non-finite: never retry */, kBudget /* retry */ };
++// The box of the position dwords 0-3 (big-endian floats after `endian`) of vertices [min_i + base, max_i + base] of a stream with `stride_words` dwords a vertex that starts
++// at guest physical `vb_start_byte` and is `vb_size_bytes` long. `vertices_read` = the vertices read (0 when none).
++BoxStatus BuildBox(rex::memory::Memory* mem, uint32_t min_i, uint32_t max_i, uint32_t vb_start_byte, uint32_t vb_size_bytes, uint32_t stride_words, uint32_t base,
++                   xenos::Endian endian, uint32_t& budget, Box& out, uint32_t& vertices_read);
++
++// 0 = visible / unknown, 1 = outside an x / y plane, 2 = behind the eye, 3 = only z > w (not counted as culled). `vs_float` = the typed vertex float bank (vec4 constants):
++// the 8 corners go through c76-c78 (model) and c56-c59 (view-projection); a 1% margin.
++// `host` (optional) = the draw's host viewport transform {scale x, scale y, offset x, offset y} (draw_util::ViewportInfo ndc_scale / ndc_offset): the planes are then tested
++// on x' = scale x * x + offset x * w, y' likewise - the clip space the host really clips in (a sign flip or a tiling strip's scale changes nothing about the guest's x / y planes
++// being symmetric, but a scale != 1 or an offset moves them).
++int BoxTest(const uint32_t* vs_float, const Box& box, const float* host = nullptr);
++
++}  // namespace draw_bounds
++}  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 5df8d57ee1757e115ede090b0667a74472437792..323a73b4d3e6a4ee20f50271ff7c42ba98fa4726 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -33,6 +33,7 @@
+ #include <rex/ui/vulkan/util.h>
+ #include <rex/ui/renderdoc_api.h>   // Session 69 (gpu_native_truth_debug_renderdoc)
+ #include <rex/ui/vulkan/instance.h>
++#include "cull_ours.h"  // Session 93
+ 
+ REXCVAR_DECLARE(int32_t, gpu_native_truth_debug_draws);
+ REXCVAR_DECLARE(int32_t, gpu_native);
+@@ -5472,6 +5473,7 @@ void NativeRenderer::TruthFallback(uint32_t reason, const Draw* draw) {
+   post_current_ = -1;
+ }
+ void NativeRenderer::EndTruthPass() {
++  cull_ours::NoteBreak();  // Session 93 (gpu_d3d_cull_ours): the pass the cull guard follows ends here
+   OwnedEndPass();  // Session 80 (owned passes: ours is ended wherever a truth pass would be)
+   if (!truth_pass_open_) {
+     TruthRestoreAliasOwners();  // Session 79 (made readable for a pass that did not open)
+@@ -5650,6 +5652,7 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     }
+   };
+   truth_last_recorded_ = false;  // Session 47 (set once the draw command is recorded)
++  own_crowd_sig_valid_ = false;  // Session 93 (the crowd merge: set below for a crowd run's first member, once its state is recorded)
+   // Session 80 (gpu_native_truth_serve_copies): a draw sampling an image in place of a copy needs it readable - an
+   // open pass that does not read it already ends (the barrier is recorded before the next pass begins: a pass this
+   // draw opens makes every one readable that is not yet - review: also when the pass changes later in this draw). What
+@@ -6535,6 +6538,10 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+     }
+     truth_bound_stencil_valid_ = dedupe_state && truth_bound_valid_;
+   }
++  if (draw.own_skip_call) {  // Session 93 (gpu_native_own_crowd_merge): the dynamic state this first member recorded
++    OwnCrowdNoteSig(viewport, scissor, draw.raster.depth_bias_constant, draw.raster.depth_bias_slope, draw.blend_constants,
++                    draw.raster.stencil && uses_depth, draw.stencil_refs, draw.stencil_read_masks, draw.stencil_write_masks);
++  }
+   const uint32_t vertex_count = debug_gpu_work == 3 ? std::min(draw.vertex_count, 3u) : draw.vertex_count;
+   const uint32_t instance_count = debug_gpu_work == 3 ? std::min(draw.instance_count, 1u) : draw.instance_count;
+   // Session 61: a character draw's positions captured while it is drawn (DLSS / DLAA object motion vectors).
+diff --git a/src/graphics/vulkan/native/own_crowd.cpp b/src/graphics/vulkan/native/own_crowd.cpp
+index e5bf6246abc6d642a7afc6f338cd2b7fbcacfbab..2c8a23bc483f0912346ee5926efb6db673c5b2ee 100644
+--- a/src/graphics/vulkan/native/own_crowd.cpp
++++ b/src/graphics/vulkan/native/own_crowd.cpp
+@@ -216,6 +216,8 @@ bool NativeRenderer::RecordOwnCrowd(const OwnCrowdInput& in) {
+   // compatible with the owned ones), our image and depth behind it.
+   const bool in_owned = owned_crowd_first_ && owned_pending_.valid && owned_pending_.open;
+   owned_crowd_first_ = false;
++  own_crowd_call_sig_valid_ = own_crowd_sig_valid_;  // (Session 93: the state signature of this run's first member, used once)
++  own_crowd_sig_valid_ = false;
+   if (!truth_ || !(truth_pass_open_ || in_owned) || !(truth_last_recorded_ || in_owned) || !last_truth_valid_ ||
+       truth_last_vs_hash_ != in.vertex_shader_hash || !truth_last_index_.indexed || !in.member_count) {
+     ++own_crowd_stats_.refused_state;
+@@ -499,36 +501,75 @@ bool NativeRenderer::RecordOwnCrowdLean(const OwnCrowdInput& in, bool in_owned)
+   }
+   const bool adjacent = equal && cb.stream_offset() == open.stream_end;
+   if (adjacent) ++own_crowd_lean_stats_.eq_prev_adjacent;
+-  if (merge_on && adjacent && slice->used == open.members_end_rel &&
+-      VkDeviceSize(open.member_count + in.member_count) * 48 <= kLeanMembersRange &&
+-      slice->used + members_size <= own_crowd_slice_size_) {
+-    bool owned_ok = true;
+-    if (in_owned) {
++  // The merge (Session 93): this run's first member recorded its own state (pipeline, sets, viewport ...) after the call recorded
++  // last, and that state is turned into no-ops when it equals what the call drew with (the signatures) and the stream holds nothing
++  // but such state since the call (MergeInstancesIntoLastIndexedDraw). The members then join the call's instances.
++  if (merge_on && equal) {
++    if (!(open.sig_valid && own_crowd_call_sig_valid_ && open.sig.Equals(own_crowd_sig_))) {
++      ++own_crowd_lean_stats_.merge_no_state;
++    } else if (slice->used != open.members_end_rel ||
++               VkDeviceSize(open.member_count + in.member_count) * 48 > kLeanMembersRange ||
++               slice->used + members_size > own_crowd_slice_size_) {
++      ++own_crowd_lean_stats_.merge_no_fit;
++    } else {
++      // (An owned pass's call list: the open call is the list's last, and at most its first member's state-only draw was kept after
++      // it. A committed pass keeps no list - nothing replays it.)
++      bool owned_ok = true, list_refused = false;
+       OwnedPass& p = owned_pending_;
+-      owned_ok = p.valid && p.open && !p.committed && !p.crowd_calls.empty() && p.crowd_calls.back().set == open.set &&
+-                 p.crowd_calls.back().after_draws == p.draws.size();
+-    }
+-    if (owned_ok && cb.AddInstancesToLastIndexedDraw(in.member_count, open.index_count, open.stream_end)) {
+-      uint8_t* ring = static_cast<uint8_t*>(own_crowd_ring_map_);
+-      const VkDeviceSize at = open.members_at + VkDeviceSize(open.member_count) * 48;
+-      std::memcpy(ring + at, in.members, size_t(members_size));
+-      slice->used += members_size;
+-      slice->dirty_lo = std::min(slice->dirty_lo, at);
+-      slice->dirty_hi = std::max(slice->dirty_hi, at + members_size);
+-      open.member_count += in.member_count;
+-      open.members_end_rel = slice->used;
+-      if (in_owned) owned_pending_.crowd_calls.back().member_count = open.member_count;
+-      ++own_crowd_lean_stats_.merged_runs;
+-      own_crowd_lean_stats_.merged_members += in.member_count;
+-      ++own_crowd_stats_.runs;
+-      own_crowd_stats_.members += in.member_count;
+-      ++own_crowd_stats_.mesh_shared;
+-      own_crowd_stats_.vertices += in.mesh_vertices;
+-      if (in.card_mesh) {
+-        ++own_crowd_stats_.card_runs;
+-        own_crowd_stats_.card_members += in.member_count;
++      const bool list = in_owned && !p.committed;
++      // (The call list's last entry, when it is the open call.)
++      const bool list_match = in_owned && p.valid && p.open && !p.crowd_calls.empty() &&
++                              p.crowd_calls.back().set == open.set &&
++                              p.crowd_calls.back().dyn_offsets[2] == uint32_t(open.members_at) &&
++                              p.crowd_calls.back().member_count == open.member_count;
++      if (in_owned) {
++        owned_ok = p.valid && p.open;
++        if (owned_ok && list) {
++          owned_ok = list_match && p.draws.size() >= p.crowd_calls.back().after_draws;
++          // (Every draw kept after the call must be a crowd first member: state only, replayed with no call after it.)
++          for (size_t j = owned_ok ? p.crowd_calls.back().after_draws : 0; owned_ok && j < p.draws.size(); ++j) {
++            if (!p.draws[j].own_skip_call) owned_ok = false;
++          }
++          list_refused = !owned_ok;
++        }
++      }
++      bool refused_stream = false;
++      if (!owned_ok) {
++        if (list_refused) ++own_crowd_lean_stats_.merge_no_list;
++        else ++own_crowd_lean_stats_.merge_no_fit;
++      } else if (cb.MergeInstancesIntoLastIndexedDraw(in.member_count, open.index_count, open.stream_end, refused_stream)) {
++        uint8_t* ring = static_cast<uint8_t*>(own_crowd_ring_map_);
++        const VkDeviceSize at = open.members_at + VkDeviceSize(open.member_count) * 48;
++        std::memcpy(ring + at, in.members, size_t(members_size));
++        slice->used += members_size;
++        slice->dirty_lo = std::min(slice->dirty_lo, at);
++        slice->dirty_hi = std::max(slice->dirty_hi, at + members_size);
++        open.member_count += in.member_count;
++        open.members_end_rel = slice->used;
++        if (list || (in_owned && list_match)) p.crowd_calls.back().member_count = open.member_count;
++        // Everything the next draw relies on is another's, as after OwnCrowdRecordCall (the first member's binds are no-ops now,
++        // the GPU holds our call's).
++        truth_bound_pipeline_ = VK_NULL_HANDLE;
++        truth_bound_index_buffer_ = VK_NULL_HANDLE;
++        truth_bound_valid_ = false;
++        truth_foreign_bind_ = true;
++        truth_last_recorded_ = false;
++        ++own_crowd_lean_stats_.merged_runs;
++        own_crowd_lean_stats_.merged_members += in.member_count;
++        ++own_crowd_stats_.runs;
++        own_crowd_stats_.members += in.member_count;
++        ++own_crowd_stats_.mesh_shared;
++        own_crowd_stats_.vertices += in.mesh_vertices;
++        if (in.card_mesh) {
++          ++own_crowd_stats_.card_runs;
++          own_crowd_stats_.card_members += in.member_count;
++        }
++        return true;
++      } else if (refused_stream) {
++        ++own_crowd_lean_stats_.merge_no_stream;
++      } else {
++        ++own_crowd_lean_stats_.merge_no_fit;
+       }
+-      return true;
+     }
+   }
+ 
+@@ -673,6 +714,8 @@ bool NativeRenderer::RecordOwnCrowdLean(const OwnCrowdInput& in, bool in_owned)
+     }
+   }
+   open.valid = true;
++  open.sig_valid = own_crowd_call_sig_valid_;
++  open.sig = own_crowd_sig_;
+   open.in_owned = in_owned;
+   open.submission = submission;
+   open.mesh_hash = mesh_hash;
+@@ -743,12 +786,29 @@ void NativeRenderer::OwnCrowdOnFrameEnd(bool from_hook) {
+     if (own_crowd_lean_ && (own_crowd_lean_stats_.calls || own_crowd_lean_stats_.merged_runs || own_crowd_lean_stats_.size_declines)) {
+       REXGPU_INFO("[crowd][lean] {} frames: calls {}, merged runs {} ({} members; the merge is {}), runs equal to the previous call {} "
+                   "(of them adjacent in the command stream {}), descriptor sets made {} / reused {}, ring flushes {} ({} KB), program "
+-                  "lookups without the scan {}, runs declined for size (mesh over 512 KB / members over 1365) {}",
++                  "lookups without the scan {}, runs declined for size (mesh over 512 KB / members over 1365) {}, "
++                  "equal runs not merged: first member's state differs {}, other commands in the stream {}, ring {}, owned call list {}",
+                   own_crowd_stats_.frames, own_crowd_lean_stats_.calls, own_crowd_lean_stats_.merged_runs,
+                   own_crowd_lean_stats_.merged_members, REXCVAR_GET(gpu_native_own_crowd_merge) ? "on" : "off",
+                   own_crowd_lean_stats_.eq_prev, own_crowd_lean_stats_.eq_prev_adjacent, own_crowd_lean_stats_.sets_made,
+                   own_crowd_lean_stats_.sets_reused, own_crowd_lean_stats_.flushes, own_crowd_lean_stats_.flush_kb,
+-                  own_crowd_lean_stats_.program_hits, own_crowd_lean_stats_.size_declines);
++                  own_crowd_lean_stats_.program_hits, own_crowd_lean_stats_.size_declines, own_crowd_lean_stats_.merge_no_state,
++                  own_crowd_lean_stats_.merge_no_stream, own_crowd_lean_stats_.merge_no_fit, own_crowd_lean_stats_.merge_no_list);
++    }
++    if (own_crowd_lean_ && REXCVAR_GET(gpu_native_own_crowd_merge)) {
++      // (log only) the command that refused each merge, top 6 kinds
++      DeferredCommandBuffer& rcb = command_processor_.deferred_command_buffer();
++      std::vector<std::pair<uint64_t, size_t>> kinds;
++      for (size_t k = 0; k < DeferredCommandBuffer::kMergeRefusalKinds; ++k) {
++        if (rcb.merge_refused_by_[k]) kinds.push_back({rcb.merge_refused_by_[k], k});
++        rcb.merge_refused_by_[k] = 0;
++      }
++      std::sort(kinds.begin(), kinds.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
++      std::string text;
++      for (size_t i = 0; i < kinds.size() && i < 6; ++i) {
++        text += fmt::format("{}{} {}", i ? ", " : "", DeferredCommandBuffer::CommandName(kinds[i].second), kinds[i].first);
++      }
++      if (!text.empty()) REXGPU_INFO("[crowd][lean] merge refused by: {}", text);
+     }
+     own_crowd_stats_ = {};
+     own_crowd_lean_stats_ = {};
+diff --git a/src/graphics/vulkan/native/owned_front_own.cpp b/src/graphics/vulkan/native/owned_front_own.cpp
+index 580a32c228498531ba27e25d674d88f92e6660bd..49ab4a639313b0e5a778dcfa0fe170f08a51e511 100644
+--- a/src/graphics/vulkan/native/owned_front_own.cpp
++++ b/src/graphics/vulkan/native/owned_front_own.cpp
+@@ -17,6 +17,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
++#include <cmath>
+ #include <cstdint>
+ #include <cstring>
+ #include <utility>
+@@ -29,6 +30,9 @@
+ #include "../../crowd_member_hook.h"  // (Session 92, M4f-B)
+ 
+ #include "d3d_direct_access.h"
++#include "phase0_census.h"  // (Session 93, gpu_d3d_phase0_census: log-only census)
++#include "cull_ours.h"  // (Session 93, gpu_d3d_cull_ours: our off-screen draws are not drawn)
++#include <rex/graphics/util/draw.h>
+ #include <rex/graphics/free_counters.h>
+ #include <rex/graphics/d3d_copy.h>
+ #include <rex/graphics/d3d_inline_draw.h>
+@@ -37,6 +41,11 @@ REXCVAR_DECLARE(bool, gpu_d3d_own_crowd);
+ REXCVAR_DECLARE(uint32_t, gpu_d3d_owned_front);
+ REXCVAR_DECLARE(bool, gpu_d3d_typed_memo_reuse);
+ REXCVAR_DECLARE(bool, gpu_d3d_typed_repeat);
++REXCVAR_DECLARE(bool, gpu_d3d_phase0_census);
++REXCVAR_DECLARE(bool, gpu_d3d_cull_ours);  // (Session 93: defined in cull_ours.cpp)
++REXCVAR_DECLARE(double, gpu_wide_factor);
++REXCVAR_DECLARE(double, gpu_tall_factor);
++REXCVAR_DECLARE(bool, gpu_wide_all);  // (Session 93: defined in phase0_census.cpp)
+ REXCVAR_DECLARE(bool, gpu_d3d_typed_timers);
+ REXCVAR_DECLARE(bool, gpu_native_lean_draws);
+ REXCVAR_DECLARE(bool, gpu_native_lean_draws_verify);
+@@ -75,6 +84,7 @@ bool D3dDirectAccess::TypedDraw(VCP& cp, const OwnedRecordState* state, xenos::P
+   if (typed_repeat_on) OwnedFrontRepeatBegin();  // (the previous recorded base moves to `previous`; this draw records its own when it succeeds)
+   const bool timers = REXCVAR_GET(gpu_d3d_typed_timers);
+   const auto fallback = [&](const char* why) {
++    cull_ours::NoteBreak();  // (Session 93: a draw the old path makes, or none: the pass the cull guard follows is not known any more)
+     OwnedFrontTypedFallback(why);
+     return false;
+   };
+@@ -82,12 +92,25 @@ bool D3dDirectAccess::TypedDraw(VCP& cp, const OwnedRecordState* state, xenos::P
+   const OwnedRecordState* s = state ? state : OwnedRecordDrawNow();
+   if (!s) return fallback("no snapshot (past the 512 cap, desync, or a draw the decoder did not see)");
+   if (!s->banks_valid) return fallback("snapshot without constant banks");
++  if (REXCVAR_GET(gpu_d3d_phase0_census)) [[unlikely]] {  // (Session 93: log-only census; reads the typed state, writes nothing)
++    Phase0Draw(cp.memory_, *s, static_cast<const VulkanShader*>(cp.active_vertex_shader()), crowd_member);
++  }
+   if (free_counters::g_cut.active) {
+     if (const char* skip = CutPreDrawSkip(cp, *s)) {  // (a setting skips the draw: counted on its own, not a drop)
+       free_counters::NoteCutSkip(skip);
+       succeeded = true;
+       return true;
+     }
++    if (REXCVAR_GET(gpu_d3d_cull_ours)) [[unlikely]] {  // (Session 93, idea 13: our draw the camera cannot see is not drawn; every other draw is noted as the pass the next one continues)
++      if (CutCullOurs(cp, *s, crowd_member)) {
++        free_counters::NoteCutSkip("cull ours: off-screen draw");
++        cp.repeat_prev_.valid = false;  // (as the other skips: the repeat base and the lean base end here)
++        cp.lean_.valid = false;
++        succeeded = true;
++        return true;
++      }
++      cull_ours::NoteDrawn(*s);
++    }
+   }
+   if (!REXCVAR_GET(gpu_native_lean_draws) || REXCVAR_GET(gpu_native_lean_draws_verify) || REXCVAR_GET(gpu_native_lean_dirty_census) ||
+       REXCVAR_GET(gpu_debug_draw_census_count) > 0) {
+@@ -894,6 +917,7 @@ bool D3dDirectAccess::CutDraw(CommandProcessor& base, const OwnedRecordState& s,
+ // vertex bytes (InlineStage, the one body), stores slot 31 words 4-5 (the staged address and size) with the fetch notifications, and draws through the typed draw.
+ bool D3dDirectAccess::CutInline(CommandProcessor& base, const OwnedRecordState&, const uint32_t* w, uint32_t count) {
+   VCP& cp = static_cast<VCP&>(base);
++  cull_ours::NoteBreak();  // (Session 93: an inline draw is not a draw the cull guard follows)
+   OwnedRecordState& s = OwnedRecordStateLive();
+   const auto drop = [&](const char* why) {
+     OwnedFrontTypedNote(kTypedItems);
+@@ -956,9 +980,11 @@ namespace {
+ // The clear / resolve records: the copy executor from the record's host-order block (clears: B's owned clear + the pending table, never ClearStock once the native
+ // renderer exists - the executor drops a boot clear before it gets here; resolves: the M3a owned resolve).
+ bool CutClear(CommandProcessor& cp, const OwnedRecordState&, const uint32_t* record, uint32_t) {
++  cull_ours::NoteBreak();
+   return OwnedExecCopy(cp, kD3dCopyClear, record + kD3dCopyHeaderDwords, record[3]);
+ }
+ bool CutResolve(CommandProcessor& cp, const OwnedRecordState&, const uint32_t* record, uint32_t) {
++  cull_ours::NoteBreak();
+   return OwnedExecCopy(cp, kD3dCopyResolve, record + kD3dCopyHeaderDwords, record[3]);
+ }
+ bool g_cut_wired = [] {
+@@ -983,6 +1009,69 @@ REXCVAR_DECLARE(int32_t, readback_resolve_override);
+ 
+ namespace rex::graphics::vulkan {
+ 
++// Session 93 (gpu_d3d_cull_ours): true = this draw of ours is proven outside the view (cull_ours.cpp lists every guard). The guards only the command processor can answer are here.
++bool D3dDirectAccess::CutCullOurs(VCP& cp, const OwnedRecordState& s, bool crowd_member) {
++  cull_ours::Request req;
++  req.mem = cp.memory_;
++  req.s = &s;
++  req.crowd_member = crowd_member;
++  req.occlusion_query = cp.active_occlusion_query_.valid;
++  const uint64_t vs_hash = s.shader[0].hash;
++  if (cull_ours::CullableShader(vs_hash)) {
++    req.truth_pass_open = cp.native_ && cp.native_->TruthPassOpen();
++    // both shaders the draw's own, analysed, neither writes memory (the memexport test needs the analysis, as CutPreDrawSkip)
++    Shader* const vs = cp.active_vertex_shader();
++    Shader* const ps = cp.active_pixel_shader();
++    bool known = vs && vs->ucode_data_hash() == vs_hash;
++    if (known && !vs->is_ucode_analyzed()) cp.pipeline_cache_->AnalyzeShaderUcode(*static_cast<VulkanShader*>(vs));
++    // the one binding the box test reads: a single vertex binding, in the registered fetch constant, 8 dwords a vertex
++    known = known && vs->is_ucode_analyzed() && vs->vertex_bindings().size() == 1 && uint32_t(vs->vertex_bindings()[0].fetch_constant) == cull_ours::CullableFetch(vs_hash) &&
++            vs->vertex_bindings()[0].stride_words == 8;
++    if (known && !vs->is_ucode_analyzed()) cp.pipeline_cache_->AnalyzeShaderUcode(*static_cast<VulkanShader*>(vs));
++    known = known && vs->is_ucode_analyzed() && vs->memexport_eM_written() == 0;
++    if (known && s.shader[1].dwords) {
++      known = ps && ps->ucode_data_hash() == s.shader[1].hash;
++      if (known && !ps->is_ucode_analyzed()) cp.pipeline_cache_->AnalyzeShaderUcode(*static_cast<VulkanShader*>(ps));
++      known = known && ps->is_ucode_analyzed() && ps->memexport_eM_written() == 0;
++    }
++    req.shaders_known = known;
++    struct Ctx {
++      VCP* cp;
++      const OwnedRecordState* s;
++    } ctx{&cp, &s};
++    // The host clip space of the draw: the viewport the draw would get (OwnedFrontPrepare's call); its ndc scale / offset on x / y go into the box test. No wide / tall factor.
++    req.viewport = [](void* c, float* host) -> bool {
++      const Ctx& x = *static_cast<const Ctx*>(c);
++      VCP& p = *x.cp;
++      const OwnedRecordState& st = *x.s;
++      if (REXCVAR_GET(gpu_wide_factor) > 1.001 || REXCVAR_GET(gpu_tall_factor) > 1.001 || REXCVAR_GET(gpu_wide_all)) return false;
++      draw_util::HostViewportRegs vr;
++      vr.clip_cntl = st.clip_cntl;
++      vr.vte_cntl = st.vte_cntl;
++      vr.sc_mode_cntl = st.sc_mode_cntl;
++      vr.su_vtx_cntl = st.su_vtx_cntl;
++      vr.window_offset = st.window_offset;
++      vr.depth_info = st.depth_info;
++      std::memcpy(vr.vport, st.vport, sizeof(vr.vport));
++      const bool host_rt = p.render_target_cache_->GetPath() == RenderTargetCache::Path::kHostRenderTargets;
++      const ui::vulkan::VulkanDevice::Properties& props = p.GetVulkanDevice()->properties();
++      draw_util::ViewportInfo vi;
++      draw_util::GetHostViewportInfo(vr, p.texture_cache_->draw_resolution_scale_x(), p.texture_cache_->draw_resolution_scale_y(), false, props.maxViewportDimensions[0],
++                                     props.maxViewportDimensions[1], true, draw_util::GetNormalizedDepthControl(st.modecontrol, st.depth_control),
++                                     host_rt && p.render_target_cache_->depth_float24_convert_in_pixel_shader(), host_rt, false, vi, p.tiling_viewport_fix_);
++      if (!vi.xy_extent[0] || !vi.xy_extent[1]) return false;
++      host[0] = vi.ndc_scale[0];
++      host[1] = vi.ndc_scale[1];
++      host[2] = vi.ndc_offset[0];
++      host[3] = vi.ndc_offset[1];
++      return std::isfinite(host[0]) && std::isfinite(host[1]) && std::isfinite(host[2]) && std::isfinite(host[3]);
++    };
++    req.viewport_ctx = &ctx;
++    return cull_ours::Evaluate(req);
++  }
++  return cull_ours::Evaluate(req);
++}
++
+ const char* D3dDirectAccess::CutPreDrawSkip(VCP& cp, const OwnedRecordState& s) {
+   // IssueDraw: after the post chain's last pass the rest of the frame is the HUD (hide HUD)
+   if (cp.hide_hud_after_pass_ && REXCVAR_GET(gpu_hide_hud)) {
+diff --git a/src/graphics/vulkan/native/owned_steps.cpp b/src/graphics/vulkan/native/owned_steps.cpp
+index dda43f751b42cc658b31ddabfd984d9a787a371b..7196f740c696bc5d8a97a29c7a9606ba47bb4a93 100644
+--- a/src/graphics/vulkan/native/owned_steps.cpp
++++ b/src/graphics/vulkan/native/owned_steps.cpp
+@@ -1427,6 +1427,7 @@ bool NativeRenderer::OwnedRecord(const Draw& draw, const int32_t rect[4]) {
+   // (Session 82, CPU: only the state that differs from what this render pass of ours has bound - the truth path's
+   // dedupe, for the owned pass. gpu_native_owned_frame_dedupe off: every command, as before.)
+   OwnedBound& ob = owned_bound_;
++  own_crowd_sig_valid_ = false;  // Session 93 (the crowd merge: set below for a crowd run's first member)
+   const bool dedupe = REXCVAR_GET(gpu_native_owned_frame_dedupe) && ob.valid;
+   uint32_t cmds = 0, skipped = 0;
+   const auto emit = [&](bool needed) {
+@@ -1519,6 +1520,8 @@ bool NativeRenderer::OwnedRecord(const Draw& draw, const int32_t rect[4]) {
+     truth_last_index_.offset = draw.index_offset;
+     truth_last_index_.type = draw.index_type;
+     truth_last_index_.count = draw.vertex_count;
++    OwnCrowdNoteSig(viewport, scissor, draw.raster.depth_bias_constant, draw.raster.depth_bias_slope, draw.blend_constants,
++                    draw.raster.stencil, draw.stencil_refs, draw.stencil_read_masks, draw.stencil_write_masks);
+   } else if (draw.indexed) {
+     cb.CmdVkBindIndexBuffer(draw.index_buffer, draw.index_offset, draw.index_type);
+     cb.CmdVkDrawIndexed(draw.vertex_count, draw.instance_count, 0, 0, 0);
+diff --git a/src/graphics/vulkan/native/phase0_census.cpp b/src/graphics/vulkan/native/phase0_census.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..7f558f929867be49aaab2f880b72eaadee380d43
+--- /dev/null
++++ b/src/graphics/vulkan/native/phase0_census.cpp
+@@ -0,0 +1,865 @@
++// wwe2k14 patch (Session 93): the phase 0 census of the memory mirror (ideas 11 + 13: docs\native\d3d\S93_MIRROR_DESIGN.md section 4.1) and of the
++// decoupled rendering stretch (docs\native\d3d\S93_DECOUPLE_DESIGN.md section 6, phase 0). LOG ONLY: gpu_d3d_phase0_census (default false); off = no call
++// does anything. Everything here reads the typed state (OwnedRecordState: the draw's own words, the float banks, the fetch constants) and guest memory
++// (index and vertex bytes, sampled); nothing is written to either, nothing is drawn differently.
++//
++// Where it runs: Phase0Draw is called by D3dDirectAccess::TypedDraw (owned_front_own.cpp) for every draw item the typed draw is given (the cut's DMA draws, inline
++// draws, crowd members); Phase0FrameEnd by the base class' SceneCrowdFrameEnd hook (vulkan/command_processor.cpp), which runs every guest frame also under the cut.
++//
++// What is computed and how (the full list is in the window lines below; every line starts with "[d3d][phase0]"):
++//  - per pass (a pass = a run of draws with the same colour0 / depth / surface RB words; its key and a mean ordinal are printed) the top vertex shaders by draws;
++//    "ours" = shader_swap::VertexTakes(hash) (needs gpu_native_vs_swap on), else "translated".
++//  - mirror: per used vertex fetch constant (the shader's vertex_bindings, the typed fetch words) the range [address, address + size) keyed by its END (stream
++//    offsets move the start); static = seen in 3+ consecutive frames with an unchanged sample hash (3 x 512 bytes at the range's end - the cheap stand-in for an
++//    invalidation callback), transient = otherwise; bytes = union of the ranges per frame and per window. The index scan reads the guest indices once per
++//    distinct mesh (dma base, count, base vertex, vertex buffer, sample) for min / max index (the exact vertex range), the index identity checks of the design
++//    (3.4 point 5), and whether the game's own VGT min / max registers are tight enough to use instead (reported).
++//  - off-screen (our arena family = one binding of stride 8 words): the mesh's object-space box from the position dwords 0-3 of vertices [min, max] + base, 8 corners
++//    through c76-c78 and c56-c59 (clip.k = dot((dot(p,c76), dot(p,c77), dot(p,c78), 1), c5k)), culled when all 8 corners are outside the same x / y plane (or all
++//    behind the eye) with a 1% margin; z > w is reported on its own, never counted.
++//  - merge: consecutive draws with the same shaders and no typed state change (all decoder epochs equal) whose index ranges are back to back (same base vertex,
++//    format, triangle list); the run lengths, and the draws that differ only in the vertex float constants (and only in c76-c78).
++//  - decouple: draws matched with the previous guest frame's by (vs, ps, vertex fetch addresses, index dma base + count, surface key, ordinal among equal keys);
++//    per matched draw which of the 256 vertex constant rows changed (a 32-bit hash per row), per vertex shader and in total; the camera block (c56-c59) coverage;
++//    draws whose vertex data sample changed between matched frames (CPU-written: skinned, particles); the match + lerp cost.
++// Not computed: camera cuts per minute (the game's camera hand-off is not visible from here), draws overlapping the native-skin output (the sample-hash change is the
++// stand-in, a lower bound), the pass ordinal of the owned frame (the render-target key is the stand-in), the registry trace of the game's buffer creates (game side).
++
++#include "phase0_census.h"
++
++#include <algorithm>
++#include <array>
++#include <chrono>
++#include <cmath>
++#include <cstdint>
++#include <cstring>
++#include <string>
++#include <unordered_map>
++#include <unordered_set>
++#include <vector>
++
++#include <rex/cvar.h>
++#include <rex/graphics/pipeline/shader/shader.h>
++#include <rex/graphics/registers.h>
++#include <rex/graphics/vulkan/shader.h>
++#include <rex/graphics/xenos.h>
++#include <rex/hash.h>
++#include <rex/logging.h>
++#include <rex/system/xmemory.h>
++
++#include "draw_bounds.h"
++#include "owned_record.h"
++#include "shader_swap.h"
++
++REXCVAR_DEFINE_BOOL(gpu_d3d_phase0_census, false, "GPU/Native",
++                    "Session 93 (LOG ONLY, docs\\native\\d3d\\S93_MIRROR_DESIGN.md + S93_DECOUPLE_DESIGN.md phase 0): census of the typed draws for the memory mirror (vertex / index "
++                    "buffer sizes, static vs transient, off-screen draws, exact merge candidates) and for decoupled rendering (draw match rate between guest frames, which "
++                    "vertex constants change, camera block coverage, CPU-written vertex data, blend cost). One set of [d3d][phase0] lines per 600 guest frames. Off = nothing runs.");
++
++namespace rex::graphics::vulkan {
++
++namespace {
++
++using Clock = std::chrono::steady_clock;
++inline uint64_t NowNs() { return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count()); }
++
++constexpr uint32_t kRows = 256;
++constexpr uint32_t kWindowFrames = 600;
++constexpr uint32_t kCamRow = 56;    // c56..c59: the view-projection rows
++constexpr uint32_t kModelRow = 76;  // c76..c78: the model matrix rows
++constexpr uint32_t kScanBudget = 400000;  // indices + vertices read by the scans, per guest frame
++
++inline uint64_t Mix(uint64_t a, uint64_t b) {
++  a ^= b + 0x9E3779B97F4A7C15ull + (a << 6) + (a >> 2);
++  return a;
++}
++inline uint32_t RowHash(const uint32_t* w) {
++  uint32_t h = w[0] * 0x9E3779B1u;
++  h = (h ^ (h >> 15)) + w[1] * 0x85EBCA77u;
++  h = (h ^ (h >> 13)) + w[2] * 0xC2B2AE3Du;
++  h = (h ^ (h >> 16)) + w[3] * 0x27D4EB2Fu;
++  return h ^ (h >> 15);
++}
++inline float F(uint32_t bits) {
++  float f;
++  std::memcpy(&f, &bits, sizeof(f));
++  return f;
++}
++inline double Pct(uint64_t a, uint64_t b) { return b ? 100.0 * double(a) / double(b) : 0.0; }
++
++struct Rec {  // one draw of a guest frame (the previous frame's list is what the next frame matches against)
++  uint64_t key = 0;
++  uint32_t ord = 0;
++  uint64_t vs = 0, ps = 0;
++  uint64_t cam_hash = 0;
++  uint64_t vb_sample = 0;  // 0 = none
++  uint32_t pool_off = 0;   // the 256 row hashes of the draw's vertex constants, in the frame's pool
++  int32_t matched = -1;    // the index of the match in the previous frame's list
++  bool ours = false, inl = false, cam_zero = true;
++  float mat[28] = {};      // c56..c59 (16) then c76..c78 (12)
++};
++
++struct VsStat {
++  uint64_t draws = 0, matched = 0, cam_changed = 0, model_changed = 0, vb_checked = 0, vb_changed = 0, boxable = 0, offscreen = 0, changed_rows = 0;
++  uint32_t bindings = 0;
++  bool ours = false;
++  std::array<uint32_t, kRows> row_changed{};
++};
++
++struct PassStat {
++  uint64_t draws = 0, entries = 0, ord_sum = 0, matched = 0, boxable = 0, offscreen = 0;
++  uint32_t color = 0, depth = 0, surface = 0;
++  std::unordered_map<uint64_t, uint32_t> vs_draws;
++};
++
++struct VbEntry {  // a vertex buffer range as the fetch constants name it, keyed by its end
++  uint32_t start = 0, end = 0;
++  uint64_t frame = UINT64_MAX;  // the last frame it was touched
++  uint64_t sample = 0;
++  uint32_t streak = 0;  // consecutive frames touched with an unchanged sample
++  uint32_t changes = 0;
++  uint64_t window = UINT64_MAX;
++  bool ours = false;
++};
++
++struct Mesh {  // one distinct (index range, base vertex, vertex buffer) - scanned once
++  uint64_t window = UINT64_MAX;
++  uint32_t min_i = 0, max_i = 0;
++  bool ok = false, resets = false;
++  uint32_t used_bytes = 0;
++  bool box_done = false, box_ok = false;
++  draw_bounds::Box box;
++};
++
++struct Last {  // the previous draw, for the merge census
++  bool valid = false;
++  uint64_t vs = 0, ps = 0;
++  uint64_t e_render = 0, e_vs = 0, e_ps = 0, e_bl = 0, e_fetch = 0;
++  uint32_t dma_end = 0, base = 0, fmt = 0, swap = 0, prim = 0, pool_off = 0, run = 0;
++  bool dma = false;
++};
++
++struct Window {
++  uint64_t first_frame = 0;
++  uint64_t frames_with_draws = 0;
++  uint64_t draws = 0, dma_draws = 0, inline_draws = 0, crowd_members = 0, ours_draws = 0, no_vs = 0;
++  uint64_t frame_draw_max = 0;
++  uint64_t pass_entries = 0;
++  uint64_t fetches = 0, fetch_not_vertex = 0;
++  // index scans / identity
++  uint64_t scans = 0, scan_indices = 0, scan_skipped_budget = 0, scan_unsupported = 0, id_checked = 0, id_fail_min = 0, id_fail_max = 0, id_fail_mask = 0, id_fail_any = 0;
++  uint64_t tight_regs = 0, tight_checked = 0;
++  uint64_t used_bytes_meshes = 0;
++  // mirror
++  uint64_t frame_union_sum = 0, frame_union_max = 0;
++  // off-screen
++  uint64_t ours_not_boxable_shape = 0, boxable = 0, no_bounds = 0, w_not_one = 0, tested = 0, off_xy = 0, off_behind = 0, off_z_only = 0, box_scan_vertices = 0;
++  // merge
++  uint64_t consecutive = 0, state_identical = 0, contiguous = 0, contiguous_tri = 0, same_state_gap = 0, vsfloat_only = 0, model_only = 0, runs = 0, saved = 0;
++  uint64_t run_hist[4] = {};  // 2, 3-4, 5-8, 9+
++  // match
++  uint64_t match_draws = 0, matched = 0, matched_ours = 0, ours_match_draws = 0, matched_inline = 0, inline_match_draws = 0;
++  uint64_t pairs_cam_changed = 0, pairs_model_changed = 0, pairs_other_changed_draws = 0, pairs_bone_rows = 0, pairs_bone_draws4 = 0, pairs_rows_total = 0;
++  uint64_t vb_checked = 0, vb_changed = 0, vb_changed_ours = 0;
++  std::array<uint64_t, kRows> row_changed{};
++  // camera
++  uint64_t cam_distinct_sum = 0, cam_distinct_max = 0, cam_mapped_sum = 0;
++  uint64_t cam_ours = 0, cam_ours_covered = 0, cam_tr = 0, cam_tr_covered = 0, cam_zero_draws = 0;
++  // cost (ns)
++  uint64_t ns_match = 0, ns_lerp = 0, lerps = 0, ns_total = 0, ns_frame_end = 0;
++  std::unordered_map<uint64_t, VsStat> vs;
++  std::unordered_map<uint64_t, PassStat> passes;
++};
++
++struct State {
++  uint64_t frame_no = 0;  // guest frames seen by Phase0FrameEnd
++  Window w;
++  // the current and previous frame
++  std::vector<Rec> cur, prev;
++  std::vector<uint32_t> cur_pool, prev_pool;
++  std::unordered_map<uint64_t, uint32_t> cur_ord, cur_map, prev_map;
++  uint64_t frame_draws = 0;
++  bool pool_valid = false;
++  uint64_t last_vs_epoch = 0;
++  uint32_t last_pool_off = 0;
++  uint64_t cur_pass_key = 0;
++  bool pass_valid = false;
++  uint32_t pass_ord = 0;
++  Last last;
++  uint32_t run = 0;
++  uint32_t scan_budget = kScanBudget;
++  std::unordered_map<uint32_t, VbEntry> vb;  // by end
++  std::vector<std::pair<uint32_t, uint32_t>> frame_ranges;
++  std::unordered_map<uint64_t, Mesh> meshes;
++  bool started = false;
++};
++State g;
++
++// ---- guest memory sampling ---------------------------------------------------------------------------------------
++uint64_t SampleRange(rex::memory::Memory* mem, uint32_t start, uint32_t end) {
++  if (!mem || end <= start || end - start > (256u << 20)) return 0;
++  uint64_t h = 0x1234567;
++  const uint32_t offsets[3] = {512, 4096, 16384};
++  for (uint32_t back : offsets) {
++    uint32_t a = end > back ? end - back : 0;
++    if (a < start) a = start;
++    const uint32_t n = std::min<uint32_t>(512, end - a);
++    if (!n) continue;
++    h = Mix(h, XXH3_64bits(mem->TranslatePhysical<const uint8_t*>(a), n));
++  }
++  return h | 1;  // never 0
++}
++
++VbEntry& TouchVb(rex::memory::Memory* mem, uint32_t start, uint32_t end, bool ours) {
++  VbEntry& e = g.vb[end];
++  if (e.window == UINT64_MAX) {
++    e.start = start;
++    e.end = end;
++  } else if (start < e.start) {
++    e.start = start;
++  }
++  e.window = g.frame_no / kWindowFrames;
++  e.ours |= ours;
++  if (e.frame != g.frame_no) {  // the first touch this frame
++    const uint64_t sample = SampleRange(mem, e.start, e.end);
++    if (e.frame != UINT64_MAX && e.frame + 1 == g.frame_no && sample == e.sample) {
++      ++e.streak;
++    } else {
++      if (e.frame != UINT64_MAX && sample != e.sample) ++e.changes;
++      e.streak = 1;
++    }
++    e.sample = sample;
++    e.frame = g.frame_no;
++    g.frame_ranges.emplace_back(e.start, e.end);
++  }
++  return e;
++}
++
++uint64_t UnionBytes(std::vector<std::pair<uint32_t, uint32_t>>& r) {
++  std::sort(r.begin(), r.end());
++  uint64_t total = 0;
++  uint32_t cs = 0, ce = 0;
++  bool open = false;
++  for (const auto& p : r) {
++    if (!open) {
++      cs = p.first;
++      ce = p.second;
++      open = true;
++    } else if (p.first <= ce) {
++      ce = std::max(ce, p.second);
++    } else {
++      total += ce - cs;
++      cs = p.first;
++      ce = p.second;
++    }
++  }
++  if (open) total += ce - cs;
++  return total;
++}
++
++// ---- the index scan + the box ------------------------------------------------------------------------------------
++// Returns the mesh (scanned now or cached); ok = false when the indices could not be read (budget, size, unsupported endian).
++Mesh& ScanMesh(rex::memory::Memory* mem, const OwnedRecordState& s, uint64_t key, uint32_t* stride_words_unused) {
++  (void)stride_words_unused;
++  Mesh& m = g.meshes[key];
++  if (m.window == UINT64_MAX || (!m.ok && m.window != g.frame_no / kWindowFrames)) {
++    m = Mesh();
++  }
++  m.window = g.frame_no / kWindowFrames;
++  if (m.ok || m.min_i == 0xFFFFFFFFu) return m;
++  draw_bounds::IndexScan sc;
++  switch (draw_bounds::ScanIndices(mem, s, g.scan_budget, sc)) {
++    case draw_bounds::ScanStatus::kUnsupported:
++      ++g.w.scan_unsupported;
++      m.min_i = 0xFFFFFFFFu;  // do not retry
++      return m;
++    case draw_bounds::ScanStatus::kBudget:
++      ++g.w.scan_skipped_budget;
++      return m;  // not ok, retried next frame
++    case draw_bounds::ScanStatus::kEmpty:
++      ++g.w.scans;
++      g.w.scan_indices += sc.n;
++      m.min_i = 0xFFFFFFFFu;
++      return m;
++    case draw_bounds::ScanStatus::kOk:
++      break;
++  }
++  ++g.w.scans;
++  g.w.scan_indices += sc.n;
++  m.min_i = sc.min_i;
++  m.max_i = sc.max_i;
++  m.resets = sc.resets;
++  m.ok = true;
++  return m;
++}
++
++// The object-space box of vertices [min, max] + base of a 32-byte-vertex stream (draw_bounds::BuildBox; the census' flags and counters).
++void BuildBox(rex::memory::Memory* mem, Mesh& m, uint32_t vb_start_byte, uint32_t vb_size_bytes, uint32_t stride_words, uint32_t base, xenos::Endian endian) {
++  m.box_done = true;
++  m.box_ok = false;
++  uint32_t read = 0;
++  const draw_bounds::BoxStatus st = draw_bounds::BuildBox(mem, m.min_i, m.max_i, vb_start_byte, vb_size_bytes, stride_words, base, endian, g.scan_budget, m.box, read);
++  g.w.box_scan_vertices += read;
++  m.box_ok = st == draw_bounds::BoxStatus::kOk;  // a vertex with w != 1: not cullable (the design's rule)
++  if (st == draw_bounds::BoxStatus::kWNotOne) ++g.w.w_not_one;
++}
++
++std::string RowRanges(const std::array<uint32_t, kRows>& rows, uint32_t threshold, uint32_t max_items) {
++  std::string out;
++  uint32_t items = 0;
++  for (uint32_t r = 0; r < kRows && items < max_items;) {
++    if (rows[r] < threshold) {
++      ++r;
++      continue;
++    }
++    uint32_t e = r;
++    while (e + 1 < kRows && rows[e + 1] >= threshold) ++e;
++    out += (out.empty() ? "c" : " c") + std::to_string(r);
++    if (e != r) out += "-" + std::to_string(e);
++    ++items;
++    r = e + 1;
++  }
++  return out.empty() ? "none" : out;
++}
++
++const char* Kind(bool ours) { return ours ? "ours" : "translated"; }
++
++// ---- the window lines --------------------------------------------------------------------------------------------
++void Flush() {
++  Window& w = g.w;
++  const uint64_t a = w.first_frame, b = g.frame_no;
++  const double fr = double(std::max<uint64_t>(1, w.frames_with_draws));
++  const uint64_t dma_like = w.draws - w.crowd_members;
++  REXGPU_INFO("[d3d][phase0] frames {}-{}: {} frames with draws, draws {} ({:.1f} a frame, max {}; dma {}, inline {}, crowd members {}), ours {} ({:.1f}%), no shader known {}, "
++              "vertex shaders {}, pass entries {:.1f} a frame, census cost {:.1f} us a frame (match + lerp {:.1f})",
++              a, b, w.frames_with_draws, w.draws, double(w.draws) / fr, w.frame_draw_max, w.dma_draws, w.inline_draws, w.crowd_members, w.ours_draws,
++              Pct(w.ours_draws, dma_like), w.no_vs, w.vs.size(), double(w.pass_entries) / fr, double(w.ns_total) / fr / 1000.0, double(w.ns_match + w.ns_lerp) / fr / 1000.0);
++
++  // 1. per pass, top vertex shaders by draws
++  {
++    std::vector<std::pair<uint64_t, const PassStat*>> ps;
++    for (const auto& kv : w.passes) ps.emplace_back(kv.first, &kv.second);
++    std::sort(ps.begin(), ps.end(), [](const auto& x, const auto& y) { return x.second->draws > y.second->draws; });
++    const size_t pn = std::min<size_t>(ps.size(), 8);
++    for (size_t i = 0; i < pn; ++i) {
++      const PassStat& p = *ps[i].second;
++      REXGPU_INFO("[d3d][phase0][pass] #{} rt c0 {:08X} depth {:08X} surf {:08X}: draws {:.1f} a frame ({} shaders), entered {:.2f} a frame at mean ordinal {:.1f}, matched {:.1f}%, boxable {}, off-screen {}",
++                  i, p.color, p.depth, p.surface, double(p.draws) / fr, p.vs_draws.size(), double(p.entries) / fr, p.entries ? double(p.ord_sum) / double(p.entries) : 0.0,
++                  Pct(p.matched, p.draws), p.boxable, p.offscreen);
++      std::vector<std::pair<uint64_t, uint32_t>> top(p.vs_draws.begin(), p.vs_draws.end());
++      std::sort(top.begin(), top.end(), [](const auto& x, const auto& y) { return x.second > y.second; });
++      for (size_t k = 0; k < std::min<size_t>(top.size(), 8); ++k) {
++        const VsStat& v = w.vs[top[k].first];
++        REXGPU_INFO("[d3d][phase0][pass]   #{} vs {:016X} {}: {:.1f} draws a frame, {} bindings", i, top[k].first, Kind(v.ours), double(top[k].second) / fr, v.bindings);
++      }
++    }
++    // overall top 24
++    std::vector<std::pair<uint64_t, const VsStat*>> vs;
++    for (const auto& kv : w.vs) vs.emplace_back(kv.first, &kv.second);
++    std::sort(vs.begin(), vs.end(), [](const auto& x, const auto& y) { return x.second->draws > y.second->draws; });
++    for (size_t k = 0; k < std::min<size_t>(vs.size(), 24); ++k) {
++      const VsStat& v = *vs[k].second;
++      REXGPU_INFO("[d3d][phase0][top] vs {:016X} {}: {:.1f} draws a frame ({:.1f}% of all), {} bindings, matched {:.1f}%", vs[k].first, Kind(v.ours), double(v.draws) / fr,
++                  Pct(v.draws, w.draws), v.bindings, Pct(v.matched, v.draws));
++    }
++  }
++
++  // 2. mirror
++  {
++    std::vector<std::pair<uint32_t, uint32_t>> all, stat, trans, ours_r;
++    uint64_t n_static = 0, n_trans = 0, n_new = 0, changes = 0;
++    for (const auto& kv : g.vb) {
++      const VbEntry& e = kv.second;
++      if (e.window != g.frame_no / kWindowFrames && e.window != (g.frame_no - 1) / kWindowFrames) continue;  // (the window just ended: touched in it)
++      all.emplace_back(e.start, e.end);
++      if (e.ours) ours_r.emplace_back(e.start, e.end);
++      changes += e.changes;
++      if (e.streak >= 3 && e.changes == 0) {
++        ++n_static;
++        stat.emplace_back(e.start, e.end);
++      } else if (e.streak >= 3) {
++        ++n_static;  // (changed once, then stable again: counted static; the change count is printed)
++        stat.emplace_back(e.start, e.end);
++      } else {
++        ++n_trans;
++        trans.emplace_back(e.start, e.end);
++      }
++    }
++    (void)n_new;
++    const uint64_t ub = UnionBytes(all), sb = UnionBytes(stat), tb = UnionBytes(trans), ob = UnionBytes(ours_r);
++    REXGPU_INFO("[d3d][phase0][mirror] frames {}-{}: distinct vertex ranges {} (static {}: stable 3+ frames, transient {}), bytes union {:.2f} MiB (static {:.2f}, transient {:.2f}, our shaders' ranges {:.2f}), "
++                "per frame touched union avg {:.2f} MiB max {:.2f} MiB, sample changes seen {}, fetches {} ({:.1f} a frame, not vertex type {}), the ranges' size field is the buffer's rest: an upper bound",
++                a, b, all.size(), n_static, n_trans, double(ub) / 1048576.0, double(sb) / 1048576.0, double(tb) / 1048576.0, double(ob) / 1048576.0,
++                double(w.frame_union_sum) / fr / 1048576.0, double(w.frame_union_max) / 1048576.0, changes, w.fetches, double(w.fetches) / fr, w.fetch_not_vertex);
++    uint64_t used = 0;
++    uint64_t meshes = 0;
++    for (const auto& kv : g.meshes) {
++      if (kv.second.window == g.frame_no / kWindowFrames || kv.second.window == (g.frame_no - 1) / kWindowFrames) {
++        ++meshes;
++        used += kv.second.used_bytes;
++      }
++    }
++    w.used_bytes_meshes = used;
++    REXGPU_INFO("[d3d][phase0][index] index scans {} ({} indices read, budget skips {}, unsupported {}), distinct meshes {} (vertex bytes used by their [min,max] ranges {:.2f} MiB), identity checks {}: fails {} (min {}, max {}, 24-bit {}), "
++                "VGT min/max registers tight (range <= scanned range + 16) {}/{} ({:.1f}%)",
++                w.scans, w.scan_indices, w.scan_skipped_budget, w.scan_unsupported, meshes, double(used) / 1048576.0, w.id_checked, w.id_fail_any, w.id_fail_min, w.id_fail_max,
++                w.id_fail_mask, w.tight_regs, w.tight_checked, Pct(w.tight_regs, w.tight_checked));
++  }
++
++  // 3. off-screen
++  {
++    uint64_t ours_total = w.ours_draws;
++    REXGPU_INFO("[d3d][phase0][cull] our draws {}, of them boxable (one stream, stride 8 words, a bound known, all w == 1) {} ({:.1f}%), not boxable by shape {} / no bounds yet {} / w != 1 meshes {}; "
++                "tested {}: off-screen x/y {} + behind the eye {} = {} ({:.1f}% of tested), z > w only (not counted) {}; box vertices read {}",
++                ours_total, w.boxable, Pct(w.boxable, ours_total), w.ours_not_boxable_shape, w.no_bounds, w.w_not_one, w.tested, w.off_xy, w.off_behind, w.off_xy + w.off_behind,
++                Pct(w.off_xy + w.off_behind, w.tested), w.off_z_only, w.box_scan_vertices);
++    std::vector<std::pair<uint64_t, const VsStat*>> vs;
++    for (const auto& kv : w.vs) if (kv.second.boxable) vs.emplace_back(kv.first, &kv.second);
++    std::sort(vs.begin(), vs.end(), [](const auto& x, const auto& y) { return x.second->boxable > y.second->boxable; });
++    for (size_t k = 0; k < std::min<size_t>(vs.size(), 12); ++k) {
++      REXGPU_INFO("[d3d][phase0][cull]   vs {:016X}: boxable {} ({:.1f} a frame), off-screen {} ({:.1f}%)", vs[k].first, vs[k].second->boxable, double(vs[k].second->boxable) / fr,
++                  vs[k].second->offscreen, Pct(vs[k].second->offscreen, vs[k].second->boxable));
++    }
++  }
++
++  // 4. merge candidates
++  REXGPU_INFO("[d3d][phase0][merge] consecutive draw pairs {}: state identical (same shaders, no typed state change) {} ({:.1f}%); of them contiguous index ranges (back to back, same base vertex / format / prim) {} "
++              "(triangle lists {}), same state but not contiguous {}; differing only in the vertex float constants {} (only in c76-c78: {}); runs of contiguous draws {} saving {} draws ({:.1f}% of dma draws), "
++              "run lengths 2: {}, 3-4: {}, 5-8: {}, 9+: {}",
++              w.consecutive, w.state_identical, Pct(w.state_identical, w.consecutive), w.contiguous, w.contiguous_tri, w.same_state_gap, w.vsfloat_only, w.model_only, w.runs, w.saved,
++              Pct(w.saved, w.dma_draws), w.run_hist[0], w.run_hist[1], w.run_hist[2], w.run_hist[3]);
++
++  // 5. decouple: the match
++  {
++    const double mp = Pct(w.matched, w.match_draws);
++    REXGPU_INFO("[d3d][phase0][match] draws with a previous frame {}: matched {} ({:.1f}%) - ours {}/{} ({:.1f}%), inline {}/{} ({:.1f}%); matched pairs whose c56-c59 changed {} ({:.1f}%), c76-c78 changed {} ({:.1f}%), "
++                "other rows changed in {} pairs, rows 79-255 changed {} (pairs with 4+ of them: {}), changed rows per matched draw {:.1f}",
++                w.match_draws, w.matched, mp, w.matched_ours, w.ours_match_draws, Pct(w.matched_ours, w.ours_match_draws), w.matched_inline, w.inline_match_draws,
++                Pct(w.matched_inline, w.inline_match_draws), w.pairs_cam_changed, Pct(w.pairs_cam_changed, w.matched), w.pairs_model_changed, Pct(w.pairs_model_changed, w.matched),
++                w.pairs_other_changed_draws, w.pairs_bone_rows, w.pairs_bone_draws4, w.matched ? double(w.pairs_rows_total) / double(w.matched) : 0.0);
++    std::vector<std::pair<uint32_t, uint64_t>> rows;
++    for (uint32_t r = 0; r < kRows; ++r) if (w.row_changed[r]) rows.emplace_back(r, w.row_changed[r]);
++    std::sort(rows.begin(), rows.end(), [](const auto& x, const auto& y) { return x.second > y.second; });
++    std::string line;
++    for (size_t k = 0; k < std::min<size_t>(rows.size(), 16); ++k) line += fmt::format(" c{}:{}", rows[k].first, rows[k].second);
++    REXGPU_INFO("[d3d][phase0][match] constant rows changed between matched draws (all {} matched pairs), top 16 rows:{}", w.matched, line.empty() ? " none" : line);
++    std::vector<std::pair<uint64_t, const VsStat*>> vs;
++    for (const auto& kv : w.vs) if (kv.second.matched) vs.emplace_back(kv.first, &kv.second);
++    std::sort(vs.begin(), vs.end(), [](const auto& x, const auto& y) { return x.second->matched > y.second->matched; });
++    for (size_t k = 0; k < std::min<size_t>(vs.size(), 16); ++k) {
++      const VsStat& v = *vs[k].second;
++      std::array<uint32_t, kRows> half{};
++      for (uint32_t r = 0; r < kRows; ++r) half[r] = (v.row_changed[r] * 2 >= v.matched) ? 1 : 0;
++      REXGPU_INFO("[d3d][phase0][match]   vs {:016X} {}: matched {}/{} ({:.1f}%), c56-c59 changed {:.1f}%, c76-c78 changed {:.1f}%, mean changed rows {:.1f}, rows changed in 50%+ of its pairs: {}; vertex data sample changed {}/{}",
++                  vs[k].first, Kind(v.ours), v.matched, v.draws, Pct(v.matched, v.draws), Pct(v.cam_changed, v.matched), Pct(v.model_changed, v.matched),
++                  v.matched ? double(v.changed_rows) / double(v.matched) : 0.0, RowRanges(half, 1, 10), v.vb_changed, v.vb_checked);
++    }
++    REXGPU_INFO("[d3d][phase0][camera] distinct non-zero c56-c59 blocks a frame avg {:.1f} (max {}), blocks carried by a matched pair avg {:.1f}; our draws carrying a matched block {}/{} ({:.1f}%), translated draws carrying one by value "
++                "{}/{} ({:.1f}%; the registers persist, so this is an upper bound for draws that do not use the camera), draws with an all-zero block {}; camera cuts a minute: not computed",
++                double(w.cam_distinct_sum) / fr, w.cam_distinct_max, double(w.cam_mapped_sum) / fr, w.cam_ours_covered, w.cam_ours, Pct(w.cam_ours_covered, w.cam_ours), w.cam_tr_covered, w.cam_tr,
++                Pct(w.cam_tr_covered, w.cam_tr), w.cam_zero_draws);
++    REXGPU_INFO("[d3d][phase0][vbdata] matched draws with a vertex-data sample compared {}: changed {} ({:.1f}%, ours {}); a lower bound of CPU-written vertex data (skinned meshes, particles; 3 x 512 bytes at the range's end)",
++                w.vb_checked, w.vb_changed, Pct(w.vb_changed, w.vb_checked), w.vb_changed_ours);
++    const double per_lerp_ns = w.lerps ? double(w.ns_lerp) / double(w.lerps) : 0.0;
++    const double changed_rows = w.matched ? double(w.pairs_rows_total) / double(w.matched) : 0.0;
++    REXGPU_INFO("[d3d][phase0][cost] per frame: match lookup + row compare {:.1f} us over {:.0f} draws, lerp of 7 vec4 {:.1f} us over {:.0f} matched draws ({:.0f} ns each, i.e. {:.0f} ns per row); estimate of a full blend (every changed row, "
++                "{:.1f} per matched draw) {:.1f} us a frame; census total {:.1f} us a frame",
++                double(w.ns_match) / fr / 1000.0, double(w.match_draws) / fr, double(w.ns_lerp) / fr / 1000.0, double(w.lerps) / fr, per_lerp_ns, per_lerp_ns / 7.0, changed_rows,
++                double(w.matched) / fr * changed_rows * (per_lerp_ns / 7.0) / 1000.0, double(w.ns_total) / fr / 1000.0);
++    const double cam_pct = Pct(w.cam_ours_covered, w.cam_ours);
++    REXGPU_INFO("[d3d][phase0][decouple] go / no-go rule (S93_DECOUPLE_DESIGN.md section 6, applies to an ENTRANCE window): matched {:.1f}% of all draws (rule: >= 90%) {}, camera block found for {:.1f}% of our world-space draws (rule: >= 95%) {} -> {}",
++                mp, mp >= 90.0 ? "pass" : "FAIL", cam_pct, cam_pct >= 95.0 ? "pass" : "FAIL", (mp >= 90.0 && cam_pct >= 95.0) ? "GO" : "NO-GO");
++  }
++}
++
++void ResetWindow() {
++  g.w = Window();
++  g.w.first_frame = g.frame_no;
++  // prune the vertex ranges and meshes not touched in the window that just ended
++  const uint64_t cur_window = g.frame_no / kWindowFrames;
++  for (auto it = g.vb.begin(); it != g.vb.end();) it = (it->second.window + 1 < cur_window) ? g.vb.erase(it) : std::next(it);
++  for (auto it = g.meshes.begin(); it != g.meshes.end();) it = (it->second.window + 1 < cur_window) ? g.meshes.erase(it) : std::next(it);
++}
++
++}  // namespace
++
++// =====================================================================================================================================================
++void Phase0Draw(rex::memory::Memory* mem, const OwnedRecordState& s, const VulkanShader* vs, bool crowd_member) {
++  const uint64_t t_start = NowNs();
++  Window& w = g.w;
++  if (!g.started) {
++    g.started = true;
++    w.first_frame = g.frame_no;
++  }
++  ++w.draws;
++  ++g.frame_draws;
++  if (crowd_member) {
++    ++w.crowd_members;
++    w.ns_total += NowNs() - t_start;
++    return;
++  }
++  const bool inl = s.inline_draw != 0;
++  const uint64_t vs_hash = s.shader[0].hash, ps_hash = s.shader[1].hash;
++  if (vs && vs->ucode_data_hash() != vs_hash) vs = nullptr;
++  if (!vs) ++w.no_vs;
++  (inl ? w.inline_draws : w.dma_draws) += 1;
++  const bool ours = shader_swap::VertexTakes(vs_hash);
++  if (ours) ++w.ours_draws;
++
++  // ---- the pass
++  const uint64_t pass_key = Mix(Mix(s.color_info[0].value, s.depth_info.value), s.surface_info.value);
++  PassStat& pass = w.passes[pass_key];
++  if (!g.pass_valid || pass_key != g.cur_pass_key) {
++    g.cur_pass_key = pass_key;
++    g.pass_valid = true;
++    ++g.pass_ord;
++    ++w.pass_entries;
++    ++pass.entries;
++    pass.ord_sum += g.pass_ord;
++    pass.color = s.color_info[0].value;
++    pass.depth = s.depth_info.value;
++    pass.surface = s.surface_info.value;
++  }
++  ++pass.draws;
++  ++pass.vs_draws[vs_hash];
++  VsStat& vstat = w.vs[vs_hash];
++  ++vstat.draws;
++  vstat.ours = ours;
++  vstat.bindings = vs ? uint32_t(vs->vertex_bindings().size()) : 0;
++
++  // ---- the vertex constants' row hashes (recomputed only when the decoder's epoch moved)
++  const OwnedRecordEpochs& ep = OwnedRecordEpochsNow();
++  if (!g.pool_valid || ep.vs_float != g.last_vs_epoch) {
++    g.last_pool_off = uint32_t(g.cur_pool.size());
++    g.cur_pool.resize(g.cur_pool.size() + kRows);
++    uint32_t* out = g.cur_pool.data() + g.last_pool_off;
++    for (uint32_t r = 0; r < kRows; ++r) out[r] = RowHash(s.vs_float + 4 * r);
++    g.last_vs_epoch = ep.vs_float;
++    g.pool_valid = true;
++  }
++  const uint32_t pool_off = g.last_pool_off;
++
++  // ---- the vertex ranges (mirror) + the index scan / box
++  uint64_t key = Mix(Mix(vs_hash, ps_hash), Mix(pass_key, inl ? 1u : 0u));
++  uint64_t vb_sample = 0;
++  uint32_t first_start = 0, first_size = 0, first_stride = 0;
++  xenos::Endian first_endian = xenos::Endian::kNone;
++  bool have_vb = false;
++  uint32_t first_addr_dword = 0;
++  if (vs && !inl) {
++    for (const auto& binding : vs->vertex_bindings()) {
++      if (binding.fetch_constant >= 96) continue;
++      xenos::xe_gpu_vertex_fetch_t f;
++      std::memcpy(&f, &s.fetch[binding.fetch_constant * 2], sizeof(f));
++      ++w.fetches;
++      if (f.type != xenos::FetchConstantType::kVertex) {
++        ++w.fetch_not_vertex;
++        continue;
++      }
++      const uint32_t start = f.address * 4, bytes = f.size * 4;
++      key = Mix(key, f.dword_0);
++      if (!bytes) continue;
++      VbEntry& e = TouchVb(mem, start, start + bytes, ours);
++      if (!have_vb) {
++        have_vb = true;
++        vb_sample = e.sample;
++        first_start = start;
++        first_size = bytes;
++        first_stride = binding.stride_words;
++        first_endian = f.endian;
++        first_addr_dword = f.dword_0;
++      }
++    }
++  }
++  if (!inl) key = Mix(Mix(key, s.dma_base), s.draw_initiator.num_indices);
++
++  Mesh* mesh = nullptr;
++  uint32_t base_vertex = s.indx_offset.indx_offset;
++  if (!inl && s.draw_initiator.source_select == xenos::SourceSelect::kDMA) {
++    uint64_t mkey = Mix(Mix(Mix(s.dma_base, s.draw_initiator.num_indices), uint64_t(s.dma_size.swap_mode) << 8 | uint64_t(s.draw_initiator.index_size)),
++                        Mix(Mix(base_vertex, first_addr_dword), vb_sample));
++    Mesh& m = ScanMesh(mem, s, mkey, nullptr);
++    if (m.ok) {
++      mesh = &m;
++      if (!m.used_bytes && have_vb) {
++        m.used_bytes = uint32_t(std::min<uint64_t>(uint64_t(m.max_i - m.min_i + 1) * first_stride * 4, 0xFFFFFFFFull));
++      }
++      // the design's index identity checks (3.4 point 5)
++      ++w.id_checked;
++      const uint32_t vmin = s.min_vtx_indx.min_indx, vmax = s.max_vtx_indx.max_indx;
++      const bool f_min = m.min_i + base_vertex < vmin, f_max = m.max_i + base_vertex > vmax, f_mask = uint64_t(m.max_i) + base_vertex >= (1u << 24);
++      w.id_fail_min += f_min;
++      w.id_fail_max += f_max;
++      w.id_fail_mask += f_mask;
++      w.id_fail_any += (f_min || f_max || f_mask);
++      ++w.tight_checked;
++      if (vmax >= vmin && (vmax - vmin) <= (m.max_i - m.min_i) + 16) ++w.tight_regs;
++    }
++  }
++
++  // ---- off-screen (our arena family)
++  if (ours) {
++    const bool shape = vs && vs->vertex_bindings().size() == 1 && vs->vertex_bindings()[0].stride_words == 8 && have_vb && !inl;
++    if (!shape) {
++      ++w.ours_not_boxable_shape;
++    } else if (!mesh) {
++      ++w.no_bounds;
++    } else {
++      if (!mesh->box_done) BuildBox(mem, *mesh, first_start, first_size, first_stride, base_vertex, first_endian);
++      if (!mesh->box_ok) {
++        ++w.no_bounds;
++      } else {
++        ++w.boxable;
++        ++vstat.boxable;
++        ++pass.boxable;
++        ++w.tested;
++        const int r = draw_bounds::BoxTest(s.vs_float, mesh->box);
++        if (r == 1) {
++          ++w.off_xy;
++        } else if (r == 2) {
++          ++w.off_behind;
++        } else if (r == 3) {
++          ++w.off_z_only;
++        }
++        if (r == 1 || r == 2) {
++          ++vstat.offscreen;
++          ++pass.offscreen;
++        }
++      }
++    }
++  }
++
++  // ---- the merge census (consecutive draws)
++  {
++    Last& L = g.last;
++    const bool dma = !inl;
++    const uint32_t isz = s.draw_initiator.index_size == xenos::IndexFormat::kInt16 ? 2 : 4;
++    const uint32_t dma_end = s.dma_base + s.draw_initiator.num_indices * isz;
++    if (L.valid) {
++      ++w.consecutive;
++      const bool same_shaders = L.vs == vs_hash && L.ps == ps_hash;
++      const bool same_nonvs = L.e_render == ep.render && L.e_ps == ep.ps_float && L.e_bl == ep.bool_loop && L.e_fetch == ep.fetch;
++      const bool same_vs_float = L.e_vs == ep.vs_float;
++      bool continued = false;
++      if (same_shaders && same_nonvs && same_vs_float && dma && L.dma) {
++        ++w.state_identical;
++        const bool contiguous = L.dma_end == s.dma_base && L.base == base_vertex && L.fmt == uint32_t(s.draw_initiator.index_size) && L.swap == uint32_t(s.dma_size.swap_mode) &&
++                                L.prim == uint32_t(s.draw_initiator.prim_type);
++        if (contiguous) {
++          ++w.contiguous;
++          const bool tri = s.draw_initiator.prim_type == xenos::PrimitiveType::kTriangleList;
++          w.contiguous_tri += tri;
++          if (tri) {
++            ++L.run;
++            ++w.saved;
++            continued = true;
++          }
++        } else {
++          ++w.same_state_gap;
++        }
++      } else if (same_shaders && same_nonvs && !same_vs_float) {
++        ++w.vsfloat_only;
++        bool only_model = true;
++        const uint32_t* a = g.cur_pool.data() + L.pool_off;
++        const uint32_t* b = g.cur_pool.data() + pool_off;
++        for (uint32_t r = 0; r < kRows && only_model; ++r) {
++          if (a[r] != b[r] && (r < kModelRow || r > kModelRow + 2)) only_model = false;
++        }
++        w.model_only += only_model;
++      }
++      if (!continued && L.run) {  // a run of contiguous draws ends: L.run follower draws were merged into its first
++        ++w.runs;
++        const uint32_t len = L.run + 1;
++        ++w.run_hist[len <= 2 ? 0 : len <= 4 ? 1 : len <= 8 ? 2 : 3];
++        L.run = 0;
++      }
++    }
++    const uint32_t keep_run = L.run;
++    L.valid = true;
++    L.vs = vs_hash;
++    L.ps = ps_hash;
++    L.e_render = ep.render;
++    L.e_vs = ep.vs_float;
++    L.e_ps = ep.ps_float;
++    L.e_bl = ep.bool_loop;
++    L.e_fetch = ep.fetch;
++    L.dma_end = dma_end;
++    L.base = base_vertex;
++    L.fmt = uint32_t(s.draw_initiator.index_size);
++    L.swap = uint32_t(s.dma_size.swap_mode);
++    L.prim = uint32_t(s.draw_initiator.prim_type);
++    L.pool_off = pool_off;
++    L.dma = dma;
++    L.run = keep_run;
++  }
++
++  // ---- the draw record + the match with the previous frame
++  const uint64_t t_match = NowNs();
++  Rec rec;
++  rec.key = key;
++  rec.vs = vs_hash;
++  rec.ps = ps_hash;
++  rec.ours = ours;
++  rec.inl = inl;
++  rec.pool_off = pool_off;
++  rec.vb_sample = vb_sample;
++  std::memcpy(rec.mat, s.vs_float + 4 * kCamRow, 16 * sizeof(uint32_t));
++  std::memcpy(rec.mat + 16, s.vs_float + 4 * kModelRow, 12 * sizeof(uint32_t));
++  uint64_t ch = 0x51ED;
++  bool zero = true;
++  for (int i = 0; i < 16; ++i) {
++    uint32_t bits;
++    std::memcpy(&bits, &rec.mat[i], 4);
++    ch = Mix(ch, bits);
++    zero &= bits == 0;
++  }
++  rec.cam_hash = ch;
++  rec.cam_zero = zero;
++  rec.ord = g.cur_ord[key]++;
++  const uint64_t mk = Mix(key, rec.ord);
++  g.cur_map[mk] = uint32_t(g.cur.size());
++  if (!g.prev.empty()) {
++    ++w.match_draws;
++    if (ours) ++w.ours_match_draws;
++    if (inl) ++w.inline_match_draws;
++    const auto it = g.prev_map.find(mk);
++    if (it != g.prev_map.end()) {
++      const Rec& pr = g.prev[it->second];
++      rec.matched = int32_t(it->second);
++      ++w.matched;
++      ++vstat.matched;
++      ++pass.matched;
++      if (ours) ++w.matched_ours;
++      if (inl) ++w.matched_inline;
++      const uint32_t* a = g.prev_pool.data() + pr.pool_off;
++      const uint32_t* b = g.cur_pool.data() + pool_off;
++      bool cam = false, model = false;
++      uint32_t other = 0, bone = 0, total = 0;
++      for (uint32_t r = 0; r < kRows; ++r) {
++        if (a[r] == b[r]) continue;
++        ++total;
++        ++w.row_changed[r];
++        ++vstat.row_changed[r];
++        if (r >= kCamRow && r < kCamRow + 4) {
++          cam = true;
++        } else if (r >= kModelRow && r < kModelRow + 3) {
++          model = true;
++        } else {
++          ++other;
++          if (r >= kModelRow + 3) ++bone;
++        }
++      }
++      w.pairs_cam_changed += cam;
++      vstat.cam_changed += cam;
++      w.pairs_model_changed += model;
++      vstat.model_changed += model;
++      w.pairs_other_changed_draws += other != 0;
++      w.pairs_bone_rows += bone;
++      w.pairs_bone_draws4 += bone >= 4;
++      w.pairs_rows_total += total;
++      vstat.changed_rows += total;
++      if (pr.vb_sample && rec.vb_sample) {
++        ++w.vb_checked;
++        ++vstat.vb_checked;
++        if (pr.vb_sample != rec.vb_sample) {
++          ++w.vb_changed;
++          ++vstat.vb_changed;
++          w.vb_changed_ours += ours;
++        }
++      }
++    }
++  }
++  w.ns_match += NowNs() - t_match;
++  g.cur.push_back(rec);
++  w.ns_total += NowNs() - t_start;
++}
++
++void Phase0FrameEnd() {
++  if (!REXCVAR_GET(gpu_d3d_phase0_census)) return;
++  const uint64_t t0 = NowNs();
++  Window& w = g.w;
++  if (!g.started) {
++    g.started = true;
++    w.first_frame = g.frame_no;
++  }
++  if (g.frame_draws) {
++    ++w.frames_with_draws;
++    w.frame_draw_max = std::max(w.frame_draw_max, g.frame_draws);
++    // the mirror's per-frame union
++    const uint64_t u = UnionBytes(g.frame_ranges);
++    w.frame_union_sum += u;
++    w.frame_union_max = std::max(w.frame_union_max, u);
++
++    // the camera block coverage + the lerp timing (on the matched pairs; the result goes to a sink, nothing is drawn)
++    std::unordered_set<uint64_t> blocks, mapped;
++    for (const Rec& r : g.cur) {
++      if (r.cam_zero) continue;
++      blocks.insert(r.cam_hash);
++      if (r.matched >= 0) mapped.insert(r.cam_hash);
++    }
++    w.cam_distinct_sum += blocks.size();
++    w.cam_distinct_max = std::max<uint64_t>(w.cam_distinct_max, blocks.size());
++    w.cam_mapped_sum += mapped.size();
++    for (const Rec& r : g.cur) {
++      if (r.inl) continue;
++      if (r.cam_zero) {
++        ++w.cam_zero_draws;
++        continue;
++      }
++      const bool covered = mapped.count(r.cam_hash) != 0;
++      if (r.ours) {
++        ++w.cam_ours;
++        w.cam_ours_covered += covered;
++      } else {
++        ++w.cam_tr;
++        w.cam_tr_covered += covered;
++      }
++    }
++    const uint64_t t_lerp = NowNs();
++    volatile float sink = 0;
++    float acc = 0;
++    uint64_t n = 0;
++    for (const Rec& r : g.cur) {
++      if (r.matched < 0) continue;
++      const Rec& p = g.prev[size_t(r.matched)];
++      float out[28];
++      for (int i = 0; i < 28; ++i) out[i] = p.mat[i] + (r.mat[i] - p.mat[i]) * 0.5f;
++      acc += out[0] + out[27];
++      ++n;
++    }
++    sink = acc;
++    (void)sink;
++    w.ns_lerp += NowNs() - t_lerp;
++    w.lerps += n;
++  }
++  // the frame becomes the previous one
++  g.prev.swap(g.cur);
++  g.prev_pool.swap(g.cur_pool);
++  g.prev_map.swap(g.cur_map);
++  g.cur.clear();
++  g.cur_pool.clear();
++  g.cur_map.clear();
++  g.cur_ord.clear();
++  g.frame_ranges.clear();
++  g.frame_draws = 0;
++  g.pool_valid = false;
++  g.pass_valid = false;
++  g.pass_ord = 0;
++  g.scan_budget = kScanBudget;
++  g.last.valid = false;
++  if (g.last.run) {  // (a run open at the frame's end)
++    ++w.runs;
++    const uint32_t len = g.last.run + 1;
++    ++w.run_hist[len <= 2 ? 0 : len <= 4 ? 1 : len <= 8 ? 2 : 3];
++    g.last.run = 0;
++  }
++  w.ns_frame_end += NowNs() - t0;
++  w.ns_total += NowNs() - t0;
++  ++g.frame_no;
++  if (g.frame_no % kWindowFrames == 0) {
++    Flush();
++    ResetWindow();
++  }
++}
++
++}  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/native/phase0_census.h b/src/graphics/vulkan/native/phase0_census.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..c584667d0e231abf4aa68c408e4bd4d902625fc3
+--- /dev/null
++++ b/src/graphics/vulkan/native/phase0_census.h
+@@ -0,0 +1,23 @@
++// wwe2k14 patch (Session 93, LOG-ONLY phase 0 of docs\native\d3d\S93_MIRROR_DESIGN.md (ideas 11 + 13) and S93_DECOUPLE_DESIGN.md):
++// the census behind gpu_d3d_phase0_census. Two calls only: Phase0Draw from the typed draw (once per draw item the typed draw is given) and Phase0FrameEnd
++// from the base class' SceneCrowdFrameEnd hook (every guest frame, also under the cut). It reads the typed state and guest memory, never writes either.
++// File statics only (no data members in the SDK headers the game exe includes). Off (the cvar) = neither call does anything.
++#pragma once
++
++#include <cstdint>
++
++namespace rex::memory {
++class Memory;
++}
++
++namespace rex::graphics::vulkan {
++
++struct OwnedRecordState;
++class VulkanShader;
++
++// `vs` = the vertex shader the draw uses (nullptr when unknown: the bindings are then not read); `crowd_member` = a crowd run's member draw (counted, not matched).
++void Phase0Draw(rex::memory::Memory* memory, const OwnedRecordState& s, const VulkanShader* vs, bool crowd_member);
++// One guest frame boundary; prints the window lines every 600 of them.
++void Phase0FrameEnd();
++
++}  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/native/shader_swap.cpp b/src/graphics/vulkan/native/shader_swap.cpp
+index 13d40be5de049ebbddd288044dbb2cdf223d4136..ee0f4dbddbc7b47dfa84a57461022fcd9e282dd5 100644
+--- a/src/graphics/vulkan/native/shader_swap.cpp
++++ b/src/graphics/vulkan/native/shader_swap.cpp
+@@ -479,6 +479,31 @@ bool VertexTakes(uint64_t guest_hash) {
+   return false;
+ }
+ 
++// Session 93 (gpu_d3d_cull_ours): the vertex shaders whose clip position is exactly (position dwords 0-3 with w = 1) x (c76-c78) x (c56-c59): the arena meshes' plain
++// materials (src\scenerena_vs_bg*.vert except the bump shader, which builds its position from c255 compares, and arena_vs_prop.vert). Read from our own sources
++// (AvClip(AvWorld(position), one)); not skinned (no dynamic constants), one stream of 8 dwords a vertex.
++bool VertexBoxCullable(uint64_t guest_hash, uint32_t* stream_fetch_constant, std::string* why) {
++  const auto no = [&](const std::string& reason) {
++    if (why) *why = reason;
++    return false;
++  };
++  if (!REXCVAR_GET(gpu_native_vs_swap)) return no("not ours (gpu_native_vs_swap off)");
++  const std::shared_ptr<const Entry> e = FindVertex(guest_hash);
++  if (!e) return no("no entry");
++  if (why) *why = "'" + e->name + "'";
++  if (VertexSkipped(guest_hash)) return no("not ours (skipped) '" + e->name + "'");
++  if (e->flags & kFlagDynamicConstants) return no("dynamic constants '" + e->name + "'");
++  if (e->stream_stride_words != 8) return no("stride " + std::to_string(e->stream_stride_words) + " '" + e->name + "'");
++  const bool bg = e->name.rfind("yBG_", 0) == 0 && e->name.find("BumpMap") == std::string::npos;
++  if (!bg && e->name != "yProp_Default") return no("name '" + e->name + "'");
++  for (uint32_t r : {56u, 57u, 58u, 59u, 76u, 77u, 78u}) {
++    if (!(e->float_bitmap[r >> 6] & (uint64_t(1) << (r & 63)))) return no("row c" + std::to_string(r) + " missing '" + e->name + "'");
++  }
++  if (stream_fetch_constant) *stream_fetch_constant = e->stream_fetch_constant;
++  if (why) *why = "'" + e->name + "'";
++  return true;
++}
++
+ bool VertexSwapStale(uint64_t guest_hash, uint32_t recorded_vertex_ext) {
+   const bool recorded = (recorded_vertex_ext & SpirvShaderTranslator::kNativeExtVsSwap) != 0;
+   return recorded != VertexTakes(guest_hash);
+diff --git a/src/graphics/vulkan/native/shader_swap.h b/src/graphics/vulkan/native/shader_swap.h
+index 100889b0907b1ec52091d8f82d0abda6add3b919..510fbd1f11c0248a5d8cec36896ca7f90ac4288c 100644
+--- a/src/graphics/vulkan/native/shader_swap.h
++++ b/src/graphics/vulkan/native/shader_swap.h
+@@ -16,6 +16,7 @@
+ 
+ #include <cstddef>
+ #include <cstdint>
++#include <string>
+ #include <vector>
+ 
+ #include <rex/graphics/pipeline/shader/shader.h>
+@@ -116,6 +117,9 @@ void RefreshVertexSkips();  // (called by RefreshSkips)
+ bool VertexTakes(uint64_t guest_hash);
+ // Whether a recorded draw's vertex ext word (its kNativeExtVsSwap bit) no longer matches what VertexTakes says now.
+ bool VertexSwapStale(uint64_t guest_hash, uint32_t recorded_vertex_ext);
++// Session 93 (gpu_d3d_cull_ours): a taken vertex replacement whose clip position is (position, w = 1) x c76-c78 x c56-c59 (plain arena materials, not skinned, 8-dword stream);
++// stream_fetch_constant = its vertex fetch constant. See shader_swap.cpp.
++bool VertexBoxCullable(uint64_t guest_hash, uint32_t* stream_fetch_constant = nullptr, std::string* why = nullptr);  // why = the entry's name, or the reason it is refused
+ // Session 92: the shared memory is bound as N storage buffers (one descriptor binding, an array of N) when the GPU's
+ // maxStorageBufferRange is below 512 MiB: N = 1 (as every replacement is written), 2 or 4. The command processor tells
+ // the count (SetSharedMemoryBindingCount, at its initialisation, before any shader is built); a vertex replacement

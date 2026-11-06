@@ -36,12 +36,21 @@ inline constexpr Resolution kResolutions[] = {
 inline constexpr int kResolutionCount = int(std::size(kResolutions));
 inline constexpr int kDefaultResolution = 3;  // 720p (the Android build's default since Session 63)
 
-// frame_rate values as in gfx_settings.h: 1 60 everywhere, 0 classic (30 fps entrances), 3 30 everywhere.
+// frame_rate values as in gfx_settings.h: 1 60 everywhere, 0 classic (30 fps entrances), 2 high refresh (120 steps a second).
+// Session 94 (Jarrod): the phone's list is these three; a saved 3 (30 everywhere) loads as 0.
 struct FrameRate {
   const char* name;
   int value;
 };
-inline constexpr FrameRate kFrameRates[] = {{"60 FPS", 1}, {"60 MATCHES, 30 ENTRANCES", 0}, {"30 FPS (EXPERIMENTAL)", 3}};  // Session 83 (Jarrod): was "(BATTERY)"
+struct FrameRateChoice {
+  const char* name;
+  const char* note;
+  int value;
+};
+inline constexpr FrameRateChoice kFrameRates[] = {
+    {"STANDARD", "60 fps matches, 30 fps entrances", 0},
+    {"60FPS ENTRANCES", "60 fps everywhere", 1},
+    {"120FPS", "For stronger phones: the game runs at 120 fps while keeping real-time speed", 2}};
 
 // The game's languages (launcher_core.h AutoLanguage: the runtime's user_language ids that change its text).
 struct Language {
@@ -69,6 +78,22 @@ struct Settings {
   bool shadows = true;
   bool depth_of_field = true;
   int crowd_density = 100;
+  // Session 93 (Jarrod: the low-end tier is chosen automatically from the GPU class, with a launcher override): 0 AUTO,
+  // 1 LOW, 2 STANDARD (gfx_settings.h ResolveQualityTier). AUTO is LOW on every phone for now (refine later with the
+  // SDK's `gpu_class` cvar, set from its quirks table at device creation). LOW: the scene drawn at 720p at most, SGSR
+  // on, the crowd at 70% when left at 100%; what the player set by hand (a smaller drawing size, a crowd below 100%)
+  // stays. A missing key = AUTO (no settings_version bump).
+  int quality_tier = 0;
+  // Session 90 (Jarrod: "put the true native one on my phone"): the PC launcher's Advanced TRUE NATIVE
+  // (--wwe2k14_d3d_owned, src\d3d_owned.h). Session 93 (Jarrod, 2026-11-06 01:1x: "True native should become the
+  // default, even retroactively ... we'll still have the toggle"): on by default; a file from before settings_version 1
+  // moves to it once (LoadSettings), so an OFF picked after that stays.
+  bool true_native = true;
+  // Session 93 diagnostics (testers, only when asked): the shared-memory storage test 0 NORMAL / 1 WINDOWS ON / 2 SMALL WINDOWS /
+  // 3 OLD SPLIT, and the reduced-precision (mediump) colour maths (on = the phone default).
+  int storage_test = 0;
+  bool mediump = true;
+  int settings_version = 1;  // Session 93: 1 = the file has had the one-time move to TRUE NATIVE
   // Touch controls (ANDROID_PLAN F1, Jarrod 2026-10-28): 0 automatic (hidden while a controller is connected),
   // 1 always, 2 off; size and opacity in percent; a short vibration on each press (off by default).
   int touch_mode = 0;
@@ -76,19 +101,14 @@ struct Settings {
   int touch_opacity = 70;
   bool touch_vibrate = false;
   bool check_updates = true;
-  // Session 73: the NATIVE renderer's shader shortcuts off (SafeShaderFlags), for a tester to tell whether a broken
-  // picture comes from them.
-  bool safe_shaders = false;
   // Session 73: dynamic resolution (src\dynamic_res.h): a step smaller while the phone cannot keep up.
   bool dynamic_res = true;
-  // Session 73: the busy game threads kept off the slowest CPU cores (srcndroid_perf_hint.h); a test switch.
-  bool big_cores = false;
+  // Session 94 (Jarrod): PERFORMANCE MODE, SAFE SHADERS and BIG CORES are gone (old files still load; the keys are ignored).
   // Session 73 (Jarrod's ideas 1, 2, 4 of the fourth ten): Snapdragon Game Super Resolution 1 from the game's picture
   // to the screen (SDK present_effect=sgsr) instead of a plain stretch; PERFORMANCE MODE (the scene drawn at 540p at
   // most + SGSR + the crowd members out of view left out, gpu_scene_crowd_cull 2, exact); FAST SHADERS (the pixel
   // shaders' colour maths at half precision, gpu_native_ps_relaxed_precision; a test).
   bool sgsr = true;
-  bool performance = false;
   bool fast_shaders = false;
   // Session 80 (Jarrod: "a little fps/frametime/temperature graph ... the toggle in the logging settings"; then "maybe we
   // could have both as options, light and verbose"): the game's performance overlay (src\perf_overlay.h): 0 off,
@@ -157,17 +177,24 @@ inline Settings LoadSettings(const fs::path& p) {
     Get(j, "check_updates", s.check_updates);
     Get(j, "driver", s.driver);
     Get(j, "drivers_ok", s.drivers_ok), Get(j, "drivers_bad", s.drivers_bad);
-    Get(j, "safe_shaders", s.safe_shaders);
     Get(j, "dynamic_res", s.dynamic_res);
-    Get(j, "big_cores", s.big_cores);
-    Get(j, "sgsr", s.sgsr), Get(j, "performance", s.performance), Get(j, "fast_shaders", s.fast_shaders);
+    Get(j, "sgsr", s.sgsr), Get(j, "fast_shaders", s.fast_shaders);
     Get(j, "perf_overlay", s.perf_overlay);
     Get(j, "shadows", s.shadows), Get(j, "depth_of_field", s.depth_of_field), Get(j, "crowd_density", s.crowd_density);
+    Get(j, "true_native", s.true_native);  // Session 90
+    Get(j, "quality_tier", s.quality_tier);  // Session 93
+    Get(j, "storage_test", s.storage_test), Get(j, "mediump", s.mediump);
+    int version = 0;  // Session 93: files from before it move to TRUE NATIVE once (the next save writes version 1)
+    Get(j, "settings_version", version);
+    if (version < 1) s.true_native = true;
   } catch (...) {
   }
   s.crowd_density = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;  // Session 85
-  if (s.frame_rate != 0 && s.frame_rate != 1 && s.frame_rate != 3) s.frame_rate = 1;
+  if (s.frame_rate == 3) s.frame_rate = 0;  // Session 94: 30 everywhere left the phone's list
+  if (s.frame_rate != 0 && s.frame_rate != 1 && s.frame_rate != 2) s.frame_rate = 1;
   s.texture_filter = std::clamp(s.texture_filter, 0, 2);
+  s.quality_tier = std::clamp(s.quality_tier, 0, 2);
+  s.storage_test = std::clamp(s.storage_test, 0, 3);
   s.aspect = std::clamp(s.aspect, 0, 1);
   s.touch_mode = std::clamp(s.touch_mode, 0, 2);
   s.touch_size = std::clamp(s.touch_size, 60, 150);
@@ -186,12 +213,14 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"touch_mode", s.touch_mode},       {"touch_size", s.touch_size},
                             {"touch_opacity", s.touch_opacity}, {"touch_vibrate", s.touch_vibrate},
                             {"check_updates", s.check_updates}, {"driver", s.driver},
-                            {"safe_shaders", s.safe_shaders},   {"dynamic_res", s.dynamic_res},
-                            {"big_cores", s.big_cores},         {"sgsr", s.sgsr},
-                            {"performance", s.performance},     {"fast_shaders", s.fast_shaders},
+                            {"dynamic_res", s.dynamic_res},     {"sgsr", s.sgsr},
+                            {"fast_shaders", s.fast_shaders},
                             {"drivers_ok", s.drivers_ok},       {"drivers_bad", s.drivers_bad},
                             {"perf_overlay", s.perf_overlay},   {"shadows", s.shadows},
-                            {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density}};
+                            {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density},
+                            {"quality_tier", s.quality_tier},
+                            {"storage_test", s.storage_test},   {"mediump", s.mediump},
+                            {"true_native", s.true_native},     {"settings_version", s.settings_version}};
   std::error_code ec;
   fs::create_directories(p.parent_path(), ec);
   const fs::path tmp = p.string() + ".tmp";
@@ -233,24 +262,53 @@ struct LaunchContext {
 // game's process; the launcher's process cannot hand it over).
 inline constexpr const char* kGameFdToken = "@GAME_FD@";
 
+// What the scene is drawn at (0 = the copies' whole size). GameArgs and the precompile key both use it.
+inline int EffectiveDrawHeight(const Settings& s) {
+  const Resolution& r = kResolutions[std::clamp(s.resolution, 0, kResolutionCount - 1)];
+  return r.draw_height;
+}
+
 inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext& c) {
   std::vector<std::string> f;
   if (!c.game_path.empty()) f.push_back("--game_data_root=" + c.game_path);
   // Graphics (gfx_settings.h GraphicsFlags with the NATIVE renderer, no upscaler, the phone's choices).
   const Resolution& r = kResolutions[std::clamp(s.resolution, 0, kResolutionCount - 1)];
+  // Session 93: the quality tier (every phone is a phone: AUTO = LOW). The phone's default is already 720p and 1080P is
+  // always a hand choice, so LOW leaves the resolution alone; it adds the crowd at 70% when left at 100%.
+  // (gfx_settings.h ResolveQualityTier for a phone: LOW unless STANDARD is chosen; that header is not included here.)
+  const bool low = s.quality_tier != 2;
+  f.push_back(std::string("--wwe2k14_quality_note=") +
+              (low ? (s.quality_tier == 1 ? "LOW_chosen" : "LOW_auto_phone") : "STANDARD_chosen"));
   if (r.resolution == 1) f.push_back("--resolution_scale=2");  // the Android build defaults to 1 (720p)
-  // Session 73: PERFORMANCE MODE draws the scene at 540p at most (the copies stay at the chosen size).
-  const int draw_height = s.performance && r.resolution == 0 && (r.draw_height == 0 || r.draw_height > 540)
-                              ? 540
-                              : r.draw_height;
+  const int draw_height = EffectiveDrawHeight(s);
   if (draw_height) f.push_back("--gpu_native_truth_draw_height=" + std::to_string(draw_height));
-  if (s.sgsr || s.performance) f.push_back("--present_effect=sgsr");
-  if (s.performance) f.push_back("--gpu_scene_crowd_cull=2");
+  if (s.sgsr) f.push_back("--present_effect=sgsr");
   // Session 85: the PC launcher's SHADOWS / CROWD DENSITY / DEPTH OF FIELD (flags only when not the default).
   if (!s.shadows) f.push_back("--gpu_dynamic_shadows=false");
   if (!s.depth_of_field) f.push_back("--gpu_depth_of_field=false");
-  if (const int crowd = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10; crowd < 100)
+  int crowd_pct = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;
+  if (low && crowd_pct >= 100) crowd_pct = 70;  // Session 93: LOW
+  if (const int crowd = crowd_pct; crowd < 100)
     f.push_back("--gpu_scene_crowd_density=" + std::to_string(crowd));
+  // Session 90: TRUE NATIVE (the PC launcher's Advanced toggle; off = no flag).
+  if (s.true_native) f.push_back("--wwe2k14_d3d_owned=true");
+  // Session 93 (Jarrod, 2026-11-06 07:xx, after testing on his phone: "tested well ... I did see performance increases ...
+  // remove the toggle and keep these changes as just straight up the default"): the phone defaults - BC1 -> ASTC textures
+  // (only on GPUs without BC), mediump colour maths in our arena / combine shaders, display-timed presents, the thermal
+  // step-down (with DYNAMIC RES), the TRUE NATIVE pace gate (only under TRUE NATIVE).
+  f.push_back("--vulkan_texture_transcode=true");
+  if (s.mediump) f.push_back("--wwe2k14_shader_mediump=true");
+  if (s.storage_test == 1) {
+    f.push_back("--vulkan_shared_memory_window=on");
+  } else if (s.storage_test == 2) {
+    f.push_back("--vulkan_shared_memory_window=auto");
+    f.push_back("--vulkan_emulate_limits=maxStorageBufferRange=67108864");
+  } else if (s.storage_test == 3) {
+    f.push_back("--vulkan_shared_memory_window=off");
+  }
+  f.push_back("--present_display_timing=true");
+  f.push_back("--wwe2k14_android_thermal=true");
+  f.push_back("--wwe2k14_android_pace_gate=true");
   // Session 73: Fast shaders off for now (on Jarrod's Adreno 830 the title and the match went black, only the ring's
   // banner left: half precision breaks values the PC's driver never runs at 16 bits). The setting stays, unused.
   // Session 73 (static in the background with fill-the-screen, Jarrod's phone only): truth passes keep colour with
@@ -264,11 +322,12 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   f.push_back("--wwe2k14_phys_alloc_fast_fail=true");
   // Session 73, b77: GPU busy work through loads, so each entrance does not start at the lowest GPU clock.
   f.push_back("--wwe2k14_gpu_keep_warm=true");
-  if (s.frame_rate == 0 || s.frame_rate == 3) f.push_back("--wwe2k14_entrance_60fps=false");
-  if (s.frame_rate == 3) {
-    f.push_back("--wwe2k14_step_hz=30");
-    f.push_back("--wwe2k14_step_hz_entrance=60");
-    f.push_back("--vulkan_texture_load_direct_unscaled=true");
+  if (s.frame_rate == 0) f.push_back("--wwe2k14_entrance_60fps=false");
+  if (s.frame_rate == 2) {  // Session 94 (gfx_settings.h GraphicsFlags frame_rate 2 with 120 steps a second)
+    f.push_back("--wwe2k14_step_hz=120");
+    f.push_back("--wwe2k14_step_hz_entrance=120");
+    f.push_back("--wwe2k14_step_vblank=true");
+    f.push_back("--vulkan_allow_present_mode_immediate=false");  // mailbox: every frame shown, no tearing
   }
   if (s.texture_filter == 1 || s.texture_filter == 2)
     f.push_back(std::string("--wwe2k14_texture_filter=") + (s.texture_filter == 2 ? "16" : "8"));
@@ -278,17 +337,7 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
                 std::to_string(std::min(c.screen_w, c.screen_h)));
   if (s.language > 0) f.push_back("--user_language=" + std::to_string(s.language));
   if (s.dynamic_res) f.push_back("--wwe2k14_dynamic_res=true");  // Session 73
-  if (s.big_cores) f.push_back("--wwe2k14_android_big_cores=true");  // Session 73
   if (s.perf_overlay) f.push_back("--wwe2k14_perf_overlay=" + std::to_string(s.perf_overlay));  // Session 80
-  // Session 73: SAFE SHADERS - the shaders as the emulator translates them, without NATIVE's shortcuts (the Xbox 360's
-  // multiply rule kept, no fused multiply-add, no baked-in endian / texture sign / epilogue variants). Only the 4090
-  // and Jarrod's Adreno 830 have run the shortcuts; a phone's driver may build them wrongly.
-  if (s.safe_shaders)
-    for (const char* flag : {"--gpu_native_vs_mul_mode=0", "--gpu_native_ps_mul_mode=0", "--gpu_native_fma=0",
-                             "--gpu_native_vs_mul_fetch_finite=false", "--gpu_native_vertex_endian_spec=false",
-                             "--gpu_native_ps_texture_spec=false", "--gpu_native_ps_epilogue_spec=false",
-                             "--gpu_native_ps_implicit_lod=false"})
-      f.push_back(flag);
   // DLC (launcher_core.h DlcFlags).
   if (s.dlc && !c.dlc_dir.empty()) {
     f.push_back("--wwe2k14_dlc=true");
@@ -309,6 +358,24 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   // The launcher's choices are the whole picture (launcher_core.h: the game must not apply a settings file on top).
   f.push_back("--wwe2k14_use_launcher_settings=false");
   return f;
+}
+
+// Session 93 (M6 step 2, the shader translation store; docs\native\d3d\S92_M6_DESIGN.md): the shader precompile only
+// exists for TRUE NATIVE (the store is on under it, src\d3d_owned.h). The PC launcher's PrecompileKey, for the phone: the stamp
+// (<files>/precompile_stamp.txt) holds this key after a precompile that finished, and the next PLAY runs the precompile again
+// only when the key differs: a new app version (the GPU module's hash is the store's version and the shader list may have
+// grown), another system build (the Vulkan driver), another GPU driver choice, and the settings that change the translator's
+// configuration or the shaders' variants (the draw scale, TRUE NATIVE, FAST SHADERS,
+// the texture filter). Everything else (touch, sound, crowd, shadows, ...) leaves the store valid.
+inline bool WantsPrecompile(const Settings& s) { return s.true_native; }
+inline std::string PrecompileKey(const Settings& s, const std::string& version, const std::string& device) {
+  const Resolution& r = kResolutions[std::clamp(s.resolution, 0, kResolutionCount - 1)];
+  return "app " + version + "; device " + device + "; driver " + s.driver + "; resolution " + std::to_string(r.resolution) +
+         " draw_height " + std::to_string(EffectiveDrawHeight(s)) +
+         " true_native " + std::to_string(int(s.true_native)) + " s93_phone_defaults 1" +
+         " fast_shaders " + std::to_string(int(s.fast_shaders)) + " texture_filter " + std::to_string(s.texture_filter) +
+         (s.storage_test ? " storage_test " + std::to_string(s.storage_test) : std::string()) +  // only when changed
+         (s.mediump ? std::string() : std::string(" mediump 0"));
 }
 
 }  // namespace mlauncher

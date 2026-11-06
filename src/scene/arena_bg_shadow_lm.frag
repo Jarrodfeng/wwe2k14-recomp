@@ -59,6 +59,12 @@ void main() {
   float height = one - in_height.z;
   float shade = max((C168.w * height) * term_a, (height * C169.x) * term_b);
 
+#ifdef MEDIUMP
+  mediump vec3 mCol = color.rgb, mVc = in_color.rgb, mLight = light;
+  mediump float mLit = one - shade;
+  mediump vec3 rgb = ((mCol * mVc) * mLit) * mLight;
+#else
   vec3 rgb = ((color.rgb * in_color.rgb) * (one - shade)) * light;
+#endif
   XeOutputColor(vec4(rgb, color.a * in_color.a));
 }

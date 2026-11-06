@@ -1590,6 +1590,8 @@ REX_EXTERN(__imp__sub_82B49A70);
 REX_HOOK_RAW(sub_82B49A70) {
   using namespace wwe2k14::mouse_menu;
   if (REXCVAR_GET(wwe2k14_mouse_menus)) OnListStep(ctx.r3.u32);
+  // Session 91: the navigator's focused-widget cursor (src/focus_widget.h): this list's input mixin -> the list
+  wwe2k14::focus::NoteList(ctx.r3.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));
   __imp__sub_82B49A70(ctx, base);
 }
 REX_EXTERN(__imp__sub_82856B40);

@@ -55,7 +55,7 @@ $exeDir = Split-Path -Parent $Exe
 $logs = Join-Path $exeDir 'logs'
 New-Item -ItemType Directory -Force $Out | Out-Null
 $settings = Join-Path $Out 'settings_native720.json'
-Set-Content $settings '{"renderer": 2, "frame_rate": 1, "resolution": 0}'   # NATIVE, 60 fps, 720p (a test file)
+Set-Content $settings '{"renderer": 2, "frame_rate": 1, "resolution": 0, "quality_tier": 2}'   # NATIVE, 60 fps, 720p (a test file)
 
 # (Session 80, -Front: see the parameter.) Waits for the game's window, makes it topmost (above the taskbar) and the
 # foreground window (an Alt press first: Windows lets a process that just had input move the foreground), and says

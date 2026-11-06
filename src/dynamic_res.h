@@ -14,6 +14,8 @@
 // Back up (fixed later in Session 73: the first version waited for frames well under the target, which never come with
 // the game paced by its vblank, so it never stepped back up): a probe step up after 10 s on time; one that runs over
 // comes back down, and the next probe waits twice as long (up to 2 min).
+// Session 94: under TRUE NATIVE (wwe2k14_d3d_owned) and --wwe2k14_dynamic_res_owned=true (on since Session 94 M2b, Jarrod; the launcher's DYNAMIC RESOLUTION toggle still decides) the steps are the ratio of the owned frame's scene pass (gpu_native_owned_draw_ratio); the Android
+// thermal step-down (android_thermal.h -> OnThermal) already calls this controller, so it drives the ratio too.
 // Logs [wwe2k14][dynres] lines. --wwe2k14_dynamic_res=true turns it on (the phone launcher's switch, on by default).
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -21,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 #include "frame_word.h"  // TargetFrameMs
@@ -31,6 +34,9 @@ REXCVAR_DEFINE_BOOL(wwe2k14_dynamic_res, false, "wwe2k14",
 REXCVAR_DEFINE_INT32(wwe2k14_dynamic_res_min_percent, 60, "wwe2k14",
                      "Session 73: dynamic resolution's lowest step, in percent of the chosen resolution's height")
     .range(50, 100);
+REXCVAR_DEFINE_BOOL(wwe2k14_dynamic_res_owned, true, "wwe2k14",
+                    "Session 94: with TRUE NATIVE (--wwe2k14_d3d_owned) dynamic resolution (--wwe2k14_dynamic_res) steps the SDK's gpu_native_owned_draw_ratio "
+                    "(the owned frame's scene pass drawn smaller and blitted up at its copies). On by default since Session 94 M2b (Jarrod: it should be on, behind its toggle): the toggle is --wwe2k14_dynamic_res (the launcher's DYNAMIC RESOLUTION)");
 REXCVAR_DEFINE_DOUBLE(wwe2k14_dynamic_res_target_ms, 0.0, "wwe2k14",
                       "Session 73: dynamic resolution's frame time target in ms (0 = 16.7, or 33.3 with "
                       "--wwe2k14_step_hz=30); a test may set it low to force steps");
@@ -59,6 +65,20 @@ class Controller {
     Window(avg, target);
   }
 
+  // Session 93 (android_thermal.h, --wwe2k14_android_thermal): the phone says it is hot (hot = true: one step down now, with
+  // no probe back up until it says false) or cool again. Never called with the switch off; does nothing while dynamic
+  // resolution is off or inactive.
+  void OnThermal(bool hot, float headroom) {
+    thermal_hot_ = hot;
+    if (!hot || !active_ || step_ >= lowest_) return;
+    check_after_down_ = false;  // a heat step is not judged by the frames it makes (the heat is the reason)
+    probe_left_ = 0;
+    REXLOG_INFO("[wwe2k14][dynres] thermal headroom {:.2f}: one step down", headroom);
+    Apply(step_ + 1, 0.0);
+    cooldown_ = 1;
+    over_ = under_ = 0;
+  }
+
  private:
   static constexpr double kSteps[] = {1.0, 0.9, 0.8, 0.75, 2.0 / 3.0, 0.6};
   static constexpr int kStepCount = int(sizeof(kSteps) / sizeof(kSteps[0]));
@@ -67,7 +87,11 @@ class Controller {
     started_ = true;
     const std::string native = rex::cvar::GetFlagByName("gpu_native");
     const std::string truth = rex::cvar::GetFlagByName("gpu_native_truth");
-    if (native != "2" || truth != "true") {
+    // Session 94: TRUE NATIVE (wwe2k14_d3d_owned, src\d3d_owned.h) has no truth path - there the sink is the owned frame's scene-pass ratio
+    // (SDK gpu_native_owned_draw_ratio, read once per frame: the scene pass is drawn into images of that fraction of its size and brought
+    // up by a blit at its copies). The controller above is the same.
+    owned_ = rex::cvar::GetFlagByName("wwe2k14_d3d_owned") == "true" && REXCVAR_GET(wwe2k14_dynamic_res_owned);
+    if (!owned_ && (native != "2" || truth != "true")) {
       REXLOG_INFO("[wwe2k14][dynres] off: needs NATIVE truth frames (gpu_native {}, truth {})", native, truth);
       active_ = false;
       return false;
@@ -75,7 +99,7 @@ class Controller {
     int scale = 1;
     try { scale = std::max(1, std::stoi(rex::cvar::GetFlagByName("resolution_scale"))); } catch (...) {}
     int chosen = 0;
-    try { chosen = std::stoi(rex::cvar::GetFlagByName("gpu_native_truth_draw_height")); } catch (...) {}
+    if (!owned_) { try { chosen = std::stoi(rex::cvar::GetFlagByName("gpu_native_truth_draw_height")); } catch (...) {} }
     full_ = 720 * scale;
     base_ = chosen > 0 && chosen < full_ ? chosen : full_;
     chosen_flag_ = chosen;
@@ -83,8 +107,8 @@ class Controller {
     lowest_ = 0;
     while (lowest_ + 1 < kStepCount && kSteps[lowest_ + 1] * 100.0 >= min_percent - 0.01) ++lowest_;
     active_ = true;
-    REXLOG_INFO("[wwe2k14][dynres] on: {} rows (of {}), steps down to {}%, target {:.1f} ms", base_, full_,
-                int(std::lround(kSteps[lowest_] * 100.0)), Target());
+    REXLOG_INFO("[wwe2k14][dynres] on ({}): {} rows (of {}), steps down to {}%, target {:.1f} ms", owned_ ? "TRUE NATIVE, gpu_native_owned_draw_ratio" : "native truth, gpu_native_truth_draw_height",
+                base_, full_, int(std::lround(kSteps[lowest_] * 100.0)), Target());
     return true;
   }
 
@@ -148,7 +172,7 @@ class Controller {
       Apply(step_ + 1, avg);
       cooldown_ = 1;
       over_ = under_ = 0;
-    } else if (under_ >= probe_wait_ && step_ > 0) {
+    } else if (under_ >= probe_wait_ && step_ > 0 && !thermal_hot_) {
       Apply(step_ - 1, avg);
       probe_left_ = kProbeWindows;
       cooldown_ = 1;
@@ -173,13 +197,19 @@ class Controller {
     const int rows = Height(step_);
     // The full height as 0 (the resolution scale's own size: no draw twins), as the launcher gives it.
     const int flag = step_ == 0 ? chosen_flag_ : (rows >= full_ ? 0 : rows);
-    rex::cvar::SetFlagByName("gpu_native_truth_draw_height", std::to_string(flag));
+    if (owned_) {
+      char ratio[16];
+      std::snprintf(ratio, sizeof(ratio), "%.4f", kSteps[step_]);
+      rex::cvar::SetFlagByName("gpu_native_owned_draw_ratio", ratio);  // (the SDK reads it at the next frame's first owned pass)
+    } else {
+      rex::cvar::SetFlagByName("gpu_native_truth_draw_height", std::to_string(flag));
+    }
     ++changes_;
     REXLOG_INFO("[wwe2k14][dynres] {} -> {} rows ({}%; frames {:.1f} ms, target {:.1f}); change {}", old_rows, rows,
                 int(std::lround(kSteps[step_] * 100.0)), avg, Target(), changes_);
   }
 
-  bool started_ = false, active_ = false;
+  bool started_ = false, active_ = false, owned_ = false;  // Session 94: owned_ = TRUE NATIVE, the ratio sink
   mutable int rows_flag_ = -2;  // Session 73: Rows() without dynamic resolution (read once)
   int full_ = 720, base_ = 720, chosen_flag_ = 0, lowest_ = 0, step_ = 0;
   double window_ms_ = 0.0, window_used_ms_ = 0.0;
@@ -187,6 +217,7 @@ class Controller {
   int over_ = 0, under_ = 0, cooldown_ = 0, hold_ = 0;
   int probe_wait_ = kProbeWaitStart, probe_left_ = 0;
   bool check_after_down_ = false;
+  bool thermal_hot_ = false;  // Session 93: android_thermal.h
   double before_down_ms_ = 0.0;
   uint64_t windows_ = 0, changes_ = 0;
 };

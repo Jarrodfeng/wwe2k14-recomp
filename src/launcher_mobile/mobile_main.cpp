@@ -137,6 +137,7 @@ class App {
     for (const auto& d : kDrivers) driver_bundled_.push_back(DriverBundled(d.file));
     if (!driver_ask_.empty()) page_ = kGraphics;  // Session 73: the question at the top of GRAPHICS
     RefreshGame();
+    ResumeAfterPrecompile();  // Session 93
     // Session 73: how the last game run ended (src\blackbox.h; LauncherActivity wrote Android's reason first).
     last_run_ = check::LastRun(files_);
     if (!last_run_.empty()) {
@@ -155,6 +156,13 @@ class App {
   // One frame. Returns false once the PC test's screenshot is saved.
   bool Frame() {
     for (platform::Event e; platform::PollEvent(e);) OnEvent(e);
+    // Session 93 (M6 step 2): the shader precompile has just ended and brought us back: the PLAY it was for goes on (after a
+    // few frames, so the launcher is up and the platform is ready for the activity switch).
+    if (resume_play_ && ++resume_frames_ > 3) {
+      resume_play_ = false;
+      precompile_skip_once_ = true;
+      Play(resume_wm30_);
+    }
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 size = io.DisplaySize;
     SDL_Rect safe{0, 0, int(size.x), int(size.y)};
@@ -703,8 +711,16 @@ class App {
     const float px = D(21);
     const ImVec2 p = ImGui::GetCursorScreenPos();
     MenuText(ImGui::GetWindowDrawList(), p, px, IM_COL32(235, 70, 70, 255), text);
-    ImGui::Dummy(ImVec2(1, px + D(6)));
+    if (title_underline_) {  // Session 94 (Jarrod): a short red accent under each GRAPHICS section title
+      const float uw = std::min(MenuTextSize(px, text).x, ImGui::GetContentRegionAvail().x);
+      const ImU32 red = IM_COL32(int(theme::kRedTop.r * 255), int(theme::kRedTop.g * 255), int(theme::kRedTop.b * 255), 255);
+      ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(p.x, p.y + px + D(5)), ImVec2(p.x + uw, p.y + px + D(7.5f)), red);
+      ImGui::Dummy(ImVec2(1, px + D(12)));
+    } else {
+      ImGui::Dummy(ImVec2(1, px + D(6)));
+    }
   }
+  bool title_underline_ = false;
   void Note(const char* text) {
     ImGui::PushStyleColor(ImGuiCol_Text, kDim);
     ImGui::TextWrapped("%s", text);
@@ -725,37 +741,61 @@ class App {
     ImGui::Dummy(ImVec2(0, D(4)) );
     return pressed;
   }
-  // One choice of a list; returns true when picked.
-  bool Choice(const char* label, bool selected) {
+  // Wrapped text height / drawing (the narrow two-column layout wraps labels and notes instead of clipping them).
+  float WordMin(const char* text, float scale) const {  // the longest word's width: wrapping never goes below it
+    float m = 0;
+    std::string t(text), w;
+    t += ' ';
+    for (char c : t) {
+      if (c == ' ') {
+        if (!w.empty()) m = std::max(m, ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize() * scale, FLT_MAX, 0, w.c_str()).x);
+        w.clear();
+      } else w += c;
+    }
+    return m;
+  }
+  float WrapH(const char* text, float scale, float wrap) const {
+    wrap = std::max(wrap, WordMin(text, scale));
+    return ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize() * scale, FLT_MAX, wrap, text).y;
+  }
+  void WrapText(ImDrawList* dl, ImVec2 at, const char* text, float scale, float wrap, ImU32 col) const {
+    wrap = std::max(wrap, WordMin(text, scale));
+    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * scale, at, col, text, nullptr, wrap);
+  }
+  // One choice of a list; returns true when picked. `note` is a dim line under the label (wrapped).
+  bool Choice(const char* label, bool selected, const char* note = nullptr) {
     ImVec2 p;
+    const float aw = ImGui::GetContentRegionAvail().x, tw = std::max(D(40), aw - D(14) - D(38));
+    const float lh = WrapH(label, 1.f, tw), nh = note ? WrapH(note, 0.82f, tw) : 0;
+    const float h = std::max(D(52), lh + (note ? nh + D(3) : 0) + D(20));
     ImGui::PushID(label);
-    const bool r = Row("##c", D(52), selected, &p);
+    const bool r = Row("##c", h, selected, &p);
     ImGui::PopID();
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float h = D(52);
-    dl->AddText(ImVec2(p.x + D(18), p.y + (h - ImGui::GetTextLineHeight()) / 2), IM_COL32_WHITE, label);
-    const float w = ImGui::GetContentRegionAvail().x, cx = p.x + w - D(28), cy = p.y + h / 2;
+    const float ty = p.y + (h - lh - (note ? nh + D(3) : 0)) / 2;
+    WrapText(dl, ImVec2(p.x + D(14), ty), label, 1.f, tw, IM_COL32_WHITE);
+    if (note) WrapText(dl, ImVec2(p.x + D(14), ty + lh + D(3)), note, 0.82f, tw, ImGui::GetColorU32(kDim));
+    const float cx = p.x + aw - D(22), cy = p.y + h / 2;
     dl->AddCircle(ImVec2(cx, cy), D(10), IM_COL32(200, 200, 206, 255), 0, D(2));
     if (selected) dl->AddCircleFilled(ImVec2(cx, cy), D(6), kMenuRed);
     return r;
   }
   bool Toggle(const char* label, bool& v, const char* note = nullptr) {
     ImVec2 p;
+    const float aw = ImGui::GetContentRegionAvail().x, tw = std::max(D(40), aw - D(14) - D(50) - D(6));
+    const float lh = WrapH(label, 1.f, tw), nh = note ? WrapH(note, 0.82f, tw) : 0;
+    const float h = std::max(note ? D(68) : D(52), lh + (note ? nh + D(3) : 0) + D(20));
     ImGui::PushID(label);
-    const float h = note ? D(68) : D(52);
     const bool r = Row("##t", h, false, &p);
     ImGui::PopID();
     if (r) v = !v;
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float line = ImGui::GetTextLineHeight();
-    const float ty = note ? p.y + h / 2 - line - D(1) : p.y + (h - line) / 2;
-    const float w = ImGui::GetContentRegionAvail().x, sx = p.x + w - D(66), sy = p.y + h / 2 - D(13);
-    ImGui::PushClipRect(p, ImVec2(sx - D(8), p.y + h), true);  // long names / notes stop before the switch
-    dl->AddText(ImVec2(p.x + D(18), ty), IM_COL32_WHITE, label);
-    if (note) dl->AddText(ImVec2(p.x + D(18), ty + line + D(2)), ImGui::GetColorU32(kDim), note);
-    ImGui::PopClipRect();
-    dl->AddRectFilled(ImVec2(sx, sy), ImVec2(sx + D(48), sy + D(26)), v ? kMenuRed : IM_COL32(70, 72, 80, 255), D(13));
-    dl->AddCircleFilled(ImVec2(v ? sx + D(35) : sx + D(13), sy + D(13)), D(10), IM_COL32_WHITE);
+    const float ty = p.y + (h - lh - (note ? nh + D(3) : 0)) / 2;
+    const float sx = p.x + aw - D(50), sy = p.y + h / 2 - D(11);
+    WrapText(dl, ImVec2(p.x + D(14), ty), label, 1.f, tw, IM_COL32_WHITE);
+    if (note) WrapText(dl, ImVec2(p.x + D(14), ty + lh + D(3)), note, 0.82f, tw, ImGui::GetColorU32(kDim));
+    dl->AddRectFilled(ImVec2(sx, sy), ImVec2(sx + D(40), sy + D(22)), v ? kMenuRed : IM_COL32(70, 72, 80, 255), D(11));
+    dl->AddCircleFilled(ImVec2(v ? sx + D(29) : sx + D(11), sy + D(11)), D(8.5f), IM_COL32_WHITE);
     return r;
   }
   bool Slider(const char* label, int& v, int lo, int hi, const char* fmt) {
@@ -927,53 +967,114 @@ class App {
         Save();
       }
     }
-    GroupTitle("RESOLUTION");
-    for (int i = 0; i < kResolutionCount; ++i) {
-      const std::string label = std::string(kResolutions[i].name) + (i == kDefaultResolution ? "  (default)" : "") +
-                                (kResolutions[i].resolution == 1 ? "  (heavy)" : "");
-      if (Choice(label.c_str(), s_.resolution == i)) s_.resolution = i, Save();
-    }
-    Note("What the game draws at. Lower is faster and cooler; 720p is what this phone was tested at.");
-    if (Toggle("Performance mode", s_.performance, "540p at most, sharp upscaling, less crowd work")) Save();
-    Note("For phones that drop frames in matches: the scene is drawn at 540p at most and sharpened up to the screen. "
-         "Turn it off for the sharpest picture.");
-    if (Toggle("Sharp upscaling (Snapdragon GSR)", s_.sgsr, "A sharper picture on the screen than a plain stretch"))
-      Save();
-    if (Toggle("Dynamic resolution", s_.dynamic_res, "Sharper when it can, smoother when it must")) Save();
-    Note("When the phone cannot keep up (heat, busy entrances) the game draws a little smaller for a while, then "
-         "goes back up.");
-    // Session 85: the PC launcher's SHADOWS, CROWD DENSITY and DEPTH OF FIELD.
-    GroupTitle("EFFECTS");
-    if (Toggle("Shadows", s_.shadows, "Dynamic shadows from wrestlers, ropes and props")) Save();
-    Note("Turning them off is faster on weaker phones; the arena's baked lighting stays.");
-    if (Slider("Crowd density", s_.crowd_density, 0, 100, "%d%%")) {
-      s_.crowd_density = (std::clamp(s_.crowd_density, 0, 100) + 5) / 10 * 10;
-      Save();
-    }
-    Note("How much of the crowd is drawn, spread evenly over the arena. 100% is the normal look; 0% is an empty arena. "
-         "Takes effect when the game starts.");
-    if (Toggle("Depth of field", s_.depth_of_field, "The blur on the background behind the wrestlers")) Save();
-    GroupTitle("FRAME RATE");
-    for (const auto& f : kFrameRates)
-      if (Choice(f.name, s_.frame_rate == f.value)) s_.frame_rate = f.value, Save();
-    if (Toggle("Big cores (test)", s_.big_cores, "The game's busiest work on the fast CPU cores only")) Save();
-    Note("A test: does the game run smoother on your phone with it on?");
-    GroupTitle("SCREEN SHAPE");
-    if (Choice("16:9 WITH BARS (the game's own)", s_.aspect == 0)) s_.aspect = 0, Save();
-    if (Choice("FILL THE SCREEN (more of the arena)", s_.aspect == 1)) s_.aspect = 1, Save();
-    Note("Fill the screen shows more of the arena in matches: at the sides on a long phone, above and below on a fold "
-         "or tablet. Menus stay 16:9.");
-    GroupTitle("TEXTURE FILTERING");
-    static constexpr const char* kFilters[] = {"STANDARD", "8X", "16X"};
-    for (int i = 0; i < 3; ++i)
-      if (Choice(kFilters[i], s_.texture_filter == i)) s_.texture_filter = i, Save();
-    GroupTitle("LANGUAGE");
-    for (const auto& l : kLanguages)
-      if (Choice(l.name, s_.language == l.id)) s_.language = l.id, Save();
-    GroupTitle("IF THE PICTURE IS BROKEN");
-    if (Toggle("Safe shaders", s_.safe_shaders, "Plain shaders, a little slower")) Save();
-    Note("Spiky or stretched models, smeared faces? Try this, then another driver below, and send the game log "
-         "(LOGS AND UPDATES) with what you saw.");
+    // Session 94 (Jarrod's redesign): two columns in both orientations, no subheading text under the options. The groups
+    // come in ROWS of pairs that start at the same height (a table row each, as tall as the taller block); every block
+    // sits on its own lighter panel with a clear gutter of page background between the two columns.
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(D(8), 0));
+    title_underline_ = true;
+    int pair_id = 0;
+    // One pair: draw(left) then draw(right); `first` / `second` are lambdas filling their cell.
+    auto Pair = [&](auto&& left, auto&& right) {
+      ImGui::PushID(pair_id++);
+      const ImVec2 top = ImGui::GetCursorScreenPos();
+      const float full_w = ImGui::GetContentRegionAvail().x;
+      if (ImGui::BeginTable("##pair", 3, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_PadOuterX)) {
+        ImGui::TableSetupColumn("l", ImGuiTableColumnFlags_WidthStretch, 1.f);
+        ImGui::TableSetupColumn("g", ImGuiTableColumnFlags_WidthFixed, D(8));
+        ImGui::TableSetupColumn("r", ImGuiTableColumnFlags_WidthStretch, 1.f);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        left();
+        ImGui::Dummy(ImVec2(1, D(8)));
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TableSetColumnIndex(2);
+        right();
+        ImGui::Dummy(ImVec2(1, D(8)));
+        ImGui::EndTable();
+      }
+      ImGui::PopID();
+      {  // a 2 px divider centred in the gutter, fading out over the top and bottom 15% of the pair's height
+        const float y0 = top.y, y1 = ImGui::GetCursorScreenPos().y, fade = (y1 - y0) * 0.15f;
+        const float cx = top.x + full_w / 2, hw = D(1);
+        const ImU32 solid = IM_COL32(70, 72, 80, 255), clear = IM_COL32(70, 72, 80, 0);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilledMultiColor(ImVec2(cx - hw, y0), ImVec2(cx + hw, y0 + fade), clear, clear, solid, solid);
+        dl->AddRectFilled(ImVec2(cx - hw, y0 + fade), ImVec2(cx + hw, y1 - fade), solid);
+        dl->AddRectFilledMultiColor(ImVec2(cx - hw, y1 - fade), ImVec2(cx + hw, y1), solid, solid, clear, clear);
+      }
+      ImGui::Dummy(ImVec2(1, D(12)));
+    };
+    Pair(
+        [&] {
+          GroupTitle("QUALITY");  // Session 93: AUTO / LOW / STANDARD
+          if (Choice("AUTO  (default)", s_.quality_tier == 0)) s_.quality_tier = 0, Save();
+          if (Choice("LOW", s_.quality_tier == 1)) s_.quality_tier = 1, Save();
+          if (Choice("STANDARD", s_.quality_tier == 2)) s_.quality_tier = 2, Save();
+        },
+        [&] {
+          GroupTitle("RESOLUTION");
+          for (int i = 0; i < kResolutionCount; ++i) {
+            const std::string label = std::string(kResolutions[i].name) + (i == kDefaultResolution ? "  (default)" : "") +
+                                      (kResolutions[i].resolution == 1 ? "  (heavy)" : "");
+            if (Choice(label.c_str(), s_.resolution == i)) s_.resolution = i, Save();
+          }
+        });
+    Pair(
+        [&] {
+          GroupTitle("FRAME RATE");
+          for (const auto& f : kFrameRates)
+            if (Choice(f.name, s_.frame_rate == f.value, f.note)) s_.frame_rate = f.value, Save();
+        },
+        [&] {
+          GroupTitle("UPSCALING");
+          if (Toggle("SGSR Upscaling", s_.sgsr)) Save();
+          if (Toggle("Dynamic resolution", s_.dynamic_res)) Save();
+        });
+    Pair(
+        [&] {
+          GroupTitle("SCREEN SHAPE");
+          if (Choice("16:9", s_.aspect == 0)) s_.aspect = 0, Save();
+          if (Choice("FILL THE SCREEN", s_.aspect == 1, "Still experimental and prone to visual glitches. Menus stay 16:9."))
+            s_.aspect = 1, Save();
+        },
+        [&] {
+          // Session 85: the PC launcher's SHADOWS, DEPTH OF FIELD and CROWD DENSITY (Jarrod's order).
+          GroupTitle("EFFECTS");
+          if (Toggle("Shadows", s_.shadows)) Save();
+          if (Toggle("Depth of field", s_.depth_of_field)) Save();
+          if (Slider("Crowd density", s_.crowd_density, 0, 100, "%d%%")) {
+            s_.crowd_density = (std::clamp(s_.crowd_density, 0, 100) + 5) / 10 * 10;
+            Save();
+          }
+          Note("100% is the normal look; 0% is an empty arena. Takes effect when the game starts.");
+        });
+    Pair(
+        [&] {
+          GroupTitle("LANGUAGE");
+          for (const auto& l : kLanguages)
+            if (Choice(l.name, s_.language == l.id)) s_.language = l.id, Save();
+        },
+        [&] {
+          // Session 90 (Jarrod): the PC launcher's Advanced TRUE NATIVE, on the phone too.
+          GroupTitle("EXPERIMENTAL");
+          if (Toggle("TRUE NATIVE", s_.true_native, "On by default. Turn it off if anything looks wrong.")) Save();
+          GroupTitle("TEXTURE FILTERING");
+          static constexpr const char* kFilters[] = {"STANDARD", "8X", "16X"};
+          ImGui::PushID("tf");
+          for (int i = 0; i < 3; ++i)
+            if (Choice(kFilters[i], s_.texture_filter == i)) s_.texture_filter = i, Save();
+          ImGui::PopID();
+          GroupTitle("DIAGNOSTICS");
+          static constexpr const char* kStorage[] = {"STORAGE: NORMAL", "STORAGE: WINDOWS ON",
+                                                     "STORAGE: SMALL WINDOWS", "STORAGE: OLD SPLIT"};
+          ImGui::PushID("st");
+          for (int i = 0; i < 4; ++i)
+            if (Choice(kStorage[i], s_.storage_test == i)) s_.storage_test = i, Save();
+          ImGui::PopID();
+          if (Toggle("Reduced precision", s_.mediump)) Save();
+          Note("For testers: change only when asked.");
+        });
+    ImGui::PopStyleVar();
     GroupTitle("GRAPHICS DRIVER");
     if (Choice("YOUR PHONE'S OWN DRIVER  (default)", s_.driver.empty())) s_.driver.clear(), Save();
     for (size_t i = 0; i < std::size(kDrivers); ++i) {
@@ -1003,6 +1104,7 @@ class App {
     Note("Try another driver if the picture is wrong or slow. One that does not suit your phone is skipped "
          "(the game uses your phone's own driver), and if the game does not start with it, the launcher goes back "
          "to your phone's own driver next time.");
+    title_underline_ = false;
   }
 
   void TouchPage() {
@@ -1349,18 +1451,47 @@ class App {
     return path;
   }
 
-  void Play(int wm30 = -1) {
-    if (!game_ok_) {
-      GoPage(kGameFiles);
-      ShowToast("Choose your game files first");
-      return;
+  // ------------------------------------------------------------ Session 93: the shader precompile (M6 step 2)
+  // The PC launcher's logic (launcher_main.cpp PrecompileKey / StartPrecompile / PollPrecompile), for the phone, where the game
+  // is another process and an activity: before the first PLAY after an install, an update or a setting that changes the
+  // translation store's key (PrecompileKey, mobile_settings.h), the launcher starts the game once in its precompile mode
+  // (--wwe2k14_precompile=FILE, src\precompile.h). That run translates the shader list's variants (the V lines) into the phone's
+  // store and makes the stored pipelines; GameActivity shows "Preparing shaders 120 / 462" from the progress file, and when the
+  // game has written its last state it writes precompile_return.txt and brings this launcher back; the launcher then writes
+  // the stamp and goes on with the PLAY (the same wm30 match) at once. The stamp holds the key of the last precompile that
+  // ended ("done", or "failed" - a timeout is not retried until the key changes, so a slow phone is not made to wait at every
+  // PLAY): the same key = no second run. Only under TRUE NATIVE (the store is on under it, src\d3d_owned.h).
+  fs::path PrecompileStampPath() const { return files_ / "precompile_stamp.txt"; }
+  fs::path PrecompileProgressPath() const { return files_ / "precompile_progress.json"; }
+  fs::path PrecompileReturnPath() const { return files_ / "precompile_return.txt"; }
+  fs::path PrecompilePendingPath() const { return files_ / "precompile_pending.txt"; }
+  static bool PrecompileSupported() {
+    return std::string(platform::Name()) == "android" || std::getenv("WWE2K14_PRECOMPILE") != nullptr;  // (the PC test build: by hand)
+  }
+  // (Session 93 review: + the game's libraries - a dev / tester APK with a new SDK keeps the same VERSION; as the PC launcher's
+  // key has the exe and DLLs' size and time.)
+  std::string CurrentPrecompileKey() const {
+    std::string libs;
+    for (const char* f : {"librexgpu-xenos.so", "libmain.so"}) {
+      std::error_code ec;
+      const fs::path p = platform::NativeLibDir() / f;
+      const auto size = fs::file_size(p, ec);
+      libs += std::string(f) + " " + std::to_string((unsigned long long)(ec ? 0 : size)) + " " +
+              std::to_string((long long)fs::last_write_time(p, ec).time_since_epoch().count()) + "; ";
     }
-    // Session 73: 16 KB memory pages would break the game's memory (phone_check.h PageSizeProblem): say so instead.
-    if (const std::string pages = check::PageSizeProblem(); !pages.empty()) {
-      Log("PLAY refused: %s", pages.c_str());
-      ShowToast(pages, 10000);
-      return;
-    }
+    return libs + PrecompileKey(s_, kVersion, platform::DeviceKey());
+  }
+  bool NeedPrecompile() const {
+    if (!PrecompileSupported() || !WantsPrecompile(s_)) return false;
+    std::ifstream f(PrecompileStampPath());
+    std::string state, key;
+    std::getline(f, state), std::getline(f, key);
+    return key != CurrentPrecompileKey();  // (no stamp: key empty)
+  }
+  void WriteStamp(const std::string& state) {
+    std::ofstream(PrecompileStampPath(), std::ios::trunc) << state << "\n" << CurrentPrecompileKey() << "\n";
+  }
+  LaunchContext MakeContext(int wm30) {
     LaunchContext c;
     c.game_path = address_.rfind("content://", 0) == 0 ? kGameFdToken : read_path_;
     std::error_code ec;
@@ -1371,6 +1502,77 @@ class App {
       c.driver_library = u->library;
       c.driver_dir = U8(platform::DriversDir() / fs::u8path(u->folder)) + "/";
     }
+    return c;
+  }
+  // The precompile run: the Play's arguments (same graphics, same driver: the keys the play will ask for) without the match
+  // to jump into and without the driver trial (that belongs to the real game: it must not be used up here).
+  void StartPrecompile(int wm30) {
+    std::vector<std::string> args = GameArgs(s_, MakeContext(-1));
+    args.push_back("--wwe2k14_precompile=" + U8(PrecompileProgressPath()));
+    std::error_code ec;
+    fs::remove(PrecompileProgressPath(), ec);
+    fs::remove(PrecompileReturnPath(), ec);
+    std::ofstream(PrecompilePendingPath(), std::ios::trunc) << wm30 << "\n";
+    std::string line;
+    for (const auto& a : args) line += " " + a;
+    Log("PRECOMPILE (key: %s):%s", CurrentPrecompileKey().c_str(), line.c_str());
+    platform::TouchChoice t;
+    t.mode = 2;  // (TouchOverlay.MODE_OFF: nothing to play)
+    platform::StartGame(args, address_, t);
+  }
+  // At the launcher's start: the precompile that was running has ended (or the game died).
+  void ResumeAfterPrecompile() {
+    std::error_code ec;
+    if (!fs::exists(PrecompilePendingPath(), ec)) return;
+    int wm30 = -1;
+    {
+      std::ifstream f(PrecompilePendingPath());
+      f >> wm30;
+    }
+    std::string state;
+    {
+      std::ifstream f(PrecompileReturnPath());
+      std::getline(f, state);
+    }
+    fs::remove(PrecompilePendingPath(), ec);
+    fs::remove(PrecompileReturnPath(), ec);
+    Log("precompile: ended with \"%s\" (match %d)", state.c_str(), wm30);
+    if (state == "cancelled") {
+      // (Session 93 review: the game it was for starts once without it; no stamp, so the next PLAY prepares again.)
+      ShowToast("Shaders will be prepared at the next PLAY", 6000);
+      if (game_ok_) resume_play_ = true, resume_wm30_ = wm30;
+    } else if (state.empty()) {  // no marker: the game's process died (Android closed it, or it crashed)
+      WriteStamp("failed");
+      ShowToast("Shader preparation stopped unexpectedly (see the game log). PLAY starts the game without it.", 10000);
+    } else {
+      WriteStamp(state == "done" ? "done" : "failed");
+      if (state != "done")
+        ShowToast("Shader preparation did not finish in time: playing without it. It is tried again after an update or a settings change.", 8000);
+      if (game_ok_) resume_play_ = true, resume_wm30_ = wm30;
+    }
+  }
+
+  void Play(int wm30 = -1) {
+    if (!game_ok_) {
+      GoPage(kGameFiles);
+      ShowToast("Choose your game files first");
+      return;
+    }
+    const bool skip_precompile = precompile_skip_once_;
+    precompile_skip_once_ = false;
+    // Session 73: 16 KB memory pages would break the game's memory (phone_check.h PageSizeProblem): say so instead.
+    if (const std::string pages = check::PageSizeProblem(); !pages.empty()) {
+      Log("PLAY refused: %s", pages.c_str());
+      ShowToast(pages, 10000);
+      return;
+    }
+    if (!skip_precompile && NeedPrecompile()) {  // Session 93: the shader precompile first (no second one with the same key)
+      Save();
+      StartPrecompile(wm30);
+      return;
+    }
+    LaunchContext c = MakeContext(wm30);
+    std::error_code ec;
     if (!s_.driver.empty()) {  // Session 72: the game removes it once it has drawn a few hundred frames
       std::ofstream(DriverTrialPath(), std::ios::trunc) << s_.driver << "\n";
       c.driver_trial = U8(DriverTrialPath());
@@ -1505,6 +1707,8 @@ class App {
   bool dlc_scanned_ = false;
   wwe2k14::wm30list::Catalogue wm30_;
   int wm30_pick_ = -1;
+  bool resume_play_ = false, precompile_skip_once_ = false;  // Session 93: the PLAY a finished precompile goes on with
+  int resume_wm30_ = -1, resume_frames_ = 0;
   launcher::UpdateInfo update_;
   int up_stage_ = 0;  // Session 81: 0 offer, 1 downloading, 2 downloaded and checked (INSTALL)
   unsigned long long up_done_ = 0, up_total_ = 0;

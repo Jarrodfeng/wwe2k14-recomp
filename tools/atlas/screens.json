@@ -1,0 +1,50 @@
+{
+ "about": "Session 91: atlas nodes outside the SmartMenu list graph, kept by hand. Evidence: readers out/harness/atlas/readers/*.md (static), crawler v2 runs 5890-5893 (exits), Jarrod's recording run 5895 (out/s91/jarrod_block.txt), cursor hunt run 5896. 'alias' maps a screen code that leaves the main menu to its mode node.",
+ "alias": {
+  "screen:1500": "mode:wm30", "screen:1525": "mode:shop", "screen:1504": "mode:threads", "screen:1523": "mode:entrance",
+  "screen:1524": "mode:moves", "screen:1522": "mode:logo", "screen:1502": "mode:caw", "screen:1517": "mode:story",
+  "screen:1526": "mode:arena", "screen:1530": "mode:arena", "screen:1511": "mode:finisher", "screen:1512": "mode:finisher",
+  "screen:1513": "mode:finisher", "screen:1497": "mode:universe"
+ },
+ "nodes": {
+  "mode:wm30": {"kind": "mode", "label": "30 YEARS OF WRESTLEMANIA (era cards)", "recognise": {"seq": 31},
+                "back": {"press": "B", "times": 4, "to": "list:1", "run": 5892},
+                "evidence": "exit action 2 -> seq 31 (crawl run 5892; reader a); Jarrod run 5895: RIGHT / LEFT move across eras, A opens an era, a match pick leads to seq 36 / 9"},
+  "mode:universe": {"kind": "screen", "label": "WWE UNIVERSE", "recognise": {"seq": 75, "menu": 1497, "screen_mode": 15},
+                    "back": {"press": "B", "times": 3, "to": "list:1", "run": 5892},
+                    "evidence": "crawl run 5892 (stays in seq 75); reader f: an 8-state machine on ctl+356 (6 = up), inner pages not mapped"},
+  "mode:shop": {"kind": "mode", "label": "SHOP (in-game store)", "recognise": {"seq": 5}, "dead_end": true,
+                "back": {"status": "unconfirmed", "note": "offline it is a notice, not a store: 'ATTENTION: To purchase downloadable content, please connect to Xbox Live' with OK (run 5896, live status); 10 B presses did not leave it (run 5892): A on OK is the likely way back (to verify, then this node gets a back edge)"},
+                "evidence": "exit 25 -> seq 5 (crawl run 5892)"},
+  "mode:threads": {"kind": "mode", "label": "SUPERSTAR THREADS", "recognise": {"seq": 77}, "state_word": "0x839400F8>0>64",
+                   "back": {"press": "B", "times": 6, "to": "list:1", "run": 5892}, "evidence": "exit 20 (crawl 5892); reader e: state word seq+64"},
+  "mode:entrance": {"kind": "mode", "label": "CREATE ENTRANCE", "recognise": {"seq": 25}, "state_word": "0x839400F8>0>72",
+                    "back": {"press": "B", "times": 4, "to": "list:1", "run": 5892}, "evidence": "exit 12 (crawl 5892); its preview runs in seq 9 (Jarrod run 5895)"},
+  "mode:moves": {"kind": "mode", "label": "CREATE MOVE-SET", "recognise": {"seq": 20}, "state_word": "0x839400F8>0>64",
+                 "back": {"press": "B", "times": 8, "to": "list:1", "run": 5892}, "evidence": "exit 22 (crawl 5892)"},
+  "mode:logo": {"kind": "mode", "label": "CREATE A LOGO", "recognise": {"seq": 78}, "state_word": "0x839400F8>256>76>1200",
+                "back": {"press": "B", "times": 7, "to": "list:1", "run": 5892}, "evidence": "exit 19 (crawl 5892); docs/systems/menus.md (logo states)"},
+  "mode:caw": {"kind": "mode", "label": "CREATE A SUPERSTAR", "recognise": {"seq": 76}, "state_word": "0x839400F8>0>64",
+               "back": {"press": "B", "times": 9, "to": "list:1", "run": 5892}, "evidence": "exit 8 (crawl 5892); reader e: 36 states on seq+64"},
+  "mode:story": {"kind": "mode", "label": "CREATE A STORY", "dead_end": true,
+                 "back": {"status": "unconfirmed", "note": "a black screen 45 frames after A in run 5893; 10 B presses did not leave it"},
+                 "evidence": "code 1517 -> exit 5 -> seq 11, then seq 9 at once (crawl 5893; Jarrod run 5895: it runs sped up for a while - our fast loads)"},
+  "mode:arena": {"kind": "mode", "label": "CREATE AN ARENA", "recognise": {"seq": 28},
+                 "back": {"press": "B", "times": 4, "to": "list:1", "run": 5893}, "evidence": "exits 26 / 27 (crawl 5893)"},
+  "screen:1315": {"label": "CREDITS", "dead_end": true, "evidence": "10 B presses did not leave the credits roll (crawl run 5891)"},
+  "mode:finisher": {"kind": "mode", "label": "CREATE A FINISHER (SPECIAL MOVE)", "recognise": {"seq": 26}, "state_word": "0x839400F8>0>72",
+                    "back": {"press": "B", "times": 7, "to": "list:1", "run": 5893}, "evidence": "exits 14-16 (crawl 5893)"}
+ },
+ "edges": [],
+ "cursor_candidates": {
+  "about": "Session 91 cursor hunt (tools/atlas/cursor_hunt.py), runs 5896 (one run each): words that read 0,1,2,1 over DOWN DOWN UP (v) or RIGHT RIGHT LEFT (h) on the mode's first screen, and static chains to them from a reverse pointer scan (aligned offsets only). UNCONFIRMED until a second run reads the same values through the chain (step 5).",
+  "mode:wm30": {"axis": "h", "chains": ["0x8392F508>60>80", "0x839400F8>2404>80"]},
+  "mode:universe": {"axis": "v", "chains": ["0x8392989C>44>1168"]},
+  "mode:threads": {"axis": "v", "chains": ["0x839BFC80>612>112", "0x836F2E6C>228>164>112"]},
+  "mode:entrance": {"axis": "v", "chains": ["0x83A44114>3252>3368", "0x83A44114>3252>3600"]},
+  "mode:moves": {"axis": "v", "chains": ["0x8392953C>2400"]},
+  "mode:arena": {"axis": "v", "chains": ["0x83A0507C>1796>2676"]},
+  "mode:caw": {"axis": "v", "chains": [], "note": "a heap word moved (0xA7D2A8E0) but only unaligned chains to it"},
+  "mode:finisher": {"axis": null, "chains": [], "note": "nothing followed the press pattern on its first screen"}
+ }
+}

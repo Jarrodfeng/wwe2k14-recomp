@@ -1,0 +1,88 @@
+# ReXGlue SDK changes for WWE 2K14 (session93-mali-post): decd7e4923ad..0ba44dde857c on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  0ba44dd Session 93: TRUE NATIVE needs no RGBA32F blending (Mali-G720 r49p1 black screen, report 033)
+
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index 828c2bad3844c60e1fad9544e36680770d0a1c9c..256ddc4498f3c9f97ef461b23c17acd4d0a8e0b3 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -28,6 +28,7 @@
+ #include <rex/ui/vulkan/instance.h>
+ #include <rex/platform.h>  // Session 70: <windows.h> on Windows (SetThreadPriority)
+ #include "shader_swap.h"   // Session 72 (gpu_native_shader_swap)
++#include "owned_dead_clear.h"  // Session 93 (M2dEdramLess: EnsurePostObjects' RGBA32F blend requirement)
+ #include <rex/perf/frame_events.h>  // Session 73 (what a frame did)
+ #include "../../pipeline/shader/spirv_relaxed_precision.h"  // Session 73 (characters at full precision)
+ 
+@@ -3201,14 +3202,30 @@ bool NativeRenderer::EnsurePostObjects() {
+   }
+   VkFormatProperties color_properties;
+   ifn.vkGetPhysicalDeviceFormatProperties(vulkan_device->physical_device(), kPostTargetFormat, &color_properties);
+-  const VkFormatFeatureFlags color_features = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+-                                              VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
+-                                              VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
++  const VkFormatFeatureFlags color_features = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
++  // wwe2k14 patch (Session 93, report 033: a Mali-G720 r49p1 black screen under TRUE NATIVE). RGBA32F blending is optional in Vulkan and
++  // Arm's driver has none (vulkan.gpuinfo.org report 52703, the same r49p1-03bet0 build: COLOR_ATTACHMENT yes, COLOR_ATTACHMENT_BLEND no). Only
++  // the old post path's blended float-class (class 0) draws need it, and that path runs only in non-truth replacing frames, which need the
++  // EDRAM buffer. With no EDRAM buffer (TRUE NATIVE, M2dEdramLess) nothing draws into class 0 - truth frames and the owned frame use RGBA8 /
++  // RGBA16_SNORM + post_ds_format_ - so the blend is not required there; requiring it refused every truth frame -> truth() false -> TRUE
++  // NATIVE's typed draws fell back ("not a truth frame") with no old path to fall back to: nothing drawn. With an EDRAM buffer (the
++  // interlock path, default NATIVE anywhere) the requirement stays as it was.
++  const bool float_blend =
++      (color_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0;
++  const bool float_blend_needed = !M2dEdramLess();
+   if (post_ds_format_ == VK_FORMAT_UNDEFINED ||
+-      (color_properties.optimalTilingFeatures & color_features) != color_features) {
+-    REXGPU_WARN("[native][post] no sampled-stencil depth format or no blendable RGBA32F target: post stays emulated");
++      (color_properties.optimalTilingFeatures & color_features) != color_features || (float_blend_needed && !float_blend)) {
++    REXGPU_WARN("[native][post] post stays emulated: {}",
++                post_ds_format_ == VK_FORMAT_UNDEFINED ? "no sampled-stencil depth format (D32S8 / D24S8)"
++                : (color_properties.optimalTilingFeatures & color_features) != color_features
++                    ? "R32G32B32A32_SFLOAT is not a sampled colour target"
++                    : "R32G32B32A32_SFLOAT cannot blend (needed with an EDRAM buffer: the old post path's blended float targets)");
+     return false;
+   }
++  if (!float_blend) {
++    REXGPU_INFO("[native][post] R32G32B32A32_SFLOAT cannot blend on this device: not needed without an EDRAM buffer (TRUE NATIVE draws "
++                "into RGBA8 / RGBA16_SNORM only) - the post objects are made without it");
++  }
+   // Session 43: the quantized classes (no blending needed in RGBA16_SNORM: 16-bit post draws never blend).
+   post_class_ok_[0] = true;
+   for (uint32_t cls = 1; cls < kPostTargetClasses; ++cls) {
+@@ -3470,8 +3487,9 @@ bool NativeRenderer::EnsurePostObjects() {
+     }
+   }
+   post_objects_failed_ = false;
+-  REXGPU_INFO("[native][post] post targets ready (R32G32B32A32_SFLOAT + {})",
+-              post_ds_format_ == VK_FORMAT_D32_SFLOAT_S8_UINT ? "D32_SFLOAT_S8_UINT" : "D24_UNORM_S8_UINT");
++  REXGPU_INFO("[native][post] post targets ready (R32G32B32A32_SFLOAT + {}; classes RGBA8 {}, RGBA16_SNORM {})",
++              post_ds_format_ == VK_FORMAT_D32_SFLOAT_S8_UINT ? "D32_SFLOAT_S8_UINT" : "D24_UNORM_S8_UINT",
++              post_class_ok_[1] ? "yes" : "no", post_class_ok_[2] ? "yes" : "no");
+   return true;
+ }
+ 
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 323a73b4d3e6a4ee20f50271ff7c42ba98fa4726..18358fbf18f38c227ea2f94b3cdf54581047dd65 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -794,11 +794,16 @@ bool NativeRenderer::ClaimTruth(Draw& draw) {
+ bool NativeRenderer::EnsureTruthObjects() {
+   if (truth_store_pipelines_[1] != VK_NULL_HANDLE) return true;
+   if (truth_failed_) return false;
+-  if (!EnsurePostObjects() || post_ds_format_ != VK_FORMAT_D32_SFLOAT_S8_UINT || !post_class_ok_[1] ||
++  const bool post_objects = EnsurePostObjects();
++  if (!post_objects || post_ds_format_ != VK_FORMAT_D32_SFLOAT_S8_UINT || !post_class_ok_[1] ||
+       !post_class_ok_[2] || post_render_pass_begin_keep_[1] == VK_NULL_HANDLE ||
+       post_render_pass_begin_keep_[2] == VK_NULL_HANDLE) {
+-    REXGPU_WARN("[native][truth] no truth frames: the post objects (D32S8 depth, RGBA8 / RGBA16_SNORM targets) are "
+-                "missing");
++    // (Session 93, report 033: the line now says which part is missing - the old one named three formats when the cause was a fourth.)
++    REXGPU_WARN("[native][truth] no truth frames: the post objects are missing (made: {}; depth {} - D32S8 needed; RGBA8 + blend: {}; "
++                "RGBA16_SNORM target: {}; when not made, the [native][post] line says why)",
++                post_objects ? "yes" : "NO",
++                post_ds_format_ == VK_FORMAT_D32_SFLOAT_S8_UINT ? "D32S8" : post_ds_format_ == VK_FORMAT_D24_UNORM_S8_UINT ? "D24S8" : "none",
++                post_class_ok_[1] ? "yes" : "no", post_class_ok_[2] ? "yes" : "no");
+     truth_failed_ = true;
+     return false;
+   }

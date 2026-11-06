@@ -17,7 +17,8 @@
 //   refresh_hz   high refresh: game steps per second (0 = the monitor's)
 //   original_look  the original 720p / 4x MSAA / 30 fps entrance look (Advanced)
 //   true_native  Session 87 (Jarrod: "an advanced launcher toggle, called true native"): the whole D3D-layer stack
-//                (--wwe2k14_d3d_owned, src\d3d_owned.h); NATIVE only, experimental, default off (Advanced)
+//                (--wwe2k14_d3d_owned, src\d3d_owned.h); NATIVE only (Advanced). Session 93 (Jarrod, 2026-11-06):
+//                the default, older files moved to it once (settings_version 4)
 //   texture_filter 0 standard (the game's own filtering since Session 80; the forced 4x before), 1 8x, 2 16x (Session 33)
 //   renderer     0 accurate, 1 light (Session 37), 2 native (Session 41: accurate + the native renderer). Session 51
 //                (Jarrod, 2026-10-22: "NATIVE for everyone"): 2 is the default; ACCURATE and LIGHT are fallbacks
@@ -73,12 +74,20 @@ struct Choice {
   bool shadows = true;         // false: no dynamic shadows (gpu_dynamic_shadows)
   bool depth_of_field = true;  // false: no depth-of-field blur (gpu_depth_of_field)
   int crowd_density = 100;     // 0..100 in steps of 10 (gpu_scene_crowd_density)
-  bool true_native = false;    // Session 87: the D3D-layer stack (--wwe2k14_d3d_owned); launcher Advanced, NATIVE only
+  // Session 93 (Jarrod: the low-end tier is chosen automatically from the GPU class, with a launcher override):
+  // quality_tier is the player's setting (0 AUTO, 1 LOW, 2 STANDARD; the launcher's QUALITY row); `low` is the RESOLVED
+  // tier for this start (ResolveQualityTier, set by whoever builds the flags: the launcher with the card the game will
+  // use, the game's own settings-file path likewise). GraphicsFlags only reads `low`.
+  int quality_tier = 0;
+  bool low = false;
+  bool true_native = true;     // Session 87: the D3D-layer stack (--wwe2k14_d3d_owned); launcher Advanced, NATIVE only.
+                               // Session 93 (Jarrod): on by default (Parse: the one-time move of older files)
   std::string dlss_dir;
   bool operator==(const Choice& o) const {
     return upscale == o.upscale && resolution == o.resolution && draw_height == o.draw_height &&
            frame_rate == o.frame_rate && texture_filter == o.texture_filter && shadows == o.shadows &&
-           depth_of_field == o.depth_of_field && crowd_density == o.crowd_density;
+           depth_of_field == o.depth_of_field && crowd_density == o.crowd_density && quality_tier == o.quality_tier &&
+           low == o.low;
   }
 };
 
@@ -138,7 +147,8 @@ inline bool GetString(const std::string& json, const char* key, std::string& out
 // ACCURATE picked by hand after that stays (one picked by hand before it cannot be told from the old default).
 // Session 54: version 3 = the file has had the launcher's one-time device moves (launcher_main.cpp MigrateForDevice:
 // LIGHT -> NATIVE on a card without interlock, 720p -> 540p on integrated graphics with NATIVE).
-inline constexpr int kSettingsVersion = 3;
+// Session 93: version 4 = the file has had the one-time move to TRUE NATIVE (Parse, launcher_core.h LoadSettings).
+inline constexpr int kSettingsVersion = 4;
 inline int MigrateRenderer(const std::string& json, int renderer) {
   int version = 0;
   GetInt(json, "settings_version", version);
@@ -220,7 +230,20 @@ inline Present Parse(const std::string& json, Choice& c) {
   GetBool(json, "depth_of_field", c.depth_of_field);
   GetInt(json, "crowd_density", c.crowd_density);
   c.crowd_density = RoundCrowdDensity(c.crowd_density);
-  GetBool(json, "true_native", c.true_native);  // Session 87 (launcher Advanced; missing = off)
+  GetInt(json, "quality_tier", c.quality_tier);  // Session 93: a missing key = 0 AUTO (no settings_version bump)
+  c.quality_tier = std::clamp(c.quality_tier, 0, 2);
+  // Session 87 (launcher Advanced). Session 93 (Jarrod, 2026-11-06 01:1x: "True native should become the default, even
+  // retroactively ... we'll still have the toggle for it"): a launcher file (it carries settings_version) from before
+  // version 4 moves to TRUE NATIVE once (the launcher writes version 4 back with its next save, so an OFF picked after
+  // that stays); a file without the key and without a version (hand-made test settings, out\owned_check\*.json) keeps it
+  // off as before; no file at all = the default (on).
+  if (!json.empty()) {
+    bool true_native = false;
+    GetBool(json, "true_native", true_native);
+    int version = 0;
+    if (GetInt(json, "settings_version", version) && version < 4) true_native = true;
+    c.true_native = true_native;
+  }
   c.upscale = std::clamp(c.upscale, 0, 7);
   c.resolution = std::clamp(c.resolution, 0, 2);
   c.draw_height = ValidDrawHeight(c.resolution, c.draw_height);
@@ -425,6 +448,24 @@ inline std::string StreamlineDir(const std::string& explicit_dir, const std::str
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Session 93 (Jarrod, 2026-11-06 00:48: "the low-end quality tier is chosen AUTOMATICALLY from the GPU class (phone /
+// iGPU / desktop) with a launcher override"): the setting (0 AUTO, 1 LOW, 2 STANDARD) -> the tier this start runs, 1 LOW
+// or 2 STANDARD. AUTO is LOW on a phone (every Android device for now; the SDK's `gpu_class` cvar, set from its quirks
+// table at device creation, can refine that later) and on an integrated PC GPU (vk_devices.h integrated()), else
+// STANDARD. `why` gets the text for the game log ("[wwe2k14] quality tier: LOW (auto: integrated GPU <name>)").
+inline int ResolveQualityTier(int setting, bool phone, bool integrated, const std::string& gpu_name, std::string* why = nullptr) {
+  int tier = 2;
+  std::string text;
+  if (setting == 1) tier = 1, text = "chosen in the launcher";
+  else if (setting == 2) tier = 2, text = "chosen in the launcher";
+  else if (phone) tier = 1, text = "auto: phone";
+  else if (integrated) tier = 1, text = "auto: integrated GPU " + gpu_name;
+  else tier = 2, text = "auto: " + (gpu_name.empty() ? std::string("desktop GPU") : "GPU " + gpu_name);
+  if (why) *why = std::string(tier == 1 ? "LOW" : "STANDARD") + " (" + text + ")";
+  return tier;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // The mapping to the game's settings (the same flags the launcher builds). Each pair is {setting name, value}.
 
 // What the NATIVE renderer is (Session 51: one list for the launcher's NATIVE, the settings file and the game's
@@ -621,9 +662,12 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
       // resolve hashes, both replays MATCH (5174-5178).
       {"gpu_native_truth_fill_rename_check", "true"},
       // Session 80 look lever (Jarrod, 2026-11-01, the review sheets: "I can barely tell the difference", for
-      // everyone): a thinner distant crowd - of each crowd run's members farther than its median view depth, every
-      // other one not drawn (the same members each frame; ~15% of the queued members). It needs Session 70's exact
-      // crowd cull (members entirely outside the draw's own view not drawn).
+      // everyone): a thinner distant crowd - of each crowd run's members farther than the median view depth of the
+      // run's members in front of the camera, every other one (by a position hash) not drawn; Session 90 (Jarrod:
+      // "stable as is"): +-8% hysteresis per member (SDK gpu_scene_crowd_thin_stable, default on), so the same members
+      // stay thinned from frame to frame - a member still switches once when the camera carries it across the line;
+      // ~15-20% of the queued members. It needs Session 70's exact crowd cull (members entirely outside the draw's own
+      // view not drawn).
       {"gpu_scene_crowd_cull", "2"},
       {"gpu_scene_crowd_thin", "100"},
       // Session 82 (Jarrod, 2026-11-03 ~09:55: "we should probably push these updates! The performance updates back it
@@ -635,9 +679,24 @@ inline std::vector<std::pair<std::string, std::string>> NativeRendererFlags() {
   };
 }
 
-inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choice& c, const std::string& dlss_dir,
+inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choice& choice, const std::string& dlss_dir,
                                                                       int monitor_hz) {
   std::vector<std::pair<std::string, std::string>> f;
+  Choice c = choice;
+  // Session 93 (the LOW tier, flags only; STANDARD = the flags exactly as before): NATIVE only, not with the original look.
+  // What the player set by hand wins: an upscaler (DLSS / DLAA / FSR pick the sizes themselves), a draw height, a crowd
+  // density other than 100%.
+  //  - the internal picture is 720p (resolution 0) when the chosen resolution is 1440p (4K is a hand pick and stays), shown at the window's size by
+  //    the presenter's SGSR (present_effect=sgsr: our own shader, Vulkan, any GPU; FSR 1 would need the FidelityFX build
+  //    flag REXGLUE_ENABLE_FIDELITYFX, off in the PC SDK build: there present_effect only allows bilinear and sgsr);
+  //  - the crowd at 70% when the player left it at 100%.
+  // Not in LOW: gpu_native_owned_post_half / gpu_native_owned_shadow_half (S82 look levers, judged by eye, -1.0 / -0.8 ms;
+  // their half-size passes are refused by copies and re-use paths in owned_copy.cpp / owned_steps.cpp and were never
+  // checked since the owned-only latch of Session 92), and gpu_shadow_half_rate (a truth-path lever).
+  const bool low_tier = c.low && c.renderer == 2 && !c.original_look;
+  const bool low_scaled = low_tier && c.upscale == 0;
+  if (low_scaled && c.draw_height == 0 && c.resolution == 1) c.resolution = 0;  // (only the 1440p default; 4K is a pick)
+  if (low_tier && c.crowd_density >= 100) c.crowd_density = 70;
   // An upscaler that picks the render and output size itself (DLSS, FSR quality / performance); DLAA and FSR native
   // anti-alias at the chosen resolution.
   // (Review fix: `dlss` is DLSS only; the FSR modes have their own block below.)
@@ -692,6 +751,8 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
     const int crowd = RoundCrowdDensity(c.crowd_density);
     if (crowd < 100) f.push_back({"gpu_scene_crowd_density", std::to_string(crowd)});
   }
+  // Session 93: LOW shows the picture through SGSR (the phone's setting too), whatever size it is drawn at.
+  if (low_scaled) f.push_back({"present_effect", "sgsr"});
   // Session 87 (Jarrod: "true native"): the game's Direct3D calls to our own renderer, the whole stack in one switch.
   if (c.renderer == 2 && c.true_native) f.push_back({"wwe2k14_d3d_owned", "true"});
   // Session 54: NATIVE drawing below the whole size (no upscaler: DLAA / DLSS / FSR turn truth frames off; the SDK

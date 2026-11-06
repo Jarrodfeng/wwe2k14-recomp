@@ -228,6 +228,9 @@ inline uint32_t g_pending_lr = 0;
 inline uint64_t g_pending_frame = 0;
 inline bool g_bad_name_logged = false;
 inline std::atomic<bool> g_launcher_applying{false};  // the launcher's own apply call is never captured
+inline std::atomic<bool> g_build_applying{false};  // Session 91: our finalize is running: the apply hooks compare
+inline std::vector<uint8_t> g_build_m;               // Session 91: M at apply entry during our finalize
+inline void BuildCompare();                          // Session 91: defined with the match builder below
 
 inline std::string CaptureName() { return REXCVAR_GET(wwe2k14_scenario_capture); }
 inline bool Capturing() { return !CaptureName().empty(); }
@@ -499,7 +502,8 @@ void wwe2k14_scn_finalize(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5, PPC
 // sub_822CA740 entry: r3 = M.
 void wwe2k14_scn_apply(PPCRegister& r3) {
   using namespace wwe2k14::scenario;
-  if (Capturing() && !g_launcher_applying.load()) {
+  if (g_build_applying.load() && r3.u32 == CurrentM()) g_build_m = CopyGuest(r3.u32, kMatchDescSize);  // Session 91
+  if (Capturing() && !g_launcher_applying.load() && !g_build_applying.load()) {  // a built match is never a capture
     std::lock_guard<std::mutex> lock(g_cap_mutex);
     if (r3.u32 && r3.u32 == CurrentM()) {
       g_pending_m = CopyGuest(r3.u32, kMatchDescSize);
@@ -522,6 +526,7 @@ void wwe2k14_scn_apply(PPCRegister& r3) {
 // sub_822CA740 at 0x822CA77C (`addi r1,r1,96`, after its last call): G and A as apply left them.
 void wwe2k14_scn_apply_exit() {
   using namespace wwe2k14::scenario;
+  if (g_build_applying.load()) BuildCompare();  // Session 91: the match builder's byte check
   if (Capturing()) {
     std::lock_guard<std::mutex> lock(g_cap_mutex);
     if (g_pending) {
@@ -673,6 +678,45 @@ REX_EXTERN(sub_822CA9C0);         // Session 27: match type setter (M, type, opt
 REX_EXTERN(sub_822C6668);         // Session 27: pace setter (M, pace): M+528
 REX_EXTERN(sub_827D9440);         // Session 55: the global block (0x83891878) - match options at +0x80458 / +0x804CA
 REX_EXTERN(sub_822CEDF8);         // Session 55: options record merge (dst, the type's 27-byte record)
+
+// Session 91 (the game atlas, step 4): the match builder. A match from a spec, built through the menus' OWN path:
+// the menu state object S, the type's defaults, the menu's field writes, then the menus' finalize, which makes every
+// derived field (roles, teams, costume variants, titles held / contested, the Rumble draw) and runs apply, the wrestler
+// list and the G+472 reset itself. Readers: out/harness/atlas/readers/c_review.md ("mechanism A", the field table and
+// call order, each with its listing address), c_rules.md, d_participant.md, b_select.md.
+REXCVAR_DEFINE_STRING(wwe2k14_match, "", "wwe2k14",
+                      "Session 91 match builder spec (numbers; tools/atlas/match.py makes it from names): "
+                      "type=T;p=ID:PAD,ID:PAD,...;arena=A;pace=P;o=K:V,...;title=T0/T1;rumble=ID,ID,... "
+                      "(PAD -1 = CPU; o = option-block bytes R+8+K after the defaults; no arena = 300, the type's "
+                      "default; seats not given keep the defaults' wrestlers; rumble = the first picks over the "
+                      "type's own CPU roster). Fired by "
+                      "--wwe2k14_match_go (or `cvar wwe2k14_match_go N` with a new N) at the idle main menu");
+REXCVAR_DEFINE_INT64(wwe2k14_match_go, 0, "wwe2k14",
+                     "Session 91: set to a new non-zero value to build and launch --wwe2k14_match at the next idle main "
+                     "menu (live: `cvar wwe2k14_match_go N`, a fresh N each match)");
+REXCVAR_DEFINE_STRING(wwe2k14_match_compare, "", "wwe2k14",
+                      "Session 91 check: log how the built match's M (apply entry), G and A (apply exit) differ from "
+                      "the menu capture NAME in --wwe2k14_scenario_dir");
+REXCVAR_DEFINE_BOOL(wwe2k14_match_dry, false, "wwe2k14",
+                    "Session 91 check: build the match through finalize (and --wwe2k14_match_compare) but do not "
+                    "launch it: the main menu stays, so several builds can be compared in one game");
+REX_EXTERN(sub_82269F48);  // the menu state object S: get or create (0x839294C0; 30,064 bytes; ctor sub_82928038)
+REX_EXTERN(sub_82928268);  // the type's defaults (S, type, options pointer 0, flag 0, a7 0)
+REX_EXTERN(sub_82922D68);  // S+11020 = r4 (the setup screen's tail)
+REX_EXTERN(sub_829221B8);  // the type swap by option byte O[4] (cage types)
+REX_EXTERN(sub_82921E38);  // pace (S, 0..2) -> R+140
+REX_EXTERN(sub_82923410);  // title match flag (S, 1) -> R+144
+REX_EXTERN(sub_82923448);  // title id per side (S, side, id) -> R+148 / R+152
+REX_EXTERN(sub_82925148);  // pick commit (S, seat, id): id + the character's default attire / variant
+REX_EXTERN(sub_82922A48);  // seat controller (S, seat, pad / -1 = CPU) -> p+48 (+52)
+REX_EXTERN(sub_829230E0);  // seat active (S, seat, 1) -> p+64, first active seat per side p+72 / p+76
+REX_EXTERN(sub_82922568);  // R+4 = r4 (the menu passes sign-extended R+28 right before finalize)
+REX_EXTERN(sub_829263B0);  // finalize (S)
+REX_EXTERN(sub_82922D70);  // seats from the team table: p+16 side, S+11016 = 1 (the select screen's build; review B2)
+REX_EXTERN(sub_82923AB8);  // S -> non-zero for Royal Rumble types (sub_822BA578(type))
+REX_EXTERN(sub_82927A10);  // the Rumble's build: entrant count S+11184.. and the CPU roster (review B3)
+REX_EXTERN(sub_829278C8);  // after each pick (S, seat), as the menu and the game's scripted builder sub_82B0C378
+REX_EXTERN(sub_82922900);  // Elimination Chamber pod (S, seat, pod 0..5 / -1 random) -> p+40 (build_diffs.md)
 
 namespace wwe2k14::scenario {
 
@@ -1283,6 +1327,272 @@ inline void LaunchTick(PPCContext& ctx, uint8_t* base) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Session 91: the match builder (see the cvars above). Main thread (the owner update), between frames.
+// ---------------------------------------------------------------------------------------------------------------
+inline int64_t g_build_go_seen = 0;
+inline bool g_build_armed = false;
+inline uint64_t g_build_idle = 0, g_build_last_frame = 0;
+
+struct BuildSpec {
+  int64_t type = -1, arena = -1, pace = -1, title0 = -1, title1 = -1;
+  std::vector<std::pair<int64_t, int64_t>> parts;  // (id, pad)
+  std::vector<std::pair<int64_t, int64_t>> opts;   // (k, v): option block byte R+8+k
+  std::vector<int64_t> rumble;
+  std::vector<int64_t> pods;  // Elimination Chamber (types 39 / 40): the pod per seat, 0..5 (-1 = the game's draw)
+};
+
+inline bool ParseBuildSpec(const std::string& spec, BuildSpec& out, std::string& why) {
+  auto num = [](const std::string& s, int64_t& v) {
+    char* end = nullptr;
+    v = std::strtoll(s.c_str(), &end, 0);
+    return !s.empty() && end && *end == 0;
+  };
+  auto split = [](const std::string& s, char c) {
+    std::vector<std::string> v;
+    size_t a = 0;
+    while (a <= s.size()) {
+      size_t b = s.find(c, a);
+      if (b == std::string::npos) b = s.size();
+      if (b > a) v.push_back(s.substr(a, b - a));
+      a = b + 1;
+    }
+    return v;
+  };
+  for (const std::string& kv : split(spec, ';')) {
+    const size_t eq = kv.find('=');
+    if (eq == std::string::npos) return why = "'" + kv + "': KEY=VALUE", false;
+    const std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
+    int64_t n = 0, m = 0;
+    if (k == "type" || k == "arena" || k == "pace") {
+      if (!num(v, n)) return why = "'" + kv + "': a number", false;
+      (k == "type" ? out.type : k == "arena" ? out.arena : out.pace) = n;
+    } else if (k == "title") {
+      const auto t = split(v, '/');
+      if (t.size() != 2 || !num(t[0], n) || !num(t[1], m)) return why = "title=T0/T1", false;
+      out.title0 = n, out.title1 = m;
+    } else if (k == "p" || k == "o") {
+      for (const std::string& item : split(v, ',')) {
+        const size_t c = item.find(':');
+        if (c == std::string::npos || !num(item.substr(0, c), n) || !num(item.substr(c + 1), m))
+          return why = "'" + item + "': A:B", false;
+        (k == "p" ? out.parts : out.opts).push_back({n, m});
+      }
+    } else if (k == "rumble" || k == "pods") {
+      for (const std::string& item : split(v, ',')) {
+        if (!num(item, n)) return why = k + ": '" + item + "'", false;
+        (k == "rumble" ? out.rumble : out.pods).push_back(n);
+      }
+    } else {
+      return why = "unknown key '" + k + "'", false;
+    }
+  }
+  if (out.type < 0 || out.type > 118) return why = "type 0..118 is required", false;
+  for (auto& [id, pad] : out.parts)
+    if (id < 0 || id >= 500 || pad < -1 || pad > 3) return why = "participant id 0..499, pad -1..3", false;
+  for (auto& [k, v] : out.opts)
+    if (k < 0 || k > 91 || v < 0 || v > 255) return why = "o: K 0..91, V 0..255", false;
+  if (out.rumble.size() > 40) return why = "rumble: at most 40", false;
+  for (int64_t id : out.rumble)
+    if (id < 0 || id >= 500) return why = "rumble ids 0..499", false;
+  for (int64_t pod : out.pods)
+    if (pod < -1 || pod > 5) return why = "pods -1..5", false;
+  if (out.pods.size() > 6) return why = "pods: at most 6", false;
+  if (out.pace > 2) return why = "pace 0..2", false;
+  return true;
+}
+
+inline void FireBuild(PPCContext& ctx, uint8_t* base, uint32_t sm) {
+  const std::string spec_text = REXCVAR_GET(wwe2k14_match);
+  BuildSpec spec;
+  std::string why;
+  if (!ParseBuildSpec(spec_text, spec, why)) {
+    REXLOG_WARN("[wwe2k14][build] spec '{}' refused: {}", spec_text, why);
+    return;
+  }
+  const uint32_t m = CurrentM(), p = U32(kGameDataPtr);
+  if (!m || !p) {
+    REXLOG_WARN("[wwe2k14][build] M {:08X} / P {:08X} missing: not building", m, p);
+    return;
+  }
+  const PPCContext saved = ctx;
+  auto call = [&](void (*fn)(PPCContext&, uint8_t*), std::initializer_list<uint64_t> args) -> uint32_t {
+    ctx = saved;
+    ctx.lr = 0;
+    uint64_t* regs[] = {&ctx.r3.u64, &ctx.r4.u64, &ctx.r5.u64, &ctx.r6.u64, &ctx.r7.u64, &ctx.r8.u64};
+    size_t i = 0;
+    for (uint64_t a : args) *regs[i++] = a;
+    fn(ctx, base);
+    const uint32_t r3 = ctx.r3.u32;
+    ctx = saved;
+    return r3;
+  };
+  auto put32 = [](uint32_t a, uint32_t v) { rex::memory::store_and_swap<uint32_t>(Guest(a), v); };
+  // The order follows the game's own scripted builder sub_82B0C378 and the menus (Opus review
+  // out/harness/atlas/readers/build_review.md, "Corrected call order"; B1-B5 = its findings).
+  // 1. S: sub_82269F48 returns S in r3 only when it creates it (0x82269F64 -> 0x82269F9C): read the global (B1).
+  call(sub_82269F48, {});
+  const uint32_t s = U32(0x839294C0);
+  if (!s) {
+    REXLOG_WARN("[wwe2k14][build] the menu state object could not be made: not building");
+    return;
+  }
+  put32(s + 11000, 0);
+  put32(s + 11016, 0);
+  put32(s + 11004, 0);
+  // 2. The type's defaults (the setup enter for SM+364 = 2000 + T), then the setup screen's tail (sub_82868900
+  //    0x82868B34-0x82868B44).
+  call(sub_82928268, {s, uint64_t(spec.type), 0, 0, 0});
+  const uint32_t r = s + U32(s + 11000) * 1100;
+  put32(s + 12448, 0);
+  put32(s + 12452, 1);
+  call(sub_82922D68, {s, 1});
+  // 3. Option bytes, then the type swap always (it reads O[4] and O[7]; idempotent: B4); arena (300 = the type's
+  //    default when not given: the defaults drew a random one, review M2); pace; title.
+  std::string done = fmt::format("type {} (R+0 now {})", spec.type, int32_t(U32(r)));
+  for (auto& [k, v] : spec.opts) *Guest(r + 8 + uint32_t(k)) = uint8_t(v);
+  if (!spec.opts.empty()) done += fmt::format(", {} option bytes", spec.opts.size());
+  call(sub_829221B8, {s, 0});
+  put32(r + 100, uint32_t(spec.arena >= 0 ? spec.arena : 300));
+  if (spec.pace >= 0) call(sub_82921E38, {s, uint64_t(spec.pace)});
+  if (spec.title0 >= 0) {
+    call(sub_82923448, {s, 0, uint64_t(spec.title0)});
+    call(sub_82923448, {s, 1, uint64_t(spec.title1)});
+    call(sub_82923410, {s, 1});
+    done += fmt::format(", title {}/{}", spec.title0, spec.title1);
+  }
+  // 4. Seats: the Rumble's own build (count, CPU roster) or the team table's (p+16 sides) (B2 / B3).
+  const bool rumble = call(sub_82923AB8, {s}) != 0;
+  call(rumble ? sub_82927A10 : sub_82922D70, {s});
+  if (rumble) {
+    const uint32_t count = U32(s + 11184);
+    if (count < 2 || count > 40 || spec.rumble.size() > count) {
+      REXLOG_WARN("[wwe2k14][build] Rumble: {} entrants given, the type holds {}: not launching", spec.rumble.size(),
+                  count);
+      return;
+    }
+    // Our picks over the first ones; the rest stay the game's own CPU roster (the type's count is kept).
+    for (uint32_t n = 0; n < spec.rumble.size(); ++n) put32(s + 11024 + 4 * n, uint32_t(spec.rumble[n]));
+    done += fmt::format(", Rumble {} of {} entrants ours", spec.rumble.size(), count);
+  }
+  // 5. Participants (B5: never more than the type's seats, at most 6 in R): controller, active, pick, then
+  //    sub_829278C8, in the scripted builder's order (sub_82B0C378 0x82B0C484-0x82B0C4EC).
+  const uint32_t seats = std::min<uint32_t>(6, U32(r + 104) + U32(r + 108));
+  if (spec.parts.size() > seats) {
+    REXLOG_WARN("[wwe2k14][build] {} participants given, type {} has {} seats: not launching", spec.parts.size(),
+                spec.type, seats);
+    return;
+  }
+  if (!rumble && spec.parts.size() < seats)
+    done += fmt::format(" ({} of {} seats ours; the rest the game's defaults)", spec.parts.size(), seats);
+  int64_t first_pad = -1;
+  for (uint32_t i = 0; i < spec.parts.size(); ++i) {
+    const auto [id, pad] = spec.parts[i];
+    call(sub_82922A48, {s, i, uint64_t(pad)});
+    call(sub_829230E0, {s, i, 1});
+    call(sub_82925148, {s, i, uint64_t(id)});
+    call(sub_829278C8, {s, i});
+    if (pad >= 0 && first_pad < 0) first_pad = pad;
+    done += fmt::format(", seat {} = {}{}", i, id, pad < 0 ? " CPU" : fmt::format(" pad {}", pad));
+  }
+  // 5b. Elimination Chamber pods through the game's own setter (finalize turns -1 into 6 = apply's random pod).
+  for (uint32_t i = 0; i < spec.pods.size(); ++i) call(sub_82922900, {s, i, uint64_t(spec.pods[i])});
+  if (!spec.pods.empty()) done += fmt::format(", {} pods", spec.pods.size());
+  // 6. As the match-up screen does right before finalize (sub_8286A788 0x8286A8D8-0x8286A8F8), then finalize, which
+  //    runs apply, the wrestler list and the G+472 reset itself (not called again here).
+  call(sub_82922568, {s, uint64_t(int64_t(int8_t(U8(r + 28))))});
+  g_build_m.clear();
+  g_build_applying = true;
+  call(sub_829263B0, {s});
+  g_build_applying = false;
+  if (REXCVAR_GET(wwe2k14_match_dry)) {
+    REXLOG_INFO("[wwe2k14][build] built (dry, not launched): {}; arena {} pace {}; M type {} arena {} frame={}", done,
+                int32_t(U32(r + 100)), int32_t(U32(r + 140)), int32_t(U32(m + 8)), int32_t(U32(m + 532)), Frame());
+    return;
+  }
+  // 7. The menus' arena record (set by the arena confirm, not finalize; its only reader is the load), the active
+  //    controller, the exit.
+  put32(p + kArenaRecordOffset + 4, 1);
+  put32(p + kArenaRecordOffset + 8, U32(r + 100));
+  put32(sm + kSmPadOffset, uint32_t(first_pad >= 0 ? first_pad : 0));
+  call(sub_8283CFF0, {sm, 1});
+  REXLOG_INFO("[wwe2k14][build] built and launched: {}; arena {} pace {}; M type {} arena {} frame={}", done,
+              int32_t(U32(r + 100)), int32_t(U32(r + 140)), int32_t(U32(m + 8)), int32_t(U32(m + 532)), Frame());
+}
+
+inline void BuildTick(PPCContext& ctx, uint8_t* base) {
+  const int64_t go = REXCVAR_GET(wwe2k14_match_go);
+  if (go != g_build_go_seen) {
+    g_build_go_seen = go;
+    g_build_armed = go != 0;
+    g_build_idle = 0;
+    if (g_build_armed) REXLOG_INFO("[wwe2k14][build] armed ({}): '{}'", go, REXCVAR_GET(wwe2k14_match));
+  }
+  if (!g_build_armed) return;
+  const uint64_t frame = Frame();
+  if (frame == g_build_last_frame) return;
+  g_build_last_frame = frame;
+  const uint32_t sm = U32(kSmartMenuPtr);
+  const bool idle = SequenceId() == kSeqMainMenu && sm && U32(sm + 364) == kMenuMain && U32(kMenuSelection) == 0;
+  g_build_idle = idle ? g_build_idle + 1 : 0;
+  if (g_build_idle < uint64_t(std::max<int64_t>(1, REXCVAR_GET(wwe2k14_launch_idle_frames)))) return;
+  g_build_armed = false;
+  FireBuild(ctx, base, sm);
+}
+
+// The apply hooks during our finalize: M at apply entry, then the compare at apply exit (as --wwe2k14_quick_compare).
+inline void BuildCompare() {
+  const std::string cmp = REXCVAR_GET(wwe2k14_match_compare);
+  if (cmp.empty() || !ValidName(cmp)) return;
+  std::vector<uint8_t> cg, ca, cm;
+  const auto dir = ScenarioDir();
+  if (!(ReadAll(dir / (cmp + ".g.bin"), cg) && ReadAll(dir / (cmp + ".a.bin"), ca) && ReadAll(dir / (cmp + ".m.bin"), cm) &&
+        cg.size() == kSettingsSize && ca.size() == kSlotsSize && cm.size() == kMatchDescSize &&
+        g_build_m.size() == kMatchDescSize)) {
+    REXLOG_WARN("[wwe2k14][build] compare '{}': capture files not found / wrong size in {}", cmp, dir.string());
+    return;
+  }
+  // G words apply does not write for this match (left by whatever match ran before in that game session; the menus
+  // leave them stale too: out/harness/atlas/readers/build_diffs.md): G+80 outside Rumbles (sub_822C8E40), G+428..433
+  // outside the Elimination Chamber (sub_822C9810), G+434..439 / +440..445 for empty entries (apply 0x822CA248).
+  const int32_t type = int32_t(BeU32(g_build_m, 8));
+  auto stale_byte = [&](size_t b) {
+    if (b >= 81 && b <= 83) return !(type >= 20 && type <= 23);
+    if (b >= 428 && b <= 433) return type != 39 && type != 40;
+    const size_t i = b >= 440 && b <= 445 ? b - 440 : b >= 434 && b <= 439 ? b - 434 : 99;
+    return i < 6 && BeU32(g_build_m, 724 + 3580 * i + 56) >= 500;  // entry i holds no wrestler
+  };
+  // a word is masked only when every byte that differs is a stale one
+  auto stale = [&](const std::vector<uint8_t>& built, const std::vector<uint8_t>& cap, size_t off) {
+    for (size_t b = off; b < off + 4; ++b)
+      if (built[b] != cap[b] && !stale_byte(b)) return false;
+    return true;
+  };
+  size_t masked = 0;
+  auto diff = [&](const std::vector<uint8_t>& built, const std::vector<uint8_t>& cap, size_t& n, bool is_g = false) {
+    std::string v;
+    n = 0;
+    for (size_t off = 0; off + 4 <= cap.size(); off += 4) {
+      if (BeU32(built, off) == BeU32(cap, off)) continue;
+      if (is_g && stale(built, cap, off)) {
+        ++masked;
+        continue;
+      }
+      if (++n <= 60) v += fmt::format(" +{} {:08X}/{:08X}", off, BeU32(built, off), BeU32(cap, off));
+    }
+    return v;
+  };
+  size_t nm = 0, ng = 0, na = 0;
+  const std::string vm = diff(g_build_m, cm, nm);
+  const std::string vg = diff(CopyGuest(kSettings, kSettingsSize), cg, ng, true);
+  const std::string va = diff(CopyGuest(SlotsAddress(), kSlotsSize), ca, na);
+  REXLOG_INFO("[wwe2k14][build] compare '{}': M {} words differ, G {}, A {} ({} stale G words masked) frame={}", cmp,
+              nm, ng, na, masked, Frame());
+  REXLOG_INFO("[wwe2k14][build] compare '{}' M built/captured:{}", cmp, vm);
+  REXLOG_INFO("[wwe2k14][build] compare '{}' G built/captured:{}", cmp, vg);
+  REXLOG_INFO("[wwe2k14][build] compare '{}' A built/captured:{}", cmp, va);
+}
+
 }  // namespace wwe2k14::scenario
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1397,6 +1707,8 @@ REX_HOOK_RAW(sub_82C302A0) {
   wwe2k14::crowd::Tick();  // --wwe2k14_crowd_hype (Session 14, default off: one setting read)
   wwe2k14::scenario::SnapshotTick();
   wwe2k14::scenario::LaunchTick(ctx, base);
+  wwe2k14::scenario::BuildTick(ctx, base);  // Session 91: the match builder (--wwe2k14_match / _go)
+  wwe2k14::events::Tick(wwe2k14::scenario::Frame());  // Session 91 step 7: the event bus (--wwe2k14_events)
   wwe2k14::freeze::RunnerEnter(ctx, base);  // Session 36: the true freeze (step fields, single tasks)
   __imp__sub_82C302A0(ctx, base);
   wwe2k14::freeze::RunnerLeave(base);

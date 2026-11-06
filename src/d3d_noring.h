@@ -67,6 +67,10 @@ REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring_verify, 0, "wwe2k14",
 REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring_defer, 1, "wwe2k14",
                      "Session 87 (D3D layer stage 2): 1 = the queue releases entries at the moment the library kicks a segment (the ring's own visibility to the command thread; keeps the replay's time-driven content equal to the ring path), 0 = at once");
 
+REXCVAR_DEFINE_BOOL(wwe2k14_d3d_drop_coher, false, "wwe2k14",
+                    "Session 92 (M5b): at noring level 3 the kick's coherency handshake 0x82CB61C0 (COHER_STATUS_HOST / SIZE / BASE + WAIT_REG_MEM on 0xA31, "
+                    "a segment piece every frame, no guest code reads 0xA31) is not emitted; counted in the block's coher_dropped. Default off = unchanged");
+
 REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring_scissor, 1, "wwe2k14",
                      "Session 87 (D3D layer stage 2): 1 = the library's window scissor setter 0x82CA8CD0 (~160 calls a frame) is a typed register item, 0 = the original writer (its packets travel in the segment pieces)");
 
@@ -80,6 +84,7 @@ REX_EXTERN(__imp__sub_82CA8CD0);
 REX_EXTERN(__imp__sub_82CAB868);
 REX_EXTERN(__imp__sub_82CB7770);
 REX_EXTERN(__imp__sub_82CBAEE0);
+REX_EXTERN(__imp__sub_82CB61C0);
 REX_EXTERN(sub_82CB3300);
 REX_EXTERN(sub_82CC4338);
 REX_EXTERN(sub_82CB7770);
@@ -125,6 +130,11 @@ struct Shared {
   std::atomic<uint64_t> flip_waits{0};
   std::atomic<uint64_t> flip_wait_us{0};
   std::atomic<uint64_t> bad{0};
+  // ---- ABI 3 (Session 92, M5b; same layout as the SDK's D3dNoringShared; the SDK reads these only when `abi` >= 3) ----
+  alignas(64) std::atomic<uint32_t> consumer_idle{0};
+  void (*wake)(void*) = nullptr;
+  void* wake_ctx = nullptr;
+  std::atomic<uint64_t> coher_dropped{0};
 };
 }  // namespace lay
 
@@ -276,7 +286,8 @@ inline void PushNow(lay::Kind kind, const uint32_t (&f)[6], const uint32_t* word
         e[0] = uint32_t(kind) | (total << 8);
         for (uint32_t i = 0; i < 6; ++i) e[1 + i] = f[i];
         if (n) std::memcpy(e + lay::kHeaderDwords, words, size_t(n) * sizeof(uint32_t));
-        sh.tail.store(at + total, std::memory_order_release);
+        sh.tail.store(at + total, std::memory_order_seq_cst);  // (Session 92 M5b: seq_cst, the Dekker pair with consumer_idle)
+        if (sh.abi >= 3 && sh.consumer_idle.load(std::memory_order_seq_cst) && sh.wake) sh.wake(sh.wake_ctx);  // the idle consumer sleeps: wake it
         return;
       }
     }
@@ -482,6 +493,9 @@ inline void AttachSdk() {
   State& s = g_state;
   if (s.attached.load()) return;
   EnsureStorage();
+  // Session 92 M5b: an SDK that understands the ABI-3 wake fields says so through a capability cvar; else the block stays ABI 2
+  // (lay::kAbi stays 2: it is the value AbiOk() compares with the SDK's gpu_d3d_noring_abi).
+  if (rex::cvar::GetFlagByName("gpu_d3d_noring_abi_max") == "3") s.shared.abi = 3;
   rex::cvar::SetFlagByName("gpu_d3d_noring_shared", std::to_string(uint64_t(reinterpret_cast<uintptr_t>(&s.shared))));
   rex::cvar::SetFlagByName("gpu_d3d_noring", "1");
   s.attached.store(true);
@@ -937,6 +951,24 @@ REX_HOOK_RAW(sub_82CB7770) {
   Push(lay::kRegs, f, q, 4);                   // ... then the mask, as an item
   Count(kPushRegs);
   ctx.r3.u64 = before;
+}
+
+// Session 92 M5b: the kick's coherency handshake 0x82CB61C0 (r3 device, r4 -> out GPU-form block address, r5 -> out dword count; callers
+// 0x82CB6EA8 = the kick and 0x82CCA850 = the tiling end, both of which read only the count and skip the submit on 0). On the ordinary path
+// (device+12248 qword == 0x00000000FFFFFFFF - the game's "empty range", set at device setup and by 0x82CB5700 - and device+12256 == 0) it
+// emits 11 dwords when device byte 11070 bit 0x04 is set (else a count of 0, its own normal path): COHER_SIZE / BASE / STATUS_HOST
+// := 0x01000000 + a WAIT_REG_MEM on 0xA31 for bit 0x80000000, which therefore always passes at once (confirmed as the per-frame segment
+// piece by M5a's run 14; no guest code reads 0xA31). Dropped: *r5 := 0, nothing allocated or written (the same as the original's
+// bit-clear path). Counted in the block (coher_dropped). Every other path runs the original. Review: S92 M5b (the empty-range value).
+REX_HOOK_RAW(sub_82CB61C0) {
+  const uint32_t dev = ctx.r3.u32, out_count = ctx.r5.u32;
+  if (Level() < 3 || t_original_depth || !REXCVAR_GET(wwe2k14_d3d_drop_coher) || Recording(base, dev) ||
+      dl::Ld64(base, dev + 12248) != 0x00000000FFFFFFFFull || dl::Ld32(base, dev + 12256) != 0) {
+    __imp__sub_82CB61C0(ctx, base);
+    return;
+  }
+  if (base[dev + 11070] & 0x04) g_state.shared.coher_dropped.fetch_add(1, std::memory_order_relaxed);  // (the original would have emitted 11 dwords)
+  dl::St32(base, out_count, 0);
 }
 
 // 0x82CBAEE0 (r3 device, r4 value; called by 0x82CAB868 and, at boot, 0x82CC0150): device+11044 bits 12-13 := r4 (rlwimi 12,18,19 = the

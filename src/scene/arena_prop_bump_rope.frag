@@ -68,6 +68,30 @@ void main() {
   vec3 h = half_sum * InvLength(dot(half_sum, half_sum));
   float spec = PowAbs(max(dot(n, h), C255.y), C202.x);
 
+#ifdef MEDIUMP
+  // MEDIUMP: colour maths only (b8_mediump_notes.md); n, the highlight power and the sky weight stay highp.
+  mediump float l3 = max(dot(n, -C11.xyz), C74.w), l2 = max(dot(n, -C10.xyz), C74.z);
+  mediump float l1 = max(dot(n, -C9.xyz), C74.y), l0 = max(dot(n, -C8.xyz), C74.x);
+  mediump vec3 mC0 = C0.xyz, mC1 = C1.xyz, mC2 = C2.xyz, mC3 = C3.xyz;
+  mediump vec3 lights = l3 * mC3;
+  lights = l2 * mC2 + lights;
+  lights = l1 * mC1 + lights;
+  lights = l0 * mC0 + lights;
+  float sky = fma(dot(n, C180.xyz), C255.x, C255.x);
+  mediump float mSky = sky;
+  mediump vec3 mC181 = C181.xyz, mC182 = C182.xyz, mC189 = C189.xyz, mC190 = C190.xyz;
+  mediump vec3 ground_sky = (mC182 - mC181) * mSky + mC181;
+  mediump vec3 light = lights * mC190 + mC189 * ground_sky;
+
+  mediump vec3 mC200 = C200.xyz;
+  mediump float mStr = C201.x * mask;
+  mediump float mSpec = spec;
+  mediump float mHs = in_uv.z;
+  mediump vec3 highlight = mC200 * mStr * mSpec * mHs;
+  mediump vec3 mCol = color.rgb, mVc = in_color.rgb;
+
+  XeOutputColor(vec4(mCol * mVc * light + highlight, in_color.a));
+#else
   vec3 lights = max(dot(n, -C11.xyz), C74.w) * C3.xyz;
   lights = max(dot(n, -C10.xyz), C74.z) * C2.xyz + lights;
   lights = max(dot(n, -C9.xyz), C74.y) * C1.xyz + lights;
@@ -79,4 +103,5 @@ void main() {
   vec3 highlight = C200.xyz * (C201.x * mask) * spec * in_uv.z;
 
   XeOutputColor(vec4(color.rgb * in_color.rgb * light + highlight, in_color.a));
+#endif
 }

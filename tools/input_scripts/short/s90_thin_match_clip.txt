@@ -1,0 +1,14 @@
+# Session 90 (Jarrod: "for the crowd thinning review we might need a longer run, crowd members are too close on the ramp
+# shot"): a 9 s clip of the match's wide camera from the quick replay (s80_lb_quick, deterministic: both arms show the
+# same moments), for judging the crowd thinning (`gpu_scene_crowd_thin_stable` true / false) in motion. Run the arms with
+# --wwe2k14_replay_play=s80_lb_quick and the NATIVE 1440p settings; the clip is captures\NNN_clip_s90thin_match.mp4.
+on_fail quit
+log bench: start s90_thin_match_clip
+wait_file m3.pac 3600
+log scene=match
+wait_frames 150
+clip_start s90thin_match 60 1
+wait_frames 540
+clip_stop
+log bench: done
+quit

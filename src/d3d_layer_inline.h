@@ -29,6 +29,7 @@
 #pragma once
 
 #include <array>
+#include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <cstdlib>
 #include <atomic>
 #include <bit>
@@ -103,21 +104,21 @@ inline std::atomic<int> g_abi{-1};
 
 inline uint32_t Ld32(const uint8_t* base, uint32_t a) {
   uint32_t be;
-  std::memcpy(&be, base + a + (a >= 0xE0000000u ? 0x1000u : 0u), 4);
+  std::memcpy(&be, base + a + ::rex::memory::detail::PhysicalHostOffset(a), 4);
   return std::byteswap(be);
 }
 inline void St32(uint8_t* base, uint32_t a, uint32_t v) {
   const uint32_t be = std::byteswap(v);
-  std::memcpy(base + a + (a >= 0xE0000000u ? 0x1000u : 0u), &be, 4);
+  std::memcpy(base + a + ::rex::memory::detail::PhysicalHostOffset(a), &be, 4);
 }
 inline uint64_t Ld64(const uint8_t* base, uint32_t a) {
   uint64_t be;
-  std::memcpy(&be, base + a + (a >= 0xE0000000u ? 0x1000u : 0u), 8);
+  std::memcpy(&be, base + a + ::rex::memory::detail::PhysicalHostOffset(a), 8);
   return std::byteswap(be);
 }
 inline void St64(uint8_t* base, uint32_t a, uint64_t v) {
   const uint64_t be = std::byteswap(v);
-  std::memcpy(base + a + (a >= 0xE0000000u ? 0x1000u : 0u), &be, 8);
+  std::memcpy(base + a + ::rex::memory::detail::PhysicalHostOffset(a), &be, 8);
 }
 
 inline void Fallback(Reason r) {
@@ -262,6 +263,7 @@ inline void AddFloatGroups(d3d::InlineDrawRecord& r, const uint8_t* base, uint32
 // the original (counted).
 inline bool Begin(PPCContext& ctx, uint8_t* base) {
   if (!REXCVAR_GET(wwe2k14_d3d_layer) || !REXCVAR_GET(wwe2k14_d3d_inline)) return false;
+  wwe2k14::d3d_layer::RecScope rec_scope;  // Session 94: [d3d][rec] sample (d3d_layer.h)
   if (!AbiPresent()) return Fallback(kNoAbi), false;
   rex::graphics::CommandProcessor* cp = wwe2k14::half2::Cp();
   if (!cp) return Fallback(kNoCp), false;
@@ -289,7 +291,7 @@ inline bool Begin(PPCContext& ctx, uint8_t* base) {
   // (User clip planes and 0x82CB21F8 are register images read from the device below, as F1 carries them.)
   // The shader bind (main-mask bits 17-20) is planned from the device (src\d3d_shader_bind.h): nothing is written until the
   // draw is committed below.
-  wwe2k14::d3d_bind::BindPlan plan;
+  static thread_local wwe2k14::d3d_bind::BindPlan plan;  // (Session 94: reused, Plan() resets it)
   const bool binds = (m_main & 0x1E0000ull) != 0;
   if (binds) {
     if (const wwe2k14::d3d_bind::Fail f = wwe2k14::d3d_bind::Plan(ctx, base, dev, m_main, stride_dword, plan);
@@ -446,6 +448,7 @@ inline bool Begin(PPCContext& ctx, uint8_t* base) {
 inline bool End(PPCContext& ctx, uint8_t* base) {
   Open& o = t_open;
   if (!o.active) return false;
+  wwe2k14::d3d_layer::RecScope rec_scope;  // Session 94: [d3d][rec] sample (d3d_layer.h)
   o.active = false;
   rex::graphics::CommandProcessor* cp = wwe2k14::half2::Cp();
   const uint32_t dev = o.device;

@@ -1,0 +1,31 @@
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 90 step 3 (TRUE NATIVE outside the bench): a 30 Years of WrestleMania match (match 1, WrestleMania 2; the era
+# presentation and its post effects), menus driven as tools\input_scripts\short\s58_wm30_full.txt (the A presses skip the
+# entrances). Shots at match clock +300 / +540 with the owned-frame per-pass census at the first; the owned frame is
+# flipped off / on at +250 and off at the end so its summary covers those match frames. ON arms only
+# (--wwe2k14_d3d_owned=true): the flip turns the owned frame on. Untimed, fast-forwarded. on_fail quit.
+on_fail quit
+log bench: start scene s90_wm30
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log bench: wm30 match picked
+press_until_state A match_clock !=0 60 600 5
+log scene=match
+mark 1 match_clock
+wait_frames 250
+cvar gpu_native_owned_frame false
+wait_frames 2
+cvar gpu_native_owned_frame true
+wait_frames 46
+cvar gpu_native_owned_frame_log 2
+wait_frames 2
+screenshot s90_wm30_300
+wait_frames 240
+screenshot s90_wm30_540
+wait_frames 3
+cvar gpu_native_owned_frame false
+wait_frames 30
+log bench: done
+quit

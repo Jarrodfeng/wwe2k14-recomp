@@ -63,7 +63,8 @@ int main(int argc, char** argv) {
     CK(vkMapMemory(dev, r.m, 0, size, 0, &r.p));
     return r; };
 
-  Buf shared = makeBuf(kVerts), sys = makeBuf(kSys), flt = makeBuf(kFlt), bl = makeBuf(kBool), fetch = makeBuf(kFetch);
+  Buf shared = makeBuf(kVerts), sys = makeBuf(kSys + 16), flt = makeBuf(kFlt), bl = makeBuf(kBool), fetch = makeBuf(kFetch);
+  memset(sys.p, 0, sys.size);  // Session 93: the system constants block is 516 bytes now (shared_memory_window_base_dwords at 512, 0 here); the input file's 512 bytes are copied over the start
   Buf out = makeBuf((VkDeviceSize)verts * 208);
   Buf bufs[6] = {shared, sys, flt, bl, fetch, out};
 

@@ -11,6 +11,7 @@
 #pragma once
 
 #include <bit>
+#include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <cstdint>
 #include <cstring>
 
@@ -18,7 +19,7 @@ namespace wwe2k14::d3d_resolve_mip {
 
 inline uint32_t G(const uint8_t* m, uint32_t a) {
   uint32_t be;
-  std::memcpy(&be, m + a + (a >= 0xE0000000u ? 0x1000u : 0u), 4);
+  std::memcpy(&be, m + a + ::rex::memory::detail::PhysicalHostOffset(a), 4);
   return std::byteswap(be);
 }
 inline uint32_t Mask(int mb, int me) { return (0xFFFFFFFFu >> mb) & (0xFFFFFFFFu << (31 - me)); }

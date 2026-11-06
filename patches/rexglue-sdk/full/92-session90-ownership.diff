@@ -1,0 +1,2955 @@
+# ReXGlue SDK changes for WWE 2K14 (session90-ownership): 958c1a923d95..224e5d66781f on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  224e5d6 Session 90: load-op clear flag local to its TruthRecordDraw call (nested held-clear flush no longer drops the outer draw), census
+#  8f2dcfc Merge branch 's90-adreno' into s90-int2
+#  0c8f287 Merge branch 's90-q' into s90-int2
+#  d342c6c Merge branch 's90-cull' into s90-int2
+#  2c7405a Merge branch 's90-q' into s90-int2
+#  9e87759 Merge branch 's90-cull' into s90-int2
+#  00e0601 Session 90 (M): review fixes: the SDK reserve stays Reserve+NoAccess until the layer's first take; ledger line says SDK-side only; half2_log mask comment
+#  5079851 Session 90 (M): staging written through the watched 0xA0000000 view (the physical view is not watched: the shared memory never saw the writes)
+#  04245d0 Session 90 (M): TRUE NATIVE takes 0 bytes of the game's physical pool: arena in the guest virtual heap, vertex staging in the SDK system reserve, tagged (guest virtual) shader addresses, [d3d][mem] ledger
+#  80caeda Merge branch 's90-crowd2' into s90-int
+#  66a1c63 Merge branch 's90-crowd2' into s90-int
+#  ae6239b S90 P review fixes: carried_defined reset at pass starts, pause kept for unserved carried copies and carried drops read by truth, chains-off predicate restored, frame-end-dropped detection, census gaps
+#  94b6022 S90 P: parked defined starts are carried past a submission's end without draws, not replayed at submission/frame ends; per-reason counters
+
+diff --git a/include/rex/graphics/d3d_feed.h b/include/rex/graphics/d3d_feed.h
+index e5ceddefb21d4745b440bb2c0e39fa5ce9e5de03..ee8e3bfeb013e9ef7a88200b31504373ac272bf6 100644
+--- a/include/rex/graphics/d3d_feed.h
++++ b/include/rex/graphics/d3d_feed.h
+@@ -48,10 +48,34 @@ struct D3dFeedHandlers {
+   bool (*scope_wanted)(CommandProcessor& cp) = nullptr;
+   bool (*scope_begin)(CommandProcessor& cp) = nullptr;
+   void (*scope_end)(CommandProcessor& cp) = nullptr;
++  // gpu_d3d_own_copy (Session 90, contract R): a REG_RMW packet (the game's own read-modify-write of one register) applied on the image: reads
++  // come from the image, the result goes into it (notified, pending for the register file). False = not taken (the mode is off or a
++  // register involved is not one the image models): the caller brings the register file up to date and runs the stock way.
++  bool (*reg_rmw)(CommandProcessor& cp, uint32_t rmw_info, uint32_t and_mask, uint32_t or_mask) = nullptr;
+   uint32_t* (*image_values)() = nullptr;
+   void (*image_dirty)(uint32_t first, uint32_t count) = nullptr;
+ };
+ 
++// Session 90 (contract K2): the crowd code's state restore and its census, shared between the base command processor (which
++// restores c76-c78 after a run it drew itself), the Vulkan OwnCrowdDraw (why it declined) and the direct path / feed census.
++struct D3dFeedCrowdState {
++  uint64_t restored_image = 0;      // fallback runs whose member c76-c78 writes were put back in the image
++  uint64_t restored_regfile = 0;    // ... in the register file
++  uint64_t unrestored_runs = 0;     // runs that wrote c76-c78 and did not put them back (should stay 0)
++  uint64_t skipped_restored = 0;    // register-file catch-ups skipped because the item's crowd writes were restored
++  uint64_t catchup_crowd_hit = 0;   // catch-ups made: crowd run's first member, image not the source
++  uint64_t catchup_scope_ended = 0; // ... the draw was handed back to the register file
++  uint64_t catchup_unrestored = 0;  // ... crowd writes that were not restored
++  uint64_t declined_runs = 0;       // runs our crowd program declined (the game's draws)
++  uint64_t decline_by_reason[16] = {};  // OwnCrowdDraw's refusal reason (1-8 as logged by the decline lines, 10-12 below)
++  uint32_t last_decline = 0;        // the reason of the last OwnCrowdDraw refusal (set by it; 0 = none)
++  uint32_t decline_logged = 0;
++};
++inline D3dFeedCrowdState& D3dFeedCrowd() {
++  static D3dFeedCrowdState state;
++  return state;
++}
++
+ inline D3dFeedHandlers& D3dFeedHandlerSlots() {
+   static D3dFeedHandlers handlers;
+   return handlers;
+@@ -73,12 +97,22 @@ inline const RegisterFile*& D3dFeedDrawRegs() {
+   return image;
+ }
+ 
++// Session 90 (K2): true while the D3D feed is live (its image holds state, or a record-fed draw is open): the crowd code's restore and
++// its census run only then; with the feed off the crowd code behaves exactly as before.
++inline bool D3dFeedLive() { return D3dFeedState() != 0 || D3dFeedDrawRegs() != nullptr; }
++
+ // The packet the foreign check last saw (type << 8 | opcode), for the flush census (which packets make the register file catch up).
+ inline uint32_t& D3dFeedLastPacket() {
+   static uint32_t key = 0;
+   return key;
+ }
+ 
++// The no-ring Registers item being executed (diagnostic, set by D3dNoringExecute): first op << 24 | op count (capped at 255) << 16 | the
++// first op's register. The census line of a foreign flush by such an item prints it.
++inline uint32_t& D3dFeedItemInfo() {
++  static thread_local uint32_t info = 0;
++  return info;
++}
+ inline bool D3dFeedScopeWanted(CommandProcessor& cp) {
+   const auto h = D3dFeedHandlerSlots().scope_wanted;
+   return h != nullptr && h(cp);
+@@ -87,6 +121,10 @@ inline bool D3dFeedScopeBegin(CommandProcessor& cp) {
+   const auto h = D3dFeedHandlerSlots().scope_begin;
+   return h != nullptr && h(cp);
+ }
++inline bool D3dFeedRegRmw(CommandProcessor& cp, uint32_t rmw_info, uint32_t and_mask, uint32_t or_mask) {
++  const auto h = D3dFeedHandlerSlots().reg_rmw;
++  return h != nullptr && h(cp, rmw_info, and_mask, or_mask);
++}
+ inline void D3dFeedScopeEnd(CommandProcessor& cp) {
+   const auto h = D3dFeedHandlerSlots().scope_end;
+   if (h != nullptr) h(cp);
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index bb0ca0741b743bc72a23efa507c91507e1d89adc..c31d494bb45cb7ab88ed3b9a2f44336e7023f020 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -543,6 +543,11 @@ class VulkanCommandProcessor : public CommandProcessor {
+   void NativeOwnedCubeLearned(uint32_t base_page, uint32_t width, uint32_t height, uint32_t faces, uint32_t stride_bytes);
+   // Session 82 (P2, review): the owned copy just served was a derived cube face - mark its range resolved (at 1x).
+   bool NativeOwnedMarkResolved();
++  // Session 90 (Q, non-virtual members, no data): the copy NativeOwnedResolve just served is to be written into memory from the owned image
++  // (the CPU reads it back) - the cache's destination block runs NativeOwnedWriteBackRun for it (false: nothing was written).
++  bool NativeOwnedWriteBackArmed() const;
++  bool NativeOwnedWriteBackRun(const draw_util::ResolveInfo& info, const draw_util::ResolveCopyShaderConstants& constants,
++                               VkDescriptorSet dest_set, uint32_t group_count_x, uint32_t group_count_y);
+   // Session 82 (P2): the resolve being issued is read back for the CPU (see command_processor.cpp).
+   bool NativeCopyReadsBack() const;
+   // (An owned step's replayed truth draw bound its own state: everything the command processor tracks is forgotten.)
+diff --git a/include/rex/graphics/vulkan/native/native_renderer.h b/include/rex/graphics/vulkan/native/native_renderer.h
+index 3032a44da96c74047b2f499f0167cc73b7929af0..158a46140344a601bafecb1ea3942ba237014d12 100644
+--- a/include/rex/graphics/vulkan/native/native_renderer.h
++++ b/include/rex/graphics/vulkan/native/native_renderer.h
+@@ -561,6 +561,13 @@ class NativeRenderer {
+   void OwnedOnSubmissionEnd();
+   // (copy_known: the copy has a copy shader - only such a copy is taken; any copy unmaps the pages it writes.)
+   bool OwnedTakeResolve(const draw_util::ResolveInfo& info, bool copy_known);
++  // Session 90 (Q): a copy OwnedTakeResolve served while the CPU is to read its bytes (a read-back window) arms a write-back: the render
++  // target cache then runs OwnedWriteBackRun in its destination block (instead of the game's copy from the EDRAM / the truth images), which
++  // writes the copy's bytes from our image into the destination (the shared memory, or the scaled resolve buffer) so the read-back gets
++  // them. Armed only for the resolve just taken (cleared at the next OwnedTakeResolve).
++  bool OwnedWriteBackArmed() const { return owned_wb_.armed; }
++  bool OwnedWriteBackRun(const draw_util::ResolveInfo& info, const draw_util::ResolveCopyShaderConstants& constants,
++                         VkDescriptorSet dest_set, uint32_t group_count_x, uint32_t group_count_y);
+   // (endian: the fetch's byte order; scaled_ok: the texture's scaled-resolve flag is the draw resolution's.)
+   // (Session 82, P2: has_mips - the binding's texture has mip levels: only a feedback page (OwnedFeedback) serves it.)
+   void OwnedCubeLearned(uint32_t base_page, uint32_t width, uint32_t height, uint32_t faces, uint32_t stride_bytes);
+@@ -1500,6 +1507,10 @@ class NativeRenderer {
+   // drawn (truth_skip_clear_draw_; compatible: only the load ops differ).
+   VkRenderPass truth_render_pass_clear_[kPostTargetClasses] = {};
+   bool truth_skip_clear_draw_ = false;
++  // Session 90: TruthRecordDraw's nesting (a held clear flushed from inside another draw's recording); the flag above is
++  // saved / restored per call.
++  uint32_t truth_record_depth_ = 0;
++  const Draw* truth_outer_draw_ = nullptr;
+   // wwe2k14 patch (Session 80, gpu_native_truth_bounds_vs): the list as last parsed, and its hashes.
+   std::string truth_bounds_list_;
+   std::vector<uint64_t> truth_bounds_vs_;
+@@ -1808,6 +1819,7 @@ class NativeRenderer {
+     // for nothing (a tile GPU's bandwidth: validation best practices "redundant-attachment-on-tile").
+     uint32_t untouched_color = 0, untouched_depth = 0, untouched_scratch_color = 0;
+     uint32_t color_none = 0;  // Session 73: of them, opened with the colour neither loaded nor stored
++    uint32_t skip_clear = 0, skip_nonclear = 0, skip_nested_reset = 0;  // Session 90: the load-op clear flag census
+     uint32_t clear_loads = 0;  // Session 80 (gpu_native_truth_clear_load): passes begun with their clear, its draw left out
+     // Session 80 (gpu_native_truth_bounds_vs): draws given their vertices' box (worked out / from the cache), refused,
+     // and the command processor's CPU time for it.
+@@ -2247,8 +2259,18 @@ class NativeRenderer {
+     // there instead of replayed, truth draws that replayed the pending pass of their surface.)
+     // (chains: depth-only clears merged into held colour clears of the same box; copy losses by source line.)
+     uint32_t ch_parked_replays = 0, ch_dead_ended = 0, images_made = 0, fill_sets_reused = 0;
++    // (Session 90, P: parked defined starts replayed / dropped later, by reason [submission end, frame end, truth draw, write-out, copy, loaded start, other];
++    // defined starts carried past a submission's end without their draws; carried ones taken up by a copy / a draw; parked ones dropped at an end unreplayed.)
++    uint32_t ch_replay_by[7] = {}, ch_carried_dropped[7] = {};
++    uint32_t ch_carried_paused_copy = 0, ch_carried_paused_read[7] = {}, ch_copy_of_dropped_carried = 0;
++    uint32_t ch_carried_defined = 0, ch_carried_taken_copy = 0, ch_carried_taken_draw = 0, ch_frame_end_unreplayed = 0;
+     uint32_t ch_claims = 0, ch_commit_instead = 0, ch_claim_failed = 0;
+     uint32_t ch_readback_mat = 0, ch_dead_depthless = 0, ch_only_ours_readback = 0;
++    // (Session 90, Q: read-back copies written from our image by path [8888 1x, 8888 scaled, full 1x, full scaled (incl. 16-bit at 1x), depth];
++    // front copies written; parked passes loaded into a new image from their own images; copies served while read back without a plan;
++    // write-backs that kept the old replay / were refused, by reason.)
++    uint32_t wb_written[5] = {}, wb_front = 0, wb_loaded_parked = 0, wb_unplanned = 0, wb_dest_ours = 0, wb_only_ours = 0, wb_planned = 0, wb_rect = 0, wb_window_pauses = 0, wb_window_loads = 0;
++    std::vector<std::pair<std::string, uint32_t>> wb_refused;
+     uint32_t ch_dmerge = 0, ch_resumed = 0, ch_loaded = 0, ch_conv016 = 0, ch_front_served = 0, ch_front_lost = 0, ch_swap_unserved = 0;
+     std::vector<std::pair<int, uint32_t>> lose_lines;
+     uint32_t ch_site_sub = 0, ch_site_frame = 0, ch_site_write = 0, ch_commit_frame = 0, ch_commit_write = 0, ch_draw_replays = 0;
+@@ -2407,6 +2429,8 @@ class NativeRenderer {
+     VkImageView depth_sample_view = VK_NULL_HANDLE, depth_stencil_view = VK_NULL_HANDLE;
+     VkDescriptorSet depth_fill_set = VK_NULL_HANDLE;
+     VkBuffer depth_fill_set_buffer = VK_NULL_HANDLE;
++    VkDescriptorSet wb_set = VK_NULL_HANDLE;        // (Session 90, Q: the post-writeback set layout - the 8888 resolve shaders' source: staging + colour + dummy depth / stencil)
++    VkBuffer wb_set_buffer = VK_NULL_HANDLE;
+     uint64_t last_use = 0;    // (Session 82, gpu_native_owned_pass_barrier_lean: the last submission that recorded a use of the image)
+     bool depth_read = false;  // (Session 82, gpu_native_owned_depth_direct: its depth is in SHADER_READ_ONLY - a page samples it)
+   };
+@@ -2435,6 +2459,32 @@ class NativeRenderer {
+     uint64_t submission = 0;
+   };
+   std::vector<OwnedSpareSet> owned_spare_sets_;
++  std::vector<OwnedSpareSet> owned_wb_spare_sets_;  // (Session 90, Q: the write-back sets, post-writeback layout)
++  // Session 90 (Q): the write-back armed by the copy OwnedTakeResolve just served (see OwnedWriteBackRun).
++  struct OwnedWriteBack {
++    bool armed = false;
++    uint32_t path = 0;  // 0 8888 1x, 1 8888 scaled, 2 full 1x (k_8 / k_4_4_4_4), 3 scaled-full shader (16-bit pairs at any scale, small modes scaled), 4 depth
++    uint32_t mode = 0;  // the scaled-full / full-1x / depth shaders' mode word
++    int16_t image = -1;
++    uint32_t sx = 0, sy = 0, w = 0, h = 0;  // the copy's rectangle in the pass box, guest pixels
++    uint32_t gap = 0;
++    bool front = false;
++    uint32_t page = 0, dest_format = 0;
++  };
++  OwnedWriteBack owned_wb_;
++  bool owned_wb_planned_ = false;
++  uint8_t owned_replay_reason_ = 0;  // (Session 90, Q: the reason the next OwnedReplayPending files its pass under, 0 = its own)
++  bool OwnedTakeResolveInner(const draw_util::ResolveInfo& info, bool copy_known);
++  // (Plans the write-back of the copy being taken: false with `why` when no writer exists for it.)
++  bool OwnedWbPlan(const draw_util::ResolveInfo& info, uint32_t sx, uint32_t sy, uint32_t w, uint32_t h, uint32_t gap, bool front,
++                   std::string& why);
++  bool OwnedWbPlanDepth(const draw_util::ResolveInfo& info, std::string& why);
++  void OwnedWbRefused(const std::string& why);
++  VkDescriptorSet OwnedWbPostSet(OwnedImage& o);
++  VkDescriptorSet OwnedWbColorSet(OwnedImage& o);
++  VkDescriptorSet OwnedWbDepthSet(OwnedImage& o);
++  bool EnsureResolveFull1xPipeline();
++  bool EnsureResolveDepthPipeline(bool scaled);
+   VkResult OwnedAcquireFillSet(VkDescriptorSet& set);
+   void OwnedSpareFillSet(VkDescriptorSet set);
+   VkDescriptorPool owned_pool_ = VK_NULL_HANDLE;  // (the current one: Session 82, a new one when it is full)
+@@ -2606,6 +2656,7 @@ class NativeRenderer {
+     // (Session 87, gpu_native_owned_frame_chains: a pass begun from flushed held clears, without a draw; its key takes the first
+     // draw's pixel shader once one is recorded into it.)
+     bool chain_pass = false, chain_unkeyed = false;
++    bool carried_defined = false;  // (Session 90: a defined start carried past a submission's end - its draws are gone, never replayed; its image is the pass)
+     bool chain_parked = false;  // (a defined-start pass the chains park committed without its copy: replayed if it is dropped)
+     uint32_t timer_segment = UINT32_MAX, timer_draws = 0;  // (Session 82, P1: the timed render pass being recorded)
+     // (Session 82, P2, G4: a defined start whose first draw is not at the surface's origin - the box is still the rectangle
+@@ -2704,6 +2755,10 @@ class NativeRenderer {
+   // (Several may wait: G5's map B stays parked while the 128 and 32 reductions each start and park in turn; at most
+   // kOwnedParkedMax, the oldest goes first.)
+   std::vector<OwnedPass> owned_parked_;
++  // (Session 90: surfaces (base, pitch, kind) of carried defined starts dropped at the last frame's end - a copy of one next frame is counted.)
++  struct OwnedCarriedGone { uint32_t base, pitch, kind; };
++  std::vector<OwnedCarriedGone> owned_frame_end_carried_;
++  uint32_t owned_carried_gone_logged_ = 0;
+   // Session 82 (P2): parked passes a truth draw over their tiles dropped - the front buffer's composite, which the 360 then undoes with a
+   // restore: kept (copied, nothing drawn into them since) until the restore of that surface or the next submission / frame end.
+   std::vector<OwnedPass> owned_restorable_;
+@@ -2732,6 +2787,7 @@ class NativeRenderer {
+   // (chains) A new owned image filled once from the truth image of the surface: the tiles that image owns inside the box, the rest transparent black.
+   // False = nothing of the surface in the truth path (the caller's converted start is then exact); the image is untouched.
+   bool OwnedLoadFromTruth(int16_t slot, int16_t image, uint32_t width, uint32_t height);
++  bool OwnedLoadParkedInto(int16_t image, bool has_content, const std::vector<OwnedPass>& passes, uint32_t scale_x, uint32_t scale_y);  // (Session 90, Q)
+   // (chains) Surfaces whose passes have had a copy tried through the feedback path (damage / sweat maps, the cube strips): scratch surfaces that keep their
+   // defined start - a loaded or resumed start would take them off the edram_free paths.
+   // (chains, review A2: swap pages the hook could not serve - the next copy into one runs from the truth path, for a while.)
+diff --git a/include/rex/system/xmemory.h b/include/rex/system/xmemory.h
+index 0c39a42009e4e4e8d64c7325196ba5690559f335..9766478e59ed21d20e90a2a1f9a8d33addb494fd 100644
+--- a/include/rex/system/xmemory.h
++++ b/include/rex/system/xmemory.h
+@@ -60,6 +60,14 @@ inline T GuestPtr(u8* base, u32 guest_address) noexcept {
+ 
+ class Memory;
+ 
++// wwe2k14 patch (Session 90, TRUE NATIVE memory): the D3D layer takes no memory from the game's physical pool. The one thing it
++// needs at a physical address (vertex bytes behind a fetch constant, which the shared memory uploads) comes out of the SDK's
++// own system reserve at the top of the physical heap, which the game can never allocate. Bump allocator, never freed.
++// D3dLayerTakePhysicalReserve: physical address of `bytes` (16-aligned) of that reserve; false when it is used up.
++// D3dLayerNoteGuestMemory: the `[d3d][mem]` ledger line (what, bytes, where, running totals).
++bool D3dLayerTakePhysicalReserve(uint32_t bytes, uint32_t* physical_out);
++void D3dLayerNoteGuestMemory(const char* what, uint32_t bytes, bool virtual_heap, uint32_t guest_address);
++
+ enum SystemHeapFlag : uint32_t {
+   kSystemHeapVirtual = 1 << 0,
+   kSystemHeapPhysical = 1 << 1,
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 17cd647119bb3e368c4ef6199f4a4e516e0f5c6b..eda2e8152e002a0a615b8639c4453d00b0439675 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -41,6 +41,7 @@
+ #include <rex/graphics/d3d_feed.h>  // wwe2k14 patch (Session 87, D3D layer stage 3)
+ #include "shadow_chain.h"  // wwe2k14 patch (Session 85, gpu_dynamic_shadows)
+ #include "half2_state.h"  // wwe2k14 patch (Session 48, HALF2): complete for the destructor
++#include "d3d_shader_tag.h"  // wwe2k14 patch (Session 90): tagged (guest virtual) shader microcode addresses
+ #include <rex/graphics/pipeline/shader/shader.h>
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/graphics_system.h>
+@@ -174,6 +175,39 @@ REXCVAR_DEFINE_INT32(gpu_scene_crowd_density, 100, "GPU",
+                      "Applies to the queued crowd runs (wwe2k14_scene_crowd 1), after the cull and the thinning")
+     .range(0, 100);
+ 
++// wwe2k14 patch (Session 90, builder C): cull diagnostics - per shader kind (0 cards, 1 entrance, 2 match) members judged,
++// culled; and with gpu_scene_crowd_cull_diag the culled members whose whole mesh box projects (all 8 corners w > 0) onto
++// the screen rectangle (which a correct cull never produces).
++static uint64_t g_cull_kind_members[3] = {}, g_cull_kind_outside[3] = {}, g_cull_diag_overlap = 0, g_cull_diag_behind = 0;
++static uint64_t g_cull_diag_lines = 0;
++REXCVAR_DEFINE_INT32(gpu_scene_crowd_cull_diag, 0, "GPU",
++                     "wwe2k14 (Session 90, diagnostic): 1 = log the culled crowd members whose mesh box projects onto the screen")
++    .range(0, 2)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(gpu_scene_crowd_thin_stable, true, "GPU",
++                    "wwe2k14 (Session 90, Jarrod: \"make it stable\"): gpu_scene_crowd_thin's depth limit is the median over "
++                    "the run's whole member list (before the view cull) and every member keeps its state inside a +-8% band "
++                    "(hysteresis), so a member does not flip with the camera or with which other members are in view; "
++                    "false = the Session 79 rule (median of this frame's survivors, no memory)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// Session 90: thin state per member (key: position hash, mesh, viewport scale), flip counters.
++// Two generations (current + previous, swapped every ~600 guest frames in SceneCrowdFrameEnd); never freed (no static
++// destructor at shutdown, Android). A lookup falls back to the previous generation and carries the state forward.
++static auto& g_thin_state = *new std::unordered_map<uint64_t, uint8_t>();
++static auto& g_thin_state_prev = *new std::unordered_map<uint64_t, uint8_t>();
++static uint64_t g_thin_flips = 0, g_thin_new_keys = 0;
++// The member's previous state (0 drawn, 1 thinned) or -1 when the key is new.
++static int ThinStateGet(uint64_t key) {
++  if (const auto it = g_thin_state.find(key); it != g_thin_state.end()) return it->second;
++  if (const auto it = g_thin_state_prev.find(key); it != g_thin_state_prev.end()) return it->second;
++  ++g_thin_new_keys;
++  return -1;
++}
++// Notes the new state and counts a flip against the previous one.
++static void ThinStateSet(uint64_t key, int prev, bool thinned) {
++  if (prev >= 0 && bool(prev) != thinned) ++g_thin_flips;
++  g_thin_state[key] = thinned ? 1 : 0;
++}
+ static uint64_t g_crowd_density_dropped = 0;  // Session 85: members left out by gpu_scene_crowd_density (command thread)
+ 
+ // wwe2k14 patch (Session 87, crowd2): every draw of the three instanced crowd vertex shaders goes to our crowd program.
+@@ -1823,7 +1857,7 @@ bool CommandProcessor::ExecutePacket(memory::RingBuffer* reader) {
+       if (packet_type == 0) {
+         const uint32_t type0_base = packet & 0x7FFF, type0_count = ((packet >> 16) & 0x3FFF) + 1;
+         if (type0_base + type0_count <= 0x2000 || !((packet >> 15) & 1)) feed_inert = true;
+-      } else if (packet_type == 3 && (feed_opcode == PM4_D3D_COPY || feed_opcode == kPm4D3dInline ||
++      } else if (packet_type == 3 && (feed_opcode == PM4_REG_RMW || feed_opcode == PM4_D3D_COPY || feed_opcode == kPm4D3dInline ||
+                                       feed_opcode == PM4_XE_SWAP)) {
+         feed_inert = true;
+       }
+@@ -2973,6 +3007,13 @@ bool CommandProcessor::ExecutePacketType3_REG_RMW(memory::RingBuffer* reader, ui
+   uint32_t rmw_info = reader->ReadAndSwap<uint32_t>();
+   uint32_t and_mask = reader->ReadAndSwap<uint32_t>();
+   uint32_t or_mask = reader->ReadAndSwap<uint32_t>();
++  // wwe2k14 patch (Session 90, contract R): with the image mode on, the read-modify-write runs on the record's image (the foreign
++  // check left this packet alone); declined (a register the image does not model) = the register file first, then the stock way.
++  if (nf_role_ != NfRole::kAnswers && D3dFeedState()) {
++    if (D3dFeedRegRmw(*this, rmw_info, and_mask, or_mask)) return true;
++    D3dFeedLastPacket() = (3u << 8) | PM4_REG_RMW;
++    D3dFeedForeign(*this);
++  }
+   uint32_t value = register_file_->values[rmw_info & 0x1FFF];
+   if ((rmw_info >> 31) & 0x1) {
+     // & reg
+@@ -3514,6 +3555,7 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+   const bool lone = g_crowd_census_lone;
+   g_crowd_census_lone = false;
+   const int census = CrowdCensusIndex(active_vertex_shader());
++  const bool feed_live = D3dFeedLive();  // (Session 90, K2: the restore and the decline census run only while the D3D feed is live)
+   struct FirstGuard {
+     CommandProcessor* cp;
+     xenos::PrimitiveType prim_type;
+@@ -3543,6 +3585,22 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+   uint32_t now[12];
+   for (uint32_t i = 0; i < 12; ++i) now[i] = regs[kSceneCrowdRegister + i];
+   SceneCrowdStats& st = scene_crowd_stats_;
++  // wwe2k14 patch (Session 90, K2): why our crowd program declined a run (OwnCrowdDraw's reason), counted, the first 16 logged.
++  const auto note_decline = [&](uint32_t member_count) {
++    if (!feed_live) return;
++    D3dFeedCrowdState& cs = D3dFeedCrowd();
++    const uint32_t reason = std::min<uint32_t>(cs.last_decline, 15);
++    ++cs.declined_runs;
++    ++cs.decline_by_reason[reason];
++    if (cs.decline_logged < 16) {
++      ++cs.decline_logged;
++      REXGPU_INFO("[scene][crowd] our crowd program declined a run: frame {}, {} member(s), reason {} (1 no program, 2 mesh stride, "
++                  "3 mesh endian / size, 4 position flags, 5 colour texture, 6 lighting map, 7 vertex lighting map, 8 pixel shader "
++                  "differs, 10 switches / renderer not replacing, 11 no shaders, 12 RecordOwnCrowd refused, 0 none set); the game "
++                  "draws it",
++                  counter_, member_count, cs.last_decline);
++    }
++  };
+   // wwe2k14 patch (Session 87, crowd2, gpu_native_own_crowd_all): the draw held for our crowd program that no run took
+   // along (a lone draw, or a first member whose run has no other member to draw) is a run of one for it. The game's
+   // draw (the guard) if it declines.
+@@ -3554,6 +3612,7 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+       ++g_crowd_census[census].ours_calls;
+     } else {
+       first_guard.tried = true;
++      note_decline(1);
+     }
+   };
+   // Verify: the draws after a run's first must carry the queued matrices, in order.
+@@ -3688,6 +3747,7 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+       return;
+     }
+     first_guard.tried = true;
++    note_decline(members + 1);
+     first_guard.Draw();  // (before the others: they are appended as its instances)
+   } else if (OwnCrowdDraw(list->data(), members)) {
+     st.members += members;
+@@ -3695,12 +3755,17 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+     return;
+   } else {
+     first_guard.tried = true;
++    note_decline(members);
+   }
+   // wwe2k14 patch (Session 60, CROWD BATCH): one member through the draw dispatch (it starts a new instanced run: right
+   // after a run's first draw its other constant uploads lie between, so no member can follow it as an instance), then
+   // as many as fit straight as instances of that run, and again.
+   const bool batch = REXCVAR_GET(gpu_scene_crowd_batch);
+-  ++g_scene_crowd_reg_writes;  // (B3: the loop below writes c76-c78 into the registers)
++  // (Session 90, K2: the loop below writes each member's c76-c78 - into the image in a record-fed draw, else the register file - and
++  // leaves the LAST member's matrix there. After the loop they are put back to `now` while the D3D feed is live: that makes the image
++  // and the register file agree again at the end of this draw item, so the direct path can skip its register-file catch-up safely.
++  // It is NOT what sets c76+ for later draws: scene_crowd.h's Flush records a closing op-21 with the LAST member's matrix right after
++  // the run, and the state after the next item is that one.)
+   for (uint32_t m = 0; m < members;) {
+     if (batch && m) {
+       const uint32_t b = AppendCrowdInstances(list->data() + 12 * size_t(m), members - m);
+@@ -3722,6 +3787,17 @@ void CommandProcessor::SceneCrowdAfterDraw(xenos::PrimitiveType prim_type, uint3
+     if (census >= 0) ++(first_guard.tried ? g_crowd_census[census].handed_back : g_crowd_census[census].other);
+     ++m;
+   }
++  // Put c76-c78 back to what the game set (same place the members were written). Without the feed they stay as the loop left them,
++  // counted in g_scene_crowd_reg_writes as before (the direct path then still catches the register file up).
++  if (feed_live) {
++    D3dFeedCrowdState& crowd_state = D3dFeedCrowd();
++    const bool on_image = D3dFeedDrawRegs() != nullptr;
++    for (uint32_t i = 0; i < 12; ++i) WriteRegister(kSceneCrowdRegister + i, now[i]);
++    ++(on_image ? crowd_state.restored_image : crowd_state.restored_regfile);
++  } else {
++    ++g_scene_crowd_reg_writes;  // (B3: the loop above wrote c76-c78 into the registers and nothing put them back)
++    ++D3dFeedCrowd().unrestored_runs;
++  }
+ }
+ 
+ // wwe2k14 patch (Session 70, CROWD CULL). The crowd vertex shaders (T_Audience / _LightMap in the entrances, ucode
+@@ -3832,7 +3908,8 @@ bool CommandProcessor::SceneCrowdCull(const std::vector<uint32_t>& members, std:
+   // was approved for the 3D crowd, not for the cards (the exact outside-the-view drop and the density still apply).
+   const int32_t thin = vs_hash == kCrowdVs ? 0 : REXCVAR_GET(gpu_scene_crowd_thin);
+   std::vector<double> kept_w;
+-  if (thin) kept_w.reserve(n);
++  const bool stable = thin && REXCVAR_GET(gpu_scene_crowd_thin_stable);
++  if (thin && !stable) kept_w.reserve(n);
+   constexpr double kMargin = 1.01;
+   // Session 73 (Jarrod: in fill-the-screen "crowd members outside of the 16:9 box getting culled"): the scene draws see
+   // clip x / gpu_wide_factor (y / gpu_tall_factor), so the visible area reaches that much further than the game's own
+@@ -3840,6 +3917,50 @@ bool CommandProcessor::SceneCrowdCull(const std::vector<uint32_t>& members, std:
+   const double wide = REXCVAR_GET(gpu_wide_factor), tall = REXCVAR_GET(gpu_tall_factor);
+   const double margin[2] = {kMargin * (wide > 1.001 && wide < 8.0 ? wide : 1.0),
+                             kMargin * (tall > 1.001 && tall < 8.0 ? tall : 1.0)};
++  // Session 90 (stable thinning): the decision for every member of the run, before the cull - it depends on the member's own
++  // view depth, the run's whole-list median (not on which other members survive the cull) and the member's own state.
++  std::vector<uint8_t> thin_flag;
++  if (stable) {
++    constexpr double kBand = 0.08;
++    const uint32_t keep = uint32_t(REXCVAR_GET(gpu_scene_crowd_thin_keep));
++    std::vector<double> all_w(n);
++    std::vector<double> front_w;  // (only members in front of the camera: w <= 0 would pull the median to nothing)
++    front_w.reserve(n);
++    for (size_t m = 0; m < n; ++m) {
++      const uint32_t* w = members.data() + 12 * m;
++      double s = vp[3][3];
++      for (int j = 0; j < 3; ++j) s += vp[3][j] * fbits(w[4 * j + 3]);
++      all_w[m] = s;
++      if (s > 0.0) front_w.push_back(s);
++    }
++    thin_flag.assign(n, 0);
++    if (front_w.size() >= 8) {
++      std::vector<double> sorted = front_w;
++      std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
++      const double limit = sorted[sorted.size() / 2] * double(thin) / 100.0;
++      if (limit > 0.0) {
++      const uint64_t pass_key = (uint64_t(mesh->base) * 0x9E3779B97F4A7C15ull) ^
++                                (uint64_t(regs[XE_GPU_REG_PA_CL_VPORT_XSCALE]) * 0xC2B2AE3D27D4EB4Full);
++      for (size_t m = 0; m < n; ++m) {
++        const uint32_t* w = members.data() + 12 * m;
++        const uint32_t h = (w[3] * 0x9E3779B1u) ^ (w[7] * 0x85EBCA77u) ^ (w[11] * 0xC2B2AE3Du);
++        if (!(keep > 1 && ((h >> 7) % keep) != 0)) continue;  // (not a thinning candidate: always drawn)
++        const uint64_t key = pass_key ^ (uint64_t(h) * 0x165667B19E3779F9ull);
++        const int prev = ThinStateGet(key);
++        bool thinned;
++        if (prev < 0) {
++          thinned = all_w[m] > limit;
++        } else if (prev) {
++          thinned = !(all_w[m] < limit * (1.0 - kBand));
++        } else {
++          thinned = all_w[m] > limit * (1.0 + kBand);
++        }
++        ThinStateSet(key, prev, thinned);
++        thin_flag[m] = thinned ? 1 : 0;
++      }
++      }
++    }
++  }
+   for (size_t m = 0; m < n; ++m) {
+     const uint32_t* w = members.data() + 12 * m;
+     double M[4][4];
+@@ -3864,17 +3985,52 @@ bool CommandProcessor::SceneCrowdCull(const std::vector<uint32_t>& members, std:
+       outside = pmax < 0.0;
+     }
+     ++cs.members;
++    const int kind = vs_hash == kCrowdVs ? 0 : (vs_hash == kCrowdLitVs ? 1 : 2);
++    ++g_cull_kind_members[kind];
+     if (outside) {
++      ++g_cull_kind_outside[kind];
++      if (REXCVAR_GET(gpu_scene_crowd_cull_diag) && finite) {
++        double nx0 = 1e30, nx1 = -1e30, ny0 = 1e30, ny1 = -1e30;
++        bool front = true;
++        for (int c = 0; c < 8 && front; ++c) {
++          double cc[4];
++          for (int i = 0; i < 4; ++i)
++            cc[i] = M[i][3] + M[i][0] * ((c & 1) ? mesh->max[0] : mesh->min[0]) +
++                    M[i][1] * ((c & 2) ? mesh->max[1] : mesh->min[1]) + M[i][2] * ((c & 4) ? mesh->max[2] : mesh->min[2]);
++          if (cc[3] <= 1e-6) {
++            front = false;
++            break;
++          }
++          nx0 = std::min(nx0, cc[0] / cc[3]), nx1 = std::max(nx1, cc[0] / cc[3]);
++          ny0 = std::min(ny0, cc[1] / cc[3]), ny1 = std::max(ny1, cc[1] / cc[3]);
++        }
++        if (!front) {
++          ++g_cull_diag_behind;
++        } else if (nx1 >= -1.0 && nx0 <= 1.0 && ny1 >= -1.0 && ny0 <= 1.0) {
++          ++g_cull_diag_overlap;
++          if (g_cull_diag_lines++ < 60) {
++            REXGPU_INFO("[scene][crowd] cull-diag: kind {} culled member {}/{} box ndc x {:.3f}..{:.3f} y {:.3f}..{:.3f}; "
++                        "mesh min ({:.2f} {:.2f} {:.2f}) max ({:.2f} {:.2f} {:.2f}) bytes {} stride {} margin {:.3f}/{:.3f} "
++                        "origin w {:.3f} ndc ({:.3f} {:.3f}) vp {}x{} c255 {} {} {}",
++                        kind, m, n, nx0, nx1, ny0, ny1, mesh->min[0], mesh->min[1], mesh->min[2], mesh->max[0],
++                        mesh->max[1], mesh->max[2], mesh->bytes, mesh->stride, margin[0], margin[1], M[3][3],
++                        M[0][3] / M[3][3], M[1][3] / M[3][3], vp[0][0], vp[1][1], fbits(regs[kVsConst + 4 * 255]),
++                        fbits(regs[kVsConst + 4 * 255 + 1]), fbits(regs[kVsConst + 4 * 255 + 2]));
++          }
++        }
++      }
+       ++cs.outside;
++    } else if (stable && thin_flag[m]) {
++      ++cs.thinned;
+     } else {
+       kept.insert(kept.end(), w, w + 12);
+-      if (thin) kept_w.push_back(M[3][3]);
++      if (thin && !stable) kept_w.push_back(M[3][3]);
+     }
+   }
+   // wwe2k14 patch (Session 79, HD 520 arc look lever, gpu_scene_crowd_thin N): of the members farther than N/100 x the
+   // run's median view depth (clip w at the member's origin), every other one left out - picked by a hash of its
+   // position, so the same members stay from frame to frame. Not exact (a thinner distant crowd): off by default.
+-  if (thin && kept_w.size() >= 8) {
++  if (thin && !stable && kept_w.size() >= 8) {
+     std::vector<double> sorted = kept_w;
+     std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+     const double limit = sorted[sorted.size() / 2] * double(thin) / 100.0;
+@@ -3884,7 +4040,15 @@ bool CommandProcessor::SceneCrowdCull(const std::vector<uint32_t>& members, std:
+     for (size_t k = 0; k < kept_w.size(); ++k) {
+       const uint32_t* w = kept.data() + 12 * k;
+       const uint32_t h = (w[3] * 0x9E3779B1u) ^ (w[7] * 0x85EBCA77u) ^ (w[11] * 0xC2B2AE3Du);
+-      if (kept_w[k] > limit && keep > 1 && ((h >> 7) % keep) != 0) {
++      const bool cand = keep > 1 && ((h >> 7) % keep) != 0;
++      const bool is_thin = cand && kept_w[k] > limit;
++      if (cand) {  // (flip counting for the old rule: the same key as the stable one, members that stayed in view)
++        const uint64_t key = (uint64_t(mesh->base) * 0x9E3779B97F4A7C15ull) ^
++                             (uint64_t(regs[XE_GPU_REG_PA_CL_VPORT_XSCALE]) * 0xC2B2AE3D27D4EB4Full) ^
++                             (uint64_t(h) * 0x165667B19E3779F9ull);
++        ThinStateSet(key, ThinStateGet(key), is_thin);
++      }
++      if (is_thin) {
+         ++cs.thinned;
+         continue;
+       }
+@@ -3896,6 +4060,14 @@ bool CommandProcessor::SceneCrowdCull(const std::vector<uint32_t>& members, std:
+ }
+ 
+ void CommandProcessor::SceneCrowdFrameEnd() {
++  {  // wwe2k14 patch (Session 90): the thin state's generations - the previous one dropped, the current one becomes it.
++    static uint64_t last_swap = 0;
++    if (counter_ - last_swap >= 600) {
++      last_swap = counter_;
++      g_thin_state_prev.swap(g_thin_state);
++      g_thin_state.clear();
++    }
++  }
+   scene_crowd_meshes_.clear();  // wwe2k14 patch (Session 70, CROWD CULL): the mesh boxes are this frame's
+   SceneCrowdStats& st = scene_crowd_stats_;
+   // (Review: ageing.) Runs pushed before the frame end 3 frame ends ago were for frames already drawn: dropped. The
+@@ -3969,6 +4141,19 @@ void CommandProcessor::SceneCrowdFrameEnd() {
+                 cs.members / n, cs.outside / n, cs.members ? 100.0 * double(cs.outside) / double(cs.members) : 0.0,
+                 cs.thinned / n, g_crowd_density_dropped / n);
+     g_crowd_density_dropped = 0;
++    REXGPU_INFO("[scene][crowd] cull per kind (per frame; members / outside): cards {:.1f}/{:.1f}, entrance {:.1f}/{:.1f}, "
++                "match {:.1f}/{:.1f}; diag: culled yet box on screen {}, culled with a corner behind the camera {}",
++                g_cull_kind_members[0] / n, g_cull_kind_outside[0] / n, g_cull_kind_members[1] / n,
++                g_cull_kind_outside[1] / n, g_cull_kind_members[2] / n, g_cull_kind_outside[2] / n,
++                g_cull_diag_overlap, g_cull_diag_behind);
++    REXGPU_INFO("[scene][crowd] thin ({}): per frame: thinned {:.1f}, flips {:.2f}, saving {:.1f}% of the queued members",
++                REXCVAR_GET(gpu_scene_crowd_thin_stable) ? "stable" : "old rule", cs.thinned / n, g_thin_flips / n,
++                cs.members ? 100.0 * double(cs.thinned) / double(cs.members) : 0.0);
++    REXGPU_INFO("[scene][crowd] thin state: {} keys (+{} in the previous generation), new keys per frame {:.2f}",
++                g_thin_state.size(), g_thin_state_prev.size(), g_thin_new_keys / n);
++    g_thin_flips = g_thin_new_keys = 0;
++    for (int k = 0; k < 3; ++k) g_cull_kind_members[k] = g_cull_kind_outside[k] = 0;
++    g_cull_diag_overlap = g_cull_diag_behind = 0;
+     cs = SceneCrowdCullStats();
+   }
+   g_crowd_density_dropped = 0;  // (Session 85: every window, also with the cull off)
+@@ -4119,9 +4304,9 @@ bool CommandProcessor::ExecutePacketType3_IM_LOAD(memory::RingBuffer* reader, ui
+   assert_true(start == 0);
+ 
+   auto shader =
+-      LoadShader(shader_type, addr, memory_->TranslatePhysical<uint32_t*>(addr), size_dwords);
++      LoadShader(shader_type, addr, D3dShaderMicrocodePtrOf(memory_, addr), size_dwords);
+   // wwe2k14 patch (Session 48, HALF2): the microcode's guest address, for the library-draw compare.
+-  half2_ucode_[shader_type == xenos::ShaderType::kVertex ? 0 : 1] = addr & 0x1FFFFFFF;
++  half2_ucode_[shader_type == xenos::ShaderType::kVertex ? 0 : 1] = D3dShaderHalf2Key(addr);
+   half2_shader_at_[shader_type == xenos::ShaderType::kVertex ? 0 : 1] = half2_packet_at_;  // (Session 51)
+   switch (shader_type) {
+     case xenos::ShaderType::kVertex:
+@@ -4239,8 +4424,8 @@ bool CommandProcessor::ExecutePacketType3_D3D_TOKEN(memory::RingBuffer* reader,
+       if (!answers) {  // (the answers side skips IM_LOAD, as in ExecutePacketType3)
+         SCOPE_profile_cpu_f("gpu");
+         const auto shader_type = type == 0 ? xenos::ShaderType::kVertex : xenos::ShaderType::kPixel;
+-        auto shader = LoadShader(shader_type, addr, memory_->TranslatePhysical<uint32_t*>(addr), size_dwords);
+-        half2_ucode_[type] = addr & 0x1FFFFFFF;  // (as ExecutePacketType3_IM_LOAD)
++        auto shader = LoadShader(shader_type, addr, D3dShaderMicrocodePtrOf(memory_, addr), size_dwords);
++        half2_ucode_[type] = D3dShaderHalf2Key(addr);  // (as ExecutePacketType3_IM_LOAD)
+         half2_shader_at_[type] = half2_packet_at_;
+         if (type == 0) {
+           active_vertex_shader_ = shader;
+diff --git a/src/graphics/d3d_inline_draw.cpp b/src/graphics/d3d_inline_draw.cpp
+index 61c4c896d476810b7181bc3dbed1c809c0e06bd9..e080a31ba1d64cec020eee907ced2225ca0a36ac 100644
+--- a/src/graphics/d3d_inline_draw.cpp
++++ b/src/graphics/d3d_inline_draw.cpp
+@@ -17,6 +17,7 @@
+ #include <rex/memory/ring_buffer.h>
+ #include <rex/memory/utils.h>
+ #include <rex/system/xmemory.h>
++#include "d3d_shader_tag.h"
+ 
+ // The capability marker the game exe looks up by name (rex::cvar::GetFlagInfo) before it takes an inline draw: a build
+ // without it never gets a token. Read-only.
+@@ -163,9 +164,8 @@ bool CommandProcessor::ExecuteD3dInlineDraw(const d3d::InlineDrawRecord& rec) {
+     const uint32_t slot = type == xenos::ShaderType::kVertex ? 0 : 1;
+     Shader* shader;
+     if (bind.guest_address) {
+-      shader = LoadShader(type, bind.guest_address, memory_->TranslatePhysical<uint32_t*>(bind.guest_address),
+-                          bind.dword_count);
+-      half2_ucode_[slot] = bind.guest_address & 0x1FFFFFFF;
++      shader = LoadShader(type, bind.guest_address, D3dShaderMicrocodePtrOf(memory_, bind.guest_address), bind.dword_count);
++      half2_ucode_[slot] = D3dShaderHalf2Key(bind.guest_address);
+     } else {
+       shader = LoadShader(type, 0, bind.inline_words.data(), bind.dword_count);
+       half2_ucode_[slot] = 0;
+@@ -188,14 +188,12 @@ bool CommandProcessor::ExecuteD3dInlineDraw(const d3d::InlineDrawRecord& rec) {
+   } else {
+     InlineStaging& s = g_staging;
+     if (!s.virtual_base && !s.failed) {
+-      memory::BaseHeap* heap = memory_->LookupHeapByType(true, 4096);
++      // (Session 90: `virtual_base` now holds a PHYSICAL address, out of the SDK's own system reserve - not the game's pool.)
+       uint32_t address = 0;
+-      if (heap && heap->Alloc(kStagingBytes, 4096, memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
+-                              memory::kMemoryProtectRead | memory::kMemoryProtectWrite, false, &address)) {
++      if (memory::D3dLayerTakePhysicalReserve(kStagingBytes, &address)) {
+         s.virtual_base = address;
+         s.size = kStagingBytes;
+-        REXGPU_INFO("[d3d] inline vertex staging: {} bytes at guest {:08X} (physical {:08X})", kStagingBytes, address,
+-                    memory_->GetPhysicalAddress(address));
++        memory::D3dLayerNoteGuestMemory("inline vertex staging", kStagingBytes, false, address);
+       } else {
+         s.failed = true;
+         REXGPU_ERROR("[d3d] inline vertex staging could not be allocated: inline draws with carried bytes are dropped");
+@@ -208,9 +206,9 @@ bool CommandProcessor::ExecuteD3dInlineDraw(const d3d::InlineDrawRecord& rec) {
+     uint32_t use = (s.offset + 15u) & ~15u;
+     if (use + bytes > s.size) use = 0;  // wrap: an older draw's bytes are long consumed (its upload was recorded in order)
+     s.offset = use + bytes;
+-    uint8_t* host = memory_->TranslateVirtual<uint8_t*>(s.virtual_base + use);
++    uint8_t* host = memory_->TranslateVirtual<uint8_t*>(0xA0000000u + s.virtual_base + use)  /* the 64 KB view: a WATCHED view, so the write invalidates the shared memory (the physical view is not watched) */;
+     std::memcpy(host, rec.vertices.data(), bytes);
+-    physical = memory_->GetPhysicalAddress(s.virtual_base + use);
++    physical = s.virtual_base + use;
+     c.staged.fetch_add(1, std::memory_order_relaxed);
+   }
+ 
+diff --git a/src/graphics/d3d_noring.cpp b/src/graphics/d3d_noring.cpp
+index b947ceb4ee531c1922324796cb6377895766fd2f..6a27f530734541267b2db7bed0e4c8727ef9f1e2 100644
+--- a/src/graphics/d3d_noring.cpp
++++ b/src/graphics/d3d_noring.cpp
+@@ -32,6 +32,7 @@
+ #include <rex/graphics/xenos.h>
+ #include <rex/logging.h>
+ #include <rex/memory.h>
++#include <rex/system/xmemory.h>
+ #include <rex/memory/ring_buffer.h>
+ #include <rex/memory/utils.h>
+ #include <rex/perf/timeline.h>
+@@ -125,14 +126,16 @@ bool CommandProcessor::D3dNoringRunPackets(const uint32_t* words, uint32_t count
+   if (g_arena_item) {
+     Arena& a = g_arena;
+     if (!a.virtual_base && !a.failed) {
+-      memory::BaseHeap* heap = memory_->LookupHeapByType(true, 4096);
++      // (Session 90: the arena is in the guest VIRTUAL heap, not the physical pool: a packet address is the reader pointer less the
++      // physical base, which for a virtual address V is V again as a uint32 - unique, and nothing reads it as physical.)
++      memory::BaseHeap* heap = memory_->LookupHeapByType(false, 4096);
+       uint32_t address = 0;
+       if (heap && heap->Alloc(kArenaBytes, 4096, memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
+                               memory::kMemoryProtectRead | memory::kMemoryProtectWrite, true /* top down */, &address)) {
+         a.virtual_base = address;
+         a.size = kArenaBytes;
+-        REXGPU_INFO("[d3d][noring] record arena: {} bytes at guest {:08X} (physical {:08X})", kArenaBytes, address,
+-                    memory_->GetPhysicalAddress(address));
++        REXGPU_INFO("[d3d][noring] record arena: {} bytes at guest virtual {:08X}", kArenaBytes, address);
++        memory::D3dLayerNoteGuestMemory("no-ring record arena", kArenaBytes, true, address);
+       } else {
+         a.failed = true;
+         REXGPU_ERROR("[d3d][noring] the record arena could not be allocated: packets by value run from host memory (their guest "
+@@ -195,6 +198,9 @@ bool CommandProcessor::D3dNoringExecute(uint32_t kind, const uint32_t* f, const
+     }
+     return true;
+   }();
++  if (kind == kNrRegs && payload_dwords >= 4) {  // (diagnostic: what a foreign flush by this item prints)
++    D3dFeedItemInfo() = (payload[0] << 24) | (std::min<uint32_t>(payload_dwords / 4, 255u) << 16) | (payload[1] & 0xFFFFu);
++  }
+   struct FeedScopeGuard {
+     CommandProcessor* cp;
+     bool open = false;
+diff --git a/src/graphics/d3d_shader_tag.h b/src/graphics/d3d_shader_tag.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..faf414297eec08ce2768a90e028efc3003afc829
+--- /dev/null
++++ b/src/graphics/d3d_shader_tag.h
+@@ -0,0 +1,25 @@
++#pragma once
++// wwe2k14 patch (Session 90, TRUE NATIVE memory): the microcode address of a D3D-layer shader load (IM_LOAD word, record SHADER
++// item, inline token). Bit 31 set = a GUEST VIRTUAL address (the game exe keeps its patched vertex-shader copies in the virtual
++// heap, so the layer takes no physical pool); clear = physical, as the library's IM_LOAD. A physical IM_LOAD address never has
++// bit 31 (29-bit physical space). The address only locates the bytes: the shader cache is keyed by the microcode itself.
++#include <cstdint>
++
++#include <rex/system/xmemory.h>
++
++namespace rex::graphics {
++
++inline constexpr uint32_t kD3dShaderVirtualTag = 0x80000000u;
++
++inline uint32_t* D3dShaderMicrocodePtrOf(memory::Memory* memory, uint32_t address) {
++  return (address & kD3dShaderVirtualTag) ? memory->TranslateVirtual<uint32_t*>(address & ~kD3dShaderVirtualTag)
++                                          : memory->TranslatePhysical<uint32_t*>(address);
++}
++
++// half2_ucode_: equality key against the library's draw packets (physical, masked to 29 bits); a tagged address keeps its
++// bit 31 so it never equals one.
++inline uint32_t D3dShaderHalf2Key(uint32_t address) {
++  return (address & kD3dShaderVirtualTag) ? address : (address & 0x1FFFFFFFu);
++}
++
++}  // namespace rex::graphics
+diff --git a/src/graphics/half2_log.cpp b/src/graphics/half2_log.cpp
+index 9c481cef4251bf81fa49bc32550c10b5dc92d89b..1d9f9a5b61265f99557a51eb60419c932217914e 100644
+--- a/src/graphics/half2_log.cpp
++++ b/src/graphics/half2_log.cpp
+@@ -467,6 +467,8 @@ void CommandProcessor::Half2LogAt(uint64_t seq, uint32_t at, uint32_t kind, bool
+       case xenos::PM4_IM_LOAD: {
+         const uint32_t addr_type = word(d);
+         const uint32_t t = addr_type & 3;
++        // (Session 90: a D3D-layer microcode address tagged with bit 31 = guest virtual is masked away here; IM_LOAD packets in a
++        // ring never carry the tag today - only records / tokens do - so this log line cannot see one.)
+         log.ucode[t == uint32_t(xenos::ShaderType::kVertex) ? 0 : 1] = (addr_type & ~3u) & 0x1FFFFFFF;
+         log.shader_at[t == uint32_t(xenos::ShaderType::kVertex) ? 0 : 1] = to_physical(pos);
+       } break;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 6549a3d84e9fe31abaf5e79a0868723189c7c952..719ec13b27697b7f2d49617671c4fe7b98692384 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7590,6 +7590,19 @@ bool VulkanCommandProcessor::NativeOwnedMarkResolved() {
+   return native_ && native_->enabled() && native_->OwnedTakeDerivedResolved();
+ }
+ 
++// wwe2k14 patch (Session 90, Q): see the header.
++bool VulkanCommandProcessor::NativeOwnedWriteBackArmed() const {
++  return native_ && native_->enabled() && native_->OwnedWriteBackArmed();
++}
++
++bool VulkanCommandProcessor::NativeOwnedWriteBackRun(const draw_util::ResolveInfo& info,
++                                                     const draw_util::ResolveCopyShaderConstants& constants,
++                                                     VkDescriptorSet dest_set, uint32_t group_count_x,
++                                                     uint32_t group_count_y) {
++  return native_ && native_->enabled() &&
++         native_->OwnedWriteBackRun(info, constants, dest_set, group_count_x, group_count_y);
++}
++
+ void VulkanCommandProcessor::NativeOwnedCubeLearned(uint32_t base_page, uint32_t width, uint32_t height, uint32_t faces,
+                                                     uint32_t stride_bytes) {
+   if (native_ && native_->enabled()) native_->OwnedCubeLearned(base_page, width, height, faces, stride_bytes);
+@@ -7786,6 +7799,24 @@ void VulkanCommandProcessor::NativeEdramCounters(uint64_t counts[4]) const {
+ // the index buffer and the vertex count, which IssueDraw adds).
+ bool VulkanCommandProcessor::NativeRendererEnabled() const { return native_ && native_->enabled(); }
+ 
++// wwe2k14 patch (Session 90, Adreno link): the interpolators a pixel shader's REPLACEMENT reads beyond what the guest vertex shader
++// writes (bits 0..N-1 from the replacement's input locations). The vertex translation declares them (SpirvShaderTranslator, interpolator_mask) and zero-fills those the guest
++// shader does not write - the value the guest's own pixel shader read - so the pair links on drivers that refuse an unwritten
++// input. Every derivation of the interpolator mask adds this (both IssueDraw sites; a stored record's vertex modification is
++// conformed the same way in the native renderer), so bindings and pipeline keys agree.
++static uint32_t NativeSwapInterpolatorMask(bool native_enabled, const Shader* vertex_shader, const Shader* pixel_shader) {
++  if (!pixel_shader || !native_enabled) return 0;
++  uint32_t reads = shader_swap::ReplacementInterpolatorMask(pixel_shader->ucode_data_hash());
++  if (!reads) return 0;
++  // (The parameter-generated interpolator stays in the mask: clearing it would break the contiguous locations 0..N-1 the
++  // replacement assumes; the translated pixel shader overwrites that register itself, and both stages pack the same mask.)
++  if (vertex_shader) {
++    shader_swap::NoteInterface(vertex_shader->ucode_data_hash(), pixel_shader->ucode_data_hash(),
++                               vertex_shader->writes_interpolators(), reads);
++  }
++  return reads;
++}
++
+ uint32_t VulkanCommandProcessor::NativePixelExt(const Shader* pixel_shader, bool census) const {
+   if (!pixel_shader || (!census && !NativeRendererEnabled())) {
+     return 0;
+@@ -7970,6 +8001,19 @@ void VulkanCommandProcessor::NativeDescribeDraw(native::Draw& draw, const Vulkan
+       draw.vertex_shader = emulated->shader_module();
+     }
+   }
++  // wwe2k14 patch (Session 90, Adreno link): the static interface check, once per (vertex, pixel) pair that takes a replacement -
++  // its input locations against the final vertex translation's outputs. After the interpolator mask fix there are no MISMATCH lines.
++  if (pixel_shader && (draw.pixel_ext & SpirvShaderTranslator::kNativeExtSwap) &&
++      !shader_swap::InterfaceChecked(draw.vertex_shader_hash, draw.pixel_shader_hash)) {
++    const VulkanShader::VulkanTranslation* final_vertex = &vertex_translation;
++    if (draw.vertex_ext || draw.vertex_mul_key) {
++      final_vertex = static_cast<const VulkanShader::VulkanTranslation*>(
++          const_cast<VulkanShader&>(vertex_shader).GetOrCreateNativeTranslation(native_vertex_modification, draw.vertex_ext));
++    }
++    if (final_vertex && final_vertex->is_translated()) {
++      shader_swap::CheckInterface(draw.vertex_shader_hash, draw.pixel_shader_hash, final_vertex->translated_binary());
++    }
++  }
+   draw.layout = current_guest_graphics_pipeline_layout_ ? current_guest_graphics_pipeline_layout_->GetPipelineLayout()
+                                                         : VK_NULL_HANDLE;
+   // wwe2k14 patch (Session 61, gpu_native_pipeline_storage): what the modules and the layout come from (the layout's
+@@ -10642,6 +10686,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                                              regs.Get<reg::SQ_CONTEXT_MISC>(),
+                                                              ps_param_gen_pos))
+                    : 0;
++  // wwe2k14 patch (Session 90, Adreno link): a pixel shader with a registered replacement - the vertex translation declares
++  // every interpolator the replacement reads (zero-filled where the guest vertex shader writes none), at the contiguous
++  // locations 0..N-1 its fixed input locations assume. See NativeSwapInterpolatorMask.
++  interpolator_mask |= NativeSwapInterpolatorMask(native_ && native_->enabled(), vertex_shader, pixel_shader);
+ 
+   PrimitiveProcessor::ProcessingResult primitive_processing_result;
+   SpirvShaderTranslator::Modification vertex_shader_modification;
+@@ -11614,6 +11662,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                                                                    regs.Get<reg::SQ_CONTEXT_MISC>(),
+                                                                                    generated_position))
+                                          : 0;
++        interpolator_mask |= NativeSwapInterpolatorMask(native_ && native_->enabled(), vertex_shader, pixel_shader);  // (Session 90: as above)
+         ps_param_gen_pos = generated_position;
+         vertex_shader_modification = pipeline_cache_->GetCurrentVertexShaderModification(
+             *vertex_shader, primitive_processing_result.host_vertex_shader_type, interpolator_mask,
+@@ -14714,6 +14763,21 @@ bool VulkanCommandProcessor::IssueCopy() {
+   return copied;
+ }
+ 
++// wwe2k14 patch (Session 90, Q diagnosis): with --gpu_native_owned_writeback_dump=DIR the first 90 read-back resolves of 16 KB or more are
++// written to DIR (what the CPU gets, by address and order), to compare the write-back's bytes with the old replay's.
++REXCVAR_DEFINE_STRING(gpu_native_owned_writeback_dump, "", "GPU/Native", "Session 90 (Q, diagnosis): directory for the dumps of large read-back resolves");
++static void WbDiagDump(uint32_t address, uint32_t length, const void* data) {
++  static int n = 0;
++  const std::string dir = REXCVAR_GET(gpu_native_owned_writeback_dump);
++  if (dir.empty() || length < 0x4000u || n >= 90) return;
++  char name[512];
++  std::snprintf(name, sizeof(name), "%s/wb_%02d_%08X_%X.bin", dir.c_str(), n++, address, length);
++  if (std::FILE* f = std::fopen(name, "wb")) {
++    std::fwrite(data, 1, length, f);
++    std::fclose(f);
++  }
++}
++
+ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -15126,6 +15190,7 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+       if (matte_dump_is_depth_) ++matte_depth_dumped_;
+     } else if (destination) {
+       std::memcpy(destination, readback.mapped_data[read_index], written_length);
++      WbDiagDump(written_address, written_length, readback.mapped_data[read_index]);
+       std::atomic_thread_fence(std::memory_order_seq_cst);  // wwe2k14 patch (Session 73): see FlushPendingReadbacks
+     }
+   }
+@@ -15254,6 +15319,7 @@ void VulkanCommandProcessor::FlushPendingReadbacks(GuestVisibleEvent reason) {
+     uint8_t* destination = memory_->TranslatePhysical(written_address);
+     if (destination) {
+       std::memcpy(destination, readback.mapped_data[read_index], written_length);
++      WbDiagDump(written_address, written_length, readback.mapped_data[read_index]);
+       bytes += written_length;
+     }
+   }
+@@ -18325,12 +18391,18 @@ bool VulkanCommandProcessor::OwnCrowdActive() const {
+ }
+ 
+ bool VulkanCommandProcessor::OwnCrowdDraw(const uint32_t* members, uint32_t count) {
++  const bool feed_live = D3dFeedLive();  // (Session 90, K2: the refusal reason is kept for the feed census only)
++  if (feed_live) D3dFeedCrowd().last_decline = 0;
+   if (!REXCVAR_GET(gpu_native_own_crowd) || !native_ || !native_->enabled() || !native_->replacing() || !count) {
++    if (feed_live) D3dFeedCrowd().last_decline = 10;
+     return false;
+   }
+   const auto* vs = static_cast<const VulkanShader*>(active_vertex_shader());
+   const auto* ps = static_cast<const VulkanShader*>(active_pixel_shader());
+-  if (!vs || !ps) return false;
++  if (!vs || !ps) {
++    if (feed_live) D3dFeedCrowd().last_decline = 11;
++    return false;
++  }
+   std::shared_ptr<const OwnCrowdProgram> program;
+   {
+     std::lock_guard<std::mutex> lock(own_crowd_mutex_);
+@@ -18340,6 +18412,7 @@ bool VulkanCommandProcessor::OwnCrowdDraw(const uint32_t* members, uint32_t coun
+   }
+   // (Once per vertex shader and reason, up to 32: why a crowd run kept the game's draws - our coverage.)
+   const auto decline = [&](uint32_t reason, const char* why) {
++    if (feed_live) D3dFeedCrowd().last_decline = reason;
+     const uint64_t key = vs->ucode_data_hash() ^ (uint64_t(reason) << 59);
+     if (own_crowd_unknown_.size() < 32 &&
+         std::find(own_crowd_unknown_.begin(), own_crowd_unknown_.end(), key) == own_crowd_unknown_.end()) {
+@@ -18452,7 +18525,10 @@ bool VulkanCommandProcessor::OwnCrowdDraw(const uint32_t* members, uint32_t coun
+     in.views[2] = in.views[1];
+     in.samplers[2] = in.samplers[1];
+   }
+-  if (!native_->RecordOwnCrowd(in)) return false;  // (counted in the renderer's own line)
++  if (!native_->RecordOwnCrowd(in)) {  // (counted in the renderer's own line)
++    if (feed_live) D3dFeedCrowd().last_decline = 12;
++    return false;
++  }
+   // (Session 87 diagnosis: the output state the guest path applies in its epilogue - colour exponent bias, alpha test,
+   // gamma - and the sampled fetch constants' exp_adjust / format, for the first 4 runs of each crowd vertex shader.)
+   {
+diff --git a/src/graphics/vulkan/native/d3d_copy_records.cpp b/src/graphics/vulkan/native/d3d_copy_records.cpp
+index 60e2b7561cb93a28d2c4c0bcee1451e8681ad5cc..9af0c0034a5c80f36c26735f0e0646565a825e93 100644
+--- a/src/graphics/vulkan/native/d3d_copy_records.cpp
++++ b/src/graphics/vulkan/native/d3d_copy_records.cpp
+@@ -129,13 +129,11 @@ bool D3dCopyAccess::ClearStock(VulkanCommandProcessor& cp, const uint32_t* s, ui
+   static bool staging_failed = false;
+   constexpr uint32_t kStagingBytes = 64 * 1024;
+   if (!staging_virtual && !staging_failed) {
+-    memory::BaseHeap* heap = cp.memory_->LookupHeapByType(true, 4096);
++    // (Session 90: `staging_virtual` holds a PHYSICAL address out of the SDK system reserve, not the game pool.)
+     uint32_t address = 0;
+-    if (heap && heap->Alloc(kStagingBytes, 4096, memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
+-                            memory::kMemoryProtectRead | memory::kMemoryProtectWrite, false, &address)) {
++    if (memory::D3dLayerTakePhysicalReserve(kStagingBytes, &address)) {
+       staging_virtual = address;
+-      REXGPU_INFO("[d3d] clear vertex staging: {} bytes at guest {:08X} (physical {:08X})", kStagingBytes, address,
+-                  cp.memory_->GetPhysicalAddress(address));
++      memory::D3dLayerNoteGuestMemory("clear vertex staging", kStagingBytes, false, address);
+     } else {
+       staging_failed = true;
+     }
+@@ -166,13 +164,13 @@ bool D3dCopyAccess::ClearStock(VulkanCommandProcessor& cp, const uint32_t* s, ui
+   uint32_t use = (staging_offset + 15u) & ~15u;
+   if (use + 84 > kStagingBytes) use = 0;  // (an older clear's vertices are long consumed: its upload was recorded in order)
+   staging_offset = use + 84;
+-  uint8_t* host = cp.memory_->TranslateVirtual<uint8_t*>(staging_virtual + use);
++  uint8_t* host = cp.memory_->TranslateVirtual<uint8_t*>(0xA0000000u + staging_virtual + use) /* a watched view (not the physical one) */;
+   for (uint32_t v = 0; v < 3; ++v) {
+     const float vertex[7] = {corners[v][0], corners[v][1], z, F(s[kColor + 0]), F(s[kColor + 1]), F(s[kColor + 2]),
+                              F(s[kColor + 3])};
+     for (uint32_t i = 0; i < 7; ++i) memory::store_and_swap<uint32_t>(host + (v * 7 + i) * 4, std::bit_cast<uint32_t>(vertex[i]));
+   }
+-  const uint32_t physical = cp.memory_->GetPhysicalAddress(staging_virtual + use);
++  const uint32_t physical = staging_virtual + use;
+ 
+   // The registers (the library's fixed packets of 0x82CB4B00 / 0x82CB4560 / 0x82CB4040), remembered to be put back.
+   // (Session 87, stage 3, gpu_d3d_own_copy: inside the image scope the values to put back are the image's, and WriteRegister
+diff --git a/src/graphics/vulkan/native/d3d_direct.cpp b/src/graphics/vulkan/native/d3d_direct.cpp
+index 2ab5cdff28b2b473df72609268cf7867c08b0636..ba8b70b2ec13c05e4872ef512fb9f3ac78b8eaaa 100644
+--- a/src/graphics/vulkan/native/d3d_direct.cpp
++++ b/src/graphics/vulkan/native/d3d_direct.cpp
+@@ -207,6 +207,7 @@ void D3dDirectAccess::Print(VCP& cp) {
+ bool D3dDirectAccess::DrawItem(CommandProcessor& base, rex::memory::RingBuffer* reader) {
+   using Feed = D3dFeedAccess;
+   if (!REXCVAR_GET(gpu_d3d_direct)) {
++    D3dFeedLastPacket() = 0x3FB;  // (Session 90: the census key of a Foreign that no packet announced - was the previous item's)
+     D3dFeedForeign(base);  // (runs the feed took while the switch was on: the stock draw reads the register file)
+     return false;
+   }
+@@ -218,13 +219,14 @@ bool D3dDirectAccess::DrawItem(CommandProcessor& base, rex::memory::RingBuffer*
+   if (cp.anatomy_active_ || cp.D3dDirectExtentsActive() || REXCVAR_GET(gpu_det_skip_host_draws) || !cp.native_ ||
+       !cp.native_->enabled()) {
+     ++c.fallback_mode;
+-    D3dFeedLastPacket() = 0x37C; D3dFeedForeign(base);
++    D3dFeedLastPacket() = 0x3FC; D3dFeedForeign(base);
+     return false;
+   }
+   cp.repeat_benign_ = true;  // (the record's shader loads / trailing flush registers are not state a template cares about)
+   const size_t saved = reader->read_offset();
+   const uintptr_t item_ptr = uintptr_t(reader->read_ptr());  // (crowd2 review B3: this item's address)
+   const uint64_t crowd_writes_before_item = cp.SceneCrowdRegisterWrites();
++  const uint64_t crowd_restored_before_item = D3dFeedCrowd().restored_image + D3dFeedCrowd().restored_regfile;  // (Session 90, K2)
+   const uint32_t viz_query_condition = reader->ReadAndSwap<uint32_t>();
+   reg::VGT_DRAW_INITIATOR vgt_draw_initiator;
+   vgt_draw_initiator.value = reader->ReadAndSwap<uint32_t>();
+@@ -234,7 +236,7 @@ bool D3dDirectAccess::DrawItem(CommandProcessor& base, rex::memory::RingBuffer*
+   if (vgt_draw_initiator.source_select != xenos::SourceSelect::kDMA) {
+     reader->set_read_offset(saved);
+     ++c.fallback_source;
+-    D3dFeedLastPacket() = 0x37C; D3dFeedForeign(base);
++    D3dFeedLastPacket() = 0x3FC; D3dFeedForeign(base);
+     return false;
+   }
+   // (Session 87, stage 3) The record-fed variant: the register image feeds this draw (BeginDraw), the register file is
+@@ -376,10 +378,23 @@ bool D3dDirectAccess::DrawItem(CommandProcessor& base, rex::memory::RingBuffer*
+   if (own) Feed::EndDraw(cp);
+   // (Crowd2 review B3: also when SceneCrowdAfterDraw wrote c76-c78 itself - our draw declined and the game drew the run.)
+   const bool crowd_wrote = own && cp.SceneCrowdRegisterWrites() != crowd_writes_before_item;
+-  if ((crowd_hit && (!crowd_on_image || scope_ended)) || crowd_wrote) {
++  // (Session 90, K2: SceneCrowdAfterDraw puts c76-c78 back after a run it drew itself, so the register file and the image are what the
++  // game believes again: the catch-up is skipped for an item whose crowd writes were all restored, kept (and counted by clause) for
++  // any write that was not.)
++  const bool crowd_restored = D3dFeedCrowd().restored_image + D3dFeedCrowd().restored_regfile != crowd_restored_before_item;
++  const bool crowd_clause = crowd_hit && (!crowd_on_image || scope_ended);
++  if (crowd_restored && !crowd_wrote && (crowd_clause || crowd_on_image)) {
++    ++D3dFeedCrowd().skipped_restored;
++    if (feed_mode == Feed::Mode::kVerify) Feed::VerifyDraw(cp);
++  } else if (crowd_clause || crowd_wrote) {
++    D3dFeedCrowdState& cs = D3dFeedCrowd();
++    if (crowd_wrote) ++cs.catchup_unrestored;
++    else if (scope_ended) ++cs.catchup_scope_ended;
++    else ++cs.catchup_crowd_hit;
+     // The crowd code (batched members, SceneCrowdAfterDraw) writes vertex constants c76-c78 into the register file
+     // directly, not by a packet: the image is stale after such a draw (verify run: 39 of 299,008 draws differed, all in
+     // 0x4130-0x413B).
++    D3dFeedLastPacket() = 0x3FD;  // (Session 90: after a crowd draw - the census key; before, the flush was credited to the last item's kind)
+     Feed::Foreign(cp);
+   } else if (feed_mode == Feed::Mode::kVerify) {
+     Feed::VerifyDraw(cp);
+diff --git a/src/graphics/vulkan/native/d3d_feed.cpp b/src/graphics/vulkan/native/d3d_feed.cpp
+index d61627bb622ee5e9bbef35b32365a688d87ac719..3253ce7b8b27b718e6e8ed2101fbcb8847ed201d 100644
+--- a/src/graphics/vulkan/native/d3d_feed.cpp
++++ b/src/graphics/vulkan/native/d3d_feed.cpp
+@@ -108,6 +108,7 @@ bool g_registered = [] {
+   h.scoped_write = &D3dFeedAccess::ScopedWrite;
+   h.scope_wanted = &D3dFeedAccess::ScopeWanted;
+   h.scope_begin = &D3dFeedAccess::ScopeBegin;
++  h.reg_rmw = &D3dFeedAccess::RegRmw;
+   h.scope_end = &D3dFeedAccess::ScopeEnd;
+   h.image_values = &D3dFeedAccess::ImageValues;
+   h.image_dirty = &D3dFeedAccess::ImageDirty;
+@@ -331,6 +332,29 @@ void D3dFeedAccess::Foreign(CommandProcessor& base) {
+     const uint32_t frame = uint32_t(cp.frame_current_);
+     if (!g_c.flush_by_kind[kind]) g_c.flush_first_frame[kind] = frame;
+     g_c.flush_last_frame[kind] = frame;
++    // A no-ring Registers item (type 2 opcode 9) that brought the register file up to date: why the image scope was not wanted for it,
++    // and what the item is (diagnostic, the first 16).
++    if (kind == ((2u << 8) | 9u)) {
++      static uint32_t reg_item_logged = 0;
++      if (reg_item_logged++ < 16) {
++        const char* why = "the scope was wanted (?)";
++        if (!REXCVAR_GET(gpu_d3d_direct)) why = "gpu_d3d_direct off";
++        else if (!REXCVAR_GET(gpu_d3d_own_input) && !REXCVAR_GET(gpu_d3d_own_input_verify)) why = "own_input off";
++        else if (cp.nf_role_ == VCP::NfRole::kAnswers) why = "the answers side";
++        else if (cp.anatomy_active_) why = "frame anatomy active";
++        else if (cp.D3dDirectExtentsActive()) why = "the extents shadow is active";
++        else if (REXCVAR_GET(gpu_det_skip_host_draws)) why = "gpu_det_skip_host_draws";
++        else if (!cp.native_) why = "no native renderer";
++        else if (!cp.native_->enabled()) why = "the native renderer is not enabled this frame";
++        else if (REXCVAR_GET(gpu_d3d_own_input_verify)) why = "verify mode";
++        else if (!REXCVAR_GET(gpu_d3d_own_copy)) why = "gpu_d3d_own_copy off";
++        else if (!REXCVAR_GET(gpu_d3d_own_full)) why = "gpu_d3d_own_full off";
++        const uint32_t info = D3dFeedItemInfo();
++        REXGPU_INFO("[d3d][feed] a Registers item made the register file catch up: frame {}, scope not taken because {}; item: first op {} register 0x{:04X}, "
++                    "{} op(s); an image scope is open: {}",
++                    frame, why, info >> 24, info & 0xFFFF, (info >> 16) & 0xFF, D3dFeedDrawRegs() ? "yes" : "no");
++      }
++    }
+     if (kind != 0x364 && g_c.flush_logged < 12 && g_c.flush_by_kind[kind] < 3) {
+       ++g_c.flush_logged;
+       REXGPU_INFO("[d3d][feed] a packet makes the register file catch up: type {} opcode 0x{:02X} at guest 0x{:08X} (called from the "
+@@ -373,6 +397,7 @@ bool D3dFeedAccess::Run(CommandProcessor& base, rex::memory::RingBuffer* reader,
+   if (mode == Mode::kOff || !Modelled(first, n)) {
+     if (mode != Mode::kOff) ++c.runs_unmodelled;
+     ++c.runs_stock;
++    D3dFeedLastPacket() = 0x3FE;  // (Session 90: a type-0 range the image does not take - the census key)
+     Foreign(base);  // (the register file current, the image stale)
+     return false;
+   }
+@@ -445,6 +470,31 @@ bool D3dFeedAccess::ScopeBegin(CommandProcessor& base) {
+   return true;
+ }
+ 
++// Session 90 (contract R): a REG_RMW packet on the image. Both the target and (when the packet reads registers) the source registers must be
++// ones the image models; the old value is the image's, the new one goes in as a single-register run would.
++bool D3dFeedAccess::RegRmw(CommandProcessor& base, uint32_t rmw_info, uint32_t and_mask, uint32_t or_mask) {
++  if (!ScopeWanted(base)) return false;
++  const uint32_t target = rmw_info & 0x1FFF;
++  // Only registers the baseline copies into the image (0x2000-0x23FF, 0x4000-0x492F) hold real values there; Modelled() also accepts
++  // 0x5C8 / 0xE00 / 0xE40, which the baseline never copies, so a REG_RMW on those would compute on a stale image value.
++  // Every reachable REG_RMW targets such a register (the 13-bit target field cannot reach 0x4000+), so in practice this declines
++  // them all: R's REG_RMW-on-image never applies and frame 88's catch-up stays (reg_rmw_fed stays 0).
++  const auto baselined = [](uint32_t r) { return (r >= kStateLo && r < kStateHi) || (r >= kConstLo && r < kConstHi); };
++  if (!baselined(target) || !Modelled(target, 1)) return false;
++  if (((rmw_info >> 31) & 1) && !(baselined(and_mask & 0x1FFF) && Modelled(and_mask & 0x1FFF, 1))) return false;
++  if (((rmw_info >> 30) & 1) && !(baselined(or_mask & 0x1FFF) && Modelled(or_mask & 0x1FFF, 1))) return false;
++  const bool opened = ScopeBegin(base);
++  if (!D3dFeedDrawRegs() || !g_f.image) return false;
++  const uint32_t* v = g_f.image->values;
++  uint32_t value = v[target];
++  value &= ((rmw_info >> 31) & 1) ? v[and_mask & 0x1FFF] : and_mask;
++  value |= ((rmw_info >> 30) & 1) ? v[or_mask & 0x1FFF] : or_mask;
++  Apply(static_cast<VCP&>(base), target, 1, &value, true, true);
++  ++g_c.reg_rmw_fed;
++  if (opened) EndDraw(static_cast<VCP&>(base));
++  return true;
++}
++
+ void D3dFeedAccess::ScopeEnd(CommandProcessor& base) { EndDraw(static_cast<VCP&>(base)); }
+ 
+ void D3dFeedAccess::EndDraw(VCP& cp) {
+@@ -500,6 +550,20 @@ void D3dFeedAccess::Print(VCP& cp) {
+     REXGPU_INFO("[d3d][feed] crowd on the image (gpu_d3d_own_crowd): {} crowd runs' first members fed from the record; {} single "
+                 "c76-c78 register writes and {} registers of member groups stored into the image (pending for the register file)",
+                 c.draws_crowd_image, c.scoped_writes, c.scoped_group_registers);
++    {
++      // Session 90 (K2): the crowd code's c76-c78 restore, the catch-ups it removed and the ones left, and why our crowd program declined.
++      const D3dFeedCrowdState& cs = D3dFeedCrowd();
++      std::string why;
++      for (uint32_t r = 0; r < 16; ++r) {
++        if (cs.decline_by_reason[r]) why += fmt::format("{}{}x{}", why.empty() ? "" : " ", r, cs.decline_by_reason[r]);
++      }
++      REXGPU_INFO("[d3d][feed] crowd constants restored after a run the game drew (c76-c78 put back to what the game set): {} runs in the "
++                  "image, {} in the register file, {} not restored; crowd catch-ups skipped because restored {}; still made: crowd run's "
++                  "first member with the register file as source {}, draw handed back {}, writes not restored {}; our crowd program "
++                  "declined {} runs (reason x count: {}); REG_RMW packets applied on the image {}",
++                  cs.restored_image, cs.restored_regfile, cs.unrestored_runs, cs.skipped_restored, cs.catchup_crowd_hit,
++                  cs.catchup_scope_ended, cs.catchup_unrestored, cs.declined_runs, why.empty() ? "none" : why, c.reg_rmw_fed);
++    }
+     // The packets that make the register file catch up (foreign packets seen with a valid image, and the ones that flushed).
+     std::array<std::pair<uint64_t, uint32_t>, 1024> kinds;
+     for (uint32_t k = 0; k < 1024; ++k) kinds[k] = {c.flush_by_kind[k], k};
+diff --git a/src/graphics/vulkan/native/d3d_feed.h b/src/graphics/vulkan/native/d3d_feed.h
+index 5623450cf946626886e50f1b1c32899036c9cfd3..5200c07be081ddac55b96b5f8da02ef16926f72a 100644
+--- a/src/graphics/vulkan/native/d3d_feed.h
++++ b/src/graphics/vulkan/native/d3d_feed.h
+@@ -38,6 +38,7 @@ struct D3dFeedCensus {
+   uint64_t fb_template = 0;       // handed back: the lean template did not hold (IssueDraw runs, after a flush)
+   uint64_t copy_scopes = 0;         // copy / clear / inline tokens run in an image scope (gpu_d3d_own_copy)
+   uint64_t draws_crowd_image = 0;  // crowd runs' first members fed from the record too (gpu_d3d_own_crowd): the members replayed on the image
++  uint64_t reg_rmw_fed = 0;         // Session 90: REG_RMW packets applied on the image (no register-file catch-up)
+   uint64_t scoped_writes = 0;       // single register writes the crowd code made into the image
+   uint64_t scoped_group_registers = 0;  // registers AppendCrowdInstances stored into the image (marked pending)
+   uint64_t foreign_by_kind[1024] = {};  // foreign packets that found the image valid, by type << 8 | opcode
+@@ -72,6 +73,7 @@ struct D3dFeedAccess {
+   static bool ScopedWrite(CommandProcessor& cp, uint32_t index, uint32_t value);
+   static bool ScopeWanted(CommandProcessor& cp);
+   static bool ScopeBegin(CommandProcessor& cp);
++  static bool RegRmw(CommandProcessor& cp, uint32_t rmw_info, uint32_t and_mask, uint32_t or_mask);
+   static void ScopeEnd(CommandProcessor& cp);
+   static uint32_t* ImageValues();
+   static void ImageDirty(uint32_t first, uint32_t count);
+diff --git a/src/graphics/vulkan/native/native_renderer.cpp b/src/graphics/vulkan/native/native_renderer.cpp
+index af5245ef14a45a674ada9b44d7405d98991cc60c..165bc352d64db548e098c2969535c9292ccb3643 100644
+--- a/src/graphics/vulkan/native/native_renderer.cpp
++++ b/src/graphics/vulkan/native/native_renderer.cpp
+@@ -905,6 +905,7 @@ void main() {
+         precise vec4 offset = scaled + 0.5;
+         u = uvec4(offset);
+       }
++      if ((c.target_class & 0x800u) != 0u) u.a = 255u;  // (Session 90 Q diagnosis: alpha forced)
+       v[i] = u.r | (u.g << 8) | (u.b << 16) | (u.a << 24);
+       // Session 45 (gpu_native_fuse_writeback, target_class bit 8): the write-back of this pixel, done here.
+       if ((c.target_class & 0x100u) != 0u) edram[(first + i) % 0x280000u] = v[i];
+@@ -1027,6 +1028,7 @@ void main() {
+         precise vec4 offset = scaled + 0.5;
+         u = uvec4(offset);
+       }
++      if ((c.target_class & 0x800u) != 0u) u.a = 255u;  // (Session 90 Q diagnosis: alpha forced)
+       v[i] = u.r | (u.g << 8) | (u.b << 16) | (u.a << 24);
+     }
+   }
+@@ -2309,6 +2311,13 @@ bool NativeRenderer::KeyFromRecord(const PipelineRecord& record, PipelineKey& ke
+       pixel_modification = cache.ConformStoredNativePixelModification(
+           *pixel_shader, pixel_modification, converted, (record.ext_bits & kRecordExtTexMaskKnown) != 0);
+     }
++    // wwe2k14 patch (Session 90, Adreno link): a record stored before the vertex translation declared the interpolators the pixel
++    // replacement reads - both modifications get them, as IssueDraw's mask does (NativeSwapInterpolatorMask), so the stored pair is
++    // the pair the draws ask for and links on drivers that refuse an unwritten input.
++    if (pixel_shader && shader_swap::WidenForReplacement(record.pixel_shader_hash, vertex_modification, pixel_modification) &&
++        converted) {
++      *converted = true;
++    }
+   }
+   // wwe2k14 patch (Session 66, native_ext): the NATIVE specialisation words - predicted for a stored record, the
+   // draw's own for the check of a record just made.
+@@ -2575,6 +2584,10 @@ void NativeRenderer::StorageOnFrameEnd() {
+             conformed.pixel_modification =
+                 cache.ConformStoredNativePixelModification(*pixel_shader, record.pixel_modification, &changed);
+           }
++          if (pixel_shader && shader_swap::WidenForReplacement(record.pixel_shader_hash, conformed.vertex_modification,
++                                                               conformed.pixel_modification)) {
++            changed = true;  // (Session 90: as KeyFromRecord)
++          }
+           if (changed) {
+             if (auto s = storage_known_siblings_.find(XXH3_64bits(&conformed, sizeof(conformed)));
+                 s != storage_known_siblings_.end()) {
+diff --git a/src/graphics/vulkan/native/native_truth.cpp b/src/graphics/vulkan/native/native_truth.cpp
+index 84d88f483df6a6982ddfe374a8625938c2405bba..71bc41f5ebcdc0389a1b8ba17ddbae33c3c66898 100644
+--- a/src/graphics/vulkan/native/native_truth.cpp
++++ b/src/graphics/vulkan/native/native_truth.cpp
+@@ -4224,6 +4224,72 @@ bool NativeRenderer::TruthResolveDepth1x(const draw_util::ResolveInfo& info, uin
+   return true;
+ }
+ 
++// Session 90 (Q, the read-back write-back, owned_copy.cpp): the pipelines TruthResolveFull1x / TruthResolveDepth1x make lazily inside their
++// bodies, for a caller that must know they exist before it commits to using them. Same shaders, same layout (resolve_scaled_full_layout_,
++// made by EnsureResolveScaledFullPipeline).
++bool NativeRenderer::EnsureResolveFull1xPipeline() {
++  if (resolve_full_1x_pipeline_ != VK_NULL_HANDLE) return true;
++  if (resolve_full_1x_failed_ || resolve_scaled_full_layout_ == VK_NULL_HANDLE) return false;
++  resolve_full_1x_failed_ = true;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  std::vector<uint32_t> spirv;
++  std::string error;
++  if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT,
++                                             std::string("#version 450\n") + kNativeResolveFull1xComputeShader, spirv, error)) {
++    REXGPU_ERROR("[native][truth] 1x full resolve shader compilation failed: {}", error);
++    return false;
++  }
++  const VkShaderModule shader =
++      ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++  if (shader == VK_NULL_HANDLE) return false;
++  VkComputePipelineCreateInfo create = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
++  create.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, shader, "main", nullptr};
++  create.layout = resolve_scaled_full_layout_;
++  const bool ok = dfn.vkCreateComputePipelines(vulkan_device->device(), VK_NULL_HANDLE, 1, &create, nullptr,
++                                               &resolve_full_1x_pipeline_) == VK_SUCCESS;
++  dfn.vkDestroyShaderModule(vulkan_device->device(), shader, nullptr);
++  if (!ok) {
++    resolve_full_1x_pipeline_ = VK_NULL_HANDLE;
++    return false;
++  }
++  resolve_full_1x_failed_ = false;
++  return true;
++}
++
++bool NativeRenderer::EnsureResolveDepthPipeline(bool scaled) {
++  VkPipeline& depth_pipeline = scaled ? resolve_depth_scaled_pipeline_ : resolve_depth_1x_pipeline_;
++  bool& depth_failed = scaled ? resolve_depth_scaled_failed_ : resolve_depth_1x_failed_;
++  if (depth_pipeline != VK_NULL_HANDLE) return true;
++  if (depth_failed || resolve_scaled_full_layout_ == VK_NULL_HANDLE) return false;
++  depth_failed = true;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  std::vector<uint32_t> spirv;
++  std::string error;
++  if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT,
++                                             scaled ? std::string("#version 450\n#define FULL_DEPTH 1\n") + kNativeResolveScaledFullComputeShader
++                                                    : std::string("#version 450\n#define FULL1X_DEPTH 1\n") + kNativeResolveFull1xComputeShader,
++                                             spirv, error)) {
++    REXGPU_ERROR("[native][truth] depth resolve shader compilation failed: {}", error);
++    return false;
++  }
++  const VkShaderModule shader =
++      ui::vulkan::util::CreateShaderModule(vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++  if (shader == VK_NULL_HANDLE) return false;
++  VkComputePipelineCreateInfo create = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
++  create.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, shader, "main", nullptr};
++  create.layout = resolve_scaled_full_layout_;
++  const bool ok = dfn.vkCreateComputePipelines(vulkan_device->device(), VK_NULL_HANDLE, 1, &create, nullptr, &depth_pipeline) == VK_SUCCESS;
++  dfn.vkDestroyShaderModule(vulkan_device->device(), shader, nullptr);
++  if (!ok) {
++    depth_pipeline = VK_NULL_HANDLE;
++    return false;
++  }
++  depth_failed = false;
++  return true;
++}
++
+ // Session 80 (gpu_native_truth_skip_writeback_depth): a 1x 20e4 depth copy (TruthResolveDepth1x's checks passed: one
+ // depth truth image holds every copied tile, its stencil the image's for all of them or for none) done as its texture
+ // fill alone, as TruthFillOnly does a colour copy: the fill first; if it holds every texel the copy writes, the
+@@ -6307,7 +6373,37 @@ void NativeRenderer::TruthRestoreAliasOwners() {
+ }
+ 
+ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+-  truth_skip_clear_draw_ = false;  // Session 80 (gpu_native_truth_clear_load): set only by this draw's own pass start
++  // Session 90 (black arena, S90_BLACK_ARENA.md 9): "this draw is its pass's load-op clear" (truth_skip_clear_draw_,
++  // Session 80 gpu_native_truth_clear_load) belongs to the call whose pass start decided it. A nested recording (a held
++  // clear flushed from OwnedTakeDraw / OwnedHoldClear / OwnedTakeDrawImpl through OwnedFlushHeld) used to leave the flag
++  // set for the outer draw, whose draw call was then left out (the arena's restore). The member is saved on entry and
++  // restored on every return path; the readers below only ever see this call's own value.
++  struct SkipScope {
++    NativeRenderer& r;
++    const Draw& d;
++    bool saved;
++    uint32_t depth;
++    SkipScope(NativeRenderer& rr, const Draw& dd)
++        : r(rr), d(dd), saved(rr.truth_skip_clear_draw_), depth(++rr.truth_record_depth_) {
++      r.truth_skip_clear_draw_ = false;
++      if (depth == 1) r.truth_outer_draw_ = &d;
++    }
++    ~SkipScope() {
++      if (depth > 1 && r.truth_skip_clear_draw_) {
++        // A nested recording set the flag: the old code would have carried it into the outer draw.
++        ++r.truth_counts_.skip_nested_reset;
++        if (r.segment_log_frames_ > 0 && r.truth_outer_draw_) {
++          REXGPU_INFO("[native][seg] frame {} load-op clear flag set by a nested recording (vs {:016X} ps {:016X}) reset "
++                      "for the outer draw (vs {:016X} ps {:016X}, fast_clear {}), nesting depth {}",
++                      r.frame_, d.vertex_shader_hash, d.pixel_shader_hash, r.truth_outer_draw_->vertex_shader_hash,
++                      r.truth_outer_draw_->pixel_shader_hash, r.truth_outer_draw_->fast_clear, depth);
++        }
++      }
++      r.truth_skip_clear_draw_ = saved;
++      --r.truth_record_depth_;
++      if (depth == 1) r.truth_outer_draw_ = nullptr;
++    }
++  } skip_scope(*this, draw);
+   // wwe2k14 patch (Session 80, gpu_native_own_steps; owned_steps.cpp): an owned step's draw goes into our image.
+   if (OwnedTakeDraw(draw)) return;
+   // wwe2k14 patch (Session 87, D3D layer F2): a clear built from the game's device state has no pipeline - the truth
+@@ -6942,7 +7038,7 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+       // the CPU (a listed pass-through pixel shader, no blending, no epilogue work, the target's own rounding), the
+       // pass's start clears them (a GPU's fast clear) and the draw is left out (truth_skip_clear_draw_). The colour is
+       // rounded as the translation stores it: to 1/255 for the 8-bit targets, the 360's -32..32 for the 16-bit ones.
+-      if (c_dc && d_dc && draw.clear_color_known && draw.clear_depth >= 0.0f &&
++      if (c_dc && d_dc && draw.clear_color_known && draw.fast_clear && draw.clear_depth >= 0.0f &&
+           draw.stencil_refs[0] == draw.stencil_refs[1] && draw.blend_control == 0x00010001u &&
+           (draw.color_mask_all & ~0xFu) == 0 && (draw.pixel_ext & SpirvShaderTranslator::kNativeExtEpilogueIdle) &&
+           (c_image.kind == 1 || c_image.kind == 2) && draw.color_quantize == c_image.kind &&
+@@ -7241,6 +7337,10 @@ void NativeRenderer::TruthRecordDraw(const Draw& draw) {
+   truth_last_index_.count = draw.vertex_count;
+   // (Session 80: own crowd - the draw is ours, right after this; gpu_native_truth_clear_load - the pass's start
+   // cleared what it would draw.)
++  if (truth_skip_clear_draw_) {
++    // Session 90 (census): draw calls left out as their pass's load-op clear; non-clears must stay 0.
++    if (draw.fast_clear) ++truth_counts_.skip_clear; else ++truth_counts_.skip_nonclear;
++  }
+   if (debug_gpu_work == 2 || draw.own_skip_call || truth_skip_clear_draw_) {
+   } else if (draw.indexed) {
+     // (Session 56, gpu_native_truth_dedupe_state: the buffer bound at offset 0 once, the draw from its first index.)
+@@ -7987,6 +8087,9 @@ void NativeRenderer::LogTruthCensus() {
+                 double(command_processor_.deferred_command_buffer().lazy_begins_free() - truth_lazy_free_) / frames,
+                 double(command_processor_.deferred_command_buffer().lazy_begins_synced() - truth_lazy_synced_) / frames,
+                 pf(c.restores_skipped), pf(c.restores_drawn), pf(c.repeat_resolves_skipped));
++    REXGPU_INFO("[native][truth] load-op clear flag per frame: draw calls left out as their pass's load-op clear {:.2f} "
++                "(non-clears {:.2f}); flag set by a nested recording and reset for the outer draw {:.2f}",
++                pf(c.skip_clear), pf(c.skip_nonclear), pf(c.skip_nested_reset));
+     truth_lazy_free_ = command_processor_.deferred_command_buffer().lazy_begins_free();
+     truth_lazy_synced_ = command_processor_.deferred_command_buffer().lazy_begins_synced();
+     if (c.dead_copies[0] || c.dead_copies[1] || c.dead_kept_touched || c.dead_nop_failed) {
+diff --git a/src/graphics/vulkan/native/owned_copy.cpp b/src/graphics/vulkan/native/owned_copy.cpp
+index 64f0d36b176bed9b8d4918e41673f72c2556a27c..179eba6e2c0747265ab772b5d98718c1d042fec1 100644
+--- a/src/graphics/vulkan/native/owned_copy.cpp
++++ b/src/graphics/vulkan/native/owned_copy.cpp
+@@ -2,15 +2,484 @@
+ // cases (OwnedTakeResolve: a whole copy served from our image or filled into a 16-bit page image, a rectangle into a
+ // page of ours) do not take - page images of other formats, depth pages, dead copies, write-back. A later piece defines
+ // it here, in this file. Docs: docs\native\OWNED_FRAME_DESIGN.md section 3.4.
++//
++// Session 90 (Q, docs\native\d3d\S90_Q_DESIGN.md): the write-back. While the CPU is to read the bytes of a resolve (a read-back
++// window of the app: the Create-a-Superstar render, the attire builds), a copy OwnedTakeResolve serves from our image writes no
++// guest memory - the CPU would keep the old bytes. Until now such a copy was not served: the pass was replayed on the truth path
++// and the game's own copy read it back. Now the copy is served exactly as outside a window and, in addition, written: the render
++// target cache's destination block (render_target_cache.cpp, Resolve) calls OwnedWriteBackRun first in its direct chain, which runs
++// the image -> memory resolve shaders of the truth path with OUR IMAGE as the source (kNativeResolveComputeShader / the scaled one,
++// kNativeResolveScaledFullComputeShader, kNativeResolveFull1xComputeShader and their depth variants), into the same destination
++// (the shared memory at 1x, the scaled resolve buffer at a scale); the cache then marks the range resolved and gives it to the
++// read-back path as for any copy. No truth image, tile ownership, staging store or replay is involved (hard rule 6: the memory
++// layout the CPU reads is the guest-memory contract, not EDRAM semantics).
+ 
+ #include <rex/graphics/vulkan/native/native_renderer.h>
+ 
++#include <algorithm>
++#include <cstring>
++
++#include <rex/cvar.h>
++#include <rex/graphics/util/draw.h>
++#include <rex/graphics/vulkan/command_processor.h>
++#include <rex/graphics/vulkan/deferred_command_buffer.h>
++#include <rex/logging.h>
++#include <rex/ui/vulkan/util.h>
++
++REXCVAR_DEFINE_INT32(gpu_native_owned_writeback_verify, 0, "GPU/Native",
++                     "Session 90 (Q, diagnosis): 1 = the 8888 write-back forces alpha 255 (is the garbled attire an alpha difference?)");
++
+ namespace rex::graphics::vulkan::native {
+ 
++namespace {
++constexpr VkPipelineStageFlags kWbShaderStages =
++    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++constexpr VkPipelineStageFlags kWbDepthStages =
++    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
++
++VkImageMemoryBarrier WbBarrier(VkImage image, VkImageAspectFlags aspects, VkAccessFlags src, VkAccessFlags dst,
++                               VkImageLayout from, VkImageLayout to) {
++  VkImageMemoryBarrier b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
++  b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++  b.image = image;
++  b.srcAccessMask = src;
++  b.dstAccessMask = dst;
++  b.oldLayout = from;
++  b.newLayout = to;
++  b.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(aspects);
++  return b;
++}
++
++const char* const kWbPathNames[5] = {"8888 1x", "8888 scaled", "full 1x", "full scaled", "depth"};
++}  // namespace
++
+ bool NativeRenderer::OwnedCopyExtra(OwnedCopyContext& ctx) {
+   // (No other copy yet.)
+   (void)ctx;
+   return false;
+ }
+ 
++void NativeRenderer::OwnedWbRefused(const std::string& why) {
++  auto& v = owned_frame_stats_.wb_refused;
++  auto it = std::find_if(v.begin(), v.end(), [&](const std::pair<std::string, uint32_t>& e) { return e.first == why; });
++  if (it != v.end()) {
++    ++it->second;
++  } else if (v.size() < 32) {
++    v.emplace_back(why, 1u);
++  }
++  static uint32_t logged = 0;
++  if (logged < 24 || owned_frame_logging_) {
++    ++logged;
++    REXGPU_INFO("[native][owned] frame {}: read-back write-back not possible: {}", frame_, why);
++  }
++}
++
++VkDescriptorSet NativeRenderer::OwnedWbPostSet(OwnedImage& o) {
++  // The 8888 resolve shaders' source set (post-writeback layout: binding 0 the EDRAM buffer - never read inside the image -, 1 the colour,
++  // 2 / 3 the coverage and depth stand-ins), one per image, rewritten only when the staging buffer changed.
++  if (o.wb_set != VK_NULL_HANDLE && o.wb_set_buffer != truth_staging_) {
++    owned_wb_spare_sets_.push_back({o.wb_set, command_processor_.GetCurrentSubmission()});
++    o.wb_set = VK_NULL_HANDLE;
++  }
++  if (o.wb_set != VK_NULL_HANDLE) return o.wb_set;
++  if (!EnsureResolveObjects() || !EnsureTruthStaging() || !EnsureTruthDummy() || post_writeback_set_layout_ == VK_NULL_HANDLE) {
++    return VK_NULL_HANDLE;
++  }
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  VkDescriptorSet set = VK_NULL_HANDLE;
++  const uint64_t completed = command_processor_.GetCompletedSubmission();
++  for (size_t i = 0; i < owned_wb_spare_sets_.size(); ++i) {
++    if (owned_wb_spare_sets_[i].submission > completed) continue;
++    set = owned_wb_spare_sets_[i].set;
++    owned_wb_spare_sets_.erase(owned_wb_spare_sets_.begin() + i);
++    break;
++  }
++  if (set == VK_NULL_HANDLE && OwnedAllocateSet(post_writeback_set_layout_, set) != VK_SUCCESS) return VK_NULL_HANDLE;
++  VkDescriptorBufferInfo buffer_info = {truth_staging_, 0, VK_WHOLE_SIZE};
++  VkDescriptorImageInfo color_info = {sampler_nearest(), o.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
++  VkDescriptorImageInfo stencil_info = {sampler_nearest(), truth_dummy_stencil_view_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
++  VkDescriptorImageInfo depth_info = {sampler_nearest(), truth_dummy_depth_view_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
++  VkWriteDescriptorSet writes[4] = {};
++  for (uint32_t i = 0; i < 4; ++i) {
++    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++    writes[i].dstSet = set;
++    writes[i].dstBinding = i;
++    writes[i].descriptorCount = 1;
++    writes[i].descriptorType = i ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++  }
++  writes[0].pBufferInfo = &buffer_info;
++  writes[1].pImageInfo = &color_info;
++  writes[2].pImageInfo = &stencil_info;
++  writes[3].pImageInfo = &depth_info;
++  dfn.vkUpdateDescriptorSets(device, 4, writes, 0, nullptr);
++  o.wb_set = set;
++  o.wb_set_buffer = truth_staging_;
++  return set;
++}
++
++VkDescriptorSet NativeRenderer::OwnedWbColorSet(OwnedImage& o) {
++  // The full / scaled-full shaders' source set (truth-store layout: binding 0 the staging buffer, 1 the colour) - the image's fill set.
++  if (o.fill_set != VK_NULL_HANDLE && o.fill_set_buffer != truth_staging_) {
++    OwnedSpareFillSet(o.fill_set);
++    o.fill_set = VK_NULL_HANDLE;
++  }
++  if (o.fill_set != VK_NULL_HANDLE) return o.fill_set;
++  if (!EnsureTruthStaging()) return VK_NULL_HANDLE;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  o.fill_set_buffer = truth_staging_;
++  if (OwnedAcquireFillSet(o.fill_set) != VK_SUCCESS) {
++    o.fill_set = VK_NULL_HANDLE;
++    return VK_NULL_HANDLE;
++  }
++  VkDescriptorBufferInfo buffer_info = {truth_staging_, 0, VK_WHOLE_SIZE};
++  VkDescriptorImageInfo image_info = {sampler_nearest(), o.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
++  VkWriteDescriptorSet writes[2] = {};
++  for (uint32_t i = 0; i < 2; ++i) {
++    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++    writes[i].dstSet = o.fill_set;
++    writes[i].dstBinding = i;
++    writes[i].descriptorCount = 1;
++  }
++  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++  writes[0].pBufferInfo = &buffer_info;
++  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
++  writes[1].pImageInfo = &image_info;
++  dfn.vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
++  return o.fill_set;
++}
++
++VkDescriptorSet NativeRenderer::OwnedWbDepthSet(OwnedImage& o) {
++  // The depth shaders' source set (truth-store layout: binding 0 the staging buffer, 1 the depth, 2 the stencil) - the image's depth fill set
++  // (the views as OwnedFillDepth makes them).
++  if (o.depth == VK_NULL_HANDLE || !EnsureTruthStaging()) return VK_NULL_HANDLE;
++  const ui::vulkan::VulkanDevice* vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (o.depth_sample_view == VK_NULL_HANDLE) {
++    VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
++    view_info.image = o.depth;
++    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
++    view_info.format = post_ds_format_;
++    view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_DEPTH_BIT);
++    bool ok = dfn.vkCreateImageView(device, &view_info, nullptr, &o.depth_sample_view) == VK_SUCCESS;
++    view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_STENCIL_BIT);
++    ok = ok && dfn.vkCreateImageView(device, &view_info, nullptr, &o.depth_stencil_view) == VK_SUCCESS;
++    if (!ok) {
++      ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImageView, device, o.depth_sample_view);
++      ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyImageView, device, o.depth_stencil_view);
++      return VK_NULL_HANDLE;
++    }
++  }
++  if (o.depth_fill_set != VK_NULL_HANDLE && o.depth_fill_set_buffer != truth_staging_) {
++    OwnedSpareFillSet(o.depth_fill_set);
++    o.depth_fill_set = VK_NULL_HANDLE;
++  }
++  if (o.depth_fill_set == VK_NULL_HANDLE) {
++    o.depth_fill_set_buffer = truth_staging_;
++    if (OwnedAcquireFillSet(o.depth_fill_set) != VK_SUCCESS) {
++      o.depth_fill_set = VK_NULL_HANDLE;
++      return VK_NULL_HANDLE;
++    }
++    VkDescriptorBufferInfo buffer_info = {truth_staging_, 0, VK_WHOLE_SIZE};
++    VkDescriptorImageInfo depth_info = {sampler_nearest(), o.depth_sample_view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
++    VkDescriptorImageInfo stencil_info = {sampler_nearest(), o.depth_stencil_view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
++    VkWriteDescriptorSet writes[3] = {};
++    for (uint32_t i = 0; i < 3; ++i) {
++      writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++      writes[i].dstSet = o.depth_fill_set;
++      writes[i].dstBinding = i;
++      writes[i].descriptorCount = 1;
++      writes[i].descriptorType = i ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++    }
++    writes[0].pBufferInfo = &buffer_info;
++    writes[1].pImageInfo = &depth_info;
++    writes[2].pImageInfo = &stencil_info;
++    dfn.vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
++  }
++  return o.depth_fill_set;
++}
++
++bool NativeRenderer::OwnedWbPlan(const draw_util::ResolveInfo& info, uint32_t sx, uint32_t sy, uint32_t w, uint32_t h, uint32_t gap,
++                                 bool front, std::string& why) {
++  // The write-back of a colour copy of the pending pass (OwnedTakeResolve: the shape is a plain copy of a rectangle of the pass's box, the
++  // source format the pass's class's, no exponent bias / array): which writer, and that it can run (its pipelines exist). Nothing is recorded.
++  OwnedPass& p = owned_pending_;
++  const auto no = [&](const char* text) {
++    why = text;
++    return false;
++  };
++  if (!p.valid || p.image < 0 || size_t(p.image) >= owned_images_.size() || !owned_images_[p.image].width) return no("no source image");
++  if (REXCVAR_GET(gpu_native_owned_writeback_verify) == 2) return no("verify mode 2: the old replay");
++  const OwnedImage& o = owned_images_[p.image];
++  if (o.kind != p.kind || (p.kind != 1 && p.kind != 2)) return no("source class");
++  if (p.half) return no("half-size pass");
++  if (uint32_t(info.copy_dest_coordinate_info.copy_sample_select) != 0) return no("sample select");
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  const bool scaled = scale_x != 1 || scale_y != 1;
++  if (!w || !h || (sx + w) * scale_x > o.width || (sy + h) * scale_y > o.height) return no("rectangle outside the image");
++  const reg::RB_COPY_DEST_INFO d = info.copy_dest_info;
++  uint32_t path, mode = 0;
++  if (p.kind == 2) {
++    path = 3;
++    mode = d.copy_dest_format == xenos::ColorFormat::k_16_16 ? 1u : 3u;
++    if (d.copy_dest_format != xenos::ColorFormat::k_16_16 && d.copy_dest_format != xenos::ColorFormat::k_16_16_16_16) {
++      return no("16-bit source, other destination format");
++    }
++  } else if (d.copy_dest_format == xenos::ColorFormat::k_8_8_8_8) {
++    path = scaled ? 1u : 0u;
++  } else if (d.copy_dest_format == xenos::ColorFormat::k_8 || d.copy_dest_format == xenos::ColorFormat::k_4_4_4_4) {
++    mode = (d.copy_dest_format == xenos::ColorFormat::k_8 ? 4u : 5u) | (d.copy_dest_swap ? 16u : 0u);
++    path = scaled ? 3u : 2u;
++  } else {
++    return no("RGBA8 source, destination format without a writer");
++  }
++  if (!EnsureTruthStaging()) return no("no staging buffer");
++  switch (path) {
++    case 0:
++      if (!EnsureResolveObjects() || !EnsureTruthDummy()) return no("no 8888 resolve pipeline");
++      break;
++    case 1:
++      if (!EnsureResolveObjects() || !EnsureTruthDummy() || !EnsureResolveScaledPipeline()) return no("no scaled 8888 resolve pipeline");
++      break;
++    case 2:
++      if (!EnsureResolveScaledFullPipeline() || !EnsureResolveFull1xPipeline()) return no("no full 1x resolve pipeline");
++      break;
++    default:
++      if (!EnsureResolveScaledFullPipeline()) return no("no scaled-full resolve pipeline");
++      break;
++  }
++  owned_wb_ = OwnedWriteBack();
++  owned_wb_.path = path;
++  owned_wb_.mode = mode;
++  owned_wb_.image = p.image;
++  owned_wb_.sx = sx;
++  owned_wb_.sy = sy;
++  owned_wb_.w = w;
++  owned_wb_.h = h;
++  owned_wb_.gap = gap;
++  owned_wb_.front = front;
++  owned_wb_.page = (info.copy_dest_base >> 12) & 0x1FFFF;
++  owned_wb_.dest_format = uint32_t(d.copy_dest_format);
++  return true;
++}
++
++bool NativeRenderer::OwnedWbPlanDepth(const draw_util::ResolveInfo& info, std::string& why) {
++  // The depth copy OwnedDepthCopy serves (k_24_8_FLOAT, the whole box into a texture's origin): the FULL1X_DEPTH / FULL_DEPTH writers with the
++  // pass image's depth + stencil as the source.
++  OwnedPass& p = owned_pending_;
++  const auto no = [&](const char* text) {
++    why = text;
++    return false;
++  };
++  if (!p.valid || !p.depth || p.kind != 1 || p.depth_slot < 0 || size_t(p.depth_slot) >= truth_images_.size() || p.image < 0 ||
++      size_t(p.image) >= owned_images_.size() || !owned_images_[p.image].width) {
++    return no("the pass keeps no depth");
++  }
++  if (owned_images_[p.image].depth == VK_NULL_HANDLE) return no("no depth image");
++  const TruthImage& t = truth_images_[p.depth_slot];
++  const reg::RB_COPY_DEST_INFO d = info.copy_dest_info;
++  if (t.kind != 3 || !(t.format & 1u)) return no("not a 20e4 depth surface");
++  if (d.copy_dest_swap || d.copy_dest_array || d.copy_dest_exp_bias || uint32_t(info.copy_dest_coordinate_info.copy_sample_select) != 0 ||
++      uint32_t(d.copy_dest_format) != uint32_t(xenos::TextureFormat::k_24_8_FLOAT)) {
++    return no("depth: destination shape");
++  }
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  const bool scaled = scale_x != 1 || scale_y != 1;
++  if (!EnsureTruthStaging() || !EnsureResolveScaledFullPipeline() || !EnsureResolveDepthPipeline(scaled)) return no("no depth resolve pipeline");
++  owned_wb_ = OwnedWriteBack();
++  owned_wb_.path = 4;
++  owned_wb_.mode = (t.format & 1u) | 2u;  // (20e4 depth; the stencil the image's)
++  owned_wb_.image = p.image;
++  owned_wb_.w = p.width;
++  owned_wb_.h = p.height;
++  owned_wb_.gap = scaled && info.depth_edram_info.fill_half_pixel_offset ? (scale_x / 2) | ((scale_y / 2) << 8) : 0u;
++  owned_wb_.page = (info.copy_dest_base >> 12) & 0x1FFFF;
++  owned_wb_.dest_format = uint32_t(d.copy_dest_format);
++  return true;
++}
++
++bool NativeRenderer::OwnedWriteBackRun(const draw_util::ResolveInfo& info, const draw_util::ResolveCopyShaderConstants& constants,
++                                       VkDescriptorSet dest_set, uint32_t group_count_x, uint32_t group_count_y) {
++  // Called by the render target cache's destination block for a copy OwnedTakeResolve served and armed. Records, outside any render pass,
++  // the image -> memory dispatch; false = nothing was written (counted, logged: the CPU keeps the old bytes).
++  const OwnedWriteBack wb = owned_wb_;
++  owned_wb_.armed = false;
++  if (!wb.armed) return false;
++  if (dest_set == VK_NULL_HANDLE) {
++    OwnedWbRefused("armed, no destination set");
++    return false;
++  }
++  if (wb.image < 0 || size_t(wb.image) >= owned_images_.size() || !owned_images_[wb.image].width) {
++    OwnedWbRefused("armed, the source image is gone");
++    return false;
++  }
++  uint32_t scale_x = 1, scale_y = 1;
++  command_processor_.NativeResolutionScale(scale_x, scale_y);
++  const bool scaled = scale_x != 1 || scale_y != 1;
++  OwnedEndPass();
++  EndTruthPass();
++  // (Review #1: texture-only records this copy overlaps go into memory BEFORE our bytes, as every stock direct writer does; a later call no-ops.)
++  TruthResolveOverlaps(info, nullptr);
++  OwnedTouch(wb.image);
++  OwnedImage& o = owned_images_[wb.image];
++  DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++  const uint32_t dest_coordinate_info = constants.dest_relative.dest_coordinate_info.packed;
++  const uint32_t dest_info = constants.dest_relative.dest_info.value;
++  const uint32_t dest_x0 = ((dest_coordinate_info >> 20) & 0xFu) * 8u;
++  const uint32_t dest_y0 = ((dest_coordinate_info >> 24) & 0xFu) * 8u;
++  const uint32_t dest_pitch = (dest_coordinate_info & 1023u) << 5;
++  const uint32_t endian = dest_info & 7u;
++  const uint32_t timer = OwnedTimerBegin("wb_copy", wb.w * scale_x, wb.h * scale_y);
++  bool was_readable = o.readable;
++  bool depth_was_read = o.depth_read;
++  VkPipelineLayout layout = VK_NULL_HANDLE;
++  VkPipeline pipeline = VK_NULL_HANDLE;
++  VkDescriptorSet source_set = VK_NULL_HANDLE;
++  uint32_t pc[12] = {};
++  uint32_t pc_words = 10;
++  uint32_t dispatch_x = group_count_x, dispatch_y = group_count_y;
++  if (wb.path == 0 || wb.path == 1) {
++    layout = resolve_layout_;
++    pipeline = wb.path == 1 ? resolve_scaled_pipeline_ : resolve_pipeline_;
++    source_set = OwnedWbPostSet(o);
++    pc[0] = constants.dest_relative.edram_info.packed;
++    pc[1] = constants.dest_relative.coordinate_info.packed;
++    pc[2] = dest_info;
++    pc[3] = dest_coordinate_info;
++    pc[4] = constants.dest_base;
++    pc[5] = wb.sx * scale_x;
++    pc[6] = wb.sy * scale_y;
++    pc[7] = o.width;
++    pc[8] = o.height;
++    pc[9] = 1u | 0x200u | (REXCVAR_GET(gpu_native_owned_writeback_verify) == 1 ? 0x800u : 0u);  // RGBA8 (the packed values), every pixel from the image
++    pc_words = 12;
++  } else if (wb.path == 2) {
++    layout = resolve_scaled_full_layout_;
++    pipeline = resolve_full_1x_pipeline_;
++    source_set = OwnedWbColorSet(o);
++    if (constants.dest_base & 3u) {
++      OwnedWbRefused("full 1x: destination base not dword aligned");
++      OwnedTimerEnd(timer);
++      return false;
++    }
++    pc[0] = wb.sx;
++    pc[1] = wb.sy;
++    pc[2] = wb.w;
++    pc[3] = wb.h;
++    pc[4] = wb.mode;
++    pc[5] = constants.dest_base;
++    pc[6] = dest_x0;
++    pc[7] = dest_y0;
++    pc[8] = dest_pitch;
++    pc[9] = endian;
++    const uint32_t per = (wb.mode & 15u) == 4u ? 4u : 2u;
++    dispatch_x = ((wb.w + per - 1) / per + 7) / 8;
++    dispatch_y = (wb.h + 7) / 8;
++  } else if (wb.path == 3) {
++    layout = resolve_scaled_full_layout_;
++    pipeline = resolve_scaled_full_pipeline_;
++    source_set = OwnedWbColorSet(o);
++    if (!scaled && constants.dest_base != 0) {
++      // (The shader addresses from the binding's start: at 1x the binding must start at the texture's base.)
++      OwnedWbRefused("scaled-full at 1x: the destination is not at the binding's start");
++      OwnedTimerEnd(timer);
++      return false;
++    }
++    pc[0] = wb.sx * scale_x;
++    pc[1] = wb.sy * scale_y;
++    pc[2] = wb.w * scale_x;
++    pc[3] = wb.h * scale_y;
++    pc[4] = wb.mode;
++    pc[5] = wb.gap;
++    pc[6] = uint32_t(info.copy_dest_coordinate_info.offset_x_div_8) * 8;
++    pc[7] = uint32_t(info.copy_dest_coordinate_info.offset_y_div_8) * 8;
++    pc[8] = uint32_t(info.copy_dest_coordinate_info.pitch_aligned_div_32) << 5;
++    pc[9] = uint32_t(info.copy_dest_info.copy_dest_endian) | (scale_x << 4) | (scale_y << 8);
++    const uint32_t per = (wb.mode & 15u) == 4u ? 4u : (wb.mode & 15u) == 5u ? 2u : 1u;
++    dispatch_x = ((pc[2] + per - 1) / per + 7) / 8;
++    dispatch_y = (pc[3] + 7) / 8;
++  } else {
++    layout = resolve_scaled_full_layout_;
++    pipeline = scaled ? resolve_depth_scaled_pipeline_ : resolve_depth_1x_pipeline_;
++    source_set = OwnedWbDepthSet(o);
++    if (constants.dest_base & 3u) {
++      OwnedWbRefused("depth: destination base not dword aligned");
++      OwnedTimerEnd(timer);
++      return false;
++    }
++    pc[0] = 0;
++    pc[1] = 0;
++    pc[2] = wb.w * scale_x;
++    pc[3] = wb.h * scale_y;
++    pc[4] = wb.mode;
++    pc[5] = scaled ? wb.gap : constants.dest_base;
++    pc[6] = dest_x0;
++    pc[7] = dest_y0;
++    pc[8] = dest_pitch;
++    pc[9] = (dest_info & 7u) | (scaled ? (scale_x << 4) | (scale_y << 8) : 0u);
++    dispatch_x = (pc[2] + 7) / 8;
++    dispatch_y = (pc[3] + 7) / 8;
++  }
++  if (layout == VK_NULL_HANDLE || pipeline == VK_NULL_HANDLE || source_set == VK_NULL_HANDLE) {
++    OwnedWbRefused(std::string("armed, no pipeline / source set for ") + kWbPathNames[wb.path]);
++    OwnedTimerEnd(timer);
++    return false;
++  }
++  command_processor_.SubmitBarriers(true);
++  if (wb.path == 4) {
++    VkImageMemoryBarrier b = WbBarrier(
++        o.depth, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
++        depth_was_read ? VkAccessFlags(0) : VkAccessFlags(VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT), VK_ACCESS_SHADER_READ_BIT,
++        depth_was_read ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
++        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
++    cb.CmdVkPipelineBarrier(kWbShaderStages | kWbDepthStages, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
++  } else if (!was_readable) {
++    VkImageMemoryBarrier b = WbBarrier(o.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
++                                       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++    cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
++  }
++  command_processor_.BindExternalComputePipeline(pipeline);
++  const VkDescriptorSet sets[2] = {source_set, dest_set};
++  cb.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, layout, 0, 2, sets, 0, nullptr);
++  cb.CmdVkPushConstants(layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, pc_words * sizeof(uint32_t), pc);
++  command_processor_.NativeFlushResolveDestUse();  // (the destination's use: this dispatch writes it)
++  command_processor_.SubmitBarriers(true);
++  cb.CmdVkDispatch(dispatch_x, dispatch_y, 1);
++  if (wb.path == 4) {
++    VkImageMemoryBarrier b = WbBarrier(
++        o.depth, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0,
++        depth_was_read ? VK_ACCESS_SHADER_READ_BIT
++                       : VkAccessFlags(VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT),
++        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
++        depth_was_read ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
++    cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, depth_was_read ? kWbShaderStages : kWbDepthStages, 0, 0, nullptr, 0,
++                            nullptr, 1, &b);
++  } else if (!was_readable) {
++    VkImageMemoryBarrier b = WbBarrier(o.image, VK_IMAGE_ASPECT_COLOR_BIT, 0,
++                                       VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
++    cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr,
++                            1, &b);
++  }
++  OwnedTimerEnd(timer);
++  truth_foreign_bind_ = true;  // (a compute pipeline and sets of ours bound)
++  ++owned_frame_stats_.wb_written[wb.path];
++  if (wb.front) ++owned_frame_stats_.wb_front;
++  static uint32_t logged = 0;
++  if (logged < 40 || owned_frame_logging_ || segment_log_frames_ > 0) {
++    ++logged;
++    REXGPU_INFO("[native][owned] frame {}: written from our image: page 0x{:05X}, {}x{} (guest) at {},{}, dest format {}, image {}, path {}{}",
++                frame_, wb.page, wb.w, wb.h, wb.sx, wb.sy, wb.dest_format, wb.image, kWbPathNames[wb.path],
++                wb.front ? " (a front-buffer page)" : "");
++  }
++  return true;
++}
++
+ }  // namespace rex::graphics::vulkan::native
+diff --git a/src/graphics/vulkan/native/owned_start.cpp b/src/graphics/vulkan/native/owned_start.cpp
+index 5430e5704cabfcd5ec622b7cbe61260c5940b503..aaa516d14ecd0e74823433878797b96b34b1ebd0 100644
+--- a/src/graphics/vulkan/native/owned_start.cpp
++++ b/src/graphics/vulkan/native/owned_start.cpp
+@@ -19,12 +19,19 @@
+ #include <cmath>
+ 
+ #include <rex/graphics/vulkan/command_processor.h>
++#include <rex/graphics/vulkan/deferred_command_buffer.h>
+ #include <rex/logging.h>
++#include <rex/ui/vulkan/util.h>
+ 
+ REXCVAR_DEFINE_STRING(gpu_native_owned_frame_defined_skip, "", "GPU/Native",
+                       "Session 82 (diagnostic): pixel shaders (hex hashes, comma-separated) whose draws get no defined start - they stay "
+                       "on the truth path (bisecting a picture difference of the owned frame)");
+ 
++REXCVAR_DEFINE_BOOL(gpu_native_owned_frame_loaded_from_parked, true, "GPU/Native",
++                    "Session 90 (Q): a draw that keeps content and finds no parked pass to resume (a loaded start) takes the same-surface parked defined starts "
++                    "into its new image from their own images (their drawn rectangles copied in) instead of replaying their draws on the truth path. "
++                    "Off = the Session 87 replay");
++
+ REXCVAR_DEFINE_BOOL(gpu_native_owned_frame_defined_start_16, false, "GPU/Native",
+                     "Session 87 (entrance passes, reason start): the defined start (a cleared box) also for the 16-bit class-2 targets "
+                     "(k_16_16 / k_16_16_16_16, the shadow-map renders): a colour-only draw that is neither covering nor preceded by whole "
+@@ -46,6 +53,101 @@ bool NativeRenderer::OwnedConvertible(const Draw& draw, const int32_t rect[4], b
+          rect[3] % int32_t(scale_y) == 0 && rect[2] <= 4096 && rect[3] <= 4096;
+ }
+ 
++bool NativeRenderer::OwnedLoadParkedInto(int16_t image, bool has_content, const std::vector<OwnedPass>& passes, uint32_t scale_x,
++                                         uint32_t scale_y) {
++  // Session 90 (Q): the drawn rectangles of parked defined starts (oldest first: the list is in park order) copied from their own images into `image` -
++  // outside any render pass, before the new pass's first barrier. `has_content`: the image holds the truth path's content already (OwnedLoadFromTruth left
++  // it in its attachment layout); else it is cleared to transparent black first. A parked pass is newer than the truth content under it (a truth draw over
++  // its tiles drops it first), so its rectangle goes over it.
++  if (image < 0 || size_t(image) >= owned_images_.size()) return false;
++  struct Copy {
++    int16_t src;
++    VkImageCopy region;
++  };
++  std::vector<Copy> copies;
++  for (const OwnedPass& q : passes) {
++    if (q.image < 0 || size_t(q.image) >= owned_images_.size() || q.image == image) continue;
++    const OwnedImage& s = owned_images_[q.image];
++    const OwnedImage& n = owned_images_[image];
++    if (q.drawn[2] <= q.drawn[0] || q.drawn[3] <= q.drawn[1]) continue;
++    const int32_t x0 = std::max(q.drawn[0], 0) * int32_t(scale_x), y0 = std::max(q.drawn[1], 0) * int32_t(scale_y);
++    const int32_t x1 = std::min({q.drawn[2] * int32_t(scale_x), int32_t(s.width), int32_t(n.width)});
++    const int32_t y1 = std::min({q.drawn[3] * int32_t(scale_y), int32_t(s.height), int32_t(n.height)});
++    if (x1 <= x0 || y1 <= y0) continue;
++    Copy c = {};
++    c.src = q.image;
++    c.region.srcSubresource = c.region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
++    c.region.srcOffset = c.region.dstOffset = {x0, y0, 0};
++    c.region.extent = {uint32_t(x1 - x0), uint32_t(y1 - y0), 1};
++    copies.push_back(c);
++  }
++  command_processor_.EndRenderPass();
++  command_processor_.SubmitBarriers(true);
++  const OwnedImage& o = owned_images_[image];
++  OwnedTouch(image);
++  DeferredCommandBuffer& cb = command_processor_.deferred_command_buffer();
++  const auto barrier = [](VkImage img, VkAccessFlags src, VkAccessFlags dst, VkImageLayout from, VkImageLayout to) {
++    VkImageMemoryBarrier b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
++    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++    b.image = img;
++    b.srcAccessMask = src;
++    b.dstAccessMask = dst;
++    b.oldLayout = from;
++    b.newLayout = to;
++    b.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
++    return b;
++  };
++  constexpr VkPipelineStageFlags kStages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
++                                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
++                                           VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
++                                           VK_PIPELINE_STAGE_TRANSFER_BIT;
++  constexpr VkAccessFlags kAnyWrite = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
++                                      VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
++  const VkAccessFlags attachment_access = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++  const uint32_t timer = OwnedTimerBegin("load_parked", o.width, o.height);
++  VkImageMemoryBarrier b = barrier(o.image, has_content ? VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT) : kAnyWrite,
++                                   VK_ACCESS_TRANSFER_WRITE_BIT,
++                                   has_content ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
++                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
++  cb.CmdVkPipelineBarrier(kStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
++  if (!has_content) {  // (the box outside the copied rectangles is transparent black, as the converted start had it)
++    const VkClearColorValue zero = {};
++    const VkImageSubresourceRange range = ui::vulkan::util::InitializeSubresourceRange();
++    cb.CmdVkClearColorImage(o.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range);
++    b = barrier(o.image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
++    cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
++  }
++  for (const Copy& c : copies) {
++    OwnedImage& s = owned_images_[c.src];
++    OwnedTouch(c.src);
++    const VkImageLayout src_layout = s.readable ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++    VkImageMemoryBarrier sb = barrier(s.image, s.readable ? VkAccessFlags(0) : VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
++                                      VK_ACCESS_TRANSFER_READ_BIT, src_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
++    cb.CmdVkPipelineBarrier(kStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &sb);
++    cb.CmdVkCopyImage(s.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, o.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c.region);
++    sb = barrier(s.image, VK_ACCESS_TRANSFER_READ_BIT, s.readable ? VkAccessFlags(VK_ACCESS_SHADER_READ_BIT) : attachment_access,
++                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, src_layout);
++    cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, kStages, 0, 0, nullptr, 0, nullptr, 1, &sb);
++    // (the next copy's write into the new image after this one: a barrier of its own)
++    b = barrier(o.image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
++    cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
++  }
++  b = barrier(o.image, VK_ACCESS_TRANSFER_WRITE_BIT, attachment_access, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
++  cb.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, kStages, 0, 0, nullptr, 0, nullptr, 1, &b);
++  OwnedTimerEnd(timer);
++  owned_images_[image].readable = false;
++  static uint32_t logged = 0;
++  if (logged < 12 || owned_frame_logging_) {
++    ++logged;
++    REXGPU_INFO("[native][owned] frame {}: a loaded start takes {} parked defined start(s) from their own images ({} rectangles copied; truth content {})",
++                frame_, passes.size(), copies.size(), has_content ? "loaded first" : "none");
++  }
++  return true;
++}
++
+ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+   const Draw& draw = *ctx.draw;
+   {
+@@ -103,17 +205,34 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+       owned_parked_.erase(owned_parked_.begin() + pj);
+       owned_pending_ = std::move(taken);
+       ++owned_frame_stats_.ch_resumed;
++      if (owned_pending_.carried_defined) ++owned_frame_stats_.ch_carried_taken_draw;
+       ctx.start = kOwnedStartResumed;
+       return true;
+     }
+   }
++  // (Session 90, Q: the same-surface parked DEFINED starts are not replayed on the truth path for the load - their pixels are in their own images, which are
++  // copied into the new image below (their drawn rectangles), oldest first. Only the ones whose image cannot be copied keep the replay.)
++  std::vector<OwnedPass> composite;
+   if (keeps_content) {
+-    // (review A4: the parked defined starts of this surface are replayed before the load - 'the same surface starts again' would drop them with their draws
+-    // unplayed. The replay records truth draws - a truth render pass is left open - so it runs HERE, before the passes are ended and our image is made: run 197-203's
+-    // crash was a barrier recorded inside that open truth pass, VUID-vkCmdPipelineBarrier-None-07889.)
+     const uint32_t rpitch2 = std::max(1u, ((draw.surface_info & 0x3FFF) * draw.truth_sx + 79) / 80);
++    if (REXCVAR_GET(gpu_native_owned_frame_loaded_from_parked)) {
++      for (const OwnedPass& q : owned_parked_) {
++        if (q.base == (draw.color_info & 0xFFF) && q.pitch_tiles == rpitch2 && q.kind == uint32_t(draw.truth_class) && q.edram_free && q.committed && !(q.chain_parked && !q.draws.empty()) &&
++            q.image >= 0 && size_t(q.image) < owned_images_.size() && owned_images_[q.image].width && owned_images_[q.image].kind == q.kind &&
++            q.host_width && q.host_height && q.host_width <= owned_images_[q.image].width && q.host_height <= owned_images_[q.image].height) {
++          composite.push_back(q);
++        }
++      }
++    }
++    // (review A4: the parked defined starts of this surface that are not copied are replayed before the load - 'the same surface starts again' would drop them
++    // with their draws unplayed. The replay records truth draws - a truth render pass is left open - so it runs HERE, before the passes are ended and our image is
++    // made: run 197-203's crash was a barrier recorded inside that open truth pass, VUID-vkCmdPipelineBarrier-None-07889.)
+     OwnedDropParkedIf("a loaded start of the same surface", [&](const OwnedPass& q) {
+-      return q.base == (draw.color_info & 0xFFF) && q.pitch_tiles == rpitch2 && q.kind == uint32_t(draw.truth_class);
++      if (!(q.base == (draw.color_info & 0xFFF) && q.pitch_tiles == rpitch2 && q.kind == uint32_t(draw.truth_class))) return false;
++      for (const OwnedPass& c : composite) {
++        if (c.image == q.image && c.census == q.census) return false;  // (copied below, dropped after)
++      }
++      return true;
+     });
+   }
+   uint32_t width = uint32_t(rect[2]), height = uint32_t(rect[3]);
+@@ -129,6 +248,10 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+     width = (width + scale_x - 1) / scale_x * scale_x;
+     height = (height + scale_y - 1) / scale_y * scale_y;
+   }
++  for (const OwnedPass& q : composite) {  // (the new box holds every pass copied into it)
++    width = std::max(width, q.host_width);
++    height = std::max(height, q.host_height);
++  }
+   if (!OwnedImageAvailable(width, height, draw.truth_class, false)) {
+     ctx.reason = kOwnedReasonPool;
+     ctx.detail = "no image within the budget";
+@@ -150,6 +273,8 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+   const uint32_t guest_w = width / scale_x, guest_h = height / scale_y;
+   // (chains) The surface has content in the truth path: our image is given it once, and the pass starts with LOAD.
+   const bool loaded = keeps_content && OwnedLoadFromTruth(draw.truth_color, index, width, height);
++  // (Session 90, Q: then the parked defined starts' pixels, from their own images. The image is left in its attachment layout for a render pass that loads.)
++  const bool composited = !composite.empty() && OwnedLoadParkedInto(index, loaded, composite, scale_x, scale_y);
+   p.valid = true;
+   p.kind = draw.truth_class;
+   p.is_64bpp = draw.truth_class == 2 && xenos::IsColorRenderTargetFormat64bpp(xenos::ColorRenderTargetFormat((draw.color_info >> 16) & 0xF));
+@@ -161,6 +286,7 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+   p.loaded_start = false;
+   p.edram_free = true;
+   p.chain_pass = p.chain_unkeyed = p.chain_parked = false;  // (Session 87, review F6)
++  p.carried_defined = false;  // (Session 90)
+   p.feedback_pass = false;
+   p.half = false;
+   p.drawn[0] = p.drawn[1] = p.drawn[2] = p.drawn[3] = 0;
+@@ -168,11 +294,35 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+   p.held_clears.clear();
+   p.nonorigin = rect[0] != 0 || rect[1] != 0 || width != uint32_t(rect[2]) || height != uint32_t(rect[3]);
+   p.clear_values[0] = p.clear_values[1] = VkClearValue();
++  if (loaded && command_processor_.NativeReadbackActive()) {  // (Session 90, Q: a loaded start inside a read-back window splits a pass: counted, named)
++    ++owned_frame_stats_.wb_window_loads;
++    static uint32_t split_logged = 0;
++    if (split_logged < 12) {
++      ++split_logged;
++      REXGPU_INFO("[native][owned] frame {}: LOADED START INSIDE A READ-BACK WINDOW: ps {:016X} surface {}/{} (truth content loaded into our image)", frame_,
++                  draw.pixel_shader_hash, draw.color_info & 0xFFF, std::max(1u, ((draw.surface_info & 0x3FFF) * draw.truth_sx + 79) / 80));
++    }
++  }
+   if (loaded) {  // (nothing of the box is defined by the draw: the pass holds what the surface held, and commits and marks dirty like a covered pass)
+     p.start = uint32_t(kOwnedPassResume);
+     p.loaded_start = true;
+     p.edram_free = false;
+     p.nonorigin = false;
++  } else if (composited) {
++    // (Session 90, Q: a defined start whose box already holds the parked passes' pixels: the render pass loads it; their drawn rectangles are drawn.)
++    p.start = uint32_t(kOwnedPassResume);
++    p.loaded_start = true;
++    for (const OwnedPass& q : composite) {
++      if (q.drawn[2] <= q.drawn[0] || q.drawn[3] <= q.drawn[1]) continue;
++      if (p.drawn[2] <= p.drawn[0]) {
++        for (int k = 0; k < 4; ++k) p.drawn[k] = q.drawn[k];
++      } else {
++        p.drawn[0] = std::min(p.drawn[0], q.drawn[0]);
++        p.drawn[1] = std::min(p.drawn[1], q.drawn[1]);
++        p.drawn[2] = std::max(p.drawn[2], q.drawn[2]);
++        p.drawn[3] = std::max(p.drawn[3], q.drawn[3]);
++      }
++    }
+   }
+   p.base = draw.color_info & 0xFFF;
+   p.pitch_tiles = pitch;
+@@ -193,6 +343,15 @@ bool NativeRenderer::OwnedStartExtra(OwnedStartContext& ctx) {
+     const TruthImage& t = truth_images_[draw.truth_color];
+     p.tiles = EdramTiles(t.base, t.pitch_tiles, t.is_64bpp(), 0, 0, guest_w, guest_h);
+   }
++  if (composited) {  // (Session 90, Q: taken into the new image - a reason that reads nothing: no replay)
++    owned_frame_stats_.wb_loaded_parked += uint32_t(composite.size());
++    OwnedDropParkedIf("taken into a loaded start", [&](const OwnedPass& q) {
++      for (const OwnedPass& c : composite) {
++        if (c.image == q.image && c.census == q.census) return true;
++      }
++      return false;
++    });
++  }
+   OwnedDropParkedIf("the same surface starts again", [&](const OwnedPass& q) {
+     return q.base == p.base && q.pitch_tiles == p.pitch_tiles && q.kind == p.kind;
+   });
+diff --git a/src/graphics/vulkan/native/owned_steps.cpp b/src/graphics/vulkan/native/owned_steps.cpp
+index 34065999f6e7d1e3ba9a78c96f5a8fa570e1a81c..da30c8f18d31922eaa8a86932f382d67254933dc 100644
+--- a/src/graphics/vulkan/native/owned_steps.cpp
++++ b/src/graphics/vulkan/native/owned_steps.cpp
+@@ -85,6 +85,13 @@ REXCVAR_DEFINE_INT32(gpu_native_owned_frame_readback_min_w, 0, "GPU/Native",
+                      "Session 82 (P2, diagnostic): a read-back copy narrower than this many texels is served like any other "
+                      "(bisecting which copies matter)")
+     .range(0, 4096);
++REXCVAR_DEFINE_BOOL(gpu_native_owned_wb_commit_uncovered, false, "GPU/Native", "Session 90 (Q, diagnosis): the uncovered write-back branch commits the pass (the behaviour before review #4)");
++REXCVAR_DEFINE_BOOL(gpu_native_owned_wb_drop_pages, false, "GPU/Native",
++                    "Session 90 (Q): the owned page(s) of a copy written back for the CPU are dropped after the write (the texture loads from the exact memory); feedback pages stay");
++REXCVAR_DEFINE_BOOL(gpu_native_owned_frame_readback_materialise, false, "GPU/Native",
++                    "Session 90 (Q): a read-back copy no writer exists for (the old replay path) first tries the Session 87 chains materialise (the pass's "
++                    "pixels as dirty tiles of the truth image, the game's own copy from there). Off (default): the pass is replayed. For one A/B only: "
++                    "every copy a writer exists for is written from our image whatever this says");
+ REXCVAR_DEFINE_INT32(gpu_native_owned_frame_budget_mb, 512, "GPU/Native",
+                      "Session 82 (with gpu_native_owned_frame): the memory our images may take (colour, depth, page "
+                      "images; an estimate) - the pools grow on demand up to it, then a pass that needs one more falls "
+@@ -286,6 +293,7 @@ void NativeRenderer::OwnedRetireImage(size_t index) {
+   owned_bytes_ -= std::min(owned_bytes_, o.bytes);
+   OwnedSpareFillSet(o.fill_set);  // (its fill source sets are kept for the next image that needs one, not leaked with the slot)
+   OwnedSpareFillSet(o.depth_fill_set);
++  if (o.wb_set != VK_NULL_HANDLE) owned_wb_spare_sets_.push_back({o.wb_set, command_processor_.GetCurrentSubmission()});  // (Session 90, Q)
+   if (owned_strip_batch_.valid && owned_strip_batch_.image == int16_t(index)) owned_strip_batch_.valid = false;  // (review: an evicted slot may be reused)
+   ++owned_draw_serial_;
+   o = OwnedImage();  // (the slot stays, empty)
+@@ -757,7 +765,8 @@ void NativeRenderer::OwnedReplayPending(const char* why, bool pause, bool replay
+   p.valid = false;
+   ++truth_counts_.owned_lost_draw;
+   if (pause && !REXCVAR_GET(gpu_native_own_steps_debug_replay)) OwnedPause(p.key, p.producers, why);
+-  OwnedFrameLost(p.census, pause ? kOwnedReasonLost : kOwnedReasonPresent, why);
++  OwnedFrameLost(p.census, owned_replay_reason_ ? owned_replay_reason_ : (pause ? kOwnedReasonLost : kOwnedReasonPresent), why);  // (Session 90, Q: a read-back copy no writer exists for)
++  owned_replay_reason_ = 0;
+   if (segment_log_frames_ > 0) {
+     REXGPU_INFO("[native][seg] frame {} owned pass replayed ({} draws): {}", frame_, p.draws.size(), why);
+   }
+@@ -1213,7 +1222,7 @@ bool NativeRenderer::OwnedRecord(const Draw& draw, const int32_t rect[4]) {
+   OwnedAlphaProbe(draw);  // (Session 82: a candidate draw's probe, right after the draw)
+   // (Session 82, P2: a defined-start pass keeps its draws past the commit - it owes the EDRAM nothing, so a later copy of it
+   // the owned frame cannot serve is exact by replaying them, OwnedReplayPending; the others are never replayed once copied.)
+-  const bool keeps_draws = !p.committed || p.edram_free;
++  const bool keeps_draws = (!p.committed || p.edram_free) && !p.carried_defined;  // (Session 90: a carried defined start has no draws to replay - a partial list would be wrong)
+   if (keeps_draws && !serve_pending_.empty()) p.serves.emplace_back(p.draws.size(), serve_pending_);
+   // (What this draw was given for its served bindings is spent - TruthRecordDraw's scope drops it at its end.)
+   serve_pending_.clear();
+@@ -1729,6 +1738,7 @@ bool NativeRenderer::OwnedBeginClearedPass() {
+   p.kind = first.truth_class;
+   p.is_64bpp = is_64bpp;
+   p.committed = p.started = p.open = false;
++  p.carried_defined = false;  // (Session 90)
+   p.cleared = true;
+   p.depth = keep_depth;
+   p.stencil = keep_stencil;
+@@ -2340,6 +2350,7 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+                     owned_pending_.base, owned_pending_.pitch_tiles);
+       }
+       if (OwnedChains()) ++owned_frame_stats_.ch_takenup;
++      if (owned_pending_.carried_defined) ++owned_frame_stats_.ch_carried_taken_draw;
+       break;
+     }
+   }
+@@ -2364,6 +2375,7 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+       if (p.valid) OwnedParkOrReplay("a restore of a dropped pass");
+       OWNED_SCENE_LOG(owned_restorable_[ri], "[native][owned][scene] frame {}: pass base {} pitch {} taken back for the restore", frame_, owned_restorable_[ri].base, owned_restorable_[ri].pitch_tiles);
+       owned_pending_ = owned_restorable_[ri];
++      if (owned_pending_.carried_defined) ++owned_frame_stats_.ch_carried_taken_draw;
+       owned_restorable_.erase(owned_restorable_.begin() + ri);
+       OwnedMarkDirty(false);  // (review: the composite's draw took the tiles' dirty state - what the restore would have put back is ours again)
+       break;
+@@ -2656,6 +2668,7 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+   p.kind = draw.truth_class;
+   p.is_64bpp = is_64bpp;
+   p.committed = p.started = false;
++  p.carried_defined = false;  // (Session 90)
+   p.open = false;
+   p.cleared = cleared;
+   p.depth = keep_depth;
+@@ -2733,6 +2746,7 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+   p.edram_free = false;
+   p.start_kind = cleared ? uint8_t(kOwnedStartCleared) : uint8_t(kOwnedStartCovered);
+   p.chain_pass = p.chain_unkeyed = p.chain_parked = false;  // (review F6; follow-up: chain_parked too)
++  p.carried_defined = false;  // (Session 90)
+   p.census = -1;
+   if (frame) {
+     // (Session 82: the census record - the clears' truth pass it started from, or a new one.)
+@@ -2894,11 +2908,30 @@ void NativeRenderer::OwnedDropParkedIf(const char* why, const std::function<bool
+   // (A parked defined start that is still without its copy is replayed when it is dropped for a reason that reads it - and at a submission's / a
+   // frame's end, where its draws would otherwise be lost. Run 023's loss of the damage / sweat maps was NOT this replay: it was the owned-image budget
+   // latch (598c566, 4e36709); the replay only changed the order the images were made in.)
++  // (Session 90, P: not at a submission's or a frame's end any more - those readers do not exist: a defined start parked at a submission's end is
++  // carried without its draws (OwnedOnSubmissionEnd), at a frame's end it ends as a committed pass does; its pixels stay in our image.)
+   const bool needs = OwnedChains() && (reason == "a truth draw over its tiles" || reason == "a write-out" || reason == "a copy it cannot serve" ||
+-                                       reason == "the submission ends" || reason == "the frame ends" || reason == "a loaded start of the same surface");
++                                       reason == "a loaded start of the same surface");
++  const size_t why_idx = reason == "the submission ends" ? 0 : reason == "the frame ends" ? 1 : reason == "a truth draw over its tiles" ? 2 :
++                         reason == "a write-out" ? 3 : reason == "a copy it cannot serve" ? 4 : reason == "a loaded start of the same surface" ? 5 : 6;
+   for (size_t i = owned_parked_.size(); i-- > 0;) {
+     if (!pred(owned_parked_[i])) continue;
+-    if (needs && owned_parked_[i].chain_parked && owned_parked_[i].edram_free && !owned_parked_[i].draws.empty()) to_replay.push_back(owned_parked_[i]);
++    if (needs && owned_parked_[i].chain_parked && owned_parked_[i].edram_free && !owned_parked_[i].draws.empty()) {
++      to_replay.push_back(owned_parked_[i]);
++      ++owned_frame_stats_.ch_replay_by[why_idx];
++    } else if (OwnedChains() && owned_parked_[i].chain_parked && owned_parked_[i].edram_free && !owned_parked_[i].draws.empty() && why_idx <= 1) {
++      ++owned_frame_stats_.ch_frame_end_unreplayed;  // (a defined start that would have been replayed here before Session 90)
++    }
++    if (owned_parked_[i].carried_defined) {
++      ++owned_frame_stats_.ch_carried_dropped[why_idx];
++      if (needs) {  // (Session 90: a reader of tiles that never got its pixels - no draws to replay: the key is paused)
++        ++owned_frame_stats_.ch_carried_paused_read[why_idx];
++        OwnedPause(owned_parked_[i].key, owned_parked_[i].producers, "a carried defined start read by the truth path");
++      }
++      if (why_idx == 1 && owned_frame_end_carried_.size() < 32) {  // (item 5: remembered to detect a copy of it next frame)
++        owned_frame_end_carried_.push_back({owned_parked_[i].base, uint32_t(owned_parked_[i].pitch_tiles) << (owned_parked_[i].is_64bpp ? 1 : 0), owned_parked_[i].kind});
++      }
++    }
+     OWNED_SCENE_LOG(owned_parked_[i], "[native][owned][scene] frame {}: parked pass base {} pitch {} DROPPED: {}", frame_, owned_parked_[i].base, owned_parked_[i].pitch_tiles, why);
+     // (Session 87, gpu_native_owned_frame_restore_draw: a pass drawn into since its copies is kept too - the restore that follows is recorded into it, not left out.)
+     if (REXCVAR_GET(gpu_native_owned_frame_restore_skip) && owned_parked_[i].committed &&
+@@ -2939,8 +2972,10 @@ void NativeRenderer::OwnedParkOrReplay(const char* why) {
+     owned_parked_.back().open = false;
+     if (owned_parked_.size() > (chains ? 16u : 4u)) {
+       OwnedPass evicted = std::move(owned_parked_.front());
++      if (evicted.carried_defined) ++owned_frame_stats_.ch_carried_dropped[6];
+       owned_parked_.erase(owned_parked_.begin());
+       if (chains && evicted.chain_parked && evicted.edram_free && !evicted.draws.empty()) {
++        ++owned_frame_stats_.ch_replay_by[6];
+         OwnedReplayParkedPass(std::move(evicted), "evicted from the parked passes");
+       }
+     }
+@@ -3445,6 +3480,45 @@ static int g_owned_lose_line = 0;
+ #define OWNED_LOSE(...) (g_owned_lose_line = __LINE__, lose(__VA_ARGS__))
+ 
+ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool copy_known) {
++  // Session 90 (Q): a copy served while the CPU is to read its bytes (a read-back window) is written into guest memory from our image - the
++  // inner function plans it (owned_wb_planned_) once the copy's shape is known, and this arms it when the copy was in fact served: the
++  // render target cache then runs OwnedWriteBackRun in its destination block.
++  if (owned_wb_.armed) OwnedWbRefused("armed, but the cache never ran it (no destination block)");  // (loud, never silent)
++  owned_wb_.armed = false;
++  owned_wb_planned_ = false;
++  owned_replay_reason_ = 0;
++  const bool taken = OwnedTakeResolveInner(info, copy_known);
++  owned_replay_reason_ = 0;
++  if (taken && owned_frame_on_) {
++    if (owned_wb_planned_) {
++      owned_wb_.armed = true;
++      // Session 90 (Q fix): a page the CPU reads back is not left ours: its memory is exact (written from our image), so the game's own samplers of it
++      // load the texture from there. Diagnosis (Heenan's attire, dumps of the old replay vs the write-back): the first two layer copies were byte-identical,
++      // the later ones - whose draws sample the previous layer's page - came out with red only: sampling our page (a snapshot of the pass) differs from the
++      // texture the game's copy makes. Feedback pages (damage maps, cubes) stay ours.
++      if (REXCVAR_GET(gpu_native_owned_wb_drop_pages) && owned_wb_.path != 4 && !owned_wb_.front) {
++        const uint64_t start = info.copy_dest_extent_start, end = start + info.copy_dest_extent_length;
++        const size_t before = owned_pages_.size();
++        owned_pages_.erase(std::remove_if(owned_pages_.begin(), owned_pages_.end(),
++                                          [&](const OwnedPage& q) {
++                                            return q.feedback < 0 && start < uint64_t(q.extent_start) + q.extent_length && uint64_t(q.extent_start) < end;
++                                          }),
++                           owned_pages_.end());
++        if (owned_pages_.size() != before) {
++          command_processor_.NativeOwnedPagesChanged();
++          OwnedWatchSync();
++        }
++      }
++    } else if (command_processor_.NativeCopyReadsBack() &&
++               int32_t(info.coordinate_info.width_div_8) * 8 >= REXCVAR_GET(gpu_native_owned_frame_readback_min_w)) {
++      ++owned_frame_stats_.wb_unplanned;  // (served in a window, no write-back planned: a dead copy, or one that never reached the plan)
++    }
++  }
++  owned_wb_planned_ = false;
++  return taken;
++}
++
++bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, bool copy_known) {
+   // (A copy may read what the clears held would have cleared: the truth path runs them first - those of the surface it reads;
+   // the clears of another surface stay held.)
+   if (!owned_held_.draws.empty()) {
+@@ -3503,6 +3577,7 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+       if (p.valid) OwnedParkOrReplay("a copy of a parked surface");
+       owned_pending_ = std::move(taken_up);
+       ++owned_frame_stats_.ch_takenup;
++      if (owned_pending_.carried_defined) ++owned_frame_stats_.ch_carried_taken_copy;
+       break;
+     }
+   }
+@@ -3544,6 +3619,20 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+   };
+   const auto from_truth = [&]() {
+     if (!noted) note(-1);
++    if (OwnedChains() && owned_frame_on_ && !owned_frame_end_carried_.empty() && !info.IsCopyingDepth()) {
++      // (Session 90, detection only: a copy that runs from the truth tiles of a surface whose carried defined start was dropped at the last frame's end.)
++      for (const OwnedCarriedGone& g : owned_frame_end_carried_) {
++        if (g.base == uint32_t(info.color_original_base) && g.pitch == uint32_t(info.color_edram_info.pitch_tiles)) {
++          ++owned_frame_stats_.ch_copy_of_dropped_carried;
++          if (owned_carried_gone_logged_ < 12) {
++            ++owned_carried_gone_logged_;
++            REXGPU_INFO("[native][owned] frame {}: a copy of a carried pass dropped at the last frame end runs from the truth tiles: base {} pitch {} page 0x{:05X}",
++                        frame_, g.base, g.pitch, page);
++          }
++          break;
++        }
++      }
++    }
+     unmap();
+     if (!owned_dirty_.empty()) {
+       OwnedDirtyBeforeRead(source, -1, "a truth copy");
+@@ -3576,8 +3665,12 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+                   uint32_t(info.height_div_8) * 8, p.base, p.pitch_tiles, p.width, p.height);
+     }
+   }
+-  const bool reads_back = owned_frame_on_ && command_processor_.NativeCopyReadsBack() && !dest_ours && !only_ours &&
+-                          int32_t(info.coordinate_info.width_div_8) * 8 >= REXCVAR_GET(gpu_native_owned_frame_readback_min_w);
++  // (Session 90, Q: wb_wanted - the CPU is to get this copy's bytes (the readback mode is on for it, the copy wide enough): the copy is served as
++  // outside a window AND written from our image. reads_back - the same for a copy none of our pages / committed passes holds: if no writer exists
++  // for it, the old replay stays (counted by reason).)
++  const bool wb_wanted = owned_frame_on_ && command_processor_.NativeCopyReadsBack() &&
++                         int32_t(info.coordinate_info.width_div_8) * 8 >= REXCVAR_GET(gpu_native_owned_frame_readback_min_w);
++  const bool reads_back = wb_wanted && !dest_ours && !only_ours;
+   if (OwnedChains() && owned_drop_.valid && !OwnedKeyDead(owned_drop_.key)) owned_drop_.valid = false;  // (review A6: a revived key's copy is the game's)
+   if (owned_drop_.valid && !reads_back && !info.IsCopyingDepth() && uint32_t(info.color_original_base) == owned_drop_.base &&
+       info.color_edram_info.pitch_tiles == owned_drop_.pitch) {
+@@ -3659,7 +3752,10 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+     }
+     // (Review: a committed pass only our image holds cannot be replayed - this copy reads truth tiles without its
+     // draws: its producers not owned for a while.)
+-    if (p.committed && !OwnedTruthHolds() && !(p.edram_free && !p.draws.empty())) {
++    // (Session 90: a carried defined start has no draws to replay, and the truth tiles never got its pixels: a copy of it that is not served
++    // reads stale tiles every frame - its key is paused, whatever OwnedTruthHolds says for an edram_free pass.)
++    if (p.committed && (p.carried_defined || (!OwnedTruthHolds() && !(p.edram_free && !p.draws.empty())))) {
++      if (p.carried_defined) ++owned_frame_stats_.ch_carried_paused_copy;
+       ++truth_counts_.owned_refused;
+       OwnedPause(p.key, p.producers, "a copy of a pass only our image holds run as the game's");
+     }
+@@ -3676,14 +3772,21 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+   };
+   // (Session 82, P2: a copy into the front buffer is left out when it is a whole plain copy the swap reads exactly as it
+   // is written - checked below, with the box known - else it is the truth path's, as in P0a.)
+-  const bool front = owned_frame_on_ && (is_front(page) || is_front(texture_page));
++  bool front = owned_frame_on_ && (is_front(page) || is_front(texture_page));  // (Session 90, Q: not const - a front copy the swap would not read, written from our image, goes on as a page)
+   // Session 82 (P1 item 3, owned_scene.cpp): the scene's depth copy into a depth page of ours (never a front buffer).
+-  if (owned_frame_on_ && !front && !reads_back && copy_known && info.IsCopyingDepth() &&
++  bool wb_depth = false;
++  if (wb_wanted && owned_frame_on_ && !front && copy_known && info.IsCopyingDepth() && !REXCVAR_GET(gpu_native_own_steps_debug_replay)) {
++    std::string wb_why;
++    wb_depth = OwnedWbPlanDepth(info, wb_why);  // (Session 90, Q: the depth writer exists - the copy is served and written)
++    if (!wb_depth) OwnedWbRefused("depth: " + wb_why);
++  }
++  if (owned_frame_on_ && !front && (!reads_back || wb_depth) && copy_known && info.IsCopyingDepth() &&
+       !REXCVAR_GET(gpu_native_own_steps_debug_replay)) {
+     std::string depth_why;
+     if (OwnedDepthCopy(info, page, texture_page, depth_why)) {
+       p.draws_since_depth = 0;  // (Session 82, P2, review: the restore skip's proof)
+       p.copy_depth_page = texture_page;
++      owned_wb_planned_ = wb_depth;
+       note(1);
+       return true;
+     }
+@@ -3692,36 +3795,14 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+       ++depth_refusals_logged;
+       REXGPU_INFO("[native][owned] frame {}: the depth copy into page 0x{:05X} is not taken: {}", frame_, page, depth_why);
+     }
++    wb_depth = false;
+   }
+   if (!copy_known || info.IsCopyingDepth() || info.rb_copy_control.copy_src_select != 0 ||
+       REXCVAR_GET(gpu_native_own_steps_debug_replay)) {
++    if (reads_back && info.IsCopyingDepth()) owned_replay_reason_ = kOwnedReasonReadback;
+     return OWNED_LOSE(front, true, !reads_back);
+   }
+-  if (reads_back) {
+-    ++truth_counts_.owned_readback_copies;
+-    static uint32_t readback_logged = 0;
+-    if (segment_log_frames_ > 0 || owned_frame_logging_ || readback_logged < 40) {
+-      ++readback_logged;
+-      REXGPU_INFO("[native][owned] frame {}: a copy the CPU reads back (page 0x{:05X}, {}x{}, dest format {}): owned pass {} "
+-                  "(kind {}, edram_free {}, feedback {}, copies so far {}, {} draws), the game's copy runs", frame_, page,
+-                  uint32_t(info.coordinate_info.width_div_8) * 8, uint32_t(info.height_div_8) * 8,
+-                  uint32_t(info.copy_dest_info.copy_dest_format), p.committed ? "ended" : "replayed", p.kind, p.edram_free,
+-                  p.feedback_pass, p.copy_count, p.draws.size());
+-    }
+-    if (OwnedChains() && p.valid && !p.edram_free && !p.half && !front && p.color_slot >= 0 && size_t(p.color_slot) < truth_images_.size()) {
+-      // (Session 87, chains: the bytes the CPU reads are the pass's pixels - they go to the truth image as its dirty tiles (OwnedCommit) and the game's own copy runs from
+-      // there, which writes guest memory exactly as before. The pass stays ours (committed): it is not replayed, its later copies are served. Only when the truth
+-      // image owns every tile of the box - else the dirty tiles would not reach it and the read would be stale: replayed as before.)
+-      const TruthImage& tt = truth_images_[p.color_slot];
+-      const std::bitset<2048> box = EdramTiles(tt.base, tt.pitch_tiles, tt.is_64bpp(), 0, 0, p.width, p.height);
+-      if ((box & ~tt.owned).none() && tt.initialized && tt.image != VK_NULL_HANDLE && (p.committed || p.cleared || p.start_kind == kOwnedStartCovered || OwnedTruthHolds())) {
+-        OwnedCommit();
+-        ++owned_frame_stats_.ch_readback_mat;
+-        return from_truth();
+-      }
+-    }
+-    return OWNED_LOSE(front, true, false);
+-  }
++  // (Session 90, Q: the read-back replay / materialise that stood here moved below the shape check: it runs only for a copy no writer exists for.)
+   // A plain copy of a rectangle of the box: from an RGBA8 surface an 8-bit-per-channel unsigned destination (k_8: the
+   // red channel; k_8_8_8_8: all four, red and blue swapped or not - the view undoes it); from a 16-bit one the same
+   // format (the packed values as they are, as TruthResolveScaledFull copies them); no exponent bias. Its rectangle in
+@@ -3772,11 +3853,77 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+                   uint32_t(info.color_edram_info.msaa_samples), w, h, w_copied, h_copied, box_ok, sx, sy, delta, row_tiles,
+                   p.width, p.height, int32_t(d.copy_dest_exp_bias), uint32_t(d.copy_dest_array));
+     }
++    if (reads_back) {  // (Session 90, Q: as before - a read-back copy of another shape is replayed, no pause; no writer exists for it)
++      OwnedWbRefused("shape: not a plain copy of the pass's box");
++      owned_replay_reason_ = kOwnedReasonReadback;
++      return OWNED_LOSE(front, true, false);
++    }
+     return OWNED_LOSE(front);
+   }
+   // (Session 82, P2, G4: a defined start away from the origin is trusted only where a draw covered; not paused - the
+   // chain's first build has copies of other shapes.)
+-  if (p.edram_free && p.nonorigin && !OwnedRectDrawn(p, sx, sy, w, h)) return OWNED_LOSE(front, true, false);
++  if (p.edram_free && p.nonorigin && !OwnedRectDrawn(p, sx, sy, w, h)) {
++    if (reads_back) owned_replay_reason_ = kOwnedReasonReadback;
++    return OWNED_LOSE(front, true, false);
++  }
++  // Session 90 (Q): the copy's bytes go to the CPU - plan the write from our image. The copy is then served exactly as outside a window (below)
++  // and the render target cache writes the bytes. A copy no writer exists for keeps the old replay (counted, with the reason).
++  if (wb_wanted) {
++    uint32_t plan_scale_x = 1, plan_scale_y = 1;
++    command_processor_.NativeResolutionScale(plan_scale_x, plan_scale_y);
++    const uint32_t plan_gap = info.color_edram_info.fill_half_pixel_offset ? (plan_scale_x / 2) | ((plan_scale_y / 2) << 8) : 0u;
++    std::string plan_why;
++    if (OwnedWbPlan(info, sx, sy, w, h, plan_gap, front, plan_why)) {
++      owned_wb_planned_ = true;
++      ++owned_frame_stats_.wb_planned;
++      {
++        // (Session 90, Q diagnosis: the state of the pass a write-back is planned from - the garbled Heenan attire.)
++        static uint32_t plan_logged = 0;
++        if (plan_logged < 60) {
++          ++plan_logged;
++          REXGPU_INFO("[native][owned][wbdiag] frame {}: write-back planned page 0x{:05X} {}x{} at {},{}: pass base {} pitch {} kind {} box {}x{} (host {}x{}) start_kind {} edram_free {} nonorigin {} cleared {} committed {} loaded_start {} "
++                      "draws {} timer_draws {} drawn [{},{},{},{}] copies so far {} image {} dest fmt {} swap {} endian {} number {} census {} first draw: mask {:X} blend {:08X} ps {:016X} all-mask {:X}",
++                      frame_, (info.copy_dest_base >> 12) & 0x1FFFF, w, h, sx, sy, p.base, p.pitch_tiles, p.kind, p.width, p.height, p.host_width, p.host_height,
++                      int(p.start_kind), p.edram_free, p.nonorigin, p.cleared, p.committed, p.loaded_start, p.draws.size(), p.timer_draws, p.drawn[0], p.drawn[1],
++                      p.drawn[2], p.drawn[3], p.copy_count, p.image, uint32_t(info.copy_dest_info.copy_dest_format), uint32_t(info.copy_dest_info.copy_dest_swap),
++                      uint32_t(info.copy_dest_info.copy_dest_endian), uint32_t(info.copy_dest_info.copy_dest_number), p.census,
++                      p.draws.empty() ? 0u : p.draws[0].color_write_mask, p.draws.empty() ? 0u : p.draws[0].blend_control, p.draws.empty() ? 0ull : p.draws[0].pixel_shader_hash,
++                      p.draws.empty() ? 0u : p.draws[0].color_mask_all);
++        }
++      }
++      if (dest_ours) ++owned_frame_stats_.wb_dest_ours;
++      if (only_ours) ++owned_frame_stats_.wb_only_ours;
++    } else {
++      OwnedWbRefused(plan_why);
++    }
++  }
++  if (reads_back && !owned_wb_planned_) {
++    // (Session 82, P2 / Session 87: no writer for this copy - the pass is replayed on the truth path and the game's copy reads it back.)
++    ++truth_counts_.owned_readback_copies;
++    static uint32_t readback_logged = 0;
++    if (segment_log_frames_ > 0 || owned_frame_logging_ || readback_logged < 40) {
++      ++readback_logged;
++      REXGPU_INFO("[native][owned] frame {}: a copy the CPU reads back (page 0x{:05X}, {}x{}, dest format {}) has no writer from our image: owned pass {} "
++                  "(kind {}, edram_free {}, feedback {}, copies so far {}, {} draws), the game's copy runs", frame_, page,
++                  uint32_t(info.coordinate_info.width_div_8) * 8, uint32_t(info.height_div_8) * 8,
++                  uint32_t(info.copy_dest_info.copy_dest_format), p.committed ? "ended" : "replayed", p.kind, p.edram_free,
++                  p.feedback_pass, p.copy_count, p.draws.size());
++    }
++    if (OwnedChains() && REXCVAR_GET(gpu_native_owned_frame_readback_materialise) && p.valid && !p.edram_free && !p.half && !front &&
++        p.color_slot >= 0 && size_t(p.color_slot) < truth_images_.size()) {
++      // (Session 87, chains, kept behind gpu_native_owned_frame_readback_materialise for one A/B: the bytes the CPU reads are the pass's pixels - they go to the truth image as its dirty tiles (OwnedCommit) and the game's own copy runs from
++      // there. Only when the truth image owns every tile of the box - else replayed.)
++      const TruthImage& tt = truth_images_[p.color_slot];
++      const std::bitset<2048> box = EdramTiles(tt.base, tt.pitch_tiles, tt.is_64bpp(), 0, 0, p.width, p.height);
++      if ((box & ~tt.owned).none() && tt.initialized && tt.image != VK_NULL_HANDLE && (p.committed || p.cleared || p.start_kind == kOwnedStartCovered || OwnedTruthHolds())) {
++        OwnedCommit();
++        ++owned_frame_stats_.ch_readback_mat;
++        return from_truth();
++      }
++    }
++    owned_replay_reason_ = kOwnedReasonReadback;
++    return OWNED_LOSE(front, true, false);
++  }
+   const bool whole = sx == 0 && sy == 0 && w == p.width && h == p.height && dx == 0 && dy == 0 && page == texture_page;
+   if (whole) {  // (Session 82, P2, review: the restore skip's proof counts from the last WHOLE copy, and names its texture)
+     p.draws_since_color = 0;
+@@ -3833,7 +3980,14 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+                       frame_, page, w, h, uint32_t(d.copy_dest_format), uint32_t(d.copy_dest_endian), scaled_now, seen, sw);
+         }
+       }
+-      return OWNED_LOSE(true, seen);
++      if (owned_wb_planned_ && !p.half) {
++        // Session 90 (Q): the swap would not read our image for this page (it last sighted it too long ago), but the copy's bytes are written into
++        // the page's memory from our image: whatever the swap reads from memory is right. Served and written like any copy; no loss, no pause.
++        owned_wb_.front = true;
++        front = false;
++      } else {
++        return OWNED_LOSE(true, seen);
++      }
+     }
+   }
+   // (Session 82, P2, G7: a rectangle of a defined-start pass into a face of a cube the texture cache knows - the reflection
+@@ -3906,6 +4060,16 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+       served = p.kind == 2 ? OwnedPageImageFor(w * scale_x, h * scale_y, uint32_t(d.copy_dest_format)) >= 0
+                            : OwnedImageFor(owned_images_[p.image].width, owned_images_[p.image].height, p.kind) >= 0;
+     }
++    if (!served && owned_wb_planned_) {
++      // Session 90 (Q): a read-back copy no page of ours can take is still written from our image (never replayed / paused).
++      // (Review: not committed - the pass keeps its draws, so a later non-read-back copy of it can still be served or replayed; the render pass ends in the writer.)
++      unmap();
++      if (REXCVAR_GET(gpu_native_owned_wb_commit_uncovered)) { OwnedCommit(); ++p.copy_count; }  // (Session 90 diagnosis: the Q behaviour before review #4)
++      ++owned_frame_stats_.wb_rect;
++      p.chain_parked = false;  // (its pixels are delivered: nothing is left to replay)
++      note(3);
++      return true;
++    }
+     if (!served) return OWNED_LOSE(false, true, !p.edram_free);  // (Session 82, P2: a defined start owes the EDRAM nothing - the cube strips' first copy into a cube the texture cache has not seen is replayed this once, not paused for 600 frames)
+   }
+   const auto stale = [&]() {
+@@ -4124,6 +4288,15 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+                   "0x{:05X}) at {},{}",
+                   frame_, sx, sy, w, h, page, texture_page, dx, dy);
+     }
++    if (owned_wb_planned_ && !truth_holds) {
++      // Session 90 (Q): a rectangle of a committed pass only our image holds, read back by the CPU: written from our image - not the game's copy from truth
++      // tiles that never had the pass's draws (wrong bytes), not a pause. Its destination is unmapped (the texture loads from the written memory).
++      unmap();
++      ++owned_frame_stats_.wb_rect;
++      p.chain_parked = false;  // (delivered: note(3) does not clear it)
++      note(3);
++      return true;
++    }
+     // (Review: a page of ours this rectangle cannot go into is the game's again with its texture stale outside the
+     // rectangle - its whole copy was left out: its producers not owned for a while, so the next frame's copy runs.)
+     if (held) {
+@@ -4471,7 +4644,22 @@ void NativeRenderer::OwnedOnSubmissionEnd() {
+   // (Session 87, gpu_native_owned_frame_carry_passes: a committed pass owes the EDRAM nothing and keeps no draws - its image is all
+   // it is; it goes on in the next submission: its render pass ends here, a later draw resumes it. It still ends at the frame's end.)
+   const bool carry = REXCVAR_GET(gpu_native_owned_frame_carry_passes) && owned_frame_on_;
+-  OwnedDropParkedIf("the submission ends", [&](const OwnedPass& q) { return !(carry && q.committed && !q.edram_free); });
++  if (carry && OwnedChains()) {
++    // (Session 90, P: a committed defined start parked without its copy is carried like any committed pass: its render pass ended, its draws -
++    // sets and constants of this submission - are gone and never replayed; its image is the pass. A later copy of its surface is served from the
++    // image, a later draw of it resumes it.)
++    for (OwnedPass& q : owned_parked_) {
++      if (!q.committed || !q.edram_free || q.carried_defined) continue;
++      q.draws.clear();
++      q.serves.clear();
++      q.crowd_calls.clear();
++      q.held_clears.clear();
++      q.kept_sampled.clear();
++      q.carried_defined = true;
++      ++owned_frame_stats_.ch_carried_defined;
++    }
++  }
++  OwnedDropParkedIf("the submission ends", [&](const OwnedPass& q) { return !(carry && q.committed && (OwnedChains() || !q.edram_free)); });
+   owned_restorable_.clear();
+   if (!owned_pending_.valid) return;
+   if (owned_pending_.committed) {
+@@ -4867,6 +5055,7 @@ void NativeRenderer::OwnedOnFrameEnd() {
+   owned_chain_site_ = 0;
+   OwnedDepthClearsDrop();  // (Session 87)
+   OwnedClearsTouched();
++  owned_frame_end_carried_.clear();  // (Session 90: the list is the last frame end's - refilled by the drop just below)
+   OwnedDropParked("the frame ends");
+   owned_sampled_images_.clear();
+   owned_restorable_.clear();
+@@ -5040,6 +5229,10 @@ void NativeRenderer::OwnedPause(const OwnedPassKey& key, const std::vector<std::
+                       owned_paused_.end());
+   owned_paused_.emplace_back(key, frame_ + 600);
+   ++owned_frame_stats_.pauses;
++  if (command_processor_.NativeReadbackActive()) {  // (Session 90, Q: a pause inside a read-back window - there should be none)
++    ++owned_frame_stats_.wb_window_pauses;
++    REXGPU_INFO("[native][owned] frame {}: PAUSE INSIDE A READ-BACK WINDOW: ps {:016X} ({})", frame_, key.ps, why);
++  }
+   REXGPU_WARN("[native][owned] frame {}: pass base {} pitch {} format {} ps {:016X} not owned for 600 frames ({})",
+               frame_, key.base, key.pitch, key.format, key.ps, why);
+ }
+@@ -5253,9 +5446,26 @@ void NativeRenderer::OwnedFrameSummary() {
+       std::sort(lines.begin(), lines.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+       for (size_t i = 0; i < lines.size() && i < 12; ++i) ll += fmt::format(" {}x line {}", lines[i].second, lines[i].first);
+     }
+-    REXGPU_INFO("[native][owned-frame] frames {}-{}: owned surfaces (2): depth-only clears merged into held colour clears {}; front copies served {} / replayed {}, swap pages unserved {}; starts resumed {} / loaded from truth {} / converted on 0/16/0 {}; readback copies served by materialising {}; dead depth-tested draws dropped {}; only-ours read-back copies {}; copy losses by source line:{}; truth tiles claimed for held-clear passes {} (failed {}); truth draws that committed the pass instead of replaying it {}; parked defined starts replayed before a drop {}; dead passes ended uncommitted by a clear {}; owned images made {}, fill sets reused {}",
++    REXGPU_INFO("[native][owned-frame] frames {}-{}: owned surfaces (2): depth-only clears merged into held colour clears {}; front copies served {} / replayed {}, swap pages unserved {}; starts resumed {} / loaded from truth {} / converted on 0/16/0 {}; readback copies served by materialising {}; dead depth-tested draws dropped {}; only-ours read-back copies {}; copy losses by source line:{}; truth tiles claimed for held-clear passes {} (failed {}); truth draws that committed the pass instead of replaying it {}; parked defined starts replayed before a drop {} [by reason: submission end {}, frame end {}, truth draw {}, write-out {}, copy {}, loaded start {}, other (evicted) {}]; defined starts carried past a submission's end {} (taken up by a copy {} / a draw {}; dropped later by [sub {}, frame {}, truth draw {}, write-out {}, copy {}, loaded start {}, other {}]; parked ones dropped unreplayed at an end {}); carried passes paused: copy not served {}, read by the truth path [sub {}, frame {}, truth draw {}, write-out {}, copy {}, loaded start {}, other {}]; copies of a carried pass dropped at the last frame end {}; dead passes ended uncommitted by a clear {}; owned images made {}, fill sets reused {}",
+                 st.first_frame, st.first_frame + st.frames - 1, st.ch_dmerge, st.ch_front_served, st.ch_front_lost, st.ch_swap_unserved, st.ch_resumed, st.ch_loaded, st.ch_conv016, st.ch_readback_mat, st.ch_dead_depthless, st.ch_only_ours_readback, ll.empty() ? " none" : ll,
+-                st.ch_claims, st.ch_claim_failed, st.ch_commit_instead, st.ch_parked_replays, st.ch_dead_ended, st.images_made, st.fill_sets_reused);
++                st.ch_claims, st.ch_claim_failed, st.ch_commit_instead, st.ch_parked_replays,
++                st.ch_replay_by[0], st.ch_replay_by[1], st.ch_replay_by[2], st.ch_replay_by[3], st.ch_replay_by[4], st.ch_replay_by[5], st.ch_replay_by[6],
++                st.ch_carried_defined, st.ch_carried_taken_copy, st.ch_carried_taken_draw, st.ch_carried_dropped[0], st.ch_carried_dropped[1],
++                st.ch_carried_dropped[2], st.ch_carried_dropped[3], st.ch_carried_dropped[4], st.ch_carried_dropped[5], st.ch_carried_dropped[6],
++                st.ch_frame_end_unreplayed, st.ch_carried_paused_copy, st.ch_carried_paused_read[0], st.ch_carried_paused_read[1], st.ch_carried_paused_read[2],
++                st.ch_carried_paused_read[3], st.ch_carried_paused_read[4], st.ch_carried_paused_read[5], st.ch_carried_paused_read[6], st.ch_copy_of_dropped_carried, st.ch_dead_ended, st.images_made, st.fill_sets_reused);
++    {
++      // (Session 90, Q: the read-back copies written from our image.)
++      std::string refused;
++      for (const auto& e : st.wb_refused) refused += fmt::format("{}{} x {}", refused.empty() ? "" : "; ", e.second, e.first);
++      REXGPU_INFO("[native][owned-frame] frames {}-{}: owned surfaces (3): read-back copies written from our image {} [8888 1x {}, 8888 scaled {}, full 1x {}, full scaled {}, depth {}] "
++                  "(rectangles / uncovered copies written {}, pauses inside windows {}, loaded starts inside windows {}; planned {}, of them into a feedback page of ours {} / of a committed pass only our image holds {}, front-buffer pages {}); write-backs refused or not possible by reason: {}; "
++                  "served in a read-back window without a plan {}; parked passes loaded into a new image from their own images {}; read-back copies that kept the replay (reason readback in the census) see 'fallback' above; "
++                  "readback copies served by materialising {}",
++                  st.first_frame, st.first_frame + st.frames - 1, st.wb_written[0] + st.wb_written[1] + st.wb_written[2] + st.wb_written[3] + st.wb_written[4],
++                  st.wb_written[0], st.wb_written[1], st.wb_written[2], st.wb_written[3], st.wb_written[4], st.wb_rect, st.wb_window_pauses, st.wb_window_loads, st.wb_planned, st.wb_dest_ours, st.wb_only_ours, st.wb_front,
++                  refused.empty() ? "none" : refused, st.wb_unplanned, st.wb_loaded_parked, st.ch_readback_mat);
++    }
+   }
+   REXGPU_INFO("[native][owned-frame] frames {}-{}: passes {} owned {} fallback {} (by reason: {}), copies served {} / "
+               "page {} / dead {} / written back {} (of {}), clears kept {}, pauses {}, reader refusals {}, no pipeline "
+@@ -5499,6 +5709,7 @@ void NativeRenderer::OwnedDestroy() {
+   for (VkDescriptorPool pool : owned_pools_) dfn.vkDestroyDescriptorPool(device, pool, nullptr);
+   owned_pools_.clear();
+   owned_spare_sets_.clear();
++  owned_wb_spare_sets_.clear();
+   owned_pool_ = VK_NULL_HANDLE;
+   owned_pages_.clear();
+   owned_dirty_.clear();
+diff --git a/src/graphics/vulkan/native/shader_swap.cpp b/src/graphics/vulkan/native/shader_swap.cpp
+index 9ad8f1d64fe41cf41b127ebf19afe4a61786e7b5..b4fe9bf5c01ac1924fa8e11d2df39fcf34d19db2 100644
+--- a/src/graphics/vulkan/native/shader_swap.cpp
++++ b/src/graphics/vulkan/native/shader_swap.cpp
+@@ -11,6 +11,8 @@
+ #include <memory>
+ #include <mutex>
+ #include <string>
++#include <bit>
++#include <unordered_map>
+ #include <unordered_set>
+ 
+ #include <rex/cvar.h>
+@@ -54,7 +56,15 @@ struct Entry {
+   // in this fetch constant (0-95) with this stride in dwords.
+   uint32_t stream_fetch_constant = 95;
+   uint32_t stream_stride_words = 8;
++  // (Session 90, Adreno link) a pixel replacement's input locations as an interpolator mask, contiguous 0..N-1 (set at Register).
++  uint32_t read_mask = 0;
+ };
++uint32_t SpirvLocationMask(const uint32_t* words, size_t count, uint32_t storage);
++uint32_t ContiguousMask(uint32_t mask) {
++  if (!mask) return 0;
++  const uint32_t bound = 32 - uint32_t(std::countl_zero(mask));
++  return bound >= 16 ? 0xFFFFu : ((1u << bound) - 1u);
++}
+ // Copy on write: readers take the current table without a lock; replaced tables are kept (a handful a run).
+ struct Table {
+   std::vector<std::shared_ptr<const Entry>> entries;
+@@ -101,6 +111,7 @@ bool Register(uint64_t guest_hash, const uint32_t* words, size_t count, const ui
+   }
+   entry->name = name ? name : "";
+   entry->flags = flags;
++  entry->read_mask = ContiguousMask(SpirvLocationMask(entry->words.data(), entry->words.size(), 1));
+   std::lock_guard<std::mutex> lock(g_mutex);
+   auto table = std::make_unique<Table>();
+   if (const Table* old = g_table.load(std::memory_order_relaxed)) {
+@@ -840,4 +851,141 @@ bool DescribeVertex(uint64_t guest_hash, Shader::RegisteredAnalysis& out) {
+   return entry && DescribeEntry(*entry, true, out);
+ }
+ 
++// ---- Session 90 (Adreno link): the interface between a replacement pixel shader and the vertex shader it is paired with ----
++namespace {
++// The user-varying locations (no BuiltIn) of the SPIR-V's Input (storage 1) or Output (storage 3) variables, as a bit mask
++// (locations 0..31). Arrays count their length, everything else one location (the interpolators are vec4).
++uint32_t SpirvLocationMask(const uint32_t* w, size_t n, uint32_t storage) {
++  if (n < 6 || w[0] != 0x07230203u) return 0;
++  struct Ty { uint32_t op = 0, a = 0, b = 0; };
++  std::unordered_map<uint32_t, Ty> types;
++  std::unordered_map<uint32_t, uint32_t> consts, locations, builtins;
++  struct V { uint32_t id, type, storage; };
++  std::vector<V> vars;
++  for (size_t i = 5; i < n;) {
++    const uint32_t op = w[i] & 0xFFFF, len = w[i] >> 16;
++    if (len == 0 || i + len > n) break;
++    switch (op) {
++      case 71:  // OpDecorate
++        if (len >= 4 && w[i + 2] == 30) locations[w[i + 1]] = w[i + 3];
++        else if (len >= 4 && w[i + 2] == 11) builtins[w[i + 1]] = w[i + 3];
++        break;
++      case 32: if (len >= 4) types[w[i + 1]] = {op, w[i + 3], 0}; break;            // OpTypePointer
++      case 28: if (len >= 4) types[w[i + 1]] = {op, w[i + 2], w[i + 3]}; break;     // OpTypeArray (element, length id)
++      case 43: if (len >= 4) consts[w[i + 2]] = w[i + 3]; break;                    // OpConstant
++      case 59: if (len >= 4) vars.push_back({w[i + 2], w[i + 1], w[i + 3]}); break;  // OpVariable
++      default: break;
++    }
++    i += len;
++  }
++  uint32_t mask = 0;
++  for (const V& v : vars) {
++    if (v.storage != storage || builtins.count(v.id)) continue;
++    const auto l = locations.find(v.id);
++    if (l == locations.end() || l->second >= 32) continue;
++    uint32_t count = 1;
++    if (auto p = types.find(v.type); p != types.end() && p->second.op == 32) {
++      if (auto t = types.find(p->second.a); t != types.end() && t->second.op == 28) {
++        if (auto c = consts.find(t->second.b); c != consts.end()) count = std::max<uint32_t>(1, c->second);
++      }
++    }
++    for (uint32_t k = 0; k < count && l->second + k < 32; ++k) mask |= 1u << (l->second + k);
++  }
++  return mask;
++}
++
++std::unordered_set<uint64_t> g_interface_noted, g_interface_checked;
++uint32_t g_interface_noted_count = 0, g_interface_mismatch = 0;
++uint64_t PairKey(uint64_t vertex_hash, uint64_t pixel_hash) { return vertex_hash * 0x9E3779B97F4A7C15ull ^ pixel_hash; }
++// Lock-free first look (per thread): a pair this thread has already noted / checked never takes g_mutex again.
++thread_local std::unordered_set<uint64_t> t_noted, t_checked;
++}  // namespace
++
++uint32_t ReplacementInterpolatorMask(uint64_t guest_hash) {
++  if (!REXCVAR_GET(gpu_native_shader_swap)) return 0;
++  const Table* table = g_table.load(std::memory_order_acquire);
++  if (!table) return 0;
++  for (const auto& e : table->entries) {
++    if (e->hash == guest_hash) return Skipped(guest_hash) ? 0 : e->read_mask;
++  }
++  return 0;
++}
++
++void NoteInterface(uint64_t vertex_hash, uint64_t pixel_hash, uint32_t vs_writes, uint32_t ps_reads) {
++  const uint32_t missing = ps_reads & ~vs_writes;
++  if (!missing) return;
++  const uint64_t key = PairKey(vertex_hash, pixel_hash);
++  if (!t_noted.insert(key).second) return;
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (!g_interface_noted.insert(key).second) return;
++  if (++g_interface_noted_count <= 16) {
++    REXGPU_INFO("[native][swap] interface: vs {:016X} writes interpolators {:04X}, replacement ps {:016X} reads {:04X}: "
++                "{:04X} declared by the vertex translation and filled with zero (pair #{})",
++                vertex_hash, vs_writes, pixel_hash, ps_reads, missing, g_interface_noted_count);
++  }
++}
++
++// The stored / predicted modifications of a pair with a replacement: the interpolators the replacement reads added to the vertex
++// and the pixel modification, as IssueDraw's mask does. The added bits are centre-sampled, unless every interpolator the
++// pixel modification already had was centroid-sampled (a multisampled draw) - the draw's own sampling pattern is not stored.
++bool WidenForReplacement(uint64_t pixel_hash, uint64_t& vertex_modification, uint64_t& pixel_modification) {
++  const uint32_t reads = ReplacementInterpolatorMask(pixel_hash);
++  if (!reads) return false;
++  bool changed = false;
++  SpirvShaderTranslator::Modification vertex(vertex_modification);
++  if (reads & ~uint32_t(vertex.vertex.interpolator_mask)) {
++    vertex.vertex.interpolator_mask |= reads;
++    vertex_modification = vertex.value;
++    changed = true;
++  }
++  SpirvShaderTranslator::Modification pixel(pixel_modification);
++  const uint32_t old_mask = pixel.pixel.interpolator_mask;
++  if (reads & ~old_mask) {
++    const uint32_t added = reads & ~old_mask;
++    const bool all_centroid = old_mask && uint32_t(pixel.pixel.interpolators_centroid) == old_mask;
++    pixel.pixel.interpolator_mask = old_mask | added;
++    pixel.pixel.interpolators_centroid = uint32_t(pixel.pixel.interpolators_centroid) | (all_centroid ? added : 0u);
++    pixel_modification = pixel.value;
++    changed = true;
++  }
++  return changed;
++}
++
++bool InterfaceChecked(uint64_t vertex_hash, uint64_t pixel_hash) {
++  const uint64_t key = PairKey(vertex_hash, pixel_hash);
++  if (t_checked.count(key)) return true;
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (g_interface_checked.count(key) == 0) return false;
++  t_checked.insert(key);
++  return true;
++}
++
++void CheckInterface(uint64_t vertex_hash, uint64_t pixel_hash, const std::vector<uint8_t>& vertex_binary) {
++  if (vertex_binary.size() < 24) return;  // (not translated yet: asked again by the next draw)
++  const std::shared_ptr<const Entry> entry = Find(pixel_hash);
++  if (!entry) return;
++  std::vector<uint32_t> words(vertex_binary.size() / 4);
++  std::memcpy(words.data(), vertex_binary.data(), words.size() * 4);
++  const uint32_t outputs = SpirvLocationMask(words.data(), words.size(), 3);
++  const uint32_t inputs = SpirvLocationMask(entry->words.data(), entry->words.size(), 1);
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (!g_interface_checked.insert(PairKey(vertex_hash, pixel_hash)).second) return;
++  const uint32_t missing = inputs & ~outputs;
++  if (!missing) {
++    if (g_interface_checked.size() <= 16) {
++      REXGPU_INFO("[native][swap] interface ok: vs {:016X} outputs {:04X}, ps {:016X} inputs {:04X}", vertex_hash, outputs,
++                  pixel_hash, inputs);
++    }
++    return;
++  }
++  ++g_interface_mismatch;
++  for (uint32_t loc = 0; loc < 32; ++loc) {
++    if (missing & (1u << loc)) {
++      REXGPU_WARN("[native][swap] interface MISMATCH vs {:016X} ps {:016X} loc {} (vs outputs {:04X}, ps inputs {:04X})",
++                  vertex_hash, pixel_hash, loc, outputs, inputs);
++    }
++  }
++}
++
++
+ }  // namespace rex::graphics::vulkan::shader_swap
+diff --git a/src/graphics/vulkan/native/shader_swap.h b/src/graphics/vulkan/native/shader_swap.h
+index 9c69c34544cacd620dde198c8a0582d53cc1ca11..631ffa5ddf3b2c62c03e7a8dd0d20c682968075d 100644
+--- a/src/graphics/vulkan/native/shader_swap.h
++++ b/src/graphics/vulkan/native/shader_swap.h
+@@ -141,4 +141,19 @@ bool& VertexSamplersReplacement();
+ bool DescribePixel(uint64_t guest_hash, Shader::RegisteredAnalysis& out);
+ bool DescribeVertex(uint64_t guest_hash, Shader::RegisteredAnalysis& out);
+ 
++// ---- Session 90 (Adreno link): the pixel replacement's interface and the vertex shader it is paired with ----------------
++// The replacement's input locations as an interpolator mask, contiguous from location 0 (bits 0..N-1; N = highest input location
++// + 1): what the vertex translation must declare as outputs (zero-filled where the guest vertex shader writes none). The
++// replacement's fixed locations are the contract, and a linker that refuses an unwritten input (Adreno) needs them written.
++// 0 = no replacement, the switch off, or the hash skipped.
++uint32_t ReplacementInterpolatorMask(uint64_t guest_hash);
++// Counted log (the first 16 pairs) of a pair whose vertex shader writes fewer interpolators than the replacement reads.
++void NoteInterface(uint64_t vertex_hash, uint64_t pixel_hash, uint32_t vs_writes, uint32_t ps_reads);
++// The static check: the replacement's input locations against the final vertex translation's output locations
++// (translated_binary); MISMATCH logged once per pair and input. InterfaceChecked = the pair was already checked.
++bool InterfaceChecked(uint64_t vertex_hash, uint64_t pixel_hash);
++// Adds the replacement's read interpolators to a stored record's vertex and pixel modifications (false = nothing to add).
++bool WidenForReplacement(uint64_t pixel_hash, uint64_t& vertex_modification, uint64_t& pixel_modification);
++void CheckInterface(uint64_t vertex_hash, uint64_t pixel_hash, const std::vector<uint8_t>& vertex_binary);
++
+ }  // namespace rex::graphics::vulkan::shader_swap
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 22efd99ac278b5a750089290b3bc6bc04dcb4996..324042e039451dbe30a90a4b8c725d91a4fffad2 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -787,6 +787,12 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+                                             /*native=*/false);
+         converted += changed ? 1 : 0;
+       }
++      // wwe2k14 patch (Session 90, Adreno link): as the native renderer's KeyFromRecord (a pair with a pixel replacement: both
++      // modifications carry the interpolators the replacement reads; nothing when no replacement is registered yet).
++      if (description.pixel_shader_hash && command_processor_.NativeRendererEnabled()) {
++        shader_swap::WidenForReplacement(description.pixel_shader_hash, description.vertex_shader_modification,
++                                         description.pixel_shader_modification);
++      }
+       shader_translations_needed.emplace(description.vertex_shader_hash, description.vertex_shader_modification);
+       if (description.pixel_shader_hash) {
+         shader_translations_needed.emplace(description.pixel_shader_hash, description.pixel_shader_modification);
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index df5f617a8d7e4674855f53473420519275ea1f90..e6454fcc91b8c18959e0d4009a521b2a7425e22c 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1211,8 +1211,12 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+     // wwe2k14 patch (Session 80, gpu_native_own_steps): the copy of an owned step's output - our image holds it, the
+     // page's samplers are given that image: no GPU work, no memory written, no marks (the clear below still runs).
+     // (Called for every copy: any copy writing an owned page's memory makes it the game's again.)
+-    if (command_processor_.NativeOwnedResolve(resolve_info,
+-                                              copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown)) {
++    const bool owned_taken = command_processor_.NativeOwnedResolve(
++        resolve_info, copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown);
++    // wwe2k14 patch (Session 90, Q): a served copy whose bytes the CPU reads back (a read-back window) is also written into the destination
++    // from the owned image - the destination block below runs for it, the writer first in the direct chain.
++    const bool owned_wb = owned_taken && command_processor_.NativeOwnedWriteBackArmed();
++    if (owned_taken && !owned_wb) {
+       copied = true;
+       // (At a resolution scale its pages marked scaled as the game's copy marks them - else their samplers look them
+       // up unscaled and our image cannot be given: 1440p, runs 5686 / 5687. The range's textures invalidated only
+@@ -1225,7 +1229,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+         // then learns the cube at its first load and the owned frame checks its guess against it.)
+         texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start, resolve_info.copy_dest_extent_length);
+       }
+-    } else if (copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown &&
++    } else if (!owned_wb && copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown &&
+                command_processor_.NativeTruthResolveRedundant(resolve_info)) {
+       copied = true;
+     } else if (copy_shader != draw_util::ResolveCopyShaderIndex::kUnknown) {
+@@ -1234,7 +1238,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+       bool direct_resolved = false;
+       // wwe2k14 patch (Session 54): not in a truth frame - the native renderer's images hold the picture, the host
+       // render targets are stale (its resolve paths below read its images or its staging buffer).
+-      if (GetPath() == Path::kHostRenderTargets && !command_processor_.NativeTruthActive()) {
++      if (GetPath() == Path::kHostRenderTargets && !command_processor_.NativeTruthActive() && !owned_wb) {
+         if (REXCVAR_GET(direct_host_resolve)) {
+           direct_resolved =
+               TryResolveCopyDirectly(resolve_info, copy_shader, draw_resolution_scaled);
+@@ -1356,6 +1360,19 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+                                    int64_t(resolve_info.coordinate_info.width_div_8) * 8 *
+                                            int64_t(resolve_info.height_div_8) * 8 <= debug_skip_max);
+           native_resolved = debug_skip;
++          // wwe2k14 patch (Session 90, Q): the owned image's bytes into the destination. A write-back that cannot run after the copy was
++          // served writes nothing (never the stock copy: it would read EDRAM tiles that never got this pass); the owned frame counted it.
++          bool owned_wb_failed = false;
++          if (owned_wb && !native_resolved) {
++            draw_util::ResolveCopyShaderConstants wb_constants = copy_shader_constants;
++            if (!draw_resolution_scaled) {
++              wb_constants.dest_base -= uint32_t(write_descriptor_set_dest_buffer_info.offset);
++            }
++            native_resolved = command_processor_.NativeOwnedWriteBackRun(resolve_info, wb_constants, descriptor_set_dest,
++                                                                         copy_group_count_x, copy_group_count_y);
++            owned_wb_failed = !native_resolved;
++            native_resolved = true;
++          }
+           // wwe2k14 patch (Session 49): the destination range, for a texture-only resolve's record.
+           command_processor_.NativeTruthSetDest(uint64_t(write_descriptor_set_dest_buffer_info.offset),
+                                                 uint32_t(write_descriptor_set_dest_buffer_info.range));
+@@ -1493,12 +1510,17 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           // the native image too (up to date after MarkRangeAsResolved: no reload).
+           // (At a resolution scale too: the scaled texture, Session 47.)
+           command_processor_.NativeTruthTimer(7, true);
+-          if (!debug_skip && !debug_skip_staged) command_processor_.NativeTruthFillTexture(resolve_info);
++          if (!debug_skip && !debug_skip_staged && !owned_wb) command_processor_.NativeTruthFillTexture(resolve_info);
+           command_processor_.NativeTruthTimer(7, false);
+ 
+           // Invalidate textures and mark the range as scaled if needed.
+-          texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
+-                                            resolve_info.copy_dest_extent_length);
++          if (!owned_wb_failed) {
++            texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
++                                              resolve_info.copy_dest_extent_length);
++          } else if (draw_resolution_scaled) {
++            texture_cache.MarkRangeScaledResolved(resolve_info.copy_dest_extent_start,
++                                                  resolve_info.copy_dest_extent_length, true);
++          }
+           // wwe2k14 patch (Session 49, RAM TIES: gpu_ram_stats): the pages a resolve wrote, for the census of who
+           // reads them afterwards (scaled resolves write the scaled buffer, not these pages).
+           if (!draw_resolution_scaled) {
+@@ -1509,8 +1531,11 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           // wwe2k14 patch (Session 45, NATIVE TEXWRITE): a texture the native resolve also filled is up to date.
+           command_processor_.NativeAfterResolveMarked();
+           command_processor_.NativeTruthAfterResolveMarked(resolve_info);  // wwe2k14 patch (Session 49)
+-          written_address_out = resolve_info.copy_dest_extent_start;
+-          written_length_out = resolve_info.copy_dest_extent_length;
++          if (owned_wb) command_processor_.NativeOwnedMarkResolved();  // (Session 90, Q: consumes a derived cube's flag)
++          if (!owned_wb_failed) {
++            written_address_out = resolve_info.copy_dest_extent_start;
++            written_length_out = resolve_info.copy_dest_extent_length;
++          }
+           copied = true;
+         }
+       }
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 4721065c26a640f73e1b39821b6e399ccd5c66d1..c5480c811ff69022a84cb172bf9c173d547c4a94 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1028,6 +1028,15 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+       };
+       if (uses_unsigned || !uses_signed) owned = view(false);
+       if (uses_signed && (owned != VK_NULL_HANDLE || !uses_unsigned)) owned_signed = view(true);
++      if (uses_signed && (owned != VK_NULL_HANDLE || owned_signed != VK_NULL_HANDLE)) {  // (Session 90, Q diagnosis: a mixed / signed fetch of an owned page)
++        static uint32_t signed_logged = 0;
++        if (signed_logged < 60) {
++          ++signed_logged;
++          REXGPU_INFO("[native][ownedsign] page 0x{:05X} slot {} signs 0x{:08X} unsigned-use {} signed-use {} views u {} s {} swizzle 0x{:X} format {}",
++                      binding->key.base_page, index, uint32_t(binding->swizzled_signs), uses_unsigned, uses_signed, owned != VK_NULL_HANDLE,
++                      owned_signed != VK_NULL_HANDLE, binding->host_swizzle, uint32_t(binding->key.format));
++        }
++      }
+       if ((owned != VK_NULL_HANDLE || !uses_unsigned) && (owned_signed != VK_NULL_HANDLE || !uses_signed) &&
+           (owned != VK_NULL_HANDLE || owned_signed != VK_NULL_HANDLE)) {
+         if (vb.image_view_unsigned != owned || vb.image_view_signed != owned_signed) {
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index 969d6b018c1c7520278f0a04b998092789bd574e..d4fa28cc09f08ab94aed206d13d57cb179cba741 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -306,6 +306,44 @@ bool ProtectJoinedRunApply(const ProtectJoinedRun& run, uint8_t* base, uint32_t
+ 
+ }  // namespace
+ 
++// wwe2k14 patch (Session 90): the D3D layer's share of guest memory (see xmemory.h).
++namespace {
++constexpr uint32_t kLayerReserveBytes = 0x340000;
++uint32_t g_layer_reserve_physical = 0, g_layer_reserve_used = 0;
++uint64_t g_layer_virtual_total = 0, g_layer_reserve_total = 0;
++std::mutex g_layer_mutex;
++Memory* g_layer_memory = nullptr;
++uint32_t g_layer_reserve_virtual = 0;
++bool g_layer_reserve_committed = false;
++}  // namespace
++
++bool D3dLayerTakePhysicalReserve(uint32_t bytes, uint32_t* physical_out) {
++  std::lock_guard<std::mutex> lock(g_layer_mutex);
++  bytes = (bytes + 15u) & ~15u;
++  if (!g_layer_reserve_physical || uint64_t(g_layer_reserve_used) + bytes > kLayerReserveBytes) return false;
++  if (!g_layer_reserve_committed) {  // (first use: commit the reserved block read-write; commit-only over the reservation)
++    if (!g_layer_memory || !g_layer_memory->LookupHeapByType(true, 64 * 1024)->AllocFixed(
++            g_layer_reserve_virtual, kLayerReserveBytes, 64 * 1024, memory::kMemoryAllocationCommit,
++            memory::kMemoryProtectRead | memory::kMemoryProtectWrite)) {
++      return false;
++    }
++    g_layer_reserve_committed = true;
++  }
++  *physical_out = g_layer_reserve_physical + g_layer_reserve_used;
++  g_layer_reserve_used += bytes;
++  return true;
++}
++
++void D3dLayerNoteGuestMemory(const char* what, uint32_t bytes, bool virtual_heap, uint32_t guest_address) {
++  std::lock_guard<std::mutex> lock(g_layer_mutex);
++  (virtual_heap ? g_layer_virtual_total : g_layer_reserve_total) += bytes;
++  REXSYS_INFO("[d3d][mem] {}: {} bytes at {} {:08X}; taken from the game's physical pool: 0 bytes; totals of the SDK-side layer "
++              "allocations only (the game exe's shader-bind region logs its own [d3d][mem] line; the exe's inline scratch is not "
++              "counted): guest virtual heap {} bytes, SDK system reserve {} of {} bytes",
++              what, bytes, virtual_heap ? "guest virtual" : "physical", guest_address, g_layer_virtual_total,
++              g_layer_reserve_total, kLayerReserveBytes);
++}
++
+ uint32_t get_page_count(uint32_t value, uint32_t page_size, uint32_t page_size_shift) {
+   return rex::round_up(value, page_size) >> page_size_shift;
+ }
+@@ -497,9 +535,17 @@ bool Memory::Initialize() {
+   REXSYS_DEBUG("Installed MMIO handler for physical address translation");
+ 
+   // ?
+-  uint32_t unk_phys_alloc;
++  // wwe2k14 patch (Session 90, TRUE NATIVE memory): this 3.25 MB system reserve (top of the physical heap, below the
++  // protected last 64 KB) is never reachable by the game. It stays Reserve + NoAccess exactly as before; only the first
++  // D3dLayerTakePhysicalReserve commits it read-write (CommitLayerReserve), so with the D3D layer off nothing changes.
++  uint32_t unk_phys_alloc = 0;
+   heaps_.vA0000000.Alloc(0x340000, 64 * 1024, memory::kMemoryAllocationReserve,
+                          memory::kMemoryProtectNoAccess, true, &unk_phys_alloc);
++  g_layer_memory = this;
++  g_layer_reserve_virtual = unk_phys_alloc;
++  g_layer_reserve_physical = unk_phys_alloc ? GetPhysicalAddress(unk_phys_alloc) : 0;
++  g_layer_reserve_used = 0;
++  g_layer_reserve_committed = false;
+ 
+   // Allocate region at start of XEX range. Title 544307D5 explicitly
+   // accesses 0x8000001C and expects a specific constant value.

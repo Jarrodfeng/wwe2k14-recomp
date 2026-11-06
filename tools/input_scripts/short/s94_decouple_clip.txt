@@ -1,0 +1,16 @@
+# Session 94: a motion clip of Brock's entrance for judging the decoupling blend (in-between frames by blending two game
+# ticks, --gpu_d3d_decouple=9 with --wwe2k14_entrance_60fps=false = the classic 30 fps entrance shown at 60) against the
+# same moment without it. Run at NORMAL speed (no --vsync=false: the in-between present is timed) with
+# --wwe2k14_replay_play=s82_lb_quick_ent --wwe2k14_clip_dir=<dir>; the clip records the presented output at 60 fps,
+# 6 s from Brock's tron + 120 frames (his walk-out + camera moves). Then tools\native or ffmpeg puts the two side by side,
+# slowed. on_fail quit.
+on_fail quit
+log bench: start s94_decouple_clip
+wait_file 343.bik2 3600
+log scene=tron_343
+wait_frames 120
+clip_start brock 60
+wait_frames 360
+clip_stop brock
+log bench: done
+quit

@@ -58,11 +58,16 @@ inline bool g_done = false;
 inline std::chrono::steady_clock::time_point g_t0;
 inline std::string g_last;
 
+// Session 93 (M6 step 2): the translation store's variants done of those queued (the SDK status line's ", m6 D of T"); the
+// phone launcher shows them as "Preparing shaders D / T".
+inline uint32_t g_m6_done = 0, g_m6_total = 0;
+
 inline void Write(const std::string& state, uint32_t made, uint32_t total, uint32_t waiting, uint32_t optimised = 0) {
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
   const std::string json = "{\"state\": \"" + state + "\", \"made\": " + std::to_string(made) + ", \"total\": " +
                            std::to_string(total) + ", \"waiting\": " + std::to_string(waiting) +
                            ", \"optimised\": " + std::to_string(optimised) +
+                           ", \"m6_done\": " + std::to_string(g_m6_done) + ", \"m6_total\": " + std::to_string(g_m6_total) +
                            ", \"seconds\": " + std::to_string(int(secs * 10) / 10.0) + "}";
   if (json == g_last) return;
   // (Review: the command line is UTF-8 - u8path, or a user name like "José" writes to a mangled folder.)
@@ -93,6 +98,10 @@ inline bool Parse(const std::string& s, uint32_t& made, uint32_t& total, uint32_
   unsigned m = 0, t = 0, w = 0, d = 0, o = 0;
   if (std::sscanf(s.c_str(), "made %u of %u, waiting %u, done %u, optimised %u", &m, &t, &w, &d, &o) < 4) return false;
   made = m, total = t, waiting = w, done = d != 0, optimised = o;
+  // (Session 93: the SDK's M6 tail ", m6 D of T", when the SDK has it.)
+  unsigned md = 0, mt = 0;
+  const size_t at = s.find(", m6 ");
+  if (at != std::string::npos && std::sscanf(s.c_str() + at, ", m6 %u of %u", &md, &mt) == 2) g_m6_done = md, g_m6_total = mt;
   return true;
 }
 
@@ -116,7 +125,13 @@ inline void OnSwap(uint64_t frame) {
   REXLOG_INFO("[wwe2k14][precompile] {}: {} of {} stored pipelines made, {} waiting, {} shaders optimised and stored, "
               "{:.1f} s (frame {}); quitting",
               done ? "done" : "TIMEOUT", made, total, waiting, optimised, secs, frame);
+#ifndef __ANDROID__
   if (g_request_quit) g_request_quit();
+#else
+  // Session 93 (M6 step 2): on the phone the game's activity watches the progress file and ends the process itself (an app
+  // shutdown on Android is the old exit crash, ANDROID_PLAN known issues): the final state is written, the game idles
+  // until it is ended.
+#endif
 }
 
 // OnPostSetup (before the first frame).

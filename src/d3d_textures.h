@@ -24,6 +24,7 @@
 #pragma once
 
 #include <algorithm>
+#include <bit>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -390,7 +391,16 @@ inline void OnDraw(uint8_t* base, uint32_t dev, uint64_t m_fetch) {
   static thread_local std::vector<uint32_t> binds;
   binds.clear();
   const uint32_t dirty = uint32_t(m_fetch & 0xFFFFFFFFull);
-  for (uint32_t n = 0; n < 32; ++n) {
+  // Session 94 (wwe2k14_d3d_record_lean): outside the trace mode a clean slot is never looked at (its shadow words only feed the trace's
+  // silent-change count), so the walk visits the dirty slots only instead of reading 32 x 6 words every draw.
+  const bool lean = !trace && REXCVAR_GET(wwe2k14_d3d_record_lean);
+  auto next_slot = [&](uint32_t from) -> uint32_t {
+    if (!lean) return from;
+    if (from >= 32) return 32;
+    const uint32_t m = dirty & (0xFFFFFFFFu >> from);
+    return m ? uint32_t(std::countl_zero(m)) : 32u;
+  };
+  for (uint32_t n = next_slot(0); n < 32; n = next_slot(n + 1)) {
     uint32_t shadow[6];
     const uint32_t rec = dev + 1152 + 24 * n;
     for (uint32_t k = 0; k < 6; ++k) shadow[k] = dl::Ld32(base, rec + 4 * k);
