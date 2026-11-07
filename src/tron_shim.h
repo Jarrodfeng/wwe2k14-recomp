@@ -124,10 +124,10 @@ REX_EXTERN(__imp__sub_8359B9C8);  // per-track: volume
 
 namespace wwe2k14::tron_shim {
 
-// Guest address -> host pointer. Session 18: always through rex::memory::GuestPtr, which adds the 4 KB host offset of
-// the 0xE0000000+ physical range (Windows); the Bink plane buffers live there (0xFE8xxxxx). Plain base + address
-// wrote every plane one page early: the picture sat 4096 bytes up (pitch 512: 8 Y rows but 16 chroma rows, so the colour
-// was a strip above the brightness), the cause of Session 17's "only some widths look right".
+// Guest address -> host pointer. Session 18: always through rex::memory::GuestPtr, for the 0xE0000000+ physical range; the
+// Bink plane buffers live there (0xFE8xxxxx). Before Session 95's flat memory that range sat 4 KB further on Windows and
+// plain base + address wrote every plane one page early: the picture sat 4096 bytes up (pitch 512: 8 Y rows but 16 chroma
+// rows, so the colour was a strip above the brightness), the cause of Session 17's "only some widths look right".
 inline uint8_t* GP(uint8_t* base, uint32_t a) { return rex::memory::GuestPtr(base, a); }
 
 inline uint32_t Ld32(uint8_t* base, uint32_t a) {

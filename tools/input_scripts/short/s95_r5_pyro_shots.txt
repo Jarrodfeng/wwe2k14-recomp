@@ -1,0 +1,24 @@
+# Session 95 r5: same-frame shots of the quick entrance replay (s82_lb_quick_ent) in Brock's pyro (tron + 1918..1955) and Bryan's heavy shot. Run with --wwe2k14_replay_play=s82_lb_quick_ent, fast-forwarded both arms. on_fail quit.
+on_fail quit
+log bench: start r5_pyro_shots
+wait_file 343.bik2 3600
+log scene=tron_343
+mark 1 tron_343
+wait_frames 1900
+screenshot r5_pyro_0
+wait_frames 24
+screenshot r5_pyro_a
+wait_frames 12
+screenshot r5_pyro_b
+wait_frames 12
+screenshot r5_pyro_c
+wait_file 324.bik2 20000
+log scene=tron_324
+mark 2 tron_324
+wait_frames 200
+screenshot r5_bryan_200
+wait_frames 240
+screenshot r5_bryan_440
+wait_frames 60
+log bench: done
+quit

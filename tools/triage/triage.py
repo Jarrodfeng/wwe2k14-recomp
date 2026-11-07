@@ -212,11 +212,11 @@ def _wwe2k14_line(r, ts, body):
             c = {'ts': ts, 'kind': 'abort', 'code': None, 'offset': None, 'frames': [], 'thread': host_thread(body)}
             r.crashes.append(c)
             return ('crash', c)
-        m = re.search(r'unhandled exception 0x([0-9A-Fa-f]+) at wwe2k14\.exe\+0x([0-9A-Fa-f]+)', msg)
+        m = re.search(r'unhandled exception 0x([0-9A-Fa-f]+) at (wwe2k14(?:_v3)?\.exe)\+0x([0-9A-Fa-f]+)', msg)
         if m:
             # src\crash_handler.h prints (fault address - exe base) for ANY module: a fault inside an SDK DLL gives
             # a huge (or wrapped) "wwe2k14.exe+" offset. triage checks it against the exe's SizeOfImage.
-            c = {'ts': ts, 'kind': 'exception', 'code': int(m.group(1), 16), 'offset': int(m.group(2), 16),
+            c = {'ts': ts, 'kind': 'exception', 'code': int(m.group(1), 16), 'offset': int(m.group(3), 16), 'exe': m.group(2),
                  'frames': [], 'thread': host_thread(body)}
             r.crashes.append(c)
             return ('crash', c)
@@ -640,6 +640,7 @@ def fault_frame(frames):
 
 SYMBOLIZER = r'C:\Program Files\LLVM\bin\llvm-symbolizer.exe'
 SDK_DLLS = ('rexgpu-xenos.dll', 'rexruntime.dll')
+GAME_EXES = ('wwe2k14.exe', 'wwe2k14_v3.exe')  # Session 95: same game code, different layouts, a map each
 
 
 def symbolize_dll(exe_dir, module, offsets, run_start, build_fresh):
@@ -668,10 +669,10 @@ def symbolize_dll(exe_dir, module, offsets, run_start, build_fresh):
     return res, f'{module} symbolised with its PDB (llvm-symbolizer; DLL written before the run)'
 
 
-def map_status(exe_dir, run_start, map_override=None):
+def map_status(exe_dir, run_start, map_override=None, exe_name='wwe2k14.exe'):
     """-> (map path or None, fresh?, reason)"""
-    mp = map_override or os.path.join(exe_dir, 'wwe2k14.map')
-    exe = os.path.join(exe_dir, 'wwe2k14.exe')
+    mp = map_override or os.path.join(exe_dir, exe_name[:-4] + '.map')
+    exe = os.path.join(exe_dir, exe_name)
     if not os.path.exists(mp):
         return None, False, f'no map at {mp}'
     lt = HostMap.link_time_only(mp)
@@ -1182,7 +1183,7 @@ def scan_crash_signatures(logs):
 def resolve_host(frames, hmap, dll_syms=None):
     out = []
     for mod, off in frames:
-        if mod.lower() == 'wwe2k14.exe' and hmap:
+        if mod.lower() in GAME_EXES and hmap:
             name, delta = hmap.lookup(off)
             out.append(f'{mod}+0x{off:X}  {name}+0x{delta:X}' if name else f'{mod}+0x{off:X}  ?')
         elif dll_syms and off in dll_syms.get(mod.lower(), {}):
@@ -1196,7 +1197,7 @@ def first_guest_frame(frames, hmap, skip_helpers=True):
     if not hmap:
         return None
     for mod, off in frames:
-        if mod.lower() != 'wwe2k14.exe':
+        if mod.lower() not in GAME_EXES:
             continue
         name, _ = hmap.lookup(off)
         g = guest_of_symbol(name)
@@ -1212,8 +1213,9 @@ def triage(arg, exe_dir=EXE_DIR, use_events=True, map_override=None, idx=None, i
     num, parts, logs = find_parts(arg, exe_dir)
     if os.path.basename(os.path.dirname(logs)) and os.path.exists(os.path.join(os.path.dirname(logs), 'wwe2k14.exe')):
         exe_dir = os.path.dirname(logs)
-    exe = os.path.join(exe_dir, 'wwe2k14.exe')
     run = parse_log(num, parts)
+    exe_name = next((c['exe'] for c in run.crashes if c.get('exe')), 'wwe2k14.exe')
+    exe = os.path.join(exe_dir, exe_name)
     idx = idx or CodeIndex()
     image = image or Image()
     dbe = dbe if dbe is not None else load_db_entries()
@@ -1229,7 +1231,7 @@ def triage(arg, exe_dir=EXE_DIR, use_events=True, map_override=None, idx=None, i
     else:
         ev = {'app': [], 'gpu': [], 'error': 'skipped'}
     gpu_last_min = [g for g in gpu_resets if t_last and g >= t_last - dt.timedelta(seconds=60)]
-    mp, map_fresh, map_reason = map_status(exe_dir, t_first, map_override)
+    mp, map_fresh, map_reason = map_status(exe_dir, t_first, map_override, exe_name)
     exe_stamp, exe_size = exe_pe_info(exe)
     # An offset past the exe's image is in another module. With a stale map the exe on disk is a later build:
     # allow it 64 MB of difference before calling an offset 'outside' (DLL offsets are gigabytes away or wrapped).
@@ -1264,7 +1266,7 @@ def triage(arg, exe_dir=EXE_DIR, use_events=True, map_override=None, idx=None, i
             from_event = True
             exc_code = int(ev_own['code'], 16)
             off = int(ev_own.get('offset') or '0', 16)
-            if (ev_own.get('module') or '').lower() == 'wwe2k14.exe':
+            if (ev_own.get('module') or '').lower() in GAME_EXES:
                 exc_off = off
             else:
                 fault_mod, fault_mod_off = ev_own.get('module'), off
@@ -1273,10 +1275,10 @@ def triage(arg, exe_dir=EXE_DIR, use_events=True, map_override=None, idx=None, i
     outside = fault_mod is not None or (exc_off is not None and exc_off >= exe_limit)
     if exc_off is not None and exc_off >= exe_limit:
         ff = fault_frame(crash['frames']) if crash else None
-        if ff and ff[0].lower() != 'wwe2k14.exe':
+        if ff and ff[0].lower() not in GAME_EXES:
             fault_mod, fault_mod_off = ff
             how = 'the first backtrace frame after the exception dispatch'
-        elif ev_own is not None and (ev_own.get('module') or '').lower() != 'wwe2k14.exe':
+        elif ev_own is not None and (ev_own.get('module') or '').lower() not in GAME_EXES:
             fault_mod, fault_mod_off = ev_own.get('module'), int(ev_own.get('offset') or '0', 16)
             how = 'the event log entry\'s faulting module'
         else:
@@ -1608,12 +1610,12 @@ def triage(arg, exe_dir=EXE_DIR, use_events=True, map_override=None, idx=None, i
                 dll_syms[mod] = syms
                 dll_why.append(why)
         frames_s = resolve_host(crash['frames'], hm, dll_syms)
-        exe_frames = [s for s in frames_s if s.lower().startswith('wwe2k14.exe')]
+        exe_frames = [s for s in frames_s if s.lower().startswith(GAME_EXES)]
         details.append('  host backtrace (wwe2k14.exe frames, first 10): ' + (' | '.join(exe_frames[:10]) or 'none'))
         sdk_frames = [s for s in frames_s if s.split('+')[0].lower() in SDK_DLLS]
         if sdk_frames:
             details.append('  SDK DLL frames (first 8): ' + ' | '.join(sdk_frames[:8]) + f'  [{"; ".join(dll_why)}]')
-        other = collections.Counter(s.split('+')[0] for s in frames_s if not s.lower().startswith('wwe2k14.exe')
+        other = collections.Counter(s.split('+')[0] for s in frames_s if not s.lower().startswith(GAME_EXES)
                                     and s.split('+')[0].lower() not in SDK_DLLS)
         if other:
             details.append(f'  other modules on the stack: {dict(other)}')
@@ -1662,7 +1664,7 @@ def triage(arg, exe_dir=EXE_DIR, use_events=True, map_override=None, idx=None, i
         elif map_fresh and not map_override and exe_stamp is not None:
             run_stamp = exe_stamp
         own = {(a.get('pid'), a.get('pstart')) for a in app_events}
-        same = [a for a in all_app_events()['app'] if (a.get('module') or '').lower() == 'wwe2k14.exe'
+        same = [a for a in all_app_events()['app'] if (a.get('module') or '').lower() in GAME_EXES
                 and int(a.get('code') or '0', 16) == exc_code and int(a.get('offset') or '0', 16) == exe_off
                 and (a.get('pid'), a.get('pstart')) not in own]
 

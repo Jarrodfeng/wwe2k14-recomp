@@ -9,6 +9,10 @@
 # SteamGridDB icon the PC exe uses; F13, Jarrod 2026-10-28).
 # The debug key lives outside the repo (%USERPROFILE%\.android\wwe2k14-debug.jks), made once with keytool; its password
 # is Android's usual debug-key "android" (a development key: release signing is ANDROID_PLAN 9.3).
+# Session 95: versionCode and versionName come from android\VERSION (android-vMAJOR.MINOR.PATCH: major*10000 + minor*100 + patch).
+# tools\android\signing_fingerprint.txt holds the key's SHA-256: an APK signed with another key cannot update an installed game,
+# and a player's only way out is to uninstall, which deletes the saves. With a fingerprint on file a missing key is never remade.
+# The finished APK goes through tools\android\check_apk.py.
 param([switch]$Install, [switch]$NoDebuggable)
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Stop'
@@ -20,6 +24,14 @@ $manifest = "$ProjectRoot\android\AndroidManifest.xml"
 $obj = "$AndroidOut\apk-obj"
 $apk = "$($AndroidDirs.Apk)\wwe2k14-android-dev.apk"
 $keystore = "$env:USERPROFILE\.android\wwe2k14-debug.jks"
+$fingerprintFile = "$ProjectRoot\tools\android\signing_fingerprint.txt"
+# Session 95: the same sum as check_apk.py. 18 was the last hand-set code; a lower one fails to install as an update.
+$versionName = (Get-Content "$ProjectRoot\android\VERSION" -TotalCount 1).Trim()
+if ($versionName -notmatch '^android-v(\d+)\.(\d+)\.(\d+)$' -or [int]$Matches[2] -gt 99 -or [int]$Matches[3] -gt 99) {
+    "build_apk.ps1: android\VERSION is not android-vMAJOR.MINOR.PATCH with minor and patch under 100: '$versionName'"; exit 2
+}
+$versionCode = [int]$Matches[1] * 10000 + [int]$Matches[2] * 100 + [int]$Matches[3]
+if ($versionCode -le 18) { "build_apk.ps1: versionCode $versionCode from android\VERSION is not above 18"; exit 2 }
 $libs = [ordered]@{
     'libc++_shared.so'   = "$Llvm\..\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so"
     'librexruntime.so'   = "$($AndroidDirs.SdkInstall)\lib\librexruntime.so"
@@ -83,7 +95,8 @@ try {
 } finally { $icon.Dispose() }
 Run 'aapt2 compile' { & "$BuildTools\aapt2.exe" compile --dir "$obj\res" -o "$obj\res.zip" }
 $aaptArgs = @('link', '--manifest', $manifest, '-I', $AndroidJar, '--min-sdk-version', "$MinApi",
-              '--target-sdk-version', "$ApiLevel", '-A', "$obj\assets", '-R', "$obj\res.zip", '--auto-add-overlay',
+              '--target-sdk-version', "$ApiLevel", '--version-code', "$versionCode", '--version-name', $versionName,
+              '-A', "$obj\assets", '-R', "$obj\res.zip", '--auto-add-overlay',
               '-o', "$obj\base.apk")
 if (-not $NoDebuggable) { $aaptArgs += '--debug-mode' }
 Run 'aapt2 link' { & "$BuildTools\aapt2.exe" @aaptArgs }
@@ -109,6 +122,10 @@ Run 'zipalign' { & "$BuildTools\zipalign.exe" -f -P 16 4 "$obj\base.apk" "$obj\a
 # Session 73: every library's LOAD segments 16 KB-aligned (phones with 16 KB pages refuse to load the rest).
 Run '16 KB alignment' { & py "$ProjectRoot\tools\android\check_page_align.py" "$obj\aligned.apk" }
 if (-not (Test-Path $keystore)) {
+    if ((Test-Path $fingerprintFile) -and (Select-String -Path $fingerprintFile -Pattern '^[0-9a-fA-F]{64}\s*$' -Quiet)) {
+        "build_apk.ps1: the signing key $keystore is missing and $fingerprintFile names one. Refusing to make a new key: restore the backup."
+        exit 1
+    }
     [void](New-Item -ItemType Directory -Force (Split-Path $keystore))
     Run 'keytool' { & "$Jdk\bin\keytool.exe" -genkeypair -keystore $keystore -storepass android -keypass android `
         -alias wwe2k14-debug -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=wwe2k14 debug, O=wwe2k14-recomp" }
@@ -116,6 +133,9 @@ if (-not (Test-Path $keystore)) {
 }
 Run 'apksigner' { & "$BuildTools\apksigner.bat" sign --ks $keystore --ks-pass pass:android --ks-key-alias wwe2k14-debug `
     --out $apk "$obj\aligned.apk" }
+# Session 95: the manifest's flags, the version and the key's fingerprint, read back from the APK (prints the SHA-256).
+& py "$ProjectRoot\tools\android\check_apk.py" $apk --build-tools $BuildTools
+if ($LASTEXITCODE -ne 0) { "build_apk.ps1: the APK check failed (exit $LASTEXITCODE)"; exit 1 }
 "apk: {0:N1} MB  {1}  ({2} s)" -f ((Get-Item $apk).Length / 1MB), $apk, [int]((Get-Date) - $t0).TotalSeconds
 } finally { Exit-RunLock $lock }
 

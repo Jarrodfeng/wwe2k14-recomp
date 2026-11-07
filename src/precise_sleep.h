@@ -38,14 +38,20 @@
 
 #include <rex/chrono/clock.h>
 #include <rex/cvar.h>
+#include <rex/det.h>
 #include <rex/logging.h>
 #include <rex/memory/utils.h>
 #include <rex/ppc/context.h>
 #include <rex/system/xthread.h>
 #include <rex/system/xtypes.h>
+#include <rex/thread.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <string>
+#include <vector>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -71,6 +77,17 @@ REXCVAR_DEFINE_INT32(wwe2k14_precise_sleep_spin_us, 2000, "wwe2k14",
                      "instead of the timer (0 = timer only)");
 REXCVAR_DEFINE_BOOL(wwe2k14_sleep_stats, false, "wwe2k14",
                     "Log guest KeDelayExecutionThread requested vs measured time every ~5 s ([wwe2k14][sleep])");
+// Session 95 (Wwise and small threads piece): idle polling loops that wake every few ms to find nothing to do.
+REXCVAR_DEFINE_STRING(wwe2k14_idle_poll_stretch, "", "wwe2k14",
+                      "Session 95: comma-separated ENTRY=MAXMS, ENTRY = hex guest start address of a thread that "
+                      "polls with a short non-alertable relative sleep (e.g. 827DFA18=16, the movie thread; a thread START address, as the [idle] log prints it). Once "
+                      "the thread has slept wwe2k14_idle_poll_after times in a row with next to no work between "
+                      "the sleeps, each sleep lasts MAXMS instead; the first sleep after any real work is the "
+                      "game's own again. Off when empty (the default) and in replay (det) mode. Read at the "
+                      "first sleep of the run. Log: [wwe2k14][idle]");
+REXCVAR_DEFINE_INT32(wwe2k14_idle_poll_after, 100, "wwe2k14",
+                     "With wwe2k14_idle_poll_stretch: consecutive near-work-free sleeps before a thread's sleeps "
+                     "are stretched (100 = ~0.3 s of a 3 ms poll)");
 
 namespace rex::kernel::xboxkrnl {
 // ReXGlue's implementation (also declared in flight_recorder.h; same signature, from xboxkrnl_threading.cpp).
@@ -179,12 +196,135 @@ inline bool PreciseWait(int64_t hundred_ns) {
   return true;
 }
 
+// ---- Session 95: idle poll stretch (wwe2k14_idle_poll_stretch) ----
+struct IdleRule {
+  uint32_t entry;
+  int max_ms;
+};
+inline const std::vector<IdleRule>& IdleRules() {
+  static const std::vector<IdleRule> rules = [] {
+    std::vector<IdleRule> r;
+    const std::string spec = REXCVAR_GET(wwe2k14_idle_poll_stretch);
+    size_t pos = 0;
+    while (pos < spec.size()) {
+      size_t end = spec.find(',', pos);
+      if (end == std::string::npos) end = spec.size();
+      const std::string item = spec.substr(pos, end - pos);
+      pos = end + 1;
+      const size_t eq = item.find('=');
+      if (eq == std::string::npos) continue;
+      const uint32_t entry = uint32_t(std::strtoul(item.substr(0, eq).c_str(), nullptr, 16));
+      const int ms = std::atoi(item.c_str() + eq + 1);
+      if (entry && ms >= 2 && ms <= 100) r.push_back({entry, ms});
+    }
+    return r;
+  }();
+  return rules;
+}
+inline std::atomic<int64_t> g_idle_stretched{0};  // sleeps that ran stretched, all threads
+inline std::atomic<int> g_idle_logs{0};       // first-sleep notices only
+inline std::atomic<int> g_idle_rule_logs{0};  // engage / release lines of threads that have a rule
+constexpr double kIdleWorkGapUs = 100.0;      // more than this between two sleeps counts as real work
+
+struct IdleThread {
+  bool resolved = false;
+  int max_ms = 0;        // 0 = this thread has no rule
+  uint32_t entry = 0;
+  int64_t last_return = 0;  // QPC when the previous sleep of this thread returned
+  int idle = 0;             // consecutive sleeps with next to no work in front of them
+  bool stretching = false;
+  int64_t stretched_run = 0;  // stretched sleeps in the current idle stretch
+};
+
+inline IdleThread& IdleTls() {
+  thread_local IdleThread t;
+  return t;
+}
+// After the game's own sleep returned: the time the thread's next run of work is measured from.
+inline void IdleStamp() {
+  IdleThread& th = IdleTls();
+  if (th.max_ms) th.last_return = QpcNow();
+}
+
+// The sleep for a thread with a rule. Returns true (result in *result) when it did the sleep itself.
+inline bool IdleStretch(int64_t t, uint32_t alertable, uint32_t* result) {
+  if (alertable || t > -10000 || t < -600000000LL || rex::det::Enabled() || !rex::system::XThread::IsInThread()) return false;
+  IdleThread& th = IdleTls();
+  if (!th.resolved) {
+    th.resolved = true;
+    if (auto* xt = rex::system::XThread::GetCurrentThread()) {
+      const uint32_t entry = xt->creation_params()->start_address;
+      for (const IdleRule& r : IdleRules())
+        if (r.entry == entry) {
+          th.max_ms = r.max_ms;
+          th.entry = entry;
+        }
+      if (g_idle_logs.fetch_add(1) < 12)
+        REXLOG_INFO("[wwe2k14][idle] first sleep of guest thread {:08X} (start sub_{:08X}, {} ms): {}", xt->handle(),
+                    entry, (-t) / 10000, th.max_ms ? "has a stretch rule" : "no rule");
+    } else if (g_idle_logs.fetch_add(1) < 12) {
+      REXLOG_INFO("[wwe2k14][idle] a sleep on a thread with no XThread object");
+    }
+  }
+  if (!th.max_ms) return false;
+  const int64_t now = QpcNow();
+  const double gap_us = th.last_return ? double(now - th.last_return) * 1e6 / double(QpcFreq()) : 1e9;
+  if (gap_us < kIdleWorkGapUs) {
+    ++th.idle;
+  } else {
+    if (th.stretching) {
+      if (g_idle_rule_logs.fetch_add(1) < 400)
+        REXLOG_INFO("[wwe2k14][idle] sub_{:08X}: work after {} stretched sleeps of {} ms ({} gap us); back to the game's own sleeps",
+                    th.entry, th.stretched_run, th.max_ms, int64_t(gap_us));
+      th.stretching = false;
+      th.stretched_run = 0;
+    }
+    th.idle = 0;
+  }
+  const int64_t req_ms = (-t) / 10000;
+  if (th.idle < std::max(1, REXCVAR_GET(wwe2k14_idle_poll_after)) || req_ms >= th.max_ms ||
+      rex::chrono::Clock::guest_time_scalar() != 1.0) {
+    th.last_return = 0;  // let the caller run the game's own sleep, then stamp below
+    return false;
+  }
+  if (!th.stretching) {
+    th.stretching = true;
+    if (g_idle_rule_logs.fetch_add(1) < 400)
+      REXLOG_INFO("[wwe2k14][idle] sub_{:08X}: {} sleeps of {} ms with no work between them; sleeping {} ms from now on until it does work",
+                  th.entry, th.idle, req_ms, th.max_ms);
+  }
+  rex::system::XThread::CheckTitleTermination();
+  rex::thread::Sleep(std::chrono::milliseconds(th.max_ms));
+  rex::system::XThread::CheckTitleTermination();
+  ++th.stretched_run;
+  const int64_t n = g_idle_stretched.fetch_add(1) + 1;
+  if ((n & 1023) == 0)
+    REXLOG_INFO("[wwe2k14][idle] {} stretched sleeps so far (each replaces a wake {} ms sooner)", n, th.max_ms);
+  th.last_return = QpcNow();
+  *result = 0;
+  return true;
+}
+
 // Called by FlightKeDelayExecutionThread (flight_recorder.h) in place of ReXGlue's KeDelayExecutionThread_entry.
 inline uint32_t Delay(uint32_t processor_mode, uint32_t alertable, mapped_u64 interval_ptr) {
   namespace xk = rex::kernel::xboxkrnl;
   const bool precise = REXCVAR_GET(wwe2k14_precise_sleep);
   const bool stats = REXCVAR_GET(wwe2k14_sleep_stats);
-  if (!precise && !stats) return xk::KeDelayExecutionThread_entry(processor_mode, alertable, interval_ptr);
+  if (!IdleRules().empty() && (precise || stats)) {
+    static std::atomic<bool> warned{false};
+    if (!warned.exchange(true))
+      REXLOG_WARN("[wwe2k14][idle] wwe2k14_idle_poll_stretch is OFF while wwe2k14_precise_sleep or wwe2k14_sleep_stats is on");
+  }
+  if (!precise && !stats) {
+    if (!IdleRules().empty() && interval_ptr) {
+      uint32_t r = 0;
+      if (IdleStretch(int64_t(uint64_t(*interval_ptr)), alertable, &r)) return r;
+      const uint32_t res = xk::KeDelayExecutionThread_entry(processor_mode, alertable, interval_ptr);
+      IdleStamp();
+      return res;
+    }
+    return xk::KeDelayExecutionThread_entry(processor_mode, alertable, interval_ptr);
+  }
   const int64_t t = interval_ptr ? int64_t(uint64_t(*interval_ptr)) : 0;
   // Relative, 1 ms to 60 s: the cases ReXGlue runs as host Sleep(ms). The guest's "forever" (sub_82261F40 with -1
   // builds 0x8000000000000000) and anything else over 60 s stay on ReXGlue's path and out of the stats.

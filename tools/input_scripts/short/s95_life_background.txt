@@ -1,0 +1,18 @@
+# Session 95 Step A (out\s95\android_wide.md, piece LIFE): a 90 s test background in a match. --wwe2k14_test_background_ms (default
+# 90000) blocks the UI thread with SDL's real background / foreground events either side of it, then the swapchain must come back.
+# Replay s80_lb_quick. Flags: --wwe2k14_replay_play=s80_lb_quick --wwe2k14_use_launcher_settings=true --wwe2k14_native_frame=true
+# --wwe2k14_d3d_owned=true --vulkan_validation_enabled=true --wwe2k14_settings_file=<out\owned_check\settings_native720.json>
+# harness: realtime  (the background is wall-clock: fast-forwarded frames would reach the end of the route inside it)
+on_fail quit
+log bench: start s95_life_background
+wait_file m3.pac 20000
+log scene=match
+wait_frames 400
+screenshot s95l_before
+cvar wwe2k14_test_background_at 1
+wait_frames 6600
+screenshot s95l_after_a
+wait_frames 100
+screenshot s95l_after_b
+log bench: done
+quit

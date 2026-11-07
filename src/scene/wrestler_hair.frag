@@ -123,8 +123,15 @@ float StrandLobe(float cos_angle, float power) {
   return Mul0((t * t) * (C253.w - t * C253.x), PowAbs(sine, power));
 }
 
+#ifdef LEAN
+#define LEAN_POW(x, p) PowAbs(x, p)  // the plain material's own pow (exact: Mul0 kept)
+#include "wrestler_lean.glsl"
+#endif
+
 void main() {
   vec2 uv = in_uv_fog.xy;
+#ifdef LEAN
+#endif
   vec3 vertex_normal = in_normal.xyz;
   vec3 view = in_view.xyz;
   vec3 tangent = in_tangent.xyz;
@@ -136,7 +143,9 @@ void main() {
   vec2 strand_uv = vec2(C250.w * uv.x, C251.w * uv.y);
   float strand_shift = SAMPLE2D(t_shift, s_shift, strand_uv).x;
   float strand_glint = SAMPLE2D(t_glint, s_glint, strand_uv).x;
+#ifndef LEAN
   vec2 lightmap = SAMPLE2D(t_lightmap, s_lightmap, in_light_pos.xy).xy;
+#endif
   float strand_mask = hair.z;
   float mask_term = hair.z * K_ONE + C254.y;                         // the mask as the highlight mix reads it
 
@@ -159,6 +168,27 @@ void main() {
 
   // ---- 4. Highlight and rim, as in the head material ----
   // Highlight along the half vector between the normal and the view vector, strongest at grazing angles.
+#ifdef LEAN
+  vec3 body = base;
+  if (C161.z != 0.0) {  // LEAN: rim strength 0 (uniform): body = base; no highlight, no lighting-map fetch
+    vec2 lightmap = SAMPLE2D(t_lightmap, s_lightmap, in_light_pos.xy).xy;
+    vec3 half_sum = (normal + view) * K_HALF;
+    vec3 half_dir = half_sum * InvLength(dot(half_sum, half_sum));
+    float spec_dot = max(dot(half_dir, C12.xyz), K_EPS);
+    float edge = K_ONE - abs(n_dot_v);                                    // 0 facing the camera, 1 at the silhouette
+    float edge_pow = PowAbs(edge, C205.y);
+    vec3 spec = (spec_dot * edge_pow) * C4.xyz * C205.x * in_light_pos.w;
+  
+    // The base plus the highlight, mixed by the two weights, and added back scaled by the rim strength: the rim is the
+    // edge term times the arena's lighting map term, lifted by the strand mask.
+    vec3 spec_mix = (base + spec) * C253.y - base + (base * (spec + K_ONE)) * C254.w;
+    float lightmap_term = max(lightmap.y - in_light_pos.z, K_EPS) * C162.z + lightmap.x;
+    float lightmap_pow = PowAbs(lightmap_term, C161.x);
+    float mask_mix = K_ONE + C161.y * mask_term;
+    float rim_strength = ((edge * lightmap_pow) * mask_mix) * C161.z;
+    body = spec_mix * rim_strength + base;
+  }
+#else
   vec3 half_sum = (normal + view) * K_HALF;
   vec3 half_dir = half_sum * InvLength(dot(half_sum, half_sum));
   float spec_dot = max(dot(half_dir, C12.xyz), K_EPS);
@@ -174,6 +204,7 @@ void main() {
   float mask_mix = K_ONE + C161.y * mask_term;
   float rim_strength = ((edge * lightmap_pow) * mask_mix) * C161.z;
   vec3 body = spec_mix * rim_strength + base;
+#endif
 
   // ---- 5. The two strand highlights ----
   // The viewing direction, normalised twice (the guest does, with its small literal offsets in between).

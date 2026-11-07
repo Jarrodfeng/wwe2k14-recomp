@@ -7,7 +7,7 @@
 //
 //   upscale      0 off, 1 DLAA, 2 DLSS performance, 3 DLSS quality, 4 DLSS ultra performance,
 //                5 FSR native, 6 FSR quality, 7 FSR performance (Session 33: AMD FSR 3, any graphics card)
-//   resolution   0 720p, 1 1440p (the default), 2 4K
+//   resolution   0 720p (the default since Session 95), 1 1440p, 2 4K
 //   draw_height  Session 54 (Jarrod: "360p, 480, 540p, 720p, 1080p, 1440p, and 4k"): 0, or 360 / 480 / 540 (with
 //                resolution 0) or 1080 (with resolution 1): the NATIVE renderer draws at that height and makes its
 //                copies at the resolution's whole size (SDK gpu_native_truth_draw_height). A key of its own, so a
@@ -15,7 +15,7 @@
 //   frame_rate   0 classic (30 fps entrances, 60 in matches), 1 60 everywhere (default), 2 high refresh,
 //                3 30 everywhere (Session 37: weak PCs; the launcher only)
 //   refresh_hz   high refresh: game steps per second (0 = the monitor's)
-//   original_look  the original 720p / 4x MSAA / 30 fps entrance look (Advanced)
+//   original_look  the original 720p / 30 fps entrance look (Advanced; no MSAA since Session 95)
 //   true_native  Session 87 (Jarrod: "an advanced launcher toggle, called true native"): the whole D3D-layer stack
 //                (--wwe2k14_d3d_owned, src\d3d_owned.h); NATIVE only (Advanced). Session 93 (Jarrod, 2026-11-06):
 //                the default, older files moved to it once (settings_version 4)
@@ -60,7 +60,7 @@ namespace fs = std::filesystem;
 
 struct Choice {
   int upscale = 0;
-  int resolution = 1;
+  int resolution = 0;  // Session 95 (Jarrod: "720p the default resolution"): a file without the key reads 720p; 1 1440p, 2 4K
   int frame_rate = 1;
   int refresh_hz = 0;
   bool original_look = false;
@@ -80,6 +80,10 @@ struct Choice {
   // use, the game's own settings-file path likewise). GraphicsFlags only reads `low`.
   int quality_tier = 0;
   bool low = false;
+  // Session 95 (item K): LOW also draws the wrestlers' shadow maps on alternate frames, smaller, and skips the passes that read only
+  // those maps. Set by the game from --wwe2k14_low_shadows (default false until the Session 95 milestone judges the look); the launcher leaves it false.
+  bool low_shadows = false;
+  bool display_720p = false;   // Session 95 (route #7): 1280x720 desktop while playing (--wwe2k14_display_720p); launcher Advanced, off
   bool true_native = true;     // Session 87: the D3D-layer stack (--wwe2k14_d3d_owned); launcher Advanced, NATIVE only.
                                // Session 93 (Jarrod): on by default (Parse: the one-time move of older files)
   std::string dlss_dir;
@@ -227,6 +231,7 @@ inline Present Parse(const std::string& json, Choice& c) {
   c.post_effects = std::clamp(c.post_effects, 0, 1);
   // Session 85: missing keys keep the defaults (shadows on, depth of field on, crowd 100%).
   GetBool(json, "shadows", c.shadows);
+  GetBool(json, "display_720p", c.display_720p);  // Session 95
   GetBool(json, "depth_of_field", c.depth_of_field);
   GetInt(json, "crowd_density", c.crowd_density);
   c.crowd_density = RoundCrowdDensity(c.crowd_density);
@@ -466,6 +471,23 @@ inline int ResolveQualityTier(int setting, bool phone, bool integrated, const st
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Session 95 (Jarrod, 2026-11-06: "The individual settings take priority but yes they start with our safe low defaults"):
+// the LOW tier's player-visible values, written ONCE into the settings the player sees (first-run auto-detect when the
+// tier resolves LOW, or the player picking LOW in the launcher). After that the sliders are the player's. Only what is
+// still at the normal value moves: a 1440p pick without an upscaler or drawing size -> 720p (4K, 1080p, a drawing size
+// and an upscaler are hand picks; 720p is the default since Session 95, so this only moves a file that says 1440p),
+// crowd 100% -> 70%. Returns true when something moved; `what` gets the log text.
+inline constexpr int kLowStartCrowd = 70;
+inline bool LowStartValues(int& resolution, int& draw_height, int upscale, int& crowd_density, std::string* what = nullptr) {
+  bool moved = false;
+  std::string text;
+  if (upscale == 0 && draw_height == 0 && resolution == 1) resolution = 0, moved = true, text += " resolution 1440p->720p";
+  if (crowd_density >= 100) crowd_density = kLowStartCrowd, moved = true, text += " crowd 100->70";
+  if (what) *what = text.empty() ? " (already at or below the safe values)" : text;
+  return moved;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // The mapping to the game's settings (the same flags the launcher builds). Each pair is {setting name, value}.
 
 // What the NATIVE renderer is (Session 51: one list for the launcher's NATIVE, the settings file and the game's
@@ -684,27 +706,53 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
   std::vector<std::pair<std::string, std::string>> f;
   Choice c = choice;
   // Session 93 (the LOW tier, flags only; STANDARD = the flags exactly as before): NATIVE only, not with the original look.
-  // What the player set by hand wins: an upscaler (DLSS / DLAA / FSR pick the sizes themselves), a draw height, a crowd
-  // density other than 100%.
-  //  - the internal picture is 720p (resolution 0) when the chosen resolution is 1440p (4K is a hand pick and stays), shown at the window's size by
-  //    the presenter's SGSR (present_effect=sgsr: our own shader, Vulkan, any GPU; FSR 1 would need the FidelityFX build
-  //    flag REXGLUE_ENABLE_FIDELITYFX, off in the PC SDK build: there present_effect only allows bilinear and sgsr);
-  //  - the crowd at 70% when the player left it at 100%.
-  // Not in LOW: gpu_native_owned_post_half / gpu_native_owned_shadow_half (S82 look levers, judged by eye, -1.0 / -0.8 ms;
-  // their half-size passes are refused by copies and re-use paths in owned_copy.cpp / owned_steps.cpp and were never
-  // checked since the owned-only latch of Session 92), and gpu_shadow_half_rate (a truth-path lever).
+  // Session 95 (Jarrod, 2026-11-06: "The individual settings take priority but yes they start with our safe low defaults"):
+  // the tier no longer overrides a setting the player can see. Its resolution (720p instead of 1440p) and crowd (70%) are
+  // STARTING VALUES the launcher writes into the settings (LowStartValues: first-run auto-detect, or picking LOW); what the
+  // file says is what runs. What LOW still does by itself is internal, with no setting of its own:
+  //  - the picture shown at the window's size by the presenter's SGSR when the scene is drawn below it (present_effect=sgsr:
+  //    our own shader, Vulkan, any GPU; FSR 1 would need the FidelityFX build flag REXGLUE_ENABLE_FIDELITYFX, off in the
+  //    PC SDK build: there present_effect only allows bilinear and sgsr);
+  //  - the shadow levers (below).
+  // Not in LOW (unchanged): gpu_native_owned_post_half (S82 look lever, judged by eye, -1.0 ms; its half-size passes are refused by copies and
+  // re-use paths and were never checked since the owned-only latch of Session 92). The shadow levers (gpu_shadow_half_rate,
+  // gpu_native_owned_shadow_half, gpu_native_owned_shadow_skip) are in LOW (Jarrod judged the sheets 2026-11-06: "completely fine") (Session 95, item K; below).
   const bool low_tier = c.low && c.renderer == 2 && !c.original_look;
   const bool low_scaled = low_tier && c.upscale == 0;
-  if (low_scaled && c.draw_height == 0 && c.resolution == 1) c.resolution = 0;  // (only the 1440p default; 4K is a pick)
-  if (low_tier && c.crowd_density >= 100) c.crowd_density = 70;
+  // Session 95 (item K): half-rate wrestler maps (gpu_shadow_half_rate), the 8-bit maps at 256 (S82, -0.8 ms),
+  // and the dependent passes skipped on the frames every map is skipped (gpu_native_owned_shadow_skip). Not with shadows off.
+  if (low_tier && c.shadows && c.renderer == 2 && c.true_native) {  // (the typed cut is TRUE NATIVE's; the flags do nothing without it)
+    f.push_back({"gpu_shadow_half_rate", "true"});
+    f.push_back({"gpu_native_owned_shadow_half", "true"});
+    f.push_back({"gpu_native_owned_shadow_skip", "true"});
+    // Session 95 (Jarrod judged the clips: "Half rate looks good"): the wrestlers' rim-light map, one frame behind the wrestler.
+    f.push_back({"gpu_native_owned_ring_half", "true"});
+  }
+  // Session 95 (resolves, LOW only, TRUE NATIVE's typed cut): the entrance's repeated small passes at half rate - the 20 crowd pose renders (64x64, ps
+  // ED94EC2F / 803205E3; the cards sample last frame's pose pages on the odd frames) and the 5 light-cube strip passes (384x64, 6 copies each; the cubes keep
+  // last frame's faces on the skipped frames). Not tied to the shadows setting. Picture-changing by one frame of age: shot-checker on the sheets.
+  if (low_tier && c.renderer == 2 && c.true_native) {
+    // Jarrod judged the clips: "Half rate looks good".
+    f.push_back({"gpu_native_crowd_pose_half", "true"});
+    f.push_back({"gpu_native_owned_strip_half", "true"});
+    // Session 95 (round 7): one phase for the half-rate passes (same cadence Jarrod approved, only the phase moves). Not run yet: the round 7 milestone's low stage.
+    f.push_back({"gpu_native_half_phase", "true"});
+  }
   // An upscaler that picks the render and output size itself (DLSS, FSR quality / performance); DLAA and FSR native
   // anti-alias at the chosen resolution.
   // (Review fix: `dlss` is DLSS only; the FSR modes have their own block below.)
   const bool dlss = c.upscale >= 2 && c.upscale <= 4;
   const bool own_size = dlss || c.upscale == 6 || c.upscale == 7;
-  if (c.original_look) f.push_back({"wwe2k14_preset_1440p60", "false"});
+  // Session 95 (Jarrod: "Original look doesn't need MSAA"): under the one renderer MSAA draws have no path (the picture froze in matches), so the look is 720p / 30 fps entrances without MSAA.
+  if (c.original_look) {
+    f.push_back({"wwe2k14_preset_1440p60", "false"});
+    f.push_back({"wwe2k14_force_no_msaa", "true"});
+  }
   else if (!own_size && c.resolution == 0) f.push_back({"resolution_scale", "1"});
   else if (!own_size && c.resolution == 2) f.push_back({"wwe2k14_preset_4k60", "true"});
+  // Session 95: 1440p is no longer the file's default, so it is asked for (the game's own preset, which is also its compiled-in
+  // default: a no-op where it is already on, and what makes 1440p true after a 720p start).
+  else if (!own_size && c.resolution == 1) f.push_back({"wwe2k14_preset_1440p60", "true"});
   if ((c.frame_rate == 0 || c.frame_rate == 3) && !c.original_look) f.push_back({"wwe2k14_entrance_60fps", "false"});
   // Session 37: 30 everywhere for weak PCs (below 60 the game runs in slow motion: it steps a fixed 1/60 s). Matches
   // use the game's own 30 fps mode (step 1/30 s, run 2632: 33.3 ms frames, real time); entrances keep their stock 30
@@ -720,7 +768,14 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
     f.push_back({"vulkan_texture_load_direct_unscaled", "true"});
   }
   const int hz = c.refresh_hz > 0 ? c.refresh_hz : monitor_hz;
-  if (c.frame_rate == 2 && hz > 60) {  // game steps per second = the refresh rate; entrances at most 120
+  const char* decouple_120 = std::getenv("WWE2K14_DECOUPLE_120");  // Session 95 (F6): the launcher-side switch (default off)
+  // (Session 95: only with TRUE NATIVE on the NATIVE renderer and no DLSS - the decoupled picture is made by the owned passes, and DLSS refuses the two-step present)
+  if (c.frame_rate == 2 && hz > 60 && decouple_120 && decouple_120[0] == '1' && c.true_native && c.renderer == 2 && !dlss) {
+    // 120 pictures a second at logic 60 (gpu_d3d_decouple phase 2): in place of step_hz / step_hz_entrance / step_vblank; a 165 Hz screen drops to 120 in this mode
+    f.push_back({"gpu_d3d_decouple", "9"});
+    f.push_back({"gpu_d3d_decouple_word", "0"});
+    f.push_back({"vulkan_allow_present_mode_immediate", "false"});  // mailbox: every frame shown, no tearing
+  } else if (c.frame_rate == 2 && hz > 60) {  // game steps per second = the refresh rate; entrances at most 120
     f.push_back({"wwe2k14_step_hz", std::to_string(hz)});
     f.push_back({"wwe2k14_step_hz_entrance", std::to_string(std::min(hz, 120))});
     f.push_back({"wwe2k14_step_vblank", "true"});
@@ -752,9 +807,11 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
     if (crowd < 100) f.push_back({"gpu_scene_crowd_density", std::to_string(crowd)});
   }
   // Session 93: LOW shows the picture through SGSR (the phone's setting too), whatever size it is drawn at.
+  // (Session 95: the presenter only uses SGSR when the frontbuffer is smaller than the window, so this is a no-op at 1440p / 4K.)
   if (low_scaled) f.push_back({"present_effect", "sgsr"});
   // Session 87 (Jarrod: "true native"): the game's Direct3D calls to our own renderer, the whole stack in one switch.
   if (c.renderer == 2 && c.true_native) f.push_back({"wwe2k14_d3d_owned", "true"});
+  if (c.display_720p) f.push_back({"wwe2k14_display_720p", "true"});  // Session 95 (off by default; fullscreen only, the game checks)
   // Session 54: NATIVE drawing below the whole size (no upscaler: DLAA / DLSS / FSR turn truth frames off; the SDK
   // logs and ignores a height it cannot draw).
   if (c.renderer == 2 && c.upscale == 0 && !c.original_look && ValidDrawHeight(c.resolution, c.draw_height))

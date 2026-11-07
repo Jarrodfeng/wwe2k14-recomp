@@ -12,8 +12,16 @@
 // from our converted copy of the card mesh (binding 4: 4 dwords a vertex, byte-swapped, the half pair left packed) by the
 // game's own index, each member's matrix from binding 5 by the instance; set 0 binding 0 the scene block.
 
+#ifdef CROWD_VERTEX_INPUT
+// Session 95 (P7, gpu_native_crowd_input): the attribute form, as own_crowd_vs.glsl's: binding 0 the card mesh, binding 1 the members per instance, the index already the guest's.
+layout(location = 0) in uvec4 in_mesh;     // position xyz, the half pair
+layout(location = 1) in uvec4 in_member0;  // c76
+layout(location = 2) in uvec4 in_member1;  // c77
+layout(location = 3) in uvec4 in_member2;  // c78
+#else
 layout(set = 0, binding = 4, std430) readonly buffer CrowdMesh { uint mesh[]; };
 layout(set = 0, binding = 5, std430) readonly buffer CrowdMembers { vec4 members[]; };
+#endif
 
 layout(set = 0, binding = 0, std140) uniform CrowdScene {
   vec4 view_proj[4];     // c56-c59: world -> clip
@@ -35,14 +43,22 @@ layout(set = 0, binding = 0, std140) uniform CrowdScene {
 layout(location = 0) out vec4 out_texcoord;  // xy the sprite, zw the lighting map
 layout(location = 1) out vec4 out_light;     // the vertex colour: white
 
+#ifndef CROWD_VERTEX_INPUT
 uint GuestIndex(uint v) {
   uint endian = scene.index_info.x;
   if (endian == 1u || endian == 2u) v = ((v >> 8) & 0x00FF00FFu) | ((v & 0x00FF00FFu) << 8);
   if (endian == 2u || endian == 3u) v = (v >> 16) | (v << 16);
   return clamp((v + scene.index_info.y) & 0xFFFFFFu, scene.index_info.z, scene.index_info.w);
 }
+#endif
 
 void main() {
+#ifdef CROWD_VERTEX_INPUT
+  vec3 in_position = uintBitsToFloat(in_mesh.xyz);
+  vec2 in_texcoord = unpackHalf2x16(in_mesh.w).yx;
+  vec4 p = vec4(in_position, 1.0);
+  vec3 world = vec3(dot(uintBitsToFloat(in_member0), p), dot(uintBitsToFloat(in_member1), p), dot(uintBitsToFloat(in_member2), p));
+#else
   uint v = GuestIndex(uint(gl_VertexIndex)) * 4u;
   vec3 in_position = vec3(uintBitsToFloat(mesh[v]), uintBitsToFloat(mesh[v + 1u]), uintBitsToFloat(mesh[v + 2u]));
   // The half pair: the sprite coordinate is (high half, low half) of the byte-swapped dword (as the lit crowd's).
@@ -50,6 +66,7 @@ void main() {
   uint m = uint(gl_InstanceIndex) * 3u;
   vec4 p = vec4(in_position, 1.0);
   vec3 world = vec3(dot(members[m], p), dot(members[m + 1u], p), dot(members[m + 2u], p));
+#endif
 
   vec4 w = vec4(world, 1.0);
   vec4 clip = vec4(dot(scene.view_proj[0], w), dot(scene.view_proj[1], w), dot(scene.view_proj[2], w),

@@ -182,6 +182,7 @@ struct Spec {
   static native_fn::Mode GetMode() { return native_fn::ModeFromCvar(REXCVAR_GET(wwe2k14_nf_atan2_d)); }
   static void Writes(const PPCContext& ctx, uint8_t*, native_fn::Ranges& out) { out.Add(ctx.r1.u32 + 16, 16); }
   static void Native(PPCContext& ctx, uint8_t* base) { Run(ctx, base); }
+  static void Lean(PPCContext& ctx, uint8_t* base) { Run(ctx, base); }
 };
 
 }  // namespace wwe2k14::nf_atan2_d

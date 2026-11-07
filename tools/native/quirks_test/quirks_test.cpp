@@ -75,8 +75,8 @@ int main() {
   EXPECT(r.cls == GpuClass::kPhone && r.version.text == "512.800.55", "830 decode %s", r.version.text.c_str());
   EXPECT(Has(r, "qcom_custom_border_color", "vulkan_allow_custom_border_color", "false"), "830 border colour");
   for (const Decision& d : r.decisions)
-    if (d.rule == "qcom_custom_border_color") EXPECT(d.advisory, "border colour rule must be advisory");
-  EXPECT(SetCount(r, false) == 1 && SetCount(r, true) == 3, "830: only the eds list applied by default (%d), 3 sets with advisory (%d)", SetCount(r, false), SetCount(r, true));
+    if (d.rule == "qcom_custom_border_color") EXPECT(!d.advisory, "border colour rule applies by default (Session 95 Lane D)");
+  EXPECT(SetCount(r, false) == 2 && SetCount(r, true) == 3, "830: the eds list and the border rule applied by default (%d), 3 sets with advisory (%d)", SetCount(r, false), SetCount(r, true));
   EXPECT(!Has(r, "mali_dynamic_rendering_errata"), "830 no mali rule");
   EXPECT(!(r.eds_allowed & kEds1) && !(r.eds_allowed & kVertexInput) && (r.eds_allowed & kEds2), "830 eds %d",
          r.eds_allowed);
@@ -180,7 +180,7 @@ int main() {
   r = Show("Turnip, Adreno 740, Mesa 25.1.5",
            Dev(kVendorQualcomm, kTypeIntegrated, kDriverMesaTurnip, (25u << 22) | (1u << 12) | 5,
                "Turnip Adreno (TM) 740", "", true));
-  EXPECT(r.version.text == "25.1.5" && Has(r, "qcom_custom_border_color") && r.eds_allowed == kEdsAll, "turnip");
+  EXPECT(r.version.text == "25.1.5" && Has(r, "qcom_custom_border_color") && Has(r, "turnip_no_sparse", "vulkan_sparse_shared_memory", "false") && r.eds_allowed == kEdsAll, "turnip");
 
   // Software renderer.
   r = Show("llvmpipe", Dev(0x10005, kTypeCpu, kDriverMesaLlvmpipe, (25u << 22), "llvmpipe (LLVM 19.1.0, 256 bits)"));
@@ -221,6 +221,57 @@ int main() {
     DeviceInfo q = base;
     ParseEmulateGpu("5143:512.800.55:Adreno (TM) 830", q, err);
     EXPECT(q.driver_version == 0x80320037 && Evaluate(q, Options()).cls == GpuClass::kPhone, "emulate 830 == real 830");
+  }
+
+  // Session 95 (PLAIN): gpu_plain_mode. auto = plain only on a phone-class GPU of no known family or a virtual GPU on Android; PC classes never.
+  {
+    struct Case {
+      const char* label;
+      DeviceInfo dev;
+      bool known, plain_auto;
+      GpuClass cls;
+    };
+    const Case cases[] = {
+        {"Adreno 830 stock", Dev(kVendorQualcomm, kTypeIntegrated, kDriverQualcommProprietary, 0x80320037, "Adreno (TM) 830", "", true), true, false, GpuClass::kPhone},
+        {"Turnip 740", Dev(kVendorQualcomm, kTypeIntegrated, kDriverMesaTurnip, (25u << 22) | (1u << 12) | 5, "Turnip Adreno (TM) 740", "", true), true, false, GpuClass::kPhone},
+        {"Mali-G57", Dev(kVendorArm, kTypeIntegrated, kDriverArmProprietary, (32u << 22) | (1u << 12), "Mali-G57 MC2", "v1.r32p1-00pre0.abcdef", true), true, false, GpuClass::kPhone},
+        {"PowerVR BXM", Dev(kVendorImagination, kTypeIntegrated, kDriverImaginationProprietary, 6715691, "PowerVR B-Series BXM-8-256", "25.1@6715691", true), true, false, GpuClass::kPhone},
+        {"Xclipse 940 (Samsung)", Dev(kVendorSamsung, kTypeIntegrated, kDriverSamsungProprietary, (25u << 22) | (3u << 12) | 3, "Samsung Xclipse 940", "", true), false, true, GpuClass::kPhone},
+        {"unknown 19E5 integrated", Dev(0x19E5, kTypeIntegrated, kDriverUnknown, 1, "Maleoon 910", "", true), false, true, GpuClass::kPhone},
+        {"unknown 19E5 discrete", Dev(0x19E5, kTypeDiscrete, kDriverUnknown, 1, "Maleoon 910", "", true), false, true, GpuClass::kPhone},
+        {"unknown 19E5 other", Dev(0x19E5, kTypeOther, kDriverUnknown, 1, "Maleoon 910", "", true), false, true, GpuClass::kPhone},
+        {"unknown 19E5 virtual (not cpu name)", Dev(0x19E5, kTypeVirtual, kDriverUnknown, 1, "Maleoon 910", "", true), false, true, GpuClass::kPhone},
+        // (PLAIN review #6: a CPU renderer is out first; a virtual GPU on Android is plain, of any vendor; on a PC a virtual GPU stays as it was.)
+        {"known vendor virtual on Android", Dev(kVendorQualcomm, kTypeVirtual, kDriverUnknown, 1, "Adreno (TM) 830", "", true), true, true, GpuClass::kPhone},
+        {"venus virtual on Android (emulator, stays cpu class)", Dev(0x1AE0, kTypeVirtual, kDriverUnknown, 1, "Virtio-GPU Venus", "", true), false, true, GpuClass::kCpu},
+        {"swiftshader reporting virtual on Android", Dev(0x1AE0, kTypeVirtual, kDriverGoogleSwiftshader, 1, "SwiftShader Device", "", true), false, false, GpuClass::kCpu},
+        {"cpu type, unknown name on Android", Dev(0x19E5, kTypeCpu, kDriverUnknown, 1, "Maleoon 910", "", true), false, false, GpuClass::kCpu},
+        {"virtual GPU on a PC", Dev(0x19E5, kTypeVirtual, kDriverUnknown, 1, "Maleoon 910"), false, false, GpuClass::kCpu},
+        {"gfxstream on Android", Dev(0x1AE0, kTypeOther, kDriverUnknown, 1, "Android Emulator gfxstream", "", true), false, false, GpuClass::kCpu},
+        {"swiftshader on Android", Dev(0x1AE0, kTypeCpu, kDriverGoogleSwiftshader, 1, "SwiftShader Device", "", true), false, false, GpuClass::kCpu},
+        {"RTX 4090 (PC)", Dev(kVendorNvidia, kTypeDiscrete, kDriverNvidiaProprietary, (581u << 22) | (15u << 14), "NVIDIA GeForce RTX 4090"), false, false, GpuClass::kDesktop},
+        {"UHD 620 (PC)", Dev(kVendorIntel, kTypeIntegrated, kDriverIntelProprietaryWindows, (101u << 14) | 2112, "Intel(R) UHD Graphics 620"), false, false, GpuClass::kIgpu},
+        {"Radeon 780M (PC)", Dev(kVendorAmd, kTypeIntegrated, kDriverAmdProprietary, (2u << 22) | 416, "AMD Radeon(TM) 780M Graphics"), false, false, GpuClass::kIgpu},
+        {"unknown vendor on a PC", Dev(0x19E5, kTypeIntegrated, kDriverUnknown, 1, "Maleoon 910"), false, false, GpuClass::kIgpu},
+    };
+    for (const Case& c : cases) {
+      Options a;  // auto
+      Result ra = Evaluate(c.dev, a);
+      std::printf("== plain %s: class %s known %d plain(auto) %d (%s)\n", c.label, GpuClassName(ra.cls), IsKnownFamily(c.dev) ? 1 : 0,
+                  ra.plain ? 1 : 0, ra.plain_why.c_str());
+      EXPECT(ra.cls == c.cls, "plain %s class %s", c.label, GpuClassName(ra.cls));
+      EXPECT(IsKnownFamily(c.dev) == c.known, "plain %s known", c.label);
+      EXPECT(ra.plain == c.plain_auto, "plain %s auto expected %d", c.label, c.plain_auto ? 1 : 0);
+      Options on;
+      on.plain_mode = "on";
+      EXPECT(Evaluate(c.dev, on).plain, "plain %s: on must force plain", c.label);
+      Options off;
+      off.plain_mode = "off";
+      EXPECT(!Evaluate(c.dev, off).plain, "plain %s: off must never be plain", c.label);
+      // the decisions (the flags every class sets) must not depend on the plain mode
+      EXPECT(SetCount(Evaluate(c.dev, on), true) == SetCount(ra, true) && SetCount(Evaluate(c.dev, off), true) == SetCount(ra, true),
+             "plain %s: the other quirk decisions changed with gpu_plain_mode", c.label);
+    }
   }
 
   std::printf("\n%s (%d failed expectation%s)\n", g_fail ? "FAIL" : "PASS", g_fail, g_fail == 1 ? "" : "s");

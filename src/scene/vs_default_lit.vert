@@ -59,8 +59,8 @@ void main() {
   if (XeBool(0)) {
     precise float scaled = C255.w * r0.x;
     int a = XeAddress(scaled);
-    world = vec3(AvDot4(r2.wzxy, fc.c[76 + a].wzxy), AvDot4(r2.wzxy, fc.c[77 + a].wzxy), AvDot4(r2.wzxy, fc.c[78 + a].wzxy));
-    turned = vec3(AvDot3(q, fc.c[76 + a].zxy), AvDot3(q, fc.c[77 + a].zxy), AvDot3(q, fc.c[78 + a].zxy));
+    world = vec3(AvDot4(r2.wzxy, fc.c[76 + XeBone(a)].wzxy), AvDot4(r2.wzxy, fc.c[77 + XeBone(a)].wzxy), AvDot4(r2.wzxy, fc.c[78 + XeBone(a)].wzxy));
+    turned = vec3(AvDot3(q, fc.c[76 + XeBone(a)].zxy), AvDot3(q, fc.c[77 + XeBone(a)].zxy), AvDot3(q, fc.c[78 + XeBone(a)].zxy));
   } else {
     world = vec3(AvDot4(r2.wzxy, C76.wzxy), AvDot4(r2.wzxy, C77.wzxy), AvDot4(r2.wzxy, C78.wzxy));
     turned = vec3(AvDot3(q, C76.zxy), AvDot3(q, C77.zxy), AvDot3(q, C78.zxy));

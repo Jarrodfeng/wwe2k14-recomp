@@ -54,6 +54,10 @@ REXCVAR_DEFINE_STRING(wwe2k14_android_driver_trial, "", "wwe2k14",
                       "Session 72 (Android): the launcher's trial file for the chosen driver; deleted once the game has "
                       "drawn a few hundred frames with it");
 
+REXCVAR_DEFINE_STRING(wwe2k14_boot_trial, "", "wwe2k14",
+                      "Session 95 (Android, LADDER): the launcher's boot trial file; deleted once the game has drawn 600 frames (or when the "
+                      "player quits). One still there at the next launcher start = the game never got going");
+
 namespace wwe2k14::android_driver {
 
 inline constexpr uint32_t kTrialFrames = 600;  // ~10 s at 60 fps: past the boot logos, with real draws behind it
@@ -140,6 +144,8 @@ inline void Install() { rex::ui::vulkan::SetVulkanLoaderOverride(&OpenDriver); }
 inline void OnFrame() {
   if (g_frames > kTrialFrames) return;
   if (++g_frames == kTrialFrames) {
+    const std::string boot = REXCVAR_GET(wwe2k14_boot_trial);
+    if (!boot.empty() && unlink(boot.c_str()) == 0) REXLOG_INFO("[life] {} frames drawn: boot trial file removed", kTrialFrames);
     const std::string trial = REXCVAR_GET(wwe2k14_android_driver_trial);
     if (!trial.empty() && unlink(trial.c_str()) == 0)
       REXLOG_INFO("[driver] {} frames drawn with {}: trial file removed", kTrialFrames,

@@ -22,10 +22,20 @@ int XeAddress(float x) {
   return int(clamp(f, -256.0, 255.0));
 }
 
+// Session 95: the bone matrix index kept inside the 256 registers (c[76 + a] .. c[78 + a], and c[8 + a]): an address register beyond that range read past the
+// uniform block. The record is broken anyway when it leaves the range; note that an index of 178 or more (c254, c255 were still valid reads) is also pulled in, to 177 (the matrix then ends at c255). XeAddress alone allows -256..255.
+#ifdef XE_NO_BONE_CLAMP  // (the harness only: compares the unclamped index with the translation, which reads past the register file as the shaders did before)
+int XeBone(int a) { return a; }
+int XeBone8(int a) { return a; }
+#else
+int XeBone(int a) { return clamp(a, -76, 177); }
+int XeBone8(int a) { return clamp(a, -8, 247); }
+#endif
+
 // The three rows of the bone matrix at register 76 + a against the position (summed w, z, x, y): (c76 + a, c77 + a, c78 + a).
 vec3 AvBone(vec4 p, int a) {
   vec4 q = p.wzxy;
-  return vec3(AvDot4R(q, fc.c[76 + a].wzxy), AvDot4R(q, fc.c[77 + a].wzxy), AvDot4R(q, fc.c[78 + a].wzxy));
+  return vec3(AvDot4R(q, fc.c[76 + XeBone(a)].wzxy), AvDot4R(q, fc.c[77 + XeBone(a)].wzxy), AvDot4R(q, fc.c[78 + XeBone(a)].wzxy));
 }
 
 // The literal / shared registers the skinned shaders read by name.

@@ -123,11 +123,8 @@ inline std::string HardwareText(const Hardware& h) {
 }
 
 // Suggested settings from the hardware (first run). Resolution: 0 720p, 1 1440p, 2 4K.
-inline int SuggestResolution(const Hardware& h) {
-  if (h.screen_h >= 2160) return 2;
-  if (h.screen_h >= 1080) return 1;  // 1080p monitors: 1440p, downscaled (sharper than 720p)
-  return 0;
-}
+// Session 95 (Jarrod: "720p the default resolution", the wizard too): everyone starts at 720p whatever the monitor; the player raises it.
+inline int SuggestResolution(const Hardware&) { return 0; }
 // Frame rate: 0 classic, 1 60 everywhere, 2 high refresh (a monitor above 60 Hz).
 inline int SuggestFrameRate(const Hardware& h) { return h.refresh_hz > 75 ? 2 : 1; }
 
@@ -304,14 +301,14 @@ inline std::string StartProcess(const Command& c, HANDLE* proc) {
   return "";
 }
 
-// Any wwe2k14.exe running (the launcher's or one the player started).
+// Any game exe running, wwe2k14.exe or wwe2k14_v3.exe (the launcher's or one the player started).
 inline bool GameRunning() {
   HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snap == INVALID_HANDLE_VALUE) return false;
   PROCESSENTRY32W e{sizeof(e)};
   bool found = false;
   for (BOOL ok = Process32FirstW(snap, &e); ok && !found; ok = Process32NextW(snap, &e))
-    found = _wcsicmp(e.szExeFile, L"wwe2k14.exe") == 0;
+    found = _wcsicmp(e.szExeFile, L"wwe2k14.exe") == 0 || _wcsicmp(e.szExeFile, L"wwe2k14_v3.exe") == 0;
   CloseHandle(snap);
   return found;
 }

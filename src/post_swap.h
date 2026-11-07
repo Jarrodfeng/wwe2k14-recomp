@@ -15,17 +15,30 @@
 #include "post/spirv/entrance_combine_enhanced.h"
 #include "post/spirv/entrance_combine_original.h"
 #include "post/spirv/entrance_combine_probe.h"
+#include "post/spirv/entrance_combine_lite.h"
+#include "post/spirv/entrance_combine_lite2.h"
+#include "post/spirv/match_combine_lite2.h"
+#include "post/spirv/match_combine_lite.h"
 #include "post/spirv/match_combine_enhanced.h"
 #include "post/spirv/match_combine_original.h"
 #include "post/spirv/entrance_combine_original_mp.h"
 #include "post/spirv/match_combine_original_mp.h"
 #include "post/spirv/match_combine_probe.h"
+#include "pixel_multiview.h"  // Session 95 (gpu_d3d_decouple phase 2): the layer-true variants
 
 REXCVAR_DEFINE_BOOL(wwe2k14_post_enhanced, false, "wwe2k14",
                     "Session 72 (with gpu_native_shader_swap, on in NATIVE's list; read at start): our Enhanced post "
                     "effects (the background depth of field as a lens-like disc blur; the launcher's POST EFFECTS: "
                     "ENHANCED); false = our cheaper copy of the game's own pass, step for step (Jarrod, 2026-10-28: the "
                     "default)");
+REXCVAR_DEFINE_BOOL(wwe2k14_post_lite, false, "wwe2k14",
+                    "Session 95 (read at start; with gpu_native_shader_swap; ignored with Enhanced / the probe): the post chain on the "
+                    "LOW tier: our ORIGINAL combines with exact early-outs (no blur fetch where its weight is 0) and the SDK's "
+                    "drop of post passes the last combine did not use (gpu_native_post_lite_drop: star glare, bloom chain, depth of "
+                    "field; its copies are skipped, one stale frame when a strength turns on). false = as before");
+REXCVAR_DEFINE_BOOL(wwe2k14_post_lite_fxaa, false, "wwe2k14",
+                    "Session 95 (r3gpu, default off, read at start; with wwe2k14_post_lite): the lite combines also skip the console FXAA's four taps along the edge on pixels where they all stay in "
+                    "the pixel's own texel: 5 fetches in place of 9 on flat pixels. A LOOK lever, not exact: the scene sampler is linear, so a tap inside the texel can still blend a neighbour (s89b_b measured over the tolerance, 0.36% of pixels, p99.9 9)");
 REXCVAR_DEFINE_BOOL(wwe2k14_shader_mediump, false, "wwe2k14",
                     "Session 93 (idea 8; read at start; with gpu_native_shader_swap): the second compile of the ALU-heavy arena "
                     "materials (src/scene_swap.h: 9 shaders) and of the ORIGINAL post combines (src/post_swap.h: 2) whose colour "
@@ -58,7 +71,7 @@ inline constexpr uint32_t kOwnEpilogue = 1;
 template <size_t N, size_t M>
 inline bool Register(rex::graphics::CommandProcessor* cp, uint64_t hash, const uint32_t (&words)[N],
                      const uint8_t (&floats)[M], const char* name) {
-  return cp->RegisterNativeShaderSwap(hash, words, N, floats, M, name, kOwnEpilogue);
+  return wwe2k14::pixel_multiview::Register(cp, hash, words, N, floats, M, name, kOwnEpilogue);  // (== RegisterNativeShaderSwap with decouple off)
 }
 
 // Once, after the graphics system exists (OnPostSetup).
@@ -71,6 +84,17 @@ inline void Install() {
   cp->RegisterNativeRestoreShader(kRestoreColorDepth, 1, 0, "colour + depth restore");
   const bool probe = REXCVAR_GET(wwe2k14_post_swap_probe) == 1;
   const bool enhanced = REXCVAR_GET(wwe2k14_post_enhanced);
+  const bool post_lite = REXCVAR_GET(wwe2k14_post_lite) && !probe && !enhanced;
+  if (post_lite) {
+    // P1: the SDK's drops of post passes the last combine did not use (glare, bloom chain, depth of field). Applied only if left at
+    // default, like the other SDK defaults.
+    if (rex::cvar::GetFlagSource("gpu_native_post_lite_drop") == rex::cvar::Source::kDefault) {
+      rex::cvar::SetFlagByName("gpu_native_post_lite_drop", "true");
+    }
+    if (rex::cvar::GetFlagByName("gpu_native_shader_swap") == "true") {
+      REXLOG_INFO("[s95][post_lite] combine variant registered: exact early-outs (blur fetch skipped where its weight is 0, tint where 0); unused post passes dropped (gpu_native_post_lite_drop)");
+    }
+  }
   int ok = 0;
   int mediump_registered = 0;
   if (probe) {
@@ -80,6 +104,16 @@ inline void Install() {
     ok += Register(cp, kMatchCombine, match_combine_enhanced_spv, kMatchCombineFloats, "match combine: Enhanced");
     ok += Register(cp, kEntranceCombine, entrance_combine_enhanced_spv, kEntranceCombineFloats,
                    "entrance combine: Enhanced");
+  } else if (post_lite) {
+    // Session 95 (post lite): the ORIGINAL combines with exact early-outs (E1). Wins over mediump (they are not combined yet).
+    if (REXCVAR_GET(wwe2k14_post_lite_fxaa)) {  // (Session 95, r3gpu)
+      ok += Register(cp, kMatchCombine, match_combine_lite2_spv, kMatchCombineFloats, "match combine: lite + FXAA early-out");
+      ok += Register(cp, kEntranceCombine, entrance_combine_lite2_spv, kEntranceCombineFloats, "entrance combine: lite + FXAA early-out");
+      REXLOG_INFO("[s95][post_lite] wwe2k14_post_lite_fxaa on: the combines skip the FXAA's edge taps on flat pixels");
+    } else {
+      ok += Register(cp, kMatchCombine, match_combine_lite_spv, kMatchCombineFloats, "match combine: lite");
+      ok += Register(cp, kEntranceCombine, entrance_combine_lite_spv, kEntranceCombineFloats, "entrance combine: lite");
+    }
   } else if (REXCVAR_GET(wwe2k14_shader_mediump)) {
     // Session 93 (idea 8): the same pass with the colour blends in half precision (FXAA and the depth ramps stay highp).
     ok += Register(cp, kMatchCombine, match_combine_original_mp_spv, kMatchCombineFloats, "match combine: original (mediump)");
@@ -96,7 +130,7 @@ inline void Install() {
                 mediump_registered);
   }
   REXLOG_INFO("[wwe2k14][post_swap] replacement shaders registered: {} ({}; gpu_native_shader_swap = {})", ok,
-              probe ? "probes" : enhanced ? "Enhanced" : "original", rex::cvar::GetFlagByName("gpu_native_shader_swap"));
+              probe ? "probes" : enhanced ? "Enhanced" : post_lite ? "lite" : "original", rex::cvar::GetFlagByName("gpu_native_shader_swap"));
 }
 
 }  // namespace wwe2k14::post_swap

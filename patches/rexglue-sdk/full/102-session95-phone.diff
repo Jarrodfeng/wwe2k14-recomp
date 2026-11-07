@@ -1,0 +1,170 @@
+# ReXGlue SDK changes for WWE 2K14 (session95-phone): b0fa73ecf711..44f9d31305b0 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  44f9d31 Session 95: plain mode also turns off TRUE NATIVE's speed list, now on phones (all but kernel_timestamp_tick_ms, read before the device)
+#  086ae0c Session 95 phone black (r083): held frames do not teach the dead-pass learning, the swap revives a dropped page with no pages left
+
+diff --git a/src/graphics/vulkan/native/owned_post.cpp b/src/graphics/vulkan/native/owned_post.cpp
+index b1ff850400f631abce51e8c7a9378cf70923e557..51ebb735e5d0260dcdc820f338cde0c93298f2c6 100644
+--- a/src/graphics/vulkan/native/owned_post.cpp
++++ b/src/graphics/vulkan/native/owned_post.cpp
+@@ -24,6 +24,7 @@
+ 
+ #include <rex/cvar.h>
+ REXCVAR_DECLARE(uint32_t, gpu_d3d_owned_front);  // (d3d_noring.cpp) bit 5 = M4f-A, bit 6 = M4f-B
++REXCVAR_DECLARE(bool, gpu_native_owned_dead_held);  // (owned_steps.cpp)
+ #include <rex/logging.h>
+ 
+ REXCVAR_DEFINE_BOOL(gpu_native_owned_dead_depth_stale, false, "GPU/Native",                    "Session 92 M2d (review D1: off - the mark is never reset at a frame boundary and cut the next frame's quads too; E1 uses the dead clear's pending value by tick instead): M2b review F4: marking the depth stale at a dead depth clear cut Jericho (Retro)'s yRect quads off their depth (328k draws dropped, E1 0; run 013 with it off: 0 dropped, E1 373) - off by default; on only to study the stale-depth case");
+@@ -239,7 +240,12 @@ VkImageView NativeRenderer::OwnedSwapView(uint32_t base_page, uint32_t width, ui
+     slot->scaled = scaled;
+     slot->frame = frame_;
+   }
+-  if (owned_pages_.empty()) return VK_NULL_HANDLE;
++  if (owned_pages_.empty()) {
++    // (Session 95, phone black r083: the frame's only pass dropped as dead leaves no page at all, and this return came before OwnedViewPre, the one place a read of a dropped page brings the pass back: the swap read it
++    // every frame, "dropped-pass pages sampled 0", and the screen stayed black. The read counts here too; the pass is drawn again from its next frame.)
++    if (!owned_dead_pages_.empty() && REXCVAR_GET(gpu_native_owned_dead_held)) OwnedViewPre(base_page, width, height, format);
++    return VK_NULL_HANDLE;
++  }
+   uint32_t scale_x = 1, scale_y = 1;
+   command_processor_.NativeResolutionScale(scale_x, scale_y);
+   const bool draw_scaled = scale_x > 1 || scale_y > 1;
+diff --git a/src/graphics/vulkan/native/owned_steps.cpp b/src/graphics/vulkan/native/owned_steps.cpp
+index 82e25d8242b5c5c9b8c5ee9b5b38f5f27309e6ec..c2f2a7f0bc195588e6614a32d69a150a18f3a736 100644
+--- a/src/graphics/vulkan/native/owned_steps.cpp
++++ b/src/graphics/vulkan/native/owned_steps.cpp
+@@ -185,6 +185,10 @@ REXCVAR_DEFINE_BOOL(gpu_native_owned_dead_sticky, false, "GPU/Native",
+                     "was asked for) is never learned dead again. For class phone (the quirk sets it): a pass dropped while its page is "
+                     "read later shows a stale texture for a frame (Purple Savage, the crowd signs). Off: the dead-pass learning is "
+                     "exactly as before, which the Surface keeps for the dead-pass saving");
++REXCVAR_DEFINE_BOOL(gpu_native_owned_dead_held, true, "GPU/Native",
++                    "Session 95 (phone black, r083): frames held while pipelines are made have no swap, so nothing reads the front page: they do not "
++                    "count as unread copies, and a swap of a dropped pass's page revives the pass even with no page of ours left (owned_post.cpp). "
++                    "Off: as before, a hold of 240 frames kills the frame's last pass and the screen stays black");
+ REXCVAR_DEFINE_INT32(gpu_native_owned_dont_care_clear, 0, "GPU/Native",
+                      "Session 95 (Lane E): the owned passes' DONT_CARE loads (the colour of the cover pass, the depth of every variant "
+                      "that loads none) become CLEAR. 0 = DONT_CARE as before; 1 = cleared to 0 (colour) and 1.0 (depth) - for class "
+@@ -351,6 +355,7 @@ void OwnedPassCensusFlush(uint64_t frame, uint32_t w, uint32_t h) {
+ double OwnedRowRatio(uint32_t scale_x, uint32_t scale_y);  // (Session 95: below; native_truth.cpp logs it)
+ 
+ namespace {
++uint64_t g_dead_held_copies = 0;  // (Session 95, phone black: copies of held frames, left out of the dead-pass learning; [owned-dead] summary)
+ // Session 92 (M2a): the latch's counters, file level (no new header members for them); printed by OwnedFrameSummary as
+ // "[native][owned-only]" and reset with the window. Strings group the drops by signature.
+ struct M2aStats {
+@@ -6504,9 +6509,19 @@ bool NativeRenderer::OwnedKeyDead(const OwnedPassKey& key) {
+ 
+ void NativeRenderer::OwnedKeyMade(const OwnedPassKey& key) {
+   OwnedKeyStat& k = OwnedKeyStatFor(key);
+-  ++k.made;
++  // (Session 95, phone black r083: a frame held while pipelines are made returns before the swap (no OwnedSwapView), so frame_ runs on while no page is read: a front page's pass looked unread. 3302 held frames on the
++  // phone's first run of new shaders, the menu's only pass dead at frame 657, black from the hold's end. The learning waits for the swaps to come back; measured as OwnedPresentOk measures it, against the newest swap seen.
++  // The swap stamps frame_ after the frame's end, so a frame with a swap before it has newest == frame_; the 2 is slack, a real hold runs for many.)
++  bool learning = true;
++  if (REXCVAR_GET(gpu_native_owned_dead_held)) {
++    uint64_t newest = 0;
++    for (const OwnedSwapSeen& s : owned_swap_seen_) newest = std::max<uint64_t>(newest, s.frame);
++    learning = newest + 2 >= frame_;
++    if (!learning) ++g_dead_held_copies;
++  }
++  if (learning) ++k.made;
+   ++k.made_total;
+-  if (REXCVAR_GET(gpu_native_owned_frame_dead_relearn)) {
++  if (learning && REXCVAR_GET(gpu_native_owned_frame_dead_relearn)) {
+     // (Session 87: dead = no read in the last N copies, N = 240 doubled per revival; any read, in a window or not, restarts the count.)
+     const uint32_t need = 240u << std::min(k.revivals, 4u);
+     if (!k.dead && k.made >= need && !(k.read_ever && REXCVAR_GET(gpu_native_owned_dead_sticky))) {
+@@ -6527,12 +6542,12 @@ void NativeRenderer::OwnedKeyMade(const OwnedPassKey& key) {
+                 "inside {}, last read frame {}, dead {}", frame_, key.ps, key.base, key.pitch, k.made_total, k.made, k.reads,
+                 k.reads_window, k.last_read_frame, k.dead);
+   }
+-  if (!REXCVAR_GET(gpu_native_owned_frame_dead_relearn) && !k.dead && k.reads == 0 && k.made >= 240 &&
++  if (learning && !REXCVAR_GET(gpu_native_owned_frame_dead_relearn) && !k.dead && k.reads == 0 && k.made >= 240 &&
+       !(k.read_ever && REXCVAR_GET(gpu_native_owned_dead_sticky))) {
+     k.dead = true;
+     REXGPU_INFO("[native][owned] frame {}: the pass of ps {:016X} on surface {}/{} is read by no sampler in its first {} copies: "
+                 "dropped from now on", frame_, key.ps, key.base, key.pitch, k.made);
+-  } else if (!k.dead && k.reads != 0 && k.made == 240) {
++  } else if (learning && !k.dead && k.reads != 0 && k.made == 240) {
+     // (Session 87, step 3 diagnosis: a key that could be dead but for an earlier read outside a readback window.)
+     REXGPU_INFO("[native][owned-dead] frame {}: key ps {:016X} surface {}/{} has 240 unread copies since its last window read but "
+                 "{} read(s) outside a window (last read frame {}, window reads {}, made in all {}): never dead", frame_, key.ps,
+@@ -7410,8 +7425,8 @@ void NativeRenderer::OwnedFrameSummary() {
+               owned_page_images_.size(), owned_scratch_depths_.size(), owned_bytes_ >> 20, st.presented, st.post_boxes,
+               st.sub_commits, lost.empty() ? "" : "; lost by [", lost.empty() ? costs : lost + "]" + costs);
+   // Session 95, Lane E: the stale-texture counters. Pages of dropped passes that a sampler asked for (each is a frame of stale texture), whole run.
+-  REXGPU_INFO("[native][owned-dead] frames {}-{}: dropped-pass pages sampled, whole run {}; dead_sticky {}; dont_care_clear {}", st.first_frame,
+-              st.first_frame + st.frames - 1, owned_dead_page_reads_, REXCVAR_GET(gpu_native_owned_dead_sticky) ? "on" : "off",
++  REXGPU_INFO("[native][owned-dead] frames {}-{}: dropped-pass pages sampled, whole run {}; copies of held frames left out of the learning, whole run {}; dead_sticky {}; dont_care_clear {}", st.first_frame,
++              st.first_frame + st.frames - 1, owned_dead_page_reads_, g_dead_held_copies, REXCVAR_GET(gpu_native_owned_dead_sticky) ? "on" : "off",
+               REXCVAR_GET(gpu_native_owned_dont_care_clear));
+   // Session 93: the tile-based pass path (gpu_owned_tiler_passes). The would-be counts are kept with the switch off.
+   {
+diff --git a/src/ui/vulkan/gpu_quirks_apply.cpp b/src/ui/vulkan/gpu_quirks_apply.cpp
+index ed7ca4544aefcb4c8a679bfb4f62bc319bcc1b09..1c3b7a816b54fded80d6785d72a66f6b21e808ac 100644
+--- a/src/ui/vulkan/gpu_quirks_apply.cpp
++++ b/src/ui/vulkan/gpu_quirks_apply.cpp
+@@ -31,7 +31,7 @@ REXCVAR_DEFINE_BOOL(gpu_quirks_tiler_classic_passes, false, "UI/Vulkan",
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ REXCVAR_DEFINE_BOOL(gpu_quirks_vertex_input_phone, false, "UI/Vulkan",
+                     "Session 95 (P8 part 1): on phone-class GPUs set gpu_native_vertex_input=2 and gpu_native_index_no_restart=true (vertices and indices as real "
+-                    "attributes, so the 128 MiB storage window stops mattering). The master switch, off until the milestone check passes; never applied to an iGPU class "
++                    "attributes, so the 128 MiB storage window stops mattering). The master switch: off here, turned on by the game's TRUE NATIVE list on Android builds; never applied to an iGPU class "
+                     "(the Surface) until a paired thermal-matched A/B says so. A switch set by hand still wins over the rule")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ REXCVAR_DEFINE_BOOL(gpu_quirks_advisory, false, "UI/Vulkan",
+@@ -53,7 +53,7 @@ REXCVAR_DEFINE_STRING(gpu_class, "", "UI/Vulkan",
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ REXCVAR_DEFINE_STRING(gpu_plain_mode, "auto", "UI/Vulkan",
+                       "Session 95 (PLAIN): the boring flag set - gpu_owned_transient_attachments, gpu_owned_image_format_list, "
+-                      "gpu_owned_tiler_passes, gpu_owned_cover_dont_care and present_display_timing off, gpu_d3d_pace_gate off. auto = only on a "
++                      "gpu_owned_tiler_passes, gpu_owned_cover_dont_care and present_display_timing off, gpu_d3d_pace_gate off, TRUE NATIVE's Session 95 speed list at its defaults. auto = only on a "
+                       "phone-class GPU of no known family (known: Qualcomm stock, Turnip, Arm, Imagination) or a virtual GPU on Android, on = always (the "
+                       "launcher's repair ladder, test runs), off = never. A switch given on the command line / config / environment wins")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+@@ -458,13 +458,44 @@ GpuQuirksOutcome ApplyGpuQuirks(const VulkanInstance::Functions& ifn, VkPhysical
+         {"gpu_native_vertex_input", "0"},          // (review s95-all: the boring set has no attribute draws, whatever the phone rule said)
+         {"gpu_native_index_no_restart", "false"},
+         {"present_keep_paint_pipeline", "false"},  // (Session 95: a phone default now, android_pace.h; no real phone has run it)
++        // Session 95 (Jarrod's order): the rest of TRUE NATIVE's speed list, on phones since then (the game's d3d_owned.h, the lean set in wwe2k14_app.h), back at each flag's default.
++        // Left out: kernel_timestamp_tick_ms, read when the kernel module is made, before the device (runtime.cpp: kernel_init, then the GPU's Setup); this code cannot reach it.
++        {"present_every_frame", "false"},
++        {"present_render_pass_clear", "true"},
++        {"gpu_d3d_wall", "0"},
++        {"vulkan_float_constant_runs", "false"},
++        {"gpu_native_skin_once", "false"},
++        {"gpu_native_skin_with_input", "false"},
++        {"gpu_native_skin_bind_lean", "false"},
++        {"gpu_native_index_stitch", "false"},
++        {"gpu_native_crowd_input", "false"},
++        {"wwe2k14_nf_lean", "false"},
++        {"wwe2k14_nf_reg_save", "false"},
++        {"gpu_d3d_draw_record", "0"},
++        {"gpu_d3d_draw_slot", "0"},
++        {"gpu_owned_restore_skip", "0"},
++        {"gpu_native_post_lite_near", "false"},
++        {"gpu_native_wrestler_pow", "false"},
++        {"gpu_d3d_inline_merge", "false"},
++        {"gpu_native_readback_quiet_frames", "0"},
++        {"gpu_tex_bind_memo", "0"},
++        {"vulkan_hoist_skin_overlap", "false"},
++        {"gpu_tex_planes_unwatched", "false"},
++        {"gpu_tex_planes_nohash", "false"},
++        {"vulkan_upload_hoist_merge", "false"},
++        {"vulkan_hoist_tight_barrier", "false"},
++        {"kernel_cs_spin_pause", "0"},
++        {"present_ui_idle_wait_ms", "2"},
++        {"wwe2k14_low_power_spin_us", "100"},
++        {"wwe2k14_low_power_sleep_us", "250"},
++        {"wwe2k14_load_turbo_vblank_hz", "16000"},
+     };
+     for (const auto& p : kPlain) ForcePlain(p.name, p.value);
+   } else {
+     REXLOG_INFO("[quirks] plain: off ({})", result.plain_why);
+   }
+   // Session 95: the game's TRUE NATIVE list turns vertex input on for every PC from code. A phone-class GPU in a PC build (an Adreno laptop, a faked phone) stays behind the master switch all the same;
+-  // a value given by hand stays. A real phone has nothing to undo (its build leaves the list out).
++  // a value given by hand stays. A real phone's build turns the master switch on with the list (the game's d3d_owned.h), so this undoes nothing there unless the switch is given as false.
+   if (master && result.cls == GpuClass::kPhone && !options.vertex_input_phone) {
+     for (const auto& [name, value] : {std::pair<const char*, const char*>{"gpu_native_vertex_input", "0"}, {"gpu_native_index_no_restart", "false"}}) {
+       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kRuntime && rex::cvar::GetFlagByName(name) != value) ForcePlain(name, value);

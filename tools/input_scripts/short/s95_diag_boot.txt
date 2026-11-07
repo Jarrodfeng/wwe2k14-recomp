@@ -1,0 +1,20 @@
+# Session 95: boot test for the diagnostic route. Question: on a fresh save with the title running uncapped, does a state-led boot reach the main menu?
+on_fail quit
+log diag boot test start
+wait_state 0x839400F8>0>48 3 36000
+wait_text Press START 36000
+press_until_text START 100 200 30 ATTENTION
+log diag boot test attention seen
+wait_frames 30
+press_until_text A 100 200 30 There is no
+log diag boot test save prompt seen
+wait_frames 30
+press_until_text A 100 200 30 You have not selected
+wait_frames 30
+press LEFT 30 60
+wait_frames 30
+press_until_text A 100 200 30 YEARS OF WRESTLEMANIA
+log diag boot test menu seen
+wait_frames 30
+screenshot s95_diag_boot
+quit

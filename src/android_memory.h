@@ -11,6 +11,7 @@
 #include <rex/logging.h>
 
 #include "blackbox.h"
+#include "hang_guard.h"
 
 extern "C" JNIEXPORT void JNICALL Java_io_github_jarrodfeng_wwe2k14_GameActivity_nativeTrimMemory(JNIEnv*, jclass,
                                                                                                  jint level) {
@@ -23,5 +24,6 @@ extern "C" JNIEXPORT void JNICALL Java_io_github_jarrodfeng_wwe2k14_GameActivity
               purge ? "; freed memory handed back" : "");
   wwe2k14::blackbox::Note("memory low (Android trim level %d, %s)%s", int(level), what,
                           purge ? "; freed memory handed back" : "");
+  wwe2k14::hang_guard::NoteTrim();  // Session 95
 }
 #endif

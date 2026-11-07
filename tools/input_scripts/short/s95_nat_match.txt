@@ -1,0 +1,16 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# harness: realtime (Session 95 guest CPU profile: capped 60)
+# Session 95: the match of scenes\match.txt for the guest CPU profile: 1500 frames (25 s at 60) of match instead of 600.
+on_fail quit
+log bench: start scene match
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match
+mark 1 match_clock
+wait_frames 1500
+log scene=end
+mark 2 end
+log bench: done
+quit

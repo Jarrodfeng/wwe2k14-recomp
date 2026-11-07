@@ -1,6 +1,5 @@
-- Pyro in a few entrances (Brock Lesnar's, for example) makes TRUE NATIVE stutter while it is on screen: on my PC the
-  frame rate dips for a second or two there, where NATIVE kept up. I am working on it; if it bothers you, switch TRUE NATIVE
-  off in Settings -> Advanced.
+- The game now uses a memory feature of Windows 10 1803 or newer, tested by me only on Windows 11 build 26100. If your Windows cannot
+  do it, the game shows a clear message and stops: please send a report with your Windows version.
 - TRUE NATIVE (the default since v0.2.19) was taken through the arenas, the roster with the DLC wrestlers, all 62 match
   types and the modes on my PC (NVIDIA RTX 4090). AMD and Intel graphics are untested with it. If something looks wrong
   or freezes, switch it off in Settings -> Advanced and send a report (launcher: Report a problem).

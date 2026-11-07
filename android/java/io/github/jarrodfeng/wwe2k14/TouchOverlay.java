@@ -35,6 +35,8 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
     // libmain.so (src/android_touch.h). nativeSetActive is false until the game's input system has started SDL's
     // joysticks; the view tries again until it takes.
     static native boolean nativeSetActive(boolean on);
+    // Session 95 (LADDER): real pads the game's input driver opened (-1 = not known yet).
+    static native int nativeRealPads();
     static native void nativeUpdate(int buttons, float lx, float ly, float rx, float ry, float lt, float rt);
 
     /** Told when the edit mode ends (saved = DONE, else CANCEL / Back). */
@@ -150,6 +152,20 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
         }
     }
 
+    /**
+     * Session 95 (LADDER): hide the touch controls only when the game's input driver really opened a pad. Android lists devices the
+     * game cannot use (an unmapped pad, a keyboard with gamepad buttons); the old check hid the touch controls for them and left no
+     * controls at all. Before the game's input is up (-1), or without the native library (the standalone editor), Android's list decides
+     * only for the editor; in the game the controls stay shown until the driver says a pad opened.
+     */
+    private boolean padOpened() {
+        try {
+            return nativeRealPads() > 0;
+        } catch (UnsatisfiedLinkError e) {
+            return controllerConnected();
+        }
+    }
+
     /** A real controller (not the phone's own buttons, not a virtual device). */
     static boolean controllerConnected() {
         for (int id : InputDevice.getDeviceIds()) {
@@ -162,9 +178,15 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
         return false;
     }
 
+    private final Runnable recheck = this::updateShown;  // Session 95 (LADDER): 1 Hz in automatic mode
+
     private void updateShown() {
         // (Kept on the screen while editing, even if a controller connects meanwhile.)
-        boolean want = standalone || pad.editing() || mode == MODE_ALWAYS || (mode == MODE_AUTO && !controllerConnected());
+        boolean want = standalone || pad.editing() || mode == MODE_ALWAYS || (mode == MODE_AUTO && !(controllerConnected() && padOpened()));
+        if (!standalone && mode == MODE_AUTO) {  // the native count changes without any Android event: look again in a second
+            handler.removeCallbacks(recheck);
+            handler.postDelayed(recheck, 1000);
+        }
         if (want != shown) {
             shown = want;
             setVisibility(shown ? VISIBLE : GONE);
@@ -194,6 +216,20 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
     // The layout is for a landscape screen only; while the view is taller than wide (a moment during rotation) it draws
     // nothing and lets touches through.
     private boolean portrait;
+
+    // Session 95 (LADDER, plan item 13): the edge swipe that means Back (gesture navigation) must not fire from a thumb on the left or
+    // right controls. Android honours at most 200 dp of height per edge; the strips are asked for in full and the system trims them.
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        if (android.os.Build.VERSION.SDK_INT >= 29 && changed) {
+            int edge = Math.round(48 * getResources().getDisplayMetrics().density);
+            java.util.ArrayList<android.graphics.Rect> rects = new java.util.ArrayList<>();
+            rects.add(new android.graphics.Rect(0, 0, edge, b - t));
+            rects.add(new android.graphics.Rect(r - l - edge, 0, r - l, b - t));
+            setSystemGestureExclusionRects(rects);
+        }
+    }
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {

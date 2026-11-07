@@ -24,6 +24,7 @@ link lines of the release build (`rexruntime.dll`, `rexgpu-xenos.dll`) and the b
 | SIMDe 0.8.2 | header-only | MIT. Copyright (c) 2017 Evan Nemerson |
 | utfcpp | header-only | Boost Software License 1.0 |
 | stb_image 2.29 | rexruntime.dll, wwe2k14.exe, wwe2k14_launcher.exe | MIT or public domain. Copyright (c) 2017 Sean Barrett |
+| stb_image_write 1.16 | wwe2k14.exe (the diagnostic run's JPEGs and the phone's pictures), third_party/stb | public domain (or MIT). Sean Barrett |
 | nlohmann/json 3.11.3 | wwe2k14_launcher.exe | MIT. Copyright (c) 2013-2021 Niels Lohmann |
 | NVIDIA Streamline 2.14.1 headers | rexruntime.dll | MIT. Copyright (c) 2022-2023 NVIDIA CORPORATION |
 | DXBCChecksum (derived from the RSA Data Security, Inc. MD5 Message-Digest Algorithm) | rexgpu-xenos.dll | Notice in its source: Copyright 2008-2016 (c) Advanced Micro Devices, Inc.; Copyright (C) 1990, RSA Data Security, Inc. |

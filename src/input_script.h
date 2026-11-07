@@ -192,6 +192,7 @@
 #include "replay.h"  // Session 16 item 1: --wwe2k14_replay_mode / _record / _play (default off)
 #include "check_prompt.h"  // Session 29: `check TEXT` (on-screen question, F1 / F2 / F5)
 #include "mem_scan.h"      // Session 29: scan_* (live memory scanner)
+#include "diag.h"          // Session 95: diag_stage / diag_scene / diag_ab / diag_restore (the diagnostic run)
 
 namespace rex::kernel::xam {
 // ReXGlue's implementations (exported by rexruntime.dll, not declared in public headers).
@@ -256,10 +257,13 @@ inline void (*g_screenshot_hook)(const std::string& label) = nullptr;
 // GUID_ContainerFormatJpeg for the scene snapshots (src/session_log.h).
 #if !defined(_WIN32)
 // Session 63 (Android port): no WIC; screenshots there come from `adb shell screencap` until phase 6 writes PNGs.
-inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage&, bool = false,
-                       const GUID& = GUID_ContainerFormatPng) {
-  REXLOG_WARN("[wwe2k14][input] {}: picture files are not written on this platform yet", path.filename().string());
-  return false;
+inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage& image, bool = false,
+                       const GUID& container = GUID_ContainerFormatPng) {
+  // Session 95: through the vendored stb_image_write (src/diag_jpeg.h); before, no picture file was ever written here.
+  // Only for the diagnostic run (review F12): normal phone play would JPEG-encode 60 snapshots a run into a folder nobody reads.
+  if (!diag::On()) return false;
+  return diag::WritePicture(path, image.data.data(), image.width, image.height, image.stride,
+                            !(container == GUID_ContainerFormatJpeg), 85);
 }
 #else
 inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImage& image, bool alpha = false,
@@ -455,6 +459,7 @@ class InputScript {
   // Once per guest frame (VdSwap).
   void OnFrame(uint64_t frame) {
     GuestWatchOnFrame(frame);  // watch hits / snap ranges (no-op unless a script armed one)
+    if (diag::On()) diag::OnFrame(frame);  // Session 95: the diagnostic run (the frame ring, scenes, the watchdog's beat)
     screen_text::OnFrame(frame);  // Session 30 (no-op outside harness runs)
     std::unique_lock<std::mutex> lock(mutex_);
     frame_ = frame;
@@ -772,7 +777,8 @@ class InputScript {
     kPlugin,                           // Session 30: text = load / reload / unload, value = PATH (src/probe_plugin.h)
     kDumpMem,                          // Session 69: frames = physical address, hold = length, text = output file
     kRenderDoc,                        // Session 76: RenderDoc captures the next frame
-    kPressUntilText                    // Session 77: text = TEXT (src/screen_text.h)
+    kPressUntilText,                   // Session 77: text = TEXT (src/screen_text.h)
+    kDiagStage, kDiagScene, kDiagAb, kDiagRestore, kDiagCapture  // Session 95: the diagnostic run (src/diag.h)
   };
   struct Step {
     Op op;
@@ -1209,6 +1215,24 @@ class InputScript {
         step.value = RestOfLine(words);
         GuestWatchArgs parsed;
         ok = ParseGuestWatchCommand(cmd, step.value, parsed, why);
+      } else if (cmd == "diag_stage") {  // Session 95 (src/diag.h)
+        step.op = Op::kDiagStage;
+        step.text = RestOfLine(words);
+        ok = !step.text.empty();
+      } else if (cmd == "diag_scene") {
+        step.op = Op::kDiagScene;
+        ok = bool(words >> step.text);
+      } else if (cmd == "diag_truth" || cmd == "diag_vertex") {  // one observed frame of the scene (src/diag.h)
+        step.op = Op::kDiagCapture;
+        step.frames = cmd == "diag_truth" ? diag::kModeTruth : (diag::kModeNumbers | diag::kModeSolo);
+        ok = bool(words >> step.text);
+      } else if (cmd == "diag_ab") {  // diag_ab NAME VALUE: a setting changed for one in-run A/B (a missing one is skipped)
+        step.op = Op::kDiagAb;
+        ok = bool(words >> step.text);
+        step.value = RestOfLine(words);
+        if (step.value == "\"\"") step.value.clear();
+      } else if (cmd == "diag_restore") {
+        step.op = Op::kDiagRestore;
       } else if (cmd == "mark") {
         step.op = Op::kMark;
         ok = OptionalNumber(words, n, -1) && n >= 0 && n <= int64_t{0xFFFFFFFF};
@@ -1776,6 +1800,33 @@ class InputScript {
         case Op::kCvar:
           cvar_pending_ = true;
           return;
+        case Op::kDiagStage:
+          diag::Stage(step.text);
+          break;
+        case Op::kDiagScene:
+          if (!diag::Busy() && !step_diag_started_) {
+            step_diag_started_ = true;
+            diag::SceneStart(step.text);
+            return;
+          }
+          if (diag::Busy()) return;  // OnFrame advances the scene's state machine
+          step_diag_started_ = false;
+          break;
+        case Op::kDiagCapture:
+          if (!diag::Busy() && !step_diag_started_) {
+            step_diag_started_ = true;
+            diag::CaptureStep(step.text, uint32_t(step.frames));
+            if (diag::Busy()) return;
+          }
+          if (diag::Busy()) return;
+          step_diag_started_ = false;
+          break;
+        case Op::kDiagAb:
+          diag::Ab(step.text, step.value);  // (a missing / rejected setting is logged, not a script failure)
+          break;
+        case Op::kDiagRestore:
+          diag::Restore();
+          break;
         case Op::kMark:
           REXLOG_INFO("[wwe2k14][input] mark {}{}{} (frame {})", step.frames, step.text.empty() ? "" : " ",
                       step.text, frame_);
@@ -2012,6 +2063,12 @@ class InputScript {
   }
 
   void Finish(bool quit) {
+    // Session 95 review (F2): a diagnostic arm on the phone never hard-quits (the process exit would beat the activity's
+    // poll and strand the chain); a failed route leaves hang.txt for the activity instead.
+    if (diag::On()) {
+      if (failed_) diag::RouteFailed(last_log_);
+      if (diag::Hold()) quit = false;
+    }
     WriteResult();
     active_ = false;
     check::Done();  // Session 29: a script that ends (or fails) takes its question off the screen
@@ -2061,7 +2118,7 @@ class InputScript {
     failed_ = true;  // Session 27: --wwe2k14_input_result
     batch_failed_ = true;  // Session 29: live batches
     SaveScreenshot(label);
-    const bool quit = quit_on_fail_;
+    const bool quit = quit_on_fail_ && !(diag::On() && diag::Hold());
     Finish(false);  // also stops a running clip; OnFrame then waits for it too
     if (quit) {
       fail_quit_pending_ = true;
@@ -2114,6 +2171,7 @@ class InputScript {
   uint64_t press_t0_ = 0;        // press_until_file: frame of the current press
   bool press_released_ = false;  // press_until_file: the current press's HOLD has ended
   bool cvar_pending_ = false;            // Advance stopped at a `cvar` step for OnFrame to apply
+  bool step_diag_started_ = false;       // Session 95: a diag_scene is running
   uint64_t periodic_every_ = 0;          // Session 10: screenshot_every interval (0 = off)
   uint64_t periodic_next_ = 0;           // ... frame of the next one
   uint32_t periodic_count_ = 0;          // ... taken so far (label suffix)

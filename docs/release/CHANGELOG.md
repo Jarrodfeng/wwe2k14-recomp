@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.3.0
+
+**v0.3.0: TRUE NATIVE grows up.**
+
+When TRUE NATIVE became the default in v0.2.19, it was the biggest change this project had ever made: the game's drawing moved off the Xbox 360's way of working and onto a renderer I own from top to bottom. It was fast on my machines. Then it reached yours, and it landed with more bugs than I expected: invisible wrestlers, broken shapes, flickering crowd signs, black screens, stutter on some laptops, low menu frame rates on some phones. A lot of that work looked like it had not paid off yet.
+
+This release is the payoff. Every one of your reports was read line by line. I went back through the whole graphics path, measured where the power and the time really go on weak machines, and rebuilt what was wrong at the root instead of patching around it. Along the way I found faults that had been hiding for a long time, including one that made every single frame stall. The result is the fastest and smoothest this game has ever run here, on PCs and on phones.
+
+### Performance
+
+- **Every frame now reaches the screen.** On weak GPUs about a quarter of the frames the game drew were thrown away before they reached you, so it looked worse than the fps counter claimed. Every drawn frame now arrives. This alone took Bryan's entrance on my test tablet from about 34 to about 44 shown fps.
+- **A hidden stall in every frame is gone.** Each frame stopped, waited for the one before it, then rebuilt its final drawing step, because a value that should have remembered the screen's format was never written. Removing it took the worst moments of Bryan's entrance from about 24 to about 33 fps. This should also help the stutter reported on Intel Iris Xe, which I could not test.
+- **The pyro stutter is gone.** Big pyro used to bring TRUE NATIVE to its knees. About 2,700 tiny particle draws a frame now merge into a few long ones, and those frames no longer stall the renderer.
+- **Huge gains on weak machines.** My Surface Pro 6 (Intel UHD 620, no fan) is a harsh test: it throttles hard, and its CPU and GPU share about 14 watts once warm. Shown fps there, after a long warm-up:
+  - Match: about 49 to **60**
+  - Brock's entrance: about 45 to **56-58**
+  - Bryan's entrance: about 36 to **49-52**
+- **Phones fly.** On my phone (Snapdragon 8 Elite) at 1080p in 120FPS mode, entrances run at **80 to 100 fps** and the match is close to a **locked 120**. The smoke in Undertaker's entrance, which used to drag everything down, no longer does.
+- **Less work everywhere.** Wrestlers are skinned once a frame instead of once per pass. Uploads are merged into far fewer GPU commands. The drawing thread does less per draw. The game's hottest maths and memory routines now run as native code. Guest memory on Windows no longer pays a check on every access, which also shrinks the game's code by more than a quarter.
+- **Far fewer first-play stutters.** The list of shaders prepared in advance nearly doubled, built from a run across the whole game.
+
+### TRUE NATIVE on phones
+
+- **The picture comes back when you return to the game.** Pressing Home and coming back could leave you with a black picture, because Android replaces the game's window and the renderer never picked up the new one. Confirmed fixed on my phone.
+- **Phones no longer depend on the 128 MiB graphics memory limit.** This is the structural fix I most wanted. Many phone GPUs can only see 128 MiB at once, which forced the game through a fragile workaround. Wrestlers, arenas and the crowd now draw from real vertex buffers, the way any ordinary mobile game does. This is the fix aimed at the broken shapes, spikes and invisible wrestlers on Adreno phones. It runs clean on my phone and on every phone GPU I can emulate, but I do not own the phones that reported those bugs, so it **should fix them, not confirmed yet**.
+- **Crashes now name themselves.** A bug in the crash handler hid many phone crashes from their own logs. They are now recorded, so reports can say what went wrong.
+- **QUIT TO DESKTOP no longer crashes on phones.**
+- **Silent freezes are detected and logged,** and repeated failures offer a safe mode instead of a dead end.
+- **Unknown GPUs start in a plain, safe mode,** so a phone I have never seen starts on the most proven path.
+- **Low menu frame rates on Mali phones: should fix, not confirmed on that phone.** Menus could overflow a fixed buffer and take a slow path.
+
+### Bugs you reported
+
+- **Crowd signs no longer flicker.** One of your biggest complaints. The crowd density choice used a spectator's exact position, so anyone moving re-rolled in and out of the crowd every frame, signs included. Fixed on my PC; should fix on phones, not confirmed on a phone showing the bug.
+- **The 540P draw height no longer gives a black screen in TRUE NATIVE.**
+- **ORIGINAL LOOK no longer freezes in matches in TRUE NATIVE.** It now runs without MSAA.
+
+### Settings
+
+- **Your settings now win over QUALITY LOW.** LOW used to override your other choices. It now only sets starting values, and whatever you change stays changed.
+- **720p is the new default resolution.** Far more sensible for most machines, and you can still pick higher.
+- **LOW is lighter on PC.** Shadows, crowd poses, light strips and the wrestlers' rim light update at half rate on LOW. I checked this in motion and it looks good.
+
+### DIAGNOSTIC RUN: help me fix what I cannot see
+
+My own devices hide a lot of these bugs, so testers should not have to send log after log. **DIAGNOSTIC RUN** is one button, in the launcher, and on phones under LOGS AND UPDATES. It plays a short route by itself for about 3 minutes and saves one zip with everything I need: picture by picture through each stage of a frame, what the GPU really did with the wrestlers' vertices, and what your device reports. The game looks strange during the run, with flat grey or black scenes. That is on purpose. Your own save is not used.
+
+### Known
+
+- **Windows:** the game now uses a memory feature of Windows 10 1803 or newer. I have only tested it on Windows 11 build 26100. If your Windows cannot do it, the game shows a clear message and stops: please tell me your version.
+- **Very weak machines:** Bryan's entrance is not a locked 60 on the Surface. CLASSIC (30 fps entrances) has plenty of headroom there.
+- **The purple Randy Savage** in 30 Years of WrestleMania is not fixed. It looks like part of the attire build going missing on some device, and I do not know which one yet.
+- **Phone fixes marked "should fix"** need you: a DIAGNOSTIC RUN from any phone with a graphics bug is the best help you can give.
+
+Thank you for every report. They are the reason this release exists.
+
 ## v0.2.19
 
 TRUE NATIVE, my own renderer, is now the default, and it is faster than when I first showed it in v0.2.18.

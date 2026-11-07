@@ -9,6 +9,8 @@ requirements); this tool reads the log once and prints one line per feature:
 
   PROVEN       every proof line was found (numbers > 0 where the entry says), the requirements are proven too
   NOT ENGAGED  the switch is wanted (set in the log, or --expect) but a proof is missing, or a requirement is not proven
+  NOT SEEN     a switch the DEFAULTS turned on (not --expect) whose entry says `scene = true`: its proof line needs a scene or a
+               flag this route may not have (Session 95: the stack defaults; never fails the run)
   NO ENTRY     a wanted switch with no table entry (only for --expect, and for switches with a [meta] watch prefix that the
                log set: the table must grow; never fails the run)
 
@@ -33,7 +35,8 @@ TABLE = os.path.join(HERE, 'feature_proofs.toml')
 MODIFIED = re.compile(r"modified: (\w+) = '([^']*)'")
 OFF = {'', '0', 'false', 'off', 'no'}
 NEEDLES = ('[d3d', '[pace]', '[native]', '[m6]', 'modified:', 'wakes', 'coherency',  # ([m6]: the translation store's open line)
-           '[quirks]', 'left off (vulkan_', '[tex]', '[storage-window]', '[crowd]', '[eds]', '[post_swap]', '[scene_swap]', '[s94]')  # Session 93 (+ Session 94: [s94]): the quirks / transcode / window / crowd proofs
+           '[quirks]', 'left off (vulkan_', '[tex]', '[storage-window]', '[crowd]', '[eds]', '[post_swap]', '[scene_swap]', '[s94]', '[jobs]', '[s95]', '[mirror]', '[diag]', '[vfetch]', '[vinput]', '[sparse]', '[skin1]', '[wwe2k14][power]', '[wwe2k14][turbo]', '[wwe2k14][nf]', '[wwe2k14][idle]', '[wwe2k14][tick]', '[display]',  # Session 93 (+ Session 94: [s94]): the quirks / transcode / window / crowd proofs
+           '[s59]', '[life]', '[hang]', '[vkpc]', '[mem]', '[dynres]', '[perf_hint]', 'SYNC-HAZARD')  # Session 95: the Android wave (LIFE, HANG, PLAIN, DEATH, PACE, TILER)
 
 
 def load_table(path=TABLE):
@@ -60,7 +63,10 @@ def is_on(feat, value):
             return (int(v, 0) & int(feat['bit'])) != 0
         except ValueError:
             return False
-    return v.lower() in [s.lower() for s in feat.get('on', [])]
+    on = [s.lower() for s in feat.get('on', [])]
+    if '*' in on:  # any value that is set (a path or a name), for switches whose value is not a flag
+        return v.lower() not in ('', 'false', '0', 'off', 'none')
+    return v.lower() in on
 
 
 def scan(log_path, feats):
@@ -153,7 +159,8 @@ def check(log_path, expect=None, table=TABLE):
         if not is_on(f, v):
             continue
         s = resolve(f['name'])
-        rows.append({'name': f['name'], 'cvar': f['cvar'], 'value': v, 'state': s[0], 'detail': s[1], 'evidence': s[2]})
+        row_state = 'NOT SEEN' if s[0] != 'PROVEN' and f.get('scene') and f['cvar'] not in expect else s[0]
+        rows.append({'name': f['name'], 'cvar': f['cvar'], 'value': v, 'state': row_state, 'detail': s[1], 'evidence': s[2]})
     entry_cvars = {f['cvar'] for f in feats}
     prefixes = tuple(meta.get('watch_prefixes', []))
     no_entry = []
@@ -162,9 +169,9 @@ def check(log_path, expect=None, table=TABLE):
             continue
         if k in expect or (prefixes and k.startswith(prefixes)):
             no_entry.append('%s=%s' % (k, v))
-    ok = all(r['state'] == 'PROVEN' for r in rows)
+    ok = all(r['state'] in ('PROVEN', 'NOT SEEN') for r in rows)
     return {'log': log_path, 'features': rows, 'no_entry': no_entry,
-            'not_engaged': [r['name'] for r in rows if r['state'] != 'PROVEN'], 'ok': ok}
+            'not_engaged': [r['name'] for r in rows if r['state'] == 'NOT ENGAGED'], 'ok': ok}
 
 
 def main(argv):

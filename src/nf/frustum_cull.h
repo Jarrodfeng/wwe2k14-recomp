@@ -180,6 +180,7 @@ struct Spec {
     out.Add(ctx.r10.u32, 4);
   }
   static void Native(PPCContext& ctx, uint8_t* base) { Run(ctx, base); }
+  static void Lean(PPCContext& ctx, uint8_t* base) { Run(ctx, base); }
 };
 
 }  // namespace wwe2k14::nf_frustum_cull

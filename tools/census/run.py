@@ -339,6 +339,9 @@ def main():
                 skipped.append(it['id'])
                 continue
         todo.append(it)
+    if only:  # (Session 95: --only keeps its own order, so a time-boxed pass runs what matters first)
+        order = [x.strip() for x in a.only.split(',') if x.strip()]
+        todo.sort(key=lambda it: order.index(it['id']) if it['id'] in order else len(order))
     print('pass %s: %d to run, %d already have a result%s' % (a.pass_name, len(todo), len(skipped),
                                                             (' (%s)' % ', '.join(skipped[:8])) if skipped else ''))
     for it in todo:

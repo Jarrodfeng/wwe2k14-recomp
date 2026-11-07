@@ -127,8 +127,16 @@ vec3 PerturbedNormal(vec3 tangent, vec3 bitangent, vec3 vertex_normal, float u, 
   return m * InvLength(dot(m, m));
 }
 
+#ifdef LEAN
+#define LEAN_POW(x, p) exp2((p) * log2(abs(x)))  // the plain material's own pow
+#include "wrestler_lean.glsl"
+#endif
+
 void main() {
   vec2 uv = in_uv_fog.xy;
+#ifdef LEAN
+  vec2 lean_dx = dFdxCoarse(uv), lean_dy = dFdyCoarse(uv);  // LEAN: gradients for the gated fetches below (outside every branch)
+#endif
   vec3 vertex_normal = in_normal.xyz;
   vec3 view = in_view.xyz;
 
@@ -136,8 +144,15 @@ void main() {
   vec3 albedo_tex = texture(sampler2DArray(t_albedo, s_albedo), vec3(uv, 0.0), C201.w).rgb;  // read with a LOD bias
   vec4 normal1 = SAMPLE2D(t_normal1, s_normal1, uv);  // x, y: normal map; w: specular mask
   vec3 masks = SAMPLE2D(t_masks, s_masks, uv).xyz;    // x: paint mask; y: detail zone; z: specular level mix
+#ifdef LEAN
+  float zone_w = 0.0;
+  if (masks.y != 0.0) zone_w = textureGrad(sampler2DArray(t_zone, s_zone), vec3(uv, 0.0), lean_dx, lean_dy).w;  // LEAN: detail_zone = masks.y * zone_w
+#else
   float zone_w = SAMPLE2D(t_zone, s_zone, uv).w;
+#endif
+#ifndef LEAN
   vec2 lightmap = SAMPLE2D(t_lightmap, s_lightmap, in_light_pos.xy).xy;
+#endif
 
   float paint_mask = masks.x;
   float detail_zone = masks.y * zone_w;         // where the tiled bump applies and the specular mask is rebuilt
@@ -200,6 +215,21 @@ void main() {
   vec3 reflected2 = view - normal2 * (n2_dot_v + n2_dot_v);
 
   // ---- 3. Shadow ----
+#ifdef LEAN
+  float lit;
+  if (C168.w == 0.0) {
+    lit = K_ONE - clamp(in_shadow_add.x, 0.0, 1.0);  // LEAN: shadow strength 0 (uniform): no shadow fetch, no pows
+  } else {
+    float n_dot_l = max(dot(normal, C166.xyz), K_EPS);
+    vec2 shadow_uv = in_shadow_pos.xy * (1.0 / in_shadow_pos.w);
+    vec4 occluder = textureLod(sampler2DArray(t_shadow, s_shadow), vec3(shadow_uv, 0.0), 0.0);
+    float receiver = clamp((in_shadow_pos.z - C168.x) * (1.0 / (C168.y - C168.x)) - C168.z, 0.0, 1.0);
+    vec4 depth_diff = vec4(receiver) - occluder;
+    float shadow_amount = ShadowAmountLean(depth_diff, C169, C170, K_ONE);
+    float shadow_fade = K_ONE - (K_ONE - n_dot_l) * C169.y;                 // surfaces facing away from the light shadow less
+    lit = K_ONE - clamp((C168.w * shadow_amount) * shadow_fade + in_shadow_add.x, 0.0, 1.0);  // 1 = fully lit
+  }
+#else
   float n_dot_l = max(dot(normal, C166.xyz), K_EPS);
   vec2 shadow_uv = in_shadow_pos.xy * (1.0 / in_shadow_pos.w);
   vec4 occluder = textureLod(sampler2DArray(t_shadow, s_shadow), vec3(shadow_uv, 0.0), 0.0);
@@ -220,6 +250,7 @@ void main() {
   float shadow_amount = max(shadow_a, shadow_b);
   float shadow_fade = K_ONE - (K_ONE - n_dot_l) * C169.y;                 // surfaces facing away from the light shadow less
   float lit = K_ONE - clamp((C168.w * shadow_amount) * shadow_fade + in_shadow_add.x, 0.0, 1.0);  // 1 = fully lit
+#endif
 
   // ---- 4. Light: the ambient cube tinted by the skin glow, plus the sky / ground ambient ----
   vec4 ambient_tex = texture(samplerCube(t_ambient, s_ambient), normal);
@@ -247,6 +278,27 @@ void main() {
 
   // ---- 5. Highlight, rim and reflections ----
   // Highlight along the half vector between the normal and the view vector, strongest at grazing angles.
+#ifdef LEAN
+  vec3 body = base;
+  if (C161.z != 0.0) {  // LEAN: rim strength 0 (uniform): body = base; no highlight, no lighting-map fetch
+    vec2 lightmap = SAMPLE2D(t_lightmap, s_lightmap, in_light_pos.xy).xy;
+    vec3 half_sum = (normal + view) * K_HALF;
+    vec3 half_dir = half_sum * InvLength(dot(half_sum, half_sum));
+    float spec_dot = max(dot(half_dir, C12.xyz), K_EPS);
+    float edge = K_ONE - abs(n_dot_v);                                         // 0 facing the camera, 1 at the silhouette
+    float edge_pow = exp2(C205.y * log2(abs(edge)));
+    vec3 spec = (spec_dot * edge_pow) * C4.xyz * C205.x * in_light_pos.w;
+  
+    // The base plus the highlight, mixed by the two weights, and added back scaled by the rim strength: the rim is the
+    // edge term times the arena's lighting map term, lifted by the normal map's w.
+    vec3 spec_mix = (base + spec) * C253.y - base + (base * (spec + K_ONE)) * C253.w;
+    float lightmap_term = max(lightmap.y - in_light_pos.z, K_EPS) * C162.z + lightmap.x;
+    float lightmap_pow = exp2(C161.x * log2(abs(lightmap_term)));
+    float spec_mask_mix = (normal1.w - K_ONE) * C161.y + K_ONE;
+    float rim_strength = (spec_mask_mix * (edge * lightmap_pow)) * C161.z;
+    body = spec_mix * rim_strength + base;
+  }
+#else
   vec3 half_sum = (normal + view) * K_HALF;
   vec3 half_dir = half_sum * InvLength(dot(half_sum, half_sum));
   float spec_dot = max(dot(half_dir, C12.xyz), K_EPS);
@@ -262,12 +314,20 @@ void main() {
   float spec_mask_mix = (normal1.w - K_ONE) * C161.y + K_ONE;
   float rim_strength = (spec_mask_mix * (edge * lightmap_pow)) * C161.z;
   vec3 body = spec_mix * rim_strength + base;
+#endif
 
   // Reflection cube along the reflected view vector (taken through the 3x3 in c52-c54): two channels, weighted and
   // masked by the specular mask (the first also by interpolator 9); plus, where the bump weight is on, the paint
   // area's own reflection (third channel, along the second normal's reflection).
   vec3 reflect_dir = vec3(dot(reflected, C52.xyz), dot(reflected, C53.xyz), dot(reflected, C54.xyz));
+#ifdef LEAN
+  vec2 reflect_xy = vec2(0.0);
+  if (C197.w != 0.0 && (C142.x != 0.0 || C142.z != 0.0)) {  // LEAN: reflection weights 0 (uniform): no cube fetch
+    reflect_xy = texture(samplerCube(t_reflect, s_reflect), reflect_dir).xy;
+  }
+#else
   vec2 reflect_xy = texture(samplerCube(t_reflect, s_reflect), reflect_dir).xy;
+#endif
   float reflection = (reflect_xy.x * C197.w) * (spec_mask * C142.x) * in_reflect_gain.x + (reflect_xy.y * C197.w) * (spec_mask * C142.z);
   vec3 paint_dir = vec3(dot(reflected2, C52.xyz), dot(reflected2, C53.xyz), dot(reflected2, C54.xyz));
   vec3 paint_dx = dFdxCoarse(paint_dir), paint_dy = dFdyCoarse(paint_dir);  // outside the branch, for the fetch's gradients

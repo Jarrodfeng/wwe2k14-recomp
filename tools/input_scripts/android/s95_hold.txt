@@ -1,0 +1,23 @@
+# Session 95 (Lane E): get to the match and STAY there. Same title presses and marks as bench_cena_taker.txt, but no quit before the match is over for the test:
+# after the match scene (M3.PAC) opens it waits a very long time, and run.ps1 -Seconds stops the run. Use with the lesnar_bryan scenario and
+#   -GameArgs "--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=139,103"
+on_fail quit
+log hold: start (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log hold: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log hold: match launched (entrances loading)
+wait_file M3.PAC 36000 optional
+log hold: match scene wait over
+wait_frames 216000
+log hold: end
+quit

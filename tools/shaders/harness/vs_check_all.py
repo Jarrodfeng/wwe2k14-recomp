@@ -2,7 +2,7 @@
 """Session 87 (stage 4): runs vs_harness.py for every shader of src\\scene_vs_swap.h's table against the SDK translation of its
 guest vertex shader (the dumped module with the most interpolators; the native FMA one when it has as many), and prints one
 line each. The comparison is on all records: a shader applies the guest's multiply rule (AvMulX) wherever the translation does.
-  py tools\\shaders\\harness\\vs_check_all.py [--wild] [name ...]      (--wild: data with unbounded floats / raw bits)"""
+  py tools\\shaders\\harness\\vs_check_all.py [--wild] [--opt] [--dump DIR] [name ...]      (--wild: data with unbounded floats / raw bits)"""
 import glob, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +27,7 @@ def best_ref(h):
     """The dumped module with the most interpolators for the guest shader; a native FMA module (_e00000002; never one of our own
     replacements, ext bit 0x10) preferred over a plain one. Looks in out/s87/shader_dump (the milestone run's) first, then out/s70."""
     files = []
-    for d in (os.path.join(R, 'out', 's87', 'shader_dump'), DUMP):
+    for d in DUMPS + [os.path.join(R, 'out', 's87', 'shader_dump'), DUMP]:
         files += glob.glob(os.path.join(d, 'shader_%s_*.vk.bin.vert' % h))
     cand = []
     for f in files:
@@ -42,9 +42,18 @@ def best_ref(h):
     return best[3], not best[1]
 
 
+DUMPS = []  # Session 95: --dump DIR (repeatable) puts a fresh --dump_shaders folder first
+
+
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith('--')]
-    wild = '--wild' in sys.argv
+    argv = sys.argv[1:]
+    while '--dump' in argv:
+        i = argv.index('--dump')
+        DUMPS.append(argv[i + 1])
+        del argv[i:i + 2]
+    args = [a for a in argv if not a.startswith('--')]
+    wild = '--wild' in argv
+    opt = '--opt' in argv  # Session 95: ours as shipped (glslang + spirv-opt -O)
     bad = 0
     for row in table():
         h, f = row[0], row[1]
@@ -60,6 +69,13 @@ def main():
             cmd.append('--plain')
         if wild:
             cmd.append('--wild')
+        if opt:
+            cmd.append('--opt')
+        if '--noclamp' in argv:
+            cmd.append('--noclamp')
+        if '--bone-safe' in argv:
+            cmd.append('--bone-safe')
+            cmd.append('--dynamic')
         if len(row) > 7 and row[7] == 'dynamic':
             cmd.append('--dynamic')
         r = subprocess.run(cmd, capture_output=True, text=True)

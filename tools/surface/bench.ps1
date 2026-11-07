@@ -13,6 +13,15 @@
 #           against 16.7 ms per scene (tools\bench\bench_report.py)
 #   frames_bryan / frames_brock / frames_match (Session 89, ask for them with -Only): one scene each, normal speed,
 #           fixed seed 1, quits at the scene's end (tools\input_scripts\scenes\)
+#   ab      (Session 95, heat aid; ask for it with -Only ab) INTERLEAVED A/B on a hot machine: arm A, arm B, A, B ... with a
+#           fixed gap and NO cool-down, so both arms see the same heat (the fanless Surface drifts 35% in 8 minutes: Bryan GPU
+#           23.3 -> 31.5 ms over six sequential runs, out\s95\step0.md). One scene per run (-AbScene frames_bryan|frames_brock|
+#           frames_match, default frames_match). Arm A = the scene's flags; arm B = the same plus -ArmBFlags (cvars) and/or -ArmBExe
+#           (another build's wwe2k14.exe: PGO, a branch). -AbRounds N pairs (default 2 = A B B A: the arm order alternates per round so the heat drift cancels), -AbGapSeconds N between runs
+#           (default 20), -AbWarmup adds one discarded A first (the machine starts hot, not cold). Steps land in Out\ab_<n>_A|B;
+#           Out\ab_order.txt lists the order and the start times. Read each pair on the PC (frames_fps.py) and compare the A and B
+#           means of the SAME rounds; a drift down A1 -> A2 is heat, not the arm. The fixed gap is the only pacing: a temperature
+#           or clock gate is not built (the Surface's counter names are unconfirmed).
 #   mul     the Intel multiply rule: the same frames run with --wwe2k14_intel_exact_mul=0 (exact rule off): its cost
 #   cold    first launch with our shader cache emptied (a fresh -UserData copy): shader preparation time. The driver's
 #           own cache (%LOCALAPPDATA%Low\Intel\ShaderCache) is moved aside ONLY with -ColdDriver (Jarrod's call), and
@@ -39,7 +48,13 @@ param([Parameter(Mandatory)][string]$Exe, [Parameter(Mandatory)][string]$GameDat
       # the taskbar stays over its borderless fullscreen window and the desktop compositor composes the 2736x1824
       # screen every refresh - ~3.3 ms of GPU time inside ~2 frames in 3 (runs 033-036, dwm.exe 7-13% of the 3D
       # engine). -Front puts the game's window on top and in the foreground once it shows, as a player's launch does.)
-      [switch]$Front)
+      [switch]$Front,
+      # (Session 95, warm-60 work: Power=true in bench_args.txt) power_log.ps1 beside this script samples the RAPL powers,
+      # CPU utility, thermal zones and the 3D engine once a second into <step>\power.csv (read: tools\surface\power_read.py).
+      [switch]$Power,
+      # (Session 95: the ab step, see above.)
+      [string]$AbScene = 'frames_match', [string[]]$ArmAFlags = @(), [string[]]$ArmBFlags = @(), [string]$ArmBExe = '', [int]$AbRounds = 2,
+      [int]$AbGapSeconds = 20, [switch]$AbWarmup)
 # (-Levers a,b: only those levers / probes and their base run, e.g. -Only levers -Levers no_alias_direct,aniso_4x.)
 $ErrorActionPreference = 'Stop'
 $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })  # (pwsh -File: one string)
@@ -92,6 +107,10 @@ function Set-GameFront($proc, [string]$name) {
 # threads, the i3-6100U's count. Read on the PC: tools\perf\thread_scenes.py <threads.csv> <the step's log>.)
 function Invoke-Step([string]$name, [string]$route, [string[]]$flags, [bool]$freshData, [bool]$Threads = $false,
                      [int64]$Affinity = 0) {
+  # (Session 95: the ab step's arm B may come from another build folder.)
+  $Exe = if ($script:StepExe) { $script:StepExe } else { $Exe }
+  $exeDir = Split-Path -Parent $Exe
+  $logs = Join-Path $exeDir 'logs'
   $work = Join-Path $Out "userdata_$name"
   if (Test-Path $work) { Remove-Item -Recurse -Force $work }   # our own scratch copy only
   Copy-Item -Recurse $UserData $work
@@ -117,12 +136,20 @@ function Invoke-Step([string]$name, [string]$route, [string[]]$flags, [bool]$fre
   } elseif ($Threads) {
     Write-Host "[surface] $name : thread_busy.ps1 not next to bench.ps1 - no thread times"
   }
+  $pwr = $null
+  $pwrScript = Join-Path $PSScriptRoot 'power_log.ps1'
+  if ($Power -and (Test-Path $pwrScript)) {
+    $pwr = Start-Process (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                                               $pwrScript, '-Out', (Join-Path $dest 'power.csv'), '-WaitForStart', '120',
+                                               '-MaxSeconds', ($TimeoutSeconds + 120)) -PassThru -WindowStyle Hidden
+  } elseif ($Power) { Write-Host "[surface] $name : power_log.ps1 not next to bench.ps1 - no power log" }
   $t0 = Get-Date
   $p = Start-Process -FilePath $Exe -ArgumentList $gameArgs -WorkingDirectory $exeDir -PassThru
   if ($Affinity) { try { $p.ProcessorAffinity = [IntPtr]$Affinity } catch { Write-Host "[surface] affinity not set: $_" } }
   if ($Front) { Set-GameFront $p $name }
   if (-not $p.WaitForExit($TimeoutSeconds * 1000)) { $p.Kill(); Write-Host "[surface] $name : timed out, killed" }
   if ($busy -and -not $busy.WaitForExit(30000)) { Stop-Process -Id $busy.Id -Force }
+  if ($pwr -and -not $pwr.WaitForExit(30000)) { Stop-Process -Id $pwr.Id -Force }
   Get-ChildItem $logs | Where-Object { $before -notcontains $_.Name -and $_.LastWriteTime -ge $t0 } |
     Where-Object { $_.Extension -in '.log', '.csv', '.txt' } | Copy-Item -Destination $dest
   Write-Host "[surface] $name : exit $($p.ExitCode), $([int]((Get-Date) - $t0).TotalSeconds) s"
@@ -178,6 +205,55 @@ foreach ($k in $sceneSteps.Keys) {
 # Surface's i5 has 4 / 8), with every thread's CPU time: the CPU budget at 60 fps on a 4-thread laptop.
 if ($Only -contains 'pinned') {
   Invoke-Step 'pinned' 'profile_lesnar_bryan.txt' @('--wwe2k14_launch=lesnar_bryan') $false -Threads $true -Affinity 0xF
+}
+# gpuprof (Session 95, tool Q): one launched run with the per-pass GPU logs at Brock +300, the pyro, Bryan +440, the match +600.
+# Read: py -I tools/native/gpu_profile.py RUN --dir STEP_FOLDER.
+if ($Only -contains 'gpuprof') {
+  Invoke-Step 'gpuprof' 's95_gpu_profile.txt' @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_fixed_seed=1', '--vulkan_gpu_timestamps=true',
+    '--gpu_native_gpu_timers=true', '--vsync=false') $false
+}
+# shaderrank (Session 95, B2): the shader family ranking - one match run, each family of our pixel shaders flat grey in turn
+# (live cvar gpu_native_shader_ablate; needs the s95-shade SDK build). Read: py -I tools/native/shader_rank.py RUN --dir STEP_FOLDER.
+if ($Only -contains 'shaderrank') {
+  Invoke-Step 'shaderrank' 's95_shader_rank.txt' @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_launch_skip_entrances=true', '--wwe2k14_fixed_seed=1',
+    '--vulkan_gpu_timestamps=true', '--gpu_native_gpu_timers=true', '--vulkan_stored_pipelines_at_boot=true', '--vsync=false') $false
+}
+# stacks (Session 95): one symbols profile of the frames route (the kit needs push_kit -Symbols).
+if ($Only -contains 'stacks') {
+  Invoke-Step 'stacks' 'profile_lesnar_bryan.txt' @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_fixed_seed=1',
+    '--wwe2k14_profile_gpu_commands=true', '--wwe2k14_profile_stacks=true') $false
+}
+# ab (Session 95, heat aid): see the header. Same scene, A B B A back to back with a fixed gap.
+if ($Only -contains 'ab') {
+  if (-not $sceneSteps.Contains($AbScene)) { Write-Host "[surface] ab: -AbScene must be one of $($sceneSteps.Keys -join ', ')"; throw 'bad -AbScene' }
+  if (-not $ArmBFlags.Count -and -not $ArmBExe) { Write-Host '[surface] ab: arm B equals arm A (no -ArmBFlags, no -ArmBExe): the pair measures the noise floor' }
+  if ($ArmBExe -and -not (Test-Path -LiteralPath $ArmBExe)) { throw "ab: -ArmBExe not found: $ArmBExe" }
+  # (Session 95 stack 4: -ArmAFlags are added to arm A only, so the arms can differ by a whole flag set.)
+  $armAFlagList = @($ArmAFlags | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { '--' + $_.TrimStart('-') })
+  $armBFlagList = @($ArmBFlags | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { '--' + $_.TrimStart('-') })
+  $order = New-Object System.Collections.Generic.List[string]
+  $abNames = @()
+  $seq = @()
+  if ($AbWarmup) { $seq += , @('abwarm', 'A') }
+  # A B B A A B ...: heat drifts up one slot at a time, so alternate which arm goes first in a round (Session 95 review).
+  for ($r = 1; $r -le $AbRounds; $r++) {
+    if ($r % 2 -eq 1) { $seq += , @("ab_${r}_A", 'A'); $seq += , @("ab_${r}_B", 'B') }
+    else { $seq += , @("ab_${r}_B", 'B'); $seq += , @("ab_${r}_A", 'A') }
+  }
+  $first = $true
+  foreach ($e in $seq) {
+    if (-not $first) { Write-Host "[surface] ab: gap $AbGapSeconds s (no cool-down: both arms stay hot)"; Start-Sleep -Seconds $AbGapSeconds }
+    $first = $false
+    $script:StepExe = if ($e[1] -eq 'B' -and $ArmBExe) { $ArmBExe } else { '' }
+    $fl = @($sceneSteps[$AbScene][1]) + $(if ($e[1] -eq 'B') { $armBFlagList } else { $armAFlagList })
+    $order.Add("$($e[0])`t$($e[1])`t$(Get-Date -Format 'HH:mm:ss')`t$AbScene`t$($fl -join ' ')`t$(if ($script:StepExe) { $script:StepExe } else { $Exe })")
+    Invoke-Step $e[0] $sceneSteps[$AbScene][0] $fl $false -Threads $true
+    if ($e[0] -ne 'abwarm') { $abNames += $e[0] }
+  }
+  $script:StepExe = ''
+  Set-Content (Join-Path $Out 'ab_order.txt') $order
+  $script:AbOrderFile = Join-Path $Out 'ab_order.txt'
+  $Only += $abNames
 }
 if ($Only -contains 'mul') {
   Invoke-Step 'mul' 'profile_lesnar_bryan.txt' @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_intel_exact_mul=0') $false
@@ -283,6 +359,7 @@ if ($Only -contains 'precompile') {
 }
 $zip = Join-Path $Out "surface_bench_$stamp.zip"
 $dirs = @(Get-ChildItem $Out -Directory | Where-Object Name -in $Only | ForEach-Object FullName)
+if ($script:AbOrderFile -and (Test-Path $script:AbOrderFile)) { $dirs += $script:AbOrderFile }
 if ($dirs.Count) {
   Compress-Archive -Path $dirs -DestinationPath $zip
   Write-Host "[surface] done: $zip"

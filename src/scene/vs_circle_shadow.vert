@@ -35,10 +35,10 @@ void main() {
   vec2 r1xy = trunc(offsets);
   int a = XeAddress(r1xy.x);
   float flag = (abs(float(index)) >= C255.y) ? 1.0 : 0.0;
-  vec3 moved = fma(vec3(w3), fc.c[8 + a].xyz, r3p);
+  vec3 moved = fma(vec3(w3), fc.c[8 + XeBone8(a)].xyz, r3p);
   precise float rest = (-w3) + C255.x;
   a = XeAddress(r1xy.y);
-  vec3 placed = fma(vec3(rest), fc.c[8 + a].yxz, vec3(moved.y, moved.x, moved.z));
+  vec3 placed = fma(vec3(rest), fc.c[8 + XeBone8(a)].yxz, vec3(moved.y, moved.x, moved.z));
   vec4 v = vec4(placed.z, placed.y, placed.x, flag);
   vec4 r3 = vec4(AvDot4(C4.zxyw, v), AvDot4(C5.zxyw, v), AvDot4(C6.zxyw, v), AvDot4(C7.zxyw, v));
   precise float dist = (-C0.y) - (-placed.x);

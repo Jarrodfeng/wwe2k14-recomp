@@ -134,7 +134,7 @@ def write_temp_manifest(src, dst, out_dir):
 
 
 def do_codegen(a):
-    ensure_lock('codegen_repro ' + a.stamp)   # re-runs this step under tools\runlock.ps1 unless already held
+    ensure_lock('codegen_repro ' + a.stamp, max_minutes=0)   # re-runs this step under tools\runlock.ps1 unless already held
     stamp_dir = os.path.join(REPO, 'out', 'harness', 'codegen_repro', a.stamp)
     out_dir = os.path.join(stamp_dir, 'default')
     if os.path.exists(out_dir):

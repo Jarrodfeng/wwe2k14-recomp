@@ -10,7 +10,7 @@
 // The bool constants choose the blend: for the position b4 = four bones (the weights summed, the rest of the weight on the
 // plain model matrix), else b0 = bone 0 alone, b1 = bones 0 and 1, b2 = bones 0 to 2, b3 = four bones with the leftover weight on
 // bone 3; for the normal b4 or b2 or b3 = bones 0 to 2, else b0 = bone 0, b1 = bones 0 and 1. None set = the vertex as it is.
-// A bone's matrix is c[76 + a], c[77 + a], c[78 + a], with a = the byte x the literal register's z (rounded), so every blend reads
+// A bone's matrix is c[76 + XeBone(a)], c[77 + XeBone(a)], c[78 + XeBone(a)], with a = the byte x the literal register's z (rounded), so every blend reads
 // the float block by number. Every product keeps the guest's 0 x infinity = 0 rule (AvMulX) and every sum is a plain add, taken in the
 // order the guest sums: that order is what makes the result the same bit for bit, so it is spelt out below.
 //
@@ -28,7 +28,7 @@ vec4 PropBoneBytes(int at) {
 // A normal turned by a bone's rotation rows (the guest sums z, x, y of the normal against the matching components of the row).
 vec3 PropTurn(vec3 n, int a) {
   vec3 q = n.zxy;
-  return vec3(AvDot3R(q, fc.c[76 + a].zxy), AvDot3R(q, fc.c[77 + a].zxy), AvDot3R(q, fc.c[78 + a].zxy));
+  return vec3(AvDot3R(q, fc.c[76 + XeBone(a)].zxy), AvDot3R(q, fc.c[77 + XeBone(a)].zxy), AvDot3R(q, fc.c[78 + XeBone(a)].zxy));
 }
 
 // The bone offsets of the bytes (byte x stride, rounded when used as an address).

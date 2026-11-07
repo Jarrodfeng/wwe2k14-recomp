@@ -16,9 +16,19 @@
 
 // The member mesh: 8 floats a vertex (position xyz, normal xyz, the colour texture's coordinate already in the order
 // the pixel shader samples), converted once from the game's 7-dword big-endian vertices.
-layout(set = 0, binding = 4, std430) readonly buffer CrowdMesh { float mesh[]; };
 // The members drawn: 3 vec4 each, the world matrix rows (the game's VS c76, c77, c78).
+#ifdef CROWD_VERTEX_INPUT
+// Session 95 (P7, gpu_native_crowd_input; tools\shaders\build_own_crowd_vi.py): the attribute form. The same two records from the same ring, as vertex attributes (the SDK's vertex_input_layout.h rule:
+// uvec4 chunks, as raw bits): binding 0 the mesh, binding 1 the members per instance. The index is the host-order pool's, gl_VertexIndex already the guest's: no index step, no storage buffer.
+layout(location = 0) in uvec4 in_mesh0;    // position xyz, normal x
+layout(location = 1) in uvec4 in_mesh1;    // normal yz, the coordinate
+layout(location = 2) in uvec4 in_member0;  // c76
+layout(location = 3) in uvec4 in_member1;  // c77
+layout(location = 4) in uvec4 in_member2;  // c78
+#else
+layout(set = 0, binding = 4, std430) readonly buffer CrowdMesh { float mesh[]; };
 layout(set = 0, binding = 5, std430) readonly buffer CrowdMembers { vec4 members[]; };
+#endif
 
 layout(set = 0, binding = 0, std140) uniform CrowdScene {
   vec4 view_proj[4];     // c56-c59: world -> clip
@@ -43,20 +53,29 @@ layout(set = 0, binding = 1) uniform sampler2DArray light_map_tex;  // fetch con
 layout(location = 0) out vec4 out_texcoord;  // xy the colour texture, zw the lighting map (entrances)
 layout(location = 1) out vec4 out_light;
 
+#ifndef CROWD_VERTEX_INPUT
 uint GuestIndex(uint v) {
   uint endian = scene.index_info.x;
   if (endian == 1u || endian == 2u) v = ((v >> 8) & 0x00FF00FFu) | ((v & 0x00FF00FFu) << 8);
   if (endian == 2u || endian == 3u) v = (v >> 16) | (v << 16);
   return clamp((v + scene.index_info.y) & 0xFFFFFFu, scene.index_info.z, scene.index_info.w);
 }
+#endif
 
 void main() {
+#ifdef CROWD_VERTEX_INPUT
+  vec3 in_position = uintBitsToFloat(in_mesh0.xyz);
+  vec3 in_normal = uintBitsToFloat(uvec3(in_mesh0.w, in_mesh1.xy));
+  vec2 in_texcoord = uintBitsToFloat(in_mesh1.zw);
+  vec4 in_world_x = uintBitsToFloat(in_member0), in_world_y = uintBitsToFloat(in_member1), in_world_z = uintBitsToFloat(in_member2);
+#else
   uint v = GuestIndex(uint(gl_VertexIndex)) * 8u;
   vec3 in_position = vec3(mesh[v], mesh[v + 1u], mesh[v + 2u]);
   vec3 in_normal = vec3(mesh[v + 3u], mesh[v + 4u], mesh[v + 5u]);
   vec2 in_texcoord = vec2(mesh[v + 6u], mesh[v + 7u]);
   uint m = uint(gl_InstanceIndex) * 3u;
   vec4 in_world_x = members[m], in_world_y = members[m + 1u], in_world_z = members[m + 2u];
+#endif
   vec4 p = vec4(in_position, 1.0);
   vec3 world = vec3(dot(in_world_x, p), dot(in_world_y, p), dot(in_world_z, p));
   vec3 normal = vec3(dot(in_world_x.xyz, in_normal), dot(in_world_y.xyz, in_normal), dot(in_world_z.xyz, in_normal));

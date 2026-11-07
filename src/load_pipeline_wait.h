@@ -55,8 +55,8 @@ inline bool g_was_open = false;
 
 // VdSwap, every guest frame (the game thread).
 inline void OnFrame(uint64_t frame) {
-  const bool open =
-      g_load_turbo_ingame_window().load(std::memory_order_relaxed) || create_readback::InCharacterWindow(frame);
+  const bool char_open = create_readback::InCharacterWindow(frame);  // first: never short-circuited (the load's close is seen there)
+  const bool open = char_open || g_load_turbo_ingame_window().load(std::memory_order_relaxed);
   if (g_was_open && !open) g_closed_frame = frame;
   g_was_open = open;
   const uint64_t hold = uint64_t(REXCVAR_GET(wwe2k14_load_pipeline_wait_hold_frames));

@@ -36,19 +36,19 @@
 #   owned_check.ps1 -Exe <exe> adds all of these itself. Never run from this folder without --wwe2k14_settings_file
 #   (the game would read Jarrod's real launcher settings).
 #
-# Options: -Reconfigure (re-run CMake), -Jobs N (default 10: three builds may run at once), -NoCache (no sccache), -RefreshExe (copy the main exe
+# Options: -Reconfigure (re-run CMake), -Jobs N (default 8, Session 95: two or three builds may run at once on 32 threads), -NoCache (no sccache), -RefreshExe (copy the main exe
 # again even if equal), -ExeSource DIR (default the main exe folder, read only), -NoLock (no run lock hold; not for unattended use),
 # -LockWaitMinutes N, -Log PATH. Exit codes: 0 ok, 2 bad arguments, 3 failure, 4 lock timeout, 5 build failed, 6 DLLs missing or
 # the staged ones are not the built ones, 7 another fast_build is running on this worktree, 8 another fast_build has held this
 # exe folder's stage.lock for 3 min, 9 a game is running from the staged exe folder (DLLs built, not staged).
 # Output ends with "FAST_BUILD_EXE <path>" on success.
 param([Parameter(Mandatory)][string]$Worktree, [Parameter(Mandatory)][string]$Name,
-      [switch]$Reconfigure, [int]$Jobs = 10, [switch]$RefreshExe, [string]$ExeSource = '', [switch]$NoLock,
+      [switch]$Reconfigure, [int]$Jobs = 8, [switch]$RefreshExe, [string]$ExeSource = '', [switch]$NoLock,
       [double]$LockWaitMinutes = 30, [string]$Log = '', [switch]$NoCache)
 # Session 94 (Jarrod: "Cache s would save an amazing amount of time"): compiles go through sccache when it is installed
 # (winget Mozilla.sccache; -NoCache = without). SCCACHE_BASEDIRS = this worktree, so every worktree of the same commit hits
 # the same cache entries (the paths differ only by the worktree folder). A build folder configured before the cache existed
-# is reconfigured once (one full build fills the cache). -Jobs default 10: three builds may run at once (runlock.ps1).
+# is reconfigured once (one full build fills the cache). -Jobs default 8 (Session 95, process report item 4: 3 builds x 10 jobs + -j16 builds made 25 s builds take 176 s). The cache is 40 GB (user env SCCACHE_CACHE_SIZE) and `sccache --show-stats` is printed after every build (hit rate, cache size).
 $ErrorActionPreference = 'Continue'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $SdkSrc = "$R\thirdparty\rexglue-sdk-src"
@@ -162,6 +162,12 @@ try {
         # worktrees on one shared server), so each worktree gets its own server on its own port; all share one cache folder.
         $h = 0; foreach ($ch in $Worktree.ToLowerInvariant().ToCharArray()) { $h = ($h * 31 + [int]$ch) % 1000003 }
         $env:SCCACHE_SERVER_PORT = [string](4300 + ($h % 600))
+        # Session 95: NO preprocessor (direct) cache. Its entries keep the header paths of the worktree that wrote them, so an
+        # unchanged .cpp hit an entry validated against ANOTHER branch's headers and got that branch's object (s95-mem's
+        # rexgpu-xenos.dll came out with s95-vb's system-constant index: every textured pixel shader invalid at 1440p).
+        # Read when the server starts, so a server from before this line is stopped first.
+        $env:SCCACHE_DIRECT = 'false'
+        & $sccache --stop-server *> $null
         if (-not $env:SCCACHE_CACHE_SIZE) { $env:SCCACHE_CACHE_SIZE = '40G' }
         $launcherOpts = @("-DCMAKE_C_COMPILER_LAUNCHER=$sccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=$sccache")
         if ((Test-Path "$bdir\CMakeCache.txt") -and -not (Select-String -LiteralPath "$bdir\CMakeCache.txt" -Pattern '^CMAKE_CXX_COMPILER_LAUNCHER:.*sccache' -Quiet)) {
@@ -194,6 +200,11 @@ try {
         $rc = 5; throw 'build failed'
     }
     Say ("build ok, {0:N1} s" -f $tBuild)
+    if ($sccache) {
+        # Session 95: the hit rate was never measured (an idle default server printed zeros). This worktree's own server.
+        $st = @(& $sccache --show-stats 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^(Compile requests executed|Cache hits\s|Cache hits rate|Cache misses\s|Cache location|Cache size|Max cache size)' })
+        Say ("sccache: " + (($st | ForEach-Object { ($_ -replace '\s{2,}', ' = ').Trim() }) -join '; '))
+    }
 
     # --- stage (review fixes: every copy -ErrorAction Stop so a locked / failed copy fails the build instead of leaving old
     # or mixed DLLs behind with exit 0; a game running from the folder is checked before AND after; two builds staging

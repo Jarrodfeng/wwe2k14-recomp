@@ -51,6 +51,7 @@
 #include <rex/logging.h>
 
 #include "../native_fn.h"
+#include "vec4_lean.h"
 
 REXCVAR_DEFINE_STRING(wwe2k14_nf_vec4_mat4_inplace, WWE2K14_NF_VERIFIED_DEFAULT, "wwe2k14",
                       "Session 66: native sub_82C32A88 (vec4 times mat4, in place): off | verify | on");
@@ -229,6 +230,13 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
   ctx.f13.f64 = double(p.z);
 }
 
+// Session 95, lean: what callers read only (the result at r3, r3 itself, the FP mode); no frame, no leftovers. The stack
+// round trip of the original is a transpose, so for an aligned r1 the rows are used directly. Non-finite inputs or an
+// unaligned r1 go to the strict version.
+inline void Lean(PPCContext& ctx, uint8_t* base) {
+  if (!nf_vec4_lean::Run<false>(ctx, base)) [[unlikely]] Run(ctx, base);
+}
+
 struct Spec {
   static constexpr const char* kName = "vec4_mat4_inplace";
   static constexpr uint32_t kGuest = 0x82C32A88;
@@ -241,6 +249,7 @@ struct Spec {
     out.Add(ctx.r3.u32, 16);
   }
   static void Native(PPCContext& ctx, uint8_t* base) { Run(ctx, base); }
+  static void Lean(PPCContext& ctx, uint8_t* base) { nf_vec4_mat4_inplace::Lean(ctx, base); }
 };
 
 }  // namespace wwe2k14::nf_vec4_mat4_inplace

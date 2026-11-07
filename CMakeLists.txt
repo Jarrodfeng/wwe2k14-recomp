@@ -34,6 +34,8 @@ if(ANDROID)
     # SDL_main (the SDK's windowed_app_main_sdl.cpp). Built by tools/android/build_game_android.ps1.
     add_library(wwe2k14 SHARED ${WWE2K14_SOURCES})
     set_target_properties(wwe2k14 PROPERTIES OUTPUT_NAME main)
+    # Session 95: the portable native functions (src/nf/all.h), for TRUE NATIVE's wwe2k14_nf_lean / wwe2k14_nf_reg_save on phones.
+    target_compile_definitions(wwe2k14 PRIVATE WWE2K14_NF_ANDROID)
     # Codegen stays on the PC: the PC SDK's rexglue.exe (the script passes it), never the Android build of the tool.
     if(TARGET rex::rexglue AND WWE2K14_PC_REXGLUE)
         set_target_properties(rex::rexglue PROPERTIES IMPORTED_LOCATION "${WWE2K14_PC_REXGLUE}"
@@ -46,6 +48,37 @@ else()
 endif()
 
 rexglue_setup_target(wwe2k14 GPU_PLUGINS xenos)
+
+# Session 95 (guest CPU power, out/s95/gcpu): compile switches for the recompiled guest code only (wwe2k14_recomp), all OFF by default.
+#   -DWWE2K14_GUEST_ISA=x86-64-v3   AVX2 + BMI/BMI2 + FMA + MOVBE + LZCNT + POPCNT (Haswell/Skylake and newer; NOTHING checks the CPU
+#                                   at start: on a CPU without AVX2 the exe dies on its first VEX instruction with no message. Before shipping,
+#                                   ship it beside the SSE4.1 exe and let the launcher pick by CPUID incl. AVX2+BMI2 and OS AVX support (XGETBV);
+#                                   some Pentium/Celeron parts of those generations lack AVX2).
+#                                   -ffp-contract=off keeps a*b+c unfused (only the guest's explicit std::fma fuses, same result
+#                                   as the ucrt fma it replaces), so the game's results should not change. Unconfirmed exception: when two
+#                                   different NaNs meet, VEX operand order may change which payload survives. Replay hash check still open).
+#   -DWWE2K14_GUEST_PGO_GEN=ON      clang front-end instrumentation of the guest code (training build; needs the profile runtime at link).
+#   -DWWE2K14_GUEST_PGO_USE=<file>  profile-guided build of the guest code from a merged .profdata (tools/perf/guest_variant_exe.py measured it).
+# Android builds already use -march=armv8.2-a (tools/android/build_game_android.ps1) and have no physical-address-offset (REX_PHYS_HOST_OFFSET) check; nothing to add there.
+set(WWE2K14_GUEST_ISA "" CACHE STRING "Instruction set of the recompiled guest code ('' = SSE4.1 baseline, 'x86-64-v3')")
+option(WWE2K14_GUEST_PGO_GEN "Instrument the recompiled guest code for PGO (training build)" OFF)
+set(WWE2K14_GUEST_PGO_USE "" CACHE FILEPATH "Merged .profdata for a profile-guided build of the recompiled guest code")
+if(TARGET wwe2k14_recomp AND NOT ANDROID)
+    if(WWE2K14_GUEST_ISA STREQUAL "x86-64-v3")
+        target_compile_options(wwe2k14_recomp PRIVATE -mavx2 -mfma -mbmi -mbmi2 -mmovbe -mlzcnt -mpopcnt -ffp-contract=off)
+    elseif(NOT WWE2K14_GUEST_ISA STREQUAL "")
+        message(FATAL_ERROR "WWE2K14_GUEST_ISA must be empty or x86-64-v3")
+    endif()
+    if(WWE2K14_GUEST_PGO_GEN)
+        target_compile_options(wwe2k14_recomp PRIVATE -fprofile-instr-generate)
+        target_link_options(wwe2k14 PRIVATE -fprofile-instr-generate)
+        # the game ends with std::_Exit, so the profile runtime's atexit writer never runs: this hook writes the profile every 10 s
+        target_sources(wwe2k14 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools/perf/pgo_exit_hook.cpp)
+    elseif(WWE2K14_GUEST_PGO_USE)
+        target_compile_options(wwe2k14_recomp PRIVATE -fprofile-instr-use=${WWE2K14_GUEST_PGO_USE}
+                               -Wno-profile-instr-unprofiled -Wno-profile-instr-missing)
+    endif()
+endif()
 if(ANDROID)
     # Session 63: the NDK's libc++ does #include <version>, which the case-insensitive Windows disk resolves to our
     # VERSION file while the repo root is an -I folder. Search the root for "quoted" includes only (nothing includes

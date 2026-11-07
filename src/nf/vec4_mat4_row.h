@@ -53,6 +53,7 @@
 #include <rex/logging.h>
 
 #include "../native_fn.h"
+#include "vec4_lean.h"
 
 REXCVAR_DEFINE_STRING(wwe2k14_nf_vec4_mat4_row, WWE2K14_NF_VERIFIED_DEFAULT, "wwe2k14",
                       "Session 66: native sub_82C32BC0 (vec4 times mat4 into an output): off | verify | on");
@@ -231,6 +232,11 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
   ctx.f13.f64 = double(p.w);
 }
 
+// Session 95, lean: see vec4_mat4_inplace.h. Output 3's chain differs (file header).
+inline void Lean(PPCContext& ctx, uint8_t* base) {
+  if (!nf_vec4_lean::Run<true>(ctx, base)) [[unlikely]] Run(ctx, base);
+}
+
 struct Spec {
   static constexpr const char* kName = "vec4_mat4_row";
   static constexpr uint32_t kGuest = 0x82C32BC0;
@@ -243,6 +249,7 @@ struct Spec {
     out.Add(ctx.r3.u32, 16);
   }
   static void Native(PPCContext& ctx, uint8_t* base) { Run(ctx, base); }
+  static void Lean(PPCContext& ctx, uint8_t* base) { nf_vec4_mat4_row::Lean(ctx, base); }
 };
 
 }  // namespace wwe2k14::nf_vec4_mat4_row

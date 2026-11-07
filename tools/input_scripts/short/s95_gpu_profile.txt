@@ -1,0 +1,47 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_gpu_timestamps=true --gpu_native_gpu_timers=true
+# Session 95 step 0 (tool Q): the per-pass GPU profile. One launched run, both entrances + the match, the segment and pass
+# logs on for a few frames per scene: Brock +300, Brock's pyro (tron_343 + 1905, 64 frames: the cvar caps at 64: the burst runs tron + 1918..1955
+# on the PC and the Surface alike, frame-driven: S94 PC run 010, Surface run 056), Bryan +440, the match +600. Read with
+# py -I tools\native\gpu_profile.py RUN [--dir LOGS]. Marks in the log: "passlog: NAME". Uncapped (--vsync=false) for
+# steady cost. on_fail quit. Windows are >100 frames apart so pass_pieces groups them.
+on_fail quit
+log bench: start s95_gpu_profile (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 300
+log passlog: brock
+cvar gpu_native_segment_log 6
+cvar gpu_native_truth_pass_log 6
+wait_frames 1605
+log passlog: pyro
+cvar gpu_native_segment_log 64
+cvar gpu_native_truth_pass_log 64
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 440
+log passlog: bryan
+cvar gpu_native_segment_log 6
+cvar gpu_native_truth_pass_log 6
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 600
+log passlog: match
+cvar gpu_native_segment_log 6
+cvar gpu_native_truth_pass_log 6
+wait_frames 60
+log bench: done
+quit

@@ -107,16 +107,27 @@ template <class T>
 inline void Pin(T& v) {
 #if defined(__x86_64__) || defined(_M_X64)
   asm volatile("" : "+x"(v));
+#elif defined(__aarch64__)
+  asm volatile("" : "+w"(v));
 #else
   (void)v;
 #endif
 }
 
-inline void Run(PPCContext& ctx, uint8_t* base) {
+// kLean (Session 95): the results at r3 / r4 only, no scratch bytes and no register leftovers; a scratch that is not
+// 16-aligned takes the strict version.
+template <bool kLean>
+inline void RunT(PPCContext& ctx, uint8_t* base) {
 #pragma clang fp contract(off)
-  ctx.fpscr.disableFlushMode();
   const uint32_t sp = ctx.r1.u32 - 16;
   const bool aligned = (sp & 0xFu) == 0;
+  if constexpr (kLean) {
+    if (!aligned) [[unlikely]] {
+      RunT<false>(ctx, base);
+      return;
+    }
+  }
+  ctx.fpscr.disableFlushMode();
   double angle = ctx.f1.f64;
   Pin(angle);
   // 1. Range reduction.
@@ -131,7 +142,9 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
   else if (t > double(INT64_MAX)) ni = INT64_MAX;
   else ni = simde_mm_cvttsd_si64(simde_mm_load_sd(&t));
   const double nf = double(float(double(ni)));
-  const double u0 = double(float(-std::fma(nf, c2, -as)));
+  // nf and c2 hold floats: their product is exact in a double, so for finite values a plain add rounds as std::fma does
+  // (and needs no library call).
+  const double u0 = double(float(-(kLean && std::isfinite(nf) && std::isfinite(as) ? nf * c2 + (-as) : std::fma(nf, c2, -as))));
   const double u = double(float(u0 - c0));
   const double x = s >= 0.0 ? u : -u;
   const double x2d = double(float(x * x));
@@ -142,9 +155,17 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
   Pin(d_x2);
   Pin(d_x3);
   // Constant vectors (loads only), then 2. the vector part in flush-to-zero mode.
-  const simde__m128 k62 = LoadVec(base, 0x82001C20u), k60 = LoadVec(base, 0x82001C30u),
-                    k58 = LoadVec(base, 0x82001C40u), k59 = LoadVec(base, 0x82001C00u),
-                    k57 = LoadVec(base, 0x82001C10u), k61 = LoadVec(base, 0x82001BF0u);
+  const auto ldk = [&](uint32_t a) {
+    if constexpr (kLean) {  // the whole 16 bytes reversed: the same lanes as LoadVec
+      return simde_mm_castsi128_ps(rex::ppc::ByteReverse128(
+          
+              simde_mm_loadu_si128(reinterpret_cast<const simde__m128i*>(rex::memory::GuestPtr(base, a)))));
+    } else {
+      return LoadVec(base, a);
+    }
+  };
+  const simde__m128 k62 = ldk(0x82001C20u), k60 = ldk(0x82001C30u), k58 = ldk(0x82001C40u), k59 = ldk(0x82001C00u),
+                    k57 = ldk(0x82001C10u), k61 = ldk(0x82001BF0u);
   float r[6];  // the scalars read back after each dot product
   simde__m128 last;
   ctx.fpscr.enableFlushModeUnconditional();
@@ -163,7 +184,7 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
     // After a dot product the original stores the vector to the scratch and reads its first float back.
     const auto stage = [&](simde__m128 v) -> float {
       Pin(v);
-      if (aligned) return Lane0(v);
+      if (kLean || aligned) return Lane0(v);
       StoreVec(base, sp, v);
       return BeF(base, sp);
     };
@@ -190,6 +211,7 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
     const simde__m128 v41 = simde_mm_dp_ps(v44, k57, 0xFF);
     last = v41;
     r[5] = stage(v41);
+    if constexpr (!kLean) {
     // The vector registers the original leaves (v41-v63, strict verify compares all 128): the six constant vectors,
     // the vector V and every product / dot product above, in the context's lane order (the same as these values).
     simde_mm_store_ps(ctx.v41.f32, v41);
@@ -215,10 +237,11 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
     simde_mm_store_ps(ctx.v61.f32, k61);
     simde_mm_store_ps(ctx.v62.f32, k62);
     simde_mm_store_ps(ctx.v63.f32, v63);
+    }
   }
   ctx.fpscr.disableFlushModeUnconditional();
   // The last dot product stays in the scratch (all four words).
-  if (aligned) StoreVec(base, sp, last);
+  if (!kLean && aligned) StoreVec(base, sp, last);
   // 3. The results, in double arithmetic rounded to float. Original: f0 = r[0], f13 = r[1], f12 = r[2], f11 = r[3],
   // f10 = r[4], f7 = r[5]; *r4 = (f10 + f12) + f0; *r3 = (f7 + f11) + f13.
   for (int i = 0; i < 6; ++i) Pin(r[i]);
@@ -228,6 +251,7 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
   const double e5 = double(float(e6 + double(r[1])));
   PutBeF(base, ctx.r4.u32, float(e8));
   PutBeF(base, ctx.r3.u32, float(e5));
+  if constexpr (kLean) return;
   // The registers the original leaves behind (strict verify), final value of each:
   //   r5-r11 = r1-16 (the scratch address, set by the last addi into each); r0, r3, r4, CR, CTR, XER, v0-v31 untouched.
   //   f0-f13: f0..f13 hold the scalars read back from the scratch (f0 = d1, f13 = d2, f12 = d3, f11 = d4, f10 = d5,
@@ -258,6 +282,8 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
   ctx.f1.f64 = x3d;  // as the original leaves f1
 }
 
+inline void Run(PPCContext& ctx, uint8_t* base) { RunT<false>(ctx, base); }
+
 // The factory spec (src/native_fn.h). Writes the two result floats and the 16-byte scratch below the stack pointer.
 struct Spec {
   static constexpr const char* kName = "sincos_vmx";
@@ -272,6 +298,8 @@ struct Spec {
     out.Add(ctx.r3.u32, 4);
   }
   static void Native(PPCContext& ctx, uint8_t* base) { Run(ctx, base); }
+  static constexpr uint32_t kLeanRegs = 0;
+  static void Lean(PPCContext& ctx, uint8_t* base) { RunT<true>(ctx, base); }
 };
 
 }  // namespace wwe2k14::nf_sincos_vmx

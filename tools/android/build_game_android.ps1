@@ -4,16 +4,40 @@
 #   pwsh -File tools\android\build_game_android.ps1 -Run g01 -Reconfigure  re-run CMake first
 #   -KeepGoing: ninja -k 0 (every failure in one pass while porting)
 #   -Target wwe2k14_recomp: only the generated code (the long part; needs none of our headers)
+#   -Jobs N: default 12 (Session 95: the PC has 32 threads shared by up to 3 builds; 16 each oversubscribed it)
+#   -Cache: Session 95 (process report item 6) compiles through sccache (NDK clang as the CMake compiler launcher). OFF by
+#           default until one measured build proves it (the PCH may block hits). A build folder configured without the cache is
+#           reconfigured once when -Cache is given. Stats are printed after the build. -BuildDir: another build folder (a trial).
 # The generated code comes from the PC build: refused while generated\default\codegen.build.stamp is older than the
 # manifest or any config\*.toml (run the PC build first, which re-runs codegen). The first build compiles all the
 # generated files (tens of minutes). The unstripped libmain.so is copied to out\android\symbols (ndk-stack).
-param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 16, [switch]$KeepGoing,
-      [string]$Target = 'wwe2k14')
+param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 12, [switch]$KeepGoing,
+      [string]$Target = 'wwe2k14', [switch]$Cache, [string]$BuildDir = '')
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Continue'
 . "$ProjectRoot\tools\runlock.ps1"
 
-$build = $AndroidDirs.Game
+$build = if ($BuildDir) { $BuildDir } else { $AndroidDirs.Game }
+$sccache = ''; $launcherOpts = @()
+if ($Cache) {
+    $c = Get-Command sccache -ErrorAction SilentlyContinue
+    $sccache = if ($c) { $c.Source } elseif (Test-Path "$env:LOCALAPPDATA\Microsoft\WinGet\Links\sccache.exe") { "$env:LOCALAPPDATA\Microsoft\WinGet\Links\sccache.exe" } else { '' }
+    if ($sccache) {
+        $env:SCCACHE_BASEDIRS = $ProjectRoot
+        $env:SCCACHE_SERVER_PORT = '4950'   # outside fast_build's 4300-4899 range
+        $env:SCCACHE_DIRECT = 'false'       # Session 95: fast_build.ps1 says why (a direct hit took another branch's object)
+        & $sccache --stop-server *> $null
+        $launcherOpts = @("-DCMAKE_C_COMPILER_LAUNCHER=$sccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=$sccache")
+        if (-not $env:SCCACHE_CACHE_SIZE) { $env:SCCACHE_CACHE_SIZE = '40G' }
+        if ((Test-Path "$build\CMakeCache.txt") -and -not (Select-String -LiteralPath "$build\CMakeCache.txt" -Pattern '^CMAKE_CXX_COMPILER_LAUNCHER:.*sccache' -Quiet)) { $Reconfigure = $true }
+    } else { "build_game_android.ps1: -Cache given but sccache is not installed; compiling without it" }
+} elseif ((Test-Path "$build\CMakeCache.txt") -and (Select-String -LiteralPath "$build\CMakeCache.txt" -Pattern '^CMAKE_CXX_COMPILER_LAUNCHER:.*sccache' -Quiet)) {
+    # Session 95 review: a folder configured with -Cache keeps the launcher in CMakeCache; without -Cache clear it.
+    $Reconfigure = $true; $launcherOpts = @('-UCMAKE_C_COMPILER_LAUNCHER', '-UCMAKE_CXX_COMPILER_LAUNCHER')
+}
+# Session 95 review: sccache's key holds the preprocessed text, not the precompiled header contents, so a changed SDK
+# header would return stale objects. With -Cache the PCH is off (compiles the same headers, just slower per file).
+if ($sccache) { $launcherOpts += '-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON' }
 [void][System.IO.Directory]::CreateDirectory("$ProjectRoot\logs\android")
 $log = "$ProjectRoot\logs\android\game_$Run.log"
 
@@ -45,7 +69,7 @@ if ($Reconfigure -or -not (Test-Path "$build\CMakeCache.txt")) {
         "-DCMAKE_TOOLCHAIN_FILE=$NdkToolchainFile" -DANDROID_ABI=arm64-v8a "-DANDROID_PLATFORM=android-$MinApi" `
         -DANDROID_STL=c++_shared -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_FLAGS=$flags" "-DCMAKE_CXX_FLAGS=$flags" `
         "-DCMAKE_PREFIX_PATH=$($AndroidDirs.SdkInstall)" "-DCMAKE_FIND_ROOT_PATH=$($AndroidDirs.SdkInstall)" `
-        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF "-DWWE2K14_PC_REXGLUE=$pcRexglue" *>&1 | Out-File $log -Append
+        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF "-DWWE2K14_PC_REXGLUE=$pcRexglue" @launcherOpts *>&1 | Out-File $log -Append
     $code = $LASTEXITCODE
     if ($code -ne 0) {
         "configure failed (exit $code), log: $log"
@@ -56,6 +80,7 @@ if ($Reconfigure -or -not (Test-Path "$build\CMakeCache.txt")) {
 $ninjaArgs = if ($KeepGoing) { @('--', '-k', '0') } else { @() }
 & $CMake --build $build --target $Target -j $Jobs @ninjaArgs *>&1 | Out-File $log -Append
 $code = $LASTEXITCODE
+if ($sccache) { $st = @(& $sccache --show-stats 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^(Compile requests executed|Cache hits\s|Cache hits rate|Cache misses\s|Non-cacheable|Max cache size)' }); "sccache: " + (($st | ForEach-Object { ($_ -replace '\s{2,}', ' = ').Trim() }) -join '; ') }
 "game android build exit: $code  elapsed: $([int]((Get-Date) - $t0).TotalSeconds)s  log: $log"
 Get-Content $log | Select-String ': error|FAILED|error:|undefined symbol' | Select-Object -First $(if ($KeepGoing) { 80 } else { 30 }) |
     ForEach-Object { $_.Line.Substring(0, [Math]::Min(300, $_.Line.Length)) }
@@ -63,7 +88,10 @@ if ($code -ne 0) { exit $code }
 
 $so = Get-ChildItem $build -Recurse -Filter 'libmain.so' | Sort-Object LastWriteTime | Select-Object -Last 1
 if ($so) {
-    Copy-Item $so.FullName "$($AndroidDirs.Symbols)\libmain.so" -Force
-    "libmain.so: {0:N1} MB  {1} (copy in out\android\symbols)" -f ($so.Length / 1MB), $so.FullName
+    if ($BuildDir) { "libmain.so: {0:N1} MB  {1} (trial folder: out\android\symbols left alone)" -f ($so.Length / 1MB), $so.FullName }
+    else {
+        Copy-Item $so.FullName "$($AndroidDirs.Symbols)\libmain.so" -Force
+        "libmain.so: {0:N1} MB  {1} (copy in out\android\symbols)" -f ($so.Length / 1MB), $so.FullName
+    }
 } else { "libmain.so: not found under $build" }
 } finally { Exit-RunLock $lock }

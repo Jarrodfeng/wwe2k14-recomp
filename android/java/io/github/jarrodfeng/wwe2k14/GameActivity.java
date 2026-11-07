@@ -46,9 +46,23 @@ import org.libsdl.app.SDLActivity;
 public class GameActivity extends SDLActivity {
     private static final String TAG = "wwe2k14";
     static final String EXTRA_ARGS = "wwe2k14.args", EXTRA_GAME_URI = "wwe2k14.game_uri", EXTRA_TOUCH = "wwe2k14.touch";
+    // Session 95: the launcher started by this activity (the game process may still be going down: never bring it back), and
+    // this activity started by the launcher only to bring a running game forward (no arguments: never boot from it).
+    static final String EXTRA_FROM_GAME = "wwe2k14.from_game", EXTRA_BRING_BACK = "wwe2k14.bring_back";
     // The launcher's placeholder for the game file the game's process opens itself (mobile_settings.h kGameFdToken).
     private static final String GAME_FD_TOKEN = "@GAME_FD@";
     private static final String PRECOMPILE_ARG = "--wwe2k14_precompile=";
+    private static final String DIAG_ARG = "--wwe2k14_diag=", DIAG_ARM_ARG = "--wwe2k14_diag_arm=";
+
+    // Session 95 (the diagnostic run, src/diag.h): the game writes <run>/arm<ID>/state.json as its route goes. This activity
+    // shows the stage as a line at the bottom and, when the route reaches "done" (or the game's watchdog wrote hang.txt), brings
+    // the launcher back the way endPrecompile does, so the launcher can start the next arm. No marker file: the launcher reads
+    // the arm's own files.
+    private String diagRun, diagArm;
+    private TextView diagText;
+    private Handler diagHandler;
+    private long diagStart, diagDoneSeen;
+    private static final long DIAG_DEADLINE_MS = 12 * 60 * 1000;
 
     private TouchOverlay overlay;
     private OnBackInvokedCallback backCallback;
@@ -63,10 +77,17 @@ public class GameActivity extends SDLActivity {
     // marker file (<files>/precompile_return.txt: the state, or "cancelled"); the launcher then starts the real game.
     // The game itself does not quit in this mode on Android (precompile.h): an app shutdown is the old exit crash.
     private String precompileFile;
+    private static final String BOOT_TRIAL_ARG = "--wwe2k14_boot_trial=";  // Session 95 (LADDER)
+    private String bootTrial;
     private TextView precompileText;
     private Handler precompileHandler;
     private long precompileStart;
     private static final long PRECOMPILE_DEADLINE_MS = 15 * 60 * 1000;
+
+    // Session 95 (src/android_lifecycle.h): every in-game exit lands in the launcher. The game writes logs/exit_request.txt, this
+    // activity polls for it, always, in every kind of run.
+    private Handler exitHandler;
+    private static final long EXIT_POLL_MS = 400;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,6 +100,26 @@ public class GameActivity extends SDLActivity {
             Log.e(TAG, "setenv WWE2K14_FILES_DIR failed", e);
         }
         fromArgsFile = new File(files, "args.txt").isFile();
+        // Session 95: Android rebuilding this activity (the process was killed in the background and the player came back, or a
+        // bring-back found no game) would start a whole new game with the old arguments. Back to the launcher instead, which says
+        // what ended the run. The process ends here, so SDL's onCreate never runs.
+        if (!fromArgsFile && (savedInstanceState != null || getIntent().getBooleanExtra(EXTRA_BRING_BACK, false))) {
+            Log.i(TAG, "rebuilt by Android: back to the launcher");
+            blackBoxNote("Android rebuilt the game's activity after the run ended: back to the launcher, no new game");
+            // This process ends by its own kill below: the launcher must not read that exit as the run's end.
+            try {
+                File logs = new File(files, "logs");
+                if (logs.isDirectory() || logs.mkdirs())
+                    try (FileOutputStream out = new FileOutputStream(new File(logs, "rebuilt_pid.txt"), true)) {
+                        out.write((android.os.Process.myPid() + "\n").getBytes(StandardCharsets.UTF_8));
+                    }
+            } catch (Exception e) {
+                Log.w(TAG, "rebuilt_pid.txt", e);
+            }
+            leaveForLauncher();
+            return;
+        }
+        if (new File(new File(files, "logs"), "exit_request.txt").delete()) Log.i(TAG, "removed an old exit request");
         super.onCreate(savedInstanceState);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -106,8 +147,14 @@ public class GameActivity extends SDLActivity {
             if (launched != null)
                 for (String a : launched)
                     if (a.startsWith(PRECOMPILE_ARG)) precompileFile = a.substring(PRECOMPILE_ARG.length());
+                    else if (a.startsWith(BOOT_TRIAL_ARG)) bootTrial = a.substring(BOOT_TRIAL_ARG.length());
+                    else if (a.startsWith(DIAG_ARG)) diagRun = a.substring(DIAG_ARG.length());
+                    else if (a.startsWith(DIAG_ARM_ARG)) diagArm = a.substring(DIAG_ARM_ARG.length());
         }
         if (precompileFile != null && mLayout != null) startPrecompileWatch();
+        if (diagRun != null && diagArm != null && mLayout != null) startDiagWatch();
+        exitHandler = new Handler(Looper.getMainLooper());
+        exitHandler.postDelayed(this::pollExitRequest, EXIT_POLL_MS);
 
         // Back asks first (Android 13+ with predictive back: this callback; older: onBackPressed below).
         if (Build.VERSION.SDK_INT >= 33) {
@@ -135,6 +182,7 @@ public class GameActivity extends SDLActivity {
     @Override
     protected void onDestroy() {
         if (precompileHandler != null) precompileHandler.removeCallbacksAndMessages(null);
+        if (exitHandler != null) exitHandler.removeCallbacksAndMessages(null);
         if (batteryReceiver != null) {
             try {
                 unregisterReceiver(batteryReceiver);
@@ -146,6 +194,30 @@ public class GameActivity extends SDLActivity {
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null)
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
         super.onDestroy();
+        // The native main ended without the game's own exit request (a startup failure, the guest's main thread ending):
+        // SDL finishes this activity and the player would land on Home. The launcher instead.
+        if (mSDLMainFinished) leaveForLauncher();
+    }
+
+    // Session 95 (src/android_lifecycle.h): SDL itself only pauses at onStop, so the shade and the quit dialog change nothing here.
+    @Override
+    protected void onPause() {
+        appInFront(false);
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        appInFront(true);
+    }
+
+    private static void appInFront(boolean front) {
+        try {
+            nativeAppInFront(front);
+        } catch (UnsatisfiedLinkError e) {
+            // (The game's library not loaded yet: nothing is running to tell.)
+        }
     }
 
     // The game is landscape only. SDL asks for an orientation from the game's window when it is made: a resizable window
@@ -185,11 +257,82 @@ public class GameActivity extends SDLActivity {
     private void quitToLauncher() {
         Log.i(TAG, "quit to the launcher");
         if (precompileFile != null) writePrecompileReturn("cancelled");
+        if (diagRun != null && diagArm != null) {  // Session 95 (review F14): the player's Back stops the diagnostic chain
+            try (FileOutputStream o = new FileOutputStream(new File(new File(new File(diagRun), "arm" + diagArm), "cancel.txt"))) {
+                o.write("the player quit to the launcher\n".getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                Log.w(TAG, "could not write cancel.txt: " + e);
+            }
+        }
+        removeBootTrial();  // Session 95 (LADDER): a quit by the player is not a failed boot
         blackBoxNote("the player quit to the launcher");  // Session 73: a normal end (phone_check.h LastRun)
-        startActivity(new Intent(this, LauncherActivity.class));
+        leaveForLauncher();
+    }
+
+    // Every way out of the game: the launcher, marked as started from here, then this process ends at once.
+    private void leaveForLauncher() {
+        startActivity(new Intent(this, LauncherActivity.class).putExtra(EXTRA_FROM_GAME, true));
         finish();
         overridePendingTransition(0, 0);
         android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
+    // Session 95: see exitHandler. The file stays for the report; the next game start removes it.
+    private void pollExitRequest() {
+        if (new File(new File(filesDir(), "logs"), "exit_request.txt").isFile()) {
+            Log.i(TAG, "the game asked for the launcher");
+            if (precompileFile != null) writePrecompileReturn("cancelled");
+            leaveForLauncher();
+            return;
+        }
+        exitHandler.postDelayed(this::pollExitRequest, EXIT_POLL_MS);
+    }
+
+    // Session 95: the diagnostic run's stage line and its end (see the fields above).
+    private void startDiagWatch() {
+        diagText = new TextView(this);
+        diagText.setTextColor(Color.WHITE);
+        diagText.setBackgroundColor(Color.argb(160, 0, 0, 0));
+        diagText.setTextSize(14);
+        diagText.setPadding(24, 8, 24, 8);
+        diagText.setText("Diagnostic run: starting");
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+        lp.topMargin = 12;
+        mLayout.addView(diagText, lp);
+        diagStart = System.currentTimeMillis();
+        diagHandler = new Handler(Looper.getMainLooper());
+        diagHandler.postDelayed(this::pollDiag, 500);
+    }
+
+    private void pollDiag() {
+        File dir = new File(new File(diagRun), "arm" + diagArm);
+        String stage = "starting";
+        try (BufferedReader r = new BufferedReader(
+                new InputStreamReader(new FileInputStream(new File(dir, "state.json")), StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String l;
+            while ((l = r.readLine()) != null) sb.append(l);
+            JSONObject j = new JSONObject(sb.toString());
+            stage = j.optString("stage", stage);
+        } catch (Exception e) {
+            // (Not written yet, or caught mid-write: the game renames a whole file into place.)
+        }
+        diagText.setText("Diagnostic run (arm " + diagArm + "): " + stage);
+        long now = System.currentTimeMillis();
+        boolean hang = new File(dir, "hang.txt").exists();
+        if (stage.equals("done") && diagDoneSeen == 0) diagDoneSeen = now;
+        boolean doneGrace = diagDoneSeen != 0 && now - diagDoneSeen > 4000;  // the script's quit and the log flush first
+        boolean over = now - diagStart > DIAG_DEADLINE_MS;
+        if (hang || doneGrace || over) {
+            Log.i(TAG, "diagnostic arm ended: " + (hang ? "hang" : over ? "deadline" : "done"));
+            blackBoxNote("the diagnostic arm ended: " + (hang ? "hang" : over ? "deadline" : "done") + " (quit to the launcher)");
+            leaveForLauncher();
+            return;
+        }
+        diagHandler.postDelayed(this::pollDiag, 400);
     }
 
     // Session 93: the precompile's progress line and its end (see the fields above).
@@ -230,7 +373,8 @@ public class GameActivity extends SDLActivity {
         } catch (Exception e) {
             // (Not written yet, or caught mid-write: the game renames a whole file into place; the next poll reads it.)
         }
-        precompileText.setText(line);
+        // Session 95 (LADDER): leaving the app during a precompile ends it half done and the next PLAY starts it again.
+        precompileText.setText(state.equals("done") ? line : line + "\nKeep this app open until it finishes");
         boolean over = System.currentTimeMillis() - precompileStart > PRECOMPILE_DEADLINE_MS;
         if (state.equals("done") || state.equals("timeout") || over) {
             Log.i(TAG, "precompile ended: " + (over ? "deadline" : state));
@@ -252,10 +396,7 @@ public class GameActivity extends SDLActivity {
     private void endPrecompile(String state) {
         blackBoxNote("the shader precompile ended: " + state + " (quit to the launcher)");  // (LastRun reads that as a normal end)
         writePrecompileReturn(state);
-        startActivity(new Intent(this, LauncherActivity.class));
-        finish();
-        overridePendingTransition(0, 0);
-        android.os.Process.killProcess(android.os.Process.myPid());
+        leaveForLauncher();
     }
 
     private File filesDir() {
@@ -317,6 +458,9 @@ public class GameActivity extends SDLActivity {
     // Session 80: the battery's temperature in tenths of a degree C (src/perf_overlay.h).
     private static native void nativeBatteryTemperature(int tenths);
 
+    // Session 95: src/android_lifecycle.h.
+    private static native void nativeAppInFront(boolean front);
+
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
@@ -329,12 +473,22 @@ public class GameActivity extends SDLActivity {
     }
 
     // A line in logs/startup.txt from this side (the native side writes it while the game runs; appended either way).
+    private void removeBootTrial() {
+        if (bootTrial != null && new File(bootTrial).delete()) Log.i(TAG, "boot trial file removed (the player quit)");
+    }
+
     private void blackBoxNote(String text) {
-        try (FileOutputStream out = new FileOutputStream(new File(new File(filesDir(), "logs"), "startup.txt"), true)) {
-            out.write(("    java  " + text + "\n").getBytes(StandardCharsets.UTF_8));
+        File box = new File(new File(filesDir(), "logs"), "startup.txt");
+        long before = box.lastModified();  // (the launcher keys a run on this time: a note added after the run must not make it look like another run)
+        try (FileOutputStream out = new FileOutputStream(box, true)) {
+            // Session 95 (LADDER): the same "seconds since the process started" column the native lines have, so the launcher can tell an
+            // early quit (under ~120 s after the first frame) from a long play.
+            double secs = (android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()) / 1000.0;
+            out.write((String.format(java.util.Locale.US, "%8.3f  java: ", secs) + text + "\n").getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             Log.w(TAG, "black box note failed", e);
         }
+        if (before > 0) box.setLastModified(before);
     }
 
     // Session 72 (Android drivers, src/android_driver.h): where libadrenotools' hooks and the bundled custom drivers are

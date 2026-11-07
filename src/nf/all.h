@@ -7,9 +7,6 @@
 #if defined(__x86_64__) || defined(_M_X64)
 #include "nf/atan2_d.h"            // 0x82C7A898 double atan2
 #include "nf/frustum_cull.h"       // 0x8250E110 per-object view-volume classification (inferred)
-#include "nf/memcpy_fwd.h"         // 0x82C79000 forward memcpy (prefetch hints)
-#include "nf/memcpy_vmx.h"         // 0x82261340 memcpy with VMX blocks and dcbzl
-#include "nf/sincos_vmx.h"         // 0x825D0618 float sine and cosine (VMX polynomial)
 #include "nf/vec4_mat4_inplace.h"  // 0x82C32A88 vector x matrix, in place
 #include "nf/vec4_mat4_row.h"      // 0x82C32BC0 vector x matrix into an output
 #include "nf/component_find_by_tag.h"  // 0x82C31CB0 component lookup by tag (two chains)
@@ -21,5 +18,21 @@
 #include "nf/d3d_flush_register_runs.h"      // 0x82CBD428 D3D: dirty register runs -> packets
 #include "nf/d3d_set_vs_float_constants.h"   // 0x82CB0658 D3D: SetVertexShaderConstantF
 // (nf/gpu_wait_poll_step.h, 0x82CB1F50: written, not included - a GPU wait spin step, no frame time to gain)
+#endif
+// Session 95: portable (simde: SSE on x86-64, NEON on Android; default off). The Android build defines WWE2K14_NF_ANDROID
+// (CMakeLists.txt, Jarrod's order: TRUE NATIVE's wwe2k14_nf_lean / _reg_save on phones too). No phone has run them yet; with it undefined
+// the hooks and their per-call dispatch cost are out, and those two switches do not exist on Android.
+#if !(defined(__x86_64__) || defined(_M_X64)) && defined(WWE2K14_NF_ANDROID)
+#include "nf/vec4_arm.h"           // 0x82C32A88 / 0x82C32BC0 vector x matrix, lean only
+#endif
+#if (defined(__x86_64__) || defined(_M_X64)) || defined(WWE2K14_NF_ANDROID)
+#include "nf/memcpy_fwd.h"         // 0x82C79000 forward memcpy (prefetch hints)
+#include "nf/memcpy_vmx.h"         // 0x82261340 memcpy with VMX blocks and dcbzl
+#include "nf/sincos_vmx.h"         // 0x825D0618 float sine and cosine (VMX polynomial)
+#include "nf/mat4_mul.h"           // 0x82296630 4x4 matrix product (Session 95)
+#include "nf/rope_spring.h"        // 0x824FAFC8 rope force pass (Session 95)
+#include "nf/rope_grid.h"          // 0x824FB290 rope integrator step (Session 95)
+#include "nf/palette_transpose.h"  // 0x82BD7630 transposed matrix copy (Session 95)
+#include "nf/reg_save.h"         // Session 95: __savegprlr / __restgprlr / __savefpr / __restfpr
 #endif
 #include "nf/skin_3bone.h"         // 0x82508958 the skinning loop with up to three bones

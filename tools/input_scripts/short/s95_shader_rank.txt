@@ -1,0 +1,94 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_gpu_timestamps=true --gpu_native_gpu_timers=true --vulkan_stored_pipelines_at_boot=true --vsync=false
+# Session 95 (tool B2, the shader ranking): per shader family, the GPU ms it costs, from ONE in-run route. In the match (Lesnar vs Bryan, entrances
+# skipped), windows of 12 logged frames: a baseline, then each family of our own pixel shaders drawn flat grey in turn (live cvar
+# gpu_native_shader_ablate: bg prop particle wrestler crowd shadow blur other; then all), a baseline between every few, a baseline at the end (the
+# fanless Surface heats up: the baselines bound the drift). Each family's cost = baseline - ablated window (the most its pixel side could ever give).
+# Read: py -I tools\native\shader_rank.py RUN [--dir STEP_FOLDER]. Surface: tools\surface\bench.ps1 -Only shaderrank. Uncapped, TRUE NATIVE. on_fail quit.
+on_fail quit
+log bench: start s95_shader_rank
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match
+wait_frames 240
+cvar gpu_native_shader_ablate none
+wait_frames 90
+log passlog: base1
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate bg
+wait_frames 90
+log passlog: ab_bg
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate prop
+wait_frames 90
+log passlog: ab_prop
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate wrestler
+wait_frames 90
+log passlog: ab_wrestler
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate none
+wait_frames 90
+log passlog: base2
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate crowd
+wait_frames 90
+log passlog: ab_crowd
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate shadow
+wait_frames 90
+log passlog: ab_shadow
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate blur
+wait_frames 90
+log passlog: ab_blur
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate none
+wait_frames 90
+log passlog: base3
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate particle
+wait_frames 90
+log passlog: ab_particle
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate other
+wait_frames 90
+log passlog: ab_other
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate all
+wait_frames 90
+log passlog: ab_all
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+cvar gpu_native_shader_ablate none
+wait_frames 90
+log passlog: base4
+cvar gpu_native_segment_log 12
+cvar gpu_native_truth_pass_log 12
+wait_frames 40
+log bench: done
+quit

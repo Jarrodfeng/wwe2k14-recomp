@@ -99,6 +99,9 @@ REXCVAR_DEFINE_INT32(wwe2k14_profile_interval_ms, 1, "wwe2k14",
                      "Profiler sampling period in ms (1 = ~1000 samples/s per thread; higher = less overhead)");
 REXCVAR_DEFINE_INT32(wwe2k14_profile_report_seconds, 5, "wwe2k14", "Seconds per profiler report");
 REXCVAR_DEFINE_INT32(wwe2k14_profile_top, 12, "wwe2k14", "Functions listed per profiler report");
+// Session 95: every game thread at once (a match has ~15 busy ones) needs more than the old fixed 8.
+REXCVAR_DEFINE_INT32(wwe2k14_profile_max_named, 8, "wwe2k14",
+                     "Session 95: most named threads the profiler samples (default 8, the old fixed cap)");
 
 namespace wwe2k14 {
 
@@ -530,7 +533,7 @@ class SamplingProfiler {
       for (const Match& m : matches[i]) {
         const auto named = std::count_if(targets_.begin(), targets_.end(),
                                          [](const Target& t) { return !t.prefix.empty(); });
-        if (named >= kMaxNamedThreads) {
+        if (named >= std::max<ptrdiff_t>(kMaxNamedThreads, REXCVAR_GET(wwe2k14_profile_max_named))) {
           REXLOG_WARN("[wwe2k14][prof] already sampling {} named threads; skipping \"{}\" ({})", named,
                       m.description, m.id);
           continue;
@@ -541,7 +544,9 @@ class SamplingProfiler {
         if (started_sampling_) REXLOG_INFO("[wwe2k14][prof] now also sampling {} ({})", label, m.id);
       }
     }
-    pending_ = std::move(still_pending);
+    // Session 95: with the higher cap, keep every prefix on the list: the match's worker threads start long after the
+    // first frame, and a prefix that matched once would otherwise never be looked for again.
+    if (REXCVAR_GET(wwe2k14_profile_max_named) <= kMaxNamedThreads) pending_ = std::move(still_pending);
   }
 
   // Once per report: forget threads that have exited (their name goes back on the list to look for, in case

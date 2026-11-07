@@ -6,7 +6,7 @@
 # CMake user package registry, so the PC game build can never find it.
 #   -SourceRoot <worktree>: build that SDK worktree (S93) in out/android/sdk-build-arm64-wt (or -BuildDir), installing to the shared prefix
 #   -KeepGoing: ninja -k 0 (build every file it can; lists all failures in one pass while porting)
-param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 16, [switch]$KeepGoing, [string]$AllowBranch = '', [string]$SourceRoot = '', [string]$BuildDir = '')
+param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 12, [switch]$KeepGoing, [string]$AllowBranch = '', [string]$SourceRoot = '', [string]$BuildDir = '')
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Continue'
 . "$ProjectRoot\tools\runlock.ps1"

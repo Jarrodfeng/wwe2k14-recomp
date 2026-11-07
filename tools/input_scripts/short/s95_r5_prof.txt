@@ -1,0 +1,41 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_gpu_timestamps=true --gpu_native_gpu_timers=true
+# Session 95 r5: pass census of the heavy and light shots: Brock pyro (64 frames), Bryan tron +200 (1,150 draws), +700 (430 draws), +1000 (720 draws). on_fail quit.
+on_fail quit
+log bench: start r5_prof (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log bench: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+wait_frames 1905
+log passlog: pyro
+cvar gpu_native_segment_log 64
+cvar gpu_native_truth_pass_log 64
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 200
+log passlog: heavy
+cvar gpu_native_segment_log 6
+cvar gpu_native_truth_pass_log 6
+wait_frames 500
+log passlog: light
+cvar gpu_native_segment_log 6
+cvar gpu_native_truth_pass_log 6
+wait_frames 300
+log passlog: mid
+cvar gpu_native_segment_log 6
+cvar gpu_native_truth_pass_log 6
+wait_frames 60
+log bench: done
+quit

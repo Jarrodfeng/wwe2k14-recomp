@@ -26,6 +26,12 @@
 //   };
 //   WWE2K14_NATIVE_FN(sub_82xxxxxx, Foo)
 //
+// Session 95: a spec may also have Lean(ctx, base) (and kLeanRegs): the same results in guest memory and the registers
+// callers read, without the volatile-register and dead-stack leftovers the strict-clean Native() reproduces (those made
+// the natives slower than the recompiled code in real use, Session 66). Modes lean | verifylean, or --wwe2k14_nf_lean
+// for every spec that has one. --wwe2k14_nf_poison writes garbage over everything Lean does not promise (the volatile
+// registers but kLeanRegs, the 512 bytes below r1) after each lean call: a play that hashes the same with it proves no
+// guest code reads a leftover on that route (tools\perf\nf_liveout.py proves the registers statically).
 // Cvars: one per function (the spec's own, "off | verify | on"); --wwe2k14_nf_all=off|verify|on overrides every
 // function (empty = each its own; settable live: `cvar wwe2k14_nf_all verify`). --wwe2k14_nf_log_s: seconds between
 // the [wwe2k14][nf] count lines (calls, mismatching calls and bytes, native / recompiled time; verify measures both).
@@ -73,18 +79,26 @@ REXCVAR_DEFINE_INT32(wwe2k14_nf_log_s, 5, "wwe2k14",
 #define WWE2K14_NF_X86_ON "off"
 #endif
 
+REXCVAR_DEFINE_BOOL(wwe2k14_nf_lean, false, "wwe2k14",
+                    "Session 95: every native function with a lean version runs it (a function whose own cvar is off); "
+                    "settable live");
+REXCVAR_DEFINE_BOOL(wwe2k14_nf_poison, false, "wwe2k14",
+                    "Session 95, proof only: after each lean call, garbage over the volatile registers it does not "
+                    "promise and the 512 bytes below r1");
 namespace wwe2k14::native_fn {
 
-enum class Mode : uint8_t { kOff, kVerify, kOn };
+enum class Mode : uint8_t { kOff, kVerify, kOn, kLean, kLeanPoison, kVerifyLean };
 enum : uint32_t { kR3 = 1, kR4 = 2, kF1 = 4, kV2 = 8, kCr = 16 };
 constexpr uint32_t kGuard = 64;
 constexpr uint32_t kDeadStack = 16384;  // bytes below the stack pointer verify ignores (not in strict mode)
 constexpr uint32_t kStackProbe = 512;   // strict verify: the window below the stack pointer compared
-// Guest address -> host pointer (0xE0000000+ sits 4 KB further on Windows: rex::memory::GuestPtr).
+// Guest address -> host pointer (rex::memory::GuestPtr; since Session 95 a plain add on Windows too).
 inline uint8_t* Host(uint8_t* base, uint32_t addr) { return rex::memory::GuestPtr(base, addr); }
 
 inline Mode ModeFromText(const std::string& s) {
   if (s.empty()) return Mode::kOff;
+  if (s == "lean") return Mode::kLean;
+  if (s == "verifylean") return Mode::kVerifyLean;
   if (s[0] == 'v' || s[0] == 'V') return Mode::kVerify;
   if (s == "on" || s == "ON" || s == "1" || s == "true") return Mode::kOn;
   return Mode::kOff;
@@ -215,16 +229,130 @@ Stats& StatsOf() {
   return s;
 }
 
+// Session 95: does a spec have a lean version, and which registers does it promise.
+template <class Spec>
+concept HasLean = requires(PPCContext& c, uint8_t* b) { Spec::Lean(c, b); };
+template <class Spec>
+constexpr uint32_t LeanRegs() {
+  if constexpr (requires { Spec::kLeanRegs; }) return Spec::kLeanRegs;
+  else return Spec::kRegs;
+}
+template <class Spec>
+inline void RunNative(PPCContext& ctx, uint8_t* base, bool lean) {
+  if constexpr (HasLean<Spec>) {
+    if (lean) {
+      Spec::Lean(ctx, base);
+      return;
+    }
+  }
+  Spec::Native(ctx, base);
+}
+
+// Garbage over everything a lean version does not promise (see the file header). v14-v31 and v64-v127 are the guest
+// ABI's non-volatile vector registers (the __savevmx helpers save exactly those) and stay.
+inline void Poison(PPCContext& ctx, uint8_t* base, uint32_t keep) {
+  constexpr uint64_t kInt = 0xDEADC0DEDEADC0DEull, kFp = 0x7FF8DEADDEADC0DEull;
+  ctx.r0.u64 = kInt;
+  if (!(keep & kR3)) ctx.r3.u64 = kInt;
+  if (!(keep & kR4)) ctx.r4.u64 = kInt;
+  ctx.r5.u64 = ctx.r6.u64 = ctx.r7.u64 = ctx.r8.u64 = ctx.r9.u64 = ctx.r10.u64 = ctx.r11.u64 = ctx.r12.u64 = kInt;
+  PPCRegister* f = &ctx.f0;
+  for (int i = 0; i < 14; ++i) {
+    if (i == 1 && (keep & kF1)) continue;
+    f[i].u64 = kFp;
+  }
+  PPCVRegister* v = &ctx.v0;
+  for (int i = 0; i < 64; ++i) {
+    if ((i >= 14 && i < 32) || (i == 2 && (keep & kV2))) continue;
+    std::memset(v[i].u8, 0xDE, 16);
+  }
+  std::memset(rex::memory::GuestPtr(base, ctx.r1.u32 - kStackProbe), 0xDE, kStackProbe);
+}
+
+template <class Spec>
+Mode ResolveMode() {
+  Mode m = Spec::GetMode();
+  if constexpr (HasLean<Spec>) {
+    if (m == Mode::kOff && REXCVAR_GET(wwe2k14_nf_lean) && REXCVAR_GET(wwe2k14_nf_all).empty()) m = Mode::kLean;
+    if (m == Mode::kLean && REXCVAR_GET(wwe2k14_nf_poison)) m = Mode::kLeanPoison;
+  } else {
+    if (m == Mode::kLean) m = Mode::kOn;
+    if (m == Mode::kVerifyLean) m = Mode::kVerify;
+  }
+  return m;
+}
+
+#if defined(__ANDROID__)
+// Session 95 (review of the all-on phone build, finding 1): at Android's minimum API every thread_local is an emulated one, a function call per access, and the PC's way below paid that on every hooked call,
+// mode off included (phones without TRUE NATIVE and in plain mode). So a phone keeps each function's mode in one plain word, read from its cvars again once per guest frame (RefreshModes, from
+// android_pace::OnFrame), and does not count on / lean calls: its log has a [wwe2k14][nf] line per function when the mode changes instead of the count lines (verify still counts).
+struct ModeCell {
+  static constexpr uint8_t kUnread = 0xFF;
+  std::atomic<uint8_t> mode{kUnread};
+  Mode (*resolve)() = nullptr;
+  const char* name = "";
+  uint32_t guest = 0;
+  ModeCell* next = nullptr;
+};
+inline ModeCell* g_mode_cells = nullptr;  // (under the registry's mutex)
+template <class Spec>
+inline ModeCell g_mode_cell;
+inline const char* ModeName(Mode m) {
+  switch (m) {
+    case Mode::kOff: return "off";
+    case Mode::kVerify: return "verify";
+    case Mode::kOn: return "on";
+    case Mode::kLean: return "lean";
+    case Mode::kLeanPoison: return "lean + poison";
+    case Mode::kVerifyLean: return "verifylean";
+  }
+  return "?";
+}
+inline void RefreshModes() {
+  Registry& r = GetRegistry();
+  std::lock_guard lock(r.mutex);
+  for (ModeCell* c = g_mode_cells; c; c = c->next) {
+    const Mode m = c->resolve();
+    if (c->mode.load(std::memory_order_relaxed) == uint8_t(m)) continue;
+    c->mode.store(uint8_t(m), std::memory_order_relaxed);
+    REXLOG_INFO("[wwe2k14][nf] {} ({:08X}): mode {}", c->name, c->guest, ModeName(m));
+  }
+}
+template <class Spec>
+Mode FirstMode() {
+  ModeCell& c = g_mode_cell<Spec>;
+  Registry& r = GetRegistry();
+  std::lock_guard lock(r.mutex);
+  uint8_t m = c.mode.load(std::memory_order_relaxed);
+  if (m == ModeCell::kUnread) {
+    c.resolve = &ResolveMode<Spec>;
+    c.name = Spec::kName;
+    c.guest = Spec::kGuest;
+    c.next = g_mode_cells;
+    g_mode_cells = &c;
+    m = uint8_t(ResolveMode<Spec>());
+    c.mode.store(m, std::memory_order_relaxed);
+    if (Mode(m) != Mode::kOff) REXLOG_INFO("[wwe2k14][nf] {} ({:08X}): mode {}", c.name, c.guest, ModeName(Mode(m)));
+  }
+  return Mode(m);
+}
+template <class Spec>
+inline Mode CachedMode() {
+  const uint8_t m = g_mode_cell<Spec>.mode.load(std::memory_order_relaxed);
+  if (m == ModeCell::kUnread) [[unlikely]] return FirstMode<Spec>();
+  return Mode(m);
+}
+#else
 // The function's mode, read from its cvars once every 256 calls per thread (string compares on every call cost ~10%
 // of the small helpers' native time); a live change shows within microseconds.
 template <class Spec>
 Mode CachedMode() {
   static thread_local uint32_t tick = 0;
   static thread_local Mode mode = Mode::kOff;
-  if ((tick++ & 255) == 0) mode = Spec::GetMode();
+  if ((tick++ & 255) == 0) mode = ResolveMode<Spec>();
   return mode;
 }
-
+#endif
 template <class Spec>
 void Dispatch(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint8_t*)) {
   const Mode mode = CachedMode<Spec>();
@@ -232,17 +360,28 @@ void Dispatch(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint
     original(ctx, base);
     return;
   }
-  if (mode == Mode::kOn) {
+  if (mode == Mode::kOn || mode == Mode::kLean || mode == Mode::kLeanPoison) {
     // Nothing per call but the native version: no clock reads, no shared atomics (both cost more than the small
     // helpers themselves - in-run A/B 4254: the main game thread +33% CPU with them per call). Calls are counted per
     // thread and published every 4096.
-    Spec::Native(ctx, base);
+    if constexpr (HasLean<Spec>) {
+      if (mode == Mode::kOn) {
+        Spec::Native(ctx, base);
+      } else {
+        Spec::Lean(ctx, base);
+        if (mode == Mode::kLeanPoison) Poison(ctx, base, LeanRegs<Spec>());
+      }
+    } else {
+      Spec::Native(ctx, base);
+    }
+#if !defined(__ANDROID__)  // (a phone does not count these: see ModeCell)
     static thread_local uint32_t pending = 0;
     if (++pending == 4096) {
       StatsOf<Spec>().calls.fetch_add(pending, std::memory_order_relaxed);
       pending = 0;
       MaybeLog();
     }
+#endif
     return;
   }
   Stats& st = StatsOf<Spec>();
@@ -250,7 +389,9 @@ void Dispatch(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint
   // Verify: the guarded ranges' bytes before the call, the native version, its bytes, the inputs back, the original.
   Ranges ranges;
   Spec::Writes(ctx, base, ranges);
-  const bool strict = REXCVAR_GET(wwe2k14_nf_verify_strict);
+  const bool lean = mode == Mode::kVerifyLean;
+  const bool strict = !lean && REXCVAR_GET(wwe2k14_nf_verify_strict);
+  const uint32_t regs = lean ? LeanRegs<Spec>() : Spec::kRegs;
   if (strict) ranges.Add(ctx.r1.u32 - kStackProbe, kStackProbe);
   Scratch& sc = t_scratch[t_depth < 8 ? t_depth : 7];
   const DepthGuard depth_guard;
@@ -267,7 +408,7 @@ void Dispatch(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint
   }
   const PPCContext saved = ctx;
   const auto t0 = std::chrono::steady_clock::now();
-  Spec::Native(ctx, base);
+  RunNative<Spec>(ctx, base, lean);
   const auto t1 = std::chrono::steady_clock::now();
   const PPCContext native_ctx = ctx;
   // Window-shaped copies (windows of neighbouring ranges can overlap: every copy is taken before anything is put
@@ -338,7 +479,7 @@ void Dispatch(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint
     }
     o += len;
   }
-  const char* reg = RegDiff(native_ctx, ctx, Spec::kRegs);
+  const char* reg = RegDiff(native_ctx, ctx, regs);
   if (!reg && strict) reg = StrictRegDiff(native_ctx, ctx);
   // A difference in the outputs or registers may be a race: another thread changed an input between the native run
   // and the recompiled one. Then the native version, run once more now on the same (restored) memory, gives what the
@@ -349,8 +490,8 @@ void Dispatch(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint
     put_back(sc.before);
     PPCContext again = saved;
     again.fpscr.restoreGuestBits(saved.fpscr.csr);
-    Spec::Native(again, base);
-    bool same = RegDiff(again, ctx, Spec::kRegs) == nullptr && (!strict || StrictRegDiff(again, ctx) == nullptr);
+    RunNative<Spec>(again, base, lean);
+    bool same = RegDiff(again, ctx, regs) == nullptr && (!strict || StrictRegDiff(again, ctx) == nullptr);
     o = 0;
     for (int i = 0; i < ranges.n; ++i) {
       const size_t len = ranges.r[i].size + 2 * kGuard;

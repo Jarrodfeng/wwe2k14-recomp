@@ -31,6 +31,9 @@
 #    The finished zip's entry list is scanned again.
 # 5. Writes out\release\wwe2k14-recomp-<Version>.zip, its .sha256 and a copy of the docs.
 #
+#   -V3Exe      (Session 95) also build and ship wwe2k14_v3.exe: the same game code compiled for x86-64-v3 (AVX2, BMI, FMA, MOVBE;
+#               -ffp-contract=off keeps the results bit-identical), tools\perf\guest_variant_exe.py from this build's own objects
+#               (+~3 min); the launcher starts it when the CPU has every feature (src\launcher\cpu_features.h).
 #   -SelfTest   test the scan itself (no build, no zip): a scratch stage with three planted forbidden files (a game
 #               file's bytes under a harmless name, an nvngx_*.dll, a .bik2) must give three hits; exit 0 = the scan
 #               caught all three.
@@ -41,7 +44,7 @@
 #               which release.ps1 publishes from out\release\), and the performance test ships with it: the route
 #               s41_perf_breakdown.txt as perf_test.txt (Session 41; the launcher then offers its PERFORMANCE TEST) and
 #               tools\native\PERFORMANCE_TEST.txt (the steps). Same build, same forbidden scan.
-param([string]$Version = '', [switch]$Playtest, [switch]$Incremental, [switch]$SelfTest, [string]$LocalTest = '')
+param([string]$Version = '', [switch]$Playtest, [switch]$Incremental, [switch]$SelfTest, [string]$LocalTest = '', [switch]$V3Exe)
 $ErrorActionPreference = 'Stop'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 Set-Location $R
@@ -190,6 +193,14 @@ try {
     cmake --build $build -j 16 *>&1 | Out-File $log -Append
     if ($LASTEXITCODE) { Fail "build failed (see $log)" }
     foreach ($dll in Get-ChildItem "$env:REXSDK\bin\rex*.dll") { Copy-Item $dll.FullName (Join-Path $build $dll.Name) -Force }
+    if ($V3Exe) {
+        & py "$R\tools\perf\guest_variant_exe.py" --name v3 --variant v3 --tus all --jobs 16 --build-dir $build --dlls $build `
+            --out (Join-Path $build 'v3') --exe-name wwe2k14_v3.exe *>&1 | Out-File $log -Append
+        if ($LASTEXITCODE) { Fail "wwe2k14_v3.exe failed (see $log)" }
+        Copy-Item (Join-Path $build 'v3\exe\wwe2k14_v3.exe') (Join-Path $build 'wwe2k14_v3.exe') -Force
+        # Its own map, kept here and never zipped: a crash line's wwe2k14_v3.exe+0x... offset means nothing against wwe2k14.map.
+        Copy-Item (Join-Path $build 'v3\exe\wwe2k14_v3.map') (Join-Path $build 'wwe2k14_v3.map') -Force
+    }
     "build: $([int]((Get-Date) - $t0).TotalSeconds) s"
 } finally { Exit-RunLock $lock }
 $pin = pwsh -NoProfile -File "$R\tools\build.ps1" -CheckOnly -ExeDir $build
@@ -228,6 +239,7 @@ if ($LocalTest) {  # our route: the launcher's performance test
     $files['PERFORMANCE_TEST.txt'] = Join-Path $R 'tools\native\PERFORMANCE_TEST.txt'  # the steps for the tester
 }
 $buildOutputs = @('wwe2k14.exe', 'wwe2k14_launcher.exe', 'rexruntime.dll', 'rexgpu-xenos.dll')
+if ($V3Exe) { $files['wwe2k14_v3.exe'] = Join-Path $build 'wwe2k14_v3.exe'; $buildOutputs += 'wwe2k14_v3.exe' }
 # Third-party redistributables: published path -> source (copied unmodified; the scan compares them byte for byte).
 $crt = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT' -Directory |
     Sort-Object FullName | Select-Object -Last 1

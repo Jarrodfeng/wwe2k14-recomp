@@ -1,5 +1,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#ifdef POWLEAN
+#extension GL_EXT_control_flow_attributes : require
+#endif
 #include "xenos_ps.glsl"
 // Session 80 (OWN_RENDERER_PLAN.md W2, the wrestlers' body material ours first): the wrestlers' body / gear material in
 // ENTRANCES, in place of guest pixel shader B1F58C0AA0E3C83A, through the shader swap (src\scene_swap.h; SDK
@@ -137,13 +140,38 @@ vec3 PerturbedNormal(vec3 tangent, vec3 bitangent, vec3 vertex_normal, float u, 
 // to the width (power of a log, with the console's 0 * infinity = 0 kept: a zero width on a zero dot is 1), times that
 // light's weight, added from light 3 down to light 0.
 float WeightedLobes(vec4 light_logs, float width) {
+#ifdef POWLEAN
+  // (Session 95, r3gpu: Mul0 only differs from the plain multiply at width 0, a uniform: log2(0) x 0. Every other width takes the plain multiply.)
+  vec4 lobe;
+  [[dont_flatten]] if (width != 0.0) {
+    lobe = exp2(light_logs * width);
+  } else {
+    lobe = vec4(exp2(Mul0(light_logs.x, width)), exp2(Mul0(light_logs.y, width)), exp2(Mul0(light_logs.z, width)), exp2(Mul0(light_logs.w, width)));
+  }
+#else
   vec4 lobe = vec4(exp2(Mul0(light_logs.x, width)), exp2(Mul0(light_logs.y, width)),
                    exp2(Mul0(light_logs.z, width)), exp2(Mul0(light_logs.w, width)));
+#endif
   float sum = lobe.w * C3.w;
   sum = lobe.z * C2.w + sum;
   sum = lobe.y * C1.w + sum;
   return lobe.x * C0.w + sum;
 }
+
+// Session 95 (r3gpu): the powers with a whole exponent (wrestler_pow.glsl, gpu_native_wrestler_pow). Plain compile: the material's own pow, as before.
+#ifdef POWLEAN
+#define POW_ANY(x, p) PowAbs(x, p)
+#include "wrestler_pow.glsl"
+#define LPOW1(x, p) PowLean1(x, p)
+#define LPOW2(x, p) PowLean2(x, p)
+#define LPOW4(x, p) PowLean4(x, p)
+#define LPOW20(x, p) PowLean20(x, p)
+#else
+#define LPOW1(x, p) PowAbs(x, p)
+#define LPOW2(x, p) PowAbs(x, p)
+#define LPOW4(x, p) PowAbs(x, p)
+#define LPOW20(x, p) PowAbs(x, p)
+#endif
 
 void main() {
   vec2 uv = in_uv_fog.xy;
@@ -228,13 +256,13 @@ void main() {
   // Pair 1 (x, z channels): saturated difference, flipped, raised to a power, flipped back.
   float sat_x = clamp(depth_diff.x * C169.z, 0.0, 1.0);
   float sat_z = clamp(depth_diff.z * C169.z, 0.0, 1.0);
-  float shade_x = K_ONE - PowAbs(K_ONE - sat_x, C169.w);
-  float shade_z = K_ONE - PowAbs(K_ONE - sat_z, C169.w);
+  float shade_x = K_ONE - LPOW4(K_ONE - sat_x, C169.w);
+  float shade_z = K_ONE - LPOW4(K_ONE - sat_z, C169.w);
   // Pair 2 (y, w channels) the same with an offset and its own power; each mixes into its pair-1 partner.
   float sat_y = clamp((depth_diff.y - C170.x) * C170.y, 0.0, 1.0);
   float sat_w = clamp((depth_diff.w - C170.x) * C170.y, 0.0, 1.0);
-  float pow_y = PowAbs(K_ONE - sat_y, C170.z);
-  float pow_w = PowAbs(K_ONE - sat_w, C170.z);
+  float pow_y = LPOW20(K_ONE - sat_y, C170.z);
+  float pow_w = LPOW20(K_ONE - sat_w, C170.z);
   float shadow_a = (shade_x * pow_y - shade_x) * C170.w + shade_x;
   float shadow_b = (shade_z * pow_w - shade_z) * C170.w + shade_z;
   float shadow_amount = max(shadow_a, shadow_b);
@@ -256,14 +284,14 @@ void main() {
   vec3 half_dir = half_sum * InvLength(dot(half_sum, half_sum));
   float spec_dot = max(dot(half_dir, C12.xyz), K_EPS);
   float edge = K_ONE - abs(n_dot_v);                                         // 0 facing the camera, 1 at the silhouette
-  float edge_pow = PowAbs(edge, C205.y);
+  float edge_pow = LPOW2(edge, C205.y);
   vec3 spec = (spec_dot * edge_pow) * C4.xyz * C205.x * in_light_pos.w;
 
   // The base plus the highlight, mixed by the two weights, and added back scaled by the rim strength: the rim is the
   // edge term times the arena's lighting map term, lifted by the specular mask.
   vec3 spec_mix = (base + spec) * C253.y - base + (base * (spec + K_ONE)) * C253.w;
   float lightmap_term = max(lightmap.y - in_light_pos.z, K_EPS) * C162.z + lightmap.x;
-  float lightmap_pow = PowAbs(lightmap_term, C161.x);
+  float lightmap_pow = LPOW1(lightmap_term, C161.x);
   float spec_mask_mix = (normal1.w - K_ONE) * C161.y + K_ONE;
   float rim_strength = (spec_mask_mix * (edge * lightmap_pow)) * C161.z;
   vec3 body = spec_mix * rim_strength + base;
@@ -287,7 +315,7 @@ void main() {
   float light_total = spec_light + paint_light;
 
   // The sky seen at a glancing angle in the upward reflection: a rim colour, masked by the specular mask.
-  float sky_rim = PowAbs(K_ONE + n_dot_v, C204.w);
+  float sky_rim = LPOW1(K_ONE + n_dot_v, C204.w);
   float sky_up = max((-reflected.y) * sky_rim, K_EPS);
   vec3 env = light_total * C144.xyz + (sky_up * C204.xyz) * normal1.w;
   // Detail lightens / darkens the added light the way it does the colour, less under the paint mask.

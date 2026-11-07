@@ -87,6 +87,13 @@ REXCVAR_DEFINE_DOUBLE(wwe2k14_load_turbo_vblank_hz, 16000.0, "wwe2k14",
 REXCVAR_DEFINE_INT32(wwe2k14_load_turbo_skip_draws, 0, "wwe2k14",
                      "Load turbo: N > 1 = inside the in-game windows draw only 1 of every N frames (SDK "
                      "gpu_skip_frame_draws); 0 = off (Session 15 experiment)");
+// Session 95 (resolves, GPU energy audit row 9; OFF by default): the "boot" and "menu" windows run the guest vblank at 1 kHz (vsync off, no rate), so the
+// logos, the title movie and the menu loads draw ~290 / ~145 / ~125 frames a second of trivial content - about 20 s a launch of full GPU on a fanless chip
+// that the match then inherits warm. > 0 = those two windows also run the vblank at this rate (Hz, SDK gpu_vblank_unthrottled_hz; 240 = about a quarter of
+// the frames, the loads still several times faster than at 60 Hz). Costs load seconds (frame-counted waits), saves heat: unmeasured, needs a Surface A/B.
+REXCVAR_DEFINE_DOUBLE(wwe2k14_load_turbo_boot_menu_hz, 0.0, "wwe2k14",
+                      "Session 95: > 0 = the boot and menu load-turbo windows run the guest vblank at this rate (Hz) instead of 1 kHz (less heat on an iGPU, longer "
+                      "boot / menu loads); 0 = 1 kHz as before");
 REXCVAR_DEFINE_BOOL(wwe2k14_load_turbo_ui_real_time, true, "wwe2k14",
                     "Load turbo: keep 2D layout animations (the loading screen's spinning logo, menu sprites) at their "
                     "normal speed while a turbo window runs");
@@ -256,6 +263,14 @@ class LoadTurbo {
     if (restore_vsync_ && hz > 0.0 && (window_ == "ingame" || window_ == "match")) {
       restore_rate_ = rex::cvar::GetFlagByName("gpu_vblank_unthrottled_hz");
       rex::cvar::SetFlagByName("gpu_vblank_unthrottled_hz", std::to_string(hz));
+    }
+    // Session 95 (resolves): the boot / menu windows at a lower vblank rate when asked (the in-game windows above keep theirs).
+    if (restore_vsync_ && (window_ == "boot" || window_ == "menu")) {
+      if (const double bm = REXCVAR_GET(wwe2k14_load_turbo_boot_menu_hz); bm > 0.0) {
+        restore_rate_ = rex::cvar::GetFlagByName("gpu_vblank_unthrottled_hz");
+        rex::cvar::SetFlagByName("gpu_vblank_unthrottled_hz", std::to_string(bm));
+        REXLOG_INFO("[wwe2k14][turbo] {} window: guest vblank at {:.0f} Hz (wwe2k14_load_turbo_boot_menu_hz)", window_, bm);
+      }
     }
     if (restore_vsync_) rex::cvar::SetFlagByName("vsync", "false");
     skip_draws_set_ = false;

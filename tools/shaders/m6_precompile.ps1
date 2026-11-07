@@ -7,7 +7,7 @@
 # resolution is a different translator configuration, so a different set of keys in the same file.
 #
 #   & C:\Users\Jarrod\wwe2k14-recomp\tools\shaders\m6_precompile.ps1 -Tag p1440 [-Settings FILE] [-List FILE] [-Store FILE]
-#       [-Fresh] [-Exe FILE] [-WaitSeconds 900]
+#       [-Fresh] [-Exe FILE] [-WaitSeconds 900] [-ExtraArgs "--gpu_native_vertex_input=2"]  (Session 95: the attribute forms are made only at switch 2)
 #
 #   -Tag       names the run's files under out\m6\ (settings_<tag>.json, userdata_<tag>\, progress_<tag>.json)
 #   -Settings  launcher settings JSON for the run (default out\owned_check\settings_native1440.json = the census's;
@@ -22,7 +22,8 @@ param([Parameter(Mandatory)][string]$Tag,
       [string]$Store = 'C:\Users\Jarrod\wwe2k14-recomp\out\m6\store\545408B2.vk.xtc',
       [switch]$Fresh,
       [string]$Exe = 'C:\Users\Jarrod\wwe2k14-recomp\out\build\win-amd64-release\wwe2k14.exe',
-      [int]$WaitSeconds = 900)
+      [int]$WaitSeconds = 900,
+      [string[]]$ExtraArgs = @())
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $m6 = "$R\out\m6"
 $work = "$m6\userdata_$Tag"
@@ -44,6 +45,7 @@ $args1 = @("--user_data_root=$work", "--cache_root=$work\cache", "--wwe2k14_d3d_
            "--wwe2k14_shader_list=$List", "--wwe2k14_precompile=$progress", "--gpu_m6_store_path=$Store",
            "--window_activate_when_shown=false", "--window_show_behind=true", "--wwe2k14_perf_report=false",
            "--wwe2k14_discord=false")
+$args1 += $ExtraArgs
 $out = & "$R\tools\run_and_triage.ps1" -WaitSeconds $WaitSeconds -KillAfterWait -Exe $Exe -ExtraArgs $args1
 $out | ForEach-Object { Write-Host $_ }
 $log = $null

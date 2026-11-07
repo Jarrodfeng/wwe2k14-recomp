@@ -56,7 +56,7 @@ inline constexpr uint32_t kNoGpuByteOffset = 11069;  // bit 0x02: the library's 
 inline constexpr uint32_t kVertexShaderOffset = 13072;  // the vertex shader object
 inline constexpr uint32_t kPixelShaderOffset = 13068;   // the pixel shader object
 
-// The generated code's address translation (REX_RAW_ADDR: 0xE0000000 and up sit 4 KB further on Windows).
+// The generated code's address translation (REX_RAW_ADDR; since Session 95 a plain add on Windows too).
 inline uint32_t Load32(const uint8_t* base, uint32_t address) {
   uint32_t be;
   std::memcpy(&be, base + address + ::rex::memory::detail::PhysicalHostOffset(address), 4);

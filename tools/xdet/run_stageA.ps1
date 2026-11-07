@@ -20,7 +20,8 @@
 #   the game booted without the replay, the route or the profile and sat in the attract demo). Refused here.
 param([string]$Record = '', [string]$Play = '', [int]$Plays = 2, [int]$Seed = 77, [string]$More = '',
       [string]$Scenario = 'pad', [switch]$Shots, [switch]$RealTime, [int]$Compare = 0, [int]$WaitSeconds = 900,
-      [string]$Route = '', [string]$FlagsFile = 'stageA.flags', [switch]$NoDraw, [string]$Data = 'userdata_frozen')
+      [string]$Route = '', [string]$FlagsFile = 'stageA.flags', [switch]$NoDraw, [string]$Data = 'userdata_frozen',
+      [string]$Exe = '')  # Session 95: -Exe a worktree's exe (run_list's default otherwise)
 $ErrorActionPreference = 'Stop'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 if (-not $Record -and -not $Play) { 'give -Record NAME or -Play NAME'; exit 2 }
@@ -69,7 +70,8 @@ if ($Record) {
 }
 if ($Play) {
   $scripts = @(); for ($i = 0; $i -lt $Plays; $i++) { $scripts += $script }
-  $o = & "$R\tools\bench\run_list.ps1" -Scripts $scripts -Extra "$extra --wwe2k14_replay_play=$Play" -Data $Data -WaitSeconds $WaitSeconds 2>&1
+  $exeArg = if ($Exe) { @{ Exe = $Exe } } else { @{} }
+  $o = & "$R\tools\bench\run_list.ps1" -Scripts $scripts -Extra "$extra --wwe2k14_replay_play=$Play" -Data $Data -WaitSeconds $WaitSeconds @exeArg 2>&1
   $o | Where-Object { "$_" -match '->|checks:' } | ForEach-Object { "play: $_" }
   $runs += Get-Runs $o
 }

@@ -44,9 +44,9 @@ void main() {
     a = XeAddress(scaled);
   }
   vec4 q = position.wzxy;
-  vec3 world = vec3(AvDot4(q, fc.c[76 + a].wzxy), AvDot4(q, fc.c[77 + a].wzxy), AvDot4(q, fc.c[78 + a].wzxy));
+  vec3 world = vec3(AvDot4(q, fc.c[76 + XeBone(a)].wzxy), AvDot4(q, fc.c[77 + XeBone(a)].wzxy), AvDot4(q, fc.c[78 + XeBone(a)].wzxy));
   vec3 n = normal.zxy;
-  vec3 turned = vec3(AvDot3(n, fc.c[76 + a].zxy), AvDot3(n, fc.c[77 + a].zxy), AvDot3(n, fc.c[78 + a].zxy));
+  vec3 turned = vec3(AvDot3(n, fc.c[76 + XeBone(a)].zxy), AvDot3(n, fc.c[77 + XeBone(a)].zxy), AvDot3(n, fc.c[78 + XeBone(a)].zxy));
 
   // the flash's centre through the view-projection rows, and the lookup at its screen position
   float cx = AvDot4(fc.c[214].wzxy, fc.c[56].wzxy), cy = AvDot4(fc.c[214].wzxy, fc.c[57].wzxy);

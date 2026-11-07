@@ -507,7 +507,11 @@ function Exit-RunLockLaunch($Stream) { if ($Stream) { try { $Stream.Dispose() } 
 
 function Enter-RunLock {
     param([string]$Name = 'unnamed', [double]$TimeoutMinutes = 240, [int]$PollMs = 2000, [switch]$Quiet,
-          [ValidateSet('Exclusive', 'Shared', 'Build')][string]$Mode = 'Exclusive')
+          [ValidateSet('Exclusive', 'Shared', 'Build')][string]$Mode = 'Exclusive',
+          [switch]$QueueAware, [double]$MaxTotalMinutes = 30)
+    # Session 95 (-QueueAware, process report item 5; a build timed out after 301 s with the queue moving): the deadline
+    # restarts whenever the line moves (our position drops, or the thing blocking us changes) but never for a game nobody
+    # started (a manual session: waiting on it is the old "quit the game" case), and never past -MaxTotalMinutes in all.
     [void][System.IO.Directory]::CreateDirectory($script:RunLockQueue)
     $max = $script:RunLockMaxShared
     # Re-entry: an ancestor (or this process, further up the stack) holds the lock and passed its token down.
@@ -561,6 +565,8 @@ function Enter-RunLock {
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     $lastMsg = ''
     $t0 = Get-Date
+    $hardDeadline = $t0.AddMinutes([Math]::Max($TimeoutMinutes, $MaxTotalMinutes))
+    $prevIdx = [int]::MaxValue; $prevBlock = ''
     try {
         while ($true) {
             if (-not (Test-Path -LiteralPath $ticket)) {
@@ -689,10 +695,22 @@ function Enter-RunLock {
                 }
                 if (-not $why) { $why = 'no shared slot file could be opened (being taken or released)' }
             }
+            if ($QueueAware -and $why) {
+                $blockKey = ($why -replace '\(pid \d+, since [^)]*\)', '')
+                $manual = ($why -like 'wwe2k14 running that no shared holder started*') -or ($why -like 'free, but wwe2k14 is running*')
+                if (-not $manual -and ($idx -ge 0) -and (($idx -lt $prevIdx -and $prevIdx -ne [int]::MaxValue) -or ($prevBlock -and $blockKey -ne $prevBlock))) {
+                    $nd = (Get-Date).AddMinutes($TimeoutMinutes)
+                    if ($nd -gt $hardDeadline) { $nd = $hardDeadline }
+                    if ($nd -gt $deadline) { $deadline = $nd }
+                }
+                if ($idx -ge 0) { $prevIdx = $idx }
+                $prevBlock = $blockKey
+            }
             if ((Get-Date) -gt $deadline) {
                 Write-RunLockHistory -Kind 'timeout' -Mode $modeWord -Name $Name -Waited ((Get-Date) - $t0).TotalSeconds `
                     -Queue ([Math]::Max(0, $s.Tickets.Count - 1)) -Games $s.Games.Count -Token $token -Note "$why"
-                throw "[runlock] timed out after $TimeoutMinutes min waiting for '$Name' ($modeWord)"
+                $waitedMin = [Math]::Round(((Get-Date) - $t0).TotalMinutes, 1)
+                throw "[runlock] timed out after $waitedMin min waiting for '$Name' ($modeWord; no-progress wait $TimeoutMinutes min)"
             }
             $msg = "[runlock] '$Name' ($modeWord) waiting: $why; queue position $($idx + 1) of $($s.Tickets.Count)"
             if (-not $Quiet -and $msg -ne $lastMsg) { Write-RunLockMsg $msg; $lastMsg = $msg }
@@ -1189,19 +1207,49 @@ if ($MyInvocation.InvocationName -ne '.' -and $args.Count -gt 0) {
         'status' { Show-RunLockStatus; exit 0 }
         'clear-stale' { Clear-RunLockStale -Lock; exit 0 }
         'run' {
-            $name = 'runlock run'; $timeout = 240; $runMode = 'Exclusive'; $i = 1
+            $name = 'runlock run'; $timeout = 240; $runMode = 'Exclusive'; $i = 1; $maxMin = 30.0; $untimedExe = ''; $untimedRoot = ''
             while ($i -lt $args.Count -and $args[$i] -ne '--') {
                 switch ($args[$i]) {
                     '-Name' { $name = $args[$i + 1]; $i += 2 }
                     '-TimeoutMinutes' { $timeout = [double]$args[$i + 1]; $i += 2 }
+                    '-Untimed' { $untimedExe = $args[$i + 1]; $untimedRoot = $args[$i + 2]; $i += 3 }
+                    '-MaxMinutes' { $maxMin = [double]$args[$i + 1]; $i += 2 }
                     '-Shared' { $runMode = 'Shared'; $i += 1 }
                     '-Exclusive' { $runMode = 'Exclusive'; $i += 1 }
                     '-Build' { $runMode = 'Build'; $i += 1 }
                     default { Write-Host "runlock run: unknown option $($args[$i])"; exit 2 }
                 }
             }
-            if ($i -ge $args.Count - 1) { Write-Host 'usage: runlock.ps1 run [-Shared | -Build] [-Name NAME] [-TimeoutMinutes M] -- CMD [ARGS...]'; exit 2 }
+            if ($i -ge $args.Count - 1) { Write-Host 'usage: runlock.ps1 run [-Shared | -Build] [-Name NAME] [-Untimed GAME_EXE USER_DATA_ROOT] [-TimeoutMinutes M] [-MaxMinutes M (default 30; 0 = no limit)] -- CMD [ARGS...]'; exit 2 }
             $cmd = $args[$i + 1]; $rest = @(); if ($args.Count -gt $i + 2) { $rest = $args[($i + 2)..($args.Count - 1)] }
+            # Session 95 (process report item 2: the untimed launcher / reference runs r1 r2 r3 diag3 diag4 held the exclusive lock
+            # 15-25 min of a session): `-Untimed GAME_EXE USER_DATA_ROOT` takes a SHARED slot instead of the default exclusive
+            # one when it is safe: the exe logs "run log number" (Test-RunLockExeSharedSafe), USER_DATA_ROOT is a folder of its
+            # own under out\ (not Jarrod's real data, not the frozen mirror, not one a running game already uses). Otherwise it
+            # stays exclusive and says why on stderr. Never for a timed run (perf numbers from a shared run are not comparable).
+            if ($untimedExe -and $runMode -eq 'Exclusive') {
+                $why = ''
+                $rootFull = ''; try { $rootFull = [System.IO.Path]::GetFullPath($untimedRoot).TrimEnd('\') } catch { }
+                $outRoot = [System.IO.Path]::GetFullPath((Join-Path (Split-Path $PSScriptRoot) 'out')).TrimEnd('\') + '\'
+                if (-not (Test-Path -LiteralPath $untimedExe)) { $why = "exe not found: $untimedExe" }
+                elseif (-not (Test-RunLockExeSharedSafe $untimedExe)) { $why = "$untimedExe does not log 'run log number' (not shared-safe)" }
+                elseif (-not $rootFull -or -not ($rootFull + '\').StartsWith($outRoot, [System.StringComparison]::OrdinalIgnoreCase)) { $why = "user data root '$untimedRoot' is not under out\" }
+                elseif ($rootFull -match 'userdata_frozen' -or $rootFull -match '\\AppData\\') { $why = "user data root '$untimedRoot' is the frozen mirror or a real save" }
+                elseif (@(Get-RunLockGamesOnUserData $rootFull).Count) { $why = "a running game already uses '$untimedRoot'" }
+                elseif (($rootFull.Substring($outRoot.Length - 1).Trim('\') -split '\').Count -lt 2) { $why = "user data root '$untimedRoot' must be a folder at least two levels under out\ (a run's own folder)" }
+                elseif ($rootFull.Substring($outRoot.Length - 1) -match '^\bench(\|$)') { $why = "user data root '$untimedRoot' is under out\bench (shared mirrors / work folders)" }
+                elseif ((@($cmd) + @($rest) | Out-String).IndexOf($rootFull, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { $why = "the command's arguments do not name the root '$untimedRoot' (it could be using another data folder)" }
+                else {
+                    # One -Untimed run per root at a time: an exclusive lock file inside the root, held for the whole run.
+                    try {
+                        [void][System.IO.Directory]::CreateDirectory($rootFull)
+                        $script:UntimedRootLock = [System.IO.File]::Open("$rootFull\.untimed.lock", 'OpenOrCreate', 'ReadWrite', 'None')
+                    } catch { $why = "another -Untimed run holds '$untimedRoot'" }
+                }
+                if ($why) { [Console]::Error.WriteLine("runlock run: -Untimed stays EXCLUSIVE: $why") }
+                else { $runMode = 'Shared' }
+            }
+            # (the root lock file, if taken, is released in the finally below or by process exit)
             # Checked before queueing: a typo shouldn't wait its turn and then "succeed".
             if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { [Console]::Error.WriteLine("runlock run: command not found: $cmd"); exit 127 }
             $script:RunLockMsgToStderr = $true   # keep the tool's stdout clean for whoever parses it
@@ -1211,13 +1259,35 @@ if ($MyInvocation.InvocationName -ne '.' -and $args.Count -gt 0) {
             try {
                 $global:LASTEXITCODE = $null
                 $errBefore = $Error.Count
-                & $cmd @rest
-                $ok = $?
+                # Session 95 (process report item 3: one `runlock run` held the exclusive lock 3.86 h and blocked every build):
+                # an EXTERNAL program runs as a child with a wall-clock limit (-MaxMinutes, default 30; 0 = none). Over it, the
+                # child and its process tree are killed, the history gets a 'maxminutes' line and the exit code is 124. A
+                # PowerShell function or script keeps the old in-process call (no limit possible there).
+                $cmdInfo = Get-Command $cmd -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($maxMin -gt 0 -and $cmdInfo -and $cmdInfo.CommandType -eq 'Application') {
+                    # ArgumentList (not a joined string): spaces, trailing backslashes and quotes reach the child unchanged.
+                    $psi = [System.Diagnostics.ProcessStartInfo]::new($cmdInfo.Source)
+                    $psi.UseShellExecute = $false
+                    foreach ($a in $rest) { [void]$psi.ArgumentList.Add("$a") }
+                    $p = [System.Diagnostics.Process]::Start($psi)
+                    if ($p.WaitForExit([int]($maxMin * 60000))) { $global:LASTEXITCODE = $p.ExitCode }
+                    else {
+                        $msg = "'$name' (pid $($p.Id)) passed -MaxMinutes $maxMin; killing its process tree and releasing the lock"
+                        [Console]::Error.WriteLine("runlock run: $msg")
+                        & taskkill.exe /PID $p.Id /T /F *> $null
+                        try { Write-RunLockHistory -Kind 'maxminutes' -Mode $runMode -Name $name -Held ($maxMin * 60) -Token $h.Token -Note $msg } catch { }
+                        $global:LASTEXITCODE = 124
+                    }
+                    $ok = $true
+                } else {
+                    & $cmd @rest
+                    $ok = $?
+                }
                 # Native command or a script's `exit N`: that code. Otherwise 1 if it failed or wrote any error.
                 $code = if ($null -ne $global:LASTEXITCODE) { [int]$global:LASTEXITCODE } elseif ($ok -and $Error.Count -eq $errBefore) { 0 } else { 1 }
             } catch {
                 [Console]::Error.WriteLine("runlock run: $($_.Exception.Message)"); $code = 1
-            } finally { Exit-RunLock $h -Report }
+            } finally { Exit-RunLock $h -Report; if ($script:UntimedRootLock) { try { $script:UntimedRootLock.Dispose() } catch { } } }
             exit $code
         }
         'report' {

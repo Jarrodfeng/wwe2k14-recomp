@@ -2588,6 +2588,12 @@ REX_HOOK_RAW(sub_823C79A8) {
       }
     }
   }
+  // Session 95: the exact freeze (the diagnostic run) holds the view of its first frozen hand-off.
+  if (mgr && !free_cam && mgr == LoadGuestU32(base, kSceneManagerPtr)) {
+    const uint32_t views = LoadGuestU32(base, mgr + 24), index = LoadGuestU32(base, mgr + 32);
+    if (views && int32_t(index) >= 0 && int32_t(index) < int32_t(LoadGuestU32(base, mgr + 28)))
+      wwe2k14::freeze::HoldView(base, mgr, views + index * 272);
+  }
   // Session 18 (DLAA): the composed view (after the free camera) for the motion vectors. Session 24: sent after the
   // hand-off, which fills the render view (mgr+48 + 656 * [mgr+1360]) with this camera's near / far (+500 / +504).
   wwe2k14::dlaa::HandoffView dlaa_view;

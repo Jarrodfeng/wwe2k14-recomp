@@ -71,6 +71,10 @@ REXCVAR_DEFINE_BOOL(wwe2k14_use_launcher_settings, !wwe2k14::gfx_menu::IsDevBuil
 REXCVAR_DEFINE_STRING(wwe2k14_settings_file, "", "wwe2k14",
                       "Session 28: the settings file the GRAPHICS menu and --wwe2k14_use_launcher_settings read and "
                       "write; empty = %APPDATA%\\wwe2k14-launcher\\settings.json (the launcher's)");
+REXCVAR_DEFINE_BOOL(wwe2k14_low_shadows, false, "wwe2k14",
+                    "Session 95 (item K, default false until the milestone): in the LOW tier, draw the wrestlers' shadow maps on alternate "
+                    "frames (gpu_shadow_half_rate), the 8-bit maps at half size (gpu_native_owned_shadow_half) and skip the passes that read only "
+                    "those maps (gpu_native_owned_shadow_skip). Read by the game's settings-file path only; the launcher does not pass it");
 REXCVAR_DEFINE_STRING(wwe2k14_quality_note, "", "wwe2k14",
                       "Session 93: the quality tier a launcher resolved for this start, as text for the game log "
                       "('LOW (auto: integrated GPU ...)'). The launcher builds the flags itself; this only carries the "
@@ -229,14 +233,12 @@ inline void ConfigureTextureFilter() {
 }
 
 // Session 93: with the launcher's flags (it resolves the tier itself) the reason arrives as --wwe2k14_quality_note.
-inline bool g_tier_low = false;  // Session 93: this start runs the LOW tier (the file's, or the launcher's note)
 inline void LogQualityNote() {
   const std::string note = REXCVAR_GET(wwe2k14_quality_note);
   if (note.empty()) return;
   // (The launcher's note has no spaces: LOW_auto_integrated; readable here.)
   std::string text = note;
   std::replace(text.begin(), text.end(), '_', ' ');
-  g_tier_low = note.rfind("LOW", 0) == 0;
   REXLOG_INFO("[wwe2k14] quality tier: {}", text);
 }
 
@@ -252,7 +254,8 @@ inline void ApplyLauncherSettings() {
   const std::filesystem::path path = SettingsFile();
   const std::string json = gfxs::ReadFile(path);
   // Session 51 (Jarrod, 2026-10-22: "NATIVE for everyone"): no file = the launcher's defaults, so the NATIVE renderer
-  // (the other defaults set nothing: 1440p, 60 fps, no upscaler are the game's own).
+  // (the other defaults set nothing: 60 fps, no upscaler are the game's own; Session 95: the default resolution is 720p, which
+  // GraphicsFlags sets as resolution_scale=1, and 1440p is asked for with the game's preset).
   if (json.empty())
     REXLOG_INFO("[wwe2k14][gfxmenu] no settings file at {}: the launcher's defaults (NATIVE renderer)",
                 gfxs::Utf8(path));
@@ -281,7 +284,6 @@ inline void ApplyLauncherSettings() {
       c.low = false;
       why = c.original_look ? "STANDARD (original look is on)" : "STANDARD (not the NATIVE renderer)";
     }
-    g_tier_low = c.low;
     static bool logged = false;
     if (!logged) {
       logged = true;
@@ -308,6 +310,10 @@ inline void ApplyLauncherSettings() {
   auto cmdline = [](const char* n) { return rex::cvar::GetFlagSource(n) != rex::cvar::Source::kDefault; };
   const bool own_size = cmdline("wwe2k14_preset_1440p60") || cmdline("wwe2k14_preset_4k60") || cmdline("wwe2k14_dlss") ||
                         cmdline("wwe2k14_dlaa") || cmdline("wwe2k14_fsr") || cmdline("resolution_scale");
+  c.low_shadows = REXCVAR_GET(wwe2k14_low_shadows);  // (Session 95, item K)
+  // Session 95 (Jarrod: "they start with our safe low defaults"): no settings file at all = a first start on this PC: the LOW tier's
+  // starting values apply here, as the launcher's first-run setup writes them into a file.
+  if (c.low && json.empty()) gfxs::LowStartValues(c.resolution, c.draw_height, c.upscale, c.crowd_density);
   std::string applied;
   for (const auto& [name, value] : gfxs::GraphicsFlags(c, dir, gfxs::MonitorHz())) {
     if (rex::cvar::GetFlagSource(name) != rex::cvar::Source::kDefault) continue;  // the command line wins
@@ -356,15 +362,11 @@ inline void CaptureRunning() {
   r.draw_height = NativeRunning() ? gfxs::ValidDrawHeight(r.resolution, FlagInt("gpu_native_truth_draw_height")) : 0;
   r.texture_filter = REXCVAR_GET(wwe2k14_texture_filter) >= 16 ? 2 : REXCVAR_GET(wwe2k14_texture_filter) >= 8 ? 1 : 0;
   if (FlagInt("wwe2k14_step_hz") > 60) r.frame_rate = 2, r.refresh_hz = int(FlagInt("wwe2k14_step_hz"));
+  else if ((FlagInt("gpu_d3d_decouple") & 8) && FlagInt("gpu_d3d_decouple_word") == 0) r.frame_rate = 2, r.refresh_hz = 120;  // Session 95: the decoupled 120 (wwe2k14_decouple_120) is FRAME RATE 2
   else if (!FlagIsTrue("wwe2k14_entrance_60fps")) r.frame_rate = 0;
   else r.frame_rate = 1;
-  // Session 93: the LOW tier drew 720p where the file says 1440p: the menu and its restart test compare against the file's
-  // choice (the tier is not a change the player made).
-  if (g_tier_low && r.upscale == 0 && r.resolution == 0 && r.draw_height == 0) {
-    gfxs::Choice fc;
-    gfxs::Parse(gfxs::ReadFile(SettingsFile()), fc);
-    if (fc.upscale == 0 && fc.draw_height == 0 && fc.resolution == 1) r.resolution = 1;
-  }
+  // (Session 95: the LOW tier no longer changes the resolution or the crowd - the file's values are what runs - so the running
+  // values need no correction against the file.)
   g_running = r;
   g_dlss_dir = rex::cvar::GetFlagByName("vulkan_streamline_dir");
   g_streamline_running = !g_dlss_dir.empty() && (FlagIsTrue("wwe2k14_dlaa") || FlagIsTrue("wwe2k14_dlss"));

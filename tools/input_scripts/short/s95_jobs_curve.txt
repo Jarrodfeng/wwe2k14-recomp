@@ -1,0 +1,31 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1
+# Session 95 (item N): the job system's scaling curve in one launched uncapped match: gpu_jobs_workers flipped live, 600 frames an arm so each [jobs] window line and the frames CSV cover one arm: W = -1 (none), 1, 2, 4, 8, 14, then -1 again. Run with --gpu_jobs=3 --vsync=false. Read: py -I tools\native\jobs_curve.py RUN. Launched, not a replay (replays turn on det_serial). on_fail quit.
+on_fail quit
+log bench: start s95_jobs_curve
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+wait_file M3.PAC 3600
+wait_frames 400
+log arm W=-1
+cvar gpu_jobs_workers -1
+wait_frames 600
+log arm W=1
+cvar gpu_jobs_workers 1
+wait_frames 600
+log arm W=2
+cvar gpu_jobs_workers 2
+wait_frames 600
+log arm W=4
+cvar gpu_jobs_workers 4
+wait_frames 600
+log arm W=8
+cvar gpu_jobs_workers 8
+wait_frames 600
+log arm W=14
+cvar gpu_jobs_workers 14
+wait_frames 600
+log arm W=-1b
+cvar gpu_jobs_workers -1
+wait_frames 600
+log bench: done
+quit

@@ -31,6 +31,7 @@
 #include "kernel_overrides.h"
 #include "missing_function_scan.h"
 #include "thread_placement.h"
+#include "power_throttle.h"  // --wwe2k14_eco_qos / --wwe2k14_pack_cores (Session 95, default off)
 #include "image_dump.h"
 #include "determinism.h"  // --wwe2k14_fixed_seed (Session 8 task 8a)
 #include "slow_frame.h"   // --wwe2k14_slowframe_ms (Session 8 task 12, default off)
@@ -57,6 +58,7 @@
 #include "gfx_menu.h"       // GRAPHICS menu in the Options (Session 28)
 #include "dlc.h"            // --wwe2k14_dlc: the player's DLC packs (Session 32, default off)
 #include "background_speed.h"  // --wwe2k14_background_full_speed (Session 32, default off; run_list turns it on)
+#include "display_mode.h"      // --wwe2k14_display_720p (Session 95, default off): 1280x720 desktop while playing
 #include "live_control.h"   // --wwe2k14_live (Session 29: live control channel, default off)
 #include "check_prompt.h"   // input-script `check TEXT` (Session 29: on-screen question, harness runs only)
 #include "perf_overlay.h"   // --wwe2k14_perf_overlay (Session 80: frame rate, frame time, temperature, a graph)
@@ -84,6 +86,7 @@
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
 #include "replay_watch.h"  // Session 63: log a runaway render-command replay; S73 b78: end it (default on Android)
 #include "xdet_check.h"  // Session 77 (P7): --wwe2k14_xdet_check, the tester determinism check's profile
+#include "diag.h"        // Session 95: --wwe2k14_diag, the diagnostic run (also reached through input_script.h)
 #include "native_skin.h"   // Session 64: the game's CPU vertex-skinning loop sub_82508738 natively (S66: every platform, via native_fn.h)
 #include "nf/all.h"        // Session 66 (F2): the native function factory's functions (off until verified)
 #include "shader_list.h"  // Session 61: --wwe2k14_shader_list (the shipped shader list into the shader storage)
@@ -112,6 +115,13 @@ REXCVAR_DEFINE_BOOL(wwe2k14_s22_defaults, true, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_s23_defaults, true, "wwe2k14",
                     "Apply the Session 23 GPU defaults (repeat draws: fast path + instanced merge of the crowd "
                     "shaders); false = Session 22 behaviour");
+// Session 95: the CPU / upload power set, one switch, OFF until its check passes (each part is its own SDK flag and still
+// works alone; gpu_hot_pages_frames left the set in the review, `became hot` 0 in every log: vulkan_upload_hoist_merge, vulkan_hoist_tight_barrier, kernel_cs_spin_pause,
+// kernel_timestamp_tick_ms, present_ui_idle_wait_ms, wwe2k14_low_power_spin_us / _sleep_us, wwe2k14_load_turbo_vblank_hz).
+REXCVAR_DEFINE_BOOL(wwe2k14_s95_lean, false, "wwe2k14",
+                    "Session 95: turn on the CPU / upload power set (merged hoisted copies, tight "
+                    "hoist barriers, critical section PAUSE spin, 4 ms kernel timer, 8 ms UI idle wait, no render-thread spin, "
+                    "load turbo at 4 kHz). Each flag below still wins when set on the command line.");
 REXCVAR_DEFINE_BOOL(wwe2k14_s7_defaults, true, "wwe2k14",
                     "Apply the Session 7 GPU command-processor optimisation defaults (false = Session 6 behaviour)");
 
@@ -144,6 +154,13 @@ REXCVAR_DEFINE_BOOL(wwe2k14_preset_165, false, "wwe2k14",
                     "165 Hz setup (experiment, default off): Session 21's GPU winners, the match at 165 game steps "
                     "per second and entrances at 144 (step_vblank), mailbox presentation");
 
+// Session 95 (item F6, gpu_d3d_decouple phase 2): 120 presented pictures a second at logic 60, in place of 120 whole game steps a second.
+REXCVAR_DEFINE_BOOL(wwe2k14_decouple_120, false, "wwe2k14",
+                    "Session 95 (EXPERIMENTAL, default off; read at start): the 120FPS mode as two pictures per game step - sets gpu_d3d_decouple=9 and "
+                    "gpu_d3d_decouple_word=0 (the owned passes render 2 views, the second a half tick on; SDK decouple_blend.cpp) when those are left at "
+                    "default. The game steps at its own 60 (no wwe2k14_step_hz / step_vblank); the launcher's mapping (gfx_settings.h, "
+                    "mobile_settings.h) pushes the same pair for FRAME RATE 120 when WWE2K14_DECOUPLE_120=1 is in its environment"); 
+
 // Session 6: one switch for all of this session's command-processor optimisation defaults (see OnPreSetup).
 REXCVAR_DEFINE_BOOL(wwe2k14_s6_defaults, true, "wwe2k14",
                     "Apply the Session 6 GPU command-processor optimisation defaults (false = Session 5 behaviour)");
@@ -163,6 +180,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_present_mailbox, false, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_mount_cache, true, "wwe2k14",
                     "Mount <user data>/cache_partition as the Xbox 360 HDD cache partition (cache:); MATCH HIGHLIGHTS "
                     "needs it (the game keeps its replay file there)");
+
+// Session 95 (flat guest memory): the generated code's offset (the codegen template) and the SDK header's must agree, or our
+// hooks and the recompiled code read the 0xE0000000 range 4 KB apart. An SDK update without a fresh codegen stops here.
+static_assert(REX_PHYS_HOST_OFFSET(0xE0000000u) == ::rex::memory::detail::PhysicalHostOffset(0xE0000000u),
+              "generated code and rex/system/xmemory.h disagree: run codegen after the SDK build");
 
 class Wwe2k14App : public rex::ReXApp {
  public:
@@ -337,7 +359,10 @@ class Wwe2k14App : public rex::ReXApp {
     // game. Neither is needed here: no vertex shader of the boot or a match exports memory (emulated Mali on the PC,
     // runs 4634 / 4635: no [vs-memexport] line, clean match) and line / point fills fall back to solid.
     for (auto [name, value] : {std::pair{"vulkan_require_vertex_pipeline_stores_and_atomics", "false"},
-                               std::pair{"vulkan_require_fill_mode_non_solid", "false"}}) {
+                               std::pair{"vulkan_require_fill_mode_non_solid", "false"},
+                               // Session 95 (Lane D): geometryShader is not part of the phone baseline. Many Mali / PowerVR phones lack it;
+                               // the primitive processor expands rectangle / point lists in the vertex shader without it.
+                               std::pair{"vulkan_require_geometry_shader", "false"}}) {
       if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
     }
     REXLOG_INFO("[wwe2k14][android] PC defaults built in: gpu_native={}, truth={}, truth_host_rt={}, resolution_scale={}",
@@ -449,6 +474,21 @@ class Wwe2k14App : public rex::ReXApp {
     // Session 94 (idea 12): --wwe2k14_low_ram, smaller sizes on a phone under 6 GB; before d3d_owned::Apply so its 1024 MB budget yields.
     wwe2k14::low_ram::Apply();
     wwe2k14::d3d_owned::Apply();
+    // Session 95: the lean set, after d3d_owned::Apply: TRUE NATIVE on a PC or a phone turns it on there (a flag set by hand keeps its value).
+    if (REXCVAR_GET(wwe2k14_s95_lean)) {
+      for (auto [name, value] : {std::pair{"vulkan_upload_hoist_merge", "true"},
+                                 std::pair{"vulkan_hoist_tight_barrier", "true"},
+                                 std::pair{"kernel_cs_spin_pause", "8"},
+                                 std::pair{"kernel_timestamp_tick_ms", "4"},
+                                 std::pair{"present_ui_idle_wait_ms", "8"},
+                                 std::pair{"wwe2k14_low_power_spin_us", "0"},
+                                 std::pair{"wwe2k14_low_power_sleep_us", "500"},
+                                 std::pair{"wwe2k14_load_turbo_vblank_hz", "4000"}}) {
+        if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
+      }
+      REXLOG_INFO("[s95][lean] wwe2k14_s95_lean on: hoist merge + tight barrier, cs pause 8, timer 4 ms, UI wait 8 ms, "
+                  "low power spin 0 / sleep 500 us, load turbo 4 kHz");
+    }
     // Session 93 (idea 14): --wwe2k14_android_pace_gate and the start lines of the pacing switches (src\android_pace.h).
     wwe2k14::android_pace::Apply();
 
@@ -568,11 +608,30 @@ class Wwe2k14App : public rex::ReXApp {
         rex::cvar::SetFlagByName("vulkan_allow_present_mode_immediate", "false");
       }
     }
+    // Session 95 (F6): gpu_d3d_decouple is init-only and read when the device is made (vulkan_device.cpp), so it is set here, before it. Only if left at default.
+    if (REXCVAR_GET(wwe2k14_decouple_120)) {
+      for (auto [name, value] : {std::pair{"gpu_d3d_decouple", "9"}, std::pair{"gpu_d3d_decouple_word", "0"}}) {
+        if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(name, value);
+      }
+      // The game steps at its own 60 in this mode: a launcher FRAME RATE 2 (120 steps a second) arriving with it would run both (120 steps AND 2 views), so its step flags are cleared.
+      for (auto [name, value] : {std::pair{"wwe2k14_step_hz", "0"}, std::pair{"wwe2k14_step_hz_entrance", "0"}, std::pair{"wwe2k14_step_vblank", "false"}}) {
+        if (rex::cvar::GetFlagSource(name) != rex::cvar::Source::kDefault) {
+          REXLOG_INFO("[wwe2k14][decouple] wwe2k14_decouple_120 clears {} (was {})", name, rex::cvar::GetFlagByName(name));
+          rex::cvar::SetFlagByName(name, value);
+        }
+      }
+      REXLOG_INFO("[wwe2k14][decouple] wwe2k14_decouple_120: gpu_d3d_decouple = {}, word = {} (60 game steps a second, 120 pictures)",
+                  rex::cvar::GetFlagByName("gpu_d3d_decouple"), rex::cvar::GetFlagByName("gpu_d3d_decouple_word"));
+    }
     // Session 31: vulkan_device = the dedicated GPU (or --wwe2k14_gpu), if not set (after the plugin registered it).
     if (REXCVAR_GET(wwe2k14_gpu_backend) != "d3d12") wwe2k14::gpu_pick::Choose();
+#if !defined(__ANDROID__)
+    wwe2k14::d3d_owned::ApplyIntegrated(wwe2k14::gpu_pick::g_known && wwe2k14::gpu_pick::g_chosen.integrated(), wwe2k14::gpu_pick::g_chosen.name, wwe2k14::gpu_pick::g_chosen.local_mb, wwe2k14::CpuIsHybrid());  // Session 95
+#endif
     wwe2k14::intel_exact_mul::Configure();  // Session 76: an Intel tester's black eyes in entrances (unconfirmed cause)
     wwe2k14::light::ConfigureFallback();  // Session 37: the card's render path in the log (+ --wwe2k14_fbo_fallback_fix)
     wwe2k14::low_power::Configure();      // Session 37: --wwe2k14_low_power (default off)
+    wwe2k14::display_mode::Configure();  // Session 95: nothing unless --wwe2k14_display_720p (before the window exists)
     wwe2k14::SlowFrameOnPreSetup();  // Session 8 task 12: nothing unless --wwe2k14_slowframe_ms > 0
     wwe2k14::dlaa::Configure();      // Session 18: DLAA phase 1 (all off unless a --wwe2k14_dlaa_* flag is set)
     wwe2k14::gfx_menu::ConfigureTextureFilter();  // Session 33: --wwe2k14_texture_filter (0 = the game's own, S80)
@@ -620,10 +679,21 @@ class Wwe2k14App : public rex::ReXApp {
   // Record the effective settings in every run's log.
   void OnPostSetup() override {
     wwe2k14::blackbox::Step("set-up done: memory, kernel, GPU device, game files mounted");
+    // Session 95 (flat guest memory): this exe's recompiled code and hooks add the offset they were compiled with; the
+    // SDK's heap says what the mapping really is. An exe and a rexruntime.dll from different builds would read every
+    // physical allocation 4 KB off, silently: stop here instead. (The generated macro against the header: the
+    // static_assert above the class.)
+    if (const auto* e0 = runtime()->memory()->LookupHeap(0xE0000000u);
+        e0 && e0->host_address_offset() != ::rex::memory::detail::PhysicalHostOffset(0xE0000000u)) {
+      REXLOG_CRITICAL("[wwe2k14] this exe and rexruntime.dll come from different builds (0xE0000000 host offset {:#x} vs {:#x}): stopping",
+                      ::rex::memory::detail::PhysicalHostOffset(0xE0000000u), e0->host_address_offset());
+      std::_Exit(3);
+    }
     REXLOG_INFO("[wwe2k14] game_data_root: {} ({})", game_data_root().string(),
                 std::filesystem::is_regular_file(game_data_root()) ? "disc image" : "folder");
     REXLOG_INFO("[wwe2k14] user_data_root: {}", user_data_root().string());  // Session 53: the save folder in use
     wwe2k14::xdet_check::PostSetup(game_data_root());  // Session 77 (P7): the profile's notes, the identity line
+    wwe2k14::diag::Init();  // Session 95: the diagnostic run (no-op unless --wwe2k14_diag): its folder, cvars.txt, the watchdog
     wwe2k14::keybinds_save::Install(user_data_root());  // Session 53 item 2.6: keyboard binds kept between starts
     wwe2k14::keyboard_player::Install(runtime());  // Session 76: the keyboard as its own player (P2 beside one pad)
     for (const char* name : {"gpu_plugin", "wwe2k14_gpu_backend", "readback_resolve",
@@ -653,6 +723,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::session_log::Install(!REXCVAR_GET(wwe2k14_input_script).empty() || !REXCVAR_GET(wwe2k14_live).empty());
     wwe2k14::StartTimelineIfRequested();
     wwe2k14::StartThreadPlacement();  // logs the CPU topology; watcher only with --wwe2k14_thread_placement
+    wwe2k14::StartPowerThrottle();    // Session 95: EcoQoS / core packing, nothing unless asked (power_throttle.h)
     wwe2k14::StartFlightRecorder();   // no-op unless --wwe2k14_flight_recorder (Session 8 task 11)
 
     // Input scripts can end the run the same way Alt+F4 does.
@@ -660,9 +731,17 @@ class Wwe2k14App : public rex::ReXApp {
       app_context().CallInUIThreadDeferred([this] {
         // RequestClose closes without asking OnWindowCloseRequested (SDL: PerformClose), so write it here too.
         wwe2k14::perf_report::Write();  // no-op unless --wwe2k14_perf_report (Session 20)
+        wwe2k14::display_mode::Restore("script quit");  // Session 95
         if (window()) window()->RequestClose();
       });
     };
+    wwe2k14::android_lifecycle::Install(  // Session 95
+        [this](std::function<void()> f) { app_context().CallInUIThreadDeferred(std::move(f)); });
+    wwe2k14::hang_guard::Start(wwe2k14::CurrentLogNumber(), [this](rex::ui::RawImage& image) {  // Session 95 (after diag::Init)
+      auto* graphics = runtime()->graphics_system();
+      auto* presenter = graphics ? graphics->presenter() : nullptr;
+      return presenter && presenter->CaptureGuestOutput(image);
+    });
     wwe2k14::replay::g_replay.Init();  // no-op unless --wwe2k14_replay_* (Session 16)
     if (!wwe2k14::replay::g_replay.StopReason().empty()) {
       // Session 32: a replay whose DLC packs are not on: say so (a box when the launcher asks for one; every other run
@@ -687,13 +766,41 @@ class Wwe2k14App : public rex::ReXApp {
   // Session 20 item 9: a window close (Alt+F4) asks here first, before ReXGlue's hard exit in OnClosing: the last point
   // to write the playtester report. An input script's quit (RequestClose) skips this; g_request_quit writes it.
   bool OnWindowCloseRequested() override {
+    wwe2k14::display_mode::Restore("close requested");  // Session 95
     wwe2k14::perf_report::Write();  // no-op unless --wwe2k14_perf_report
     return true;
   }
 
+  // Session 95: the 720p display mode is given back on a window close (OnWindowCloseRequested, above) and a script quit
+  // (g_request_quit); also while the game is not in front (alt-tab, minimise). (ReXApp::OnClosing is private.)
+  void OnWindowFocusChanged(bool focused) override {
+    // A failed re-apply leaves a 1280x720 window in the corner of the native desktop: toggle fullscreen so SDL re-reads
+    // the monitor bounds.
+    if (wwe2k14::display_mode::OnFocus(focused) && window()) {
+      window()->SetFullscreen(false);
+      window()->SetFullscreen(true);
+    }
+  }
+#if defined(__ANDROID__)
+  // Session 95 (piece LIFE): every in-game exit lands in the launcher. The SDK's OnClosing calls TerminateTitle, which crashes on
+  // the phone (r014, QUIT TO DESKTOP: "QueueUserCallback: signal delivery failed", then CRASH_NATIVE status 6). Nothing here stops
+  // the title: GameActivity's poll sees the request within 400 ms and ends the process; _Exit is the backstop.
+  void OnClosing(rex::ui::UIEvent& e) override {
+    (void)e;
+    REXLOG_INFO("[life] window closing: quit to the launcher");
+    wwe2k14::blackbox::Note("quit to the launcher (the game closed its window)");
+    rex::FlushLogging();
+    wwe2k14::android_lifecycle::WriteExitRequest("the game closed its window");
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::_Exit(0);
+  }
+#endif
+
   // Only on ReXGlue's OnDestroy path; the usual close hard-exits (std::_Exit in ReXApp::OnClosing) before this.
   void OnShutdown() override {
+    wwe2k14::display_mode::Restore("shutdown");  // Session 95: guest exit / setup failure paths
     wwe2k14::StopThreadPlacement();
+    wwe2k14::StopPowerThrottle();
     wwe2k14::inspector::Shutdown();  // no-op unless --wwe2k14_inspector
     wwe2k14::cinecam::Shutdown();    // no-op unless --wwe2k14_cinecam
     wwe2k14::check::Shutdown();      // Session 29: no-op outside harness runs

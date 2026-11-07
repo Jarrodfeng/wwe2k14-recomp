@@ -4,11 +4,11 @@
      builds only: the build script adds it (run-as, lldb and simpleperf need it).
      Session 71: LauncherActivity (src/launcher_mobile, liblauncher.so) is the app's entry point and turns with the
      phone; GameActivity runs the game in its own process (":game"), landscape. Name and icon: F13 ("WWE 2K14 +
-     game_logo.png"). INTERNET: the launcher's update check only (GitHub's latest-release address). -->
+     game_logo.png"). INTERNET: the launcher's update check only (GitHub's latest-release address).
+     Session 95: versionCode and versionName come from android/VERSION (build_apk.ps1); tools/android/check_apk.py checks the
+     built APK. configChanges lists every change a running game must survive: SDL cannot rebuild an activity under a game. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.jarrodfeng.wwe2k14"
-    android:versionCode="18"
-    android:versionName="android-v0.2.5"
     android:installLocation="auto">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="36" />
@@ -34,6 +34,7 @@
         android:extractNativeLibs="true"
         android:hasCode="true"
         android:allowBackup="false"
+        android:hasFragileUserData="true"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true">
 
@@ -44,7 +45,7 @@
             android:screenOrientation="fullUser"
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.NoTitleBar"
-            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density|colorMode|fontWeightAdjustment|grammaticalGender|mcc|mnc|touchscreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -62,7 +63,7 @@
             android:preferMinimalPostProcessing="true"
             android:resizeableActivity="false"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
-            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density|colorMode|fontWeightAdjustment|grammaticalGender|mcc|mnc|touchscreen" />
 
         <!-- Session 74: the launcher's MOVE THE CONTROLS screen (the touch controls' edit mode), the launcher's process. -->
         <activity
@@ -71,7 +72,7 @@
             android:label="WWE 2K14"
             android:screenOrientation="sensorLandscape"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
-            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density|colorMode|fontWeightAdjustment|grammaticalGender|mcc|mnc|touchscreen" />
 
         <provider
             android:name=".FileShareProvider"

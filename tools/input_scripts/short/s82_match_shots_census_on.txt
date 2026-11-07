@@ -1,7 +1,9 @@
 # Session 82 (harness builder): the ON arms' version of s82_match_shots_census.txt (same shots on the same frames, +400 / +500 /
 # +600; owned_verdict treats all three routes as one). The owned frame is flipped off and on again at +300 into the match so that
 # the summary printed by the flip off after the last shot ("TRUTH WORK per frame", which resets at every flip) covers the frames
-# +302 .. +606 only: match frames, not the boot and the intro. The census (`cvar gpu_native_owned_frame_log 2`, two frames) is logged at
+# +302 .. +800 only WHEN THE CUT IS OFF; under the cut the flip is ignored (owned_steps.cpp), so the summary is the last 600-frame window, frames 2401-3000 = about +122 .. +721 on these runs (about 70% settled match frames, under the 0.9 bar of owned_verdict.py, so the 95% owned bar stays unjudged): match frames, not the boot and the intro. (Session 95: the flip waits 200 frames after the last shot, not 3: the
+# 600-frame windows that feature_proof.py reads first hold match frames at frame ~3003 = +724, and the route used to end at +633, so
+# [crowd][lean] and the [d3d][cull] tested count never printed: a false NOT ENGAGED. The shots stay on the same frames.) The census (`cvar gpu_native_owned_frame_log 2`, two frames) is logged at
 # the first shot. Only for arms that run with --gpu_native_owned_frame=true (owned_check.ps1 picks it). on_fail quit.
 on_fail quit
 log bench: start s82_match_shots_census_on
@@ -19,7 +21,7 @@ wait_frames 100
 screenshot s82f_b
 wait_frames 100
 screenshot s82f_c
-wait_frames 3
+wait_frames 200
 cvar gpu_native_owned_frame false
 wait_frames 30
 log bench: done

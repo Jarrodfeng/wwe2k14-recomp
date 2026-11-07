@@ -59,7 +59,9 @@ if (-not $DryRun) { New-Item -ItemType Directory -Force $outDir | Out-Null }
 
 foreach ($fam in $Families) {
   $flags = Get-ProfileFlags $map[$fam][0] $map[$fam][1]
-  $onFlags = "--wwe2k14_d3d_owned=true $flags" + $(if ($ExtraOn) { " $ExtraOn" } else { "" })
+  # (Session 95: TRUE NATIVE in a PC build now means the whole PC stack, compiled out of the Android build: the phone families name it off, so the sweep keeps testing what a phone runs.)
+  $stackOff = (Get-Content "$PSScriptRoot\pc_stack_off_flags.txt" -Raw).Trim()
+  $onFlags = "--wwe2k14_d3d_owned=true $stackOff $flags" + $(if ($ExtraOn) { " $ExtraOn" } else { "" })
   $ocArgs = @{ Only720 = $true; OnFlags = $onFlags }
   if (-not $NoValidation) { $ocArgs.Validation = $true }
   if ($Exe) { $ocArgs.Exe = $Exe }

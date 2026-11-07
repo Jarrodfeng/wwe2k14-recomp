@@ -58,7 +58,19 @@ public class LauncherActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Session 95: the icon tapped while a game runs brings that game forward; a second launcher here would only start a second
+        // game over it. The process ends here, so SDL's onCreate never runs.
+        if (!getIntent().getBooleanExtra(GameActivity.EXTRA_FROM_GAME, false) && gameProcessAlive()) {
+            Log.i(TAG, "the game is running: bringing it forward");
+            startActivity(new Intent(this, GameActivity.class).putExtra(GameActivity.EXTRA_BRING_BACK, true));
+            finish();
+            overridePendingTransition(0, 0);
+            android.os.Process.killProcess(android.os.Process.myPid());
+            return;
+        }
         writeLastGameExit();  // Session 73: before the native launcher starts (it reads the file at its start)
+        writeLastLauncherExit();  // Session 95 (LADDER): the launcher's own process
+        if (savedInstanceState != null) pendingDir = savedInstanceState.getString("pendingDir");  // Session 95 (LADDER)
         super.onCreate(savedInstanceState);
         // Back = the launcher's own page back (the main page leaves the app). Android 13+ with predictive back
         // (the manifest opts in) sends it here; older versions send the Back key to SDL, which the native side reads.
@@ -68,6 +80,14 @@ public class LauncherActivity extends SDLActivity {
         }
     }
 
+    // Session 95 (LADDER): the folder a picker is for (DLC, saves, drivers) is kept when Android recreates this activity while the
+    // picker is open (rotation, memory pressure); it used to come back null and the copy crashed or went nowhere.
+    @Override
+    protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        if (pendingDir != null) out.putString("pendingDir", pendingDir);
+    }
+
     @Override
     protected void onDestroy() {
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null)
@@ -75,6 +95,45 @@ public class LauncherActivity extends SDLActivity {
         super.onDestroy();
         // A fresh process for the next launcher start (SDL's state is per process). The game, if starting, has its own.
         if (isFinishing()) android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
+    // Session 95 (LADDER): how Android ended the launcher's own process the last time (writeLastGameExit reads only ":game"). A launcher
+    // that died of a crash or low memory left nothing behind. logs/last_launcher_exit.txt goes into the shared zip.
+    private void writeLastLauncherExit() {
+        if (Build.VERSION.SDK_INT < 30) return;
+        try {
+            ActivityManager am = getSystemService(ActivityManager.class);
+            List<ApplicationExitInfo> exits = am.getHistoricalProcessExitReasons(getPackageName(), 0, 8);
+            for (ApplicationExitInfo e : exits) {
+                if (e.getProcessName() == null || !e.getProcessName().equals(getPackageName())) continue;
+                int r = e.getReason();
+                // (a normal end is the launcher killing its own process after a PLAY: EXIT_SELF / SIGNALED 9 / USER_REQUESTED: not recorded)
+                boolean bad = r == ApplicationExitInfo.REASON_CRASH || r == ApplicationExitInfo.REASON_CRASH_NATIVE
+                        || r == ApplicationExitInfo.REASON_LOW_MEMORY || r == ApplicationExitInfo.REASON_ANR
+                        || r == ApplicationExitInfo.REASON_INITIALIZATION_FAILURE;
+                if (!bad) return;
+                File logs = new File(filesDir(), "logs");
+                if (!logs.isDirectory() && !logs.mkdirs()) return;
+                String text = "time: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date(e.getTimestamp()))
+                        + "\nreason_code: " + r + "\nstatus: " + e.getStatus() + "\ndescription: " + e.getDescription()
+                        + "\nimportance: " + e.getImportance() + "\n";
+                try (OutputStream out = new FileOutputStream(new File(logs, "last_launcher_exit.txt"))) {
+                    out.write(text.getBytes(StandardCharsets.UTF_8));
+                }
+                return;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "could not read the launcher's last exit", e);
+        }
+    }
+
+    private boolean gameProcessAlive() {
+        ActivityManager am = getSystemService(ActivityManager.class);
+        List<ActivityManager.RunningAppProcessInfo> running = am != null ? am.getRunningAppProcesses() : null;
+        if (running == null) return false;
+        for (ActivityManager.RunningAppProcessInfo p : running)
+            if (p.processName != null && p.processName.endsWith(":game")) return true;
+        return false;
     }
 
     private static void event(int kind, boolean ok, String a, String b) {
@@ -95,7 +154,16 @@ public class LauncherActivity extends SDLActivity {
             ActivityManager am = getSystemService(ActivityManager.class);
             List<ApplicationExitInfo> exits = am.getHistoricalProcessExitReasons(getPackageName(), 0, 8);
             ApplicationExitInfo game = null;
+            java.util.Set<String> rebuilt = new java.util.HashSet<>();
+            try {
+                File rp = new File(new File(filesDir(), "logs"), "rebuilt_pid.txt");
+                if (rp.isFile())
+                    for (String line : new String(java.nio.file.Files.readAllBytes(rp.toPath()), StandardCharsets.UTF_8).split("\\s+"))
+                        if (!line.isEmpty()) rebuilt.add(line);
+            } catch (Exception ignored) {
+            }
             for (ApplicationExitInfo e : exits) {
+                if (rebuilt.contains(Integer.toString(e.getPid()))) continue;  // the launcher-bound self-kill of a rebuilt activity
                 if (e.getProcessName() != null && e.getProcessName().endsWith(":game")) {
                     game = e;
                     break;
@@ -183,7 +251,18 @@ public class LauncherActivity extends SDLActivity {
     public int jOpenFd(String uri) {
         try {
             ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(Uri.parse(uri), "r");
-            return pfd != null ? pfd.detachFd() : -1;
+            if (pfd == null) return -1;
+            // Session 95 (LADDER): the game reads the file in place by position. A provider that streams (some cloud folders) gives a
+            // descriptor that cannot seek: say so now instead of failing later with a half-read disc.
+            try {
+                android.system.Os.lseek(pfd.getFileDescriptor(), 0, android.system.OsConstants.SEEK_END);
+                android.system.Os.lseek(pfd.getFileDescriptor(), 0, android.system.OsConstants.SEEK_SET);
+            } catch (android.system.ErrnoException e) {
+                Log.w(TAG, "launcher: " + uri + " cannot seek (" + e.getMessage() + "): not usable in place");
+                pfd.close();
+                return -2;
+            }
+            return pfd.detachFd();
         } catch (Exception e) {
             Log.w(TAG, "launcher: cannot open " + uri, e);
             return -1;
@@ -415,6 +494,8 @@ public class LauncherActivity extends SDLActivity {
                     .putExtra(GameActivity.EXTRA_ARGS, args)
                     .putExtra(GameActivity.EXTRA_GAME_URI, gameUri)
                     .putExtra(GameActivity.EXTRA_TOUCH, touch);
+            // A fresh activity with these arguments, never Android's saved record of an earlier run (a killed :game).
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startingGame = true;
             startActivity(i);
             finish();
@@ -454,6 +535,9 @@ public class LauncherActivity extends SDLActivity {
                     getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 } catch (SecurityException e) {
                     Log.w(TAG, "launcher: no lasting permission for " + uri, e);
+                    // Session 95 (LADDER): without lasting permission the file works now and fails at the next start: say so.
+                    event(EV_MESSAGE, true, "Android would not keep access to that file. Choose it again from the phone's own storage (not a cloud or app folder).", null);
+                    return;  // not accepted: it would work now and fail at the next start (and the message must stay on screen)
                 }
                 event(EV_GAME_PICKED, true, uri.toString(), displayName(uri));
                 return;
@@ -524,8 +608,24 @@ public class LauncherActivity extends SDLActivity {
         }
     }
 
+    private long sizeOf(Uri u) {
+        try (Cursor c = getContentResolver().query(u, new String[] {OpenableColumns.SIZE}, null, null, null)) {
+            if (c != null && c.moveToFirst() && !c.isNull(0)) return c.getLong(0);
+        } catch (Exception ignored) {
+        }
+        return 0;
+    }
+
     private void copyDlc(ArrayList<Uri> uris, File dir) {
         dir.mkdirs();
+        // Session 95 (LADDER): the free space is checked before the copy starts, so a full phone says so instead of leaving half a file.
+        long need = 0;
+        for (Uri u : uris) need += sizeOf(u);
+        if (need > 0 && dir.getUsableSpace() < need + (64L << 20)) {
+            event(EV_DLC_ADDED, false, "Not enough free storage for these files: they need " + (need >> 20) + " MB and the phone has "
+                    + (dir.getUsableSpace() >> 20) + " MB free. Free some space and try again.", null);
+            return;
+        }
         int copied = 0;
         long bytes = 0;
         String failed = null;

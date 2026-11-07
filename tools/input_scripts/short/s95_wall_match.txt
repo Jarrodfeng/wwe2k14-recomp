@@ -1,0 +1,18 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 95 (the wall): the match of scenes\match.txt for the command thread's own CPU per frame ([d3d][wall], stacks): 9000 frames of match instead of 600.
+# Fast-forwarded. Read: grep "[d3d][wall]" in the log after "scene=match"; py tools\analysis\profile_stacks.py stacks_NNN.txt --frames A-B.
+on_fail quit
+log bench: start scene match
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match
+mark 1 match_clock
+wait_frames 300
+screenshot sc_wall_300
+wait_frames 8700
+log scene=end
+mark 2 end
+log bench: done
+quit

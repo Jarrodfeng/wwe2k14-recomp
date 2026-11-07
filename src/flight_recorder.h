@@ -98,6 +98,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include "exe_name.h"
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #if defined(_WIN32)  // Session 63 (Android port): Windows / x86 only
 #include <dbghelp.h>
@@ -524,7 +525,7 @@ class FlightNames {
         --it;
         return fmt::format("{}+0x{:X}", it->second, rva - it->first);
       }
-      return fmt::format("wwe2k14.exe+0x{:X}", rva);
+      return fmt::format("{}+0x{:X}", ExeFileName(), rva);
     }
     HMODULE module = nullptr;
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -1123,8 +1124,8 @@ inline void FlightDumpOnCrash(const void* exception_pointers) {
   auto* info = static_cast<const EXCEPTION_POINTERS*>(exception_pointers);
   const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
   const auto address = reinterpret_cast<uintptr_t>(info->ExceptionRecord->ExceptionAddress);
-  std::string detail = fmt::format("unhandled exception 0x{:08X} at {:X} (wwe2k14.exe+0x{:X}) on thread {}",
-                                   uint32_t(info->ExceptionRecord->ExceptionCode), address, address - base,
+  std::string detail = fmt::format("unhandled exception 0x{:08X} at {:X} ({}+0x{:X}) on thread {}",
+                                   uint32_t(info->ExceptionRecord->ExceptionCode), address, ExeFileName(), address - base,
                                    GetCurrentThreadId());
   if (info->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && info->ExceptionRecord->NumberParameters >= 2)
     detail += fmt::format(", {} of address 0x{:X}", info->ExceptionRecord->ExceptionInformation[0] ? "write" : "read",

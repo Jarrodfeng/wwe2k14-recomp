@@ -9,6 +9,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
+#include <string>
 #include <utility>
 
 REXCVAR_DEFINE_BOOL(wwe2k14_d3d_owned, false, "wwe2k14",
@@ -80,6 +81,19 @@ inline void Apply() {
       {"gpu_native_own_crowd_lean", "true"},
       {"gpu_native_own_crowd_merge", "true"},
       {"gpu_d3d_inline_host_ring", "true"},
+      // Session 95 (M1 / M2: pictures = the baseline noise, shot-checker 0 WRONG, validation 0, sync validation 0 hazards with a positive control):
+      // inline draws on a host ring (no upload, no pass end: the pyro, phone menus), the command thread trims, the frame graph's proven dead passes,
+      // the copy lean (Bryan: snapshots left out, a restore in a fresh image, a copy turned off), our shaders' idle epilogue, post passes a zero strength leaves unused.
+      {"gpu_d3d_inline_vertex_ring", "true"},
+      {"gpu_d3d_sampler_memo_fix", "true"},
+      {"gpu_d3d_typed_latch", "true"},
+      {"gpu_d3d_replbind_memo", "true"},
+      {"gpu_d3d_decode_timer_sample", "true"},
+      {"gpu_make_valid_skip_arm", "true"},
+      {"gpu_native_epilogue_spec_swap", "true"},
+      {"gpu_owned_graph", "9"},  // (Session 95: bit 16, switch 25, stays off everywhere: the round 7 milestone read "reads forgiven 0.00/frame, segments freed 0.00/frame" and no Surface gain.)
+      {"gpu_owned_copy_lean", "7"},
+      {"wwe2k14_post_lite", "true"},
       {"gpu_d3d_cull_ours", "true"},
       // Session 94 M1 (Jarrod's rule: pieces that pass their milestone become defaults): the typed draw's lean bind (system
       // constants skipped on unchanged inputs, verify 0 mismatches), the game thread's lean record building (0.84 -> 0.69 ms a
@@ -115,6 +129,46 @@ inline void Apply() {
       {"gpu_native_swap_skip_translation_pixel", "true"},
       {"gpu_native_own_crowd_all", "true"},
       {"wwe2k14_d3d_textures", "2"},
+      // Session 95, every PC and, by Jarrod's order of 2026-11-07 ("turn them all on, how's a real phone supposed to run them if I can't test?"), every phone: no real phone has run this list.
+      // The SDK's plain mode (gpu_quirks_apply.cpp kPlain) takes it off again on an unknown GPU. Evidence per switch: out\s95\defaults_list.md. Checked as a stack, on the PC by out\s95\all_prove.txt and r3_report.txt,
+      // on the Surface by stack2_report.txt / stack3_report.txt. Look levers (FXAA lite, mip point, half precision, the half-rate flags) are not here: they wait for Jarrod's eyes.
+      {"present_keep_paint_pipeline", "true"},
+      {"present_render_pass_clear", "false"},
+      {"wwe2k14_s95_lean", "true"},  // (its own list is applied right after this function, wwe2k14_app.h)
+      {"gpu_d3d_wall", "255"},
+      {"vulkan_float_constant_runs", "true"},
+      // Skin once and vertex input together (r3gpu). A phone-class GPU in a PC build goes back to no vertex input in the SDK's quirks (gpu_quirks_vertex_input_phone stays the master switch, on for Android builds below).
+      {"gpu_native_skin_once", "true"},
+      {"gpu_native_skin_with_input", "true"},
+      {"gpu_native_skin_bind_lean", "true"},
+      {"gpu_native_vertex_input", "2"},
+      {"gpu_native_index_no_restart", "true"},
+      {"gpu_native_index_stitch", "true"},
+      {"gpu_native_crowd_input", "true"},
+      {"wwe2k14_nf_lean", "true"},
+      {"wwe2k14_nf_reg_save", "true"},
+      {"gpu_d3d_draw_record", "1"},
+      {"gpu_owned_restore_skip", "5"},
+      {"gpu_native_post_lite_near", "true"},
+      {"gpu_native_wrestler_pow", "true"},
+      {"gpu_scene_crowd_density_track", "true"},
+      // Session 95 round 6 (every PC): particle runs as one strip, a read-back window lets the lean paths on after 30 quiet frames, the texture binding memo (all four bits), the skin dispatch beside the
+      // hoisted copies (needs vulkan_upload_hoist 2, the Session 22 defaults). Compiled together only, not yet run together: out\s95\defaults_list.md says what the milestone must look at.
+      {"gpu_d3d_inline_merge", "true"},
+      {"gpu_native_readback_quiet_frames", "30"},
+      {"gpu_tex_bind_memo", "15"},
+      {"vulkan_hoist_skin_overlap", "true"},
+      // Session 95 round 7 (every PC, out\s95\round7.md section 6): movie plane pages leave the watch and skip the hash before the upload. vulkan_swap_gamma_identity stays off: no Surface gain,
+      // and at the round 7 milestone its shader did not compile (GL_EXT_samplerless_texture_functions not requested) and the table read "not linear".
+      {"gpu_tex_planes_unwatched", "true"},
+      {"gpu_tex_planes_nohash", "true"},
+      // Session 95 final milestone: draw slots, the cursor over gpu_d3d_draw_record (needs it). Verify 0 mismatches, Bryan shots byte-identical between =2 and =1, hits
+      // 81-83% on the Surface, Surface speed unchanged within noise (out\s95\final): on because it loses nothing, not because it gained.
+      {"gpu_d3d_draw_slot", "1"},
+#if defined(__ANDROID__)
+      // The SDK's rule on class phone: without this master switch it takes vertex input and no-restart back (gpu_quirks_apply.cpp). A real phone only: a faked phone or an Adreno laptop in a PC build stays behind it.
+      {"gpu_quirks_vertex_input_phone", "true"},
+#endif
   };
   int set = 0;
   for (const auto& [name, value] : kFlags) {
@@ -122,6 +176,12 @@ inline void Apply() {
       rex::cvar::SetFlagByName(name, value);
       ++set;
     }
+  }
+  // present_every_frame needs the Vulkan paint (its text in the SDK: the D3D12 paint does not report its frames). On a phone it runs beside present_display_timing and the pace gate, which no PC has run with it:
+  // its wait is bounded (present_every_frame_timeout_ms, then 30 frames without it), and under the gate it lands on the command thread at the held frame's publish, before the gate's fences.
+  if (rex::cvar::GetFlagByName("wwe2k14_gpu_backend") != "d3d12" && rex::cvar::GetFlagSource("present_every_frame") == rex::cvar::Source::kDefault) {
+    rex::cvar::SetFlagByName("present_every_frame", "true");
+    ++set;
   }
   REXLOG_INFO("[wwe2k14][d3d_owned] the D3D-layer stack on: {} of {} switches set (the rest given on the command line)",
               set, std::size(kFlags));
@@ -144,5 +204,35 @@ inline void Apply() {
     REXLOG_INFO("[wwe2k14][d3d_owned] host render targets (render_target_path_vulkan=fbo; free-from-the-360 M2d: no EDRAM buffer)");
   }
 }
+
+#if !defined(__ANDROID__)
+// OnPreSetup, after gpu_pick::Choose (the chosen GPU is not known at Apply): Session 95's integrated-GPU defaults under TRUE NATIVE, each only if left at its default. All of them were only ever
+// measured on the Surface, inside the stack (out\s95\defaults_list.md). Their readers come later: the power watcher in OnPostSetup, the turbo at each window, the batch per call, the shared memory at GPU start.
+// Session 95 review: two guards for what the Surface cannot show.
+//  - EcoQoS on the whole process sends it to the E-cores of a hybrid CPU (Microsoft's documentation; the Surface's chip is not hybrid), the command thread included: not there.
+//  - Direct uploads + the plain 512 MB buffer only with memory to spare: an AMD APU's 512 MB carve-out would be filled by the buffer. Discrete cards keep the staged upload and the sparse buffer: direct has never run
+//    on one (the 4090 has no Resizable BAR), and on a card with Resizable BAR the command thread would write guest pages across PCIe, unmeasured.
+inline void ApplyIntegrated(bool integrated, const std::string& gpu_name, uint64_t device_local_mb, bool hybrid_cpu) {
+  if (!integrated || !REXCVAR_GET(wwe2k14_d3d_owned)) return;
+  int set = 0;
+  const auto set_default = [&set](const char* name, const char* value) {
+    if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) {
+      rex::cvar::SetFlagByName(name, value);
+      ++set;
+    }
+  };
+  set_default("wwe2k14_load_turbo_boot_menu_hz", "240");
+  set_default("gpu_protect_batch", "true");
+  if (!hybrid_cpu) set_default("wwe2k14_eco_qos", "process");
+  const bool room = device_local_mb >= 2 * 512;  // (twice the shared memory buffer, SharedMemory::kBufferSize)
+  if (room) {
+    // Direct uploads: 2 = where a host-visible device-local type big enough for the buffer exists; anywhere else the staged upload stays ([s94][DIRECT] init says which). They need the plain buffer.
+    set_default("vulkan_shared_memory_direct", "2");
+    set_default("vulkan_sparse_shared_memory", "false");
+  }
+  REXLOG_INFO("[wwe2k14][d3d_owned] integrated GPU {}: {} defaults set (boot / menu vblank 240 Hz, protect batch; EcoQoS process {}; direct uploads + plain buffer {}, {} MB device-local)", gpu_name, set,
+              hybrid_cpu ? "skipped: hybrid CPU" : "on", room ? "on" : "skipped: small memory", device_local_mb);
+}
+#endif
 
 }  // namespace wwe2k14::d3d_owned

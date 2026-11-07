@@ -177,6 +177,25 @@ inline void LogCpuTopology() {
               die_count ? fmt::format("; dies ({}):{}", die_count, dies) : "");
 }
 
+// Session 95: more than one core efficiency class = a hybrid CPU (P- and E-cores). False when the topology cannot be read.
+inline bool CpuIsHybrid() {
+  DWORD length = 0;
+  GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || length == 0) return false;
+  std::vector<uint64_t> storage((length + 7) / 8);  // 8-byte aligned for the KAFFINITY members
+  auto* base = reinterpret_cast<BYTE*>(storage.data());
+  if (!GetLogicalProcessorInformationEx(RelationProcessorCore, reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(base), &length)) return false;
+  BYTE min_class = 255, max_class = 0;
+  for (DWORD offset = 0; offset < length;) {
+    const auto* info = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(base + offset);
+    if (info->Size == 0 || info->Size > length - offset) break;
+    min_class = std::min(min_class, info->Processor.EfficiencyClass);
+    max_class = std::max(max_class, info->Processor.EfficiencyClass);
+    offset += info->Size;
+  }
+  return min_class != 255 && min_class != max_class;
+}
+
 // The bool is the only setting read while the game runs (the string settings are parsed once at startup); an input
 // script may write it at any time, so read it as a volatile byte (one plain load).
 inline bool ThreadPlacementOn() {

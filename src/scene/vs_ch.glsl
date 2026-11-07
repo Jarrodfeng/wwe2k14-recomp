@@ -4,7 +4,7 @@
 // xenos_vs_skin.glsl (the whole float block by register number, the bool constants, the address register).
 //
 // A wrestler's vertex holds a position (4 floats), up to three blend weights (3 floats), four bone bytes, packed normals and a texture
-// coordinate. The bones' matrices are c[76 + a], c[77 + a], c[78 + a] with a = the byte x the literal register's z (rounded). The
+// coordinate. The bones' matrices are c[76 + XeBone(a)], c[77 + XeBone(a)], c[78 + XeBone(a)] with a = the byte x the literal register's z (rounded). The
 // bool constants choose the blend (b3: four bones, else b2: three, else b1: two, else the first bone alone); the guest sums its terms
 // in a particular order, spelt out below, and every product keeps its 0 x infinity = 0 rule (AvMulX). The weights are (wa, wc, wb) in the
 // vertex's order: wa weighs bone 0, wc bone 1, wb bone 2 (in the four-bone blend; the three-bone blend gives bone 2 what is left).
@@ -18,6 +18,23 @@
 #define CH_SKIN_STYLE 0
 #endif
 
+#ifdef XE_SKIN_ONCE
+// Session 95 (gpu_native_skin_once): the blend already ran (src/scene/skin_once.comp: this file's ChSkin and ChSkinTangent, once a frame per mesh and palette). The shader bodies stay as they are
+// and these three hand them the results; the normal scale c218 and the blend style are the job's, and the raw fetches they replace fall away.
+struct ChBlend {
+  vec3 position;
+  vec3 normal;
+};
+vec3 ChFetchNormal(int address) { return vec3(0.0); }
+ChBlend ChSkin(vec4 p, vec3 n, vec4 bytes, vec3 w, float stride, float one, float zero) {
+  ChBlend r;
+  r.position = uintBitsToFloat(xe_s0.xyz);
+  r.normal = uintBitsToFloat(xe_s1.xyz);
+  return r;
+}
+vec3 ChSkinTangent(vec3 t, vec4 bytes, vec3 w, float stride, float one) { return uintBitsToFloat(xe_s2.xyz); }
+#else
+
 // A packed 11:11:10 signed normal at a dword address, scaled to -1..1 (the first component 10 bits), floored at -1.
 vec3 ChFetchNormal(int address) {
   int v = int(XeFetchDword(address));
@@ -29,7 +46,7 @@ vec3 ChFetchNormal(int address) {
 // A normal turned by a bone's rotation rows (summed z, x, y).
 vec3 ChTurn(vec3 n, int a) {
   vec3 q = n.zxy;
-  return vec3(AvDot3R(q, fc.c[76 + a].zxy), AvDot3R(q, fc.c[77 + a].zxy), AvDot3R(q, fc.c[78 + a].zxy));
+  return vec3(AvDot3R(q, fc.c[76 + XeBone(a)].zxy), AvDot3R(q, fc.c[77 + XeBone(a)].zxy), AvDot3R(q, fc.c[78 + XeBone(a)].zxy));
 }
 
 struct ChBlend {
@@ -149,5 +166,6 @@ vec3 ChSkinTangent(vec3 t, vec4 bytes, vec3 w, float stride, float one) {
   float inv = inversesqrt(abs(AvDot3(t_raw.zxy, t_raw.zxy)));
   return AvMulX3(t_raw, vec3(inv));
 }
+#endif  // XE_SKIN_ONCE
 
 #endif

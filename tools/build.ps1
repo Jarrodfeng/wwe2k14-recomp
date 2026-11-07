@@ -22,7 +22,7 @@
 # behind a sweep passes a longer wait.
 param([string]$Run = '002', [string]$Preset = 'win-amd64-release', [string]$AllowUnpinnedSdk = '',
       [switch]$CheckOnly, [string]$ExeDir = '', [string[]]$SdkBin = @(), [string]$PinFile = '',
-      [double]$LockWaitMinutes = 3)
+      [double]$LockWaitMinutes = 3, [double]$LockMaxMinutes = 30)
 $repo = 'C:\Users\Jarrod\wwe2k14-recomp'
 . "$repo\tools\sdk_pins.ps1"
 $overrideGiven = $PSBoundParameters.ContainsKey('AllowUnpinnedSdk')
@@ -111,10 +111,13 @@ Set-Location $repo
 # NATIVE fence 4 KB off). Use ::rex::memory::detail::PhysicalHostOffset / GuestPtr. tools\analysis\fix_e0_offset.py.
 & py -I "$repo\tools\analysis\fix_e0_offset.py" --check src | Select-Object -Last 3
 if ($LASTEXITCODE -ne 0) { "build.ps1: NOT BUILT - hard-coded 0xE0000000 offset(s) in src (see above)"; exit 5 }
-try { $lock = Enter-RunLock -Name "build.ps1 $Preset $Run" -TimeoutMinutes $LockWaitMinutes }
+# Session 95 (process report item 5: "build.ps1 s95d3 timed out after 301 s" while the queue was moving): QUEUE-AWARE. The
+# -LockWaitMinutes clock restarts whenever the line moves (our position drops or the holder changes) up to -LockMaxMinutes
+# (default 30) in all; a live game nobody started (a manual session) still times out at -LockWaitMinutes as before.
+try { $lock = Enter-RunLock -Name "build.ps1 $Preset $Run" -TimeoutMinutes $LockWaitMinutes -QueueAware -MaxTotalMinutes $LockMaxMinutes }
 catch {
     "build.ps1: NOT BUILT, the run lock was not free within $LockWaitMinutes min ($($_.Exception.Message)). Quit the " +
-        "game that holds it (a live game: game_quit), or wait longer with -LockWaitMinutes N."
+        "game that holds it (a live game: game_quit), or wait longer with -LockWaitMinutes N (no-progress wait) or -LockMaxMinutes N (total, with -QueueAware)."
     exit 4
 }
 $buildExit = 0

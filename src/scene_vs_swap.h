@@ -24,6 +24,8 @@
 #include "half2_hooks.h"  // wwe2k14::half2::Cp()
 #include "scene_vs_instance.h"  // Session 94 (gpu_native_instance_world): the instancing variants
 #include "scene_vs_multiview.h"  // Session 94 (gpu_d3d_decouple bit 3): the multiview variants
+#include "scene_vs_mirror.h"  // Session 95 (item D, gpu_native_vertex_mirror): the vertex-input variants
+#include "scene_vs_skin_once.h"  // Session 95 (gpu_native_skin_once): the skin-once variants
 #include "scene/spirv/arena_vs_bg_vert.h"
 #include "scene/spirv/arena_vs_bg_bump_vert.h"
 #include "scene/spirv/arena_vs_bg_lm_vert.h"
@@ -357,6 +359,8 @@ inline void Install() {
   }
   scene_vs_instance::RegisterAll(cp, kArenaVertexShaders, std::size(kArenaVertexShaders));  // Session 94
   scene_vs_multiview::RegisterAll(cp, kArenaVertexShaders, std::size(kArenaVertexShaders));  // Session 94 (gpu_d3d_decouple bit 3)
+  scene_vs_mirror::RegisterAll(cp, kArenaVertexShaders, std::size(kArenaVertexShaders));  // Session 95 (item D, gpu_native_vertex_mirror)
+  scene_vs_skin_once::RegisterAll(cp);  // Session 95 (gpu_native_skin_once)
   REXLOG_INFO("[wwe2k14][scene_vs_swap] vertex shaders registered: {} of {} (gpu_native_vs_swap = {})", ok,
               std::size(kArenaVertexShaders), rex::cvar::GetFlagByName("gpu_native_vs_swap"));
 }

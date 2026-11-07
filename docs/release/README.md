@@ -7,7 +7,7 @@ Build {{VERSION}} (commit {{COMMIT}}).
 
 ## What you need
 
-- Windows 10 or 11, 64-bit.
+- Windows 10 version 1803 or newer, or Windows 11, 64-bit.
 - A graphics card with Vulkan support (any recent NVIDIA, AMD or Intel GPU with up-to-date drivers).
 - Nothing else to install: the Microsoft Visual C++ runtime files the game needs are included (next to the game).
 - An Xbox-compatible controller is recommended. To play on the keyboard, turn on Settings -> Advanced -> KEYBOARD

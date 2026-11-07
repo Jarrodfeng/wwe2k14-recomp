@@ -14,6 +14,8 @@
 #include <SDL3/SDL.h>
 #include <jni.h>
 
+#include <dlfcn.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <mutex>
@@ -71,6 +73,16 @@ inline bool SetActiveLocked(bool on) {
 inline Sint16 Axis(float v) { return Sint16(std::clamp(v, -1.f, 1.f) * 32767.f); }
 
 }  // namespace wwe2k14::android_touch
+
+// Session 95 (LADDER, plan item 13): how many real pads the game's input driver (the SDK's sdl_input_driver.cpp) has OPENED, -1 =
+// the driver has not seen a pad event yet (or this build has no such function). TouchOverlay hides the touch controls only when this is
+// above 0: a pad Android lists but SDL cannot open used to leave the player with no controls at all. Looked up with dlsym so a library
+// without the function still loads.
+extern "C" JNIEXPORT jint JNICALL Java_io_github_jarrodfeng_wwe2k14_TouchOverlay_nativeRealPads(JNIEnv*, jclass) {
+  using Fn = int (*)();
+  static Fn fn = reinterpret_cast<Fn>(dlsym(RTLD_DEFAULT, "rex_input_real_pad_count"));
+  return fn ? jint(fn()) : jint(-1);
+}
 
 extern "C" JNIEXPORT jboolean JNICALL Java_io_github_jarrodfeng_wwe2k14_TouchOverlay_nativeSetActive(JNIEnv*, jclass,
                                                                                                    jboolean on) {

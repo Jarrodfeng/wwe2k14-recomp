@@ -415,7 +415,7 @@ def load_frames_csv(path):
         f.readline()
         for line in f:
             p = line.strip().split(',')
-            if len(p) != 3:
+            if len(p) < 3:  # (Session 95: was != 3, which stopped at the first row of every CSV since Session 73's columns)
                 break
             try:
                 fr.append(int(p[0]))
@@ -424,6 +424,20 @@ def load_frames_csv(path):
             except ValueError:
                 break
     return fr, ts, ms
+
+
+def load_presented_csv(path):
+    """frames_NNN.csv -> {frame: frames that reached a present since the row before}, empty for CSVs before Session 95."""
+    out = {}
+    if not os.path.exists(path):
+        return out
+    with open(path, newline='') as f:
+        for r in csv.DictReader(f):
+            try:
+                out[int(r['frame'])] = int(r['presented'])
+            except (KeyError, TypeError, ValueError):
+                break
+    return out
 
 
 def log_parts(logs, n):
@@ -727,6 +741,7 @@ class Run:
                           frames=os.path.join(logs, 'frames_%s.csv' % n),
                           log=os.path.join(logs, 'wwe2k14_%s.log' % n))
         self.frames_csv = load_frames_csv(self.paths['frames'])
+        self.presented = load_presented_csv(self.paths['frames'])
         self.log = load_log(logs, n)
         self.clock = FrameClock(self.log['first_frame_ts'], self.frames_csv)
         self.ev = load_timeline(self.paths['timeline']) if os.path.exists(self.paths['timeline']) else None
@@ -766,6 +781,11 @@ class Run:
 
     def stats(self, kind, start, end):
         st = scene_stats(kind, self.cp_in(start, end), self.vd_in(start, end))
+        # Session 95: a swap is a frame drawn; these are the frames that reached a present.
+        shown = [self.presented[g] for g in range(start, end) if g in self.presented]
+        if shown and st.get('guest_frames'):
+            st['shown_frames'] = sum(shown)
+            st['shown_fps'] = st['fps'] * sum(shown) / st['guest_frames']
         if not self.ev or not self.meta.get('vd_times'):
             return st
         # Timeline span of the scene: VdSwap of frame start-1 to VdSwap of frame end-1.
@@ -1374,6 +1394,8 @@ def scene_line(label, start, end, st, variant=''):
     cp = st.get('cp_frames')
     head = '  %-18s %6d-%-6d' % (label, start, end - 1)
     vd = '%5s fps vd %s/%s' % (fmt(st.get('fps'), 1), fmt(st.get('slow_vd')), st.get('guest_frames', 0))
+    if 'shown_fps' in st:
+        vd += ' shown %s fps' % fmt(st['shown_fps'], 1)
     if not cp:
         return head + ' (no timeline) ' + vd + ('  ' + variant if variant else '')
     busy = ' '.join('%6s' % fmt(st[c]) for c in SCENE_COLS)

@@ -50,12 +50,14 @@ for line in lines[start + 1:]:
     if not m:
         break
     frame, module, offset = m.group(1), m.group(2), int(m.group(3), 16)
-    if module.lower() != 'wwe2k14.exe':
+    if module.lower() == 'wwe2k14_v3.exe' and len(sys.argv) <= 2:
+        sys.exit('this crash is in wwe2k14_v3.exe: pass its own map (out\\release\\build\\wwe2k14_v3.map), not wwe2k14.map')
+    if module.lower() not in ('wwe2k14.exe', 'wwe2k14_v3.exe'):
         print(f'#{frame:>2} {module}+0x{offset:X}')
         continue
     i = bisect.bisect_right(rvas, offset) - 1
     name = f'{symbols[i][1]}+0x{offset - symbols[i][0]:X}' if i >= 0 else '?'
-    print(f'#{frame:>2} wwe2k14.exe+0x{offset:X}  {name}')
+    print(f'#{frame:>2} {module}+0x{offset:X}  {name}')
 
 # Guest context block (crash_handler.h GuestContextReport), if present.
 context = next((i for i in range(start, len(lines)) if '[wwe2k14][crash] guest context:' in lines[i]), None)

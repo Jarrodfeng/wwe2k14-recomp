@@ -10,9 +10,9 @@
 // - Tick() runs once per guest frame (src\android_pace.h OnFrame, from frame_stats.h) and reads the headroom every ~1 s;
 //   a [pace][thermal] line every 5 s says what was read.
 // - Headroom() is the latest reading for any other code (NaN until the first reading, or when the phone has none).
-// - Dynamic resolution (dynamic_res.h) is told the phone is hot: headroom above kHot (0.85) for kHotSeconds (3) in a row
-//   steps the resolution one step down, again every kStepSeconds (6) while it stays hot; it does not step back up until the
-//   headroom falls under kCool (0.75). Only when --wwe2k14_dynamic_res is on (it does nothing otherwise).
+// - Dynamic resolution (dynamic_res.h) is told the phone is hot: headroom above kHot (0.85) for kHotSeconds (3) in a row.
+//   Session 95: that no longer steps the picture down (r048 slid to 60% with frames on time); it only holds dynamic
+//   resolution from probing back up (for at most 120 s after its last step) until the headroom falls under kCool (0.75).
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -26,8 +26,9 @@
 #include "dynamic_res.h"
 
 REXCVAR_DEFINE_BOOL(wwe2k14_android_thermal, false, "wwe2k14",
-                    "Session 93 (Android): read the phone's thermal headroom (ADPF thermal) once a second, log it, and step "
-                    "dynamic resolution down while it stays above 0.85 (src/android_thermal.h). Default off");
+                    "Session 93 (Android): read the phone's thermal headroom (ADPF thermal) once a second, log it, and hold "
+                    "dynamic resolution from probing back up while it stays above 0.85 (Session 95: heat no longer steps it down; "
+                    "src/android_thermal.h). Default off");
 
 #if defined(__ANDROID__)
 #include <dlfcn.h>
@@ -72,7 +73,7 @@ class Reader {
  private:
   enum class State { kUnset, kOn, kOff };
   static constexpr float kHot = 0.85f, kCool = 0.75f;
-  static constexpr int kHotSeconds = 3, kStepSeconds = 6;
+  static constexpr int kHotSeconds = 3;
 
   using AcquireFn = void* (*)();
   using HeadroomFn = float (*)(void*, int);
@@ -100,16 +101,11 @@ class Reader {
     }
     if (!hot_ && above_ >= kHotSeconds) {
       hot_ = true;
-      since_step_ = kStepSeconds;  // the first step at once
       REXLOG_INFO("[pace][thermal] hot: headroom above {:.2f} for {} s", kHot, kHotSeconds);
+      dynres::g_controller.OnThermal(true, headroom);
     } else if (hot_ && headroom < kCool) {
       hot_ = false;
       REXLOG_INFO("[pace][thermal] cool again: headroom {:.2f}", headroom);
-    }
-    if (hot_ && headroom > kHot && ++since_step_ >= kStepSeconds) {
-      since_step_ = 0;
-      dynres::g_controller.OnThermal(true, headroom);
-    } else if (!hot_) {
       dynres::g_controller.OnThermal(false, headroom);
     }
   }

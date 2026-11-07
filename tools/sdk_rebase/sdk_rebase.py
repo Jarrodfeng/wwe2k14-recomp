@@ -644,7 +644,7 @@ def main():
         os.environ['SDK_REBASE_STAMP'] = stamp
         sys.path.insert(0, os.path.join(REPO, 'tools', 'harness'))
         from runlock import ensure_lock
-        ensure_lock('sdk_rebase ' + stamp)
+        ensure_lock('sdk_rebase ' + stamp, max_minutes=0)
     rep = Report(stamp, folder)
     # Outputs an earlier run with this stamp left (exe copy after --keep or an interruption, old conflict files) would
     # be mistaken for this run's: removed before anything else. Regress only ever runs on an exe staged by THIS run.

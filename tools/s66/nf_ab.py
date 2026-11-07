@@ -55,7 +55,8 @@ def stamp(day, hms):
 
 
 def report(a):
-    log = os.path.join(LOGS, f'wwe2k14_{a.run:03d}.log')
+    logs = a.logs or LOGS
+    log = os.path.join(logs, f'wwe2k14_{a.run:03d}.log')
     switches, scene_marks = [], []  # (time, mode, frame)
     with open(log, encoding='utf-8', errors='replace') as f:
         for line in f:
@@ -84,7 +85,7 @@ def report(a):
         frames[mode] += n
         secs[mode] += (t1 - t0).total_seconds()
     cpu = defaultdict(lambda: defaultdict(float))  # thread -> mode -> cpu ms (samples inside one window)
-    path = os.path.join(LOGS, f'threads_{a.run}.csv')
+    path = a.threads or os.path.join(logs, f'threads_{a.run}.csv')
     with open(path, newline='') as f:
         for row in csv.DictReader(f):
             end = dt.datetime.combine(day, dt.datetime.strptime(row['time'][:12], '%H:%M:%S.%f').time())
@@ -131,6 +132,8 @@ def main():
     p = sub.add_parser('report')
     p.add_argument('run', type=int)
     p.add_argument('--top', type=int, default=8)
+    p.add_argument('--logs', default='', help='a worktree exe''s logs folder (Session 95)')
+    p.add_argument('--threads', default='', help='the threads csv, when not logs\\threads_RUN.csv')
     a = ap.parse_args()
     route(a) if a.cmd == 'route' else report(a)
 

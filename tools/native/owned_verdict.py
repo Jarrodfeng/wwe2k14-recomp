@@ -68,7 +68,7 @@ MODIFIED = re.compile(r"modified: (resolution_scale|gpu_native_own_steps|gpu_nat
                       r"wwe2k14_replay_play|vulkan_validation_enabled) = '([^']*)'")
 OWNED_FRAME_SUMMARY = re.compile(r'\[native\]\[owned-frame\] frames (\d+)-(\d+): passes (\d+) owned (\d+) fallback (\d+)'
                                  r'(?: \(by reason: ([^)]*)\))?')
-VALIDATION_ERROR = re.compile(r'VUID-|Validation Error')
+VALIDATION_ERROR = re.compile(r'VUID-|Validation Error|SYNC-HAZARD')  # (Session 95: a synchronization hazard prints as 'Vulkan Error ({ Validation }, ID n: SYNC-HAZARD-...)', which the older pattern missed)
 # Session 82 (harness builder): the census inside owned_check - the ON arms of s82_match_shots_census.txt log two frames'
 # per-pass lines; the verdict prints the scoreboard from them and the truth work per frame of the last 600-frame summary.
 FRAME_LINE = re.compile(r'\[native\]\[owned-frame\] frame \d+ pass \d+:')

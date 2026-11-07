@@ -20,6 +20,7 @@
 
 #if !defined(_WIN32)
 #include <dlfcn.h>
+#include <sys/utsname.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
@@ -104,6 +105,21 @@ inline void Open() {
 #endif
   if (!g_open) return;
   Note("black box: the game's start-up (src/blackbox.h)");
+#if !defined(_WIN32)
+  {
+    // Session 95 (DEATH): the kernel (a kernel before 4.17 ignores MAP_FIXED_NOREPLACE: #70, report_005).
+    struct utsname name = {};
+    if (uname(&name) == 0) Note("KERNEL: %s %s", name.release, name.machine);
+    // Session 95 (DEATH): stderr into logs/stderr.txt, cut at each start. assert.h's FatalError writes
+    // "FATAL ERROR: <message>" there before it aborts, and the phone's launcher reads it (LastRun).
+    const std::string err_path = (std::filesystem::current_path() / "logs" / "stderr.txt").string();
+    const int err_fd = ::open(err_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC, 0644);
+    if (err_fd >= 0) {
+      if (::dup2(err_fd, STDERR_FILENO) >= 0) Note("stderr goes to logs/stderr.txt");
+      ::close(err_fd);
+    }
+  }
+#endif
 #if defined(__ANDROID__)
   // The phone, for reports without the rest of the log.
   char model[PROP_VALUE_MAX] = {}, maker[PROP_VALUE_MAX] = {}, release[PROP_VALUE_MAX] = {}, soc[PROP_VALUE_MAX] = {};
@@ -159,6 +175,7 @@ inline const char* SignalName(int signal_number) {
     case SIGFPE: return "SIGFPE (arithmetic)";
     case SIGABRT: return "SIGABRT (abort)";
     case SIGTRAP: return "SIGTRAP (trap)";
+    case SIGSYS: return "SIGSYS (a blocked system call)";
     default: return "signal";
   }
 }
@@ -166,6 +183,7 @@ inline const char* SignalName(int signal_number) {
 inline void OnCrashSignal(int signal_number, siginfo_t* info, void* ucontext) {
   if (!g_in_crash) {
     g_in_crash = 1;
+    alarm(10);  // a hang in the unwinder / allocator ends the process (SIGALRM, default action) instead of freezing it
     uintptr_t pc = 0;
 #if defined(__aarch64__)
     pc = uintptr_t(static_cast<ucontext_t*>(ucontext)->uc_mcontext.pc);
@@ -209,8 +227,11 @@ inline void OnCrashSignal(int signal_number, siginfo_t* info, void* ucontext) {
   }
   // On to the handler before this one (Android's crash reporter writes its tombstone), or the default action.
   if (signal_number > 0 && signal_number < 32) sigaction(signal_number, &g_previous[signal_number], nullptr);
-  if (signal_number == SIGABRT) raise(signal_number);
-  // Others: returning runs the instruction again, which faults into the restored handler.
+  // Session 95 (DEATH): a signal sent by raise() / kill() / tgkill() (si_code <= 0, which includes the SDK handler's
+  // raise() and abort()) does not come again when this handler returns: raise it here. A fault the kernel raised
+  // (si_code > 0) runs the instruction again, which faults into the restored handler.
+  // SIGSYS (a seccomp trap) has si_code > 0 but the program counter is already past the svc: returning would carry on.
+  if (signal_number == SIGABRT || signal_number == SIGSYS || !info || info->si_code <= 0) raise(signal_number);
 }
 
 // Before the SDK installs its own fault handler (which passes faults it does not own on to this one).
@@ -226,7 +247,7 @@ inline void InstallCrashRecorder() {
   action.sa_sigaction = OnCrashSignal;
   action.sa_flags = SA_SIGINFO | SA_ONSTACK;
   sigemptyset(&action.sa_mask);
-  for (int s : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP}) sigaction(s, &action, &g_previous[s]);
+  for (int s : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP, SIGSYS}) sigaction(s, &action, &g_previous[s]);
   Note("crash recorder installed");
 }
 #else

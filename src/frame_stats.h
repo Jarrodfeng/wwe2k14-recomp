@@ -65,6 +65,8 @@
 #include "blackbox.h"     // Session 73: the first frame in the start-up black box
 #include "dynamic_res.h"  // Session 73: each frame's length to the dynamic resolution
 #include "perf_overlay.h"  // Session 80: each frame's length to the performance overlay
+#include "android_lifecycle.h"  // Session 95: a frame out of front is not a hitch
+#include "hang_guard.h"  // Session 95: --wwe2k14_hang_guard and its test switch
 
 #if defined(__ANDROID__)
 #include "android_perf_hint.h"  // Session 64: each frame's length to the phone's CPU governor
@@ -156,6 +158,8 @@ inline std::atomic<uint32_t> g_swap_thread_id{0};
 class FrameStats {
  public:
   void OnSwap() {
+    if (android_lifecycle::AtFrameBoundary(g_guest_frame.load(std::memory_order_relaxed) + 1)) g_frame_time_ignore_next.store(true, std::memory_order_relaxed);  // Session 95
+    hang_guard::AtFrameBoundary(g_guest_frame.load(std::memory_order_relaxed) + 1);  // Session 95: test only, before the lock below
     using clock = std::chrono::steady_clock;
     std::lock_guard<std::mutex> lock(mutex_);
     const auto now = clock::now();
@@ -184,7 +188,6 @@ class FrameStats {
     const double ms = std::chrono::duration<double, std::milli>(now - last_).count();
     const double t = std::chrono::duration<double>(now - start_).count();
     last_ = now;
-    if (!g_frame_time_ignore_next.load(std::memory_order_relaxed)) dynres::g_controller.OnFrame(ms);  // Session 73
     perf_overlay::PushFrame(ms);  // Session 80 (--wwe2k14_perf_overlay)
 #if defined(__ANDROID__)
     android_driver::OnFrame();
@@ -206,6 +209,8 @@ class FrameStats {
       gpu_ms = events.gpu_frame_us.load(std::memory_order_relaxed) / 1000.0;
       last_gpu_ms_ = gpu_ms;
     }
+    // Session 73 (moved below the GPU read in Session 95): dynamic resolution judges on the GPU time too.
+    if (!g_frame_time_ignore_next.load(std::memory_order_relaxed)) dynres::g_controller.OnFrame(ms, last_gpu_ms_, game_cpu_ms);
 #if defined(__ANDROID__)
     // The frame's length and the GPU's time (b77: the hint session reports GPU time too where Android has it, API 35).
     if (!g_frame_time_ignore_next.load(std::memory_order_relaxed)) perf_hint::g_perf_hint.OnFrame(ms, last_gpu_ms_);
@@ -240,6 +245,11 @@ class FrameStats {
     }
     if (!scene.empty()) last_scene_ = scene, last_scene_t_ = t;
     const int rows = dynres::g_controller.Rows();
+    // Session 95: frames that reached a present since the last row (a swap is a frame drawn, not a frame shown).
+    const uint64_t presents = events.presents.load(std::memory_order_acquire);
+    const uint32_t presented = uint32_t(presents - last_presents_);
+    last_presents_ = presents;
+    window_presented_ += presented;
     if (csv_) {
       for (char& c : scene) c = (c == ',' || c == '\n') ? ';' : c;
       char gpu_text[24] = "", game_text[24] = "", gthread_text[24] = "";
@@ -248,11 +258,13 @@ class FrameStats {
       if (gpu_thread_ms >= 0) std::snprintf(gthread_text, sizeof(gthread_text), "%.3f", gpu_thread_ms);
       char mhz_text[16] = "";
       if (gpu_mhz > 0) std::snprintf(mhz_text, sizeof(mhz_text), "%d", gpu_mhz);
-      std::fprintf(csv_, "%llu,%.3f,%.3f,%s,%s,%s,%d,%s,%u,%.1f,%.0f,%.2f,%s,%s\n",
+      char gap_text[24] = "";
+      if (presented) std::snprintf(gap_text, sizeof(gap_text), "%.3f", events.present_gap_us.load(std::memory_order_relaxed) / 1000.0);
+      std::fprintf(csv_, "%llu,%.3f,%.3f,%s,%s,%s,%d,%s,%u,%.1f,%.0f,%.2f,%s,%s,%u,%s\n",
                    static_cast<unsigned long long>(frame), t, ms, game_text, gthread_text, gpu_text, rows, mhz_text,
                    textures - last_textures_, double(texture_kb - last_texture_kb_) / 1024.0,
                    double(warm_kb - last_warm_kb_) / 1024.0, wait_ms,
-                   wait_ms > 0.05 ? rex::perf::frame_events::kWaitSiteNames[wait_main] : "", scene.c_str());
+                   wait_ms > 0.05 ? rex::perf::frame_events::kWaitSiteNames[wait_main] : "", scene.c_str(), presented, gap_text);
     }
     const int32_t slow_ms = REXCVAR_GET(wwe2k14_slow_frame_ms);
     if (slow_ms > 0 && ms >= slow_ms && slow_logged_ < kMaxSlowLines) {
@@ -295,6 +307,7 @@ class FrameStats {
       window_first_frame_ = frame + 1;
       window_ms_.clear();
       window_hitches_ = 0;
+      window_presented_ = 0;
       if (csv_) std::fflush(csv_);
     }
   }
@@ -566,6 +579,8 @@ class FrameStats {
                 "worst {:.0f} ms, hitches {}",
                 t, window_first_frame_, frame, sorted.size() / window_s, avg, p95, sorted.back(),
                 window_hitches_);
+    REXLOG_INFO("[wwe2k14][frames] on screen: {} of {} frames reached a present ({:.0f}%), {:.1f} a second", window_presented_,
+                sorted.size(), 100.0 * window_presented_ / sorted.size(), window_presented_ / window_s);
   }
 
   void OpenCsv() {
@@ -582,7 +597,7 @@ class FrameStats {
 #endif
     if (csv_) {
       std::fputs("frame,t_seconds,frame_ms,game_cpu_ms,gpu_thread_cpu_ms,gpu_ms,draw_rows,gpu_mhz,textures,texture_mb,"
-                 "warm_mb,gpu_wait_ms,gpu_wait_main,scene\n",
+                 "warm_mb,gpu_wait_ms,gpu_wait_main,scene,presented,present_gap_ms\n",
                  csv_);
     }
   }
@@ -606,6 +621,7 @@ class FrameStats {
   double last_gpu_ms_ = -1.0;
   uint32_t last_textures_ = 0;
   uint64_t last_texture_kb_ = 0, last_warm_kb_ = 0, thermal_warm_kb_ = 0;
+  uint64_t last_presents_ = 0, window_presented_ = 0;  // Session 95
   bool warm_on_ = false;
   double warm_mb_ = 0.0;
   std::chrono::steady_clock::time_point warm_window_start_{};

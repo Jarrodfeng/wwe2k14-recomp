@@ -305,13 +305,15 @@ inline void Leftovers(PPCContext& ctx, uint8_t* base) {
   ctx.r12.u64 = r12;
 }
 
-inline void Run(PPCContext& ctx, uint8_t* base) {
+template <bool kLean>
+inline void RunT(PPCContext& ctx, uint8_t* base) {
   const uint32_t d = ctx.r3.u32, s = ctx.r4.u32, n = ctx.r5.u32;
   // Overlap: d in [s, s+n) or s in [d, d+n), modulo 2^32 (one unsigned compare each way).
   if (__builtin_expect((d - s) < n || (s - d) < n, 0)) return Defer(ctx, base);
   if (n) CopyDisjoint(native_fn::Host(base, d), native_fn::Host(base, s), n);
-  Leftovers(ctx, base);
+  if constexpr (!kLean) Leftovers(ctx, base);  // Session 95, lean: the copy and r3 only
 }
+inline void Run(PPCContext& ctx, uint8_t* base) { RunT<false>(ctx, base); }
 
 struct Spec {
   static constexpr const char* kName = "memcpy_fwd";
@@ -323,6 +325,7 @@ struct Spec {
     out.Add(ctx.r3.u32, ctx.r5.u32);  // the destination
   }
   static void Native(PPCContext& ctx, uint8_t* base) { Run(ctx, base); }
+  static void Lean(PPCContext& ctx, uint8_t* base) { RunT<true>(ctx, base); }
 };
 
 }  // namespace wwe2k14::nf_memcpy_fwd

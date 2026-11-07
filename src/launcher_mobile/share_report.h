@@ -72,8 +72,12 @@ struct GameLog {
   std::vector<std::pair<std::string, std::string>> settings;
   std::vector<Window> windows;
   std::vector<Heat> heat;
+  std::string driver_used;  // Session 95 (LADDER): "[driver] using X (custom driver)"; empty = the phone's own driver
   std::vector<std::string> gpu_notes;  // b77: the GPU clock source, GPU time reports, keep-warm switches
   int warm_switches = 0;
+  // Session 95 (Lane E): the open Android items (r3_report.txt:187,200): the Savage attire latch, read-back slot failures, the crowd rank diag. Capped.
+  std::vector<std::string> readback_notes, slot_notes, window_notes, rank_notes;  // latch / slot failures / window on-off + wide resolves / rank
+  int readback_seen = 0, slot_seen = 0, window_seen = 0, rank_seen = 0;
   std::map<long, std::string> slow;  // "slow frame N:" -> the text after "ms (t=...):"
 };
 
@@ -82,6 +86,9 @@ inline void ReadGameLog(const fs::path& file, GameLog& g) {
   static const char* const kSkip[] = {"game_data_root", "wwe2k14_android_lib_dir", "wwe2k14_android_tmp_dir"};
   for (std::string line; std::getline(in, line);) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (g.driver_used.empty()) {
+      if (const size_t at = line.find("[driver] using "); at != std::string::npos) g.driver_used = Trim(line.substr(at + 15));
+    }
     if (g.version.empty()) {
       if (const size_t at = line.find("[wwe2k14] version "); at != std::string::npos) g.version = Trim(line.substr(at + 18));
     }
@@ -148,7 +155,35 @@ inline void ReadGameLog(const fs::path& file, GameLog& g) {
       ++g.warm_switches;
       continue;
     }
-    for (const char* key : {"[wwe2k14][frames] GPU clock from ", "[wwe2k14][frames] the GPU clock is not readable",
+    if (const size_t at = line.find("[s59][readback] attire latch"); at != std::string::npos) {  // (the SDK logs at 1, 2, 4, 8 ...)
+      ++g.readback_seen;
+      if (g.readback_notes.size() < 12) g.readback_notes.push_back(Trim(line.substr(at)));
+      continue;
+    }
+    if (const size_t at = line.find("[s95][readback] "); at != std::string::npos) {  // slot FAILED / resolve dropped: its own cap and count
+      ++g.slot_seen;
+      if (g.slot_notes.size() < 12) g.slot_notes.push_back(Trim(line.substr(at)));
+      continue;
+    }
+    // The lines that fire by default: the window (create_readback.h) and the wide resolves read back or not (the SDK, inside the windows).
+    if (const size_t at = line.find("[wwe2k14][readback] o"); at != std::string::npos && (line.compare(at, 25, "[wwe2k14][readback] on: r") == 0 || line.compare(at, 23, "[wwe2k14][readback] off") == 0)) {
+      ++g.window_seen;
+      if (g.window_notes.size() < 12) g.window_notes.push_back(Trim(line.substr(at)));
+      continue;
+    }
+    if (const size_t at = line.find("[s59][readback] wide resolve "); at != std::string::npos) {
+      ++g.window_seen;
+      if (g.window_notes.size() < 12) g.window_notes.push_back(Trim(line.substr(at)));
+      continue;
+    }
+    if (const size_t at = line.find("[crowd] rank site "); at != std::string::npos) {  // gpu_scene_crowd_rank_diag, every 600 frames
+      ++g.rank_seen;
+      if (g.rank_notes.size() < 12) g.rank_notes.push_back(Trim(line.substr(at)));
+      continue;
+    }
+    // Session 95 (Lane D): the real device, the sparse state and the inverted-depth counter lead the notes.
+    for (const char* key : {"[quirks] real device: ", "[sparse] shared memory: ", "[d3d][viewport] draws with minDepth",
+                            "[wwe2k14][frames] GPU clock from ", "[wwe2k14][frames] the GPU clock is not readable",
                             "[wwe2k14][perf_hint] GPU time reports", "[wwe2k14][perf_hint] reporting the GPU time",
                             "[warm] keep-warm buffer"}) {
       if (const size_t at = line.find(key); at != std::string::npos) {
@@ -231,6 +266,7 @@ struct Inputs {
   fs::path logs_dir;                   // files/logs
   std::vector<fs::path> game_logs;     // oldest first (a rotated log's oldest kept part, then the newest)
   fs::path frames_csv;                 // may not exist
+  std::string rung_text;               // Session 95 (LADDER): the SAFE MODE step in force, empty = normal
 };
 
 inline std::string Build(const Inputs& in) {
@@ -247,6 +283,19 @@ inline std::string Build(const Inputs& in) {
   const fs::path startup = in.logs_dir / "startup.txt", exit_file = in.logs_dir / "last_game_exit.txt";
   const std::string phone = FirstAfter(startup, "phone: ");
   r += "Phone: " + (phone.empty() ? std::string("not in startup.txt") : phone) + "\n";
+  // Session 95 (LADDER): the lines a triage starts with - the kernel (startup.txt KERNEL:), the driver the game really loaded,
+  // the quality tier, the SAFE MODE step, the last failure.
+  {
+    const std::string kernel = FirstAfter(startup, "KERNEL: ");
+    r += "Kernel: " + (kernel.empty() ? std::string("not in startup.txt") : kernel) + "\n";
+    r += "GPU driver loaded: " + (g.driver_used.empty() ? std::string("the phone's own (no custom driver in this log)") : g.driver_used) + "\n";
+    std::string tier = kNot;
+    for (const auto& st : g.settings)
+      if (st.first == "wwe2k14_quality_note") tier = st.second;
+    r += "Quality tier: " + tier + "\n";
+    r += "Safe mode: " + (in.rung_text.empty() ? std::string("off") : in.rung_text) + "\n";
+    r += "Last failure: " + (in.last_run.empty() ? std::string("none named") : in.last_run) + "\n";
+  }
   std::string reason = FirstAfter(exit_file, "reason: ", true);
   if (!reason.empty()) {
     if (const std::string d = FirstAfter(exit_file, "description: ", true); !d.empty()) reason += " (" + d + ")";
@@ -391,6 +440,20 @@ inline std::string Build(const Inputs& in) {
   for (const std::string& n : g.gpu_notes) r += n + "\n";
   if (g.warm_switches) r += Fmt("Keep-warm switched on / off %d times (the log's [warm] lines)\n", g.warm_switches);
   if (!lo && g.gpu_notes.empty()) r += "GPU lines: " + kNot + "\n";
+  // Session 95 (Lane E): the read-back and crowd lines the open Android items need.
+  r += "\nREAD-BACK AND CROWD\n-------------------\n";
+  if (g.readback_notes.empty()) r += "Attire latch lines (readback_resolve_attire_latch, off by default): " + kNot + "\n";
+  for (const std::string& n : g.readback_notes) r += n + "\n";
+  if (g.readback_seen > int(g.readback_notes.size())) r += Fmt("(%d attire latch lines in the log, the first %d shown)\n", g.readback_seen, int(g.readback_notes.size()));
+  if (g.slot_notes.empty()) r += "Read-back slot failures: none in this log\n";
+  for (const std::string& n : g.slot_notes) r += n + "\n";
+  if (g.slot_seen > int(g.slot_notes.size())) r += Fmt("(%d slot failure lines in the log, the first %d shown)\n", g.slot_seen, int(g.slot_notes.size()));
+  if (g.window_notes.empty()) r += "Read-back window and wide resolve lines: " + kNot + "\n";
+  for (const std::string& n : g.window_notes) r += n + "\n";
+  if (g.window_seen > int(g.window_notes.size())) r += Fmt("(%d window / wide resolve lines in the log, the first %d shown)\n", g.window_seen, int(g.window_notes.size()));
+  if (g.rank_notes.empty()) r += "Crowd rank lines (gpu_scene_crowd_rank_diag): " + kNot + "\n";
+  for (const std::string& n : g.rank_notes) r += n + "\n";
+  if (g.rank_seen > int(g.rank_notes.size())) r += Fmt("(%d crowd rank lines in the log, the first %d shown)\n", g.rank_seen, int(g.rank_notes.size()));
   return r;
 }
 

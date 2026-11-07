@@ -1,0 +1,39 @@
+PGO training and use for the two SDK DLLs (Session 95 item E). Commands for the main session; the profile is a generated artefact:
+it lives under out\pgo\ (gitignored by out\), is built on the machine that does the release, and is never committed or shipped.
+
+0. Build the instrumented DLLs (compile only, BUILD run lock):
+     & .\tools\release\pgo_build.ps1 -Stage gen
+   -> out\harness\bisect\exe\live_pgo_gen\wwe2k14.exe (stock exe + instrumented rexruntime.dll / rexgpu-xenos.dll). Unpinned DLLs: checks only.
+
+1. TRAIN on the PC (runs after a plan step, rule 7; this counts as the step's one check). In PowerShell, in-process (owned_check mangles strings under pwsh -File):
+     New-Item -ItemType Directory -Force C:\Users\Jarrod\wwe2k14-recomp\out\pgo\raw | Out-Null
+     $env:LLVM_PROFILE_FILE = 'C:\Users\Jarrod\wwe2k14-recomp\out\pgo\raw\%m_%p.profraw'
+     & C:\Users\Jarrod\wwe2k14-recomp\tools\native\owned_check.ps1 -Route bryan -Exe C:\Users\Jarrod\wwe2k14-recomp\out\harness\bisect\exe\live_pgo_gen\wwe2k14.exe
+     (more routes for breadth: -Route brock, -Route full; the entrance pair; tools\harness\gpu_sweep.ps1 for the Intel / Adreno / Mali / PowerVR paths)
+     Remove-Item Env:\LLVM_PROFILE_FILE
+   owned_check starts the ON and OFF arms and both scales; each game process writes ONE profraw per DLL at its clean quit (the quit goes through
+   ReXApp::OnClosing -> rex_pgo_write_all, log line "[pgo] profile written before the hard exit: rc=0" in the game log (and "[pgo] profile written: rc=0" on stderr)). %m = a per-binary signature
+   (the two DLLs have different ones), %p = the process id: never two processes on one file. Proof the training worked: the log line above, and
+     llvm-profdata show out\pgo\raw\<file>.profraw      (Total functions > 0, maximum function count > 0)
+   The Surface at 2 cores for profile weighting: set the variable for the Surface user first
+     ssh surface "powershell -NoProfile -Command [Environment]::SetEnvironmentVariable('LLVM_PROFILE_FILE','C:\wwe\pgo\%m_%p.profraw','User')"   (unconfirmed that the scheduled task sees it: check the file appears)
+   push_kit.ps1 -Build C:\Users\Jarrod\wwe2k14-recomp\out\harness\bisect\exe\live_pgo_gen ; remote.ps1 start -BenchArgs 'Only=pinned' ; copy C:\wwe\pgo\*.profraw back.
+
+2. MERGE (the DLL profile of each module is its own file set: rexruntime and rexgpu-xenos have different %m signatures, so tell them apart by function names):
+     $env:Path = 'C:\Program Files\LLVM\bin;' + $env:Path
+     llvm-profdata merge -output out\pgo\rexruntime.profdata <the profraws whose "show --all-functions" lists runtime / kernel functions>
+     llvm-profdata merge -output out\pgo\rexgpu.profdata <the profraws that list native_renderer / owned_* functions>
+     (-weighted-input=3,<surface file> to weight the Surface runs). A quick split: llvm-profdata show --all-functions F | Select-String 'NativeRenderer' -Quiet
+
+3. USE build (compile only):
+     & .\tools\release\pgo_build.ps1 -Stage use -ProfdataRuntime out\pgo\rexruntime.profdata -ProfdataGpu out\pgo\rexgpu.profdata
+   -> live_pgo_use. The end of the run prints the profile warning counts (out of date / no data / malformed): out of date = staleness.
+   ThinLTO + profile: -Stage lto -ProfdataRuntime ... -ProfdataGpu ... -Name pgo_lto_use.
+
+4. A/B on the Surface at 2 cores (cool, interleaved A B A B; each arm starts cool: out\s95\step0.md heat curve = ~35% in 8 min):
+     per arm: push_kit.ps1 -Build <live folder>  (stock = out\build\win-amd64-release, then live_pgo_use, ...)
+              remote.ps1 start -BenchArgs 'Only=pinned'   (the frames route held to 2 cores / 4 threads, Affinity 0xF; profile_lesnar_bryan.txt)
+              remote.ps1 fetch -To out\s95\pgo\<arm>
+     order: stock, PGO, stock, PGO, with a 10 min cool-down between arms (plugged in, best performance power mode); compare frames avg / 1% low
+     and the CP busy median (py -I tools\native\gpu_profile.py), and the arm's place on the heat curve.
+   On the PC: owned_check -Route bryan -Exe <live_pgo_use exe> against the stock exe (det hashes / pictures equal; PGO does not change results).

@@ -16,21 +16,41 @@
 #include "half2_hooks.h"  // wwe2k14::half2::Cp()
 #include "scene/spirv/crowd_entrance.h"
 #include "scene/spirv/crowd_match.h"
+#include "scene/spirv/own_crowd_card_mv_vert.h"  // Session 95 (F5): the view-1-camera variants
+#include "scene/spirv/own_crowd_card_mv_vi_vert.h"  // Session 95 (P7): the attribute forms (gpu_native_crowd_input)
 #include "scene/spirv/own_crowd_card_vert.h"
+#include "scene/spirv/own_crowd_card_vi_vert.h"
 #include "scene/spirv/own_crowd_entrance.h"
+#include "scene/spirv/own_crowd_entrance_mv_vert.h"
+#include "scene/spirv/own_crowd_entrance_mv_vi_vert.h"
 #include "scene/spirv/own_crowd_entrance_vert.h"
+#include "scene/spirv/own_crowd_entrance_vi_vert.h"
 #include "scene/spirv/own_crowd_match.h"
+#include "scene/spirv/own_crowd_match_mv_vert.h"
+#include "scene/spirv/own_crowd_match_mv_vi_vert.h"
 #include "scene/spirv/own_crowd_match_vert.h"
+#include "scene/spirv/own_crowd_match_vi_vert.h"
 #include "scene/spirv/probe_flat.h"
 #include "scene/spirv/wrestler_body.h"
 #include "scene/spirv/wrestler_body_entrance.h"
 #include "scene/spirv/wrestler_skin.h"
 #include "scene/spirv/wrestler_skin_entrance.h"
 #include "scene/spirv/wrestler_head.h"
+#include "scene/spirv/wrestler_body_lean.h"
+#include "scene/spirv/wrestler_hair_lean.h"
+#include "scene/spirv/wrestler_head_lean.h"
+#include "scene/spirv/wrestler_skin_decal_lean.h"
+#include "scene/spirv/wrestler_skin_lean.h"
+#include "scene/spirv/wrestler_skin_plain_lean.h"
 #include "scene/spirv/wrestler_head_entrance.h"
 #include "scene/spirv/wrestler_hair.h"
 #include "scene/spirv/wrestler_skin_decal.h"
 #include "scene/spirv/wrestler_skin_decal_entrance.h"
+#include "scene/spirv/wrestler_body_entrance_pow.h"
+#include "scene/spirv/wrestler_skin_entrance_pow.h"
+#include "scene/spirv/wrestler_head_entrance_pow.h"
+#include "scene/spirv/wrestler_skin_decal_entrance_pow.h"
+#include "scene/spirv/wrestler_skin_plain_entrance_pow.h"
 #include "scene/spirv/wrestler_skin_plain.h"
 #include "scene/spirv/wrestler_skin_plain_entrance.h"
 #include "scene/spirv/arena_bg.h"
@@ -57,6 +77,7 @@
 #include "scene/spirv/arena_bg_spec_mask_lm.h"
 #include "scene/spirv/arena_prop_psm_lm.h"
 #include "scene/spirv/arena_prop_spec_mask_lm.h"
+#include "pixel_multiview.h"  // Session 95
 #include "scene/spirv/audience_copy.h"
 #include "scene/spirv/circle_shadow.h"
 #include "scene/spirv/liquid_map_copy.h"
@@ -105,6 +126,14 @@ REXCVAR_DEFINE_BOOL(wwe2k14_scene_shaders, false, "wwe2k14",
                     "Session 80 (with gpu_native_shader_swap, on in NATIVE's list; read at start): our own shaders for "
                     "every pixel shader of the match and the entrances (OWN_RENDERER_PLAN.md) in place of the game's "
                     "translated ones; false = the game's own. Off by itself; on under wwe2k14_native_frame");
+REXCVAR_DEFINE_BOOL(gpu_native_wrestler_lean, false, "GPU/Native",
+                    "Session 95 (read at start; needs wwe2k14_scene_shaders): the materials of the wrestlers (gear, body skin, skin plain / decal, "
+                    "head, hair; the hair also in the entrances) from their LEAN compiles (src/scene/wrestler_lean.glsl): exact early-outs - no shadow fetch at strength 0, no shadow pows "
+                    "where the first filter pair is lit, no highlight / lighting-map fetch at rim strength 0, no reflection cube fetch at zero weights, "
+                    "no area / detail / second-normal fetch where its mask or weight is 0. Same picture (exact in the offline proof except where the plain code makes a NaN); off = the plain ones");
+REXCVAR_DEFINE_BOOL(gpu_native_wrestler_pow, false, "GPU/Native",
+                    "Session 95 (r3gpu, read at start; needs wwe2k14_scene_shaders): the entrance materials of the wrestlers (gear, skin, skin plain / decal, head) from their POWLEAN compiles "
+                    "(src/scene/wrestler_pow.glsl): the powers whose exponent is 1, 2, 4 or 20 (uniform branch) as multiplies in place of log2 + exp2. Same picture to float rounding; off = the plain ones");
 REXCVAR_DEFINE_INT32(wwe2k14_scene_shaders_probe, 0, "wwe2k14",
                      "Session 80 (diagnostic, pictures wrong; needs gpu_native_shader_swap; read at start): 1 = a flat "
                      "grey in place of the wrestlers' body material; 2 = in place of every wrestler pixel shader (src\\scene\\probe_flat.frag): the GPU time it saves is "
@@ -112,6 +141,16 @@ REXCVAR_DEFINE_INT32(wwe2k14_scene_shaders_probe, 0, "wwe2k14",
                      "shaders (blurs, lighting cubes, sweat / rim light / shadow maps, the crowd atlas copy)");
 
 namespace wwe2k14::scene_swap {
+
+// Session 95 (gpu_native_wrestler_lean): the plain module or its LEAN compile.
+struct SpvPick {
+  const uint32_t* spv;
+  size_t words;
+};
+template <size_t N, size_t M>
+inline SpvPick PickSpv(bool lean, const uint32_t (&plain)[N], const uint32_t (&lean_spv)[M]) {
+  return lean ? SpvPick{lean_spv, M} : SpvPick{plain, N};
+}
 
 // Registration flag (SDK vulkan/native/shader_swap.h kFlagOwnEpilogue): the replacement does the colour output step
 // itself (src\scene\xenos_ps.glsl), so it takes the draws with alpha test, exponent bias or gamma too.
@@ -427,13 +466,26 @@ inline constexpr uint64_t kCrowdCardVs = 0xD5E2FCC9F76BC40Cull;
 
 inline void InstallOwnCrowd(rex::graphics::CommandProcessor* cp) {
   int ok = 0;
-  ok += cp->RegisterNativeOwnCrowd(kCrowdMatchVs, own_crowd_match_vert_spv, std::size(own_crowd_match_vert_spv),
+  // Session 95 (gpu_d3d_decouple F5): with the views on, the vertex shaders that read view 1's camera (CrowdScene vec4 24-27, filled by the SDK with the blended camera);
+  // with it off, exactly the plain ones as before.
+  const bool mv = pixel_multiview::On();
+  ok += cp->RegisterNativeOwnCrowd(kCrowdMatchVs, mv ? own_crowd_match_mv_vert_spv : own_crowd_match_vert_spv,
+                                   mv ? std::size(own_crowd_match_mv_vert_spv) : std::size(own_crowd_match_vert_spv),
                                    own_crowd_match_spv, std::size(own_crowd_match_spv), 0);
-  ok += cp->RegisterNativeOwnCrowd(kCrowdEntranceVs, own_crowd_entrance_vert_spv,
-                                   std::size(own_crowd_entrance_vert_spv), own_crowd_entrance_spv,
+  ok += cp->RegisterNativeOwnCrowd(kCrowdEntranceVs, mv ? own_crowd_entrance_mv_vert_spv : own_crowd_entrance_vert_spv,
+                                   mv ? std::size(own_crowd_entrance_mv_vert_spv) : std::size(own_crowd_entrance_vert_spv), own_crowd_entrance_spv,
                                    std::size(own_crowd_entrance_spv), 1);
-  ok += cp->RegisterNativeOwnCrowd(kCrowdCardVs, own_crowd_card_vert_spv, std::size(own_crowd_card_vert_spv),
+  ok += cp->RegisterNativeOwnCrowd(kCrowdCardVs, mv ? own_crowd_card_mv_vert_spv : own_crowd_card_vert_spv,
+                                   mv ? std::size(own_crowd_card_mv_vert_spv) : std::size(own_crowd_card_vert_spv),
                                    own_crowd_entrance_spv, std::size(own_crowd_entrance_spv), 1 | 2);
+  // Session 95 (P7, gpu_native_crowd_input): each program's attribute form (flags bit 28, as RegisterNativeVertexSwap's), used per run only when the SDK's switch and the run's plan allow it.
+  constexpr uint32_t kAttributeForm = 0x10000000u;
+  cp->RegisterNativeOwnCrowd(kCrowdMatchVs, mv ? own_crowd_match_mv_vi_vert_spv : own_crowd_match_vi_vert_spv, mv ? std::size(own_crowd_match_mv_vi_vert_spv) : std::size(own_crowd_match_vi_vert_spv),
+                             own_crowd_match_spv, std::size(own_crowd_match_spv), kAttributeForm);
+  cp->RegisterNativeOwnCrowd(kCrowdEntranceVs, mv ? own_crowd_entrance_mv_vi_vert_spv : own_crowd_entrance_vi_vert_spv, mv ? std::size(own_crowd_entrance_mv_vi_vert_spv) : std::size(own_crowd_entrance_vi_vert_spv),
+                             own_crowd_entrance_spv, std::size(own_crowd_entrance_spv), kAttributeForm);
+  cp->RegisterNativeOwnCrowd(kCrowdCardVs, mv ? own_crowd_card_mv_vi_vert_spv : own_crowd_card_vi_vert_spv, mv ? std::size(own_crowd_card_mv_vi_vert_spv) : std::size(own_crowd_card_vi_vert_spv),
+                             own_crowd_entrance_spv, std::size(own_crowd_entrance_spv), kAttributeForm);
   REXLOG_INFO("[wwe2k14][scene_swap] own crowd programs registered: {} (gpu_native_own_crowd = {})", ok,
               rex::cvar::GetFlagByName("gpu_native_own_crowd"));
 }
@@ -449,6 +501,11 @@ inline void Install() {
     return;
   }
   int ok = 0;
+  // Session 95 (B2, gpu_native_shader_ablate): the flat module the SDK swaps in for the families named by the live cvar (kAblationHash, SDK shader_swap.h).
+  if (REXCVAR_GET(wwe2k14_scene_shaders)) {
+    ok += cp->RegisterNativeShaderSwap(0xAB1A7E0000000001ull, probe_flat_spv, std::size(probe_flat_spv), nullptr, 0,
+                                       "ablation: flat grey (gpu_native_shader_ablate)", kOwnEpilogue | kAnyConstants);
+  }
   if (probe == 2) {
     for (const uint64_t hash : kWrestlerPixelShaders) {
       ok += cp->RegisterNativeShaderSwap(hash, probe_flat_spv, std::size(probe_flat_spv), nullptr, 0,
@@ -475,39 +532,53 @@ inline void Install() {
   }
   // Session 80 (OWN_RENDERER_PLAN.md W2): the wrestlers' gear material in matches (src\scene\wrestler_body.frag; its
   // arithmetic checked against the translation on 8,192 random inputs, ~1e-6), with its own colour output step.
-  ok += cp->RegisterNativeShaderSwap(kWrestlerBodyMatch, wrestler_body_spv, std::size(wrestler_body_spv),
+  const bool wlean = REXCVAR_GET(gpu_native_wrestler_lean);
+  if (wlean) {
+    REXLOG_INFO("[wwe2k14][scene_swap] [native] gpu_native_wrestler_lean: LEAN compiles for the wrestlers' match gear / skin / skin plain / skin decal / head / hair");
+  }
+  const bool wpow = REXCVAR_GET(gpu_native_wrestler_pow);  // (Session 95, r3gpu)
+  if (wpow) REXLOG_INFO("[wwe2k14][scene_swap] [native] gpu_native_wrestler_pow: POWLEAN compiles for the wrestlers' entrance gear / skin / skin plain / skin decal / head");
+  const SpvPick pk_e_body = PickSpv(wpow, wrestler_body_entrance_spv, wrestler_body_entrance_pow_spv);
+  const SpvPick pk_e_skin = PickSpv(wpow, wrestler_skin_entrance_spv, wrestler_skin_entrance_pow_spv);
+  const SpvPick pk_e_head = PickSpv(wpow, wrestler_head_entrance_spv, wrestler_head_entrance_pow_spv);
+  const SpvPick pk_e_decal = PickSpv(wpow, wrestler_skin_decal_entrance_spv, wrestler_skin_decal_entrance_pow_spv);
+  const SpvPick pk_e_plain = PickSpv(wpow, wrestler_skin_plain_entrance_spv, wrestler_skin_plain_entrance_pow_spv);
+  const SpvPick pk_body = PickSpv(wlean, wrestler_body_spv, wrestler_body_lean_spv);
+  const SpvPick pk_skin = PickSpv(wlean, wrestler_skin_spv, wrestler_skin_lean_spv);
+  const SpvPick pk_head = PickSpv(wlean, wrestler_head_spv, wrestler_head_lean_spv);
+  const SpvPick pk_hair = PickSpv(wlean, wrestler_hair_spv, wrestler_hair_lean_spv);
+  const SpvPick pk_decal = PickSpv(wlean, wrestler_skin_decal_spv, wrestler_skin_decal_lean_spv);
+  const SpvPick pk_plain = PickSpv(wlean, wrestler_skin_plain_spv, wrestler_skin_plain_lean_spv);
+  ok += cp->RegisterNativeShaderSwap(kWrestlerBodyMatch, pk_body.spv, pk_body.words,
                                      kWrestlerBodyMatchFloats, std::size(kWrestlerBodyMatchFloats),
                                      "wrestler gear (match)", kOwnEpilogue);
   // The entrances' gear (src\scene\wrestler_body_entrance.frag: four directional lights in place of the reflection
   // cube; arithmetic checked the same way, ~3e-6).
-  ok += cp->RegisterNativeShaderSwap(kWrestlerBodyEntrance, wrestler_body_entrance_spv,
-                                     std::size(wrestler_body_entrance_spv), kWrestlerBodyEntranceFloats,
+  ok += cp->RegisterNativeShaderSwap(kWrestlerBodyEntrance, pk_e_body.spv, pk_e_body.words, kWrestlerBodyEntranceFloats,
                                      std::size(kWrestlerBodyEntranceFloats), "wrestler gear (entrance)", kOwnEpilogue);
   // The body skin (src\scene\wrestler_skin*.frag; arithmetic checked against the translation, worst ~5e-5).
-  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinMatch, wrestler_skin_spv, std::size(wrestler_skin_spv),
+  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinMatch, pk_skin.spv, pk_skin.words,
                                      kWrestlerSkinMatchFloats, std::size(kWrestlerSkinMatchFloats),
                                      "wrestler skin (match)", kOwnEpilogue);
-  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinEntrance, wrestler_skin_entrance_spv,
-                                     std::size(wrestler_skin_entrance_spv), kWrestlerSkinEntranceFloats,
+  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinEntrance, pk_e_skin.spv, pk_e_skin.words, kWrestlerSkinEntranceFloats,
                                      std::size(kWrestlerSkinEntranceFloats), "wrestler skin (entrance)", kOwnEpilogue);
   // The heads (src\scene\wrestler_head*.frag; arithmetic worst ~2e-4).
-  ok += cp->RegisterNativeShaderSwap(kWrestlerHeadMatch, wrestler_head_spv, std::size(wrestler_head_spv),
+  ok += cp->RegisterNativeShaderSwap(kWrestlerHeadMatch, pk_head.spv, pk_head.words,
                                      kWrestlerHeadMatchFloats, std::size(kWrestlerHeadMatchFloats),
                                      "wrestler head (match)", kOwnEpilogue);
-  ok += cp->RegisterNativeShaderSwap(kWrestlerHeadEntrance, wrestler_head_entrance_spv,
-                                     std::size(wrestler_head_entrance_spv), kWrestlerHeadEntranceFloats,
+  ok += cp->RegisterNativeShaderSwap(kWrestlerHeadEntrance, pk_e_head.spv, pk_e_head.words, kWrestlerHeadEntranceFloats,
                                      std::size(kWrestlerHeadEntranceFloats), "wrestler head (entrance)", kOwnEpilogue);
   // The hair (src\scene\wrestler_hair.frag; arithmetic worst ~3e-4).
-  ok += cp->RegisterNativeShaderSwap(kWrestlerHair, wrestler_hair_spv, std::size(wrestler_hair_spv), kWrestlerHairFloats,
+  ok += cp->RegisterNativeShaderSwap(kWrestlerHair, pk_hair.spv, pk_hair.words, kWrestlerHairFloats,
                                      std::size(kWrestlerHairFloats), "wrestler hair", kOwnEpilogue);
   // The skin variants (src\scene\wrestler_skin_{decal,plain}*.frag; arithmetic worst ~6e-5).
-  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinDecal, wrestler_skin_decal_spv, std::size(wrestler_skin_decal_spv), kWrestlerSkinDecalFloats, std::size(kWrestlerSkinDecalFloats),
+  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinDecal, pk_decal.spv, pk_decal.words, kWrestlerSkinDecalFloats, std::size(kWrestlerSkinDecalFloats),
                                      "wrestler skin decal (match)", kOwnEpilogue);
-  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinDecalEntrance, wrestler_skin_decal_entrance_spv, std::size(wrestler_skin_decal_entrance_spv), kWrestlerSkinDecalEntranceFloats, std::size(kWrestlerSkinDecalEntranceFloats),
+  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinDecalEntrance, pk_e_decal.spv, pk_e_decal.words, kWrestlerSkinDecalEntranceFloats, std::size(kWrestlerSkinDecalEntranceFloats),
                                      "wrestler skin decal (entrance)", kOwnEpilogue);
-  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinPlain, wrestler_skin_plain_spv, std::size(wrestler_skin_plain_spv), kWrestlerSkinPlainFloats, std::size(kWrestlerSkinPlainFloats),
+  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinPlain, pk_plain.spv, pk_plain.words, kWrestlerSkinPlainFloats, std::size(kWrestlerSkinPlainFloats),
                                      "wrestler skin plain (match)", kOwnEpilogue);
-  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinPlainEntrance, wrestler_skin_plain_entrance_spv, std::size(wrestler_skin_plain_entrance_spv), kWrestlerSkinPlainEntranceFloats, std::size(kWrestlerSkinPlainEntranceFloats),
+  ok += cp->RegisterNativeShaderSwap(kWrestlerSkinPlainEntrance, pk_e_plain.spv, pk_e_plain.words, kWrestlerSkinPlainEntranceFloats, std::size(kWrestlerSkinPlainEntranceFloats),
                                      "wrestler skin plain (entrance)", kOwnEpilogue);
   const bool mediump = REXCVAR_GET(wwe2k14_shader_mediump);
   int mediump_registered = 0;
@@ -536,7 +607,7 @@ inline void Install() {
   // (Probe 3 registers the flat probe on these hashes first; with it, the probe stays.)
   if (probe != 3) {
     for (const ArenaMaterial& m : kSidePasses) {
-      ok += cp->RegisterNativeShaderSwap(m.hash, m.spv, m.words, m.floats, m.float_count, m.name, kOwnEpilogue);
+      ok += wwe2k14::pixel_multiview::Register(cp, m.hash, m.spv, m.words, m.floats, m.float_count, m.name, kOwnEpilogue);
     }
   }
   // (Session 87 stage 4: with its own epilogue - crowd_match.frag ends in xenos_ps.glsl's XeOutputColor - so the draws whose

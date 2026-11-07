@@ -5,7 +5,7 @@ these diffs are the only copy of our SDK changes that travel with the project. T
 files are kept as the historical record, but applied in order they do NOT rebuild the branch (some are summaries,
 commits 87-103 are missing, and 35 merge commits can't be expressed as per-commit patches).
 
-This writes patches\\rexglue-sdk\\full\\NN-<session>.diff: tree-to-tree diffs between the last pinned SDK build of each
+This writes patches\\rexglue-sdk\\full\\NNN-<session>.diff: tree-to-tree diffs between the last pinned SDK build of each
 session (tools\\sdk_pins.json), so merges are included. Then it checks the chain: upstream base + every diff in order
 must give exactly the branch head's tree (a temporary git index; no files in the SDK checkout are touched).
 
@@ -124,6 +124,9 @@ STEPS = [
     ('session93-mali-post', '0ba44dde857cd134ea11b0ffd955b85d4872c8c2'),  # TRUE NATIVE no longer needs RGBA32F blending (Mali-G720 r49p1 black screen); post warnings name the missing part
     ('session93-hoist-barrier', 'a89047e045acf7242d1e8438b966a0043a918211'),  # the hoist stream's closing barrier names every read (the stuck reversal indicator on Adreno with storage windows); compute writes carry SHADER_WRITE
     ('session94-speedrun', '20594b5913f0e48757124302e64b7b872afbe73f'),  # Session 94: boot self-check of required formats + features, no-GS typed draws, format lists / transient depth / tiler scene reset, pre-rotation, BC-less textures round 2, lean bind, instancing (off), direct uploads (off), phone footprint, dynamic resolution under TRUE NATIVE (off), Vulkan 1.1 layout features, decoupling multiview + blend (off)
+    ('session95-default-stack', '38a7edde27b36dbb9ef99d7de4cc7a1816528e42'),  # Session 95: the TRUE NATIVE stack as defaults (vertex input, skin once, draw record, present every frame, nf lean), the diagnostic run, the memory refusal, Android hardening
+    ('session95-final', 'b0fa73ecf711f9f2aa721d5abeed5daa658f8939'),  # Session 95: rounds 5-7 (inline merge, read-back quiet, bind memo, planes, half phase), Android hardening, draw slots
+    ('session95-phone', '44f9d31305b02a92c9d68ace7db31bb5da5500dc'),  # Session 95: black title (held frames do not teach the dead pass), plain mode covers the speed list
 ]
 
 
@@ -171,7 +174,7 @@ def export():
         header = (f'# ReXGlue SDK changes for WWE 2K14 ({label}): {prev[:12]}..{c[:12]} on {BRANCH}\n'
                   f'# Apply in order on upstream rexglue/rexglue-sdk {BASE} (git apply). Commits (first parent):\n'
                   + ''.join(f'#{line}\n' for line in subjects.splitlines()) + '\n')
-        path = OUT / f'{i:02d}-{label}.diff'
+        path = OUT / f'{i:03d}-{label}.diff'  # (Session 95: three digits, the 100th step sorted between 10 and 11 by name)
         path.write_bytes(header.encode() + diff)
         print(f'{path.name}: {len(diff) // 1024} KB, {len(subjects.splitlines())} commits')
         prev = c

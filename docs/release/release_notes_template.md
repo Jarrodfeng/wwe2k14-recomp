@@ -13,7 +13,7 @@ the files you copied from your own disc, or a disc image of it.
 The full guide (copying your disc and your DLC, controls, settings, mods, reporting problems) is `README.md` inside the
 zip.
 
-**What you need:** Windows 10 or 11 (64-bit), a graphics card with Vulkan support, and your WWE 2K14 Xbox 360 disc
+**What you need:** Windows 10 version 1803 or newer, or Windows 11 (64-bit), a graphics card with Vulkan support, and your WWE 2K14 Xbox 360 disc
 (version 0.0.0.2, no title update), copied to your PC. A controller is recommended.
 
 ## What's new in {{VERSION}}

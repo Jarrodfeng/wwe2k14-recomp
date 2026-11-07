@@ -52,6 +52,22 @@
 // Known limits: frame-counted things outside the gated tasks still count (the guest frame, CineCam's take clock);
 // the step fields are put back as they were at the freeze, so a step_hz change made while frozen shows after the next
 // step change.
+//
+// The exact freeze (Session 95, --wwe2k14_freeze_exact, set only by the diagnostic run: src\diag.h): the freeze above is
+// a very slow scene, not a stopped one, which photo mode never notices but a per-pass hash does (the first PC diagnostic
+// run, out\s95\diag3: the A/A sheet differed in 34 of 51 passes at the entrance and 8 of 20 in the match). Two things
+// kept moving: everything on the step (kFrozenStep 1e-6 s = 6e-5 of a frame per update: the entrance's motion camera
+// crept ~0.00017 px per frame; at 1e-10 its view moved in 0 of 1590 hand-offs), and the match's camera (settling ~0.5 px over
+// its first 350 frozen frames; at 1e-10 its view still differs from the held one by up to 20 in a matrix entry, a running maximum that levels off (whether it moves on every hand-off is unmeasured: the counter now compares with the previous hand-off); that the composer
+// sub_823C8548 in the ungated group 5 is what moves it is unconfirmed). So here the
+// step is kExactStep (too small to change any float clock past its first milliseconds) and the view handed to the
+// renderer is the one of the first frozen hand-off (HoldView: every camera kind goes through that slot).
+// A third mover needs neither the step nor the camera: some of the crowd's 20 pose skeletons keep creeping by a sub-pixel
+// (run r1: 7 of 20 at the entrance, the rest stood still; what moves them is unconfirmed). The audience manager [0x836F4DC0]
+// (stored by sub_824E55B0 from sub_8250BF10) has a word +248, cleared at setup, that five functions of the audience's code
+// (0x82506000-0x8251A000, the draw routines not among them) test: non-zero, its update job sub_8250C700 -> sub_82508528 skips the models' update sub_82507240, and sub_8250B7F0 / sub_82509CB8 /
+// sub_8250BAF0 skip the bone copies. Held kCrowdHoldAfter frames into the freeze, not at its first frame: the bone arrays are
+// double buffered by word +0 (flipped each update), so the two halves should both hold frames that have already stopped (unconfirmed: sub_8250C700 keeps flipping word +0 before the +248 gate, so the halves could still differ; a failure would be a false A/A alarm).
 #pragma once
 
 #include <rex/audio/audio_system.h>
@@ -61,7 +77,10 @@
 #include <rex/ppc/context.h>
 #include <rex/runtime.h>
 
+#include <algorithm>
 #include <atomic>
+#include <bit>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
@@ -86,6 +105,10 @@ REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_auto_freeze, false, "wwe2k14",
                     "(F8, also outside a match)");
 REXCVAR_DEFINE_BOOL(wwe2k14_freeze_audio, true, "wwe2k14",
                     "Session 36: pause the game's sound with a true freeze (and resume it on release)");
+REXCVAR_DEFINE_BOOL(wwe2k14_freeze_exact, false, "wwe2k14",
+                    "Session 95: a true freeze that really stops, for frames compared hash by hash: the step is 1e-10 s "
+                    "instead of 1e-6 and the view handed to the renderer is held. Set by the diagnostic run (src/diag.h); "
+                    "off = the freeze as it always was. See src/scene_freeze.h");
 
 REX_EXTERN(__imp__sub_824F5C38);
 REX_EXTERN(__imp__sub_8359FBD0);
@@ -108,6 +131,10 @@ constexpr uint32_t kSkipFns[] = {
     0x8232F2B0,  // group 33 (entrances / story only)
 };
 constexpr float kFrozenStep = 1e-6f;  // seconds per update while frozen
+constexpr float kExactStep = 1e-10f;  // the exact freeze: above zero (a guest division by it stays finite), below any clock's rounding
+constexpr uint32_t kAudienceManagerPtr = 0x836F4DC0;  // sub_824E55B0's store of sub_8250BF10's object
+constexpr uint32_t kAudienceHoldWord = 248;
+constexpr uint64_t kCrowdHoldAfter = 8;  // frames into the exact freeze
 
 inline std::mutex g_mutex;           // requests and the slow fallback
 inline uint32_t g_requests = 0;      // Owner bits
@@ -121,6 +148,7 @@ inline std::atomic<bool> g_media{false};         // applied: Bink's timer held, 
 inline uint64_t g_frozen_at = 0;
 inline uint32_t g_saved_1c = 0, g_saved_24 = 0, g_saved_3c = 0;
 inline std::vector<std::pair<uint32_t, uint32_t>> g_task_restore;  // task, its word +8 (update thread only)
+inline uint32_t g_crowd_held = 0;  // the exact freeze: the audience manager whose word +248 we set (update thread only)
 
 inline bool Active() { return g_frozen.load(std::memory_order_relaxed); }
 
@@ -250,6 +278,11 @@ inline void RunnerEnter(PPCContext& ctx, uint8_t* base) {
       StoreU32(base, kBlock + 0x1C, g_saved_1c);
       StoreU32(base, kBlock + 0x24, g_saved_24);
       StoreU32(base, kBlock + 0x3C, g_saved_3c);
+      if (g_crowd_held) {
+        if (LoadU32(base, kAudienceManagerPtr) == g_crowd_held) StoreU32(base, g_crowd_held + kAudienceHoldWord, 0);
+        REXLOG_INFO("[wwe2k14][freeze] crowd running again at frame {}", frame);
+        g_crowd_held = 0;
+      }
     }
     g_frozen.store(want, std::memory_order_relaxed);
     g_ui_anim_hold().store(want, std::memory_order_relaxed);  // 2D overlays (the nameplate) hold too
@@ -263,9 +296,18 @@ inline void RunnerEnter(PPCContext& ctx, uint8_t* base) {
     REXLOG_INFO("[wwe2k14][freeze] videos and sound {} at frame {}", media ? "held" : "running", frame);
   }
   if (!want) return;
-  StoreF32(base, kBlock + 0x1C, kFrozenStep);
-  StoreF32(base, kBlock + 0x24, kFrozenStep * 1000.0f);
-  StoreF32(base, kBlock + 0x3C, kFrozenStep * 60.0f);
+  const float step = REXCVAR_GET(wwe2k14_freeze_exact) ? kExactStep : kFrozenStep;
+  StoreF32(base, kBlock + 0x1C, step);
+  StoreF32(base, kBlock + 0x24, step * 1000.0f);
+  StoreF32(base, kBlock + 0x3C, step * 60.0f);
+  if (REXCVAR_GET(wwe2k14_freeze_exact) && !g_crowd_held && frame >= g_frozen_at + kCrowdHoldAfter) {
+    const uint32_t mgr = LoadU32(base, kAudienceManagerPtr);
+    if (mgr >= 0x1000 && GuestWordReadableFast(mgr + kAudienceHoldWord) && LoadU32(base, mgr + kAudienceHoldWord) == 0) {
+      StoreU32(base, mgr + kAudienceHoldWord, 1);
+      g_crowd_held = mgr;
+      REXLOG_INFO("[wwe2k14][freeze] crowd held at frame {} (audience manager {:08X})", frame, mgr);
+    }
+  }
   // Single tasks of the groups that keep running.
   g_task_restore.clear();
   const uint32_t owner = ctx.r3.u32;
@@ -294,6 +336,57 @@ inline void RunnerEnter(PPCContext& ctx, uint8_t* base) {
 inline void RunnerLeave(uint8_t* base) {
   for (auto& [t, on] : g_task_restore) step_rate::StoreU32(base, t + 8, on);
   g_task_restore.clear();
+}
+
+// ---- the exact freeze's view (update thread: the hand-off, src\cinecam.h) ----
+struct ViewHold {
+  bool have = false;
+  uint8_t slot[272] = {}, m1488[64] = {}, f1552[4] = {};
+  uint8_t prev[272] = {};            // the game's own view at the previous hand-off (before it was overwritten)
+  uint64_t handoffs = 0, moved = 0;  // hand-offs held, and how many of them came with a view that differs from the PREVIOUS hand-off's (any of the 272 bytes)
+  float worst = 0;                   // the largest change of a matrix entry from the held view (a running maximum: it can only show where the view levels off)
+};
+inline ViewHold g_view_hold;
+
+inline void LogViewHold(const char* when) {
+  const ViewHold& h = g_view_hold;
+  REXLOG_INFO("[wwe2k14][freeze] view hold {}: {} hand-offs, the game's own view differed from the previous hand-off's in {} of them (largest matrix change from the held view {:.6f})",
+              when, h.handoffs, h.moved, h.worst);
+}
+
+// At the hand-off's entry, before the renderer reads the slot: `vb` = the composer's output slot, `mgr` the main manager.
+inline void HoldView(uint8_t* base, uint32_t mgr, uint32_t vb) {
+  ViewHold& h = g_view_hold;
+  if (!Active() || !REXCVAR_GET(wwe2k14_freeze_exact)) {
+    if (h.have) {
+      LogViewHold("ends");
+      h = ViewHold{};
+    }
+    return;
+  }
+  if (!h.have) {
+    h.have = true;
+    std::memcpy(h.slot, base + vb, sizeof(h.slot));
+    std::memcpy(h.prev, base + vb, sizeof(h.prev));
+    std::memcpy(h.m1488, base + mgr + 1488, sizeof(h.m1488));
+    std::memcpy(h.f1552, base + mgr + 1552, sizeof(h.f1552));
+    REXLOG_INFO("[wwe2k14][freeze] exact freeze: step {} s, view held from frame {}", kExactStep,
+                g_guest_frame.load(std::memory_order_relaxed));
+    return;
+  }
+  if (std::memcmp(h.prev, base + vb, sizeof(h.prev)) != 0) ++h.moved;
+  if (std::memcmp(h.slot, base + vb, sizeof(h.slot)) != 0) {
+    for (uint32_t i = 0; i < 16; ++i) {
+      const float now = std::bit_cast<float>(step_rate::LoadU32(base, vb + i * 4));
+      const float held = std::bit_cast<float>(step_rate::LoadU32(h.slot, i * 4));
+      h.worst = std::max(h.worst, std::fabs(now - held));
+    }
+  }
+  std::memcpy(h.prev, base + vb, sizeof(h.prev));
+  if (++h.handoffs % 600 == 0) LogViewHold("so far");
+  std::memcpy(base + vb, h.slot, sizeof(h.slot));
+  std::memcpy(base + mgr + 1488, h.m1488, sizeof(h.m1488));
+  std::memcpy(base + mgr + 1552, h.f1552, sizeof(h.f1552));
 }
 
 // ---- 3. Bink's timer ----

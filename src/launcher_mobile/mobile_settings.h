@@ -36,8 +36,8 @@ inline constexpr Resolution kResolutions[] = {
 inline constexpr int kResolutionCount = int(std::size(kResolutions));
 inline constexpr int kDefaultResolution = 3;  // 720p (the Android build's default since Session 63)
 
-// frame_rate values as in gfx_settings.h: 1 60 everywhere, 0 classic (30 fps entrances), 2 high refresh (120 steps a second).
-// Session 94 (Jarrod): the phone's list is these three; a saved 3 (30 everywhere) loads as 0.
+// frame_rate values as in gfx_settings.h: 1 60 everywhere, 0 classic (30 fps entrances), 2 high refresh (120 steps a second),
+// 3 30 everywhere (Session 94 removed it, players asked for it back the same day: Jarrod, "rightfully claimed experimental").
 struct FrameRate {
   const char* name;
   int value;
@@ -50,7 +50,8 @@ struct FrameRateChoice {
 inline constexpr FrameRateChoice kFrameRates[] = {
     {"STANDARD", "60 fps matches, 30 fps entrances", 0},
     {"60FPS ENTRANCES", "60 fps everywhere", 1},
-    {"120FPS", "For stronger phones: the game runs at 120 fps while keeping real-time speed", 2}};
+    {"120FPS", "For stronger phones: the game runs at 120 fps while keeping real-time speed", 2},
+    {"30FPS (EXPERIMENTAL)", "For weaker phones: 30 fps everywhere, matches included", 3}};
 
 // The game's languages (launcher_core.h AutoLanguage: the runtime's user_language ids that change its text).
 struct Language {
@@ -80,10 +81,14 @@ struct Settings {
   int crowd_density = 100;
   // Session 93 (Jarrod: the low-end tier is chosen automatically from the GPU class, with a launcher override): 0 AUTO,
   // 1 LOW, 2 STANDARD (gfx_settings.h ResolveQualityTier). AUTO is LOW on every phone for now (refine later with the
-  // SDK's `gpu_class` cvar, set from its quirks table at device creation). LOW: the scene drawn at 720p at most, SGSR
-  // on, the crowd at 70% when left at 100%; what the player set by hand (a smaller drawing size, a crowd below 100%)
-  // stays. A missing key = AUTO (no settings_version bump).
+  // SDK's `gpu_class` cvar, set from its quirks table at device creation). Session 95: LOW only supplies a STARTING value, the
+  // crowd at 70% (ApplyLowStart, once); the sliders are what runs. A missing key = AUTO (no settings_version bump).
   int quality_tier = 0;
+  // Session 95 (Jarrod, 2026-11-06: "The individual settings take priority but yes they start with our safe low defaults"):
+  // LOW no longer lowers the crowd behind the slider. The first launch with this build (a first run, or a file from before the
+  // key) writes LOW's starting crowd (70%) into the slider once (ApplyLowStart; mobile_main.cpp Start) and saves this flag.
+  // After that the slider is the player's.
+  bool tier_defaults_applied = false;
   // Session 90 (Jarrod: "put the true native one on my phone"): the PC launcher's Advanced TRUE NATIVE
   // (--wwe2k14_d3d_owned, src\d3d_owned.h). Session 93 (Jarrod, 2026-11-06 01:1x: "True native should become the
   // default, even retroactively ... we'll still have the toggle"): on by default; a file from before settings_version 1
@@ -183,6 +188,7 @@ inline Settings LoadSettings(const fs::path& p) {
     Get(j, "shadows", s.shadows), Get(j, "depth_of_field", s.depth_of_field), Get(j, "crowd_density", s.crowd_density);
     Get(j, "true_native", s.true_native);  // Session 90
     Get(j, "quality_tier", s.quality_tier);  // Session 93
+    Get(j, "tier_defaults_applied", s.tier_defaults_applied);
     Get(j, "storage_test", s.storage_test), Get(j, "mediump", s.mediump);
     int version = 0;  // Session 93: files from before it move to TRUE NATIVE once (the next save writes version 1)
     Get(j, "settings_version", version);
@@ -190,8 +196,7 @@ inline Settings LoadSettings(const fs::path& p) {
   } catch (...) {
   }
   s.crowd_density = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;  // Session 85
-  if (s.frame_rate == 3) s.frame_rate = 0;  // Session 94: 30 everywhere left the phone's list
-  if (s.frame_rate != 0 && s.frame_rate != 1 && s.frame_rate != 2) s.frame_rate = 1;
+  if (s.frame_rate < 0 || s.frame_rate > 3) s.frame_rate = 1;
   s.texture_filter = std::clamp(s.texture_filter, 0, 2);
   s.quality_tier = std::clamp(s.quality_tier, 0, 2);
   s.storage_test = std::clamp(s.storage_test, 0, 3);
@@ -201,6 +206,16 @@ inline Settings LoadSettings(const fs::path& p) {
   s.touch_opacity = std::clamp(s.touch_opacity, 20, 100);
   s.perf_overlay = std::clamp(s.perf_overlay, 0, 2);
   return s;
+}
+
+// Session 95: LOW's player-visible starting value, written into the slider (first run on a phone, or the player picking LOW in
+// GRAPHICS): the crowd 100% -> 70%. The resolution is left alone (the phone's default is already 720p; 1080P is a hand pick).
+// Returns true when the crowd moved.
+inline constexpr int kLowStartCrowd = 70;
+inline bool ApplyLowStart(Settings& s) {
+  if (s.crowd_density < 100) return false;
+  s.crowd_density = kLowStartCrowd;
+  return true;
 }
 
 inline bool SaveSettings(const fs::path& p, const Settings& s) {
@@ -218,7 +233,7 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"drivers_ok", s.drivers_ok},       {"drivers_bad", s.drivers_bad},
                             {"perf_overlay", s.perf_overlay},   {"shadows", s.shadows},
                             {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density},
-                            {"quality_tier", s.quality_tier},
+                            {"quality_tier", s.quality_tier},       {"tier_defaults_applied", s.tier_defaults_applied},
                             {"storage_test", s.storage_test},   {"mediump", s.mediump},
                             {"true_native", s.true_native},     {"settings_version", s.settings_version}};
   std::error_code ec;
@@ -257,6 +272,9 @@ struct LaunchContext {
   std::string driver_trial;  // Session 72: the trial file for a custom driver (the game deletes it once running)
   // Session 72 part 8: an imported driver - its library's file name and its folder (with a trailing /).
   std::string driver_library, driver_dir;
+  // Session 95 (LADDER): the SAFE MODE step in force (<files>/rung.txt, ladder.h); 0 = normal. Steps 1-2 are arguments only (not in the precompile key).
+  int rung = 0;
+  std::string boot_trial;  // Session 95 (LADDER): a file the game removes after 600 frames (or on the player's quit); left behind = it never got going
 };
 // Replaced by GameActivity with /proc/self/fd/N for the file it opened from game_uri (the open file stays with the
 // game's process; the launcher's process cannot hand it over).
@@ -268,13 +286,29 @@ inline int EffectiveDrawHeight(const Settings& s) {
   return r.draw_height;
 }
 
-inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext& c) {
+// Session 95 (LADDER): SAFE MODE steps 2 and up lower these settings for this launch only (the saved settings stay): shadows off, crowd 30%, 30 FPS.
+// None of them is in PrecompileKey, so no step 1-2 launch starts a precompile. Step 3 (mediump off) is a saved setting, set by the launcher.
+inline Settings ApplyRung(Settings s, int rung) {
+  if (rung >= 2) {
+    s.shadows = false;
+    s.crowd_density = std::min(s.crowd_density, 30);
+    s.frame_rate = 3;
+  }
+  return s;
+}
+
+inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchContext& c) {
+  const Settings s = ApplyRung(saved, c.rung);
   std::vector<std::string> f;
+  if (c.rung >= 1) {  // Session 95 (LADDER): the SDK's plain mode (gpu_quirks_apply.cpp) and one pipeline worker
+    f.push_back("--gpu_plain_mode=on");
+    f.push_back("--gpu_native_pipeline_workers=1");
+  }
   if (!c.game_path.empty()) f.push_back("--game_data_root=" + c.game_path);
   // Graphics (gfx_settings.h GraphicsFlags with the NATIVE renderer, no upscaler, the phone's choices).
   const Resolution& r = kResolutions[std::clamp(s.resolution, 0, kResolutionCount - 1)];
-  // Session 93: the quality tier (every phone is a phone: AUTO = LOW). The phone's default is already 720p and 1080P is
-  // always a hand choice, so LOW leaves the resolution alone; it adds the crowd at 70% when left at 100%.
+  // Session 93: the quality tier (every phone is a phone: AUTO = LOW). Session 95: the tier changes no flag here; LOW's starting
+  // crowd (70%) is written into the slider (ApplyLowStart), and the resolution is left alone (the default is 720p, 1080P a hand pick).
   // (gfx_settings.h ResolveQualityTier for a phone: LOW unless STANDARD is chosen; that header is not included here.)
   const bool low = s.quality_tier != 2;
   f.push_back(std::string("--wwe2k14_quality_note=") +
@@ -286,8 +320,7 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   // Session 85: the PC launcher's SHADOWS / CROWD DENSITY / DEPTH OF FIELD (flags only when not the default).
   if (!s.shadows) f.push_back("--gpu_dynamic_shadows=false");
   if (!s.depth_of_field) f.push_back("--gpu_depth_of_field=false");
-  int crowd_pct = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;
-  if (low && crowd_pct >= 100) crowd_pct = 70;  // Session 93: LOW
+  int crowd_pct = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;  // (Session 95: the slider as it is; LOW's 70% is written into it, ApplyLowStart)
   if (const int crowd = crowd_pct; crowd < 100)
     f.push_back("--gpu_scene_crowd_density=" + std::to_string(crowd));
   // Session 90: TRUE NATIVE (the PC launcher's Advanced toggle; off = no flag).
@@ -306,9 +339,10 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   } else if (s.storage_test == 3) {
     f.push_back("--vulkan_shared_memory_window=off");
   }
-  f.push_back("--present_display_timing=true");
+  // Session 95 (PLAIN): present_display_timing and the pace gate are no longer passed here: a command-line value outranks the SDK's
+  // plain mode (gpu_plain_mode), which has to be able to turn both off on an unknown GPU. They are Android defaults in
+  // src/android_pace.h (Apply), same values as before.
   f.push_back("--wwe2k14_android_thermal=true");
-  f.push_back("--wwe2k14_android_pace_gate=true");
   // Session 73: Fast shaders off for now (on Jarrod's Adreno 830 the title and the match went black, only the ring's
   // banner left: half precision breaks values the PC's driver never runs at 16 bits). The setting stays, unused.
   // Session 73 (static in the background with fill-the-screen, Jarrod's phone only): truth passes keep colour with
@@ -322,7 +356,16 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
   f.push_back("--wwe2k14_phys_alloc_fast_fail=true");
   // Session 73, b77: GPU busy work through loads, so each entrance does not start at the lowest GPU clock.
   f.push_back("--wwe2k14_gpu_keep_warm=true");
-  if (s.frame_rate == 0) f.push_back("--wwe2k14_entrance_60fps=false");
+  // Session 95 (Lane E): the character read-back window follows the load, with the 300 frames as a floor (it can only get longer; src/create_readback.h:163-179). Also widens load_pipeline_wait.h InCharacterWindow. Savage on a phone.
+  f.push_back("--wwe2k14_readback_char_window_by_load=true");
+  if (s.frame_rate == 0 || s.frame_rate == 3) f.push_back("--wwe2k14_entrance_60fps=false");
+  if (s.frame_rate == 3) {  // gfx_settings.h GraphicsFlags frame_rate 3: the game's own 30 fps mode, entrances keep their stock 30
+    f.push_back("--wwe2k14_step_hz=30");
+    f.push_back("--wwe2k14_step_hz_entrance=60");
+    f.push_back("--vulkan_texture_load_direct_unscaled=true");
+  }
+  // Session 95 (F6): the decoupled 120 (gpu_d3d_decouple=9, word 0) is NOT mapped here: on phones it needs F3 (one frame boundary a tick, the pace gate) and the Adreno 830 multiview
+  // check, neither built yet. FRAME RATE 2 stays 120 game steps a second.
   if (s.frame_rate == 2) {  // Session 94 (gfx_settings.h GraphicsFlags frame_rate 2 with 120 steps a second)
     f.push_back("--wwe2k14_step_hz=120");
     f.push_back("--wwe2k14_step_hz_entrance=120");
@@ -355,6 +398,7 @@ inline std::vector<std::string> GameArgs(const Settings& s, const LaunchContext&
     f.push_back("--wwe2k14_android_driver=" + s.driver);
   }
   if (!s.driver.empty() && !c.driver_trial.empty()) f.push_back("--wwe2k14_android_driver_trial=" + c.driver_trial);
+  if (!c.boot_trial.empty()) f.push_back("--wwe2k14_boot_trial=" + c.boot_trial);
   // The launcher's choices are the whole picture (launcher_core.h: the game must not apply a settings file on top).
   f.push_back("--wwe2k14_use_launcher_settings=false");
   return f;
@@ -372,7 +416,7 @@ inline std::string PrecompileKey(const Settings& s, const std::string& version, 
   const Resolution& r = kResolutions[std::clamp(s.resolution, 0, kResolutionCount - 1)];
   return "app " + version + "; device " + device + "; driver " + s.driver + "; resolution " + std::to_string(r.resolution) +
          " draw_height " + std::to_string(EffectiveDrawHeight(s)) +
-         " true_native " + std::to_string(int(s.true_native)) + " s93_phone_defaults 1" +
+         " true_native " + std::to_string(int(s.true_native)) + " s93_phone_defaults 1 s95_phone_input 1" +  // (s95: the attribute forms join the store only in a precompile with vertex input on)
          " fast_shaders " + std::to_string(int(s.fast_shaders)) + " texture_filter " + std::to_string(s.texture_filter) +
          (s.storage_test ? " storage_test " + std::to_string(s.storage_test) : std::string()) +  // only when changed
          (s.mediump ? std::string() : std::string(" mediump 0"));

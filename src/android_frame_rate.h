@@ -6,6 +6,9 @@
 // ANativeWindow_setFrameRate without the strategy) says "a fixed 60 fps source": SurfaceFlinger then runs the screen
 // at a multiple of 60 (60 or 120 Hz) while the game is in front. Always 60: menus, matches and 60 fps entrances run at
 // 60, and 30 fps frames divide 60 and 120 evenly too, so the screen never switches mid-game.
+// Session 95 (PACE): the declared rate follows the SETTING, never the frame word: 120 only when the game's step is 120 (the launcher's
+// FRAME RATE 120: --wwe2k14_step_hz=120, or the decoupled 120), otherwise 60. A change of the setting re-declares (the call is
+// non-seamless, so it is made once per new window and once per change, never per frame).
 // Set once per window (Android makes a new ANativeWindow when the app comes back from the background) and logged with
 // the screen's rate before and a few seconds after: "[wwe2k14][frame_rate]". Functions by dlsym (the APK's minimum is
 // Android 9). --wwe2k14_android_frame_rate=false leaves the screen's rate to the phone.
@@ -18,6 +21,8 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <string>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -47,15 +52,17 @@ class FrameRate {
     auto* window = static_cast<ANativeWindow*>(SDL_GetPointerProperty(
         SDL_GetWindowProperties(sdl_window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
     const auto now = std::chrono::steady_clock::now();
-    if (window && window != set_for_) {
+    const float want_hz = WantedHz();
+    if (window && (window != set_for_ || want_hz != declared_hz_)) {
       set_for_ = window;
+      declared_hz_ = want_hz;
       const float before = ScreenHz(sdl_window);
       // 1 = ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, 1 = ANATIVEWINDOW_CHANGE_FRAME_RATE_ALWAYS (a
       // non-seamless switch, once at the start, rather than staying at a rate 60 does not divide).
-      const int result = with_strategy_ ? with_strategy_(window, 60.0f, 1, 1) : plain_(window, 60.0f, 1);
-      REXLOG_INFO("[wwe2k14][frame_rate] asked for a fixed 60 fps source (result {}); the screen was {:.2f} Hz",
-                  result, before);
-      blackbox::Note("screen %.2f Hz, asked for 60 fps (result %d)", double(before), result);
+      const int result = with_strategy_ ? with_strategy_(window, want_hz, 1, 1) : plain_(window, want_hz, 1);
+      REXLOG_INFO("[wwe2k14][frame_rate] asked for a fixed {:.0f} fps source (result {}); the screen was {:.2f} Hz",
+                  want_hz, result, before);
+      blackbox::Note("screen %.2f Hz, asked for %.0f fps (result %d)", double(before), double(want_hz), result);
       check_at_ = now + std::chrono::seconds(3);
       checked_ = false;
     }
@@ -66,6 +73,18 @@ class FrameRate {
   }
 
  private:
+  // Session 95: 120 when the setting runs the game's step at 120 (--wwe2k14_step_hz=120, or the decoupled 120: gpu_d3d_decouple bit 8
+  // with the word 0, as gfx_menu.h reads FRAME RATE 2), else 60.
+  static float WantedHz() {
+    auto flag_int = [](const char* name) {
+      const std::string v = rex::cvar::GetFlagByName(name);
+      return v.empty() ? 0 : std::atoi(v.c_str());
+    };
+    if (flag_int("wwe2k14_step_hz") == 120) return 120.0f;
+    if ((flag_int("gpu_d3d_decouple") & 8) && flag_int("gpu_d3d_decouple_word") == 0) return 120.0f;
+    return 60.0f;
+  }
+
   using WithStrategyFn = int32_t (*)(ANativeWindow*, float, int8_t, int8_t);
   using PlainFn = int32_t (*)(ANativeWindow*, float, int8_t);
 
@@ -99,6 +118,7 @@ class FrameRate {
   WithStrategyFn with_strategy_ = nullptr;
   PlainFn plain_ = nullptr;
   ANativeWindow* set_for_ = nullptr;
+  float declared_hz_ = 0.0f;
   std::chrono::steady_clock::time_point check_at_{};
 };
 

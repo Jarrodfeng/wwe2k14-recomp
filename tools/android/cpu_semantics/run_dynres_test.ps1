@@ -29,7 +29,13 @@ Set-Content -Encoding ascii "$d\shim\rex\logging.h" @'
 #define REXLOG_INFO(...) std::printf("  log: %s\n", fmt::format(__VA_ARGS__).c_str())
 '@
 $fmt = Join-Path $R 'thirdparty\rexglue-sdk-src\thirdparty\fmt\include'
+if (-not (Test-Path $fmt)) { $fmt = Join-Path $R '..\..\..\thirdparty\rexglue-sdk-src\thirdparty\fmt\include' }  # (a worktree under out\wt has no thirdparty)
 & clang++ -std=c++20 -O1 -DFMT_HEADER_ONLY -I "$d\shim" -I $fmt (Join-Path $PSScriptRoot 'dynres_test.cpp') -o "$d\dynres_test.exe"
 if ($LASTEXITCODE) { throw 'build failed' }
-& "$d\dynres_test.exe"
-exit $LASTEXITCODE
+& "$d\dynres_test.exe" (Join-Path $PSScriptRoot 'fixtures')
+$dynres = $LASTEXITCODE
+# Session 95: the performance hint's createSession retry plan against a faked create.
+& clang++ -std=c++20 -O1 (Join-Path $PSScriptRoot 'perf_hint_retry_test.cpp') -o "$d\perf_hint_retry_test.exe"
+if ($LASTEXITCODE) { throw 'retry test build failed' }
+& "$d\perf_hint_retry_test.exe"
+exit ($dynres -bor $LASTEXITCODE)

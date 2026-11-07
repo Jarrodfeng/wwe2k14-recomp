@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -52,6 +53,7 @@
 
 #include <cmath>
 
+#include "android_perf_hint_retry.h"  // Session 95: createSession retry plan
 #include "frame_word.h"  // Session 73: TargetFrameMs
 
 REXCVAR_DEFINE_BOOL(wwe2k14_android_perf_hint, true, "wwe2k14",
@@ -299,10 +301,25 @@ class PerfHint {
     std::vector<int32_t> tids;
     for (const auto& b : busy) tids.push_back(b.second);
     std::sort(tids.begin(), tids.end());
+    // Session 95: after two failed creates, the GPU thread alone (found by name among the busy ones, else the busiest).
+    const std::vector<int32_t> live = tids;
+    int32_t gpu_tid = 0;
+    for (const auto& b : busy) {
+      if (names[b.second].rfind("GPU Commands", 0) == 0) {
+        gpu_tid = b.second;
+        break;
+      }
+    }
+    // (once a GPU-alone session works it stays the plan: the live set would fail again)
+    const bool gpu_alone = gpu_alone_mode_ || (retry_.GpuAloneNext() && !session_);
+    if (gpu_alone) {
+      tids = retry_.Pick(tids, gpu_tid, busy.front().second, gpu_alone_mode_);
+      if (tids.empty()) return;
+    }
     // A flip of the big-core switch (the launcher, or a `cvar` line) applies at the next look.
     if (tids == tids_ && REXCVAR_GET(wwe2k14_android_big_cores) == big_cores_was_) return;
     big_cores_was_ = REXCVAR_GET(wwe2k14_android_big_cores);
-    PlaceThreads(tids);
+    PlaceThreads(live);
     if (tids == tids_) return;
     std::string list;
     for (const auto& b : busy) {
@@ -315,12 +332,28 @@ class PerfHint {
       REXLOG_INFO("[wwe2k14][perf_hint] threads now: {}", list);
     } else {
       if (session_) close_(session_);
+      session_ = nullptr;
+      tids_.clear();  // a failed create must not leave the old set: the next scan would see it unchanged and never retry
+      errno = 0;
       session_ = create_(manager_, tids.data(), tids.size(), target_ns);
       if (!session_) {
-        REXLOG_WARN("[wwe2k14][perf_hint] createSession failed ({} threads): off", tids.size());
-        state_ = State::kOff;
+        // Session 95: a failed create is not final. Try again at the next scan (live threads twice, then the GPU thread alone);
+        // stop after CreateRetry::kMaxTries with the errno.
+        const int err = errno;
+        retry_.Failed(err);
+        if (retry_.Stopped()) {
+          REXLOG_WARN("[wwe2k14][perf_hint] createSession failed {} times ({} threads, errno {}): off", retry_.Failures(),
+                      tids.size(), err);
+          state_ = State::kOff;
+        } else {
+          REXLOG_WARN("[wwe2k14][perf_hint] createSession failed ({} threads, errno {}): try {} of {} at the next scan, {}",
+                      tids.size(), err, retry_.Failures() + 1, CreateRetry::kMaxTries,
+                      retry_.GpuAloneNext() ? "the GPU thread alone" : "the busy threads then");
+        }
         return;
       }
+      retry_.Succeeded();
+      if (gpu_alone) gpu_alone_mode_ = true;
       session_target_ns_ = target_ns;
       REXLOG_INFO("[wwe2k14][perf_hint] session, target {:.2f} ms, threads: {}", target_ns / 1e6, list);
     }
@@ -328,6 +361,8 @@ class PerfHint {
   }
 
   State state_ = State::kUnset;
+  CreateRetry retry_;
+  bool gpu_alone_mode_ = false;  // Session 95: a session on the GPU thread alone is the one that worked
   APerformanceHintManager* manager_ = nullptr;
   APerformanceHintSession* session_ = nullptr;
   CreateSessionFn create_ = nullptr;

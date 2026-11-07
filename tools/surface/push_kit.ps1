@@ -22,7 +22,7 @@ $groups = [ordered]@{
                        @('msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll' | ForEach-Object { Join-Path $crt.FullName $_ }) +
                        @(Join-Path $R 'db\shaders\shader_list.txt')
     'build/data/ids' = @('characters.json', 'arenas.json' | ForEach-Object { Join-Path $R "db\ids\$_" })
-    'routes'         = @('s72_gap_log.txt', 'profile_lesnar_bryan.txt', 's78_anatomy_720.txt', 's80_precompile_idle.txt', 's80_probe_short.txt', 's80_scene_multi.txt', 's80_arc_multi.txt', 's80_owncrowd_multi.txt', 's80_wrestlers_multi.txt', 's80_wrestprops_multi.txt', 's80_gear_multi.txt', 's80_gear2_multi.txt', 's80_wmat_multi.txt', 's80_wall11_multi.txt', 's80_depthwb_multi.txt', 's80_deadcopy_multi.txt', 's80_deadpass_multi.txt', 's80_servecopy_multi.txt', 's80_arena10_multi.txt', 's80_arena23_multi.txt', 's80_arenaside_multi.txt', 's80_arenaall_multi.txt', 's80_clearload_multi.txt', 's80_clearalias_multi.txt', 's80_bounds_multi.txt', 's80_tonight_multi.txt', 's80_shadowcost_multi.txt', 's80_ownring_multi.txt', 's80_ownring2_multi.txt', 's80_ownpass_multi.txt', 's80_owned_multi.txt', 's80_owned_levers_multi.txt', 's80_owned_levers2_multi.txt' |
+    'routes'         = @('s95_gpu_profile.txt', 's95_shader_rank.txt', 's72_gap_log.txt', 'profile_lesnar_bryan.txt', 's78_anatomy_720.txt', 's80_precompile_idle.txt', 's80_probe_short.txt', 's80_scene_multi.txt', 's80_arc_multi.txt', 's80_owncrowd_multi.txt', 's80_wrestlers_multi.txt', 's80_wrestprops_multi.txt', 's80_gear_multi.txt', 's80_gear2_multi.txt', 's80_wmat_multi.txt', 's80_wall11_multi.txt', 's80_depthwb_multi.txt', 's80_deadcopy_multi.txt', 's80_deadpass_multi.txt', 's80_servecopy_multi.txt', 's80_arena10_multi.txt', 's80_arena23_multi.txt', 's80_arenaside_multi.txt', 's80_arenaall_multi.txt', 's80_clearload_multi.txt', 's80_clearalias_multi.txt', 's80_bounds_multi.txt', 's80_tonight_multi.txt', 's80_shadowcost_multi.txt', 's80_ownring_multi.txt', 's80_ownring2_multi.txt', 's80_ownpass_multi.txt', 's80_owned_multi.txt', 's80_owned_levers_multi.txt', 's80_owned_levers2_multi.txt' |
                          ForEach-Object { Join-Path $R "tools\input_scripts\short\$_" }) +
                        # (Session 89: the per-scene routes and the nav snippet they include, flat beside the others.)
                        @('bryan_entrance.txt', 'brock_entrance.txt', 'match.txt' | ForEach-Object { Join-Path $R "tools\input_scripts\scenes\$_" }) +
@@ -32,7 +32,7 @@ $groups = [ordered]@{
                        @(Join-Path $R 'tools\input_scripts\states.toml')
     'replays'        = @(Join-Path $R 'out\replays\s21_lb.rec')
     'scenarios'      = @(Get-ChildItem (Join-Path $R 'out\scenarios') -Filter 'lesnar_bryan.*' | ForEach-Object FullName)
-    '.'              = @((Join-Path $R 'tools\surface\bench.ps1'), (Join-Path $R 'tools\perf\thread_busy.ps1'),
+    '.'              = @((Join-Path $R 'tools\surface\bench.ps1'), (Join-Path $R 'tools\perf\thread_busy.ps1'), (Join-Path $R 'tools\surface\power_log.ps1'),
                          (Join-Path $R 'tools\surface\run_bench.ps1'))
 }
 if ($Symbols) {

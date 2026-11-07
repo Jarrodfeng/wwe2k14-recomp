@@ -862,7 +862,7 @@ def main():
     if args.hold_lock and not args.dry_run and not args.cached_only:
         sys.argv[0] = os.path.abspath(sys.argv[0])
         from runlock import ensure_lock
-        ensure_lock('bisect %s %s' % (args.mode, args.check))
+        ensure_lock('bisect %s %s' % (args.mode, args.check), max_minutes=0)
     args.exe = os.path.abspath(args.exe)
     if args.mode == 'flags' and not args.no_snapshot and not args.dry_run:
         if args.cached_only:   # no copy (it would wait for the lock): the snapshot of this build must exist

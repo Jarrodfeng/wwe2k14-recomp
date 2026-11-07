@@ -418,7 +418,7 @@ def parse_host(s, sections):
     """wwe2k14.exe+0xOFFSET, an RVA, or an absolute address at the preferred base 0x140000000. An address from an
     ASLR-relocated process (0x7FF6...) is refused: subtract the module base and pass wwe2k14.exe+0x...
     `sections`: [[rva_start, rva_end, name]] of the map (empty for an old index: then no range check)."""
-    m = re.fullmatch(r'(wwe2k14\.exe\+)?(0x[0-9A-Fa-f]+|[0-9A-Fa-f]+)', s.strip())
+    m = re.fullmatch(r'(wwe2k14(?:_v3)?\.exe\+)?(0x[0-9A-Fa-f]+|[0-9A-Fa-f]+)', s.strip())
     if not m:
         raise QError(f'{s}: expected wwe2k14.exe+0xOFFSET or an RVA')
     v = int(m.group(2), 16)
@@ -458,6 +458,8 @@ def cmd_addr(con, s, args, m):
             nxt = next(({'rva': x[0]} for x in syms[k + 1:] if x[0] > r['rva']), None)
             map_path = args.map
         else:
+            if s.strip().lower().startswith('wwe2k14_v3.exe'):
+                raise QError(f'{s}: the index holds wwe2k14.exe\'s map; pass --map with wwe2k14_v3.map')
             sections = m.get('map_sections') or []
             rva = parse_host(s, sections)
             r = con.execute('SELECT rva, name, obj FROM hostsyms WHERE rva <= ? ORDER BY rva DESC LIMIT 1', (rva,)).fetchone()

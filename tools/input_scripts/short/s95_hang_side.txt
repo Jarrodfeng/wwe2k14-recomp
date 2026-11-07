@@ -1,0 +1,9 @@
+# Session 95 Step C (out\s95\android_wide.md, piece HANG): one side of a freeze, named by the guard. No replay: the attract loop is enough.
+# Flags: --wwe2k14_hang_guard=true --wwe2k14_hang_exit=true --wwe2k14_blackbox=true --wwe2k14_test_hang=guest|paint|fence
+# The run ends with exit code 3 from the guard, about 70 s after frame 600 at the latest; the route's own end means the guard missed it.
+# harness: realtime  (the limits are wall-clock)
+on_fail quit
+log bench: start s95_hang_side
+wait_frames 200000
+log bench: done
+quit

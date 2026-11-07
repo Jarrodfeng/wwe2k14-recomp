@@ -1,6 +1,7 @@
 // wwe2k14 - crash harness: on abort() or an unhandled exception, log what happened plus a backtrace of
 // exe-relative offsets, then flush the log so the last lines aren't lost (CLAUDE.md: every crash gets a
-// log and a backtrace). Resolve offsets with out/build/win-amd64-release/wwe2k14.map.
+// log and a backtrace). Resolve offsets with out/build/win-amd64-release/wwe2k14.map (the map of the exe that ran:
+// wwe2k14_v3.exe has its own, kept beside it in out\release\build).
 
 #pragma once
 
@@ -16,6 +17,8 @@
 #include <cstdint>
 #include <string>
 
+#include "display_mode.h"  // Session 95: the 720p display mode is given back on a crash
+#include "exe_name.h"
 #include "guest_watch.h"
 #include "flight_recorder.h"  // --wwe2k14_flight_recorder (Session 8 task 11, default off)
 
@@ -36,6 +39,8 @@ inline std::string ExeRelativeBacktrace(uint32_t skip) {
   void* frames[48];
   USHORT count = RtlCaptureStackBackTrace(skip, 48, frames, nullptr);
   auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+  const std::string exe_name = ExeFileName();
+  const std::string look_up = "  (look up in " + exe_name.substr(0, exe_name.rfind('.')) + ".map)";
   std::string out;
   for (USHORT i = 0; i < count; ++i) {
     auto pc = reinterpret_cast<uintptr_t>(frames[i]);
@@ -49,7 +54,7 @@ inline std::string ExeRelativeBacktrace(uint32_t skip) {
       if (*p == '\\' || *p == '/') leaf = p + 1;
     auto mod_base = reinterpret_cast<uintptr_t>(module);
     out += fmt::format("\n    #{:02} {}+0x{:X}{}", i, leaf, pc - (module ? mod_base : 0),
-                       reinterpret_cast<uintptr_t>(module) == base ? "  (look up in wwe2k14.map)" : "");
+                       reinterpret_cast<uintptr_t>(module) == base ? look_up : std::string());
   }
   return out;
 }
@@ -103,18 +108,20 @@ inline std::string GuestContextReport() {
 }
 
 inline void OnAbortSignal(int) {
+  display_mode::RestoreForGood();  // Session 95: first, before anything that can fail
   REXLOG_CRITICAL("[wwe2k14][crash] abort() called. Backtrace:{}", ExeRelativeBacktrace(1));
   rex::FlushLogging();
   FlightDumpOnAbort();  // no-op unless --wwe2k14_flight_recorder
 }
 
 inline LONG WINAPI OnUnhandledException(EXCEPTION_POINTERS* info) {
+  display_mode::RestoreForGood();  // Session 95: first, before anything that can fail
   auto* rec = info->ExceptionRecord;
   auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
   auto addr = reinterpret_cast<uintptr_t>(rec->ExceptionAddress);
-  REXLOG_CRITICAL("[wwe2k14][crash] unhandled exception 0x{:08X} at wwe2k14.exe+0x{:X} (if inside the exe). "
+  REXLOG_CRITICAL("[wwe2k14][crash] unhandled exception 0x{:08X} at {}+0x{:X} (if inside the exe). "
                   "Backtrace:{}",
-                  static_cast<uint32_t>(rec->ExceptionCode), addr - base, ExeRelativeBacktrace(1));
+                  static_cast<uint32_t>(rec->ExceptionCode), ExeFileName(), addr - base, ExeRelativeBacktrace(1));
   rex::FlushLogging();
   GuestWatchDrainLog();  // any watched-word zeroing not yet logged
   // Separate line and flush: if reading guest state faults, the backtrace above is already saved.

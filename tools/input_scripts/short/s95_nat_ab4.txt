@@ -1,0 +1,62 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=324,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# harness: realtime (Session 95 lean natives in-run CPU A/B on Bryan's entrance, capped 60, A B B A order)
+on_fail quit
+log bench: start nf_ab
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 324.bik2 1800
+log scene=tron_324
+wait_frames 60
+cvar wwe2k14_nf_lean true
+cvar wwe2k14_nf_reg_save true
+log ab: mode 1
+wait_frames 240
+cvar wwe2k14_nf_lean false
+cvar wwe2k14_nf_reg_save false
+log ab: mode 0
+wait_frames 240
+cvar wwe2k14_nf_lean false
+cvar wwe2k14_nf_reg_save false
+log ab: mode 0
+wait_frames 240
+cvar wwe2k14_nf_lean true
+cvar wwe2k14_nf_reg_save true
+log ab: mode 1
+wait_frames 240
+cvar wwe2k14_nf_lean true
+cvar wwe2k14_nf_reg_save true
+log ab: mode 1
+wait_frames 240
+cvar wwe2k14_nf_lean false
+cvar wwe2k14_nf_reg_save false
+log ab: mode 0
+wait_frames 240
+cvar wwe2k14_nf_lean false
+cvar wwe2k14_nf_reg_save false
+log ab: mode 0
+wait_frames 240
+cvar wwe2k14_nf_lean true
+cvar wwe2k14_nf_reg_save true
+log ab: mode 1
+wait_frames 240
+cvar wwe2k14_nf_lean true
+cvar wwe2k14_nf_reg_save true
+log ab: mode 1
+wait_frames 240
+cvar wwe2k14_nf_lean false
+cvar wwe2k14_nf_reg_save false
+log ab: mode 0
+wait_frames 240
+cvar wwe2k14_nf_lean false
+cvar wwe2k14_nf_reg_save false
+log ab: mode 0
+wait_frames 240
+cvar wwe2k14_nf_lean true
+cvar wwe2k14_nf_reg_save true
+log ab: mode 1
+wait_frames 240
+log scene=end
+log bench: done
+quit

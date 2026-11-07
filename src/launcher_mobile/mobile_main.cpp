@@ -47,7 +47,11 @@
 #include "../launcher/wm30_list.h"
 #include "mobile_platform.h"
 #include "mobile_settings.h"
+#include "diag_system.h"  // Session 95: system.txt of the diagnostic run
+#include "../diag_plan.h"   // Session 95: the diagnostic run (shared with the PC launcher)
+#include "../diag_logcut.h"  // Session 95 (diag4): the game log cut for the zip (shared)
 #include "phone_check.h"  // Session 73: CHECK THIS PHONE and how the last game run ended
+#include "ladder.h"  // Session 95 (LADDER): run history, SAFE MODE steps, the cards
 #include "share_report.h"  // Session 73: report.txt in the shared zip
 #include "zip_writer.h"
 
@@ -117,6 +121,7 @@ struct TestSteps {
   float tap_x = -1, tap_y = -1;  // --tap X,Y: a touch tap there (position, down, up in one batch) at the 3rd frame
   int quit_ms = 0;               // --quit-ms N: quit N ms after start
   bool check = false;            // --check: CHECK THIS PHONE at start (Session 73)
+  bool diag_run = false;         // --diag-run: start the DIAGNOSTIC RUN at start (Session 95)
   bool share = false;            // --share-test: SHARE's zip and report, no share sheet, then quit (Session 73)
 };
 
@@ -132,20 +137,30 @@ class App {
     log_.open(files_ / "logs" / "launcher.log", std::ios::trunc);
     Log("wwe2k14 phone launcher %s on %s, files %s, ui scale %.2f", kVersion, platform::Name(), U8(files_).c_str(), ui_);
     s_ = LoadSettings(SettingsPath());
+    if (!s_.tier_defaults_applied) {  // Session 95: once per file (a first run, or a file from before the key): AUTO is LOW on a phone, so LOW's starting crowd goes into the slider
+      s_.tier_defaults_applied = true;
+      const bool low = s_.quality_tier != 2, moved = low && ApplyLowStart(s_);
+      Log("settings: tier %s starting values applied once: crowd %d%% (%s)", low ? "LOW" : "STANDARD", s_.crowd_density,
+          moved ? "moved from 100%" : "unchanged");
+      Save();
+    }
     ScanDrivers();
     CheckDriver();
     for (const auto& d : kDrivers) driver_bundled_.push_back(DriverBundled(d.file));
     if (!driver_ask_.empty()) page_ = kGraphics;  // Session 73: the question at the top of GRAPHICS
     RefreshGame();
     ResumeAfterPrecompile();  // Session 93
+    ResumeAfterDiag();        // Session 95
     // Session 73: how the last game run ended (src\blackbox.h; LauncherActivity wrote Android's reason first).
     last_run_ = check::LastRun(files_);
     if (!last_run_.empty()) {
       Log("last game run: %s", last_run_.c_str());
       ShowToast(last_run_, 10000);
     }
+    LadderStart();  // Session 95 (LADDER)
     if (s_.check_updates && (test_.shot.empty() || std::getenv("WWE2K14_UPDATE_FILE")) && !test_.share) CheckUpdate();
     if (test_.check) RunCheck();
+    if (test_.diag_run) StartDiag();
     if (test_.share) ShareLogs(false);
     if (test_.page >= 0 && test_.page < kPageCount) page_ = Page(test_.page);
     if (page_ == kSaves) ScanSaves();
@@ -156,12 +171,15 @@ class App {
   // One frame. Returns false once the PC test's screenshot is saved.
   bool Frame() {
     for (platform::Event e; platform::PollEvent(e);) OnEvent(e);
+    DiagFrame();  // Session 95
     // Session 93 (M6 step 2): the shader precompile has just ended and brought us back: the PLAY it was for goes on (after a
     // few frames, so the launcher is up and the platform is ready for the activity switch).
     if (resume_play_ && ++resume_frames_ > 3) {
       resume_play_ = false;
       precompile_skip_once_ = true;
       Play(resume_wm30_);
+      precompile_skip_once_ = false;  // (a card that stopped the Play must not leave the skip behind: PLAY ANYWAY would start the precompile again)
+      if (disk_card_) skip_precompile_after_card_ = true;
     }
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 size = io.DisplaySize;
@@ -184,6 +202,7 @@ class App {
     Toast(size);
     ImGui::End();
     Drawer(size);
+    if (page_ == kHome || disk_card_) DrawCard(size);  // Session 95 (LADDER)
     return true;
   }
 
@@ -266,7 +285,7 @@ class App {
     game_error_.clear();
     if (!s_.game_uri.empty()) {
       read_path_ = platform::OpenGameFile(s_.game_uri);
-      if (read_path_.empty()) game_error_ = "The chosen file can't be opened (moved, deleted or on a removed card?)";
+      if (read_path_.empty()) game_error_ = "The chosen file can't be opened or read in place (moved, deleted, on a removed card, or in a cloud folder: copy it to the phone's own storage and choose it again)";
       else address_ = s_.game_uri;
     }
     if (read_path_.empty()) {
@@ -1007,9 +1026,17 @@ class App {
     Pair(
         [&] {
           GroupTitle("QUALITY");  // Session 93: AUTO / LOW / STANDARD
-          if (Choice("AUTO  (default)", s_.quality_tier == 0)) s_.quality_tier = 0, Save();
-          if (Choice("LOW", s_.quality_tier == 1)) s_.quality_tier = 1, Save();
-          if (Choice("STANDARD", s_.quality_tier == 2)) s_.quality_tier = 2, Save();
+          if (Choice("AUTO  (default)", s_.quality_tier == 0)) LeaveLow(0);
+          if (Choice("LOW", s_.quality_tier == 1, "Sets the crowd density to 70% once if it was at 100%; your sliders win after that.")) {
+            if (s_.quality_tier != 1) {  // Session 95: only on the way into LOW; the crowd it moved is given back on the way out if untouched
+              low_prev_crowd_ = s_.crowd_density;
+              if (ApplyLowStart(s_)) Log("settings: LOW chosen: crowd 100->70");
+              else low_prev_crowd_ = -1;
+            }
+            s_.quality_tier = 1;
+            Save();
+          }
+          if (Choice("STANDARD", s_.quality_tier == 2)) LeaveLow(2);
         },
         [&] {
           GroupTitle("RESOLUTION");
@@ -1249,7 +1276,125 @@ class App {
     if (Button("EXPORT SAVE (.ZIP)", save_exists_)) platform::ExportSaves(SaveDir());
     if (Button("IMPORT SAVE (.ZIP)")) platform::ImportSaves(SaveDir());
     Note("Import replaces the current save; the old one is kept next to it as a backup.");
+    // Session 95 (LADDER): the launcher keeps the last two states of the save it saw before a PLAY.
+    GroupTitle("SNAPSHOTS BEFORE PLAY");
+    bool any = false;
+    for (int slot = 0; slot < 2; ++slot) {
+      std::error_code ec;
+      if (!fs::is_directory(SnapDir(slot), ec)) continue;
+      any = true;
+      const std::string label = "RESTORE SNAPSHOT " + std::to_string(slot + 1) + " (" + SnapTime(slot) + ")";
+      if (restore_confirm_ == slot) {
+        if (Button(("TAP AGAIN TO RESTORE SNAPSHOT " + std::to_string(slot + 1)).c_str())) RestoreSnapshot(slot);
+        if (Button("CANCEL")) restore_confirm_ = -1;
+      } else if (Button(label.c_str())) {
+        restore_confirm_ = slot;
+      }
+    }
+    if (!any) Note("None yet: a copy of the save is kept each time you press PLAY and it has changed (two copies, at most 64 MB).");
+    else Note("A restore keeps the current save next to it as wwe2k14.before_restore.");
   }
+
+  // ---------------------------------------------------------------- Session 95 (LADDER): save snapshots
+  fs::path SnapRoot() const { return files_ / "save_snapshots"; }
+  fs::path SnapDir(int slot) const { return SnapRoot() / ("snap" + std::to_string(slot)); }
+  // Count, bytes and newest modification time of the save (the cache folder left out), as one line.
+  std::string SaveSignature(unsigned long long* bytes = nullptr) const {
+    std::error_code ec;
+    unsigned long long total = 0, newest = 0, count = 0;
+    for (const auto& e : fs::recursive_directory_iterator(SaveDir(), ec)) {
+      if (!e.is_regular_file(ec) || U8(e.path()).find("/cache") != std::string::npos) continue;
+      total += e.file_size(ec), ++count;
+      newest = std::max<unsigned long long>(newest, (unsigned long long)e.last_write_time(ec).time_since_epoch().count());
+    }
+    if (bytes) *bytes = total;
+    return std::to_string(count) + " " + std::to_string(total) + " " + std::to_string(newest);
+  }
+  std::string SnapTime(int slot) const {
+    std::ifstream f(SnapRoot() / "state.txt");
+    std::string l0, l1, l2, l3;
+    std::getline(f, l0), std::getline(f, l1), std::getline(f, l2), std::getline(f, l3);
+    const std::string& t = slot == 0 ? l2 : l3;
+    return t.empty() ? std::string("saved earlier") : t;
+  }
+  void SnapshotSaves() {
+    std::error_code ec;
+    if (!fs::is_directory(SaveDir(), ec)) return;
+    unsigned long long bytes = 0;
+    const std::string sig = SaveSignature(&bytes);
+    std::ifstream in(SnapRoot() / "state.txt");
+    std::string last_sig, next, t0, t1;
+    std::getline(in, last_sig), std::getline(in, next), std::getline(in, t0), std::getline(in, t1);
+    in.close();
+    if (sig == last_sig) return;  // unchanged since the last snapshot
+    if (bytes > 64ull * 1024 * 1024) {
+      Log("saves: %.0f MB is over the 64 MB snapshot cap: no snapshot", double(bytes) / (1024.0 * 1024.0));
+      return;
+    }
+    const int slot = next == "1" ? 1 : 0;
+    // Copied beside the slot first and moved into place only when every copy worked: a full phone must not turn a good snapshot
+    // into a truncated one.
+    const fs::path tmp = SnapRoot() / ("snap" + std::to_string(slot) + ".tmp");
+    fs::remove_all(tmp, ec);
+    fs::create_directories(tmp, ec);
+    bool copy_ok = !ec;
+    for (const auto& e : fs::recursive_directory_iterator(SaveDir(), ec)) {
+      if (!copy_ok) break;
+      if (U8(e.path()).find("/cache") != std::string::npos) continue;
+      std::error_code cec;
+      const fs::path rel = fs::relative(e.path(), SaveDir(), cec);
+      if (e.is_directory(cec)) fs::create_directories(tmp / rel, cec);
+      else if (e.is_regular_file(cec)) fs::copy_file(e.path(), tmp / rel, fs::copy_options::overwrite_existing, cec);
+      if (cec) copy_ok = false;
+    }
+    if (!copy_ok || ec) {
+      Log("saves: snapshot copy failed (%s): the earlier snapshot is kept", ec ? ec.message().c_str() : "a file would not copy");
+      fs::remove_all(tmp, ec);
+      return;
+    }
+    fs::remove_all(SnapDir(slot), ec);
+    fs::rename(tmp, SnapDir(slot), ec);
+    if (ec) {
+      Log("saves: snapshot could not be put in place: %s", ec.message().c_str());
+      fs::remove_all(tmp, ec);
+      return;
+    }
+    char stamp[32] = "";
+    const std::time_t now = std::time(nullptr);
+    std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M", std::localtime(&now));
+    (slot == 0 ? t0 : t1) = stamp;
+    std::ofstream(SnapRoot() / "state.txt", std::ios::trunc) << sig << "\n" << (slot == 0 ? 1 : 0) << "\n" << t0 << "\n" << t1 << "\n";
+    Log("saves: snapshot %d kept (%.1f MB)", slot + 1, double(bytes) / (1024.0 * 1024.0));
+  }
+  void RestoreSnapshot(int slot) {
+    std::error_code ec;
+    if (!fs::is_directory(SnapDir(slot), ec)) return;
+    // The current save is set aside, never deleted: two sets are kept (the older one goes when a third restore needs the name).
+    const fs::path parent = SaveDir().parent_path();
+    const std::string base = SaveDir().filename().string() + ".before_restore";
+    fs::path before = parent / base;
+    if (fs::exists(before, ec)) {
+      fs::remove_all(parent / (base + "_old"), ec);
+      fs::rename(before, parent / (base + "_old"), ec);
+    }
+    if (fs::is_directory(SaveDir(), ec)) fs::rename(SaveDir(), before, ec);
+    if (ec) {
+      ShowToast("Could not set the current save aside: nothing restored", 8000);
+      return;
+    }
+    fs::create_directories(SaveDir(), ec);
+    fs::copy(SnapDir(slot), SaveDir(), fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+    // The shader caches stay with the game, not the save (snapshots leave them out): bring them back, as SaveZip does for an import.
+    // Without them the launcher would think the precompile is done while the store is gone.
+    std::error_code rec;
+    for (const char* keep : {"cache", "cache_partition"})
+      if (fs::is_directory(before / keep, rec) && !fs::exists(SaveDir() / keep, rec)) fs::rename(before / keep, SaveDir() / keep, rec);
+    Log("saves: snapshot %d restored (%s)", slot + 1, ec ? ec.message().c_str() : "ok");
+    ShowToast(ec ? "Restore failed: the old save is in wwe2k14.before_restore" : "Snapshot restored", 6000);
+    restore_confirm_ = -1;
+    ScanSaves();
+  }
+  int restore_confirm_ = -1;  // the slot whose RESTORE was pressed once (the second press does it)
 
   void HelpPage() {
     GroupTitle("PROBLEM REPORTS");
@@ -1262,6 +1407,8 @@ class App {
     if (Button("SHARE THE LAST GAME LOG")) ShareLogs();
     Note("Sends one .zip through Android's share menu (Discord, email...): a short report, the newest game log, its "
          "start-up record, the launcher's log and settings and this phone's check.");
+    SafeModeHelpUi();  // Session 95 (LADDER)
+    DiagHelpUi();  // Session 95: DIAGNOSTIC RUN, above CHECK THIS PHONE
     if (Button("CHECK THIS PHONE")) RunCheck();
     for (const auto& line : check_) {
       static const ImVec4 kColors[3] = {ImVec4(0.55f, 0.9f, 0.55f, 1.0f), ImVec4(1.0f, 0.8f, 0.35f, 1.0f),
@@ -1346,7 +1493,7 @@ class App {
 
   // Session 73: CHECK THIS PHONE.
   void RunCheck() {
-    check_ = check::CheckPhone(files_, game_ok_, game_error_, s_.game_name);
+    check_ = check::CheckPhone(files_, game_ok_, game_error_, s_.game_name, s_.driver);
     for (const auto& line : check_) Log("phone check %s: %s", line.level == 0 ? "ok" : line.level == 1 ? "warn" : "FAIL",
                                         line.text.c_str());
   }
@@ -1388,7 +1535,7 @@ class App {
     const fs::path zip = ShareZip(newest, out.size() > 1 ? out[1] : fs::path());
     out.push_back(files_ / "logs" / "launcher.log");
     // Session 73: the last run's start-up record and Android's reason for its end (and its native crash record).
-    for (const char* extra : {"startup.txt", "last_game_exit.txt", "last_game_exit_trace.bin"}) {
+    for (const char* extra : {"startup.txt", "stderr.txt", "last_game_exit.txt", "last_game_exit_trace.bin", "last_launcher_exit.txt", "run_history.txt"}) {
       if (fs::is_regular_file(files_ / "logs" / extra, ec)) out.push_back(files_ / "logs" / extra);
     }
     if (!zip.empty()) out = {zip};
@@ -1407,6 +1554,7 @@ class App {
     std::string num;
     if (!game_log.empty()) num = U8(game_log.stem()).substr(8);
     const fs::path frames = num.empty() ? fs::path() : logs / fs::u8path("frames_" + num + ".csv");
+    const fs::path memory = num.empty() ? fs::path() : logs / fs::u8path("mem_" + num + ".csv");  // Session 95 (HANG)
     const fs::path path = dir / fs::u8path("wwe2k14_report_" + (num.empty() ? std::string("none") : num) + ".zip");
     // Only the newest report stays (they are copies of the logs).
     for (const auto& e : fs::directory_iterator(dir, ec)) {
@@ -1417,6 +1565,7 @@ class App {
     report::Inputs in;
     in.launcher_version = kVersion;
     in.last_run = last_run_;
+    if (rung_.rung > 0) in.rung_text = "step " + std::to_string(rung_.rung) + " (" + ladder::RungWords(rung_.rung) + ")";
     in.logs_dir = logs;
     if (!oldest_part.empty()) in.game_logs.push_back(oldest_part);
     if (!game_log.empty()) in.game_logs.push_back(game_log);
@@ -1434,7 +1583,8 @@ class App {
     add(game_log);
     add(oldest_part);
     add(frames);
-    for (const char* extra : {"startup.txt", "last_game_exit.txt", "last_game_exit_trace.bin"}) add(logs / extra);
+    add(memory);
+    for (const char* extra : {"startup.txt", "stderr.txt", "hang.txt", "last_game_exit.txt", "last_game_exit_trace.bin", "last_launcher_exit.txt", "run_history.txt"}) add(logs / extra);
     Log("share: report zip %s", U8(path).c_str());  // before the copy, so the zip's launcher.log has it
     add(logs / "launcher.log");
     add(SettingsPath());
@@ -1498,6 +1648,7 @@ class App {
     if (fs::is_directory(DlcDir(), ec)) c.dlc_dir = U8(DlcDir());
     platform::ScreenSize(c.screen_w, c.screen_h);
     c.wm30 = wm30;
+    c.rung = rung_.rung;  // Session 95 (LADDER)
     if (const UserDriver* u = FindUserDriver(s_.driver)) {  // part 8: an imported driver, from its own folder
       c.driver_library = u->library;
       c.driver_dir = U8(platform::DriversDir() / fs::u8path(u->folder)) + "/";
@@ -1507,7 +1658,9 @@ class App {
   // The precompile run: the Play's arguments (same graphics, same driver: the keys the play will ask for) without the match
   // to jump into and without the driver trial (that belongs to the real game: it must not be used up here).
   void StartPrecompile(int wm30) {
-    std::vector<std::string> args = GameArgs(s_, MakeContext(-1));
+    LaunchContext pc = MakeContext(-1);
+    pc.rung = 0;  // (Safe Mode steps are for the play: one shader worker would make the precompile overrun its deadline)
+    std::vector<std::string> args = GameArgs(s_, pc);
     args.push_back("--wwe2k14_precompile=" + U8(PrecompileProgressPath()));
     std::error_code ec;
     fs::remove(PrecompileProgressPath(), ec);
@@ -1552,19 +1705,348 @@ class App {
     }
   }
 
+  // ------------------------------------------------------------ Session 95: DIAGNOSTIC RUN (src\diag_plan.h, src\diag.h)
+  // One button, hands-free, about 3 minutes, one zip (Jarrod, 2026-11-06). Each arm is one run of the game (the precompile's
+  // pattern): the launcher writes diag_pending.txt and starts the game with the arm's flags (a copy of GameArgs with the arm's
+  // change - the player's settings are never edited); the route ends with `quit`, which brings the launcher back (a crash or
+  // the player's Back does too); ResumeAfterDiag then copies that arm's logs into the run folder and starts the next arm
+  // (after a short pause with a CANCEL), or builds the zip. The game's own watchdog (src/diag.h) ends a stuck arm. A run
+  // folder without a zip is finished the next time the launcher starts (unfinished arms are named in the zip).
+  fs::path DiagRoot() const { return files_ / "diag"; }
+  fs::path DiagPendingPath() const { return files_ / "diag_pending.txt"; }
+  fs::path DiagLastZipPath() const { return files_ / "diag_last_zip.txt"; }
+  struct DiagRun {
+    fs::path run;
+    size_t idx = 0;
+    long start = 0, arm_start = 0;
+    bool long_run = false;
+    bool running = false;  // review F13: an arm was started and has not been collected yet
+    std::vector<wwe2k14::diag_plan::Arm> arms;
+    std::vector<std::string> skipped;
+  };
+  static long DiagNow() { return long(std::time(nullptr)); }
+  static std::vector<std::string> DiagReadLines(const fs::path& p) {
+    std::vector<std::string> v;
+    std::ifstream f(p);
+    for (std::string l; std::getline(f, l);)
+      if (!l.empty()) v.push_back(l);
+    return v;
+  }
+  static void DiagWrite(const fs::path& p, const std::string& text) {
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    std::ofstream(p, std::ios::binary | std::ios::trunc) << text;
+  }
+  void DiagSave(const DiagRun& r) {
+    std::string t = U8(r.run) + "\n" + std::to_string(r.idx) + "\n" + std::to_string(r.start) + "\n" +
+                    std::to_string(r.arm_start) + "\n" + (r.long_run ? "1" : "0") + "\n";
+    for (const auto& a : r.arms) t += "arm|" + a.id + "|" + a.title + "|" + (a.full ? "1" : "0") + "|" + std::to_string(a.est_s) + "\n";
+    for (const auto& s : r.skipped) t += "skip|" + s + "\n";
+    if (r.running) t += "running|1\n";
+    DiagWrite(DiagPendingPath(), t);
+  }
+  bool DiagLoad(DiagRun& r) {
+    const auto v = DiagReadLines(DiagPendingPath());
+    if (v.size() < 5) return false;
+    r.run = fs::u8path(v[0]);
+    r.idx = size_t(std::atol(v[1].c_str()));
+    r.start = std::atol(v[2].c_str()), r.arm_start = std::atol(v[3].c_str());
+    r.long_run = v[4] == "1";
+    for (size_t i = 5; i < v.size(); ++i) {
+      if (v[i].rfind("skip|", 0) == 0) {
+        r.skipped.push_back(v[i].substr(5));
+      } else if (v[i] == "running|1") {
+        r.running = true;
+      } else if (v[i].rfind("arm|", 0) == 0) {
+        std::vector<std::string> f;
+        std::stringstream ss(v[i].substr(4));
+        for (std::string x; std::getline(ss, x, '|');) f.push_back(x);
+        if (f.size() == 4) r.arms.push_back({f[0], f[1], f[2] == "1", std::atoi(f[3].c_str())});
+      }
+    }
+    return !r.arms.empty() && r.idx < r.arms.size() + 1;
+  }
+  int DiagBudget(const DiagRun& r) const { return r.long_run ? 300 : 180; }
+
+  void StartDiag() {
+    namespace dp = wwe2k14::diag_plan;
+    if (!game_ok_) {
+      GoPage(kGameFiles);
+      ShowToast("Choose your game files first");
+      return;
+    }
+    // Session 73: 16 KB memory pages would break the game's memory: the same refusal as PLAY (review F11).
+    if (const std::string pages = check::PageSizeProblem(); !pages.empty()) {
+      Log("DIAGNOSTIC RUN refused: %s", pages.c_str());
+      ShowToast(pages, 10000);
+      return;
+    }
+    DiagRun r;
+    r.start = DiagNow();
+    r.long_run = diag_long_;
+    r.run = DiagRoot() / ("run_" + std::to_string(r.start));
+    std::error_code ec;
+    // An earlier run's folders are not needed any more; diag/cache stays (the arms after arm 0 use it: review F10).
+    for (const auto& e : fs::directory_iterator(DiagRoot(), ec))
+      if (U8(e.path().filename()).rfind("run_", 0) == 0) fs::remove_all(e.path(), ec);
+    fs::create_directories(r.run / "save", ec);
+    std::vector<std::string> base = GameArgs(s_, MakeContext(-1));
+    std::string flat;
+    for (const auto& a : base) flat += a + "\n";
+    DiagWrite(r.run / "base_flags.txt", flat);
+    DiagWrite(r.run / "route_full.txt", dp::Route(true, true));  // hold: the route never quits the game (review F2)
+    DiagWrite(r.run / "route_entrance.txt", dp::Route(false, true));
+    DiagWrite(r.run / "route_vertex.txt", dp::Route(false, true, true));
+    DiagWrite(r.run / "system.txt", std::string("WWE 2K14 phone diagnostic run (Session 95)\nLauncher: ") + kVersion + "\nplatform: " +
+                                        platform::Name() + "\ndevice key: " + platform::DeviceKey() + "\n\n" +
+                                        mlauncher::diag::SystemText("start"));
+    DiagWrite(r.run / "launcher_settings.json", mlauncher::diag::ReadSmall(SettingsPath(), 65536));
+    r.arms = dp::PlanArms(base, &r.skipped, true);
+    r.idx = 0;
+    diag_zip_.clear();
+    DiagStartArm(r);
+  }
+  void DiagStartArm(DiagRun& r) {
+    namespace dp = wwe2k14::diag_plan;
+    const dp::Arm arm = r.arms[r.idx];
+    std::vector<std::string> args = dp::ArmArgs(arm, DiagReadLines(r.run / "base_flags.txt"));
+    const fs::path adir = r.run / ("arm" + arm.id);
+    std::error_code ec;
+    fs::create_directories(adir, ec);
+    // (indexes 1 and 2 always run in full: the storage arm and the vertex truth are not cut by arm 0's time - review F9)
+    const int arm_s = r.idx <= 2 ? arm.est_s * 2 + 30 : std::max(30, std::min(arm.est_s * 2 + 30, DiagBudget(r) + 60 - int(DiagNow() - r.start)));
+    const std::string route = U8(r.run / dp::RouteFile(arm));
+    for (const std::string& a : dp::DiagArgs(U8(r.run), arm.id, route, arm_s, U8(adir / "device.json"), true)) {
+      const size_t eq = a.find('=');
+      dp::SetFlag(args, a.substr(2, eq - 2), a.substr(eq + 1));
+    }
+    dp::SetFlag(args, "user_data_root", U8(r.run / "save"));  // a save of its own: the player's is never touched
+    if (arm.id != "0") dp::SetFlag(args, "cache_root", U8(DiagRoot() / "cache"));
+    dp::RemoveFlag(args, "wwe2k14_wm30");
+    dp::RemoveFlag(args, "wwe2k14_perf_overlay");
+    r.arm_start = DiagNow();
+    r.running = true;
+    DiagSave(r);
+    std::string line;
+    for (const auto& a : args) line += " " + a;
+    DiagWrite(adir / "command.txt", line + "\n");
+    Log("DIAGNOSTIC RUN arm %s (%s):%s", arm.id.c_str(), arm.title.c_str(), line.c_str());
+    platform::TouchChoice t;
+    t.mode = 2;  // (TouchOverlay.MODE_OFF: the route drives the pad)
+    platform::StartGame(args, address_, t);
+  }
+  // From the constructor: a diagnostic arm that was running has ended (or the game died).
+  void ResumeAfterDiag() {
+    namespace dp = wwe2k14::diag_plan;
+    std::error_code ec;
+    diag_arm_ended_ = fs::exists(DiagPendingPath(), ec);  // (an arm of the diagnostic run is not a player run: LadderStart does not record it)
+    if (!fs::exists(DiagPendingPath(), ec)) {
+      const auto z = DiagReadLines(DiagLastZipPath());
+      if (!z.empty() && fs::exists(fs::u8path(z[0]), ec)) diag_zip_ = fs::u8path(z[0]), diag_result_ = z.size() > 1 ? z[1] : std::string();
+      return;
+    }
+    DiagRun r;
+    if (!DiagLoad(r)) {
+      fs::remove(DiagPendingPath(), ec);
+      return;
+    }
+    if (r.idx < r.arms.size() && r.running) {
+      const auto& arm = r.arms[r.idx];
+      const fs::path adir = r.run / ("arm" + arm.id);
+      // The arm's own game log, frame CSV and start-up records. Only its own: the newest run number above every number already in
+      // the run folder (the next launch touches the older log; the time window alone also took the arm before: zip 59.7 MB, diag3).
+      // The log is cut (src/diag_logcut.h: repeated line shapes folded).
+      namespace lc = wwe2k14::diag_logcut;
+      const long age_limit = DiagNow() - r.arm_start + 5;
+      auto age_of = [&](const fs::directory_entry& e) {
+        return std::chrono::duration_cast<std::chrono::seconds>(fs::file_time_type::clock::now() - e.last_write_time(ec)).count();
+      };
+      long have = -1, mine = -1;
+      for (const auto& e : fs::recursive_directory_iterator(r.run, ec))
+        if (e.is_regular_file()) have = std::max(have, lc::NumberOf(U8(e.path().filename())));
+      for (const auto& e : fs::directory_iterator(files_ / "logs", ec)) {
+        const std::string n = U8(e.path().filename());
+        const long num = lc::NumberOf(n);
+        if (n.rfind("wwe2k14_", 0) == 0 && e.is_regular_file() && num > have && age_of(e) <= age_limit) mine = std::max(mine, num);
+      }
+      for (const auto& e : fs::directory_iterator(files_ / "logs", ec)) {
+        const std::string n = U8(e.path().filename());
+        const bool numbered = (n.rfind("wwe2k14_", 0) == 0 && e.path().extension() == ".log") || n.rfind("frames_", 0) == 0 || n.rfind("mem_", 0) == 0;
+        const bool other = n.rfind("timeline_", 0) == 0 || n == "startup.txt" || n == "stderr.txt" || n == "hang.txt" || n == "last_game_exit.txt" || n == "last_game_exit_trace.bin";
+        if (!e.is_regular_file() || !(numbered || other)) continue;
+        if (numbered ? lc::NumberOf(n) != mine : age_of(e) > age_limit) continue;
+        if (e.path().extension() == ".log") {
+          std::ifstream in(e.path(), std::ios::binary);
+          std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+          DiagWrite(adir / e.path().filename(), lc::Cut(text));
+        } else {
+          fs::copy_file(e.path(), adir / e.path().filename(), fs::copy_options::overwrite_existing, ec);
+        }
+      }
+      const auto st = DiagReadLines(adir / "state.json");
+      const bool reached_done = !st.empty() && st[0].find("\"done\"") != std::string::npos;
+      // Which stage the route stopped at (the game's stages.log): a failed route must look failed (run 6629: every arm ended in 3 s).
+      std::string stages;
+      for (const auto& l : DiagReadLines(adir / "stages.log")) stages += l + "\n";
+      const bool cancelled = fs::exists(adir / "cancel.txt", ec);
+      const std::string failure = cancelled ? std::string() : wwe2k14::diag_plan::RouteFailure(stages, DiagNow() - r.arm_start);
+      const std::string verdict = cancelled ? "cancelled by the player" : !failure.empty() ? failure : reached_done ? "route reached done" : "route reached done (state.json says otherwise)";
+      DiagWrite(adir / "exit.txt", verdict + "\nlast state: " + (st.empty() ? std::string("(none)") : st[0]) + "\nelapsed_s " +
+                                       std::to_string(DiagNow() - r.arm_start) + "\n");
+      Log("diagnostic run: arm %s ended: %s", arm.id.c_str(), verdict.c_str());
+      ++r.idx;
+      r.running = false;
+      if (fs::exists(adir / "cancel.txt", ec)) {  // the player's Back: the chain stops here (review F14)
+        r.skipped.push_back("(the rest): cancelled by the player (Back)");
+        r.idx = r.arms.size();
+      }
+    }
+    // (the first two relaunch arms, indexes 1 and 2, always run: the storage arm and the vertex truth are never cut by arm 0's time - review F9)
+    while (r.idx < r.arms.size() && r.idx > 2) {
+      if (int(DiagNow() - r.start) + r.arms[r.idx].est_s > DiagBudget(r)) {
+        r.skipped.push_back(r.arms[r.idx].id + ": skipped, the time budget (" + std::to_string(DiagBudget(r)) + " s) would be passed");
+        ++r.idx;
+      } else {
+        break;
+      }
+    }
+    if (r.idx < r.arms.size()) {  // the next arm starts in a few seconds; CANCEL on LOGS AND UPDATES stops here
+      DiagSave(r);
+      diag_next_at_ = SDL_GetTicks() + 6000;
+      page_ = kHelp;
+      ShowToast("Diagnostic run: the next step starts in a few seconds", 6000);
+      return;
+    }
+    DiagFinish(r);
+  }
+  void DiagFinish(DiagRun& r) {
+    std::error_code ec;
+    std::string summary, failed;
+    for (const auto& a : r.arms) {
+      const auto ex = DiagReadLines(r.run / ("arm" + a.id) / "exit.txt");
+      // (an arm cut by the time budget or the player's Back never got a folder: it did not fail, it did not run)
+      const bool started = fs::is_directory(r.run / ("arm" + a.id), ec);
+      const std::string line = ex.empty() ? std::string(started ? "did not finish / no exit record" : "did not run") : ex[0];
+      if (line.rfind("ROUTE FAILED", 0) == 0 || (ex.empty() && started)) failed = failed.empty() ? "arm " + a.id + ": " + line : failed;
+      summary += "arm " + a.id + " (" + a.title + "): " + line + "\n";
+    }
+    for (const auto& s : r.skipped) summary += "skipped " + s + "\n";
+    if (!failed.empty()) summary = "RESULT: THE ROUTE FAILED (" + failed + "). The pictures and numbers are incomplete.\n" + summary;
+    DiagWrite(r.run / "arm_summary.txt", summary);
+    DiagWrite(r.run / "system_end.txt", mlauncher::diag::SystemText("end") + "elapsed_s " + std::to_string(DiagNow() - r.start) + "\n");
+    for (const char* extra : {"launcher.log"}) {
+      if (fs::is_regular_file(files_ / "logs" / extra, ec)) fs::copy_file(files_ / "logs" / extra, r.run / extra, fs::copy_options::overwrite_existing, ec);
+    }
+    const fs::path dir = files_ / "logs" / "share";
+    fs::create_directories(dir, ec);
+    for (const auto& e : fs::directory_iterator(dir, ec))
+      if (U8(e.path().filename()).rfind("wwe2k14_diag_", 0) == 0) fs::remove(e.path(), ec);
+    const fs::path zip = dir / fs::u8path("wwe2k14_diag_" + std::to_string(r.start) + ".zip");
+    zip::Writer z(zip);
+    bool ok = z.ok() && z.AddText("about.txt", std::string("WWE 2K14 phone diagnostic run (Session 95)\nLauncher: ") + kVersion +
+                                                   "\nRead with: py -I tools/native/diag_read.py THIS.zip\nThe pictures in shots/ are small "
+                                                   "pictures of the game, made on this phone; they are in this zip only.\n");
+    for (const auto& e : fs::recursive_directory_iterator(r.run, ec)) {
+      if (!ok) break;
+      if (!e.is_regular_file()) continue;
+      const std::string name = fs::relative(e.path(), r.run, ec).generic_string();
+      if (name.rfind("save/", 0) == 0 || name.rfind("cache/", 0) == 0 || e.path().extension() == ".part" || e.path().extension() == ".rgba") continue;
+      ok = z.AddFile(name, e.path());
+    }
+    ok = z.Finish() && ok;
+    fs::remove(DiagPendingPath(), ec);
+    if (ok) {
+      diag_zip_ = zip;
+      DiagWrite(DiagLastZipPath(), U8(zip) + "\n" + failed + "\n");
+      diag_result_ = failed;
+      fs::remove_all(r.run, ec);  // the zip holds everything that matters; the folder would double the storage (review F5)
+      Log("diagnostic run: zip %s (%llu bytes)", U8(zip).c_str(), (unsigned long long)fs::file_size(zip, ec));
+      ShowToast(failed.empty() ? "Diagnostic run done: see LOGS AND UPDATES to share it" : "Diagnostic run did NOT complete: see LOGS AND UPDATES", 8000);
+    } else {
+      Log("diagnostic run: could not write %s", U8(zip).c_str());
+      ShowToast("Could not write the diagnostic zip", 8000);
+    }
+    page_ = kHelp;
+  }
+  void DiagCancel() {
+    DiagRun r;
+    diag_next_at_ = 0;
+    if (DiagLoad(r)) {
+      r.skipped.push_back("(the rest): cancelled by the player");
+      r.idx = r.arms.size();
+      DiagFinish(r);
+    }
+  }
+  // Every frame: the pause between arms ends.
+  void DiagFrame() {
+    if (diag_next_at_ && SDL_GetTicks() >= diag_next_at_) {
+      diag_next_at_ = 0;
+      DiagRun r;
+      if (DiagLoad(r) && r.idx < r.arms.size()) DiagStartArm(r);
+    }
+  }
+  void DiagHelpUi() {
+    GroupTitle("DIAGNOSTIC RUN");
+    if (diag_next_at_) {
+      if (Button("CANCEL THE DIAGNOSTIC RUN")) DiagCancel();
+      Note("The next step starts in a few seconds.");
+      return;
+    }
+    if (diag_confirm_) {
+      Note("The game will look strange during the run (flat grey or black scenes): that is on purpose.");
+      Note("Plays a short scripted Quick Match by itself (about 3 minutes, the game closes and reopens between steps) and "
+           "saves what this phone's GPU reports, the game's logs, timing, and small pictures of a few scenes, then repeats the "
+           "entrance with one setting changed. Don't touch the phone while it runs. If the app closes by itself, open it again: the run goes on. Your saves and settings are not touched; "
+           "the zip holds small pictures of the game. A hot phone makes it slower: let it cool first.");
+      if (Button(diag_long_ ? "LONG RUN: ON (about 5 minutes)" : "LONG RUN: OFF")) diag_long_ = !diag_long_;
+      if (Button("START THE DIAGNOSTIC RUN")) diag_confirm_ = false, StartDiag();
+      if (Button("NOT NOW")) diag_confirm_ = false;
+    } else {
+      if (Button("DIAGNOSTIC RUN")) diag_confirm_ = true;
+      Note("One button for testers: runs a fixed scripted match and saves one report with the GPU's limits, logs, timing and "
+           "small pictures, so nothing needs asking back and forth.");
+    }
+    if (!diag_zip_.empty() && !diag_result_.empty())
+      Note(("The last diagnostic run did NOT complete: " + diag_result_ + ". The zip holds little, but it still says why.").c_str());
+    if (!diag_zip_.empty() && Button("SHARE THE DIAGNOSTIC RUN")) platform::Share({diag_zip_});
+  }
+  bool diag_confirm_ = false, diag_long_ = false;
+  fs::path diag_zip_;
+  std::string diag_result_;  // "" = the route finished; else the failure line (arm_summary.txt says it too)
+  uint32_t diag_next_at_ = 0;
+
   void Play(int wm30 = -1) {
     if (!game_ok_) {
       GoPage(kGameFiles);
       ShowToast("Choose your game files first");
       return;
     }
-    const bool skip_precompile = precompile_skip_once_;
+    const bool skip_precompile = precompile_skip_once_ || skip_precompile_after_card_;
+    if (!disk_card_) skip_precompile_after_card_ = false;
     precompile_skip_once_ = false;
     // Session 73: 16 KB memory pages would break the game's memory (phone_check.h PageSizeProblem): say so instead.
     if (const std::string pages = check::PageSizeProblem(); !pages.empty()) {
       Log("PLAY refused: %s", pages.c_str());
       ShowToast(pages, 10000);
       return;
+    }
+    // Session 95 (LADDER): a processor the game's build cannot run on says so here; under 200 MB of free storage gives a card first.
+    if (const std::string cpu = check::CpuProblem(); !cpu.empty()) {
+      Log("PLAY refused: %s", cpu.c_str());
+      ShowToast(cpu, 12000);
+      return;
+    }
+    {
+      std::error_code sec;
+      const auto space = fs::space(files_, sec);
+      if (!sec && space.available < 200ull * 1024 * 1024 && !disk_ok_once_) {
+        disk_card_ = true;
+        disk_free_mb_ = double(space.available) / (1024.0 * 1024.0);
+        Log("ladder: only %.0f MB free: the storage card", disk_free_mb_);
+        pending_play_wm30_ = wm30;
+        return;
+      }
+      disk_ok_once_ = false;
     }
     if (!skip_precompile && NeedPrecompile()) {  // Session 93: the shader precompile first (no second one with the same key)
       Save();
@@ -1580,6 +2062,11 @@ class App {
       if (!IdListHas(s_.drivers_ok, s_.driver) && !IdListHas(s_.drivers_bad, s_.driver)) {
         std::ofstream(DriverAskPath(), std::ios::trunc) << s_.driver << "\n";
       }
+    }
+    SnapshotSaves();  // Session 95 (LADDER)
+    {  // Session 95 (LADDER): the boot trial - the game removes this after 600 frames, a quit also removes it
+      std::ofstream(BootTrialPath(), std::ios::trunc) << "boot trial " << kVersion << "\n";
+      c.boot_trial = U8(BootTrialPath());
     }
     const std::vector<std::string> args = GameArgs(s_, c);
     Save();
@@ -1667,9 +2154,215 @@ class App {
   TestSteps test_;
   fs::path files_;
   std::string last_run_;               // Session 73: the last game run's end in plain words, empty when normal
+
+  // ---------------------------------------------------------------- Session 95 (LADDER): history, SAFE MODE, the cards
+  ladder::RungState rung_;
+  ladder::Advice advice_;
+  std::string settings_hash_;
+  double fps_advice_ = 0;  // the last run's mean fps when it ran under 52 at 60 FPS (0 = no card)
+  bool safe_dismissed_ = false, early_dismissed_ = false, memory_dismissed_ = false, fps_dismissed_ = false;
+  bool diag_arm_ended_ = false;
+  bool disk_card_ = false, disk_ok_once_ = false;
+  bool skip_precompile_after_card_ = false;  // the resume Play was stopped by the storage card: PLAY ANYWAY goes on without a second precompile
+  double disk_free_mb_ = 0;
+  int pending_play_wm30_ = -1;
+
+  fs::path HistoryPath() const { return files_ / "logs" / "run_history.txt"; }
+  fs::path RungPath() const { return files_ / "rung.txt"; }
+  fs::path BootTrialPath() const { return files_ / "logs" / "boot_trial.txt"; }
+
+  // The settings the game gets, without the SAFE MODE step: a change starts the history clean.
+  std::string SettingsHash() {
+    LaunchContext c = MakeContext(-1);
+    c.rung = 0;
+    std::string all;
+    for (const auto& a : GameArgs(s_, c)) all += a + "\n";
+    return ladder::Hash(all);
+  }
+
+  void LadderStart() {
+    std::error_code ec;
+    rung_ = ladder::ReadRung(RungPath(), kVersion, s_.driver);
+    if (rung_.stale_mediump) {  // an update or another driver cleared Safe Mode: the colour precision it turned off comes back too
+      s_.mediump = true;
+      Save();
+      std::error_code rec;
+      fs::remove(RungPath(), rec);
+      Log("ladder: the rung file was for another version or driver: reduced precision turned back on");
+    }
+    const bool trial_left = fs::exists(BootTrialPath(), ec);
+    if (trial_left) {
+      fs::remove(BootTrialPath(), ec);
+      Log("ladder: the boot trial file was still there: the last game never reached 600 frames and was not quit by the player");
+    }
+    settings_hash_ = SettingsHash();
+    const ladder::RunEnd run = ladder::Classify(files_, check::AndroidSdkLevel());
+    static const char* const kKinds[] = {"none", "good", "bad", "memory", "unknown", "precompile"};
+    Log("ladder: last run %s %s (key %s, played %d, %.0f s after the first frame, trial %d), safe mode step %d", kKinds[run.kind],
+        run.name.c_str(), run.key.c_str(), int(run.played), run.play_seconds, int(trial_left), rung_.rung);
+    // The step that was in force during that run is the one in the rung file now (the launcher does not change it between).
+    // Not recorded: a diagnostic arm (other flags, 40 s long), and a run that ended before an app update (it belongs to the old version).
+    std::string seen_version;
+    {
+      std::ifstream sv(files_ / "last_seen_version.txt");
+      std::getline(sv, seen_version);
+    }
+    const bool before_update = !seen_version.empty() && seen_version != kVersion;
+    if (diag_arm_ended_ || before_update) Log("ladder: last run not recorded (%s)", diag_arm_ended_ ? "diagnostic arm" : "it ended before the app update");
+    else if (ladder::Record(HistoryPath(), run, kVersion, s_.driver, settings_hash_, rung_.rung)) Log("ladder: run recorded in run_history.txt");
+    std::ofstream(files_ / "last_seen_version.txt", std::ios::trunc) << kVersion << '\n';
+    advice_ = ladder::Decide(ladder::ReadHistory(HistoryPath()), kVersion, s_.driver, settings_hash_, rung_.rung);
+    // The advice from the last run's frame times (frames_NNN.csv, the newest log's number).
+    fps_advice_ = 0;
+    if (run.kind == ladder::RunEnd::kGood && s_.frame_rate == 1 && rung_.rung == 0) {
+      const std::string num = ladder::NewestLogNumber(files_ / "logs");
+      const double fps = ladder::MeanFps(files_ / "logs" / fs::u8path("frames_" + num + ".csv"));
+      if (fps > 0 && fps < 52) fps_advice_ = fps;
+    }
+    Log("ladder: bad in a row %d, safe next %d, memory card %d, early card '%s', fps advice %.1f", advice_.bad_in_row, advice_.safe_next,
+        int(advice_.memory_card), advice_.early_key.c_str(), fps_advice_);
+  }
+
+  void SetRung(int next) {
+    if (next >= 3 && s_.mediump) {  // step 3: the lower-precision colour maths off, a saved setting (it is in the precompile key)
+      s_.mediump = false;
+      rung_.mediump_changed = true;
+      Save();
+    }
+    rung_.rung = next;
+    ladder::WriteRung(RungPath(), rung_, kVersion, s_.driver);
+    Log("ladder: SAFE MODE step %d (%s)", next, ladder::RungWords(next));
+    advice_ = ladder::Decide(ladder::ReadHistory(HistoryPath()), kVersion, s_.driver, settings_hash_, rung_.rung);
+  }
+  void SafeModeOff() {
+    if (rung_.mediump_changed) s_.mediump = true, Save();
+    rung_ = ladder::RungState();
+    std::error_code ec;
+    fs::remove(RungPath(), ec);
+    Log("ladder: SAFE MODE off");
+    advice_ = ladder::Decide(ladder::ReadHistory(HistoryPath()), kVersion, s_.driver, settings_hash_, 0);
+  }
+
+  void SafeModeHelpUi() {
+    GroupTitle("SAFE MODE");
+    if (rung_.rung > 0) {
+      ImGui::TextColored(kBad, "On: step %d - %s", rung_.rung, ladder::RungWords(rung_.rung));
+      if (Button("TURN SAFE MODE OFF")) SafeModeOff();
+      if (rung_.rung < ladder::kMaxRung - 1 && Button("NEXT STEP")) SetRung(rung_.rung + 1);
+    } else {
+      Note("If the game keeps crashing or freezing, this turns on safer graphics, one step at a time. The launcher offers it by itself "
+           "after two failed runs in a row.");
+      if (Button("TRY SAFE MODE (STEP 1)")) SetRung(1);
+    }
+  }
+
+  enum class Card { kNone, kDisk, kSafe, kEarly, kMemory, kFps };
+  Card CurrentCard() const {
+    if (disk_card_) return Card::kDisk;
+    if (advice_.safe_next > 0 && !safe_dismissed_) return Card::kSafe;
+    if (!advice_.early_key.empty() && !early_dismissed_) return Card::kEarly;
+    if (advice_.memory_card && !memory_dismissed_) return Card::kMemory;
+    if (fps_advice_ > 0 && !fps_dismissed_) return Card::kFps;
+    return Card::kNone;
+  }
+
+  void DrawCard(ImVec2 size) {
+    const Card card = CurrentCard();
+    if (card == Card::kNone) return;
+    const float w = std::min(size.x - D(32), D(520));
+    ImGui::SetNextWindowPos(ImVec2(size.x / 2, size.y / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(w, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(D(16), D(12)));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.06f, 0.06f, 0.07f, 0.98f));
+    ImGui::Begin("##card", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+    char text[512];
+    switch (card) {
+      case Card::kDisk:
+        GroupTitle("LOW STORAGE");
+        std::snprintf(text, sizeof(text), "Only %.0f MB is free on this phone. The game needs room for its saves and shader cache; it may fail to save or to start.", disk_free_mb_);
+        Note(text);
+        if (Button("PLAY ANYWAY")) disk_card_ = false, disk_ok_once_ = true, Play(pending_play_wm30_);
+        if (Button("OK")) disk_card_ = false, skip_precompile_after_card_ = false;
+        break;
+      case Card::kSafe:
+        GroupTitle("SAFE MODE");
+        if (advice_.safe_next >= ladder::kMaxRung) {
+          Note("The game has failed again with every safe step on. There is no further step built in. Sharing the report lets the cause be found.");
+          if (Button("SHARE THE REPORT")) ShareLogs(), safe_dismissed_ = true;
+        } else {
+          std::snprintf(text, sizeof(text), "The last two game runs ended badly (a crash, a freeze or a black picture). Safe mode step %d: %s.",
+                        advice_.safe_next, ladder::RungWords(advice_.safe_next));
+          Note(text);
+          if (Button("TURN IT ON")) SetRung(advice_.safe_next);
+        }
+        if (Button("NOT NOW")) safe_dismissed_ = true;
+        break;
+      case Card::kEarly:
+        GroupTitle("YOUR LAST GAME");
+        Note("You left the game soon after it started. Did the picture look right?");
+        if (Button("YES, IT LOOKED RIGHT")) {
+          ladder::AnswerEarly(HistoryPath(), advice_.early_key, false);
+          early_dismissed_ = true;
+          Log("ladder: the player said the picture looked right");
+        }
+        if (Button("NO, IT LOOKED WRONG")) {
+          ladder::AnswerEarly(HistoryPath(), advice_.early_key, true);
+          early_dismissed_ = true;
+          Log("ladder: the player said the picture looked wrong (counts as a named bad end)");
+          advice_ = ladder::Decide(ladder::ReadHistory(HistoryPath()), kVersion, s_.driver, settings_hash_, rung_.rung);
+        }
+        break;
+      case Card::kMemory:
+        GroupTitle("LOW MEMORY");
+        Note("Android closed the game twice in a row for lack of memory while you were playing. Shadows off and the crowd at 30% use less. "
+             "A lower resolution uses less still, but it rebuilds the shader cache (up to 10 minutes).");
+        if (Button("SHADOWS OFF, CROWD 30%")) {
+          s_.shadows = false;
+          s_.crowd_density = std::min(s_.crowd_density, 30);
+          Save();
+          Log("ladder: memory card applied: shadows off, crowd 30");
+          memory_dismissed_ = true;
+          settings_hash_ = SettingsHash();
+          advice_ = ladder::Decide(ladder::ReadHistory(HistoryPath()), kVersion, s_.driver, settings_hash_, rung_.rung);
+        }
+        if (Button("NOT NOW")) memory_dismissed_ = true;
+        break;
+      case Card::kFps:
+        GroupTitle("PERFORMANCE");
+        std::snprintf(text, sizeof(text), "The last game ran at about %.0f fps. The 30 FPS setting runs smoother on a phone that cannot hold 60.", fps_advice_);
+        Note(text);
+        if (Button("USE 30 FPS")) {
+          s_.frame_rate = 3;
+          Save();
+          Log("ladder: fps card applied: 30 FPS");
+          fps_advice_ = 0;
+          settings_hash_ = SettingsHash();
+          advice_ = ladder::Decide(ladder::ReadHistory(HistoryPath()), kVersion, s_.driver, settings_hash_, rung_.rung);
+        }
+        if (Button("NOT NOW")) fps_dismissed_ = true;
+        break;
+      default: break;
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+  }
   std::vector<check::Line> check_;     // Session 73: CHECK THIS PHONE's results
   std::ofstream log_;
   Settings s_;
+  // Session 95: the crowd before the QUALITY row's LOW moved it (-1 = LOW moved nothing). Leaving LOW gives it back if the slider
+  // still shows what LOW wrote, so clicking through LOW leaves no value behind.
+  int low_prev_crowd_ = -1;
+  void LeaveLow(int tier) {
+    if (s_.quality_tier == 1 && low_prev_crowd_ >= 0 && s_.crowd_density == kLowStartCrowd) {
+      s_.crowd_density = low_prev_crowd_;
+      Log("settings: LOW left: crowd back to %d%%", s_.crowd_density);
+    }
+    low_prev_crowd_ = -1;
+    s_.quality_tier = tier;
+    Save();
+  }
   Page page_ = kHome;
   bool landscape_ = false, scroll_reset_ = true;
   ImVec2 safe_min_, safe_max_;
@@ -1773,6 +2466,7 @@ TestSteps ParseTest(int argc, char** argv, int& win_w, int& win_h, float& scale)
   for (int i = 1; i < argc; ++i) {  // flags without a value (the loop above misses one given last)
     const std::string a = argv[i];
     if (a == "--share-test") t.share = true;
+    else if (a == "--diag-run") t.diag_run = true;
     else if (a == "--check") t.check = true;
   }
   return t;

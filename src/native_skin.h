@@ -31,7 +31,7 @@
 //   native first, outputs saved and put back, then the recompiled one, every output byte compared);
 //   [wwe2k14][nf] skin lines count calls, mismatches and both times.
 // Session 66: on every platform (was Android only), through src/native_fn.h (WWE2K14_NATIVE_FN); guest addresses
-// through rex::memory::GuestPtr (0xE0000000+ sits 4 KB further on Windows).
+// through rex::memory::GuestPtr (since Session 95 a plain add on Windows too).
 
 #pragma once
 

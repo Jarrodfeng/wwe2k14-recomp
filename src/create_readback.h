@@ -38,7 +38,9 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cctype>
 #include <cstdint>
 #include <string>
@@ -105,6 +107,18 @@ REXCVAR_DEFINE_INT32(wwe2k14_readback_char_hold_frames, 300, "wwe2k14",
                      "is read back (--wwe2k14_readback_loads)")
     .range(0, 3600);
 
+// Session 95 (Lane E): the character window by the load, not by a frame count. 300 frames is 5 s at 60 fps and 15 s at 20: a phone's window
+// ends after, or well before, the load it exists for. With this on the window is open while an in-game load window is open (load_turbo.h),
+// and for a wall-clock minimum after the later of that load's end and the newest character file's open (a character file that opens with
+// no load window around it gets just the minimum). Off: the 300 frames above, exactly as before. Meant on for class phone.
+REXCVAR_DEFINE_BOOL(wwe2k14_readback_char_window_by_load, false, "wwe2k14",
+                    "Session 95: the character read-back window (wwe2k14_readback_char_hold_frames) closes when the in-game load ends "
+                    "plus wwe2k14_readback_char_min_ms of wall-clock time, not after a frame count");
+REXCVAR_DEFINE_INT32(wwe2k14_readback_char_min_ms, 3000, "wwe2k14",
+                     "Session 95: with wwe2k14_readback_char_window_by_load, milliseconds the character window stays open after the "
+                     "load window closes (or after the character file opened, when no load window was open)")
+    .range(0, 60000);
+
 namespace wwe2k14::create_readback {
 
 inline bool g_on = false;
@@ -119,6 +133,13 @@ inline uint64_t g_left_frame = 0;  // the frame the last reason to be on ended w
 // the sequence's last frames may be processed after the switch.
 constexpr uint64_t kHoldFrames = 60;
 inline std::atomic<uint64_t> g_char_open_frame{0};  // the frame the newest character file opened (0 = none yet)
+inline std::atomic<int64_t> g_char_open_ms{0};      // Session 95 (Lane E): the same moment in wall-clock ms (steady clock)
+inline std::atomic<int64_t> g_char_load_close_ms{0};  // Session 95: the wall-clock ms the in-game load window was last seen to close
+inline std::atomic<int64_t> g_char_load_open_ms{0};   // Session 95: the wall-clock ms the in-game load window was last seen to open
+inline std::atomic<bool> g_char_load_was_open{false};
+inline int64_t SteadyMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 // A character's own file: ...\PAC\CH\CH<digits>.PAC (not CHETC.PAC / CHCOMMON.PAC).
 inline bool IsCharacterFile(const std::string& path) {
@@ -129,12 +150,34 @@ inline bool IsCharacterFile(const std::string& path) {
 
 // LogFileOpen, any thread.
 inline void OnFileOpened(const std::string& path, uint64_t frame) {
-  if (IsCharacterFile(path)) g_char_open_frame.store(frame, std::memory_order_relaxed);
+  if (IsCharacterFile(path)) {
+    g_char_open_ms.store(SteadyMs(), std::memory_order_relaxed);
+    g_char_open_frame.store(frame, std::memory_order_relaxed);
+  }
 }
 
 // True for --wwe2k14_readback_char_hold_frames after a character file opened (also load_pipeline_wait.h's window).
+// Session 95 review fix: callers evaluate this every frame, before (never short-circuited by) the load-window test, so the close is seen.
 inline bool InCharacterWindow(uint64_t frame) {
   const uint64_t opened = g_char_open_frame.load(std::memory_order_relaxed);
+  if (REXCVAR_GET(wwe2k14_readback_char_window_by_load)) {
+    const bool load_open = g_load_turbo_ingame_window().load(std::memory_order_relaxed);
+    const int64_t now = SteadyMs();
+    const bool was_open = g_char_load_was_open.exchange(load_open, std::memory_order_relaxed);
+    if (!was_open && load_open) {
+      g_char_load_open_ms.store(now, std::memory_order_relaxed);
+    } else if (was_open && !load_open) {
+      // Only a load that a character file opened in starts the minimum (not every match / menu load).
+      if (g_char_open_ms.load(std::memory_order_relaxed) >= g_char_load_open_ms.load(std::memory_order_relaxed))
+        g_char_load_close_ms.store(now, std::memory_order_relaxed);
+    }
+    if (opened == 0) return false;
+    if (load_open) return true;
+    const int64_t since = std::max(g_char_open_ms.load(std::memory_order_relaxed), g_char_load_close_ms.load(std::memory_order_relaxed));
+    // The old frame count stays as a floor: a slow phone is never shorter than before.
+    return now - since < int64_t(REXCVAR_GET(wwe2k14_readback_char_min_ms)) ||
+           frame - opened < uint64_t(REXCVAR_GET(wwe2k14_readback_char_hold_frames));
+  }
   return opened != 0 && frame - opened < uint64_t(REXCVAR_GET(wwe2k14_readback_char_hold_frames));
 }
 
@@ -147,6 +190,7 @@ inline void OnFrame(uint64_t frame) {
   const char* why = nullptr;
   int why_mode = 3;  // a create mode: always full
   bool create = false;
+  const bool char_window = InCharacterWindow(frame);  // every frame, so the load's close is seen
   if (seq != 0 && load_probe::SequenceListed(seq, from, list)) {
     why = "a create mode";
     create = true;
@@ -154,7 +198,7 @@ inline void OnFrame(uint64_t frame) {
     why_mode = REXCVAR_GET(wwe2k14_readback_loads_mode);
     if (g_load_turbo_ingame_window().load(std::memory_order_relaxed)) {
       why = "an in-game load";
-    } else if (InCharacterWindow(frame)) {
+    } else if (char_window) {
       why = "a character file loaded";
     }
   }

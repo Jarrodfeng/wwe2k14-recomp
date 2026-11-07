@@ -40,7 +40,12 @@
 param([ValidateSet('quick', 'full', 'bryan', 'brock')][string]$Route = 'quick', [string]$Steps = '', [string]$More = '',
       [switch]$Validation, [string]$Verdict = '', [string]$Exe = '', [string]$OnFlags = '', [string]$OffFlags = '', [switch]$Exact,
       [switch]$NoCensus, [ValidateRange(1, 4)][int]$Parallel = 3,  # Session 92: -Parallel 2 keeps a builder within its game cap beside other checks
+      [string]$OnRoute = '',  # Session 95: another ON-arm route file (same file name, so the verdict treats it as the route), e.g. one that runs on past a 600-frame summary
       [switch]$Only720,  # Session 94 (gpu_sweep.ps1): the 720p pair only (ON + OFF arm), no 1440p arms
+      [switch]$Poison,   # Session 95 (TILER): the ON arms also run --gpu_tiler_poison=true (DONT_CARE loads cleared to magenta); magenta pixels in the shots are counted (magenta_scan.py)
+      [switch]$Sync,     # Session 95 (TILER): synchronization validation on every arm (implies -Validation; VK_LAYER_ENABLES + no duplicate limit); hazards are counted as validation errors
+      [switch]$Vendor,   # Session 95: with -Sync, also the layer's best-practices checks with the Arm and IMG vendor checks (their messages are 'BestPractices-...' warnings, not counted as errors: grep the ON log)
+      [switch]$SyncControl,  # Session 95: with -Sync, the ON arms also run --gpu_tiler_sync_control=true (a deliberate hazard: the positive control, it MUST report hazards)
       [string]$ReuseOff = '')  # Session 92: 'RUN720 RUN1440' = run only the two ON arms and take the OFF (reference) arms from these earlier runs
                                # (same exe, same route, OFF flags unchanged - e.g. a fix that only touches the ON arm's switch); the verdict
                                # and the feature proofs then run on the new ON pair + those OFF runs
@@ -50,7 +55,7 @@ $vArgs = @()
 if ($Exact) { $vArgs += '--exact' }
 if ($Exe) { $vArgs += @('--dir', (Split-Path -Parent $Exe)) }
 if ($Verdict) {
-  py -I "$root\tools\native\owned_verdict.py" @($vArgs) @($Verdict -split '[ ,]+' | Where-Object { $_ })
+  py -I "$PSScriptRoot\owned_verdict.py" @($vArgs) @($Verdict -split '[ ,]+' | Where-Object { $_ })
   exit $LASTEXITCODE
 }
 $replay = switch ($Route) { 'quick' { 's80_lb_quick' } 'bryan' { 's89_bryan_first' } 'brock' { 's89_brock' } default { 's21_lb' } }
@@ -68,6 +73,7 @@ if ($Route -eq 'quick' -and -not $NoCensus -and $OnFlags -match 'gpu_native_owne
   $scriptOn = 'tools\input_scripts\short\s82_match_shots_census_on.txt'   # the ON arms: + a flip, so the truth-work summary is match-only
 }
 if (-not $scriptOn) { $scriptOn = $script }
+if ($OnRoute) { $scriptOn = $OnRoute }
 # (Session 82: another exe would read <exe folder>\replays and \scenarios - it is pointed at the repo's own folders
 # instead with --wwe2k14_replay_dir / --wwe2k14_scenario_dir, src\replay.h; no copies.)
 $repDir = "$root\out\replays"
@@ -84,6 +90,12 @@ foreach ($r in @(@('720', 0), @('1440', 1))) {
   $settings[$r[0]] = $file
 }
 $on = if ($OnFlags) { $OnFlags } elseif ($Steps) { "--gpu_native_own_steps=$Steps" } else { '' }
+$prevLayerEnables = $env:VK_LAYER_ENABLES; $prevLayerDup = $env:VK_LAYER_DUPLICATE_MESSAGE_LIMIT  # (restored at every exit below: the script runs in-process)
+$restoreLayerEnv = { $env:VK_LAYER_ENABLES = $prevLayerEnables; $env:VK_LAYER_DUPLICATE_MESSAGE_LIMIT = $prevLayerDup }
+if ($Sync) { $Validation = [switch]::Present; $env:VK_LAYER_ENABLES = 'VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT'; $env:VK_LAYER_DUPLICATE_MESSAGE_LIMIT = '0' }
+if ($Sync -and $Vendor) { $env:VK_LAYER_ENABLES += ',VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,VALIDATION_CHECK_ENABLE_VENDOR_SPECIFIC_ARM,VALIDATION_CHECK_ENABLE_VENDOR_SPECIFIC_IMG' }
+if ($Poison) { $on = ($on + ' --gpu_tiler_poison=true').Trim() }
+if ($SyncControl) { $on = ($on + ' --gpu_tiler_sync_control=true').Trim() }
 $valid = if ($Validation) { ' --vulkan_validation_enabled=true' } else { '' }
 $common = "--wwe2k14_replay_play=$replay --wwe2k14_use_launcher_settings=true --wwe2k14_native_frame=true --vsync=false $More".Trim()
 if ($Exe) {
@@ -99,7 +111,7 @@ $extras = @("--wwe2k14_settings_file=$($settings['720']) $on$valid".Trim(),
             "--wwe2k14_settings_file=$($settings['720']) $off",
             "--wwe2k14_settings_file=$($settings['1440']) $off")
 $reuse = @($ReuseOff -split '[ ,]+' | Where-Object { $_ })
-if ($ReuseOff -and $reuse.Count -ne $(if ($Only720) { 1 } else { 2 })) { "owned_check: -ReuseOff takes two runs (the 720p and the 1440p OFF arm; with -Only720 one: the 720p OFF arm), got '$ReuseOff'"; exit 2 }
+if ($ReuseOff -and $reuse.Count -ne $(if ($Only720) { 1 } else { 2 })) { "owned_check: -ReuseOff takes two runs (the 720p and the 1440p OFF arm; with -Only720 one: the 720p OFF arm), got '$ReuseOff'"; & $restoreLayerEnv; exit 2 }
 $scripts = if ($reuse) { @($scriptOn, $scriptOn) } else { @($scriptOn, $scriptOn, $script, $script) }
 $runExtras = if ($reuse) { @($extras[0], $extras[1]) } else { $extras }
 if ($Only720) {   # Session 94: arms 0 (ON 720) and 2 (OFF 720); with -ReuseOff RUN only the ON arm runs
@@ -112,7 +124,7 @@ $out | Where-Object { "$_" -match ' -> wwe2k14_\d+' } | ForEach-Object { "$_" }
 $runs = @($out | ForEach-Object { if ("$_" -match ' -> wwe2k14_(\d+)') { $Matches[1] } })
 if ($runs.Count -ne $scripts.Count) {
   "owned_check: expected $($scripts.Count) runs, got $($runs.Count) - see the run_list lines above"
-  exit 1
+  & $restoreLayerEnv; exit 1
 }
 if ($reuse) {
   "owned_check: OFF arms reused from earlier runs $($reuse -join ', ') (-ReuseOff)"
@@ -127,7 +139,7 @@ foreach ($m in [regex]::Matches("$on $More", '--(\w+)=(\S+)')) { $expect += '--e
 $notEngaged = @()
 foreach ($i in $(if ($Only720) { 0 } else { 0, 1 })) {
   $log = Join-Path $logDir ('wwe2k14_{0}.log' -f $runs[$i])
-  $fp = & py -I "$root\tools\harness\feature_proof.py" $log @expect 2>&1
+  $fp = & py -I "$PSScriptRoot\..\harness\feature_proof.py" $log @expect 2>&1  # (Session 95: this tree's tool and table, not the main tree's)
   $fpCode = $LASTEXITCODE
   "feature proofs, ON run $($runs[$i]):"
   $fp | ForEach-Object { "  $_" }
@@ -137,13 +149,24 @@ foreach ($i in $(if ($Only720) { 0 } else { 0, 1 })) {
     foreach ($b in $bad) { $notEngaged += "NO VERDICT: feature $b not engaged in run $($runs[$i])" }
   }
 }
-$vOut = @(& py -I "$root\tools\native\owned_verdict.py" @($vArgs) @runs 2>&1)
+$scanBad = $false
+if ($Poison) {
+  $scanArgs = @(); if ($Exe) { $scanArgs += @('--dir', (Split-Path -Parent $Exe)) }  # (not --exact: the scan takes only --dir)
+  foreach ($i in $(if ($Only720) { 0 } else { 0, 1 })) {
+    "magenta scan, ON run $($runs[$i]):"
+    $scanOut = @(& py -I "$PSScriptRoot/magenta_scan.py" @($scanArgs) $runs[$i] 2>&1)
+    if ($LASTEXITCODE -ne 0) { $scanBad = $true }
+    $scanOut | ForEach-Object { "  $_" }
+  }
+}
+$vOut = @(& py -I "$PSScriptRoot\owned_verdict.py" @($vArgs) @runs 2>&1)
 $vCode = $LASTEXITCODE
 if ($notEngaged) {
   $vOut | Where-Object { "$_" -notmatch '^OWNED VERDICT ' } | ForEach-Object { "$_" }
   $notEngaged
   'NO VERDICT: the pictures above are NOT a result - fix the flags and re-run the check (feature_proof.py)'
-  exit 3
+  & $restoreLayerEnv; exit 3
 }
 $vOut | ForEach-Object { "$_" }
-exit $vCode
+if ($scanBad) { 'FAIL: poison (magenta) pixels or no shots found by magenta_scan.py - the pictures above are NOT a pass'; if ($vCode -eq 0) { $vCode = 1 } }
+& $restoreLayerEnv; exit $vCode

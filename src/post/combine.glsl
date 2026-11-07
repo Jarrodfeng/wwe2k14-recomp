@@ -89,6 +89,12 @@ vec3 ConsoleFxaa(vec2 uv, vec2 nw) {
   float dWE = (lNW + lSW) - (lNE + lSE);
   float rcpMin = 1.0 / (min(abs(dNS), abs(dWE)) + reduce);
   vec2 dir = min(max(vec2(-dNS, dWE) * rcpMin, C250.ww), C250.zz);
+#ifdef LITE_FXAA
+  // Session 95 (r3gpu, wwe2k14_post_lite_fxaa): the taps along the edge stay inside the pixel's own texel when |dir| x the outer offset (c254) is under half a texel: the four are
+  // then taken as this pixel ('two' and 'four' are the pixel, 0.25 / 0.5 weights): 4 of the 9 fetches go on flat pixels. A LOOK lever, not exact: the scene sampler is linear, so a sub-texel
+  // tap can still blend a neighbour (s89b_b measured over the tolerance, 0.36% of pixels). The combine runs at the sampler's rate on Gen9.
+  if (max(abs(dir.x * C254.x), abs(dir.y * C254.y)) < 0.5 * C251.x && max(abs(dir.x * C254.z), abs(dir.y * C254.w)) < 0.5 * C251.x) return Tap(uv);
+#endif
   vec3 inner = Tap(uv + dir * C253.yx) + Tap(uv + dir * C253.zw);
   vec3 outer = Tap(uv + dir * C254.xy) + Tap(uv + dir * C254.zw);
   vec3 two = inner * C251.w;
@@ -229,7 +235,12 @@ void main() {
   if (C21.x > z) {
     // Right in front of the camera: toward the near blur.
     float f = clamp((C21.x - z) * C20.x + C21.z, C21.z, one);
+#ifdef LITE
+    // Session 95 (post lite, E1; exact): f == 0 adds 0 x the blur, so the blur is not fetched.
+    if (f != 0.0) color += (Lod(t_blur_a, s_blur_a, uv).rgb - color) * f;
+#else
     color += (Lod(t_blur_a, s_blur_a, uv).rgb - color) * f;
+#endif
   } else {
 #ifdef ENHANCED
     g_size = Size(t_scene, s_scene);
@@ -241,13 +252,21 @@ void main() {
 #else
     // The background: toward the far blur, capped (c20.w).
     float f = clamp((z - C21.y) * C20.y + C21.z, C21.z, C20.w);
+#ifdef LITE
+    if (f != 0.0) color += (Lod(t_blur_b, s_blur_b, uv).rgb - color) * f;  // (E1, exact: an in-focus pixel)
+#else
     color += (Lod(t_blur_b, s_blur_b, uv).rgb - color) * f;
+#endif
 #endif
   }
   // The depth tint toward c27, by a ramp on depth.
   float span = one - C30.x;
   float k = C29.x * (1.0 / span) * max(span - depth, C255.x);
+#ifdef LITE
+  if (k != 0.0) color += (C27.xyz - color) * k;
+#else
   color += (C27.xyz - color) * k;
+#endif
 #ifdef ENTRANCE
   // Bloom and the star glare, added by their strengths (often 0: then not read at all). Both are 1/8 size (160x90 at
   // 720p); Enhanced scales them up with a smooth cubic filter instead of a bilinear one, which shows the texel grid.

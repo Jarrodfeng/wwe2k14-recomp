@@ -1,0 +1,27 @@
+# Session 95 (Lane E): the Elimination Chamber on a phone (SESSION83_SUMMARY.md: the Chamber bell crash was checked on the PC with the phone's guard and
+# render path; on a phone only as a replay, phone 156 = PC 4936, SESSION77_SUMMARY.md; normal play never). Started by the scenario launcher from the
+# title screen, like bench_cena_taker.txt; the scenario is out\scenarios\chamber_6man.* (6 men, arena 21, match type 39; local files, pushed by run.ps1 -Scenario). Use with
+#   pwsh -File tools\android\run.ps1 -Run NNN -Seconds 900 -Shots 3 -Route tools\input_scripts\android\s95_chamber.txt -Scenario chamber_6man -GameArgs "<the phone's flags> --wwe2k14_launch=chamber_6man"
+# or through tools\android\s95_first_run.ps1 (step 7). Marks in the log: "chamber: match launched" (INGAMELUA.PAC opens), "chamber: match scene" (M3.PAC opens,
+# as tools\sweep\scripts\full_chamber_6man.txt waits), and 3600 frames after it (past the entrances and the bell: the crash was ~2 s after the bell) "chamber: end".
+# A crash or a hang ends the run before it. Title presses from bench_cena_taker.txt.
+on_fail quit
+log chamber: start chamber_6man (launch)
+wait_file SaveData.Dat 3600
+wait_frames 160
+set 0x0010 0 0 0 0 -1636 -1137
+wait_frames 10
+set 0x0000 0 0 0 0 -1069 -1234
+wait_frames 66
+set 0x1000 0 0 0 0 -770 -1136
+wait_frames 10
+set 0x0000 0 0 0 0 -770 -1136
+wait_file MNUIHD.PAC 3600
+log chamber: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+log chamber: match launched
+wait_file M3.PAC 36000 optional
+log chamber: match scene
+wait_frames 3600
+log chamber: end
+quit

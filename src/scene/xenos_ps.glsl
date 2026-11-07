@@ -17,6 +17,12 @@ layout(location = 0) out vec4 out_color;
 // the 360's -32..32 range in the host's 16-bit normalised format). The same guest shader can draw into both kinds.
 layout(constant_id = 0) const uint kXeColorQuantize = 0u;
 
+// (Session 95, B1) 1 = the draw's colour epilogue is idle (no alpha test, exponent bias 1.0, no gamma: the translator's
+// kNativeExtEpilogueIdle, which every native pipeline already keys on): the SDK's swap patches this per translation
+// (shader_swap.h kSpecEpilogueIdle) and the epilogue below is compiled out - no discard, no branch, no multiply. 0 (the
+// default) = the runtime epilogue as before.
+layout(constant_id = 1) const uint kXeEpilogueIdle = 0u;
+
 vec4 XeQuantize(vec4 c) {
   if (kXeColorQuantize != 0u) c = mix(c, vec4(0.0), isnan(c));  // (the translation's NClamp / NaN select)
   if (kXeColorQuantize == 1u) {
@@ -47,15 +53,21 @@ vec3 XeLinearToPWLGamma(vec3 x) {
 
 // The material's colour for target 0, through the draw's alpha test, exponent bias and gamma.
 void XeOutputColor(vec4 color) {
-  uint test = bitfieldExtract(xe_system.flags, 16, 3);
-  if (test != 7u) {  // not "always"
-    float a = color.a, ref = xe_system.alpha_test_reference;
-    bool pass = test == 5u ? !(a == ref)  // "not equal" (true for NaN)
-                           : ((test & 1u) != 0u && a < ref) || ((test & 2u) != 0u && a == ref) ||
-                                 ((test & 4u) != 0u && a > ref);
-    if (!pass) discard;
+  // (Session 95, B1) kXeEpilogueIdle: the draw's epilogue does nothing, the colour goes out as it is. ONE store of out_color
+  // in both cases (the SDK's alpha probe patch, shader_swap.cpp PatchAlphaProbe, needs a single store).
+  vec4 c = color;
+  if (kXeEpilogueIdle == 0u) {
+    uint test = bitfieldExtract(xe_system.flags, 16, 3);
+    if (test != 7u) {  // not "always"
+      float a = color.a, ref = xe_system.alpha_test_reference;
+      bool pass = test == 5u ? !(a == ref)  // "not equal" (true for NaN)
+                             : ((test & 1u) != 0u && a < ref) || ((test & 2u) != 0u && a == ref) ||
+                                   ((test & 4u) != 0u && a > ref);
+      if (!pass) discard;
+    }
+    precise vec4 biased = color * xe_system.color_exp_bias.x;
+    if ((xe_system.flags & (1u << 19)) != 0u) biased.rgb = XeLinearToPWLGamma(biased.rgb);
+    c = biased;
   }
-  precise vec4 biased = color * xe_system.color_exp_bias.x;
-  if ((xe_system.flags & (1u << 19)) != 0u) biased.rgb = XeLinearToPWLGamma(biased.rgb);
-  out_color = XeQuantize(biased);
+  out_color = XeQuantize(c);
 }

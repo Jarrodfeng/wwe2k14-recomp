@@ -100,6 +100,7 @@
 #endif
 #endif
 
+#include "exe_name.h"
 #include "frame_stats.h"
 
 REXCVAR_DEFINE_INT32(wwe2k14_watch_stacks_per_site, 4, "wwe2k14",
@@ -214,7 +215,7 @@ class GuestWatchSymbols {
                        reinterpret_cast<LPCWSTR>(pc), &module);
     if (!module) return fmt::format("?0x{:X}", pc);
     const auto base = reinterpret_cast<uintptr_t>(module);
-    if (base == exe) return fmt::format("wwe2k14.exe+0x{:X}", pc - base);
+    if (base == exe) return fmt::format("{}+0x{:X}", ExeFileName(), pc - base);
     char path[MAX_PATH] = "?";
     GetModuleFileNameA(module, path, MAX_PATH);
     const char* leaf = path;
@@ -1040,7 +1041,8 @@ class GuestSnap {
     if (end > 0x7F000000ull && guest < 0x80000000u) return false;
     auto* host = REX_KERNEL_MEMORY()->TranslateVirtual<const uint8_t*>(guest);
     if (!host) return false;
-    // A range that crosses into the physical mirror (0xE0000000+, host offset +0x1000) is copied in two parts.
+    // A range that crosses into the physical mirror (0xE0000000+: its own host offset where the host cannot map that
+    // view at its 4 KB file offset; none on Windows since Session 95 or on Android) is copied in two parts.
     if (guest < 0xE0000000u && end > 0xE0000000ull) {
       const uint32_t first = 0xE0000000u - guest;
       return SafeCopy(dst, host, first) && CopyGuest(0xE0000000u, len - first, dst + first);

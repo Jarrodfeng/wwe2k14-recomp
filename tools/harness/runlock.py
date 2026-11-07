@@ -155,7 +155,9 @@ def held_by_us():
 
 
 # (Known limit, runlock.ps1 header: build=True inside a SHARED hold re-enters the shared slot, so the 2-build cap can be exceeded.)
-def ensure_lock(name, timeout_minutes=240, shared=False, build=False):
+def ensure_lock(name, timeout_minutes=240, shared=False, build=False, max_minutes=None):
+    # max_minutes: wall-clock limit of the re-run (runlock.ps1 -MaxMinutes; None = its default 30, 0 = none). Long jobs
+    # (bisect, sdk_rebase, codegen_repro) pass 0 (Session 95 review).
     held = held_by_us()
     if held == 'exclusive' or (held == 'shared' and (shared or build)) or (held == 'build' and build):
         return
@@ -169,7 +171,7 @@ def ensure_lock(name, timeout_minutes=240, shared=False, build=False):
     argv = getattr(sys, 'orig_argv', None)   # 3.10+: keeps -I / -X utf8 / -O / -m
     args = list(argv[1:]) if argv else list(sys.argv)
     cmd = ['pwsh', '-NoProfile', '-File', RUNLOCK_PS1, 'run', '-Name', name,
-           '-TimeoutMinutes', str(timeout_minutes)] + (['-Build'] if build else ['-Shared'] if shared else []) + ['--', sys.executable] + args
+           '-TimeoutMinutes', str(timeout_minutes)] + (['-Build'] if build else ['-Shared'] if shared else []) + ([] if max_minutes is None else ['-MaxMinutes', str(max_minutes)]) + ['--', sys.executable] + args
     sys.stdout.flush()
     sys.stderr.flush()
     sys.exit(subprocess.call(cmd))

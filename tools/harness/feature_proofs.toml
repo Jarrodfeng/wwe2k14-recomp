@@ -16,7 +16,7 @@
 
 [meta]
 # switches with these prefixes that a run sets and that have NO entry are listed (never fail a run): the table must grow
-watch_prefixes = ["gpu_d3d_", "wwe2k14_d3d_", "gpu_native_owned", "render_target_path", "vulkan_shared_memory", "vulkan_emulate_limits", "vulkan_emulate_no_bc", "vulkan_texture_transcode"]
+watch_prefixes = ["gpu_d3d_", "wwe2k14_d3d_", "gpu_native_owned", "render_target_path", "vulkan_shared_memory", "vulkan_emulate_limits", "vulkan_emulate_no_bc", "vulkan_texture_transcode", "gpu_plain_mode", "gpu_tiler_", "wwe2k14_hang_", "wwe2k14_android_park", "wwe2k14_test_"]
 
 [[feature]]
 name = "d3d_owned"
@@ -215,7 +215,7 @@ proofs = [{ what = "lean window line with the merge on", any = ['\[crowd\]\[lean
 name = "S93_inline_host_ring"
 cvar = "gpu_d3d_inline_host_ring"
 on = ["true", "1"]
-proofs = [{ what = "inline draws staged on pages of their own", any = ['\[d3d\]\[inline\] ring \(gpu_d3d_inline_host_ring\) frames \d+-\d+: (\d+) inline draws staged'] }]
+proofs = [{ what = "inline draws staged on pages of their own", any = ['\[d3d\]\[inline\] ring frames \d+-\d+: \d+ draws on the ring', '\[d3d\]\[inline\] ring \(gpu_d3d_inline_host_ring\) frames \d+-\d+: (\d+) inline draws staged'] }]
 
 # Session 93 (idea 3, branch s93-tiler; the text is from thirdparty\sdk-wt\s93-tiler\...\owned_steps.cpp, the "[native][owned-tiler]" window line, printed with the switch off too).
 [[feature]]
@@ -446,3 +446,467 @@ name = "S94_shared_memory_direct"
 cvar = "vulkan_shared_memory_direct"
 on = ["1", "2", "-1"]
 proofs = [{ what = "direct uploads initialised (mode 1 count-only or 2 mapped)", any = ['\[s94\]\[DIRECT\] init: mode (?:1|2|-1)'] }]
+
+# Session 95 (the builders' proposed entries)
+[[feature]]
+name = "S95_inline_vertex_ring"
+cvar = "gpu_d3d_inline_vertex_ring"
+on = ["true", "1"]
+proofs = [{ what = "inline draws on the host ring", any = ['\[d3d\]\[inline\] ring frames \d+-\d+: [1-9]\d* draws on the ring'] }]
+
+[[feature]]
+name = "S95_sampler_memo"
+cvar = "gpu_d3d_sampler_memo_fix"
+on = ["true", "1"]
+proofs = [{ what = "the sampler memo hits", any = ['sampler memo hits [1-9]\d* rebuilds'] }]
+
+[[feature]]
+name = "S95_graph"
+cvar = "gpu_owned_graph"
+on = ["9", "25"]  # (25 on PCs since Session 95 round 7, 9 on phones)
+proofs = [{ what = "dead passes dropped by proof, tripwire 0", any = ['\[native\]\[graph\] frames \d+-\d+: switch (?:9|25) \(applied\).*TRIPWIRE hits 0 '] }]
+
+[[feature]]
+name = "S95_copy_lean"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "gpu_owned_copy_lean"
+on = ["7"]
+# (Session 95: the counts are the scene's, not the switch's: snapshots left out stay 0.00 through frame 5400 of s80_lb_quick and first show at frame 6000, so a
+# non-zero count could never prove the quick route. The on line says which bits are in, the window line says the counting code ran.)
+proofs = [
+  { what = "the lean bits on", any = ['\[native\]\[lean\] on: gpu_owned_copy_lean bits (\d+)'] },
+  { what = "the window counted", any = ['\[native\]\[lean\] frame (\d+): per frame: snapshots left out'] },
+]
+
+[[feature]]
+name = "S95_post_lite"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "wwe2k14_post_lite"
+on = ["true", "1"]
+# (Session 95: passes dropped is the scene's count: 0.0 through all of s80_lb_quick, a match with no unused pass. The proof is that the drop test ran on frames.)
+proofs = [
+  { what = "the combine variant registered", any = ['\[s95\]\[post_lite\] combine variant registered'] },
+  { what = "frames went through the drop test", any = ['\[s95\]\[post_lite\] (\d+) frames: passes dropped per frame'] },
+]
+
+[[feature]]
+name = "S95_wrestler_lean"
+cvar = "gpu_native_wrestler_lean"
+on = ["true", "1"]
+proofs = [{ what = "LEAN compiles registered", any = ['\[scene_swap\].*gpu_native_wrestler_lean: LEAN compiles'] }]
+
+# Session 95 (diag4): the diagnostic run's GPU layer. The switch's value is a path, so "*" = any value set (arm 0's wwe2k14_diag_arm is the default "0",
+# which no `modified:` line lists, so that switch cannot key it). The debug pipelines are made only in the vtx arm: a feature of their own.
+[[feature]]
+name = "S95_diag_layer"
+cvar = "gpu_diag_layer"
+on = ["*"]
+proofs = [
+  { what = "layer on", any = ['\[diag\] layer on: thunks in'] },
+  { what = "scene captured", any = ['\[diag\] capture \d+ scene \w+ mode \d+: (\d+) passes'] },
+  { what = "draws picked", any = ['\[diag\] picked (\d+) sampled draws'] },
+]
+
+[[feature]]
+name = "S95_diag_vtx_arm"
+cvar = "wwe2k14_diag_arm"
+on = ["vtx"]
+proofs = [
+  { what = "debug pipelines made", any = ['\[diag\] debug pipelines: (\d+) made'] },
+]
+
+# Session 95 (warm integration): the pieces' proposed entries.
+[[feature]]
+name = "S95_lean"
+cvar = "wwe2k14_s95_lean"
+on = ["true", "1"]
+proofs = [{ what = "the CPU / upload set applied", any = ['\[s95\]\[lean\] wwe2k14_s95_lean on'] }]
+
+[[feature]]
+name = "S95_hoist_merge"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "vulkan_upload_hoist_merge"
+on = ["true", "1"]
+proofs = [{ what = "hoisted copies merged", any = ['\[s95\]\[HOISTMERGE\] frames \d+-\d+: (\d+) hoisted copy commands'] }]
+
+[[feature]]
+name = "S95_hot_pages"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "gpu_hot_pages_frames"
+on = ["2", "3", "4", "5", "6", "7", "8"]
+proofs = [{ what = "pages became hot", any = ['\[s95\]\[HOTPAGES\] frames \d+-\d+: .*became hot (\d+)'] }]
+
+[[feature]]
+name = "S95_wall"
+cvar = "gpu_d3d_wall"
+on = ["*"]
+proofs = [{ what = "the wall set on", any = ['\[d3d\]\[wall\] on: gpu_d3d_wall (\d+)'] }]
+
+[[feature]]
+name = "S95_present_every_frame"
+cvar = "present_every_frame"
+on = ["true", "1"]
+proofs = [
+  { what = "the gate on", any = ['\[pace\] present_every_frame on:'] },
+  { what = "frames waited for the paint", any = ['\[pace\] present_every_frame: 600 frames: \d+ waits'] },
+]
+
+[[feature]]
+name = "S95_present_small_mode"
+cvar = "present_fullscreen_small_mode"
+on = ["*"]
+proofs = [{ what = "fullscreen at a smaller mode", any = ['\[pace\] present_fullscreen_small_mode: fullscreen at (\d+)x'] }]
+
+[[feature]]
+name = "S95_pose_half"
+cvar = "gpu_native_crowd_pose_half"
+on = ["true", "1"]
+proofs = [{ what = "pose passes dropped", any = ['\[native\]\[pose-half\] frame \d+: first pose pass dropped'] }]
+
+[[feature]]
+name = "S95_strip_half"
+cvar = "gpu_native_owned_strip_half"
+on = ["true", "1"]
+proofs = [{ what = "strip passes skipped", any = ['\[native\]\[strip-half\] first strip pass skipped'] }]
+
+[[feature]]
+name = "S95_ring_half"
+cvar = "gpu_native_owned_ring_half"
+on = ["true", "1"]
+proofs = [{ what = "ring chain skipped", any = ['\[native\]\[ring-half\] first ring-chain pass skipped'] }]
+
+[[feature]]
+name = "S95_skin_once"
+cvar = "gpu_native_skin_once"
+on = ["true", "1"]
+proofs = [{ what = "draws read skinned rows", any = ['\[skin1\] frames \d+-\d+: a frame [1-9]\d* draws read skinned rows'] }]
+
+[[feature]]
+name = "S95_eco_qos"
+cvar = "wwe2k14_eco_qos"
+on = ["*"]
+proofs = [{ what = "EcoQoS applied", any = ['\[wwe2k14\]\[power\] (?:mode (?:process|process_keep|threads).*starts on)'] }]
+
+[[feature]]
+name = "S95_pack_cores"
+cvar = "wwe2k14_pack_cores"
+on = ["*"]
+proofs = [{ what = "process packed", any = ['\[wwe2k14\]\[power\] .*packed'] }]
+
+[[feature]]
+name = "S95_display_720p"
+cvar = "wwe2k14_display_720p"
+on = ["true", "1"]
+proofs = [
+  { what = "the display switched", any = ['\[display\] 720p display: \d+x\d+ -> \d+x\d+ @ (\d+) Hz'] },
+  { what = "the desktop restored", any = ['\[display\] 720p display: desktop restored'] },
+]
+
+[[feature]]
+name = "S95_turbo_boot_menu"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "wwe2k14_load_turbo_boot_menu_hz"
+on = ["*"]
+proofs = [{ what = "boot / menu window at the lower rate", any = ['\[wwe2k14\]\[turbo\] \w+ window: guest vblank at (\d+) Hz'] }]
+
+[[feature]]
+name = "S95_restore_skip"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "gpu_owned_restore_skip"
+on = ["5"]
+proofs = [{ what = "restore + repeated draws turned off", any = ['\[native\]\[lean\]\[rs\] frame \d+: first restore and (\d+) repeated draws turned off'] }]
+
+[[feature]]
+name = "S95_post_lite_near"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "gpu_native_post_lite_near"
+on = ["true", "1"]
+proofs = [{ what = "near-blur pair dropped", any = ['\[s95\]\[post_lite\] frame \d+: first near-blur pair pass dropped'] }]
+
+[[feature]]
+name = "S95_present_keep_paint_pipeline"
+cvar = "present_keep_paint_pipeline"
+on = ["true", "1"]
+proofs = [{ what = "the final paint pipeline kept", any = ['\[pace\] present_keep_paint_pipeline on: final paint pipeline built (\d+) time'] }]
+
+[[feature]]
+name = "S95_cmd_own_core"
+cvar = "gpu_cmd_own_core"
+on = ["true", "1"]
+proofs = [{ what = "the command thread on its own core", any = ['\[pace\] gpu_cmd_own_core on'] }]
+
+[[feature]]
+name = "S95_nf_lean"
+cvar = "wwe2k14_nf_lean"
+on = ["true", "1"]
+proofs = [{ what = "lean natives called", any = ['\[wwe2k14\]\[nf\] vec4_mat4_inplace \(82C32A88\): calls (\d+)'] }]
+
+[[feature]]
+name = "S95_idle_stretch"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "wwe2k14_idle_poll_stretch"
+on = ["*"]
+proofs = [{ what = "the movie thread's polls stretched", any = ['\[wwe2k14\]\[idle\] sub_827DFA18: (?:\d+ sleeps of 3 ms|work after \d+ stretched sleeps)'] }]
+
+[[feature]]
+name = "S95_timestamp_tick"
+cvar = "kernel_timestamp_tick_ms"
+on = ["*"]
+proofs = [{ what = "the slower tick", any = ['\[wwe2k14\]\[tick\] KeTimeStampBundle timer period (\d+) ms'] }]
+# Session 95 (the Android wave; texts from runs 001-002 in out\wt\s95-android and the builders' logs). wwe2k14_test_background_at, when a route sets it with `cvar`
+# (no `modified:` line), needs --expect; the other switches come from the command line.
+[[feature]]
+name = "S95_plain"
+cvar = "gpu_plain_mode"
+on = ["on"]
+proofs = [
+  { what = "plain on", any = ['\[quirks\] plain: ON \('] },
+  { what = "the cover pass flag forced", any = ['\[quirks\] plain: gpu_owned_cover_dont_care (?:true to false|already false)'] },
+]
+
+[[feature]]
+name = "S95_life_test_background"
+cvar = "wwe2k14_test_background_at"
+on = ["*"]
+proofs = [
+  { what = "the test background ran", any = ['\[life\] test: background for (\d+) ms'] },
+  { what = "the game left the front", any = ['\[life\] out of front at guest frame \d+'] },
+  { what = "the background counted", any = ['\[life\] background: (\d+) ms, \d+ guest frames ran'] },
+]
+
+[[feature]]
+name = "S95_life_park"
+cvar = "wwe2k14_android_park"
+on = ["true", "1"]
+proofs = [{ what = "park armed (not skipped)", any = ['\[life\] park on'] }]
+
+[[feature]]
+name = "S95_hang_guard"
+cvar = "wwe2k14_hang_guard"
+on = ["true", "1"]
+proofs = [{ what = "the guard thread started", any = ['\[hang\] guard on: HANG\?'] }]
+
+[[feature]]
+name = "S95_hang_exit"
+cvar = "wwe2k14_hang_exit"
+on = ["true", "1"]
+requires = ["S95_hang_guard"]
+proofs = [{ what = "the guard says exit on", any = ['\[hang\] guard on: .*, exit on'] }]
+
+[[feature]]
+name = "S95_test_hang"
+cvar = "wwe2k14_test_hang"
+on = ["*"]
+proofs = [
+  { what = "the test stopped a side", any = ['\[hang\] test: stopping the \w+ side at guest frame'] },
+  { what = "the freeze was named", any = ['\[hang\] HANG: '] },
+]
+
+[[feature]]
+name = "S95_tiler_poison"
+cvar = "gpu_tiler_poison"
+on = ["true", "1"]
+proofs = [{ what = "passes poisoned", any = ['\[native\]\[owned-tiler\] poison: pass #(\d+)'] }]
+
+# (the positive control of owned_check -Sync: its deliberate hazard must be reported, or the sync arm's 0 means nothing; needs the -Sync layer settings)
+[[feature]]
+name = "S95_tiler_sync_control"
+cvar = "gpu_tiler_sync_control"
+on = ["true", "1"]
+proofs = [{ what = "the deliberate hazard was reported", any = ['SYNC-HAZARD-'] }]
+
+[[feature]]
+name = "S95_vertex_input_translated"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "gpu_native_vertex_input"
+on = ["2"]
+# Needs --gpu_native_vertex_census=<frames> in the run (the census line is its log); B2's [vinput] line with translated draws above 0 is the proof that a draw used the form.
+proofs = [{ what = "a shader has an attribute form (the census line says yes, not a refusal)", any = ['\[vfetch\]\[census\] shader \S+: attribute form yes'] }]
+
+# Session 95 (vertex input lanes B1, B2, D, E; the lanes' proposals with their reviewers' corrections).
+[[feature]]
+name = "S95_vertex_input"
+cvar = "gpu_native_vertex_input"
+on = ["1", "2"]
+proofs = [{ what = "the window line with attribute draws", any = ['\[vinput\] frames \d+-\d+: attribute draws ([1-9]\d*) '] }]
+
+[[feature]]
+name = "S95_index_pool"
+cvar = "gpu_native_index_pool_mb"
+on = ["*"]
+proofs = [{ what = "the pool", any = ['\[mirror\] index pool made: (\d+) MiB'] }]
+
+[[feature]]
+name = "S95_sparse_state"
+cvar = "vulkan_sparse_shared_memory"
+on = ["true", "false"]
+proofs = [{ what = "the sparse line", any = ['\[sparse\] shared memory:'] }]
+
+[[feature]]
+name = "S95_owned_dont_care_clear"
+cvar = "gpu_native_owned_dont_care_clear"
+on = ["1", "2"]
+proofs = [{ what = "the dead-page line", any = ['\[native\]\[owned-dead\] frames .* dont_care_clear (?:1|2)'] }]
+
+[[feature]]
+name = "S95_owned_dead_sticky"
+cvar = "gpu_native_owned_dead_sticky"
+on = ["true", "1"]
+proofs = [{ what = "the dead-page line", any = ['dead_sticky on'] }]
+
+[[feature]]
+name = "S95_index_stitch"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "gpu_native_index_stitch"
+on = ["true"]
+proofs = [{ what = "strips stitched in a [vinput] window", any = ['\[vinput\] frames \d+-\d+: .*; stitched ([1-9]\d*) \('] }]
+
+[[feature]]
+name = "S95_crowd_input"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "gpu_native_crowd_input"
+on = ["true"]
+proofs = [{ what = "the crowd on attributes line", any = ['\[vinput\] crowd on attributes'] }, { what = "own runs on attributes", any = ['own runs on attributes ([1-9]\d*)'] }]
+
+[[feature]]
+name = "S95_index_pool_buckets"
+cvar = "gpu_native_index_pool_buckets"
+on = ["true"]
+proofs = [{ what = "a census window with 0 bucket misses", any = ['mark walk \{buckets on, .*bucket misses 0\}'] }]
+
+[[feature]]
+name = "S95_quirks_vertex_input_phone"
+cvar = "gpu_quirks_vertex_input_phone"
+on = ["true"]
+proofs = [{ what = "the rule applied on a phone profile", any = ['\[quirks\] vertex_input_phone: gpu_native_vertex_input=2 \('] }]
+
+[[feature]]
+name = "S95_crowd_density_track"
+scene = true  # (Session 95: on by default, its proof needs a scene or flag not every route has)
+cvar = "gpu_scene_crowd_density_track"
+on = ["true"]
+proofs = [{ what = "the rank tracker ran (needs --gpu_scene_crowd_density=70; the integer is the positions known)", any = ['\[crowd\] density track: .*; (\d+) positions known'] }]
+
+[[feature]]
+name = "S95_readback_attire_latch"
+cvar = "readback_resolve_attire_latch"
+on = ["300"]
+proofs = [{ what = "an attire build armed the latch (the line prints only when a build copy lands)", any = ['attire latch armed: build copy'] }]
+
+# Session 95 (r3 lanes): their proposed proofs, now that they are defaults. The bind lean and the skin rows need wrestlers on screen.
+[[feature]]
+name = "S95_draw_record"
+cvar = "gpu_d3d_draw_record"
+on = ["1", "2"]
+proofs = [{ what = "the record on", any = ['\[d3d\]\[record\] on: gpu_d3d_draw_record (\d+)'] }]
+
+[[feature]]
+name = "S95_skin_with_input"
+cvar = "gpu_native_skin_with_input"
+on = ["true", "1"]
+proofs = [{ what = "skin once and vertex input together", any = ['\[skin1\] skin once with vertex input on'] }]
+
+[[feature]]
+name = "S95_skin_bind_lean"
+scene = true
+cvar = "gpu_native_skin_bind_lean"
+on = ["true", "1"]
+proofs = [{ what = "side draws kept the constant slots", any = ['\[skin1\] bind lean: \d+ of \d+ draws reaching the pass were keyed side draws, (\d+) kept'] }]
+
+[[feature]]
+name = "S95_wrestler_pow"
+cvar = "gpu_native_wrestler_pow"
+on = ["true", "1"]
+proofs = [{ what = "the POWLEAN compiles registered", any = ['gpu_native_wrestler_pow: POWLEAN'] }]
+
+[[feature]]
+name = "S95_inline_merge"
+scene = true  # (Session 95 r5: only a scene with runs of particles: Brock's pyro)
+cvar = "gpu_d3d_inline_merge"
+on = ["true", "1"]
+proofs = [{ what = "a run of particles drawn as one strip", any = ['\[d3d\]\[inline\] merge on: frame \d+: (\d+) particles'] }]
+
+[[feature]]
+name = "S95_readback_quiet"
+scene = true  # (Session 95 r5: only a route with a read-back window)
+cvar = "gpu_native_readback_quiet_frames"
+on = ["30"]
+proofs = [{ what = "a quiet window let the lean paths on", any = ['\[native\]\[lean\] gpu_native_readback_quiet_frames (\d+): frame'] }]
+
+# Session 95 (round 6): defaults that had no proof entry.
+[[feature]]
+name = "S95_tex_bind_memo"
+cvar = "gpu_tex_bind_memo"
+on = ["15", "1", "2", "4", "8"]
+proofs = [{ what = "the bind memo on", any = ['\[tex\] gpu_tex_bind_memo (\d+) on'] }]
+
+[[feature]]
+name = "S95_hoist_skin_overlap"
+cvar = "vulkan_hoist_skin_overlap"
+on = ["true", "1"]
+proofs = [{ what = "the skin dispatch ran inside the hoist stream", any = ['\[s95\]\[HOISTSKIN\] the skin dispatch runs inside the hoist stream'] }]
+
+# Session 95 (round 7).
+[[feature]]
+name = "S95_graph_reads"
+scene = true  # (a scene with a dead reader: Bryan's heavy shots)
+cvar = "gpu_owned_graph"
+on = ["25"]
+proofs = [{ what = "dead readers forgiven, segments freed above 0", any = ['\[native\]\[graph\] frames \d+-\d+: switch 25 \(applied\).*segments freed (?:[1-9]\d*\.\d+|0\.0[1-9]|0\.[1-9]\d)/frame'] }]
+
+[[feature]]
+name = "S95_half_phase"
+scene = true  # (LOW's half set in a scene that has the passes)
+cvar = "gpu_native_half_phase"
+on = ["true", "1"]
+proofs = [
+  { what = "one phase engaged", any = ['\[native\]\[half-phase\] engaged'] },
+  { what = "strip skips on even frames only", any = ['\[half-phase\] frames to \d+: strip drawn even \d+ / odd \d+, skipped even (\d+) / odd 0'] },
+  { what = "ring skips on even frames only", any = ['\[half-phase\] frames to \d+: ring drawn even \d+ / odd \d+, skipped even (\d+) / odd 0'] },
+  { what = "shadow maps skip on odd frames only", any = ['\[half-phase\] frames to \d+: shadow drawn even \d+ / odd \d+, skipped even 0 / odd (\d+)'] },
+]
+
+[[feature]]
+name = "S95_half_phase_pose"
+scene = true  # (a route with the crowd pose passes: the bryan and brock logs have them, the frames_match logs do not)
+cvar = "gpu_native_half_phase"
+on = ["true", "1"]
+proofs = [{ what = "pose skips on even frames only", any = ['\[half-phase\] frames to \d+: pose drawn even \d+ / odd \d+, skipped even (\d+) / odd 0'] }]
+
+[[feature]]
+name = "S95_cmd_keep_core"
+cvar = "gpu_cmd_keep_core"
+on = ["1", "2"]
+proofs = [
+  { what = "the command thread's ideal core set", any = ['\[pace\] gpu_cmd_keep_core on: mode \d.*; ok$'] },
+  { what = "a guest thread placed", any = ['\[pace\] gpu_cmd_keep_core: thread [0-9A-F]{8} \(host \d+\) at \d+\.\d%.*; ok; '] },
+]
+
+[[feature]]
+name = "S95_tex_planes_unwatched"
+scene = true  # (only a scene with a movie: the entrances)
+cvar = "gpu_tex_planes_unwatched"
+on = ["true", "1"]
+proofs = [{ what = "a movie plane's pages left the watch", any = ['\[tex\] planes unwatched: the first plane'] }]
+
+[[feature]]
+name = "S95_tex_planes_nohash"
+scene = true  # (only a scene with a movie: the entrances)
+cvar = "gpu_tex_planes_nohash"
+on = ["true", "1"]
+proofs = [{ what = "plane pages skipped the hash", any = ['\[tex\] planes nohash: frames \d+-\d+: (\d+) plane pages skipped the hash'] }]
+
+[[feature]]
+name = "S95_gamma_identity"
+scene = true  # (the verdict line: linear or not; the computed pass prints only when linear)
+cvar = "vulkan_swap_gamma_identity"
+on = ["true", "1"]
+proofs = [{ what = "the gamma table read", any = ['\[s95\]\[GAMMAID\] table upload \d+: '] }]
+
+# Session 95: draw slots (switch off by default until the milestone proves them; on = 1, verify = 2).
+[[feature]]
+name = "S95_draw_slot"
+cvar = "gpu_d3d_draw_slot"
+on = ["1", "2"]
+requires = ["S95_draw_record"]
+proofs = [{ what = "the slots on", any = ['\[d3d\]\[slot\] on: gpu_d3d_draw_slot (\d+)'] }, { what = "cursor hits", any = ['\[d3d\]\[slot\] frames \d+-\d+: draws asked \d+: cursor hits (\d+) '] }]
