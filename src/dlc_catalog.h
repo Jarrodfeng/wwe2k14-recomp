@@ -439,6 +439,7 @@ inline bool IEquals(const std::string& a, const char* b) {
 // Every pack under `dir`, sorted by pack id (then folder). check_files: test that every file the catalog lists is
 // there (a few hundred file checks); bytes: add up each pack's size.
 inline void NoteCatalogFiles(const std::vector<std::string>& files, Pack& pk);  // below
+inline void SortAndMarkDuplicates(std::vector<Pack>& packs);                   // below
 
 inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool bytes = true) {
   std::vector<Pack> packs;
@@ -558,6 +559,13 @@ inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool
     }
     packs.push_back(std::move(pk));
   }
+  SortAndMarkDuplicates(packs);
+  return packs;
+}
+
+// Sorted by pack id (then folder); a second pack with an id already seen is a duplicate. Scan does this; a caller that
+// joins two scans (src/dlc.h --wwe2k14_dlc_extra_dir, Session 98) does it again on the joined list.
+inline void SortAndMarkDuplicates(std::vector<Pack>& packs) {
   std::stable_sort(packs.begin(), packs.end(), [](const Pack& a, const Pack& b) {
     const int ka = a.pack_id < 0 ? 1 << 20 : a.pack_id, kb = b.pack_id < 0 ? 1 << 20 : b.pack_id;
     return ka != kb ? ka < kb : a.folder < b.folder;
@@ -569,7 +577,6 @@ inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool
         packs[i].status = Status::kDuplicate, packs[i].reason = "same pack as " + packs[j].folder;
         break;
       }
-  return packs;
 }
 
 // The DLC folder when none is set: `dlc` next to the game data folder (game_data\dlc in the dev layout; for a disc image

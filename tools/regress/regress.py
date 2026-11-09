@@ -11,7 +11,7 @@
     py tools\\regress\\regress.py --show-baseline      the baseline as a table (runs, values, median, spread, threshold)
     py tools\\regress\\regress.py --parallel           functional routes side by side first, then the exclusive ones (L1)
 
-Game runs go through tools\\bench\\run_list.ps1 (frozen user data mirrored before each run, timeline on, a run still
+Game runs go through tools\\bench\\run_list.ps1 (frozen user data mirrored before each run, timeline on timed routes, a run still
 going after 720 s is killed) under ONE hold of the run lock (tools\\harness\\runlock.py ensure_lock), so no other
 agent's run or build lands between the routes. With --parallel N (task L1; docs/harness/regress.md "Parallel
 functional part") the FUNCTIONAL routes (no perf checks, no fixed seed: selftest, logo) first run through one

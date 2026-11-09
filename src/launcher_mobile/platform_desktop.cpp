@@ -67,6 +67,22 @@ std::string OpenGameFile(const std::string& address) {
   return fs::exists(fs::u8path(address), ec) ? address : std::string();
 }
 
+// Session 98 (IMPORT TRON PREVIEWS): the zip read in place.
+void PickTronZip() {
+  static const SDL_DialogFileFilter filters[] = {{"Tron previews (zip)", "zip"}};
+  SDL_ShowOpenFileDialog(
+      [](void*, const char* const* list, int) {
+        if (!list || !list[0]) return;
+        Event e;
+        e.kind = Event::kTronZipPicked;
+        e.a = list[0], e.b = U8(fs::u8path(list[0]).filename());
+        Post(std::move(e));
+      },
+      nullptr, nullptr, filters, 1, nullptr, false);
+}
+std::string OpenPickedZip(const std::string& address) { return address; }
+void ClosePickedZip() {}
+
 void AddDlc(const fs::path& dlc_dir) {
   static fs::path dir;
   dir = dlc_dir;
@@ -152,7 +168,17 @@ void StartGame(const std::vector<std::string>& args, const std::string& game_add
   Message("PC test build: the game's command line is in last_launch.txt");
 }
 
+void StartViewer(const std::vector<std::string>& args, const std::string& game_address) {
+  std::ofstream f(g_files / "last_viewer_launch.txt", std::ios::trunc);
+  f << "# game: " << game_address << "\n";
+  for (const auto& a : args) f << a << "\n";
+  Message("PC test build: the Arena Viewer opens on the phone; its command line is in last_viewer_launch.txt");
+}
+
 void EditTouchLayout(int, int) { Message("PC test build: moving the touch controls works on the phone only"); }
+
+bool GameAlive() { return false; }  // Session 98 (the PC test build starts no game process)
+void KillGame() {}
 
 void Quit() {
   SDL_Event e{};

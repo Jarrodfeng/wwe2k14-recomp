@@ -8,6 +8,7 @@ Checks (exit 1 and one FAIL line each when wrong):
   - android:hasFragileUserData is on: uninstalling asks to keep the data (the saves live in the app's files folder);
   - versionCode is the one android\\VERSION gives and above 18, the last hand-set code: a lower one fails to install as an update;
   - versionName is android\\VERSION;
+  - the native libraries the activities load are in lib/arm64-v8a (Session 98: libviewer.so for ViewerActivity too);
   - the signing key's SHA-256 is tools\\android\\signing_fingerprint.txt: an APK from another key fails to install as an update,
     and the only way out for a player is to uninstall. --no-signature skips this one (an unsigned APK).
 """
@@ -15,12 +16,15 @@ import argparse
 import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 LAST_HAND_SET_CODE = 18
-ACTIVITIES = ('LauncherActivity', 'GameActivity', 'TouchEditActivity')
+ACTIVITIES = ('LauncherActivity', 'GameActivity', 'TouchEditActivity', 'ViewerActivity')  # Session 98: + the Arena Viewer
+# Session 98 (Arena Viewer phone port, stage C): the native libraries every APK must carry (each activity's getLibraries()).
+LIBRARIES = ('libc++_shared.so', 'librexruntime.so', 'libmain.so', 'liblauncher.so', 'libviewer.so')
 # android.content.pm.ActivityInfo CONFIG_* (the values aapt writes for the manifest's names).
 CONFIG_BITS = {
     'mcc': 0x1, 'mnc': 0x2, 'locale': 0x4, 'touchscreen': 0x8, 'keyboard': 0x10, 'keyboardHidden': 0x20, 'navigation': 0x40,
@@ -108,6 +112,12 @@ def check_manifest(text: str, version: str) -> list:
     return fails
 
 
+def check_libraries(apk: str) -> list:
+    with zipfile.ZipFile(apk) as z:
+        names = set(z.namelist())
+    return [f'lib/arm64-v8a/{n} is not in the APK' for n in LIBRARIES if f'lib/arm64-v8a/{n}' not in names]
+
+
 def check_signature(apk: str, tools: Path) -> list:
     out = subprocess.run([str(tools / 'apksigner.bat'), 'verify', '--print-certs', apk], capture_output=True, text=True, shell=False)
     m = re.search(r'certificate SHA-256 digest: ([0-9a-f]{64})', out.stdout)
@@ -138,12 +148,14 @@ def main() -> int:
         return 1
     version = Path(args.version_file).read_text(encoding='ascii').strip()
     fails = check_manifest(dump.stdout, version)
+    fails += check_libraries(args.apk)
     if not args.no_signature:
         fails += check_signature(args.apk, tools)
     for f in fails:
         print(f'check_apk: FAIL {f}')
     if not fails:
-        print(f'check_apk: ok ({version}, versionCode {version_code(version)}, configChanges and hasFragileUserData as asked)')
+        print(f'check_apk: ok ({version}, versionCode {version_code(version)}, configChanges and hasFragileUserData as asked, '
+              f'{len(LIBRARIES)} native libraries present)')
     return 1 if fails else 0
 
 

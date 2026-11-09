@@ -16,9 +16,13 @@
 #     scheduler trace and the det hash files in <app>/logs/det (emptied first; pulled with the logs). -StageA: the flags
 #     of tools\xdet\stageA.flags (the PC's), raw dumps every 60 frames (Jarrod's phone only: game memory stays local).
 #     Then: py tools\determinism\det_compare.py --cross <PC run> out\android\runs\NNN
+# Session 98 (Arena Viewer phone port, stage C): -Viewer = the Arena Viewer instead of the game (ViewerActivity, process ":viewer") on
+# the pushed test ISO; -GameArgs then adds viewer arguments ("--no-dlc", "--size 1280x720", ...). Its arguments go through
+# <app>/viewer_args.txt (ViewerActivity reads and deletes it); output: logcat, logs/viewer.log (the viewer's stderr), shots.
+#   pwsh -File tools\android\run.ps1 -Run 300 -Viewer -Seconds 90 -Shots 3
 param([string]$Run, [string]$GameArgs = '', [int]$Seconds = 60, [int]$Shots = 1, [string]$Until = '', [switch]$PushGame,
       [switch]$KeepRunning, [switch]$FreshShaders, [string]$Route = '', [string]$Scenario = '', [string]$Replay = '',
-      [switch]$StageA, [switch]$Played, [switch]$NoDraw, [string]$Data = 'userdata_frozen')
+      [switch]$StageA, [switch]$Played, [switch]$NoDraw, [string]$Data = 'userdata_frozen', [switch]$Viewer)
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Continue'
 
@@ -37,6 +41,55 @@ if ($PushGame) {
     exit $code
 }
 if (-not $Run) { "run.ps1: -Run NNN is required"; exit 2 }
+
+if ($Viewer) {  # Session 98: the Arena Viewer (see the header)
+    $viewerProc = "${Pkg}:viewer"
+    if ((Adb shell pidof $Pkg $GameProc $viewerProc) -match '\d') { "run.ps1: $Pkg is already running (one phone run at a time)"; exit 3 }
+    $out = "$($AndroidDirs.Runs)\$Run"
+    if (Test-Path $out) { "run.ps1: $out exists (pick a new run number)"; exit 2 }
+    [void](New-Item -ItemType Directory -Force $out)
+    Adb shell am force-stop $Pkg | Out-Null
+    # The command port (127.0.0.1:47140; adb forward tcp:47140 tcp:47140) opens only with --pipe, and a client's first line must be
+    # this run's token (out\android\runs\<Run>\pipe_token.txt).
+    $token = [guid]::NewGuid().ToString('N')
+    Set-Content "$out\pipe_token.txt" -Value $token -Encoding ascii
+    $vargs = @('--game', "$PhoneFiles/game/wwe2k14.iso", '--pipe', '47140', '--pipe-token', $token)
+    if ($GameArgs.Trim()) { $vargs += ($GameArgs.Trim() -split '\s+') }
+    $vargs | Set-Content "$out\viewer_args.txt" -Encoding utf8NoBOM
+    Adb push "$out\viewer_args.txt" "$PhoneFiles/viewer_args.txt" | Out-Null
+    Adb shell rm -f "$PhoneFiles/logs/viewer.log" "$PhoneFiles/logs/viewer_out.log" | Out-Null
+    Adb logcat -c | Out-Null
+    $logcat = Start-Process -FilePath $Adb -ArgumentList 'logcat', '-v', 'threadtime' -RedirectStandardOutput "$out\logcat.txt" `
+        -RedirectStandardError "$out\logcat_err.txt" -NoNewWindow -PassThru
+    $t0 = Get-Date
+    "run ${Run} (viewer) started $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'): $($vargs -join ' ')"
+    Adb shell am start -n "$Pkg/.ViewerActivity" | Out-Null
+    $shotTimes = if ($Shots -gt 0) { 1..$Shots | ForEach-Object { [int]($Seconds * $_ / $Shots) } } else { @() }
+    $shot = 0; $ended = $false
+    while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
+        Start-Sleep -Seconds 2
+        $el = ((Get-Date) - $t0).TotalSeconds
+        if ($shot -lt $shotTimes.Count -and $el -ge $shotTimes[$shot] - 2) {
+            $shot++
+            Adb shell screencap -p /sdcard/wwe2k14_shot.png | Out-Null
+            Adb pull /sdcard/wwe2k14_shot.png "$out\shot_$shot.png" | Out-Null
+        }
+        if (-not ("$(Adb shell pidof $viewerProc)".Trim() -match '\d') -and $el -gt 5) { $ended = $true; break }
+    }
+    $elapsed = [int]((Get-Date) - $t0).TotalSeconds
+    Adb pull "$PhoneFiles/logs/viewer.log" "$out" 2>&1 | Out-Null
+    Adb pull "$PhoneFiles/logs/viewer_out.log" "$out" 2>&1 | Out-Null
+    Adb shell rm -f "$PhoneFiles/viewer_args.txt" | Out-Null  # (never left for the launcher's next ARENA VIEWER)
+    if (-not $KeepRunning) { Adb shell am force-stop $Pkg | Out-Null }
+    Start-Sleep -Milliseconds 500
+    Stop-Process -Id $logcat.Id -ErrorAction SilentlyContinue
+    Adb shell rm -f /sdcard/wwe2k14_shot.png | Out-Null
+    "run ${Run} (viewer): $(if ($ended) { 'the viewer ended by itself' } else { 'time up' }) after $elapsed s; output $out"
+    Select-String -Path "$out\logcat.txt" -Pattern 'FATAL EXCEPTION|UnsatisfiedLinkError|dlopen failed|Fatal signal|Abort message|^.* F DEBUG   :\s+#(0\d|1[0-2]) pc' |
+        Select-Object -First 20 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(260, $_.Line.Length)) }
+    if (Test-Path "$out\viewer.log") { "-- viewer.log (last lines):"; Get-Content "$out\viewer.log" -Tail 15 }
+    exit 0
+}
 
 if ((Adb shell pidof $Pkg $GameProc) -match '\d') { "run.ps1: $Pkg is already running (one phone run at a time)"; exit 3 }
 $out = "$($AndroidDirs.Runs)\$Run"

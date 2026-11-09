@@ -1,0 +1,1111 @@
+{
+ "_doc": "Session 98 frame-replay S0. Maps the Arena Viewer's DrawCB / FrameCB (renderer.cpp, bank_dump field names) to the GAME's register numbers (draw probe banks: 'vs' = c0-255, 'ps' = c256-511 shown as c0-255 of the pixel bank). One row per game register group. game = {bank, reg, comp}; viewer = {src: 'cb'|'frame', field, idx (for ldir / lcol), comp} (the viewer FEEDS it) | {const: [...], note} (hard-coded in the viewer HLSL) | {implicit: [...], note} (the viewer HLSL assumes this value, nothing is fed) | null (not modelled at all). group = the meaning the report groups by; classes = the material classes the row applies to (skin, head, hair, gear, eyes, trans, arena, crowd, stage, any-wr = every wrestler class). Register meanings: out\\s98\\skin_fix\\_model.py, src\\scene\\wrestler_*_entrance.frag headers, out\\s98\\arena_fix\\notes.md. Sources of every register are the scene shaders' own constant lists; nothing here is a guess unless 'U' is in the note.",
+ "rows": [
+  {
+   "name": "c56-59 viewProj (rows)",
+   "group": "camera",
+   "game": {
+    "bank": "vs",
+    "reg": [
+     56,
+     57,
+     58,
+     59
+    ],
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "src": "frame",
+    "field": "viewProj",
+    "xform": "vp_rows"
+   },
+   "classes": [
+    "any"
+   ]
+  },
+  {
+   "name": "c72 eye",
+   "group": "camera",
+   "game": {
+    "bank": "vs",
+    "reg": 72,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "frame",
+    "field": "cam",
+    "xform": "eye_flip_y"
+   },
+   "classes": [
+    "any"
+   ]
+  },
+  {
+   "name": "c76.. bone palette (translations)",
+   "group": "bones",
+   "game": {
+    "bank": "vs",
+    "reg": 76
+   },
+   "viewer": {
+    "src": "bones"
+   },
+   "classes": [
+    "any-wr"
+   ],
+   "note": "set comparison: every non-zero game bone translation vs the nearest viewer bone world position"
+  },
+  {
+   "name": "c0-c3.rgb light colours (vertex bank)",
+   "group": "light block",
+   "game": {
+    "bank": "vs",
+    "reg": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "lcol",
+    "idx": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any"
+   ]
+  },
+  {
+   "name": "c0-c3.w lobe weights (pixel bank)",
+   "group": "light block",
+   "game": {
+    "bank": "ps",
+    "reg": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     3
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "lcol",
+    "idx": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     3
+    ]
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c8-c11 light directions (pixel bank)",
+   "group": "light block",
+   "game": {
+    "bank": "ps",
+    "reg": [
+     8,
+     9,
+     10,
+     11
+    ],
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "ldir",
+    "idx": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any"
+   ]
+  },
+  {
+   "name": "c4 highlight colour",
+   "group": "light block",
+   "game": {
+    "bank": "ps",
+    "reg": 4,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "hl_col",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c12 highlight direction",
+   "group": "light block",
+   "game": {
+    "bank": "ps",
+    "reg": 12,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "hl_dir",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c1xx (c0..3 pixel-bank rgb)",
+   "group": "light block",
+   "game": {
+    "bank": "ps",
+    "reg": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "lcol",
+    "idx": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any"
+   ],
+   "dup": true
+  },
+  {
+   "name": "c181 sky (pixel bank)",
+   "group": "sky / ground",
+   "game": {
+    "bank": "ps",
+    "reg": 181,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "sky",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any"
+   ]
+  },
+  {
+   "name": "c182 ground (pixel bank)",
+   "group": "sky / ground",
+   "game": {
+    "bank": "ps",
+    "reg": 182,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "ground",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any"
+   ]
+  },
+  {
+   "name": "c180 up axis",
+   "group": "sky / ground",
+   "game": {
+    "bank": "ps",
+    "reg": 180,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "implicit": [
+     0,
+     1,
+     0
+    ],
+    "note": "HLSL: lerp(sky, ground, 0.5 - 0.5 N.y) = the game's 0.5 dot(-N, c180) + 0.5 with c180 = (0,1,0)"
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c189 MatAmb",
+   "group": "sky / ground",
+   "game": {
+    "bank": "ps",
+    "reg": 189,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "mat_amb",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c190 MatDif",
+   "group": "sky / ground",
+   "game": {
+    "bank": "ps",
+    "reg": 190,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "mat_dif",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c247.z sky/ground weight",
+   "group": "sky / ground",
+   "game": {
+    "bank": "ps",
+    "reg": 247,
+    "comp": [
+     2
+    ]
+   },
+   "viewer": {
+    "implicit": [
+     1.0
+    ],
+    "note": "the HLSL multiplies sky/ground by MatAmb only (no c247.z)"
+   },
+   "classes": [
+    "eyes"
+   ]
+  },
+  {
+   "name": "c142 lobe weights / powers",
+   "group": "lobes c142",
+   "game": {
+    "bank": "ps",
+    "reg": 142,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "wspec",
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "classes": [
+    "any-wr"
+   ],
+   "note": "x,z = the two lobe weights; y,w = widths (powers). The eye draw has all four = 0 in the game"
+  },
+  {
+   "name": "c144 light-amount colour",
+   "group": "lobes c142",
+   "game": {
+    "bank": "ps",
+    "reg": 144,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "implicit": [
+     1,
+     1,
+     1
+    ],
+    "note": "the HLSL does not read it"
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c155 glow colour at full (rgb, w = scale)",
+   "group": "glow c155 / c158",
+   "game": {
+    "bank": "ps",
+    "reg": 155,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "sss1",
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "classes": [
+    "skin",
+    "head"
+   ]
+  },
+  {
+   "name": "c158 glow colour at zero / ambient tint",
+   "group": "glow c155 / c158",
+   "game": {
+    "bank": "ps",
+    "reg": 158,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "sss2",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "skin",
+    "head"
+   ]
+  },
+  {
+   "name": "c156.x ambient knee",
+   "group": "glow c155 / c158",
+   "game": {
+    "bank": "ps",
+    "reg": 156,
+    "comp": [
+     0
+    ]
+   },
+   "viewer": {
+    "implicit": [
+     0.0
+    ],
+    "note": "HLSL comment: the knee is 0 in run 6816 so it is off"
+   },
+   "classes": [
+    "skin",
+    "head"
+   ]
+  },
+  {
+   "name": "c161 rim map power / mask mix / strength",
+   "group": "rim c162",
+   "game": {
+    "bank": "ps",
+    "reg": 161,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "const": [
+     1.0,
+     0.83,
+     1.0
+    ],
+    "note": "HLSL: rimStr = ((mask-1)*0.83+1)*edge*rimMap"
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c162 rim map depth range / height gain",
+   "group": "rim c162",
+   "game": {
+    "bank": "ps",
+    "reg": 162,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": null,
+   "classes": [
+    "any-wr"
+   ],
+   "note": "viewer rebuilds the rim map from its own wrestler boxes (shadow.cpp SetRim); nothing fed from the game"
+  },
+  {
+   "name": "c174 rim distance atten",
+   "group": "rim c162",
+   "game": {
+    "bank": "vs",
+    "reg": 174,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "const": [
+     500.0,
+     2500.0,
+     1.0,
+     0.4
+    ],
+    "note": "HLSL: atten = 1 + saturate((dist-500)/2000)*(0.4-1)"
+   },
+   "classes": [
+    "any-wr"
+   ],
+   "note": "the vertex bank holds it (the eye / gear VS: fog_from = c174.x - w; the pixel bank copy is 0)"
+  },
+  {
+   "name": "c204 sky rim colour / power",
+   "group": "rim c162",
+   "game": {
+    "bank": "ps",
+    "reg": 204,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "refc",
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c205.xy highlight gain / fresnel power",
+   "group": "rim c162",
+   "game": {
+    "bank": "ps",
+    "reg": 205,
+    "comp": [
+     0,
+     1
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "wmisc",
+    "comp": [
+     0,
+     1
+    ]
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c166 shadow key light dir",
+   "group": "shadow c166",
+   "game": {
+    "bank": "ps",
+    "reg": 166,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": null,
+   "classes": [
+    "any-wr"
+   ],
+   "note": "viewer shadow = its own map (shadow.cpp); the game's light direction is not fed"
+  },
+  {
+   "name": "c168 shadow depth range / bias / strength",
+   "group": "shadow c166",
+   "game": {
+    "bank": "ps",
+    "reg": 168,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": null,
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c169",
+   "group": "shadow c166",
+   "game": {
+    "bank": "ps",
+    "reg": 169,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": null,
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c170",
+   "group": "shadow c166",
+   "game": {
+    "bank": "ps",
+    "reg": 170,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": null,
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c187 ambient cube ceiling (limit)",
+   "group": "material limits c187",
+   "game": {
+    "bank": "ps",
+    "reg": 187,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "limit",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "any"
+   ]
+  },
+  {
+   "name": "c185.x alpha scale (vertex bank)",
+   "group": "material limits c187",
+   "game": {
+    "bank": "vs",
+    "reg": 185,
+    "comp": [
+     0
+    ]
+   },
+   "viewer": {
+    "implicit": [
+     1.0
+    ],
+    "note": "alpha_scale = c185.x * c189.w * c190.w (vs_ch_reflect.glsl); the HLSL uses c189.w * c190.w"
+   },
+   "classes": [
+    "eyes",
+    "trans"
+   ]
+  },
+  {
+   "name": "c189.w x c190.w alpha scale",
+   "group": "material limits c187",
+   "game": {
+    "bank": "ps",
+    "reg": 189,
+    "comp": [
+     3
+    ],
+    "mul": [
+     189,
+     190
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "mat_amb",
+    "comp": [
+     3
+    ],
+    "mulfield": "mat_dif"
+   },
+   "classes": [
+    "eyes",
+    "trans"
+   ]
+  },
+  {
+   "name": "c197 x c198 (cube scale x prelight inverse)",
+   "group": "cube c197 / c198 / c247",
+   "game": {
+    "bank": "ps",
+    "reg": 197,
+    "comp": [
+     0,
+     1,
+     2
+    ],
+    "mul": [
+     197,
+     198
+    ]
+   },
+   "viewer": {
+    "implicit": [
+     1,
+     1,
+     1
+    ],
+    "note": "viewer builds the cube analytically (PreLight); the game cube texel x c197, where the prelight pass wrote texel x c198 = 1/c197: the product is 1 when they cancel"
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c199.x x c199.y cube glow gain",
+   "group": "cube c197 / c198 / c247",
+   "game": {
+    "bank": "ps",
+    "reg": 199,
+    "comp": [
+     0,
+     1
+    ],
+    "prodcomp": true
+   },
+   "viewer": {
+    "implicit": [
+     1.0
+    ],
+    "note": "HLSL: c199.x x c199.y = 1 assumed (game 3.64 x 0.2746)"
+   },
+   "classes": [
+    "skin",
+    "head"
+   ]
+  },
+  {
+   "name": "c201.w colour LOD bias",
+   "group": "mip bias c201",
+   "game": {
+    "bank": "ps",
+    "reg": 201,
+    "comp": [
+     3
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "wnrm",
+    "comp": [
+     1
+    ]
+   },
+   "classes": [
+    "skin",
+    "head",
+    "hair"
+   ],
+   "note": "only the skin-family pixel shaders read c201.w (wrestler_skin_entrance.frag C201); the gear / reflect shaders have no fetch-constant LOD bias"
+  },
+  {
+   "name": "c206.x detail tiling",
+   "group": "detail c206 / c208",
+   "game": {
+    "bank": "ps",
+    "reg": 206,
+    "comp": [
+     0
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "wdet",
+    "comp": [
+     0
+    ]
+   },
+   "classes": [
+    "gear"
+   ]
+  },
+  {
+   "name": "c206.yzw near detail gains",
+   "group": "detail c206 / c208",
+   "game": {
+    "bank": "ps",
+    "reg": 206,
+    "comp": [
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "wdet_a",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "gear"
+   ]
+  },
+  {
+   "name": "c208.yzw far detail gains",
+   "group": "detail c206 / c208",
+   "game": {
+    "bank": "ps",
+    "reg": 208,
+    "comp": [
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "wdet_b",
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "gear"
+   ]
+  },
+  {
+   "name": "c188.xy (vertex bank) noise near / far",
+   "group": "detail c206 / c208",
+   "game": {
+    "bank": "vs",
+    "reg": 188,
+    "comp": [
+     0,
+     1
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "wdet",
+    "comp": [
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "gear"
+   ]
+  },
+  {
+   "name": "c218 normal weights",
+   "group": "detail c206 / c208",
+   "game": {
+    "bank": "ps",
+    "reg": 218,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "implicit": [
+     1,
+     1,
+     1
+    ],
+    "note": "HLSL: N' = T v + B u + N (weights 1)"
+   },
+   "classes": [
+    "any-wr"
+   ]
+  },
+  {
+   "name": "c253 literal bank (y = 1, z/w highlight mix)",
+   "group": "cube c197 / c198 / c247",
+   "game": {
+    "bank": "ps",
+    "reg": 253,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "implicit": [
+     0.5,
+     1.0,
+     0.75,
+     0.25
+    ],
+    "note": "HLSL body = sp x (0.75 + 0.25 base): z/w = (0.75, 0.25)"
+   },
+   "classes": [
+    "eyes"
+   ]
+  },
+  {
+   "name": "c27 haze colour / strength (arena, pixel bank)",
+   "group": "film / post",
+   "game": {
+    "bank": "ps",
+    "reg": 27,
+    "comp": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "viewer": {
+    "const": [
+     0.4,
+     0.55,
+     0.55,
+     0.0
+    ],
+    "note": "HLSL depth haze colour (0.4, 0.55, 0.55)"
+   },
+   "classes": [
+    "arena",
+    "crowd",
+    "stage"
+   ],
+   "optional": true
+  },
+  {
+   "name": "c184 lightmap param (arena)",
+   "group": "stage lightmap c184",
+   "game": {
+    "bank": "ps",
+    "reg": 184,
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "misc",
+    "comp": [
+     1,
+     2,
+     3
+    ]
+   },
+   "classes": [
+    "arena",
+    "crowd",
+    "stage"
+   ]
+  },
+  {
+   "name": "c0-c3 arena light colours (vertex bank)",
+   "group": "light block",
+   "game": {
+    "bank": "vs",
+    "reg": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "viewer": {
+    "src": "cb",
+    "field": "lcol",
+    "idx": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "comp": [
+     0,
+     1,
+     2
+    ]
+   },
+   "classes": [
+    "arena",
+    "crowd",
+    "stage"
+   ],
+   "dup": true
+  }
+ ],
+ "film": {
+  "_doc": "The entrance film filter / bloom / glare are post-pass constants of fullscreen draws, not of the wrestler's: the viewer's values are printed from the dump's 'post' block; the game side is found by bank_diff.py in the probe's fullscreen draws (VS 032E8FAC film quad, entrance combine pixel c31 / c32 = bloom / glare: out\\s98\\arena_fix\\notes.md items 8, 9)."
+ }
+}

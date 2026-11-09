@@ -13,6 +13,10 @@
                                be a data address or name that has a db entry)
   fn FUNC                      one-screen summary: size, callers/callees, strings, constants, RTTI, db, coverage
   info                         what the index was built from, counts, staleness
+  fact WORDS [--kind K]        search the knowledge library: docs/formats, docs/systems, docs/modules, db summaries /
+                               evidence, SESSION summaries (lowest rank); hits = file + heading + line, the matching
+                               lines, the section's addresses expanded to db names (tools/q/qfact.py; no code index)
+  map ...                      the harness knowledge map (tools/q/qmap.py)
 
 FUNC: sub_82CB1F50 | 0x82CB1F50 | 82cb1f50 | a mapped name (__imp__XamInputGetState, xstart) | a db name
 (gpu_wait_poll_step). An address inside a function resolves to that function (noted).
@@ -553,9 +557,22 @@ def docs_mentions(a):
     return out
 
 
+def documented_in(a):
+    """Session 98: the format / system / module page sections that name `a` (the library index, tools/q/qfact.py)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import qfact
+    return qfact.documented_in(a)
+
+
 def cmd_db(con, a, args):
     entries = [{'file': fn, **e} for x, fn, e in load_db_entries() if x == a]
-    return {'func': fname(con, a), 'addr': h(a), 'entries': entries, 'docs': docs_mentions(a)}
+    return {'func': fname(con, a), 'addr': h(a), 'entries': entries, 'docs': docs_mentions(a),
+            'documented_in': documented_in(a)}
+
+
+def print_documented(r, indent='  '):
+    for d in r.get('documented_in', [])[:8]:
+        print(f'{indent}documented in: {d["file"]}:{d["line"]}  {d["heading"]}')
 
 
 def print_db(r, args):
@@ -568,6 +585,7 @@ def print_db(r, args):
             print(f'  - {ev}')
         if e.get('source'):
             print(f'  source: {e["source"]}')
+    print_documented(r)
     for d in r['docs']:
         print(f'  mentioned in {d["doc"]} lines {", ".join(map(str, d["lines"][:10]))}')
 
@@ -655,7 +673,7 @@ def cmd_fn(con, a, args):
                      **({'uncertain': True} if s['op'].endswith('?') else {})} for s in strs],
         'addresses': [{'value': h(v), 'ops': sorted(set(o))} for (v, isaddr), o in cvals.items() if isaddr],
         'constants': [{'value': h(v), 'ops': sorted(set(o))} for (v, isaddr), o in cvals.items() if not isaddr],
-        'db': dbe['entries'], 'docs': dbe['docs'], 'coverage': coverage_for(a),
+        'db': dbe['entries'], 'docs': dbe['docs'], 'documented_in': dbe['documented_in'], 'coverage': coverage_for(a),
         **({'uncertain_hidden': hidden} if hidden else {}),
     }
 
@@ -666,6 +684,7 @@ def print_fn(r, args):
           + (f'  host RVA {r["host_rva"]}' if r['host_rva'] else ''))
     for e in r['db']:
         print(f'  db: {e.get("name")} [{e.get("system")}, {e.get("confidence")}] ({e["file"]}): {e.get("summary", "")[:160]}')
+    print_documented(r)
     for d in r['docs']:
         print(f'  doc: {d["doc"]} lines {", ".join(map(str, d["lines"][:8]))}')
     c = r['callers']
@@ -717,6 +736,11 @@ def main(argv=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qmap
         return qmap.main(argv[1:])
+    # Session 98: `q.py fact WORDS` = the knowledge library search (tools/q/qfact.py; no code index needed).
+    if argv and argv[0] == 'fact':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qfact
+        return qfact.main(argv[1:])
     ap = argparse.ArgumentParser(prog='q', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--json', action='store_true', help='machine-readable output')

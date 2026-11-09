@@ -8,7 +8,7 @@
 // (platform_desktop.cpp) so the pages can be checked in a phone-shaped window without a phone:
 //   wwe2k14_launcher_mobile.exe [--window WxH] [--scale S] [--files DIR] [--screen WxH]
 //                               [--page N] [--shot FILE.png] [--frames N] [--scroll PX] [--select N]
-//                               [--tap X,Y] [--quit-ms N] [--check] [--share-test]
+//                               [--tap X,Y] [--quit-ms N] [--check] [--share-test] [--import-trons ZIP]
 // --shot draws --frames frames (default 4) of page N, saves the window as a PNG and quits (tools\android\
 // launcher_shots.ps1 uses it). --tap sends a touch tap at the 3rd frame, --quit-ms quits after N ms (Session 72: the
 // frame pacing check; launcher.log shows when the page came and how many frames were drawn). --share-test makes
@@ -54,6 +54,11 @@
 #include "ladder.h"  // Session 95 (LADDER): run history, SAFE MODE steps, the cards
 #include "share_report.h"  // Session 73: report.txt in the shared zip
 #include "zip_writer.h"
+#include "../tron_zip.h"  // Session 98: IMPORT TRON PREVIEWS (ZIP), the PC launcher's EXPORT FOR PHONE
+#include "../importer/importer_core.h"  // Session 98: the SUPERSTARS list (LoadPack / SavePack)
+#include "../assets/id_names.h"
+#include <atomic>
+#include <thread>
 
 namespace mlauncher {
 
@@ -65,9 +70,10 @@ constexpr const char* kVersion = WWE2K14_VERSION;  // android\VERSION
 constexpr const char* kVersion = "android-dev";
 #endif
 
-enum Page { kHome, kGameFiles, kGraphics, kTouch, kDlc, kWm30, kSaves, kHelp, kPageCount };
+// (Session 98: MODS, the Arena Viewer's page, is numbered last so the --page numbers of the other pages stay as they were.)
+enum Page { kHome, kGameFiles, kGraphics, kTouch, kDlc, kWm30, kSaves, kHelp, kMods, kPageCount };
 constexpr const char* kPageNames[kPageCount] = {"HOME",   "GAME FILES", "GRAPHICS", "TOUCH CONTROLS",
-                                                "DLC",    "30 YEARS",   "SAVES",    "LOGS AND UPDATES"};
+                                                "DLC",    "30 YEARS",   "SAVES",    "LOGS AND UPDATES", "MODS"};
 
 // A disc image by its extension, any case.
 inline bool IsIso(const fs::path& p) {
@@ -123,6 +129,7 @@ struct TestSteps {
   bool check = false;            // --check: CHECK THIS PHONE at start (Session 73)
   bool diag_run = false;         // --diag-run: start the DIAGNOSTIC RUN at start (Session 95)
   bool share = false;            // --share-test: SHARE's zip and report, no share sheet, then quit (Session 73)
+  std::string import_trons;      // --import-trons ZIP: IMPORT TRON PREVIEWS of this zip at start (Session 98)
 };
 
 class App {
@@ -151,11 +158,14 @@ class App {
     RefreshGame();
     ResumeAfterPrecompile();  // Session 93
     ResumeAfterDiag();        // Session 95
+    ResumeAfterTrons();       // Session 98 (BUILD TRON PREVIEWS)
     // Session 73: how the last game run ended (src\blackbox.h; LauncherActivity wrote Android's reason first).
     last_run_ = check::LastRun(files_);
     if (!last_run_.empty()) {
       Log("last game run: %s", last_run_.c_str());
-      ShowToast(last_run_, 10000);
+      ShowToast(trons_toast_.empty() ? last_run_ : trons_toast_ + "\n" + last_run_, 12000);  // (Session 98: both after a tron export)
+    } else if (!trons_toast_.empty()) {
+      ShowToast(trons_toast_, 8000);
     }
     LadderStart();  // Session 95 (LADDER)
     if (s_.check_updates && (test_.shot.empty() || std::getenv("WWE2K14_UPDATE_FILE")) && !test_.share) CheckUpdate();
@@ -166,12 +176,20 @@ class App {
     if (page_ == kSaves) ScanSaves();
     if (test_.select >= 0) wm30_pick_ = test_.select;
     if (test_.drawer) drawer_open_ = true;
+    {  // Session 98 (review of the zip import): a kill in the middle of an import's swap must not lose both sets of previews
+      std::error_code ec;
+      if (!fs::exists(TronsPendingPath(), ec)) tron_zip::Recover(TronsDir());
+    }
+    if (!test_.import_trons.empty()) StartTronZipImport(test_.import_trons, U8(fs::u8path(test_.import_trons).filename()));
   }
 
   // One frame. Returns false once the PC test's screenshot is saved.
   bool Frame() {
     for (platform::Event e; platform::PollEvent(e);) OnEvent(e);
     DiagFrame();  // Session 95
+    SyncSuperstarsKey();  // Session 98 (importer review): the importer's switch, the same key
+    TronsPoll();  // Session 98: a tron export running behind the launcher
+    PollTronZipImport();  // Session 98 (IMPORT TRON PREVIEWS)
     // Session 93 (M6 step 2): the shader precompile has just ended and brought us back: the PLAY it was for goes on (after a
     // few frames, so the launcher is up and the platform is ready for the activity switch).
     if (resume_play_ && ++resume_frames_ > 3) {
@@ -225,6 +243,7 @@ class App {
   // spreads a tap's finger position, down and up over three frames), or a gamepad button is held (the menus repeat).
   bool Busy() const {
     if (!test_.drawer && drawer_t_ != (drawer_open_ ? 1.f : 0.f)) return true;
+    if (tronzip_ && !tronzip_->done) return true;  // Session 98: the import's progress bar moves
     if (ImGui::GetCurrentContext()->InputEventsQueue.Size > 0) return true;
     for (int k = ImGuiKey_GamepadStart; k <= ImGuiKey_GamepadRStickDown; ++k)
       if (ImGui::IsKeyDown(ImGuiKey(k))) return true;
@@ -265,8 +284,26 @@ class App {
   // The game's save folder: the SDK's default user folder (HOME/.local/share/wwe2k14 on the phone, where the activity
   // sets HOME to the app folder: SDK windowed_app_main_sdl.cpp, filesystem_posix.cpp GetUserFolder).
   fs::path SaveDir() const { return files_ / ".local" / "share" / "wwe2k14"; }
-  void Save() {
+  // Session 98 (importer review): the Superstar Importer edits this file's "superstars" key; every save reads it first (sync = false
+  // only right after this launcher's own USE MY SUPERSTARS toggle, whose new value must win).
+  void Save(bool sync = true) {
+    if (sync) SyncSuperstarsKey(true);
     if (!SaveSettings(SettingsPath(), s_)) Log("settings: could not write %s", U8(SettingsPath()).c_str());
+  }
+  // Every frame (a stat; the key is read when the file changed), before every save and every game launch (MakeContext).
+  fs::file_time_type stars_key_time_{};
+  void SyncSuperstarsKey(bool force = false) {
+    std::error_code ec;
+    const fs::file_time_type t = fs::last_write_time(SettingsPath(), ec);
+    if (ec || (!force && t == stars_key_time_)) return;
+    stars_key_time_ = t;
+    try {
+      std::ifstream f(SettingsPath(), std::ios::binary);
+      if (!f) return;
+      const nlohmann::json j = nlohmann::json::parse(f);
+      if (j.is_object() && j.contains("superstars") && j["superstars"].is_boolean()) s_.superstars = j["superstars"].get<bool>();
+    } catch (...) {
+    }
   }
 
   void GoPage(Page p) {
@@ -478,7 +515,7 @@ class App {
   // launcher's sidebar) with the sections, the logo and PLAY on the right.
   void HomePage(ImVec2 size) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    static constexpr Page kItems[] = {kGameFiles, kGraphics, kTouch, kDlc, kWm30, kSaves, kHelp};
+    static constexpr Page kItems[] = {kGameFiles, kGraphics, kTouch, kDlc, kMods, kWm30, kSaves, kHelp};
     const int n = int(std::size(kItems));
     // Landscape: the rows share the height (a phone on its side is ~410 dp tall).
     const float row = landscape_ ? std::min(D(54), (safe_max_.y - safe_min_.y - D(36)) / float(n)) : D(54);
@@ -522,7 +559,7 @@ class App {
       MenuText(dl, ImVec2(cx - MenuTextSize(px, by).x / 2, y + logo_h * 0.69f), px, IM_COL32(255, 255, 255, 150), by);
     }
     y += logo_h + D(28);
-    if (SlantButton("PLAY", ImVec2(hero_min.x + (hw - play_w) / 2, y), ImVec2(play_w, play_h), true, D(44))) Play();
+    if (SlantButton("PLAY", ImVec2(hero_min.x + (hw - play_w) / 2, y), ImVec2(play_w, play_h), !TronZipRunning(), D(44))) Play();
     y += play_h + D(14);
     {
       const std::string st = game_ok_ ? "Game files: " + GameName() : "Choose your game files to play";
@@ -615,6 +652,7 @@ class App {
       case kGraphics: GraphicsPage(); break;
       case kTouch: TouchPage(); break;
       case kDlc: DlcPage(); break;
+      case kMods: ModsPage(); break;
       case kWm30: Wm30Page(); break;
       case kSaves: SavesPage(); break;
       case kHelp: HelpPage(); break;
@@ -652,7 +690,7 @@ class App {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(ImVec2(0, 0), size, IM_COL32(0, 0, 0, int(160 * ease)));
 
-    static constexpr Page kItems[] = {kHome, kGameFiles, kGraphics, kTouch, kDlc, kWm30, kSaves, kHelp};
+    static constexpr Page kItems[] = {kHome, kGameFiles, kGraphics, kTouch, kDlc, kMods, kWm30, kSaves, kHelp};
     const int n = int(std::size(kItems));
     const float w = std::min(D(330), size.x * 0.84f) + safe_min_.x, off = -(1 - ease) * w;
     theme::Panel p;
@@ -1091,15 +1129,6 @@ class App {
           for (int i = 0; i < 3; ++i)
             if (Choice(kFilters[i], s_.texture_filter == i)) s_.texture_filter = i, Save();
           ImGui::PopID();
-          GroupTitle("DIAGNOSTICS");
-          static constexpr const char* kStorage[] = {"STORAGE: NORMAL", "STORAGE: WINDOWS ON",
-                                                     "STORAGE: SMALL WINDOWS", "STORAGE: OLD SPLIT"};
-          ImGui::PushID("st");
-          for (int i = 0; i < 4; ++i)
-            if (Choice(kStorage[i], s_.storage_test == i)) s_.storage_test = i, Save();
-          ImGui::PopID();
-          if (Toggle("Reduced precision", s_.mediump)) Save();
-          Note("For testers: change only when asked.");
         });
     ImGui::PopStyleVar();
     GroupTitle("GRAPHICS DRIVER");
@@ -1212,6 +1241,460 @@ class App {
     }
   }
 
+  // Session 98 (Arena Viewer phone port, stage C): the PC launcher's MODS tab button. The viewer reads the same game files (and the
+  // DLC packs as the DLC page has them) in its own activity over this launcher; Back there comes back here.
+  void ModsPage() {
+    GroupTitle("ARENA VIEWER");
+    Note("Walk around the arenas and wrestlers of your own game files. One finger looks, two fingers move, pinch goes forward "
+         "or back, a tap picks a part. Landscape only; Back leaves it.");
+    if (Button("ARENA VIEWER", game_ok_ && !TronZipRunning())) StartViewer();
+    if (!game_ok_) Note("Choose your game files first.");
+    SuperstarsGroup();  // Session 98 (Superstar Importer)
+    // Session 98 (first phone test: the viewer's VIDEOS panel said "No tron export found"): the PC launcher's Build previews, for the
+    // phone. The game runs once in its tron export mode (src\tron_export.h: pictures + MP4 videos) and comes back by itself.
+    GroupTitle("TRON PREVIEWS");
+    if (trons_running_) {  // Session 98: the export runs behind this launcher (TronExportService)
+      const TronsProgress& p = trons_prog_;
+      if (p.state == "running") {
+        ImGui::TextWrapped("Building now: %d / %d  %s%s%s", std::min(p.done + 1, p.total), p.total, p.phase.c_str(),
+                           p.phase.empty() ? "" : ": ", p.item.c_str());
+        ImGui::ProgressBar(p.Fraction(), ImVec2(-1, D(10)), "");
+        Note(p.Detail().c_str());
+      } else {
+        Note("Building now: the game is starting.");
+        ImGui::ProgressBar(0.f, ImVec2(-1, D(10)), "");
+      }
+      if (p.Stuck()) {  // Session 98 review: a game process that outlived its export (or a hung export) must not block PLAY forever
+        ImGui::PushStyleColor(ImGuiCol_Text, kBad);
+        ImGui::TextWrapped("The export has not moved for over 4 minutes.");
+        ImGui::PopStyleColor();
+        if (Button("STOP THE EXPORT")) {
+          Log("tron previews: STOP pressed (no progress since %.0f, state %s)", p.updated, p.state.c_str());
+          platform::KillGame();
+          trons_poll_ms_ = 0;  // (the next frame's poll sees the process gone and reports the run)
+        }
+        Note("Ends the game's process. What is made so far stays; build them again to finish.");
+        return;
+      }
+      Note("It keeps going in the background; the notification shows the progress. PLAY, the Arena Viewer and another build wait "
+           "until it is done.");
+      Button("BUILD TRON PREVIEWS", false);
+      return;
+    }
+    const int n = TronPreviewCount();
+    const int nv = TronVideoCount();
+    Note(n > 0 ? (std::to_string(n) + " titantron pictures and " + std::to_string(nv) +
+                  " videos made. The viewer plays them on the stage screens and shows them in ASSETS > VIDEOS." +
+                  (nv == 0 ? " No videos yet: build them again for moving screens." : "")).c_str()
+               : "The viewer's stage screens and its ASSETS > VIDEOS need the titantrons and stage movies. Your own game makes them, once.");
+    if (!trons_last_.empty()) Note(trons_last_.c_str());  // Session 98: the last run's result and where its time went
+    if (Button(n > 0 ? "BUILD TRON PREVIEWS AGAIN" : "BUILD TRON PREVIEWS", game_ok_ && !TronZipRunning())) StartTronExport();
+    Note(("The game starts, then decodes every titantron and stage movie into pictures and videos (several minutes, up to about 15). "
+          "Once the progress bar moves you can leave the app: a notification shows the progress, and this launcher comes back by "
+          "itself. Needs up to about " + std::to_string(kTronsNeedMb) + " MB of storage.").c_str());
+    TronZipImportUi();  // Session 98: IMPORT TRON PREVIEWS (ZIP), the PC launcher's EXPORT FOR PHONE
+  }
+
+  // ------------------------------------------------------------ Session 98: the tron previews (the PC launcher's Build previews)
+  fs::path TronsDir() const { return files_ / "trons"; }  // (the viewer's tron cache: viewer_main.cpp, <files>/trons on Android)
+  fs::path TronsPendingPath() const { return files_ / "trons_pending.txt"; }
+  // Session 98 (phone tron video): the PNGs (~110 MB on the PC) + the MP4s of every tron and stage movie at the phone's rate (0.2 bits per
+  // pixel per frame, src/tron_export.h: ~460 + ~300 MB, scaled from the PC's 691 MB of tron MP4s at 0.3) -> ~0.9 GB; 1 GB asked.
+  // An estimate, not measured on a phone.
+  static constexpr int kTronsNeedMb = 1000;
+  int TronPreviewCount() {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - trons_checked_ < std::chrono::seconds(2) && trons_checked_.time_since_epoch().count() != 0) return trons_count_;
+    trons_checked_ = now, trons_count_ = 0, trons_videos_ = 0;
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator(TronsDir(), ec)) {
+      const std::string name = U8(e.path().filename());
+      if (name.empty() || !std::isdigit(static_cast<unsigned char>(name[0]))) continue;
+      if (name.size() > 4 && name.compare(name.size() - 4, 4, ".png") == 0) ++trons_count_;
+      if (name.size() > 4 && name.compare(name.size() - 4, 4, ".mp4") == 0) ++trons_videos_;  // NNN.mp4 / NNN.alpha.mp4
+    }
+    return trons_count_;
+  }
+  int TronVideoCount() {  // (counted by TronPreviewCount, called first)
+    TronPreviewCount();
+    return trons_videos_;
+  }
+  int trons_videos_ = 0;
+
+  // Session 98 (Jarrod: "needs a progress bar ... a background process with a notification"): the export's progress file
+  // (<trons>/progress.json, src/tron_export.h) and its timings (<trons>/timings.json). The export can run behind this launcher: the
+  // launcher opens over the game once the export proper has started (LauncherActivity), then follows it here (TronsPoll) and
+  // reports the run when the game's process has ended.
+  struct TronsProgress {
+    std::string state, phase, item, message;
+    int done = 0, total = 0, ok = 0;
+    double item_frame = 0, item_frames = 0, mb = 0, elapsed = -1, eta = -1;
+    double updated = 0;  // when the game last wrote the file (seconds since 1970)
+    // Review: the export writes about once a second; no word for 4 minutes while its process lives = stuck (STOP offered).
+    bool Stuck() const {
+      if (updated <= 0 || state == "starting" || state.empty()) return false;
+      const double now = double(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+      return now - updated > 240;
+    }
+    float Fraction() const {
+      if (total <= 0) return 0.f;
+      const double part = item_frames > 0 && done < total ? std::min(1.0, item_frame / item_frames) : 0.0;
+      return float(std::min(1.0, (done + part) / total));
+    }
+    std::string Detail() const {
+      char b[160];
+      std::snprintf(b, sizeof b, "%.0f MB written", mb);
+      std::string s = b;
+      if (eta >= 0) s += ", about " + std::to_string(std::max(1, int(eta / 60.0 + 0.5))) + " min left";
+      return s;
+    }
+  };
+  fs::path TronsProgressPath() const { return TronsDir() / "progress.json"; }
+  TronsProgress ReadTronsProgress() {
+    TronsProgress p;
+    try {
+      std::ifstream f(TronsProgressPath(), std::ios::binary);
+      if (!f) return p;
+      const nlohmann::json j = nlohmann::json::parse(f);
+      p.state = j.value("state", ""), p.phase = j.value("phase", ""), p.item = j.value("item", ""), p.message = j.value("message", "");
+      p.done = j.value("done", 0), p.total = j.value("total", 0), p.ok = j.value("ok", 0);
+      p.item_frame = j.value("item_frame", 0.0), p.item_frames = j.value("item_frames", 0.0);
+      p.mb = j.value("mb", 0.0), p.elapsed = j.value("elapsed_s", -1.0), p.eta = j.value("eta_s", -1.0);
+      p.updated = j.value("updated", 0.0);
+    } catch (...) {
+      // (caught mid-write is not possible - the file is renamed into place - but an old or broken file reads as empty)
+    }
+    return p;
+  }
+  // The last run's totals by phase from timings.json: "decode 4.2 min, encode 3.1 min, ..." (Jarrod's speed work starts from these).
+  std::string TronsTimingLine() {
+    try {
+      std::ifstream f(TronsDir() / "timings.json", std::ios::binary);
+      if (!f) return {};
+      const nlohmann::json j = nlohmann::json::parse(f);
+      const auto& t = j.at("totals");
+      auto min = [&](const char* key) { return t.value(key, 0.0) / 60000.0; };
+      char b[512];
+      std::snprintf(b, sizeof b,
+                    "Time by step%s: decode %.1f min, encode %.1f min, file writes %.1f min, conversion %.1f min, PNG %.1f min, "
+                    "open / read / close %.1f min, other %.1f min (%.1f min in all, %d items, %.0f MB).",
+                    j.value("complete", false) ? "" : " (run not finished)", min("decode_ms"), min("encode_ms"), min("mux_ms"),
+                    min("convert_ms"), min("png_ms"), min("open_ms") + min("read_ms") + min("close_ms"), min("other_ms"),
+                    min("wall_ms"), t.value("items", 0), t.value("bytes", 0.0) / 1048576.0);
+      return b;
+    } catch (...) {
+      return {};
+    }
+  }
+  // Once a second while an export runs behind the launcher.
+  void TronsPoll() {
+    if (!trons_running_) return;
+    const uint64_t now = SDL_GetTicks();
+    if (now - trons_poll_ms_ < 1000) return;
+    trons_poll_ms_ = now;
+    trons_prog_ = ReadTronsProgress();
+    if (platform::GameAlive()) return;
+    trons_running_ = false;
+    Log("tron previews: the game's process has ended (progress: %s, %d of %d)", trons_prog_.state.c_str(), trons_prog_.done,
+        trons_prog_.total);
+    ResumeAfterTrons();
+    if (!trons_toast_.empty()) ShowToast(trons_toast_, 10000);
+  }
+  // Session 98: nothing else starts the game (or the viewer) while an export runs behind the launcher.
+  bool TronsBlock(const char* what) {
+    if (TronZipRunning()) {  // Session 98 (review of the zip import): the previews are being replaced
+      Log("%s refused: a tron previews import is running", what);
+      ShowToast(std::string("The tron previews are being imported. ") + what + " works again when the import finishes.", 6000);
+      return true;
+    }
+    if (!trons_running_) return false;
+    Log("%s refused: the tron export is still running", what);
+    const std::string counts = trons_prog_.total > 0 ? " (" + std::to_string(trons_prog_.done) + " of " +
+                                                           std::to_string(trons_prog_.total) + " done)"
+                                                     : "";
+    ShowToast("Tron previews are still being built" + counts + ". " + what + " works again when they finish" +
+                  (trons_prog_.Stuck() ? " (it looks stuck: MODS > TRON PREVIEWS has STOP THE EXPORT)." : "."),
+              6000);
+    return true;
+  }
+  bool trons_running_ = false;
+  uint64_t trons_poll_ms_ = 0;
+  TronsProgress trons_prog_;
+  std::string trons_last_;  // the last finished run: its result + TronsTimingLine
+
+  void StartTronExport() {
+    if (TronsBlock("BUILD TRON PREVIEWS")) return;
+    if (!game_ok_) {
+      GoPage(kGameFiles);
+      ShowToast("Choose your game files first");
+      return;
+    }
+    if (const std::string pages = check::PageSizeProblem(); !pages.empty()) {  // (the same refusals as PLAY)
+      Log("BUILD TRON PREVIEWS refused: %s", pages.c_str());
+      ShowToast(pages, 10000);
+      return;
+    }
+    if (const std::string cpu = check::CpuProblem(); !cpu.empty()) {
+      Log("BUILD TRON PREVIEWS refused: %s", cpu.c_str());
+      ShowToast(cpu, 12000);
+      return;
+    }
+    std::error_code ec;
+    fs::create_directories(TronsDir(), ec);
+    // Room for the pictures and videos (kTronsNeedMb; what is already there is written over, so it counts as room)
+    {
+      uint64_t have = 0;
+      for (const auto& e : fs::recursive_directory_iterator(TronsDir(), ec))
+        if (e.is_regular_file(ec)) have += e.file_size(ec);
+      const auto space = fs::space(files_, ec);
+      const uint64_t need = kTronsNeedMb * 1024ull * 1024ull;
+      if (!ec && space.available + have < need) {
+        const std::string why = "Not enough free storage for the tron previews: they need about " + std::to_string(kTronsNeedMb) +
+                                " MB, " + std::to_string((unsigned long long)((space.available + have) / (1024 * 1024))) + " MB free";
+        Log("BUILD TRON PREVIEWS refused: %s", why.c_str());
+        ShowToast(why, 10000);
+        return;
+      }
+    }
+    // A killed or crashed run must not leave the last run's index.json to report "ready" (ResumeAfterTrons)
+    fs::remove(TronsDir() / "index.json", ec);
+    // Session 98: a fresh progress file ("starting": LauncherActivity brings the game forward until the export proper runs) and no
+    // old timings to report as this run's.
+    fs::remove(TronsDir() / "timings.json", ec);
+    std::ofstream(TronsProgressPath(), std::ios::trunc) << "{\"state\": \"starting\"}\n";
+    trons_last_.clear();
+    // The Play's graphics arguments (the phone's own: the game must boot as it does for a Play), no match to jump into, no Safe Mode
+    // trial; sound off (the game is held still while it decodes).
+    std::vector<std::string> args = GameArgs(s_, MakeContext(-1));
+    args.push_back("--wwe2k14_tron_export=" + U8(TronsDir()));
+    args.push_back("--wwe2k14_tron_export_media_mp4=true");  // Session 98 (phone tron video): the stage movies as MP4 too (the PC's Build previews)
+    args.push_back("--audio_mute=true");
+    std::ofstream(TronsPendingPath(), std::ios::trunc) << "tron export " << kVersion << "\n";
+    Save();
+    std::string line;
+    for (const auto& a : args) line += " " + a;
+    Log("BUILD TRON PREVIEWS:%s", line.c_str());
+    platform::TouchChoice t;
+    t.mode = 2;  // (TouchOverlay.MODE_OFF: nothing to play)
+    platform::StartGame(args, address_, t);
+  }
+  // At the launcher's start: the tron export that was running has ended (or the game died). Not a player run (LadderStart).
+  void ResumeAfterTrons() {
+    std::error_code ec;
+    if (!fs::exists(TronsPendingPath(), ec)) {
+      if (trons_last_.empty()) trons_last_ = TronsTimingLine();  // Session 98: the last run's numbers on the MODS page
+      return;
+    }
+    // Session 98: the launcher opened over a running export (LauncherActivity): follow it (TronsPoll) instead of reporting it.
+    if (platform::GameAlive()) {
+      trons_running_ = true;
+      trons_ended_ = true;  // (the game run the black box describes is this export, not a player's run: LadderStart leaves it out)
+      trons_prog_ = ReadTronsProgress();
+      trons_poll_ms_ = SDL_GetTicks();
+      Log("tron previews: the export is still running (%s, %d of %d): following it", trons_prog_.state.c_str(), trons_prog_.done,
+          trons_prog_.total);
+      return;
+    }
+    fs::remove(TronsPendingPath(), ec);
+    trons_ended_ = true;
+    trons_checked_ = {};  // (count the files again: the export has just written them)
+    const int n = TronPreviewCount();
+    bool index = fs::exists(TronsDir() / "index.json", ec);
+    const TronsProgress p = ReadTronsProgress();
+    Log("tron previews: the export run ended: %d tron pictures, index.json %s, progress %s (%d of %d, %d ok)", n,
+        index ? "written" : "missing", p.state.c_str(), p.done, p.total, p.ok);
+    const std::string timing = TronsTimingLine();
+    if (!timing.empty()) Log("tron previews: %s", timing.c_str());
+    // (shown in Start together with the last run's own line: a crashed export must not lose either)
+    trons_toast_ = index && n > 0 ? "Tron previews ready: " + std::to_string(n) + " titantrons" +
+                                        (p.total > 0 ? " (" + std::to_string(p.ok) + " of " + std::to_string(p.total) + " items made)" : "")
+                                  : n > 0 ? "Tron previews: the run ended early (" + std::to_string(n) + " pictures so far" +
+                                                (p.total > 0 ? ", " + std::to_string(p.done) + " of " + std::to_string(p.total) + " items" : "") +
+                                                "): build them again to finish"
+                                          : std::string("Tron previews: none were made (see SHARE for the game's log)");
+    trons_last_ = "Last build: " + trons_toast_.substr(trons_toast_.find(':') + 2) + (timing.empty() ? "" : ". " + timing);
+  }
+  std::string trons_toast_;
+  bool trons_ended_ = false;
+  std::chrono::steady_clock::time_point trons_checked_{};
+  int trons_count_ = 0;
+
+  // ------------------------------------------------------------ Session 98: IMPORT TRON PREVIEWS (ZIP)
+  // Jarrod: "could we have it export a zip that the phone launcher takes in? ... the easiest way for people to get it from their PC
+  // games to their phone game". The PC launcher's Trons -> Export for phone... makes one zip (src/tron_zip.h); this takes it in:
+  // Android's picker, the zip read in place (/proc/self/fd/N), checked (manifest, names, sizes, free space), unpacked next to the
+  // old previews and swapped in only when complete (tron_zip::Import), on a thread with a progress bar.
+  struct TronZipJob {
+    tron_zip::Progress prog;
+    std::atomic<bool> done{false};
+    std::string err, name;  // (err written by the thread before `done`)
+    tron_zip::ImportResult result;
+  };
+  std::shared_ptr<TronZipJob> tronzip_;
+  bool TronZipRunning() const { return tronzip_ && !tronzip_->done; }
+  void TronZipImportUi() {
+    const bool running = TronZipRunning();
+    std::error_code ec;
+    const bool exporting = trons_running_ || fs::exists(TronsPendingPath(), ec);
+    if (Button("IMPORT TRON PREVIEWS (ZIP)", !running && !exporting)) platform::PickTronZip();
+    if (running) {
+      const uint64_t t = tronzip_->prog.total, d = tronzip_->prog.done;
+      ImGui::ProgressBar(t ? float(double(d) / double(t)) : 0.f, ImVec2(-1, D(10)), "");
+      Note(t ? ("Importing " + tronzip_->name + ": " + std::to_string(d >> 20) + " of " + std::to_string(t >> 20) + " MB").c_str()
+             : ("Checking " + tronzip_->name + "...").c_str());
+    } else {
+      Note("Already built them on your PC? In the PC launcher's MODS > TRONS, press Export for phone..., copy the zip to this "
+           "phone and pick it here: no need to build them again. It replaces the previews above.");
+    }
+  }
+  void StartTronZipImport(const std::string& address, const std::string& name) {
+    if (TronZipRunning()) return;
+    std::error_code ec;
+    if (trons_running_ || fs::exists(TronsPendingPath(), ec)) {
+      ShowToast("The tron previews are being built: import the zip when that has finished.", 6000);
+      return;
+    }
+    const std::string path = platform::OpenPickedZip(address);
+    if (path.empty()) {
+      Log("IMPORT TRON PREVIEWS: %s cannot be read in place", address.c_str());
+      ShowToast("That zip cannot be read here. Copy it to the phone's own storage (Download, for example) and pick it from there.", 10000);
+      return;
+    }
+    auto job = std::make_shared<TronZipJob>();
+    job->name = name.empty() ? std::string("the zip") : name;
+    tronzip_ = job;
+    Log("IMPORT TRON PREVIEWS: %s (%s)", job->name.c_str(), address.c_str());
+    std::thread([job, path, dir = TronsDir()] {
+      try {
+        job->err = tron_zip::Import(path, dir, job->result, &job->prog);
+      } catch (const std::exception& e) {
+        job->err = std::string("the import stopped: ") + e.what();
+      } catch (...) {
+        job->err = "the import stopped";
+      }
+      job->done = true;
+    }).detach();
+  }
+  // Each frame: an import that has ended gets its note once.
+  void PollTronZipImport() {
+    if (!tronzip_ || !tronzip_->done || tronzip_reported_ == tronzip_.get()) return;
+    tronzip_reported_ = tronzip_.get();
+    platform::ClosePickedZip();
+    trons_checked_ = {};  // (counted again)
+    const auto& r = tronzip_->result;
+    if (!tronzip_->err.empty()) {
+      Log("IMPORT TRON PREVIEWS failed: %s", tronzip_->err.c_str());
+      ShowToast("Tron previews not imported: " + tronzip_->err, 10000);
+      return;
+    }
+    Log("IMPORT TRON PREVIEWS: %d files (%d videos, %d pictures, %llu bytes) from %s made %s; %d other files skipped", r.counts.files,
+        r.counts.videos, r.counts.pictures, (unsigned long long)r.counts.bytes, r.source.c_str(), r.created.c_str(), r.skipped);
+    const std::string from = r.source == "pc" ? "your PC" : r.source == "phone" ? "another phone" : "the zip";
+    ShowToast("Imported " + std::to_string(r.counts.videos) + " videos from " + from + " (" + std::to_string(r.counts.pictures) +
+                  " pictures)",
+              8000);
+  }
+  const void* tronzip_reported_ = nullptr;
+  // Session 98 (Superstar Importer; Jarrod: "as simple as an on and off switch, similar to our custom music and Trons" and "a table
+  // that lists the superstars added"): USE MY SUPERSTARS, the importer (the viewer's --importer mode in ViewerActivity), and the pack's
+  // list (<files>/mods/superstars, the importer core's LoadPack) with EDIT / REMOVE per superstar. The importer's own ON / OFF switch is
+  // this setting (it edits the "superstars" key of this launcher's settings file; the key is read back here once a second).
+  importer::PackState stars_;
+  std::string stars_err_;
+  std::chrono::steady_clock::time_point stars_checked_{};
+  int stars_sel_ = -1;
+  bool stars_confirm_ = false;
+  std::string ModsDir() const { return U8(files_ / "mods"); }
+  std::string stars_sig_;
+  std::string StarsSig() const {  // <mods>/superstars: file names, sizes, times (the PC launcher's rule)
+    std::string sig;
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator(files_ / "mods" / "superstars", ec)) {
+      std::error_code e2;
+      if (!e.is_regular_file(e2)) continue;
+      sig += U8(e.path().filename()) + ":" + std::to_string(fs::file_size(e.path(), e2)) + ":" +
+             std::to_string(static_cast<long long>(fs::last_write_time(e.path(), e2).time_since_epoch().count())) + ";";
+    }
+    return sig;
+  }
+  void SuperstarsGroup() {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - stars_checked_ > std::chrono::seconds(1)) {  // (importer review: the pack is read again only when its folder changed)
+      stars_checked_ = now;
+      const std::string sig = StarsSig();
+      if (sig != stars_sig_ || stars_sig_.empty()) {
+        stars_sig_ = sig.empty() ? std::string("-") : sig;
+        stars_err_.clear();
+        if (!importer::LoadPack(ModsDir(), stars_, stars_err_)) stars_ = importer::PackState();
+        if (stars_sel_ >= int(stars_.stars.size())) stars_sel_ = -1;
+      }
+    }
+    GroupTitle("SUPERSTARS");
+    Note("Community characters (.pac, or a .zip that holds them) added to the roster as new superstars (DOWNLOADED SUPERSTARS).");
+    if (Toggle("USE MY SUPERSTARS", s_.superstars, s_.superstars ? "On: your pack is in the game" : "Off: the game's own roster only")) Save(false);
+    if (Button("SUPERSTAR IMPORTER", game_ok_ && !TronZipRunning())) StartViewer({"--importer"});
+    if (Button("IMPORT MANY", game_ok_ && !TronZipRunning())) StartViewer({"--importer", "--importer-bulk"});
+    char head[96];
+    std::snprintf(head, sizeof head, "%zu of up to %d superstars%s", stars_.stars.size(), importer::kMaxStars,
+                  stars_.needs_build ? "  -  changed: open the importer and BUILD INTO GAME" : "");
+    Note(head);
+    for (int i = 0; i < int(stars_.stars.size()); ++i) {
+      const importer::Superstar& x = stars_.stars[size_t(i)];
+      char label[160], note[160];
+      std::snprintf(label, sizeof label, "%d   %s", x.slot, x.name.c_str());
+      std::snprintf(note, sizeof note, "based on %s", assets::CharacterLabel(x.base_id).c_str());
+      ImGui::PushID(i);
+      if (Choice(label, stars_sel_ == i, note)) stars_sel_ = stars_sel_ == i ? -1 : i;
+      ImGui::PopID();
+      if (stars_sel_ == i) {
+        if (Button("EDIT IN THE IMPORTER", game_ok_)) StartViewer({"--importer", "--importer-edit", std::to_string(x.slot)});
+        if (!stars_confirm_) {
+          if (Button("REMOVE FROM THE PACK")) stars_confirm_ = true;
+        } else {
+          Note("Remove him from the pack? Build the pack again in the importer to take him out of the game.");
+          if (Button("YES, REMOVE")) {
+            importer::PackState st;
+            std::string err;
+            // (importer review: by slot, read fresh - the importer may have changed the list since)
+            const int slot = x.slot;
+            const bool read = importer::LoadPack(ModsDir(), st, err);
+            const auto it = std::find_if(st.stars.begin(), st.stars.end(), [slot](const importer::Superstar& y) { return y.slot == slot; });
+            if (read && it != st.stars.end()) {
+              st.stars.erase(it);
+              st.needs_build = true;
+              if (!importer::SavePack(ModsDir(), st, err)) ShowToast("Not removed: " + err, 5000);
+            } else ShowToast("Not removed: " + (err.empty() ? std::string("he is no longer in the pack") : err), 5000);
+            stars_sel_ = -1, stars_confirm_ = false, stars_checked_ = {}, stars_sig_.clear();
+            break;  // (the list changed under the loop)
+          }
+          if (Button("CANCEL")) stars_confirm_ = false;
+        }
+      }
+    }
+    if (!stars_err_.empty()) Note(stars_err_.c_str());
+  }
+  void StartViewer(const std::vector<std::string>& more = {}) {
+    if (TronsBlock(more.empty() ? "The Arena Viewer" : "The Superstar Importer")) return;  // Session 98
+    std::vector<std::string> args = {"--game", address_.rfind("content://", 0) == 0 ? std::string(kGameFdToken) : read_path_};
+    for (const std::string& m : more) args.push_back(m);
+    if (!more.empty()) {  // Session 98 (Superstar Importer): its pack in <files>/mods, its switch in this launcher's settings file
+      Save();
+      args.push_back("--mods"), args.push_back(ModsDir());
+      args.push_back("--settings-file"), args.push_back(U8(SettingsPath()));
+    }
+    std::error_code ec;
+    if (!s_.dlc) args.push_back("--no-dlc");
+    else if (fs::is_directory(DlcDir(), ec)) {
+      args.push_back("--dlc"), args.push_back(U8(DlcDir()));
+      const std::string off = JoinIds(ParseIds(s_.dlc_off));
+      if (!off.empty()) args.push_back("--dlc-off"), args.push_back(off);
+    }
+    std::string line;
+    for (const auto& a : args) line += " " + a;
+    Log("ARENA VIEWER:%s", line.c_str());
+    platform::StartViewer(args, address_);
+  }
+
   void Wm30Page() {
     if (!game_ok_) {
       Note("Choose your game files first: the list comes from them.");
@@ -1252,7 +1735,7 @@ class App {
   void Wm30Bar(ImVec2 pos, float w) {
     const bool picked = wm30_pick_ >= 0 && wm30_pick_ < int(wm30_.matches.size());
     if (SlantButton(picked ? "PLAY THIS MATCH" : "PICK A MATCH", ImVec2(pos.x + D(8), pos.y + D(10)),
-                    ImVec2(w - D(16), D(70)), picked && game_ok_, D(36)) && picked)
+                    ImVec2(w - D(16), D(70)), picked && game_ok_ && !TronZipRunning(), D(36)) && picked)
       Play(wm30_.matches[size_t(wm30_pick_)].index);
   }
 
@@ -1585,6 +2068,9 @@ class App {
     add(frames);
     add(memory);
     for (const char* extra : {"startup.txt", "stderr.txt", "hang.txt", "last_game_exit.txt", "last_game_exit_trace.bin", "last_launcher_exit.txt", "run_history.txt"}) add(logs / extra);
+    // Session 98: the last tron export's timings and progress (our own numbers, no game data) for the speed work
+    add(TronsDir() / "timings.json");
+    add(TronsDir() / "progress.json");
     Log("share: report zip %s", U8(path).c_str());  // before the copy, so the zip's launcher.log has it
     add(logs / "launcher.log");
     add(SettingsPath());
@@ -1642,10 +2128,12 @@ class App {
     std::ofstream(PrecompileStampPath(), std::ios::trunc) << state << "\n" << CurrentPrecompileKey() << "\n";
   }
   LaunchContext MakeContext(int wm30) {
+    SyncSuperstarsKey(true);  // Session 98 (importer review): GameArgs reads s_.superstars right after this
     LaunchContext c;
     c.game_path = address_.rfind("content://", 0) == 0 ? kGameFdToken : read_path_;
     std::error_code ec;
     if (fs::is_directory(DlcDir(), ec)) c.dlc_dir = U8(DlcDir());
+    if (fs::is_directory(files_ / "mods" / "superstars", ec)) c.mods_dir = U8(files_ / "mods");  // Session 98 (Superstar Importer)
     platform::ScreenSize(c.screen_w, c.screen_h);
     c.wm30 = wm30;
     c.rung = rung_.rung;  // Session 95 (LADDER)
@@ -1658,6 +2146,7 @@ class App {
   // The precompile run: the Play's arguments (same graphics, same driver: the keys the play will ask for) without the match
   // to jump into and without the driver trial (that belongs to the real game: it must not be used up here).
   void StartPrecompile(int wm30) {
+    if (TronsBlock("PLAY")) return;  // Session 98
     LaunchContext pc = MakeContext(-1);
     pc.rung = 0;  // (Safe Mode steps are for the play: one shader worker would make the precompile overrun its deadline)
     std::vector<std::string> args = GameArgs(s_, pc);
@@ -1769,6 +2258,7 @@ class App {
   int DiagBudget(const DiagRun& r) const { return r.long_run ? 300 : 180; }
 
   void StartDiag() {
+    if (TronsBlock("The diagnostic run")) return;  // Session 98
     namespace dp = wwe2k14::diag_plan;
     if (!game_ok_) {
       GoPage(kGameFiles);
@@ -1999,7 +2489,7 @@ class App {
            "entrance with one setting changed. Don't touch the phone while it runs. If the app closes by itself, open it again: the run goes on. Your saves and settings are not touched; "
            "the zip holds small pictures of the game. A hot phone makes it slower: let it cool first.");
       if (Button(diag_long_ ? "LONG RUN: ON (about 5 minutes)" : "LONG RUN: OFF")) diag_long_ = !diag_long_;
-      if (Button("START THE DIAGNOSTIC RUN")) diag_confirm_ = false, StartDiag();
+      if (Button("START THE DIAGNOSTIC RUN", !TronZipRunning())) diag_confirm_ = false, StartDiag();
       if (Button("NOT NOW")) diag_confirm_ = false;
     } else {
       if (Button("DIAGNOSTIC RUN")) diag_confirm_ = true;
@@ -2016,6 +2506,7 @@ class App {
   uint32_t diag_next_at_ = 0;
 
   void Play(int wm30 = -1) {
+    if (TronsBlock("PLAY")) return;  // Session 98
     if (!game_ok_) {
       GoPage(kGameFiles);
       ShowToast("Choose your game files first");
@@ -2124,6 +2615,9 @@ class App {
         if (e.ok) ShowToast("The update is ready: see Logs and updates");
         break;
       case E::kBack: Back(); break;
+      case E::kTronZipPicked:  // Session 98 (IMPORT TRON PREVIEWS)
+        if (e.ok) StartTronZipImport(e.a, e.b);
+        break;
     }
   }
 
@@ -2183,13 +2677,6 @@ class App {
   void LadderStart() {
     std::error_code ec;
     rung_ = ladder::ReadRung(RungPath(), kVersion, s_.driver);
-    if (rung_.stale_mediump) {  // an update or another driver cleared Safe Mode: the colour precision it turned off comes back too
-      s_.mediump = true;
-      Save();
-      std::error_code rec;
-      fs::remove(RungPath(), rec);
-      Log("ladder: the rung file was for another version or driver: reduced precision turned back on");
-    }
     const bool trial_left = fs::exists(BootTrialPath(), ec);
     if (trial_left) {
       fs::remove(BootTrialPath(), ec);
@@ -2208,7 +2695,8 @@ class App {
       std::getline(sv, seen_version);
     }
     const bool before_update = !seen_version.empty() && seen_version != kVersion;
-    if (diag_arm_ended_ || before_update) Log("ladder: last run not recorded (%s)", diag_arm_ended_ ? "diagnostic arm" : "it ended before the app update");
+    if (diag_arm_ended_ || trons_ended_ || before_update)
+      Log("ladder: last run not recorded (%s)", diag_arm_ended_ ? "diagnostic arm" : trons_ended_ ? "tron previews run" : "it ended before the app update");
     else if (ladder::Record(HistoryPath(), run, kVersion, s_.driver, settings_hash_, rung_.rung)) Log("ladder: run recorded in run_history.txt");
     std::ofstream(files_ / "last_seen_version.txt", std::ios::trunc) << kVersion << '\n';
     advice_ = ladder::Decide(ladder::ReadHistory(HistoryPath()), kVersion, s_.driver, settings_hash_, rung_.rung);
@@ -2224,18 +2712,12 @@ class App {
   }
 
   void SetRung(int next) {
-    if (next >= 3 && s_.mediump) {  // step 3: the lower-precision colour maths off, a saved setting (it is in the precompile key)
-      s_.mediump = false;
-      rung_.mediump_changed = true;
-      Save();
-    }
     rung_.rung = next;
     ladder::WriteRung(RungPath(), rung_, kVersion, s_.driver);
     Log("ladder: SAFE MODE step %d (%s)", next, ladder::RungWords(next));
     advice_ = ladder::Decide(ladder::ReadHistory(HistoryPath()), kVersion, s_.driver, settings_hash_, rung_.rung);
   }
   void SafeModeOff() {
-    if (rung_.mediump_changed) s_.mediump = true, Save();
     rung_ = ladder::RungState();
     std::error_code ec;
     fs::remove(RungPath(), ec);
@@ -2462,6 +2944,7 @@ TestSteps ParseTest(int argc, char** argv, int& win_w, int& win_h, float& scale)
     else if (a == "--scale") scale = float(std::atof(argv[++i]));
     else if (a == "--tap") std::sscanf(argv[++i], "%f,%f", &t.tap_x, &t.tap_y);
     else if (a == "--quit-ms") t.quit_ms = std::atoi(argv[++i]);
+    else if (a == "--import-trons") t.import_trons = argv[++i];  // Session 98
   }
   for (int i = 1; i < argc; ++i) {  // flags without a value (the loop above misses one given last)
     const std::string a = argv[i];

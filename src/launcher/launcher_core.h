@@ -86,6 +86,8 @@ struct Settings {
   int wm30 = -1;               // Session 34: a 30 Years of WrestleMania match to jump into (this launch only)
   int preset = 0;              // Preset enum
   bool mods = true;
+  bool lighting = false;       // Session 98: USE MY LIGHTING -> --wwe2k14_mods_lighting=true (independent of mods)
+  bool superstars = false;     // Session 98: USE MY SUPERSTARS (the Superstar Importer's pack, <mods>\superstars) -> --wwe2k14_mods_superstars=true
   bool skip_entrances = false;
   bool logo_legacy_route = false;  // Session 27: the logo import's Session 25 counted presses (no memory checks)
   // Session 27 item 8: Quick Match built from our id tables (0 = build, 1 = a saved setup).
@@ -183,7 +185,7 @@ struct Settings {
 
 inline void to_json(json& j, const Settings& s) {
   j = json{{"game_exe", s.game_exe}, {"mods_dir", s.mods_dir}, {"scenario", s.scenario}, {"preset", s.preset},
-           {"mods", s.mods}, {"skip_entrances", s.skip_entrances}, {"logo_legacy_route", s.logo_legacy_route}, {"quick_mode", s.quick_mode}, {"quick_type", s.quick_type}, {"quick_arena", s.quick_arena}, {"quick_ids", s.quick_ids}, {"quick_cpu_only", s.quick_cpu_only}, {"cinecam", s.cinecam}, {"look", s.look},
+           {"mods", s.mods}, {"lighting", s.lighting}, {"superstars", s.superstars}, {"skip_entrances", s.skip_entrances}, {"logo_legacy_route", s.logo_legacy_route}, {"quick_mode", s.quick_mode}, {"quick_type", s.quick_type}, {"quick_arena", s.quick_arena}, {"quick_ids", s.quick_ids}, {"quick_cpu_only", s.quick_cpu_only}, {"cinecam", s.cinecam}, {"look", s.look},
            {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"post_effects", s.post_effects},
            {"shadows", s.shadows}, {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density}, {"quality_tier", s.quality_tier}, {"low_start_done", s.low_start_done},
            {"dlss_dir", s.dlss_dir},
@@ -213,7 +215,7 @@ inline void Get(const json& j, const char* k, T& v) {
 }
 inline void from_json(const json& j, Settings& s) {
   Get(j, "game_exe", s.game_exe), Get(j, "mods_dir", s.mods_dir), Get(j, "scenario", s.scenario);
-  Get(j, "preset", s.preset), Get(j, "mods", s.mods), Get(j, "skip_entrances", s.skip_entrances);
+  Get(j, "preset", s.preset), Get(j, "mods", s.mods), Get(j, "lighting", s.lighting), Get(j, "superstars", s.superstars), Get(j, "skip_entrances", s.skip_entrances);
   Get(j, "logo_legacy_route", s.logo_legacy_route);
   Get(j, "quick_mode", s.quick_mode), Get(j, "quick_type", s.quick_type), Get(j, "quick_arena", s.quick_arena);
   Get(j, "quick_ids", s.quick_ids), Get(j, "quick_cpu_only", s.quick_cpu_only);
@@ -311,11 +313,21 @@ inline Settings LoadSettings(const fs::path& p) {
   return s;
 }
 
+// Session 98 (importer review): written to a temp file, then renamed over the old one (as mobile_settings.h does), so a reader in
+// another process (the Superstar Importer's switch) never sees a half-written file.
 inline void SaveSettings(const fs::path& p, const Settings& s) {
   std::error_code ec;
   fs::create_directories(p.parent_path(), ec);
-  std::ofstream f(p, std::ios::trunc);
-  if (f) f << json(s).dump(2);
+  fs::path tmp = p;
+  tmp += L".tmp";
+  {
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    if (!f) return;
+    f << json(s).dump(2);
+    if (!f) return;
+  }
+  fs::rename(tmp, p, ec);
+  if (ec) fs::remove(tmp, ec);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1140,6 +1152,16 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     if (!s.mods_dir.empty() || !p.repo_found) f.push_back("--wwe2k14_mods_dir=" + Quote(PathStr(p.mods)));
     if (HasAnyMusic(p)) f.push_back("--wwe2k14_entrance_music=true");  // Session 33: only once a track is assigned
   }
+  if (s.lighting) {  // Session 98: its own switch; works without USE MY VIDEOS (src\mods.h: lighting needs no mods: device)
+    f.push_back("--wwe2k14_mods_lighting=true");
+    if (!s.mods && (!s.mods_dir.empty() || !p.repo_found)) f.push_back("--wwe2k14_mods_dir=" + Quote(PathStr(p.mods)));
+  }
+  // Session 98 (Superstar Importer; Jarrod: "as simple as an on and off switch, similar to our custom music and Trons"): its own
+  // switch, like USE MY LIGHTING. The game side (the flag's cvar, reading <mods>\superstars) is the importer core's.
+  if (s.superstars) {
+    f.push_back("--wwe2k14_mods_superstars=true");
+    if (!s.mods && !s.lighting && (!s.mods_dir.empty() || !p.repo_found)) f.push_back("--wwe2k14_mods_dir=" + Quote(PathStr(p.mods)));
+  }
   for (auto& x : DlcFlags(s, p)) f.push_back(std::move(x));
   if (s.cinecam) f.push_back("--wwe2k14_cinecam=true");
   if (s.photo_mode) f.push_back("--wwe2k14_photo_mode=true");  // Session 33
@@ -1245,6 +1267,7 @@ inline Command BuildCommand(const Settings& s, const Paths& p, bool sweep = fals
     if (s.reshoot_shots.empty()) c.error = "add at least one shot (CineCam path file)";
     std::string more;
     if (s.mods) more += "--wwe2k14_mods=true";
+    if (s.lighting) more += std::string(more.empty() ? "" : " ") + "--wwe2k14_mods_lighting=true";
     pwsh(p.repo / "tools" / "replay" / "reshoot.ps1",
          "-Name " + s.replay_play + " -Shots " + s.reshoot_shots + " -Anchor " + s.reshoot_anchor +
              (more.empty() ? "" : " -More " + Quote(more)));

@@ -56,8 +56,9 @@ inline bool Unpack(const std::vector<uint8_t>& in_file, std::vector<uint8_t>& ou
   }
   size_t ip = table_end;
   auto st = std::make_unique<native_lzx::State>();
-  for (uint32_t i = 0; i < count; ++i) {
-    size_t end = ip;
+  // Decodes block i from `s`; true + `next` = where the following block starts.
+  auto decode_at = [&](uint32_t i, size_t s, size_t at, size_t& next, std::string& why) -> bool {
+    size_t end = s;
     if (end + 2 <= size && in[end] == 0 && in[end + 1] == 0) {
       end += 2 + sizes[i];
     } else {
@@ -67,19 +68,44 @@ inline bool Unpack(const std::vector<uint8_t>& in_file, std::vector<uint8_t>& ou
       }
     }
     if (end > size) {
-      error = "XCTD block " + std::to_string(i) + " runs past the file";
+      why = "XCTD block " + std::to_string(i) + " runs past the file";
       return false;
     }
+    const native_lzx::Result r =
+        native_lzx::DecodeBlock(in.data() + s, uint32_t(end - s), sizes[i], window, out.data() + at, *st);
+    if (r.error != native_lzx::kOk || r.produced < sizes[i]) {
+      why = "XCTD block " + std::to_string(i) + ": LZX error " + std::to_string(r.error);
+      return false;
+    }
+    next = end;
+    return true;
+  };
+  // (Session 96 review: block sizes come from the file; real ones are 130-300 KB. A corrupt or modded pac must not make
+  // the game at boot or the launcher allocate gigabytes.)
+  for (uint32_t i = 0; i < count; ++i)
+    if (sizes[i] > (64u << 20)) {
+      error = "XCTD block " + std::to_string(i) + " claims " + std::to_string(sizes[i]) + " bytes";
+      return false;
+    }
+  for (uint32_t i = 0; i < count; ++i) {
     const size_t at = out.size();
     out.resize(at + sizes[i] + 8);
-    const native_lzx::Result r =
-        native_lzx::DecodeBlock(in.data() + ip, uint32_t(end - ip), sizes[i], window, out.data() + at, *st);
-    if (r.error != native_lzx::kOk || r.produced < sizes[i]) {
-      error = "XCTD block " + std::to_string(i) + ": LZX error " + std::to_string(r.error);
+    // Session 95 (asset runtime): a block never starts in the last few bytes before a 64 KB boundary of the file; the
+    // writer fills them with zeros (1-18 bytes seen) and the block starts on the boundary. Without this, 51 of the 163
+    // ch / bg pacs failed (checked: with it all 163 unpack; no block started after a zero-free gap under 256 bytes).
+    // The boundary is tried first when the gap is all zeros; the old place stays the fallback.
+    const size_t gap = (0x10000 - ip % 0x10000) % 0x10000;
+    bool zeros = gap > 0 && gap < 256 && ip + gap <= size;
+    for (size_t k = 0; zeros && k < gap; ++k)
+      if (in[ip + k] != 0) zeros = false;
+    size_t next = 0;
+    std::string why;
+    if (!(zeros && decode_at(i, ip + gap, at, next, why)) && !decode_at(i, ip, at, next, why)) {
+      error = why;
       return false;
     }
     out.resize(at + sizes[i]);
-    ip = end;
+    ip = next;
   }
   return true;
 }

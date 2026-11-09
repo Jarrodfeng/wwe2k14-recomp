@@ -222,15 +222,57 @@ class GameFiles {
   // Set when the root is a file that can't be read as a disc image.
   const std::string& image_error() const { return error_; }
 
-  bool Exists(const std::string& rel) const {
+  // Session 98 (DLC in the Arena Viewer): extra READ-ONLY folders searched after the root, in order - the player's DLC packs
+  // (src\assets\dlc_files.h fills them; nothing else sets any, so the launcher's reads are unchanged). A pack names its files after
+  // the disc's with its own suffix ("pac\ch\ch385.pac" -> "pac\ch\ch385_dlc04.pac" in the pack with id 4): a path is tried
+  // literally in each folder, then with the folder's suffix before the extension. Nothing here writes to them.
+  struct Overlay {
+    fs::path root;       // the pack's folder
+    std::string suffix;  // "_dlc04"
+  };
+  void SetOverlays(std::vector<Overlay> o) { overlays_ = std::move(o); }
+  const std::vector<Overlay>& overlays() const { return overlays_; }
+  // "pac\ch\ch385.pac" + "_dlc04" -> "pac\ch\ch385_dlc04.pac" (the suffix goes before the last extension of the file name)
+  static std::string Suffixed(const std::string& rel, const std::string& suffix) {
+    const size_t slash = rel.find_last_of("\\/");
+    const size_t dot = rel.find_last_of('.');
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return rel + suffix;
+    return rel.substr(0, dot) + suffix + rel.substr(dot);
+  }
+  // The overlay file `rel` resolves to (the first folder that has it: literal, then suffixed); empty when none does.
+  fs::path OverlayPath(const std::string& rel) const {
+    std::error_code ec;
+    for (const Overlay& o : overlays_) {
+      if (o.root.empty()) continue;
+      fs::path p = o.root / Rel(rel);
+      if (fs::is_regular_file(p, ec)) return p;
+      if (!o.suffix.empty() && fs::is_regular_file(p = o.root / Rel(Suffixed(rel, o.suffix)), ec)) return p;
+    }
+    return {};
+  }
+  bool InRoot(const std::string& rel) const {
     if (is_image()) return image_ && image_->Find(rel);
     std::error_code ec;
     return !root_.empty() && fs::exists(root_ / Rel(rel), ec);
   }
 
+  bool Exists(const std::string& rel) const {
+    if (InRoot(rel)) return true;
+    return !overlays_.empty() && !OverlayPath(rel).empty();
+  }
+
   // Up to n bytes from the start; empty if missing.
   std::vector<uint8_t> ReadHead(const std::string& rel, size_t n) {
     std::vector<uint8_t> out;
+    if (!overlays_.empty() && !InRoot(rel)) {
+      const fs::path p = OverlayPath(rel);
+      if (p.empty()) return out;
+      std::ifstream f(p, std::ios::binary);
+      out.resize(n);
+      f.read(reinterpret_cast<char*>(out.data()), std::streamsize(n));
+      out.resize(size_t(std::max<std::streamsize>(0, f.gcount())));
+      return out;
+    }
     if (is_image()) {
       const DiscImage::Entry* e = image_ ? image_->Find(rel) : nullptr;
       if (!e || e->dir) return out;
@@ -248,6 +290,17 @@ class GameFiles {
   // Calls `sink` with the whole file in chunks; false if missing or a read failed.
   bool Stream(const std::string& rel, const std::function<void(const uint8_t*, size_t)>& sink) {
     std::vector<uint8_t> buf(1 << 20);
+    if (!overlays_.empty() && !InRoot(rel)) {  // Session 98: a DLC pack's file
+      const fs::path p = OverlayPath(rel);
+      if (p.empty()) return false;
+      std::ifstream f(p, std::ios::binary);
+      if (!f) return false;
+      while (f) {
+        f.read(reinterpret_cast<char*>(buf.data()), std::streamsize(buf.size()));
+        if (f.gcount() > 0) sink(buf.data(), size_t(f.gcount()));
+      }
+      return !f.bad();
+    }
     if (is_image()) {
       const DiscImage::Entry* e = image_ ? image_->Find(rel) : nullptr;
       if (!e || e->dir) return false;
@@ -269,7 +322,29 @@ class GameFiles {
   }
 
   // File names (not folders) in a folder of the game files.
+  // Session 98: with overlays, their files are listed too, under the name Exists / Stream take ("ch385_dlc04.pac" -> "ch385.pac":
+  // the folder's suffix dropped), each name once (the root's first).
   std::vector<std::string> List(const std::string& rel_dir) const {
+    std::vector<std::string> names = ListRoot(rel_dir);
+    for (const Overlay& o : overlays_) {
+      std::error_code ec;
+      if (o.root.empty()) continue;
+      for (const auto& e : fs::directory_iterator(o.root / Rel(rel_dir), ec)) {
+        std::error_code e2;
+        if (!e.is_regular_file(e2)) continue;
+        std::string n = e.path().filename().string();
+        const size_t dot = n.find_last_of('.');
+        const size_t at = dot == std::string::npos ? n.size() : dot;
+        if (!o.suffix.empty() && at >= o.suffix.size() && LowerAscii(n.substr(at - o.suffix.size(), o.suffix.size())) == LowerAscii(o.suffix))
+          n = n.substr(0, at - o.suffix.size()) + n.substr(at);
+        bool dup = false;
+        for (const std::string& x : names) dup = dup || LowerAscii(x) == LowerAscii(n);
+        if (!dup) names.push_back(n);
+      }
+    }
+    return names;
+  }
+  std::vector<std::string> ListRoot(const std::string& rel_dir) const {
     std::vector<std::string> names;
     if (is_image()) {
       const DiscImage::Entry* d = image_ ? image_->Find(rel_dir) : nullptr;
@@ -285,6 +360,11 @@ class GameFiles {
   }
 
  private:
+  static std::string LowerAscii(std::string s) {
+    for (char& c : s)
+      if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+    return s;
+  }
   // Session 71 (Android launcher): the relative paths use the game's backslashes; a POSIX folder needs slashes.
   static fs::path Rel(const std::string& rel) {
 #ifdef _WIN32
@@ -299,6 +379,7 @@ class GameFiles {
   bool opened_ = false;
   std::unique_ptr<DiscImage> image_;
   std::string error_;
+  std::vector<Overlay> overlays_;
 };
 
 }  // namespace launcher

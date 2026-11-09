@@ -1,0 +1,104 @@
+# Session 98, Superstar Importer diagnostic run 2 (out\s98\importer\run2\prep.md, local): the fake pack 6 built by
+# tools\importer\build_mod_pack.py (character 397 = a copy of Fandango 385, named TEST CENA through text id 60299)
+# offered from --wwe2k14_dlc_extra_dir with the pack-id gate opened (--wwe2k14_dlc_gate_extra=6). COVERAGE build only
+# (the run-2 probe: imp2 lines). Packs 3, 4, 5 + 6 in normal order, pack 2 off (as run 1).
+# Steps: write watches on 385's and 397's record word +16 (active, pack code: names the DLC restore function), boot,
+# main menu records, PLAY -> ONE ON ONE -> NORMAL, the select screen, A on the slot (grid), DOWN x7 one at a time (the
+# probe steers the first DOWN into column 4 and parks the cursor on the DOWNLOADED tab once the snap lands there), A
+# (open DOWNLOADED SUPERSTARS), then DOWN through the DLC list until TEST CENA is on screen (Jarrod: that section is an
+# UP / DOWN list), screenshot imp2_DOWNLOADED_397_SELECTED; back to the main menu; a CPU vs CPU one-on-one 397 vs 100
+# (The Rock) through the quick launcher with the entrances skipped; ~10 s of match with two screenshots
+# imp2_MATCH_397_*; quit. Screenshots and log_text after every select-screen press.
+# Record +16 words (base [0x8376F3C0] = 0x8376F3CC in run 072): 385 -> 0x8377D6F8, 397 -> 0x8377E088.
+# harness: flags --wwe2k14_dlc=true --wwe2k14_dlc_off=2 --wwe2k14_dlc_extra_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s98\importer\run2\pack6 --wwe2k14_dlc_gate_extra=6 --wwe2k14_coverage=true --wwe2k14_file_trace=true --wwe2k14_file_trace_filter=_DLC --wwe2k14_file_trace_per_path=1 --wwe2k14_file_trace_reads=0 --wwe2k14_quick_type=0 --wwe2k14_launch_participants=397,100 --wwe2k14_launch_skip_entrances=true
+on_fail quit
+plugin load
+watch 0x8377D6F8 4 any
+watch 0x8377E088 4 any
+log imp2: start
+mark 1 boot
+include boot_to_menu
+wait_state menu 1 1200 30 optional
+mark 2 main_menu
+screenshot imp2_main_menu
+log imp2: main menu records (word +4 = id<<16 | name text id; word +16 = active, pack code, +18, +19), ids 102 385 397 499
+log_state 0x8376F3C0>412
+log_state 0x8376F3C0>424
+log_state 0x8376F3C0>58144
+log_state 0x8376F3C0>58156
+log_state 0x8376F3C0>60592
+log_state 0x8376F3C0>60604
+log_state 0x8376F3C0>81400
+log_state 0x8376F3C0>81412
+include menu_to_play
+press_until_state A menu 7 40 30 5
+mark 3 to_select
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+screenshot imp2_select
+log_text
+mark 4 select_open
+press A
+wait_frames 90
+screenshot imp2_grid
+log_text
+mark 5 grid_idle
+press DOWN
+wait_frames 30
+screenshot imp2_down1
+log_text
+press DOWN
+wait_frames 30
+screenshot imp2_down2
+log_text
+press DOWN
+wait_frames 30
+screenshot imp2_down3
+log_text
+press DOWN
+wait_frames 30
+screenshot imp2_down4
+log_text
+press DOWN
+wait_frames 30
+screenshot imp2_down5
+log_text
+press DOWN
+wait_frames 30
+screenshot imp2_down6
+log_text
+press DOWN
+wait_frames 30
+screenshot imp2_down7_tab
+log_text
+mark 6 tab_row
+press A
+wait_frames 150
+screenshot imp2_downloaded_open
+log_text 12
+mark 7 downloaded
+press_until_text DOWN 30 40 5 optional TEST CENA
+wait_frames 45
+screenshot imp2_DOWNLOADED_397_SELECTED
+log_text 12
+mark 8 downloaded_397
+log imp2: select-screen records
+log_state 0x8376F3C0>60592
+log_state 0x8376F3C0>60604
+log_state 0x8376F3C0>58144
+log_state 0x8376F3C0>58156
+press_until_state B menu 1 25 45 5
+mark 9 back_to_menu
+wait_frames 60
+cvar wwe2k14_launch @quick
+wait_state seq 9 3600 2
+mark 10 match
+wait_frames 300
+screenshot imp2_MATCH_397_a
+wait_frames 300
+screenshot imp2_MATCH_397_b
+log imp2: end records
+log_state 0x8376F3C0>60592
+log_state 0x8376F3C0>60604
+unwatch
+quit

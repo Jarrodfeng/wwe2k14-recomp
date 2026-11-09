@@ -1,0 +1,61 @@
+# Session 98 run 5 (gen check 3 open items): ONE run, John Cena (slot 0, enters first, champion from the frozen save) vs
+# Daniel Bryan (slot 1), arena 5 (No Way Out, same arena as run 6816 so Cena's stage frame matches 6816 bookmark_1), CPU,
+# seed 1. Recipe, flags and the live follow-up batches: out\s98\gen_check3\run5_recipe.md. Every wait has a timeout;
+# on_fail continue (a missed moment must not lose the rest). Stage A only: the scans log candidate addresses; the main
+# session sends the stage B batches (snap / watch at those addresses) over the live channel while the run continues.
+on_fail continue
+# ---- Cena (slot 0) cue 5 = the stage: salute timing strip, belt frame (RenderDoc + probe + shot), lobe scan start ----
+wait_state entrance_step_0 5 7200
+mark 501 cena_cue5_start
+screenshot_every 30 c5_strip
+# (1) lobe weight: light 2's set-10 value 1.451 (file bits 3FB9B9BA, colour and w); the entrant's blended copies hold it now
+scan_start 4
+scan_eq 0x3FB9B9BA
+scan_show 60
+scan_end
+wait_frames 340
+screenshot_every 0
+# (3) the belt: Cena's 6816 stage item = cue 5, local frame 372 (bookmark_1)
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\run5\r5_cena_stage
+screenshot r5_cena_stage_f372
+wait_frames 30
+screenshot_every 30 c5_strip_b
+wait_state entrance_step_0 10 3600 2 optional
+screenshot_every 0
+mark 502 cena_cue10_start
+screenshot r5_cena_cue10_f0
+# ---- Bryan (slot 1): stage (pose array scan for (2)), ramp; Cena waits in the ring (his w should be 1) ----
+wait_state entrance_step_1 5 7200
+mark 503 bryan_cue5_start
+wait_frames 400
+cvar gpu_debug_draw_probe_frames 2
+screenshot r5_bryan_stage_f401
+# (2) Bryan's pose: Bip Neck local translation x is 29.501 in the file (node 22); scaled ~0.91 -> ~26.85. Keep floats in
+# [25.0, 30.0] that stay put for 20 frames (the pose array entry; Bip Spine1 22.315 sits 400 bytes before it at stride 80)
+scan_start 4
+scan_gt 0x41C80000
+scan_lt 0x41F00000
+wait_frames 20
+scan_unchanged
+scan_show 80
+scan_end
+# (1) the lobe scan proper: Bryan is the entrant now (w 1.451 on light 2), Cena waits (w 1); narrowed again in the match
+scan_start 4
+scan_eq 0x3FB9B9BA
+wait_state entrance_step_1 10 3600 2 optional
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+screenshot r5_bryan_ramp_f301
+# ---- (1) continued: into the match, the wrestlers' w becomes 1 + 0.451 f, f ~0.977 (run 6816): keep what changed ----
+wait_state entrance_step_1 20 3600 2 optional
+mark 504 bryan_cue20_start
+wait_frames 1500
+screenshot r5_match_a
+scan_changed
+scan_show 60
+cvar gpu_debug_draw_probe_frames 2
+screenshot r5_match_b
+wait_frames 600
+mark 505 stage_a_done
+log stage A done: send the stage B batches (run5_recipe.md), then quit

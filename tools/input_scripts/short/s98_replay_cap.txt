@@ -1,0 +1,29 @@
+# Session 98 replay harness, stage S1 (out\s98\replay\design.md section A): RenderDoc captures of Orton's entrance at
+# four moments (stage, ramp, ring-in = the eye frame, ring) + 2 probe frames each + a screenshot. Run it on a live game
+# whose match was built with "John Cena vs Randy Orton; type=one on one > normal; arena=No Way Out; players=0;
+# pace=quick" (seed 1), started with RenderDoc on the PATH and ENABLE_VULKAN_RENDERDOC_CAPTURE=1 and
+#   --wwe2k14_test_no_interlock=true --gpu_debug_draw_probe=* --gpu_debug_draw_probe_consts=0-511
+#   --gpu_debug_draw_probe_path=<repo>\out\s98\replay\probe.csv --dump_shaders=<repo>\out\s98\replay\shaders
+# Slot 1 = Orton. Offsets = the run 6816 frames 8341 / 8941 / 10141 / 10741 relative to their cue starts.
+on_fail quit
+wait_state entrance_step_1 5 7200
+wait_frames 575
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\replay\rp_stage
+screenshot rp_stage
+wait_state entrance_step_1 10 3600
+wait_frames 427
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\replay\rp_ramp
+screenshot rp_ramp
+wait_state entrance_step_1 15 3600
+wait_frames 765
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\replay\rp_ringin
+screenshot rp_ringin
+wait_state entrance_step_1 20 3600
+wait_frames 121
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\replay\rp_ring
+screenshot rp_ring
+wait_frames 120

@@ -413,8 +413,10 @@ class Guard {
 // Once, before the first guest frame. The guard lives as long as the process, which ends with _Exit.
 inline void Start(int log_number, Capture capture) {
   if (!REXCVAR_GET(wwe2k14_hang_guard)) return;
-  if (!rex::cvar::GetFlagByName("wwe2k14_precompile").empty() || !rex::cvar::GetFlagByName("wwe2k14_diag").empty()) {
-    REXLOG_INFO("[hang] guard off: a precompile or diagnostic run");
+  // (Session 98 phone fixes: + the tron export - it holds the guest in one VdSwap for minutes on purpose, src/tron_export.h)
+  if (!rex::cvar::GetFlagByName("wwe2k14_precompile").empty() || !rex::cvar::GetFlagByName("wwe2k14_diag").empty() ||
+      !rex::cvar::GetFlagByName("wwe2k14_tron_export").empty()) {
+    REXLOG_INFO("[hang] guard off: a precompile, diagnostic or tron export run");
     return;
   }
   const std::string test = REXCVAR_GET(wwe2k14_test_hang);

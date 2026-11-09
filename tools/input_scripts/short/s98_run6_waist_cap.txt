@@ -1,0 +1,27 @@
+# Session 98 run 6 (gen check 4: the WAIST belt). "Alberto Del Rio vs Daniel Bryan; type=one on one > normal; arena=No Way Out;
+# players=0; pace=quick", seed 1, frozen save (Del Rio = World Heavyweight Champion there, per Jarrod; the champion entrance bank is
+# Entrance06.pac 655 Alberto_Del_Rio_Champ). Same launch flags as run 6820 (RenderDoc on the PATH, ENABLE_VULKAN_RENDERDOC_CAPTURE=1,
+# --wwe2k14_test_no_interlock=true --gpu_debug_draw_probe=* --gpu_debug_draw_probe_consts=0-511
+# --gpu_debug_draw_probe_path=<repo>\out\s98\run6\probe.csv --dump_shaders=<repo>\out\s98\run6\shaders). Slot 0 = Del Rio (enters
+# first). Wanted: the belt draw (evtobj.pac 349-366+, VS 1063A665 / 0D7075D5) and Del Rio's palette in the same probe frames: if the belt
+# is on his waist, its root palette vs his Bip Pelvis / Bip Spine palette gives the waist attach (as _beltrel.py did for Cena's hand).
+on_fail continue
+wait_state entrance_step_0 5 7200
+mark 601 delrio_cue5_start
+screenshot_every 45 dr5_strip
+wait_frames 300
+screenshot_every 0
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\run6\r6_delrio_stage
+screenshot r6_delrio_stage_f301
+wait_state entrance_step_0 10 3600 2 optional
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\run6\r6_delrio_ramp
+screenshot r6_delrio_ramp_f301
+wait_state entrance_step_0 20 3600 2 optional
+wait_frames 121
+cvar gpu_debug_draw_probe_frames 2
+screenshot r6_delrio_ring_f122
+wait_frames 60
+quit

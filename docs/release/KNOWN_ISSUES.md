@@ -1,3 +1,4 @@
+- The Superstar Importer (new in v0.3.1) was tested in the game with one character, in his first attire, on my PC and my phone. The pack is built for up to 103 characters, but a full pack has not been played. If an imported superstar goes wrong, switch USE MY SUPERSTARS off and send a report (launcher: Report a problem).
 - The game now uses a memory feature of Windows 10 1803 or newer, tested by me only on Windows 11 build 26100. If your Windows cannot
   do it, the game shows a clear message and stops: please send a report with your Windows version.
 - TRUE NATIVE (the default since v0.2.19) was taken through the arenas, the roster with the DLC wrestlers, all 62 match

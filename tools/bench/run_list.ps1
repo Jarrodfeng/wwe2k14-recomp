@@ -1,5 +1,5 @@
 # Runs each input script in order on a fresh copy of the frozen user data (-Data userdata_frozen | userdata_coldcache),
-# timeline on, extra flags as ONE string (-Extra); prints "script -> run log, exit, failures" per script. Session 6.
+# timeline on for timed runs only, extra flags as ONE string (-Extra); prints "script -> run log, exit, failures" per script. Session 6.
 # Usage (in-process, so the -Extra string isn't split):
 #   & C:\Users\Jarrod\wwe2k14-recomp\tools\bench\run_list.ps1 -Scripts @('a.txt','b.txt') -Extra '--x=1 --y=2'
 # Session 8: holds the run lock (tools\runlock.ps1) for the whole list, so no other run or build lands between its
@@ -182,7 +182,10 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
         return "$(Split-Path $s -Leaf) ->   ABORT: wwe2k14 pid $($busy -join ',') still runs on out\bench\$Work; not mirroring over it or starting a second game in this slot$Tag"
     }
     robocopy "$R\out\bench\$Data" "$R\out\bench\$Work" /MIR /NFL /NDL /NJH /NJS | Out-Null
-    $flags = "--user_data_root=$R\out\bench\$Work --cache_root=$R\out\bench\$Work\cache --wwe2k14_timeline=true --wwe2k14_input_script=$s"
+    # 2026-11-09 (Jarrod: 63 GB of timelines on disk): routine shared runs write none. Timed (exclusive) runs and runs asking
+    # for GPU timestamps keep it; any other run can ask with --wwe2k14_timeline=true in -Extra.
+    $timelineFlag = if ($Lock.Mode -ne 'Shared' -or "$ScriptExtra $Extra" -match '--vulkan_gpu_timestamps=true') { ' --wwe2k14_timeline=true' } else { '' }
+    $flags = "--user_data_root=$R\out\bench\$Work --cache_root=$R\out\bench\$Work\cache$timelineFlag --wwe2k14_input_script=$s"
     $why = Get-RunListRealTimeReason $s "$ScriptExtra $Extra"
     if ($why) { Write-Host "[run_list] $(Split-Path $s -Leaf): normal speed ($why)" }
     else {

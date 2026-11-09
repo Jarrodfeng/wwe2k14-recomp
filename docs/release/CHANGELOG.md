@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.3.1
+
+**v0.3.1: fixes, and two big new tools.**
+
+### New
+
+- **Arena Viewer.** Look around any arena and wrestler in 3D without starting the game, on PC and on phones. Play entrances on a timeline with their trons and stage video, fly a free camera, build camera paths and render them out, click anything to inspect it, and try your mods. It reads your own game files and your DLC. Open it from the MODS page.
+- **Superstar Importer.** Add community characters to the game's roster from a .pac or a .zip, one at a time or a whole zip at once, on PC and on phones. Give each a name and a base wrestler, who provides the moveset, entrance, music and tron. Take a roster portrait from the model or upload your own image. They appear under DOWNLOADED SUPERSTARS, all in one pack with one switch, USE MY SUPERSTARS, and switching it off gives you the original roster back. You don't need any DLC. If you add DLC later, open the importer and press BUILD INTO GAME again.
+- **Lighting mods.** Change the light colours of arenas and entrances in the Arena Viewer's LIGHT tab and save them as a mod. USE MY LIGHTING, on that tab, applies them in the game.
+- **Tron previews on phones.** Building them now shows a progress bar and can run in the background with a notification. If you have already built them on PC, EXPORT FOR PHONE makes a zip the phone launcher can import.
+
+### Bugs you reported
+
+- **Post-match celebrations no longer turn the background into coloured garbage.** A small speed trim from v0.3.0 skipped a blur the game uses only up close in entrances. The game runs celebrations in the same mode as entrances, and there the trim skipped the background's blur instead, so the background showed leftover memory. The trim never gave a measurable speed gain, so it is off.
+- **A screen could stop updating while the game kept running.** One kind of draw that TRUE NATIVE can't handle was mistaken for one still being prepared, and the whole frame was held back. If that draw came every frame, nothing reached the screen. I hit this on my phone on the match-up screen with an imported superstar, and it is fixed there.
+
+### Phones
+
+- **Reduced precision is gone.** Phones ran some of the arena's colour maths at half precision since v0.2.5. Its speed gain was never measured on its own, and it is the likely cause of glowing white surfaces some Adreno phones showed, like the ring steps in the NXT arena. Every phone now uses full precision. The first start after the update prepares its shaders again.
+- **The tester-only STORAGE and REDUCED PRECISION options are gone from the launcher.** Phones stopped depending on the 128 MiB graphics memory limit in v0.3.0, so the storage choices no longer matter. SAFE MODE's last step, which only turned reduced precision off, is gone too.
+
 ## v0.3.0
 
 **v0.3.0: TRUE NATIVE grows up.**

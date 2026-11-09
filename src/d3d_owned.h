@@ -149,7 +149,10 @@ inline void Apply() {
       {"wwe2k14_nf_reg_save", "true"},
       {"gpu_d3d_draw_record", "1"},
       {"gpu_owned_restore_skip", "5"},
-      {"gpu_native_post_lite_near", "true"},
+      // Session 95 after v0.3.0 (Jarrod: "Yes, switch it off"): gpu_native_post_lite_near stays at its SDK default (off). It turned post-match
+      // celebrations' background into garbage (report r045628): the game runs celebrations in the entrance scene, our combine then reads only
+      // the far blur (fetch 6), and the drop, which picks its pair by position from the previous frame and marks the shared 320-wide target
+      // dead, left that page unwritten. It never engaged on Bryan or the match in the release proof (out\s95\all_prove.txt): no measured gain.
       {"gpu_native_wrestler_pow", "true"},
       {"gpu_scene_crowd_density_track", "true"},
       // Session 95 round 6 (every PC): particle runs as one strip, a read-back window lets the lean paths on after 30 quiet frames, the texture binding memo (all four bits), the skin dispatch beside the

@@ -17,6 +17,10 @@
 // duplicate packs, and packages for other games, are listed in the log and skipped. Nothing here writes to the DLC
 // folder. (The default folder rule is
 // DefaultDir() in dlc_catalog.h: next to the game data, else next to the exe; the launcher uses the same.)
+// Session 98 test switches (Superstar Importer run 2, default off): --wwe2k14_dlc_extra_dir (a second folder of packs,
+// e.g. a test pack under out\) and --wwe2k14_dlc_gate_extra (open the game's pack-id gate to one more id).
+// Session 98, the real feature: --wwe2k14_mods_superstars (src\superstars.h) joins <mods>\superstars\pack6 the same way and
+// opens the gate for its id (only with this provider on, and only when the packs it was built on are offered).
 #pragma once
 
 #include <rex/cvar.h>
@@ -28,6 +32,7 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/content_manager.h>
 #include <rex/system/xenumerator.h>
+#include <rex/system/xmemory.h>  // BaseHeap::Protect (--wwe2k14_dlc_gate_extra)
 #include <rex/system/xtypes.h>
 #include <rex/types.h>
 
@@ -45,6 +50,7 @@
 #include "dlc_catalog.h"
 #include "gfx_settings.h"
 #include "replay.h"  // g_dlc_offered: a recording keeps the packs it was made with
+#include "superstars.h"  // Session 98: the Superstar Importer's pack (<mods>\superstars\pack6), one more pack when switched on
 
 REXCVAR_DEFINE_BOOL(wwe2k14_dlc, false, "wwe2k14",
                     "Session 32: give the game the DLC packs in the DLC folder (one folder per pack with "
@@ -54,6 +60,17 @@ REXCVAR_DEFINE_STRING(wwe2k14_dlc_dir, "", "wwe2k14",
                       "game_data\\dlc, else 'dlc' next to the exe)");
 REXCVAR_DEFINE_STRING(wwe2k14_dlc_off, "", "wwe2k14",
                       "Session 32: pack ids switched off, comma separated (e.g. 3,5); the launcher's DLC switches");
+REXCVAR_DEFINE_BOOL(wwe2k14_dlc_reverse_order, false, "wwe2k14",
+                    "Session 98, TEST ONLY (Superstar Importer run 1): offer the DLC packs to the game in reverse "
+                    "pack-id order (highest first) instead of ascending; logs '[wwe2k14][dlc] reverse order'");
+REXCVAR_DEFINE_STRING(wwe2k14_dlc_extra_dir, "", "wwe2k14",
+                      "Session 98, TEST ONLY (Superstar Importer run 2): a second folder scanned for packs (e.g. a test "
+                      "pack built by tools\\importer\\build_mod_pack.py under out\\), offered with the DLC folder's "
+                      "packs. Empty = none");
+REXCVAR_DEFINE_INT32(wwe2k14_dlc_gate_extra, 0, "wwe2k14",
+                     "Session 98, TEST ONLY (Superstar Importer run 2): let the game accept DLC pack id N (6..65535) by "
+                     "writing (N << 16) | 1 over word 0 (pack id 1, which no real pack uses) of the game's pack-id gate "
+                     "table at 0x82035E9C before the first catalog parse. 0 = the game's own table");
 REXCVAR_DEFINE_BOOL(wwe2k14_log_content_calls, true, "wwe2k14",
                     "Session 32: log the game's content calls (enumerate / open / close: saves and DLC) with the "
                     "answers");
@@ -130,19 +147,57 @@ inline void ApplyLauncherSettings(const fs::path& settings_file) {
 }
 
 // After setup (OnPostSetup): find the packs and register a read-only device for each one the game gets.
+constexpr const char* kSuperstarsFolder = "[superstars] ";  // the Superstar Importer's pack in g_packs (folder name prefix)
+inline int g_gate_id = 0;  // Session 98: the pack id the gate is opened for (the superstars pack's), 0 = none
+
 inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::path& game_data_root) {
-  if (!REXCVAR_GET(wwe2k14_dlc)) return;
+  try {
+    superstars::Load();  // (no-op unless --wwe2k14_mods_superstars)
+  } catch (const std::exception& e) {  // (review: never stop the boot over our own file)
+    superstars::g_found = false;
+    REXLOG_WARN("[wwe2k14][superstars] could not read the superstars files: {}; the pack is left out", e.what());
+  }
+  // Session 98 (Jarrod: the importer must work without any DLC): the superstars pack does not need USE MY DLC or a DLC folder. A
+  // pack built on real packs is still left out below when they are not offered.
+  const bool real_dlc = REXCVAR_GET(wwe2k14_dlc);
+  if (!real_dlc && !superstars::g_found) return;
   const std::string dir_flag = REXCVAR_GET(wwe2k14_dlc_dir);
   std::error_code ec;
   g_dir = dir_flag.empty() ? DefaultDir(game_data_root, gfxs::ExeFolder())
                            : fs::path(std::u8string(dir_flag.begin(), dir_flag.end()));  // flags are UTF-8
   g_dir = fs::absolute(g_dir, ec);
-  if (!fs::is_directory(g_dir, ec)) {
+  const std::string extra_flag = REXCVAR_GET(wwe2k14_dlc_extra_dir);
+  const bool have_dir = fs::is_directory(g_dir, ec);
+  if (!have_dir && extra_flag.empty() && !superstars::g_found) {
     REXLOG_INFO("[wwe2k14][dlc] no DLC folder at {}: the game sees no packs", PathUtf8(g_dir));
     return;
   }
   try {
-    g_packs = Scan(g_dir);
+    if (real_dlc && have_dir) g_packs = Scan(g_dir);
+    // Test only (S98 importer run 2): a second folder's packs join the list (sorted by pack id again; a pack id seen
+    // in both folders is a duplicate and skipped, as within one folder). Its packs are named "[extra] <folder>".
+    if (!extra_flag.empty()) {
+      const fs::path extra = fs::absolute(fs::path(std::u8string(extra_flag.begin(), extra_flag.end())), ec);
+      std::vector<Pack> more = Scan(extra);
+      REXLOG_INFO("[wwe2k14][dlc] extra folder {} (--wwe2k14_dlc_extra_dir, test only): {} pack(s)", PathUtf8(extra),
+                  more.size());
+      for (Pack& p : more) {
+        p.folder = "[extra] " + p.folder;
+        g_packs.push_back(std::move(p));
+      }
+      if (g_packs.size() > kMaxPacks) g_packs.resize(kMaxPacks);
+      SortAndMarkDuplicates(g_packs);
+    }
+    // Session 98: the Superstar Importer's pack joins the same way (its folder named "[superstars] ."); checked below.
+    if (superstars::g_found) {
+      std::vector<Pack> ours = Scan(superstars::g_pack);
+      for (Pack& p : ours) {
+        p.folder = kSuperstarsFolder + p.folder;
+        g_packs.push_back(std::move(p));
+      }
+      if (g_packs.size() > kMaxPacks) g_packs.resize(kMaxPacks);
+      SortAndMarkDuplicates(g_packs);
+    }
   } catch (const std::exception& e) {  // review: a folder name the path conversion cannot take, and the like
     REXLOG_WARN("[wwe2k14][dlc] could not read the DLC folder {}: {}; the game sees no packs", PathUtf8(g_dir), e.what());
     g_packs.clear();
@@ -153,8 +208,32 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
   for (const Pack& p : g_packs) {
     const bool switched_off = std::find(off.begin(), off.end(), p.pack_id) != off.end();
     std::string what;
+    // Session 98: the superstars pack: its id must be the one superstars.txt names, and every pack it was built on must be
+    // offered (they have lower ids, so they are decided before it in this pack-id order).
+    const bool ours = p.folder.rfind(kSuperstarsFolder, 0) == 0;
+    std::string missing;
+    bool newer_real = false;  // a real pack with its own roster above the one ours copied (the highest pack's roster wins in the game: its
+                              // wrestlers would vanish). A pack built with no DLC has an empty built_on, so any real roster pack is newer.
+    if (ours && p.status == Status::kReady) {
+      for (int id : superstars::g_built_on) {
+        bool offered = false;
+        for (const Offered& o : g_offered) offered = offered || o.pack->pack_id == id;
+        if (!offered) missing += (missing.empty() ? "" : ",") + std::to_string(id);
+      }
+      int top = 0;
+      for (int id : superstars::g_built_on) top = std::max(top, id);
+      for (const Offered& o : g_offered) newer_real = newer_real || (o.pack->pack_id > top && !o.pack->string_pack.empty());
+    }
     if (p.status != Status::kReady) {
       what = std::string(StatusName(p.status)) + " (" + p.reason + "): skipped";
+    } else if (ours && p.pack_id != superstars::g_pack_id) {
+      what = "pack id is not superstars.txt's " + std::to_string(superstars::g_pack_id) + ": skipped (rebuild it in the importer)";
+    } else if (ours && p.pack_id < 6) {
+      what = "a superstars pack needs an id above the real packs (6..): skipped";
+    } else if (ours && !missing.empty()) {
+      what = "built on pack(s) " + missing + ", which the game does not get now: skipped (switch them on, or rebuild it in the importer)";
+    } else if (ours && newer_real) {
+      what = "your DLC changed since it was built: skipped (rebuild it in the importer)";
     } else if (switched_off) {
       what = "switched off";
     } else {
@@ -175,6 +254,11 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
       } else {
         what = "offered to the game";
         g_offered.push_back(std::move(o));
+        if (ours) {
+          superstars::g_active = true;
+          g_gate_id = p.pack_id;
+          what += " (imported superstars)";
+        }
       }
     }
     REXLOG_INFO("[wwe2k14][dlc] pack {} '{}' ({}): {}, {} file(s) listed, {} -> {}", p.pack_id, p.folder,
@@ -185,6 +269,67 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
     replay::g_dlc_offered += (replay::g_dlc_offered.empty() ? "" : ",") + std::to_string(o.pack->pack_id);
   REXLOG_INFO("[wwe2k14][dlc] DLC folder {}: {} pack(s) found, {} offered to the game", PathUtf8(g_dir),
               g_packs.size(), g_offered.size());
+}
+
+// Test only (S98 importer run 2, --wwe2k14_dlc_gate_extra=N): the catalog parser sub_8281F150 accepts a pack only if
+// its id matches a word of the gate table at 0x82035E9C ((pack id << 16) | minimum revision; 5 words, ids 1-5: listing
+// 0x8281F32C-0x8281F36C, `lis r11,-32253` + `addi r11,r11,24220`, the loop `cmplwi r9,20`). The generated code loads
+// the table from guest memory on every parse (REX_LOAD_U32 at loc_8281F340), so a word changed before the first parse
+// is what the game checks. The page is read-only (run 072: a same-value write faulted): its protection is changed
+// through ReXGlue's heap (BaseHeap::Protect also sets the host page), the word written, the protection put back.
+// Word 0 (pack id 1, minimum revision 1) belongs to no real pack (packs 2-5, docs\systems\dlc.md). Called from the
+// enumeration hook: the game enumerates (frame ~1100) before it opens and parses any catalog.
+constexpr uint32_t kGateTable = 0x82035E9C;
+constexpr uint32_t kGateWord0 = 0x00010001;
+
+inline void PatchGate() {
+  static std::atomic<bool> done{false};
+  // Session 98: the test switch, else the superstars pack's id when it was offered (src\superstars.h)
+  const int32_t test_id = REXCVAR_GET(wwe2k14_dlc_gate_extra);
+  const int32_t id = test_id ? test_id : g_gate_id;
+  const char* why = test_id ? "test only, --wwe2k14_dlc_gate_extra" : "imported superstars, --wwe2k14_mods_superstars";
+  if (id == 0 || done.exchange(true)) return;
+  // (review) the superstars pack only counts as in the game when the gate really opens for it: else its music remap stays off
+  const bool stars_gate = g_gate_id && (!test_id || test_id == g_gate_id);
+  superstars::g_active = false;  // (true again below, once the patch succeeds for the superstars pack's id)
+  auto refused = [&] {
+    if (g_gate_id) REXLOG_WARN("[wwe2k14][superstars] the pack-id gate stays closed for pack {}: the game refuses it", g_gate_id);
+  };
+  if (g_gate_id && !stars_gate)
+    REXLOG_WARN("[wwe2k14][superstars] --wwe2k14_dlc_gate_extra={} wins over the superstars pack {}: it is refused", test_id, g_gate_id);
+  auto* memory = REX_KERNEL_MEMORY();
+  uint8_t* host = memory->TranslateVirtual<uint8_t*>(kGateTable);
+  auto word = [&](int i) {
+    const uint8_t* p = host + 4 * i;
+    return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | p[3];
+  };
+  if (id < 6 || id > 0xFFFF) {
+    REXLOG_WARN("[wwe2k14][dlc] --wwe2k14_dlc_gate_extra={}: pack ids 6..65535 only; gate table left alone", id);
+    refused();
+    return;
+  }
+  if (word(0) != kGateWord0) {
+    REXLOG_WARN("[wwe2k14][dlc] gate table {:08X} word 0 is {:08X}, not {:08X}: not this game image? left alone",
+                kGateTable, word(0), kGateWord0);
+    refused();
+    return;
+  }
+  auto* heap = memory->LookupHeap(kGateTable);
+  uint32_t old = 0;
+  if (!heap || !heap->Protect(kGateTable, 4, rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite, &old)) {
+    REXLOG_WARN("[wwe2k14][dlc] gate table {:08X}: could not make its page writable; pack {} stays refused", kGateTable,
+                id);
+    refused();
+    return;
+  }
+  const uint32_t v = (uint32_t(id) << 16) | 1u;
+  host[0] = uint8_t(v >> 24), host[1] = uint8_t(v >> 16), host[2] = uint8_t(v >> 8), host[3] = uint8_t(v);
+  const bool restored = heap->Protect(kGateTable, 4, old);
+  if (stars_gate) superstars::g_active = true;  // the superstars pack is in the game (its music remap may run)
+  REXLOG_INFO("[wwe2k14][dlc] gate table {:08X} ({}): {:08X} {:08X} {:08X} {:08X} "
+              "{:08X}; word 0 {:08X} -> {:08X} (pack {} accepted from revision 1), protection 0x{:X} {} frame={}",
+              kGateTable, why, word(0), word(1), word(2), word(3), word(4), kGateWord0, v, id, old,
+              restored ? "put back" : "NOT put back", g_guest_frame.load());
 }
 
 // The offered pack this content item names, or -1.
@@ -199,6 +344,7 @@ inline int FindOffered(const XCONTENT_DATA& d) {
 inline uint32_t CreateEnumeratorOverride(uint32_t user_index, uint32_t device_id, uint32_t content_type,
                                          uint32_t content_flags, uint32_t items_per_enumerate,
                                          mapped_u32 buffer_size_ptr, mapped_u32 handle_out) {
+  if (g_on && content_type == kMarketplaceContent) PatchGate();  // test only (S98): before any catalog is parsed
   const uint32_t r = rex::kernel::xam::XamContentCreateEnumerator_entry(
       user_index, device_id, content_type, content_flags, items_per_enumerate, buffer_size_ptr, handle_out);
   size_t sdk_items = 0, ours = 0;
@@ -208,7 +354,13 @@ inline uint32_t CreateEnumeratorOverride(uint32_t user_index, uint32_t device_id
       sdk_items = e->item_count();
       if (g_on && content_type == kMarketplaceContent && (device_id == 0 || device_id == kHddDeviceId)) {
         std::lock_guard lock(g_mutex);
-        for (const Offered& o : g_offered) {
+        // Test only (S98 importer run 1): offer the packs highest pack id first, to tell "newest pack = last
+        // enumerated" from "= highest pack id" by which cumulative *_dlcPP files the game opens.
+        const bool reverse = REXCVAR_GET(wwe2k14_dlc_reverse_order);
+        for (size_t k = 0; k < g_offered.size(); ++k) {
+          const Offered& o = g_offered[reverse ? g_offered.size() - 1 - k : k];
+          if (reverse && REXCVAR_GET(wwe2k14_log_content_calls))
+            REXLOG_INFO("[wwe2k14][dlc] reverse order: item {} = pack {}", sdk_items + k, o.pack->pack_id);
           XCONTENT_DATA* item = e->AppendItem();
           std::memset(item, 0, sizeof(*item));
           item->device_id = kHddDeviceId;

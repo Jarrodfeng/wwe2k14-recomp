@@ -103,6 +103,8 @@ if(ANDROID)
         endif()
     endforeach()
     target_link_libraries(wwe2k14 PRIVATE android log)
+    # Session 98 (phone tron video, src/tron_export.h): the tron export's MP4s through the NDK's encoder + muxer (system libmediandk.so).
+    target_link_libraries(wwe2k14 PRIVATE mediandk)
     # Session 72 (Android drivers, src/android_driver.h): libadrenotools (BSD-2-Clause, thirdparty/libadrenotools) loads a
     # bundled custom Vulkan driver; its hook libraries (libhook_impl.so, libmain_hook.so) go into the APK beside libmain.so.
     set(WWE2K14_ADRENOTOOLS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libadrenotools")
@@ -169,13 +171,14 @@ if(WIN32)
     if(EXISTS "${WWE2K14_IMGUI}/imgui.cpp")
         add_executable(wwe2k14_launcher WIN32
             src/launcher/launcher_main.cpp
+            src/importer/importer_core.cpp  # Session 98: the Superstar Importer core (the MODS > SUPERSTARS list)
             ${WWE2K14_IMGUI}/imgui.cpp ${WWE2K14_IMGUI}/imgui_draw.cpp ${WWE2K14_IMGUI}/imgui_tables.cpp
             ${WWE2K14_IMGUI}/imgui_widgets.cpp ${WWE2K14_IMGUI}/misc/cpp/imgui_stdlib.cpp
             ${WWE2K14_IMGUI}/backends/imgui_impl_win32.cpp ${WWE2K14_IMGUI}/backends/imgui_impl_dx11.cpp)
         target_include_directories(wwe2k14_launcher PRIVATE src/launcher ${WWE2K14_IMGUI} ${WWE2K14_IMGUI}/backends
             "${WWE2K14_SDK_THIRDPARTY}/inja/third_party/include" "${WWE2K14_SDK_THIRDPARTY}/stb"
             "${WWE2K14_SDK_THIRDPARTY}/Vulkan-Headers/include")  # Session 37: src/vk_devices.h (headers only)
-        target_compile_definitions(wwe2k14_launcher PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS
+        target_compile_definitions(wwe2k14_launcher PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING
             WWE2K14_VERSION="${WWE2K14_VERSION}")
         set_property(TARGET wwe2k14_launcher PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
         if(WWE2K14_ICON_RC)

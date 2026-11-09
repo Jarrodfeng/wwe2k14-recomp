@@ -1,0 +1,346 @@
+{
+ "_doc": "Run 6819 (Session 98 generalisation capture): The Rock (100, slot 0) vs Daniel Bryan (324, slot 1), arena 1 (RAW). swap = the screenshot's guest frame (probe frames N-1, N); cue + f = the entrance step and cue-local frame from the event bus (step start + wait + 1). parts = [game box, viewer box] in 1280x720 pixels.",
+ "r_stage": {
+  "shot": "6819_g0_stage.png",
+  "probe": "out/s98/run4/probe.csv",
+  "swap": 5355,
+  "cue": 5,
+  "f": 401,
+  "arena": 1,
+  "wrestler": 100,
+  "parts": {
+   "face": [
+    [
+     630,
+     55,
+     695,
+     135
+    ],
+    [
+     630,
+     180,
+     700,
+     260
+    ]
+   ],
+   "arm": [
+    [
+     586,
+     150,
+     620,
+     300
+    ],
+    [
+     586,
+     260,
+     624,
+     400
+    ]
+   ],
+   "torso": [
+    [
+     610,
+     140,
+     710,
+     280
+    ],
+    [
+     610,
+     260,
+     720,
+     390
+    ]
+   ]
+  },
+  "tron_offset": 0.058
+ },
+ "r_ramp": {
+  "shot": "6819_g0_ramp.png",
+  "probe": "out/s98/run4/probe.csv",
+  "swap": 6345,
+  "cue": 10,
+  "f": 301,
+  "arena": 1,
+  "wrestler": 100,
+  "parts": {
+   "face": [
+    [
+     610,
+     50,
+     710,
+     200
+    ],
+    [
+     670,
+     50,
+     770,
+     200
+    ]
+   ],
+   "arm": [
+    [
+     460,
+     440,
+     580,
+     660
+    ],
+    [
+     510,
+     440,
+     620,
+     660
+    ]
+   ],
+   "torso": [
+    [
+     540,
+     220,
+     860,
+     500
+    ],
+    [
+     600,
+     220,
+     920,
+     500
+    ]
+   ]
+  },
+  "tron_offset": -0.175
+ },
+ "r_ringin": {
+  "shot": "6819_g0_ringin.png",
+  "probe": "out/s98/run4/probe.csv",
+  "swap": 6881,
+  "cue": 15,
+  "f": 301,
+  "arena": 1,
+  "wrestler": 100,
+  "parts": {
+   "head": [
+    [
+     610,
+     200,
+     710,
+     300
+    ],
+    [
+     640,
+     190,
+     740,
+     290
+    ]
+   ],
+   "arm": [
+    [
+     600,
+     240,
+     820,
+     460
+    ],
+    [
+     650,
+     250,
+     840,
+     470
+    ]
+   ]
+  }
+ },
+ "r_ring": {
+  "shot": "6819_g0_ring.png",
+  "probe": "out/s98/run4/probe.csv",
+  "swap": 8404,
+  "cue": 20,
+  "f": 122,
+  "arena": 1,
+  "wrestler": 100,
+  "parts": {
+   "head": [
+    [
+     490,
+     380,
+     580,
+     470
+    ],
+    [
+     510,
+     360,
+     600,
+     450
+    ]
+   ],
+   "torso": [
+    [
+     450,
+     500,
+     600,
+     660
+    ],
+    [
+     470,
+     490,
+     610,
+     660
+    ]
+   ]
+  }
+ },
+ "b_stage": {
+  "shot": "6819_g1_stage.png",
+  "probe": "out/s98/run4/probe.csv",
+  "swap": 9943,
+  "cue": 5,
+  "f": 401,
+  "arena": 1,
+  "wrestler": 324,
+  "parts": {
+   "face": [
+    [
+     590,
+     160,
+     680,
+     280
+    ],
+    [
+     600,
+     40,
+     690,
+     160
+    ]
+   ],
+   "torso": [
+    [
+     600,
+     360,
+     720,
+     600
+    ],
+    [
+     580,
+     300,
+     740,
+     560
+    ]
+   ]
+  }
+ },
+ "b_ramp": {
+  "shot": "6819_g1_ramp.png",
+  "probe": "out/s98/run4/probe.csv",
+  "swap": 10315,
+  "cue": 10,
+  "f": 301,
+  "arena": 1,
+  "wrestler": 324,
+  "parts": {
+   "face": [
+    [
+     680,
+     280,
+     840,
+     420
+    ],
+    [
+     660,
+     40,
+     840,
+     240
+    ]
+   ],
+   "shirt": [
+    [
+     600,
+     400,
+     960,
+     660
+    ],
+    [
+     580,
+     160,
+     1120,
+     660
+    ]
+   ]
+  }
+ },
+ "b_ringin": {
+  "shot": "6819_g1_ringin.png",
+  "probe": "out/s98/run4/probe.csv",
+  "swap": 10747,
+  "cue": 15,
+  "f": 301,
+  "arena": 1,
+  "wrestler": 324,
+  "parts": {
+   "face": [
+    [
+     590,
+     300,
+     680,
+     400
+    ],
+    [
+     600,
+     260,
+     690,
+     380
+    ]
+   ],
+   "torso": [
+    [
+     580,
+     420,
+     680,
+     600
+    ],
+    [
+     600,
+     400,
+     700,
+     600
+    ]
+   ],
+   "arm": [
+    [
+     330,
+     460,
+     520,
+     530
+    ],
+    [
+     260,
+     420,
+     460,
+     490
+    ]
+   ],
+   "thigh": [
+    [
+     600,
+     640,
+     700,
+     720
+    ],
+    [
+     580,
+     600,
+     700,
+     720
+    ]
+   ]
+  },
+  "tron_offset": -0.175
+ },
+ "b_ring": {
+  "shot": "6819_g1_ring.png",
+  "probe": "out/s98/run4/probe.csv",
+  "swap": 12674,
+  "cue": 20,
+  "f": 122,
+  "arena": 1,
+  "wrestler": 324,
+  "parts": {}
+ },
+ "_doc_tron": "Session 98 (generalisation 2): tron_offset per item = the video time the game shot shows (out\\s98\\gen_check2\\tron_fine: 73 offsets 1/60 s apart, correlation over the pixels that change with the video): r_stage +0.058 (cc 0.96), r_ramp -0.175 (0.71), b_ringin -0.175 (0.65); both wrestlers fit one clock (offset ~0.06 s, loop hold ~0.065 s) vs run 6816's 0.233 / 0.31 [U which run's item clock is off]. Items without it use the viewer's own rule."
+}

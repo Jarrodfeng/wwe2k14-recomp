@@ -7,10 +7,10 @@ link lines of the release build (`rexruntime.dll`, `rexgpu-xenos.dll`) and the b
 | Library | In | Licence |
 |---|---|---|
 | ReXGlue SDK (rexruntime.dll, rexgpu-xenos.dll; with this project's patches), portions from Xenia | the two DLLs | BSD 3-clause. Copyright (c) 2026 Tom Clay; portions (c) 2022 Ben Vanik and Xenia contributors |
-| SDL 3.5.0 | rexruntime.dll (static) | zlib. Copyright (C) 1997-2026 Sam Lantinga |
+| SDL 3.5.0 | rexruntime.dll, wwe2k14_assets.exe (static) | zlib. Copyright (C) 1997-2026 Sam Lantinga |
 | FFmpeg 4.4 (libavcodec, libavutil; audio decoding) | rexruntime.dll (static) | **LGPL 2.1 or later** (see below) |
 | libmspack (lzxd.c: LZX decompression) | rexruntime.dll (static) | **LGPL 2.1** (see below). (C) 2003-2023 Stuart Caie |
-| Dear ImGui 1.92.5 | rexruntime.dll, wwe2k14_launcher.exe | MIT. Copyright (c) 2014-2025 Omar Cornut |
+| Dear ImGui 1.92.5 | rexruntime.dll, wwe2k14_launcher.exe, wwe2k14_assets.exe | MIT. Copyright (c) 2014-2025 Omar Cornut |
 | {fmt} 12.1.0 | both DLLs | MIT. Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors |
 | spdlog 1.17.0 | both DLLs | MIT. Copyright (c) 2016 - present, Gabi Melman and spdlog contributors |
 | xxHash 0.8 | both DLLs | BSD 2-clause. Copyright (c) 2012-2021 Yann Collet |
@@ -23,7 +23,7 @@ link lines of the release build (`rexruntime.dll`, `rexgpu-xenos.dll`) and the b
 | toml++ | header-only | MIT. Copyright (c) Mark Gillard |
 | SIMDe 0.8.2 | header-only | MIT. Copyright (c) 2017 Evan Nemerson |
 | utfcpp | header-only | Boost Software License 1.0 |
-| stb_image 2.29 | rexruntime.dll, wwe2k14.exe, wwe2k14_launcher.exe | MIT or public domain. Copyright (c) 2017 Sean Barrett |
+| stb_image 2.29 | rexruntime.dll, wwe2k14.exe, wwe2k14_launcher.exe, wwe2k14_assets.exe | MIT or public domain. Copyright (c) 2017 Sean Barrett |
 | stb_image_write 1.16 | wwe2k14.exe (the diagnostic run's JPEGs and the phone's pictures), third_party/stb | public domain (or MIT). Sean Barrett |
 | nlohmann/json 3.11.3 | wwe2k14_launcher.exe | MIT. Copyright (c) 2013-2021 Niels Lohmann |
 | NVIDIA Streamline 2.14.1 headers | rexruntime.dll | MIT. Copyright (c) 2022-2023 NVIDIA CORPORATION |

@@ -53,6 +53,18 @@ public class GameActivity extends SDLActivity {
     private static final String GAME_FD_TOKEN = "@GAME_FD@";
     private static final String PRECOMPILE_ARG = "--wwe2k14_precompile=";
     private static final String DIAG_ARG = "--wwe2k14_diag=", DIAG_ARM_ARG = "--wwe2k14_diag_arm=";
+    // Session 98 (BUILD TRON PREVIEWS, src/tron_export.h): the game boots, then holds its picture for minutes while it decodes every
+    // titantron into <files>/trons; a line says so. The game itself asks for the launcher when it is done (exit_request.txt).
+    private static final String TRONS_ARG = "--wwe2k14_tron_export=";
+    private boolean tronExport;
+    // Session 98 (Jarrod: "needs a progress bar ... a background process with a notification"): the export's progress
+    // (<trons>/progress.json, src/tron_export.h) as a bar on this screen, and TronExportService's notification, which keeps this
+    // process alive when the player leaves the app once the export proper has started (see TronExportService for why).
+    private String tronDir;
+    private TextView tronTitle, tronLine;
+    private android.widget.ProgressBar tronBar;
+    private Handler tronHandler;
+    private static final int REQ_NOTIFY = 9803;
 
     // Session 95 (the diagnostic run, src/diag.h): the game writes <run>/arm<ID>/state.json as its route goes. This activity
     // shows the stage as a line at the bottom and, when the route reaches "done" (or the game's watchdog wrote hang.txt), brings
@@ -150,8 +162,20 @@ public class GameActivity extends SDLActivity {
                     else if (a.startsWith(BOOT_TRIAL_ARG)) bootTrial = a.substring(BOOT_TRIAL_ARG.length());
                     else if (a.startsWith(DIAG_ARG)) diagRun = a.substring(DIAG_ARG.length());
                     else if (a.startsWith(DIAG_ARM_ARG)) diagArm = a.substring(DIAG_ARM_ARG.length());
+                    else if (a.startsWith(TRONS_ARG)) {
+                        tronExport = true;
+                        tronDir = a.substring(TRONS_ARG.length());
+                    }
         }
         if (precompileFile != null && mLayout != null) startPrecompileWatch();
+        if (tronExport && mLayout != null) showTronExportNote();
+        if (tronExport) {
+            TronExportService.start(this, tronDir);
+            // Android 13+: the notification needs the player's yes (asked once; the export runs either way)
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                requestPermissions(new String[] {android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFY);
+        }
         if (diagRun != null && diagArm != null && mLayout != null) startDiagWatch();
         exitHandler = new Handler(Looper.getMainLooper());
         exitHandler.postDelayed(this::pollExitRequest, EXIT_POLL_MS);
@@ -183,6 +207,7 @@ public class GameActivity extends SDLActivity {
     protected void onDestroy() {
         if (precompileHandler != null) precompileHandler.removeCallbacksAndMessages(null);
         if (exitHandler != null) exitHandler.removeCallbacksAndMessages(null);
+        if (tronHandler != null) tronHandler.removeCallbacksAndMessages(null);
         if (batteryReceiver != null) {
             try {
                 unregisterReceiver(batteryReceiver);
@@ -196,7 +221,10 @@ public class GameActivity extends SDLActivity {
         super.onDestroy();
         // The native main ended without the game's own exit request (a startup failure, the guest's main thread ending):
         // SDL finishes this activity and the player would land on Home. The launcher instead.
-        if (mSDLMainFinished) leaveForLauncher();
+        if (mSDLMainFinished) {
+            if (tronExport) TronExportService.finish(this, tronDir, null);  // Session 98 (it says "stopped" unless the export was done)
+            leaveForLauncher();
+        }
     }
 
     // Session 95 (src/android_lifecycle.h): SDL itself only pauses at onStop, so the shade and the quit dialog change nothing here.
@@ -265,6 +293,7 @@ public class GameActivity extends SDLActivity {
             }
         }
         removeBootTrial();  // Session 95 (LADDER): a quit by the player is not a failed boot
+        if (tronExport) TronExportService.finish(this, tronDir, "You quit the game");  // Session 98
         blackBoxNote("the player quit to the launcher");  // Session 73: a normal end (phone_check.h LastRun)
         leaveForLauncher();
     }
@@ -282,6 +311,10 @@ public class GameActivity extends SDLActivity {
         if (new File(new File(filesDir(), "logs"), "exit_request.txt").isFile()) {
             Log.i(TAG, "the game asked for the launcher");
             if (precompileFile != null) writePrecompileReturn("cancelled");
+            // Session 98: the result notification first (it outlives this process), then the launcher. In the background Android may
+            // not let the launcher come forward (background activity starts are blocked): the process still ends, and the
+            // notification / the app icon open the launcher, which reports the run (ResumeAfterTrons).
+            if (tronExport) TronExportService.finish(this, tronDir, null);
             leaveForLauncher();
             return;
         }
@@ -333,6 +366,71 @@ public class GameActivity extends SDLActivity {
             return;
         }
         diagHandler.postDelayed(this::pollDiag, 400);
+    }
+
+    // Session 98: the tron export's panel (see TRONS_ARG): a title, a real progress bar and a line, from progress.json twice a second.
+    // Android views over SDL's surface: the game's own drawing is held still while it exports (the guest is inside one VdSwap), so
+    // the panel cannot be drawn by the game; these views keep moving on Android's main thread.
+    private void showTronExportNote() {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setBackgroundColor(Color.argb(210, 0, 0, 0));
+        box.setPadding(48, 28, 48, 28);
+        tronTitle = new TextView(this);
+        tronTitle.setTextColor(Color.WHITE);
+        tronTitle.setTextSize(18);
+        tronTitle.setGravity(Gravity.CENTER);
+        tronTitle.setText("Building tron previews: starting the game");
+        box.addView(tronTitle);
+        tronBar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        tronBar.setMax(1000);
+        tronBar.setIndeterminate(true);
+        android.widget.LinearLayout.LayoutParams bl = new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bl.topMargin = 16;
+        bl.bottomMargin = 16;
+        box.addView(tronBar, bl);
+        tronLine = new TextView(this);
+        tronLine.setTextColor(Color.WHITE);
+        tronLine.setTextSize(14);
+        tronLine.setGravity(Gravity.CENTER);
+        tronLine.setText("The game decodes every titantron and stage movie into pictures and videos. Keep it on screen until the export starts.");
+        box.addView(tronLine);
+        int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+        lp.bottomMargin = 80;
+        mLayout.addView(box, lp);
+        tronHandler = new Handler(Looper.getMainLooper());
+        tronHandler.postDelayed(this::pollTrons, 500);
+    }
+
+    private void pollTrons() {
+        TronExportService.Progress p = TronExportService.Progress.read(tronDir);
+        if (p != null && p.exporting()) {
+            tronTitle.setText("Building tron previews  " + p.counts());
+            tronBar.setIndeterminate(false);
+            tronBar.setProgress(p.permille());
+            String what = p.phase.isEmpty() ? p.item : p.phase + ": " + p.item;
+            tronLine.setText(what + "\n" + p.detail() + "\nYou can leave the app now: a notification shows the progress, and the launcher comes back by itself.");
+        } else if (p != null && p.finished()) {
+            tronTitle.setText(p.state.equals("done") ? "Tron previews ready" : "Tron previews failed");
+            tronBar.setIndeterminate(false);
+            tronBar.setProgress(1000);
+            tronLine.setText(p.message + ". Back to the launcher...");
+        }
+        tronHandler.postDelayed(this::pollTrons, 500);
+    }
+
+    // Session 98: our notification question (REQ_NOTIFY) is not SDL's; anything else goes to SDL as before.
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode == REQ_NOTIFY) {
+            Log.i(TAG, "notification permission: " + (grantResults.length > 0 && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED));
+            return;
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
     // Session 93: the precompile's progress line and its end (see the fields above).

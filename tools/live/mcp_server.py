@@ -8,6 +8,7 @@ Registered in .mcp.json as "wwe2k14-live" (Claude Code asks once before it start
   game_status / game_stop / game_quit
 Screenshots come back inside the tool result, so looking costs one call. No dependencies (JSON-RPC over stdio).
 """
+import atexit
 import base64
 import json
 import os
@@ -126,7 +127,337 @@ TOOLS = [
      'inputSchema': {'type': 'object', 'properties': {'name': NAME_PROP}}},
     {'name': 'game_quit', 'description': 'Close the live game (like Alt+F4); run_list then frees the run lock.',
      'inputSchema': {'type': 'object', 'properties': {'name': NAME_PROP}}},
+    # Session 96: the asset viewer (wwe2k14_assets.exe, src\assets\view\; tools\assets\viewer_link.py). Not the game:
+    # no run lock, no game run (CLAUDE.md rule 7 counts game runs); it reads the player's own files read-only.
+    {'name': 'asset_start',
+     'description': 'Start the asset viewer (our own program: loads arenas and wrestlers straight from the game files, '
+                    'no game boot). visible=true opens a window Jarrod can see; default hidden (shots still work).',
+     'inputSchema': {'type': 'object', 'properties': {'visible': {'type': 'boolean'}}}},
+    {'name': 'asset_load',
+     'description': 'Load an arena or a wrestler into the asset viewer (replaces what is shown; add=true keeps it, e.g. '
+                    'a wrestler in an arena, with at=[x,y,z]). Returns meshes, vertices, textures, loader warnings, '
+                    'times. shot=preset name (front, side, three_quarter, top, close, ring) also returns a picture.',
+     'inputSchema': {'type': 'object', 'required': ['kind', 'id'], 'properties': {
+         'kind': {'type': 'string', 'enum': ['arena', 'wrestler']}, 'id': {'type': 'integer'},
+         'attire': {'type': 'integer'}, 'add': {'type': 'boolean'},
+         'at': {'type': 'array', 'items': {'type': 'number'}}, 'shot': {'type': 'string'}}}},
+    {'name': 'asset_view',
+     'description': 'Point the asset viewer camera (preset, or yaw / pitch / dist / target / fov) and return a picture.',
+     'inputSchema': {'type': 'object', 'properties': {
+         'preset': {'type': 'string'}, 'yaw': {'type': 'number'}, 'pitch': {'type': 'number'},
+         'dist': {'type': 'number'}, 'fov': {'type': 'number'},
+         'target': {'type': 'array', 'items': {'type': 'number'}}, 'width': {'type': 'integer'}}}},
+    {'name': 'asset_cam',
+     'description': 'Asset viewer free camera pose (Session 98). No pose fields (or get=true): returns the full pose {mode, pos, yaw, pitch, roll, fov, orbit}. '
+                    'With pos [x,y,z] / yaw / pitch / roll (degrees) / fov: sets the free camera (missing fields keep the current pose; '
+                    'mode="orbit" goes back to the orbit camera afterwards) and returns the pose. shot=true also returns a picture, so a shot can be repeated.',
+     'inputSchema': {'type': 'object', 'properties': {
+         'get': {'type': 'boolean'}, 'pos': {'type': 'array', 'items': {'type': 'number'}}, 'yaw': {'type': 'number'},
+         'pitch': {'type': 'number'}, 'roll': {'type': 'number'}, 'fov': {'type': 'number'},
+         'mode': {'type': 'string', 'enum': ['free', 'orbit']}, 'shot': {'type': 'boolean'}, 'width': {'type': 'integer'}}}},
+    {'name': 'asset_command',
+     'description': 'Send one raw command to the asset viewer pipe, e.g. {"cmd":"list","kind":"arena"} or '
+                    '{"cmd":"stats"}; returns its JSON answer.',
+     'inputSchema': {'type': 'object', 'required': ['command'], 'properties': {'command': {'type': 'object'}}}},
+    {'name': 'asset_motions',
+     'description': 'List the motions in the motion pacs of the game (asset viewer, Session 97). No arguments: the pac files and their '
+                    'banks. file (mot00..mot08): its banks. file+bank: the (top, act) pairs, paged (offset, limit). '
+                    'file+bank+top+act: the motions of that act (name, frames, tracks). Only the full-detail (ZLIB) half is read.',
+     'inputSchema': {'type': 'object', 'properties': {
+         'file': {'type': 'string'}, 'bank': {'type': 'string'}, 'top': {'type': 'integer'}, 'act': {'type': 'integer'},
+         'offset': {'type': 'integer'}, 'limit': {'type': 'integer'}}}},
+    {'name': 'asset_motion',
+     'description': 'Pose the loaded wrestler(s) with a real motion (asset viewer, Session 97). Give file / bank / top / act / name '
+                    '(default name="idle" = each wrestler\'s own in-ring stance, mot00 CA01 top 30 act 29000-29022 "00000000" picked '
+                    'per character like the game; name="crouch" = the old knees-bent idle mot00 CA01 40 23101), or leave them out to '
+                    'keep the current motion. frame=N sets the frame (60 per second; a stance has 200-270), play=true/false animates in a '
+                    'visible window, pose="bind" returns to the T-pose, pose="motion" back. shot=preset also returns a picture. '
+                    'Legs follow our own two-bone solve (the original solver is not reproduced).',
+     'inputSchema': {'type': 'object', 'properties': {
+         'file': {'type': 'string'}, 'bank': {'type': 'string'}, 'top': {'type': 'integer'}, 'act': {'type': 'integer'},
+         'name': {'type': 'string'}, 'frame': {'type': 'number'}, 'play': {'type': 'boolean'},
+         'pose': {'type': 'string', 'enum': ['bind', 'motion']}, 'shot': {'type': 'string'},
+         'actor': {'type': 'string', 'description': 'an actor id (asset_place); default: every actor, or the one loaded wrestler'}}}},
+    {'name': 'asset_stage',
+     'description': 'Tron preview in the asset viewer (Session 97): dress the loaded arena\'s entrance stage with wrestler N\'s tron on the main '
+                    'rectangle (big screen + banner ring) and his MVSW / MVSB movies on the other stage parts (fallback: the arena\'s MOV / MVAB). '
+                    'wrestler=N sets it (-1 = the match look: arena movies, the screen dark = the live camera feed), step=1 / -1 moves to the next / '
+                    'previous wrestler that has media, list=true lists them (and the media folder). media = a folder of the game\'s tron export '
+                    '(default: the launcher\'s tron cache; none -> a note "run the tron export"). The arena is not reloaded from disk by you: '
+                    'load one first. shot=preset (e.g. front) also returns a picture.',
+     'inputSchema': {'type': 'object', 'properties': {
+         'wrestler': {'type': 'integer'}, 'step': {'type': 'integer'}, 'list': {'type': 'boolean'}, 'media': {'type': 'string'},
+         'shot': {'type': 'string'}, 'width': {'type': 'integer'}}}},
+    {'name': 'asset_place',
+     'description': 'Place a wrestler (an actor) in the loaded arena of the asset viewer (Session 98 scenes). spot = stage | ramp | ring | '
+                    'ring_ne | ring_nw | ring_se | ring_sw | ringside (ramp: t 0 = stage end .. 1 = ring end); or pos=[x,y,z] for a free '
+                    'position. Each actor has its own position and facing (yaw override in degrees: 0 faces the stage, 180 faces the ring '
+                    'from the stage), attire, motion (default the idle; name + top + act + file + bank pick another, as asset_motion) and frame, '
+                    'and stands on the floor of its spot. Lit by the zone light set at the stage / ramp, the default rig elsewhere. '
+                    'id names the actor (placing again with the same id replaces it). Load an arena first (asset_load). '
+                    'shot=true also returns a picture from the spot camera (side / dist / pitch / fov tune it).',
+     'inputSchema': {'type': 'object', 'required': ['wrestler'], 'properties': {
+         'wrestler': {'type': 'integer'}, 'attire': {'type': 'integer'}, 'spot': {'type': 'string'}, 't': {'type': 'number'},
+         'pos': {'type': 'array', 'items': {'type': 'number'}}, 'yaw': {'type': 'number'}, 'id': {'type': 'string'},
+         'motion': {'type': 'string'}, 'frame': {'type': 'number'}, 'file': {'type': 'string'}, 'bank': {'type': 'string'},
+         'top': {'type': 'integer'}, 'act': {'type': 'integer'}, 'light': {}, 'ground': {'type': 'boolean'},
+         'anchor': {'type': 'boolean'}, 'shot': {'type': 'boolean'}, 'side': {'type': 'number'}, 'dist': {'type': 'number'},
+         'pitch': {'type': 'number'}, 'fov': {'type': 'number'}, 'width': {'type': 'integer'}}}},
+    {'name': 'asset_actors',
+     'description': 'List the actors placed in the asset viewer (id, wrestler, spot, position, yaw, feet height, motion, frame). remove=ID '
+                    'removes one, clear=true removes all. spot_cam=SPOT (or an actor id with actor=ID) also returns a picture from the '
+                    'camera that frames that spot (t for the ramp).',
+     'inputSchema': {'type': 'object', 'properties': {
+         'remove': {'type': 'string'}, 'clear': {'type': 'boolean'}, 'spot_cam': {'type': 'string'}, 'actor': {'type': 'string'},
+         't': {'type': 'number'}, 'width': {'type': 'integer'}}}},
+    {'name': 'asset_path',
+     'description': 'Camera paths + offline renders in the asset viewer (Session 98 step 12). action = add (key at time t from the current camera, or '
+                    'with pos / yaw / pitch / roll / fov / ease_in / ease_out 0..1), clear, list, set_key (index + fields, from_camera=true), delete '
+                    '(index), set (loop, link = the scene clock follows the path time), time (t = put the camera + linked actors at path time t; '
+                    'returns the pose), play (on, from), save / load (path = a file, or a bare name in %LOCALAPPDATA%\\wwe2k14\\viewer\\paths), '
+                    'render (path = file or "current", out = folder, w, h, fps, ss = supersampling 1..4, motion_blur = shutter 0..1, samples = '
+                    'sub-frames, t0 / t1, scene, mp4 = also encode with ffmpeg if it is on PATH; wait=true polls to the end, else it starts and '
+                    'you call render_status / render_cancel). Frames are frame_00000.png ... + camera.csv (per-frame pose); deterministic.',
+     'inputSchema': {'type': 'object', 'required': ['action'], 'properties': {
+         'action': {'type': 'string', 'enum': ['add', 'clear', 'list', 'set_key', 'delete', 'set', 'time', 'play', 'save', 'load', 'render',
+                                               'render_status', 'render_cancel']},
+         't': {'type': 'number'}, 'index': {'type': 'integer'}, 'pos': {'type': 'array', 'items': {'type': 'number'}},
+         'yaw': {'type': 'number'}, 'pitch': {'type': 'number'}, 'roll': {'type': 'number'}, 'fov': {'type': 'number'},
+         'ease_in': {'type': 'number'}, 'ease_out': {'type': 'number'}, 'from_camera': {'type': 'boolean'},
+         'loop': {'type': 'boolean'}, 'link': {'type': 'boolean'}, 'on': {'type': 'boolean'}, 'from': {'type': 'number'},
+         'path': {'type': 'string'}, 'out': {'type': 'string'}, 'w': {'type': 'integer'}, 'h': {'type': 'integer'},
+         'fps': {'type': 'integer'}, 'ss': {'type': 'integer'}, 'motion_blur': {'type': 'number'}, 'samples': {'type': 'integer'},
+         't0': {'type': 'number'}, 't1': {'type': 'number'}, 'scene': {'type': 'boolean'}, 'mp4': {'type': 'boolean'},
+         'wait': {'type': 'boolean'}}}},
+    {'name': 'asset_entrance',
+     'description': 'Play a wrestler\'s whole entrance in the asset viewer (Session 98 step 6). With wrestler=ID: places him (the actor "ent") at his '
+                    'walk and plays act 25000\'s cues 0 / 5 / 10 / 15 / 20 back to back (hard cuts), with his entrance lights and camera. '
+                    'Options: attire, cue (start there) + f (local frame), t (seconds), play, speed, root_y = ground (default) | raw | scale, '
+                    'camera = free | entrance, take, join = chain | absolute, intro_hold (seconds cue 0 is held), cue0 = hide | show, '
+                    'light_dirs = keyed | arena, lights, stage (his tron / stage look, reloads the arena), cam_dy. Without wrestler it moves '
+                    'the running entrance (cue / f / t / play / pause / speed / camera / take / root_y ...); info=true only returns the cue list, '
+                    'lengths, the current cue and time and the join distances. Load an arena first (asset_load). shot=true returns a picture.',
+     'inputSchema': {'type': 'object', 'properties': {
+         'wrestler': {'type': 'integer'}, 'attire': {'type': 'integer'}, 'cue': {'type': 'integer'}, 'f': {'type': 'number'},
+         't': {'type': 'number'}, 'play': {'type': 'boolean'}, 'pause': {'type': 'boolean'}, 'speed': {'type': 'number'},
+         'root_y': {'type': 'string', 'enum': ['ground', 'raw', 'scale']}, 'camera': {'type': 'string', 'enum': ['free', 'entrance']},
+         'take': {'type': 'integer'}, 'join': {'type': 'string', 'enum': ['chain', 'absolute']}, 'intro_hold': {'type': 'number'},
+         'cue0': {'type': 'string', 'enum': ['hide', 'show']}, 'light_dirs': {'type': 'string', 'enum': ['keyed', 'arena']},
+         'lights': {'type': 'boolean'}, 'stage': {'type': 'boolean'}, 'cam_dy': {'type': 'number'}, 'info': {'type': 'boolean'},
+         'shot': {'type': 'boolean'}, 'width': {'type': 'integer'}}}},
+    {'name': 'asset_stop', 'description': 'Close the asset viewer.',
+     'inputSchema': {'type': 'object', 'properties': {}}},
 ]
+
+_ASSET = {}  # the one viewer this server drives
+
+
+def _asset_viewer():
+    sys.path.insert(0, os.path.join(live.REPO, 'tools', 'assets'))
+    import viewer_link
+    if 'v' not in _ASSET:
+        _ASSET['v'] = viewer_link.Viewer(name='mcp')
+        atexit.register(_ASSET['v'].stop)  # (the viewer also exits by itself when this process ends: --parent)
+    return _ASSET['v']
+
+
+_ASSET_N = [0]
+
+
+def _asset_shot(v, width):
+    _ASSET_N[0] += 1
+    path = os.path.join(live.REPO, 'out', 'assets', 'mcp', 'view_%s_%03d.png' % (time.strftime('%Y%m%d_%H%M%S'), _ASSET_N[0]))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        os.remove(path)
+    r = v.send({'cmd': 'shot', 'path': path, 'w': width, 'h': width * 9 // 16})
+    if not r.get('ok', False) or not os.path.exists(path):  # (success = the viewer said ok AND this file is new)
+        return [text('shot failed: %s' % json.dumps(r))]
+    with open(path, 'rb') as f:
+        return [{'type': 'image', 'data': base64.b64encode(f.read()).decode('ascii'), 'mimeType': 'image/png'}]
+
+
+def _asset_cam(v, args):  # Session 98 (freecam): cam_get / cam_set
+    fields = ('pos', 'yaw', 'pitch', 'roll', 'fov', 'mode')
+    if args.get('get') or not any(k in args for k in fields):
+        r = v.send({'cmd': 'cam_get'})
+    else:
+        cmd = {'cmd': 'cam_set'}
+        cmd.update({k: args[k] for k in fields if k in args})
+        r = v.send(cmd)
+    out = [text(json.dumps(r))]
+    if args.get('shot') and r.get('ok', False):
+        out += _asset_shot(v, int(args.get('width') or 1280))
+    return out, not r.get('ok', True)
+
+
+def _asset_path(v, args):  # Session 98 (step 12): path_* / render commands
+    action = args.get('action')
+    if action in ('render', 'render_status', 'render_cancel'):
+        cmd = {'cmd': action}
+    else:
+        cmd = {'cmd': 'path_' + str(action)}
+    cmd.update({k: val for k, val in args.items() if k not in ('action', 'wait', 'name')})
+    r = v.send(cmd)
+    if action == 'render' and args.get('wait') and r.get('ok', False):
+        deadline = time.time() + 3600
+        while r.get('state') in (None, 'rendering', 'encoding') and time.time() < deadline:
+            time.sleep(2)
+            r = v.send({'cmd': 'render_status'})
+    return [text(json.dumps(r, indent=1))], not r.get('ok', True)
+
+
+def _asset_entrance(v, args):  # Session 98 (step 6): entrance / entrance_time / entrance_info
+    keys = ('wrestler', 'attire', 'cue', 'f', 't', 'play', 'pause', 'speed', 'root_y', 'camera', 'take', 'join', 'intro_hold', 'cue0',
+            'light_dirs', 'lights', 'stage', 'cam_dy')
+    if args.get('info') and 'wrestler' not in args:
+        r = v.send({'cmd': 'entrance_info'})
+    else:
+        cmd = {'cmd': 'entrance' if 'wrestler' in args else 'entrance_time'}
+        cmd.update({k: args[k] for k in keys if k in args})
+        r = v.send(cmd, timeout=180.0)
+    out = [text(json.dumps(r, indent=1))]
+    if args.get('shot') and r.get('ok', False):
+        out += _asset_shot(v, int(args.get('width') or 1280))
+    return out, not r.get('ok', True)
+
+
+def asset_call(tool, args):
+    v = _asset_viewer()
+    if tool == 'asset_entrance':
+        return _asset_entrance(v, args)
+    if tool == 'asset_start':
+        v.start(hidden=not args.get('visible'))
+        return [text('asset viewer started (pipe %s)' % v.name)], False
+    if tool == 'asset_stop':
+        v.stop()
+        return [text('asset viewer closed')], False
+    if v.pipe is None:
+        v.start()
+    if tool == 'asset_command':
+        r = v.send(args['command'])
+        return [text(json.dumps(r, indent=1))], not r.get('ok', True)
+    if tool == 'asset_load':
+        cmd = {'cmd': 'add' if args.get('add') else 'load', 'kind': args['kind'], 'id': int(args['id']),
+               'attire': int(args.get('attire') or 0)}
+        if args.get('at'):
+            cmd['at'] = args['at']
+        r = v.send(cmd)
+        content = [text(json.dumps(r, indent=1))]
+        if args.get('shot') and r.get('ok', True):
+            cr = v.send({'cmd': 'camera', 'preset': args['shot']})
+            if not cr.get('ok', False):  # a bad preset name: report it, no picture
+                return content + [text('camera: %s' % json.dumps(cr))], True
+            content += _asset_shot(v, 1280)
+        return content, not r.get('ok', True)
+    if tool == 'asset_motions':
+        cmd = {'cmd': 'motions'}
+        cmd.update({k: args[k] for k in ('file', 'bank', 'top', 'act', 'offset', 'limit') if k in args})
+        r = v.send(cmd)
+        return [text(json.dumps(r))], not r.get('ok', True)
+    if tool == 'asset_motion':
+        out = []
+        sel = [k for k in ('file', 'bank', 'top', 'act', 'name') if k in args]
+        if sel:
+            cmd = {'cmd': 'motion'}
+            cmd.update({k: args[k] for k in sel})
+            if 'actor' in args:
+                cmd['actor'] = args['actor']
+            r = v.send(cmd)
+            out.append(text(json.dumps(r)))
+            if not r.get('ok', False):
+                return out, True
+        if 'frame' in args:
+            fc = {'cmd': 'frame', 'f': args['frame']}
+            if 'actor' in args:
+                fc['actor'] = args['actor']
+            r = v.send(fc)
+            out.append(text(json.dumps(r)))
+            if not r.get('ok', False):
+                return out, True
+        if 'pose' in args:  # (after frame: frame switches to motion mode)
+            pc = {'cmd': 'pose', 'mode': args['pose']}
+            if 'actor' in args:
+                pc['actor'] = args['actor']
+            r = v.send(pc)
+            out.append(text(json.dumps(r)))
+            if not r.get('ok', False):
+                return out, True
+        if 'play' in args:
+            r = v.send({'cmd': 'play', 'on': bool(args['play'])})
+            out.append(text(json.dumps(r)))
+        if args.get('shot'):
+            cr = v.send({'cmd': 'camera', 'preset': args['shot']})
+            if not cr.get('ok', False):
+                return out + [text('camera: %s' % json.dumps(cr))], True
+            out += _asset_shot(v, 1280)
+        return out or [text('nothing to do: give a motion (file/bank/top/act/name), pose, frame, play or shot')], not out
+    if tool == 'asset_place':
+        cmd = {'cmd': 'place'}
+        cmd.update({k: args[k] for k in ('wrestler', 'attire', 'spot', 't', 'pos', 'yaw', 'id', 'motion', 'frame', 'file', 'bank',
+                                         'top', 'act', 'light', 'ground', 'anchor') if k in args})
+        r = v.send(cmd, timeout=120.0)
+        out = [text(json.dumps(r, indent=1))]
+        if args.get('shot') and r.get('ok', False):
+            sc = {'cmd': 'spot_cam', 'actor': r['id']}
+            sc.update({k: args[k] for k in ('side', 'dist', 'pitch', 'fov') if k in args})
+            cr = v.send(sc)
+            if not cr.get('ok', False):
+                return out + [text('spot_cam: %s' % json.dumps(cr))], True
+            out += _asset_shot(v, int(args.get('width') or 1280))
+        return out, not r.get('ok', True)
+    if tool == 'asset_actors':
+        out = []
+        if args.get('clear'):
+            r = v.send({'cmd': 'remove', 'all': True})
+            out.append(text(json.dumps(r)))
+            if not r.get('ok', False):
+                return out, True
+        elif args.get('remove'):
+            r = v.send({'cmd': 'remove', 'id': args['remove']})
+            out.append(text(json.dumps(r)))
+            if not r.get('ok', False):
+                return out, True
+        r = v.send({'cmd': 'actors'})
+        out.append(text(json.dumps(r, indent=1)))
+        if args.get('spot_cam') or args.get('actor'):
+            sc = {'cmd': 'spot_cam'}
+            if args.get('actor'):
+                sc['actor'] = args['actor']
+            else:
+                sc['spot'] = args['spot_cam']
+            if 't' in args:
+                sc['t'] = args['t']
+            cr = v.send(sc)
+            if not cr.get('ok', False):
+                return out + [text('spot_cam: %s' % json.dumps(cr))], True
+            out += _asset_shot(v, int(args.get('width') or 1280))
+        return out, not r.get('ok', True)
+    if tool == 'asset_stage':
+        cmd = {'cmd': 'stage'}
+        for k in ('wrestler', 'step', 'media'):
+            if k in args:
+                cmd[k] = args[k]
+        if args.get('list'):
+            cmd['list'] = True
+        r = v.send(cmd, timeout=120.0)
+        out = [text(json.dumps(r, indent=1))]
+        if args.get('shot') and r.get('ok', True) and not args.get('list'):
+            cr = v.send({'cmd': 'camera', 'preset': args['shot']})
+            if not cr.get('ok', False):
+                return out + [text('camera: %s' % json.dumps(cr))], True
+            out += _asset_shot(v, int(args.get('width') or 1280))
+        return out, not r.get('ok', True)
+    if tool == 'asset_path':
+        return _asset_path(v, args)
+    if tool == 'asset_cam':
+        return _asset_cam(v, args)
+    if tool == 'asset_view':
+        cmd = {'cmd': 'camera'}
+        cmd.update({k: args[k] for k in ('preset', 'yaw', 'pitch', 'dist', 'fov', 'target') if k in args})
+        r = v.send(cmd)
+        return [text(json.dumps(r))] + _asset_shot(v, int(args.get('width') or 1280)), not r.get('ok', True)
+    return [text('unknown asset tool %s' % tool)], True
 
 
 def text(t):
@@ -139,6 +470,8 @@ def image(path):
 
 
 def call(tool, args):
+    if tool.startswith('asset_'):
+        return asset_call(tool, args)
     name = args.get('name') or 'main'
     if tool == 'game_start':
         t = live.start(name, args.get('script') or 'menu', args.get('launch') or '', bool(args.get('fast')),

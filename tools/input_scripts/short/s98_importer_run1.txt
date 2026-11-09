@@ -1,0 +1,60 @@
+# Session 98, Superstar Importer diagnostic run 1 (out\s98\importer\run1\prep.md: questions Q1-Q5 + Jarrod's a-c, how
+# to read each answer). COVERAGE build only (probe plugin + coverage windows). Boot with the DLC packs offered in REVERSE
+# pack-id order (5, 4, 3; pack 2 off), the run-1 probe loaded before the first chEtc read, main menu (roster record
+# dump), PLAY -> ONE ON ONE -> NORMAL, the superstar select screen (list build + portraits), A on the slot (grid), DOWN
+# x4 to the tab row and A (Jarrod's S32 path to DOWNLOADED SUPERSTARS), screenshots and coverage marks at each step,
+# the roster records again, quit. State-driven up to the select screen (fast-forward safe), frame waits after it.
+# harness: flags --wwe2k14_dlc=true --wwe2k14_dlc_reverse_order=true --wwe2k14_dlc_off=2 --wwe2k14_coverage=true --wwe2k14_file_trace=true --wwe2k14_file_trace_filter=_DLC --wwe2k14_file_trace_per_path=1 --wwe2k14_file_trace_reads=0
+on_fail quit
+plugin load
+log imp1: start
+mark 1 boot
+include boot_to_menu
+mark 2 main_menu
+log imp1: main menu records (word +4 = id<<16 | name text id; word +16 = active, pack code, +18, +19), ids 102 385 397 499
+log_state 0x8376F3C0>412
+log_state 0x8376F3C0>424
+log_state 0x8376F3C0>58144
+log_state 0x8376F3C0>58156
+log_state 0x8376F3C0>60592
+log_state 0x8376F3C0>60604
+log_state 0x8376F3C0>81400
+log_state 0x8376F3C0>81412
+include menu_to_play
+press_until_state A menu 7 40 30 5
+mark 3 to_select
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+screenshot imp1_select
+mark 4 select_open
+press A
+wait_frames 90
+screenshot imp1_grid
+log_text
+mark 5 grid_idle
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 60
+screenshot imp1_tabrow
+log_text
+mark 6 tab_row
+press A
+wait_frames 150
+screenshot imp1_downloaded
+log_text
+mark 7 downloaded
+log imp1: end records
+log_state 0x8376F3C0>412
+log_state 0x8376F3C0>424
+log_state 0x8376F3C0>58144
+log_state 0x8376F3C0>58156
+log_state 0x8376F3C0>60592
+log_state 0x8376F3C0>60604
+log_state 0x8376F3C0>81400
+log_state 0x8376F3C0>81412
+quit

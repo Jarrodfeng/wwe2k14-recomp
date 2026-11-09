@@ -1,0 +1,229 @@
+{
+ "_doc": "Run 6824 (Session 98 full sweep): 6-man tag, SmackDown arena 0 (raised stage), seed 1. Slot 0 John Cena (139, champion: Entrance06 bank 602, belt in hand), slot 1 Alberto Del Rio (322, champion, belt at the waist, his own entrance, no companion in a 6-man), slot 5 Kane (107). Cue starts from events_6824.jsonl (Cena 5 = 5722, 10 = 6406, 15 = 6604, 20 = 6774; Del Rio 10 = 17758, 15 = 19004, 20 = 20314; Kane 5 = 26644, 10 = 27464, 20 = 29220); f = swap - start (the 6819 convention). 'entrance' = extra entrance-command arguments. The s2 (Rock) shots of this run are match frames (the script waited on slot order, the Rock had entered long before): not items. Kane's ring-in has a shot but no probe frame: not an item. Cena items: the cap the s0_ring capture drew for his yellow attire (2720) comes from the game's own rule (src/assets/evt_props.h: table 101, model key 13904); no prop_swap needed.",
+ "c_stage": {
+  "shot": "6824_sw_s0_stage.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 6122,
+  "cue": 5,
+  "f": 400,
+  "arena": 0,
+  "wrestler": 139,
+  "entrance": {
+   "bank": 602,
+   "title": "hold"
+  },
+  "parts": {}
+ },
+ "c_ramp": {
+  "shot": "6824_sw_s0_ramp.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 6706,
+  "cue": 10,
+  "f": 300,
+  "arena": 0,
+  "wrestler": 139,
+  "entrance": {
+   "bank": 602,
+   "title": "hold"
+  },
+  "parts": {}
+ },
+ "c_ringin": {
+  "shot": "6824_sw_s0_ringin.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 7007,
+  "cue": 15,
+  "f": 403,
+  "arena": 0,
+  "wrestler": 139,
+  "entrance": {
+   "bank": 602,
+   "title": "hold"
+  },
+  "parts": {}
+ },
+ "c_ring": {
+  "shot": "6824_sw_s0_ring.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 7130,
+  "cue": 20,
+  "f": 356,
+  "arena": 0,
+  "wrestler": 139,
+  "entrance": {
+   "bank": 602,
+   "title": "hold"
+  },
+  "parts": {
+   "face": [
+    [
+     595,
+     160,
+     650,
+     230
+    ],
+    [
+     595,
+     140,
+     650,
+     210
+    ]
+   ]
+  }
+ },
+ "d_ramp": {
+  "shot": "6824_sw_s1_ramp.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 18823,
+  "cue": 10,
+  "f": 1065,
+  "arena": 0,
+  "wrestler": 322,
+  "entrance": {
+   "title": "waist"
+  },
+  "parts": {
+   "face": [
+    [
+     570,
+     120,
+     700,
+     280
+    ],
+    [
+     540,
+     140,
+     670,
+     300
+    ]
+   ],
+   "torso": [
+    [
+     540,
+     300,
+     740,
+     500
+    ],
+    [
+     520,
+     300,
+     720,
+     500
+    ]
+   ],
+   "arm": [
+    [
+     740,
+     300,
+     860,
+     560
+    ],
+    [
+     700,
+     300,
+     820,
+     560
+    ]
+   ]
+  }
+ },
+ "d_ringin": {
+  "shot": "6824_sw_s1_ringin.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 19304,
+  "cue": 15,
+  "f": 300,
+  "arena": 0,
+  "wrestler": 322,
+  "entrance": {
+   "title": "waist"
+  },
+  "parts": {}
+ },
+ "d_ring": {
+  "shot": "6824_sw_s1_ring.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 20436,
+  "cue": 20,
+  "f": 122,
+  "arena": 0,
+  "wrestler": 322,
+  "entrance": {
+   "title": "waist"
+  },
+  "parts": {
+   "face": [
+    [
+     555,
+     160,
+     645,
+     250
+    ],
+    [
+     565,
+     175,
+     655,
+     265
+    ]
+   ],
+   "arm": [
+    [
+     360,
+     180,
+     500,
+     380
+    ],
+    [
+     380,
+     190,
+     520,
+     390
+    ]
+   ],
+   "torso": [
+    [
+     535,
+     310,
+     685,
+     450
+    ],
+    [
+     560,
+     320,
+     710,
+     460
+    ]
+   ]
+  }
+ },
+ "k_stage": {
+  "shot": "6824_sw_s5_stage.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 27170,
+  "cue": 5,
+  "f": 526,
+  "arena": 0,
+  "wrestler": 107,
+  "parts": {}
+ },
+ "k_ramp": {
+  "shot": "6824_sw_s5_ramp.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 27764,
+  "cue": 10,
+  "f": 300,
+  "arena": 0,
+  "wrestler": 107,
+  "parts": {}
+ },
+ "k_ring": {
+  "shot": "6824_sw_s5_ring.png",
+  "probe": "out/s98/sweep1/probe.csv",
+  "swap": 29342,
+  "cue": 20,
+  "f": 122,
+  "arena": 0,
+  "wrestler": 107,
+  "parts": {}
+ }
+}

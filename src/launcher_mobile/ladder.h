@@ -24,7 +24,7 @@ namespace mlauncher::ladder {
 
 namespace fs = std::filesystem;
 
-inline constexpr int kMaxRung = 4;
+inline constexpr int kMaxRung = 3;  // (Session 95: was 4; the old step 3 only turned reduced precision off, which is gone)
 inline constexpr double kEarlyQuitSeconds = 120.0;
 
 struct RunEnd {
@@ -276,12 +276,10 @@ inline void AnswerEarly(const fs::path& history, const std::string& key, bool lo
 // ---------------------------------------------------------------------------------------------- the rung file
 // logs are not the place for it: the launcher process dies at PLAY (LauncherActivity), so GameArgs reads <files>/rung.txt.
 // Line 1 "rung N", then the app version and the driver it was chosen for (a new version or driver starts at rung 0), then
-// "mediump_changed 0/1" (rung 3 turns mediump off as a saved setting; turning SAFE MODE off turns it back on).
+// (a fourth line "mediump_changed" from before Session 95's removal of reduced precision is ignored).
 struct RungState {
   int rung = 0;
   std::string version, driver;
-  bool mediump_changed = false;
-  bool stale_mediump = false;  // the file was for another version or driver but had changed mediump: the launcher gives it back
 };
 
 inline RungState ReadRung(const fs::path& path, const std::string& version, const std::string& driver) {
@@ -290,21 +288,16 @@ inline RungState ReadRung(const fs::path& path, const std::string& version, cons
   std::string a, b, c, d;
   std::getline(f, a), std::getline(f, b), std::getline(f, c), std::getline(f, d);
   if (a.rfind("rung ", 0) != 0) return s;
-  if (Trim(b) != version || Trim(c) != driver) {
-    s.stale_mediump = d.find("mediump_changed 1") != std::string::npos;
-    return s;
-  }  // an update or another driver: back to nothing
+  if (Trim(b) != version || Trim(c) != driver) return s;  // an update or another driver: back to nothing
   s.rung = std::clamp(std::atoi(a.c_str() + 5), 0, kMaxRung);
   s.version = version, s.driver = driver;
-  s.mediump_changed = d.find("mediump_changed 1") != std::string::npos;
   return s;
 }
 
 inline bool WriteRung(const fs::path& path, const RungState& s, const std::string& version, const std::string& driver) {
   std::ofstream f(path, std::ios::trunc);
   if (!f) return false;
-  f << "rung " << std::clamp(s.rung, 0, kMaxRung) << "\n" << version << "\n" << driver << "\n"
-    << "mediump_changed " << (s.mediump_changed ? 1 : 0) << "\n";
+  f << "rung " << std::clamp(s.rung, 0, kMaxRung) << "\n" << version << "\n" << driver << "\n";
   return bool(f);
 }
 
@@ -312,8 +305,7 @@ inline const char* RungWords(int rung) {
   switch (rung) {
     case 1: return "plain graphics mode, one shader worker";
     case 2: return "plain graphics mode, shadows off, crowd 30%, 30 FPS";
-    case 3: return "everything in step 2, and the lower-precision colour maths off (the shaders are rebuilt: up to 10 minutes)";
-    case 4: return "no further step is built in: share the report so the cause can be found";
+    case 3: return "no further step is built in: share the report so the cause can be found";
     default: return "normal";
   }
 }

@@ -50,6 +50,7 @@
 #include "guest_read.h"
 #include "mods.h"
 #include "music_slots.h"  // Session 75: new songs in the MUSIC list (their ids play through this player)
+#include "superstars.h"   // Session 98: imported superstars' music ids
 
 REXCVAR_DEFINE_BOOL(wwe2k14_entrance_music, false, "wwe2k14",
                     "Session 33: custom entrance music from the mods folder (<mods>\\music\\ID.mp3, .m4a, .wav, .flac, "
@@ -215,11 +216,19 @@ REX_HOOK_RAW(sub_82ACFDE0) {
   __imp__sub_82ACFDE0(ctx, base);
   const bool on = REXCVAR_GET(wwe2k14_entrance_music), probe = REXCVAR_GET(wwe2k14_music_probe);
   const bool slots = wwe2k14::music_slots::Active();  // Session 75: the new songs play without --wwe2k14_entrance_music
-  if ((!on && !probe && !slots) || !name || ctx.r3.u32 == 0) return;
+  const bool stars = wwe2k14::superstars::g_active;   // Session 98: imported superstars play their entrance wrestler's theme
+  if ((!on && !probe && !slots && !stars) || !name || ctx.r3.u32 == 0) return;
   // All four call sites pass a 256-byte stack buffer; 48 bytes are plenty for "Play_MUS_0343_0_0" (review fix).
   char buf[48] = {};
   std::memcpy(buf, base + name, sizeof(buf) - 1);
   const bool play = lr == 0x82AF1C84;
+  if (stars) {  // "Play_MUS_0397_0_0" -> "Play_MUS_0100_0_0" in the game's own buffer (same length; src\superstars.h)
+    const int from = MusicIdOf(buf), to = wwe2k14::superstars::RemapMusic(buf, sizeof(buf));
+    if (to >= 0) {
+      std::memcpy(base + name + 9, buf + 9, 4);
+      if (play) REXLOG_INFO("[wwe2k14][superstars] theme {} -> {} ('{}')", from, to, buf);
+    }
+  }
   if (probe) {
     static std::mutex probe_mutex;
     std::lock_guard probe_lock(probe_mutex);

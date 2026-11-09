@@ -46,6 +46,7 @@
 //   --show-perf-test        (open its window, for a look)
 //   --xdet-check            (Session 77: run the determinism check, ABOUT; waits for it and its zip)
 //   --show-xdet-check       (open its window, for a look)
+//   --export-for-phone ZIP  (Session 98: Trons -> Export for phone... into ZIP, no Save dialog; waits for it)
 
 #include "launcher_core.h"
 
@@ -87,6 +88,8 @@
 #include "../diag_plan.h"  // Session 95: the diagnostic run (shared with the phone launcher)
 #include "../diag_logcut.h"  // Session 95 (diag4): the game log cut for the zip (shared)
 #include "../vk_devices.h"  // Session 37: integrated graphics? interlock? (the renderer and FSR choices)
+#include "../tron_zip.h"  // Session 98: EXPORT FOR PHONE (the tron previews as one zip for the phone launcher)
+#include "../importer/importer_core.h"  // Session 98: the SUPERSTARS tab's table (LoadPack / SavePack)
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -366,6 +369,37 @@ std::optional<fs::path> PickDiscImage(HWND owner) {
   COMDLG_FILTERSPEC types[] = {{L"Xbox 360 disc images (*.iso)", L"*.iso"}, {L"All files", L"*.*"}};
   dlg->SetFileTypes(2, types);
   dlg->SetTitle(L"Pick the disc image (.iso) of your WWE 2K14 disc");
+  std::optional<fs::path> out;
+  if (SUCCEEDED(dlg->Show(owner))) {
+    IShellItem* item = nullptr;
+    if (SUCCEEDED(dlg->GetResult(&item))) {
+      PWSTR p = nullptr;
+      if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) out = fs::path(p), CoTaskMemFree(p);
+      item->Release();
+    }
+  }
+  dlg->Release();
+  return out;
+}
+
+// Session 98 (EXPORT FOR PHONE): where the tron previews zip goes. Starts on the Desktop with wwe2k14_tron_previews.zip.
+std::optional<fs::path> PickSaveZip(HWND owner, const wchar_t* title, const wchar_t* name) {
+  IFileSaveDialog* dlg = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&dlg)))) return std::nullopt;
+  COMDLG_FILTERSPEC types[] = {{L"Zip files (*.zip)", L"*.zip"}};
+  dlg->SetFileTypes(1, types);
+  dlg->SetDefaultExtension(L"zip");
+  dlg->SetTitle(title);
+  dlg->SetFileName(name);
+  PWSTR desk = nullptr;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desk))) {
+    IShellItem* folder = nullptr;
+    if (SUCCEEDED(SHCreateItemFromParsingName(desk, nullptr, IID_PPV_ARGS(&folder)))) dlg->SetFolder(folder), folder->Release();
+    CoTaskMemFree(desk);
+  }
+  FILEOPENDIALOGOPTIONS o = 0;
+  dlg->GetOptions(&o);
+  dlg->SetOptions(o | FOS_OVERWRITEPROMPT | FOS_FORCEFILESYSTEM);
   std::optional<fs::path> out;
   if (SUCCEEDED(dlg->Show(owner))) {
     IShellItem* item = nullptr;
@@ -794,7 +828,7 @@ class App {
         wwe2k14::gfxs::LowStartValues(s.resolution, s.draw_height, s.upscale, s.crowd_density, &what);
         Log("settings: " + why + ": starting values applied once to the sliders:" + what);
       }
-      if (save_settings) SaveSettings(settings_path, s);
+      if (save_settings) SaveSettingsSynced();
     }
     g_perf_report_default = IsPlaytest();
     Reload();
@@ -1199,6 +1233,11 @@ class App {
     else if (st.op == "play") LaunchPlain();
     else if (st.op == "create_shortcut") CreateDesktopShortcut();  // Session 53 (with --shortcut-dir in tests)
     else if (st.op == "build_previews") BuildPreviews();
+    else if (st.op == "export_phone") ExportForPhone(fs::path(Widen(st.a)));  // Session 98: EXPORT FOR PHONE to this file
+    else if (st.op == "wait_export_phone") {
+      if (phone_export_ && !phone_export_->done) return false;
+      PhoneExportProgress(false);  // (its result line, also when the Trons tab is not shown)
+    }
     else if (st.op == "wizard_step") wizard_step_ = std::clamp(std::atoi(st.a.c_str()), 0, 2);
     else if (st.op == "no_rtx") hw_.rtx = false, force_rtx_ = false;
     else if (st.op == "quick_match") LaunchQuickMatch();
@@ -1249,6 +1288,7 @@ class App {
   }
 
   void Frame() {
+    SyncSuperstarsKey();  // Session 98 (importer review): every frame (a stat; the key is read when the file changed)
     CollectThumbs();
     PollGame();
     DiagTick();  // Session 95
@@ -1420,7 +1460,7 @@ class App {
     if (game_proc_) CloseHandle(game_proc_), game_proc_ = nullptr;
     RECT r;
     if (GetWindowRect(hwnd_, &r)) s.window_w = r.right - r.left, s.window_h = r.bottom - r.top;
-    if (save_settings) SaveSettings(settings_path, s);
+    if (save_settings) SaveSettingsSynced();
     thumb_.reset();
   }
 
@@ -1683,6 +1723,7 @@ class App {
   }
 
   // ---------------- Play
+  std::string asset_viewer_note_;  // Session 96: why the ASSET VIEWER button could not start it
   int play_view_ = 0;  // Session 31: 0 the home screen (logo, PLAY GAME, QUICK MATCH), 1 Quick Match, 2 Advanced
 
   void PlayPage() {
@@ -2403,7 +2444,7 @@ class App {
     if (cmd.exe == paths_.game_exe.wstring()) game_proc_ = h, last_cmd_ = cmd;
     else CloseHandle(h);
     Status(ok_msg);
-    if (save_settings) SaveSettings(settings_path, s);
+    if (save_settings) SaveSettingsSynced();
     if (cmd.exe == paths_.game_exe.wstring()) {  // what the in-game GRAPHICS screen may change (ReloadGraphicsSettings)
       launch_graphics_.upscale = s.upscale, launch_graphics_.resolution = s.resolution;
       launch_graphics_.draw_height = s.draw_height;  // Session 54 (review of a tester's report: it was dropped)
@@ -3714,34 +3755,303 @@ class App {
     return sel != before;
   }
 
-  static constexpr const char* kModsTabs[] = {"TRONS", "TITLES", "LOGOS", "MUSIC"};  // Session 75: MUSIC (Jarrod)
+  static constexpr const char* kModsTabs[] = {"TRONS", "TITLES", "LOGOS", "MUSIC", "SUPERSTARS"};  // Session 75: MUSIC (Jarrod); Session 98: SUPERSTARS
 
+  // Session 96 (Jarrod: "just a button in advanced for now") -> Session 98: the Arena Viewer (src\assets\view\,
+  // wwe2k14_assets.exe beside the launcher) loads arenas, wrestlers and the player's mods straight from the game files,
+  // without starting the game. Its button sits at the right of the MODS tab row.
+  void LaunchArenaViewer() {
+    const fs::path exe = paths_.launcher_dir / "wwe2k14_assets.exe";
+    const std::string game = s.game_data_dir.empty() ? PathStr(paths_.game_data) : s.game_data_dir;
+    std::error_code ec;
+    if (!fs::exists(exe, ec)) {
+      asset_viewer_note_ = "wwe2k14_assets.exe is not next to the launcher.";
+      return;
+    }
+    std::string a = "--game " + Quote(game) + " --mods " + Quote(PathStr(paths_.mods));  // the mod workbench reads it
+    if (save_settings) {  // Session 98: the LIGHT tab's USE MY LIGHTING is this file's "lighting" key (never handed over by a no-save test run)
+      SaveSettingsSynced();
+      a += " --settings-file " + Quote(PathStr(settings_path));
+    }
+    // Session 98: the viewer reads the DLC packs the game gets (USE MY DLC, the folder, the packs switched off: GameDlcFlags' rule)
+    if (!s.dlc) a += " --no-dlc";
+    else {
+      a += " --dlc " + Quote(PathStr(paths_.dlc));
+      std::string off;
+      for (int id : wwe2k14::dlc::ParseIdList(s.dlc_off)) off += (off.empty() ? "" : ",") + std::to_string(id);
+      if (!off.empty()) a += " --dlc-off " + off;
+    }
+    const std::wstring args = Widen(a);
+    ShellExecuteW(hwnd_, L"open", exe.wstring().c_str(), args.c_str(), paths_.launcher_dir.wstring().c_str(), SW_SHOWNORMAL);
+    asset_viewer_note_.clear();
+  }
+
+  // Session 98 (Superstar Importer): the same program as the Arena Viewer in its importer mode (--importer: src\assets\view\ui_importer.h).
+  // It gets the launcher's settings file: its footer switch IS USE MY SUPERSTARS (the "superstars" key, the only on / off). Only when
+  // this launcher saves its settings (a test run with no saving never hands its file over: CLAUDE.md Safety). `more` = --importer-edit
+  // SLOT / --importer-bulk.
+  void LaunchImporter(const std::string& more = "") {
+    const fs::path exe = paths_.launcher_dir / "wwe2k14_assets.exe";
+    const std::string game = s.game_data_dir.empty() ? PathStr(paths_.game_data) : s.game_data_dir;
+    std::error_code ec;
+    if (!fs::exists(exe, ec)) {
+      asset_viewer_note_ = "wwe2k14_assets.exe is not next to the launcher.";
+      return;
+    }
+    std::string a = "--importer --game " + Quote(game) + " --mods " + Quote(PathStr(paths_.mods));
+    if (save_settings) {
+      SaveSettingsSynced();  // (the importer reads the switch from the file)
+      a += " --settings-file " + Quote(PathStr(settings_path));
+    }
+    if (!s.dlc) a += " --no-dlc";
+    else {
+      a += " --dlc " + Quote(PathStr(paths_.dlc));
+      std::string off;
+      for (int id : wwe2k14::dlc::ParseIdList(s.dlc_off)) off += (off.empty() ? "" : ",") + std::to_string(id);
+      if (!off.empty()) a += " --dlc-off " + off;
+    }
+    if (!more.empty()) a += " " + more;
+    const std::wstring args = Widen(a);
+    ShellExecuteW(hwnd_, L"open", exe.wstring().c_str(), args.c_str(), paths_.launcher_dir.wstring().c_str(), SW_SHOWNORMAL);
+    asset_viewer_note_.clear();
+  }
+  // Session 98 (importer review): the importer edits the "superstars" key of this launcher's settings file. Every frame the file's
+  // time is checked (a stat) and the key read again when it changed; `force` reads it now (before every save and every game launch),
+  // so the launcher never writes or launches with a stale switch. A file mid-write or damaged keeps the current value.
+  fs::file_time_type stars_key_time_{};
+  void SyncSuperstarsKey(bool force = false) {
+    if (settings_path.empty()) return;
+    std::error_code ec;
+    const fs::file_time_type t = fs::last_write_time(settings_path, ec);
+    if (ec || (!force && t == stars_key_time_)) return;
+    stars_key_time_ = t;
+    try {
+      std::ifstream f(settings_path, std::ios::binary);
+      if (!f) return;
+      const json j = json::parse(f);
+      if (j.is_object() && j.contains("superstars") && j["superstars"].is_boolean()) s.superstars = j["superstars"].get<bool>();
+      if (j.is_object() && j.contains("lighting") && j["lighting"].is_boolean()) s.lighting = j["lighting"].get<bool>();  // (the Arena Viewer's LIGHT tab)
+    } catch (...) {
+    }
+  }
+  void SaveSettingsSynced() {
+    SyncSuperstarsKey(true);
+    SaveSettings(settings_path, s);
+  }
   void ModsPage() {
     const float d = Dpi();
     if (want_mods_tab_ >= 0) s.mods_tab = want_mods_tab_, want_mods_tab_ = -1;
-    s.mods_tab = std::clamp(s.mods_tab, 0, 3);
+    s.mods_tab = std::clamp(s.mods_tab, 0, 4);
+    const ImVec2 row0 = ImGui::GetCursorScreenPos();
+    const float viewer_w = 210 * d, viewer_h = 40 * d;  // the ARENA VIEWER button, right of the tab row
+    const float imp_w = 260 * d;                         // Session 98: SUPERSTAR IMPORTER, left of it
     Heading("MODS", 1.6f);
     ImGui::SameLine(0, 28 * d);
-    GameTabs(kModsTabs, 4, s.mods_tab);
-    if (s.mods_tab != 2) {
+    GameTabs(kModsTabs, 5, s.mods_tab);
+    if (s.mods_tab == 4) {  // Session 98 (Jarrod: "as simple as an on and off switch, similar to our custom music and Trons")
+      ImGui::SameLine(0, 24 * d);
+      const float right = ImGui::GetContentRegionMax().x - viewer_w - imp_w - 26 * d;
+      const float x = ImGui::GetCursorPosX(), room = right - x;
+      const float w = std::min(470 * d, room);
+      if (w < 330 * d) ImGui::NewLine();
+      else ImGui::SameLine(right - w);
+      if (OptionToggle("USE MY SUPERSTARS", s.superstars, true, nullptr, w < 330 * d ? 470 * d : w) && save_settings)
+        SaveSettings(settings_path, s);  // (at once: an open importer shows the same switch)
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(s.superstars ? "On: the superstars you built into the pack are in the game (DOWNLOADED SUPERSTARS)."
+                                       : "Off: the game's own roster only; your pack stays in the mods folder.");
+    } else if (s.mods_tab != 2) {
       // Trons, titles and music are all read from the mods folder by --wwe2k14_mods: one switch, on each of their
       // tabs (named for what the tab holds).
       // Session 75: right-aligned after the four tabs, narrower when the window is (it covered MUSIC at 1264 wide).
       ImGui::SameLine(0, 24 * d);
-      const float x = ImGui::GetCursorPosX(), room = ImGui::GetContentRegionMax().x - x;
+      // Session 98: leaves room for the ARENA VIEWER button at the right end of the row.
+      const float right = ImGui::GetContentRegionMax().x - viewer_w - imp_w - 26 * d;
+      const float x = ImGui::GetCursorPosX(), room = right - x;
       const float w = std::min(470 * d, room);
       if (w < 330 * d) ImGui::NewLine();  // too narrow beside the tabs: its own row
-      else ImGui::SameLine(ImGui::GetContentRegionMax().x - w);
+      else ImGui::SameLine(right - w);
       OptionToggle(s.mods_tab == 3 ? "USE MY MUSIC" : "USE MY VIDEOS", s.mods, true, nullptr, w < 330 * d ? 470 * d : w);
       if (ImGui::IsItemHovered())
         ImGui::SetTooltip(s.mods ? "On: your trons, title reveals and music play in the game (one switch for all)."
                                  : "Off: every original plays; your files stay in the mods folder.");
     }
+    {
+      const ImVec2 back = ImGui::GetCursorScreenPos();
+      const float bx = ImGui::GetWindowPos().x + ImGui::GetContentRegionMax().x - viewer_w;
+      if (SlantButton("ARENA VIEWER##mods", ImVec2(bx, row0.y), ImVec2(viewer_w, viewer_h), true, 22 * d))
+        LaunchArenaViewer();
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview arenas, wrestlers and your mods in 3D, without starting the game.");
+      if (SlantButton("SUPERSTAR IMPORTER##mods", ImVec2(bx - imp_w - 10 * d, row0.y), ImVec2(imp_w, viewer_h), true, 20 * d))
+        LaunchImporter();
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add community characters (.pac / .zip) to the game's roster as new superstars.");
+      ImGui::SetCursorScreenPos(back);
+    }
+    if (!asset_viewer_note_.empty()) ImGui::TextUnformatted(asset_viewer_note_.c_str());
+    {  // Session 98: USE MY LIGHTING lives in the Arena Viewer's LIGHT tab (Jarrod: it stood out among the mods, whose switches stay
+       // on their own tabs). The viewer edits this file's "lighting" key (read back by SyncSuperstarsKey). Keep the space under the tab row.
+      ImVec2 cur = ImGui::GetCursorScreenPos();
+      cur.y = std::max(cur.y, row0.y + viewer_h + 6 * d);
+      ImGui::SetCursorScreenPos(cur);
+    }
     ImGui::Spacing();
     if (s.mods_tab == 0) TronsTab();
     else if (s.mods_tab == 1) TitlesTab();
     else if (s.mods_tab == 2) LogosTab();
-    else MusicTab();
+    else if (s.mods_tab == 3) MusicTab();
+    else SuperstarsTab();
+  }
+
+  // ---------------- Superstars (Session 98, Jarrod: "a table that lists the superstars added, similar to how the music one is now")
+  // Left: the pack's superstars (<mods>\superstars, read with the importer core's LoadPack): slot, name, based on, the C render as a
+  // thumbnail. Right: the selected one (EDIT IN IMPORTER / REMOVE) or the overview (OPEN THE IMPORTER / IMPORT MANY). REMOVE takes him out
+  // of the pack list at once and marks the pack to rebuild (the importer's BUILD INTO GAME puts the change in the game).
+  importer::PackState stars_;
+  std::string stars_sig_, stars_err_;
+  std::chrono::steady_clock::time_point stars_checked_{};
+  std::vector<ID3D11ShaderResourceView*> stars_tex_;
+  int stars_sel_ = -1;
+  std::string StarsSig() const {
+    std::string sig;
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator(paths_.mods / "superstars", ec)) {
+      std::error_code e2;
+      sig += PathStr(e.path().filename()) + ":" + std::to_string(e.is_regular_file(e2) ? fs::file_size(e.path(), e2) : 0) + ":" +
+             std::to_string(static_cast<long long>(fs::last_write_time(e.path(), e2).time_since_epoch().count())) + ";";
+    }
+    return sig;
+  }
+  void RefreshStars(bool force) {
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && now - stars_checked_ < std::chrono::seconds(2)) return;
+    stars_checked_ = now;
+    const std::string sig = StarsSig();
+    if (!force && sig == stars_sig_) return;
+    stars_sig_ = sig;
+    for (auto*& t : stars_tex_) ReleaseLater(t), t = nullptr;
+    stars_tex_.clear();
+    stars_err_.clear();
+    if (!importer::LoadPack(PathStr(paths_.mods), stars_, stars_err_)) stars_ = importer::PackState();
+    for (const importer::Superstar& x : stars_.stars) {
+      const bool has = !x.render_rgba[2].empty() && x.render_w[2] > 0 && x.render_rgba[2].size() == size_t(x.render_w[2]) * x.render_h[2] * 4;
+      stars_tex_.push_back(has ? MakeTexture(x.render_rgba[2], x.render_w[2], x.render_h[2]) : nullptr);
+    }
+    if (stars_sel_ >= int(stars_.stars.size())) stars_sel_ = -1;
+  }
+  void SuperstarsTab() {
+    RefreshStars(false);
+    const float dpi = Dpi(), right_w = 430 * dpi, thumb = 44 * dpi;
+    const float list_h = -ImGui::GetFrameHeightWithSpacing() * 1.4f;
+    ImGui::BeginChild("stars_list", ImVec2(-right_w - 8, list_h), ImGuiChildFlags_Borders);
+    Heading("MY SUPERSTARS", 1.15f);
+    ImGui::TextDisabled("Community characters added to the roster as new superstars (the game's DOWNLOADED SUPERSTARS).");
+    if (ImGui::BeginTable("stars", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
+                          ImVec2(0, std::max(120 * dpi, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing() * 1.3f)))) {
+      ImGui::TableSetupScrollFreeze(0, 1);
+      ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, thumb);
+      ImGui::TableSetupColumn("Slot", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+      ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 2.4f);
+      ImGui::TableSetupColumn("Based on", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+      ImGui::TableHeadersRow();
+      for (int i = 0; i < int(stars_.stars.size()); ++i) {
+        const importer::Superstar& x = stars_.stars[size_t(i)];
+        ImGui::TableNextRow(0, thumb);
+        ImGui::TableNextColumn();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        if (i < int(stars_tex_.size()) && stars_tex_[size_t(i)])
+          DrawPicture(ImGui::GetWindowDrawList(), stars_tex_[size_t(i)], x.render_w[2], x.render_h[2], p, ImVec2(p.x + thumb, p.y + thumb));
+        else Checker(ImGui::GetWindowDrawList(), p, ImVec2(p.x + thumb, p.y + thumb), 6 * dpi);
+        ImGui::TableNextColumn();
+        if (ImGui::Selectable((std::to_string(x.slot) + "##star" + std::to_string(i)).c_str(), stars_sel_ == i,
+                              ImGuiSelectableFlags_SpanAllColumns, ImVec2(0, thumb)))
+          stars_sel_ = i;
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) LaunchImporter("--importer-edit " + std::to_string(x.slot));
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(x.name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("%s", CharName(x.base_id).c_str());
+      }
+      if (stars_.stars.empty()) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TableNextColumn();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("No superstars yet: Open the importer...");
+      }
+      ImGui::EndTable();
+    }
+    if (ImGui::Button("Open the importer...")) LaunchImporter();
+    ImGui::SameLine();
+    if (ImGui::Button("Import many...")) LaunchImporter("--importer-bulk");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A zip full of pac files, or several files at once");
+    ImGui::SameLine();
+    if (ImGui::Button("Open the superstars folder")) {
+      std::error_code ec;
+      fs::create_directories(paths_.mods / "superstars", ec);
+      ShellExecuteW(hwnd_, L"explore", (paths_.mods / "superstars").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginChild("stars_detail", ImVec2(right_w, list_h), ImGuiChildFlags_Borders);
+    if (stars_sel_ >= 0 && stars_sel_ < int(stars_.stars.size())) {
+      const importer::Superstar x = stars_.stars[size_t(stars_sel_)];
+      Heading(Upper(x.name).c_str(), 1.25f);
+      ImGui::Text("Slot %d (Downloadable Content)", x.slot);
+      ImGui::TextDisabled("Short name: %s", x.short_name.c_str());
+      ImGui::Separator();
+      ImGui::Text("Based on: %s", CharName(x.base_id).c_str());
+      ImGui::Text("Entrance: %s", x.entrance_from < 0 ? "same as base" : CharName(x.entrance_from).c_str());
+      ImGui::Text("Ratings: %s", x.copy_ratings ? "copied from base" : "edit later in the game");
+      ImGui::TextDisabled("Model: %s", PathStr(fs::path(Widen(x.source_pac)).filename()).c_str());
+      if (stars_sel_ < int(stars_tex_.size()) && stars_tex_[size_t(stars_sel_)]) {
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        const float sz = std::min(160 * dpi, ImGui::GetContentRegionAvail().x);
+        DrawPicture(ImGui::GetWindowDrawList(), stars_tex_[size_t(stars_sel_)], x.render_w[2], x.render_h[2], a, ImVec2(a.x + sz, a.y + sz));
+        ImGui::Dummy(ImVec2(sz, sz));
+      }
+      ImGui::Spacing();
+      if (ImGui::Button("Edit in the importer", ImVec2(-1, 0))) LaunchImporter("--importer-edit " + std::to_string(x.slot));
+      if (ImGui::Button("Remove from the pack...", ImVec2(-1, 0))) ImGui::OpenPopup("remove_star");
+      if (ImGui::BeginPopupModal("remove_star", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Remove %s from the pack?", x.name.c_str());
+        ImGui::TextDisabled("His files stay in the mods folder. Build the pack again (the importer's BUILD INTO GAME) to take him out of the game.");
+        if (ImGui::Button("Remove")) {
+          importer::PackState st;
+          std::string err;
+          // (importer review: by slot, read fresh - the importer may have changed the list since this table was drawn)
+          const bool read = importer::LoadPack(PathStr(paths_.mods), st, err);
+          const auto it = std::find_if(st.stars.begin(), st.stars.end(), [&](const importer::Superstar& y) { return y.slot == x.slot; });
+          if (read && it != st.stars.end()) {
+            st.stars.erase(it);
+            st.needs_build = true;
+            if (!importer::SavePack(PathStr(paths_.mods), st, err)) Status("Not removed: " + err);
+            else Status("Removed from the pack: " + x.name + " (build the pack again in the importer)");
+          } else Status("Not removed: " + (err.empty() ? std::string("he is no longer in the pack") : err));
+          stars_sel_ = -1;
+          RefreshStars(true);
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+      }
+      ImGui::Spacing();
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+      ImGui::TextWrapped("In the game: he is in the roster's DOWNLOADED SUPERSTARS with the moves, entrance and music of the wrestler he is "
+                         "based on. Needs USE MY SUPERSTARS on.");
+      ImGui::PopStyleColor();
+    } else {
+      Heading("SUPERSTARS", 1.25f);
+      ImGui::TextWrapped("The Superstar Importer turns a community character (.pac, or a .zip that holds one) into a new superstar: a name, "
+                         "a wrestler he is based on (moves, entrance, music, tron), a free roster slot and a roster portrait rendered from "
+                         "his model. BUILD INTO GAME puts the pack in the game; nothing of the game's own files is changed.");
+      ImGui::Spacing();
+      ImGui::TextDisabled("Pick a superstar on the left, or open the importer.");
+    }
+    ImGui::EndChild();
+    if (stars_.needs_build) ImGui::TextColored(ImVec4(1, 0.8f, 0.35f, 1), "The pack changed since it was last built: open the importer and BUILD INTO GAME.");
+    else ImGui::TextDisabled("%zu of up to %d superstar(s)%s", stars_.stars.size(), importer::kMaxStars, stars_err_.empty() ? "" : ("; " + stars_err_).c_str());
   }
 
   // ---------------- Music (Session 75, Jarrod: "music be its own tab")
@@ -4972,6 +5282,7 @@ class App {
     if (ImGui::Button("Show the first-run wizard again")) wizard_step_ = 0, want_wizard_ = true;
     ImGui::SameLine();
     if (ImGui::Button("Reload everything")) Reload();
+    // (Session 98: the asset viewer's button moved to the MODS page as ARENA VIEWER.)
     ImGui::Spacing();
     ImGui::TextDisabled("Settings file: %s", PathStr(settings_path).c_str());
     auto row = [](const char* what, const fs::path& p) {
@@ -5608,7 +5919,7 @@ class App {
 
   void FinishWizard() {
     s.first_run_done = true, s.page = 0, wizard_step_ = 0;
-    if (save_settings) SaveSettings(settings_path, s);
+    if (save_settings) SaveSettingsSynced();
   }
 
   // Session 25 state.
@@ -5825,12 +6136,13 @@ class App {
 
   // "Build previews": one run of the game decodes every original tron with its own Bink (src\tron_export.h).
   void BuildPreviews() {
+    if (phone_export_ && !phone_export_->done) return Status("Wait for Export for phone to finish, then build the previews");
     std::error_code ec;
     fs::create_directories(TronCacheDir(), ec);
     // Session 53 item 2.2 (a playtester: "--game_data_root was not provided" from Build previews): the game files and
     // save folders as PLAY GAME gives them (the run had none, so a release found no game files).
     const std::string flag = HelperPathFlags() + "--wwe2k14_tron_export=" + Quote(PathStr(TronCacheDir())) +
-                             " --wwe2k14_use_launcher_settings=false";  // a helper run keeps the default look
+                             " --wwe2k14_tron_export_media_mp4=true --wwe2k14_use_launcher_settings=false";  // a helper run keeps the default look; Session 98: the stage movies also as MP4 (the viewer plays them)
     Command c;
     if (s.harness) {
       c.exe = L"pwsh.exe";
@@ -5857,6 +6169,89 @@ class App {
     }
     return cached_previews_;
   }
+
+  // ---- Session 98 (Jarrod: "could we have it export a zip that the phone launcher takes in?"): EXPORT FOR PHONE. The tron cache
+  // (Build previews) as one zip with a manifest (src\tron_zip.h), for the phone launcher's IMPORT TRON PREVIEWS. Made from the
+  // player's own game files: it only moves between his own devices.
+  struct PhoneExport {
+    tron_zip::Progress prog;
+    std::atomic<bool> done{false};
+    std::string err;  // (written by the thread before `done`)
+    tron_zip::Counts counts;
+    fs::path zip;
+  };
+  std::shared_ptr<PhoneExport> phone_export_;
+  bool want_phone_export_popup_ = false;
+  void ExportForPhone(const fs::path& to_or_empty) {
+    if (phone_export_ && !phone_export_->done) return;
+    if (GameRunning()) return Status("Close the game first (it may still be building the previews), then export them");
+    fs::path to = to_or_empty;
+    if (to.empty()) {
+      const auto pick = PickSaveZip(hwnd_, L"Save the tron previews for your phone", Widen(tron_zip::kDefaultName).c_str());
+      if (!pick) return;
+      to = *pick;
+    }
+    auto job = std::make_shared<PhoneExport>();
+    job->zip = to;
+    phone_export_ = job;
+    Log("export for phone: " + PathStr(to));
+    std::thread([job, cache = TronCacheDir(), ver = MyVersion()] {
+      try {
+        job->err = tron_zip::Export(cache, job->zip, "pc", "wwe2k14 launcher " + ver, job->counts, &job->prog);
+      } catch (const std::exception& e) {
+        job->err = std::string("the export stopped: ") + e.what();
+      } catch (...) {
+        job->err = "the export stopped";
+      }
+      job->done = true;
+    }).detach();
+  }
+  // At the end of the Trons tab's bottom row while it runs (inline); its end opens the result window once.
+  void PhoneExportProgress(bool draw = true) {
+    auto job = phone_export_;
+    if (!job) return;
+    if (!job->done) {
+      if (!draw) return;
+      const uint64_t t = job->prog.total, d = job->prog.done;
+      char label[96];
+      std::snprintf(label, sizeof label, "Exporting %.0f / %.0f MB", d / 1048576.0, t / 1048576.0);
+      ImGui::SameLine();
+      ImGui::ProgressBar(t ? float(double(d) / double(t)) : 0.f, ImVec2(-1, ImGui::GetFrameHeight() * 0.8f), label);
+      return;
+    }
+    if (!phone_export_seen_ || phone_export_seen_ != job.get()) {
+      phone_export_seen_ = job.get();
+      if (job->err.empty()) {
+        char mb[32];
+        std::snprintf(mb, sizeof mb, "%.0f MB", job->counts.bytes / 1048576.0);
+        phone_export_note_ = std::to_string(job->counts.videos) + " videos, " + mb +
+                             " - copy this file to your phone and use IMPORT TRON PREVIEWS (Arena Viewer page of the phone launcher).";
+        Status("Exported for phone: " + PathStr(job->zip) + " (" + phone_export_note_ + ")");
+      } else {
+        phone_export_note_.clear();
+        Status("Export for phone failed: " + job->err);
+      }
+      want_phone_export_popup_ = job->err.empty();
+    }
+  }
+  void PhoneExportPopup() {
+    if (want_phone_export_popup_) ImGui::OpenPopup("phone_export"), want_phone_export_popup_ = false;
+    if (!BeginGameModal("phone_export", "EXPORTED FOR PHONE", 680 * Dpi())) return;
+    auto job = phone_export_;
+    ImGui::TextColored(kGood, "%s", job ? PathStr(job->zip).c_str() : "");
+    ImGui::TextWrapped("%s", phone_export_note_.c_str());
+    ImGui::TextDisabled("The previews are made from your own game files: keep them to your own devices.");
+    ImGui::Dummy(ImVec2(0, 12 * Dpi()));
+    if (ModalMainButton("OK")) ImGui::CloseCurrentPopup();
+    if (job && ModalButton("Show in folder")) {
+      const std::wstring arg = L"/select,\"" + job->zip.wstring() + L"\"";
+      ShellExecuteW(hwnd_, L"open", L"explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+    }
+    ImGui::NewLine();
+    ImGui::EndPopup();
+  }
+  const void* phone_export_seen_ = nullptr;
+  std::string phone_export_note_;
 
   // The characters shown (search / overrides-only filter), in the current sort order (both views use it).
   std::vector<int> Visible() {
@@ -6141,7 +6536,9 @@ class App {
     ImGui::SameLine();
     {
       const int n = CachedPreviews();
+      ImGui::BeginDisabled(phone_export_ && !phone_export_->done);  // Session 98: not while Export for phone reads the cache
       if (ImGui::SmallButton(n ? "Rebuild previews" : "Build previews")) BuildPreviews();
+      ImGui::EndDisabled();
       if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Runs the game once: its own Bink decoder makes a thumbnail and a faithful MP4 copy of every\n"
                           "original tron (every frame, full length, original size; about 2-3 minutes, ~0.5 GB; the\n"
@@ -6149,6 +6546,18 @@ class App {
                           PathStr(TronCacheDir()).c_str());
       ImGui::SameLine();
       ImGui::TextDisabled("%d preview(s)", n);
+      // Session 98: EXPORT FOR PHONE (its own block: src\tron_zip.h, ExportForPhone)
+      ImGui::SameLine();
+      ImGui::BeginDisabled(n == 0 || (phone_export_ && !phone_export_->done));
+      if (ImGui::SmallButton("Export for phone...")) ExportForPhone({});
+      ImGui::EndDisabled();
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(n == 0 ? "Build previews first: the export is the previews as one .zip for the phone launcher."
+                                 : "Saves the previews (pictures and videos) as one .zip. Copy it to your phone and use\n"
+                                   "IMPORT TRON PREVIEWS on the phone launcher's Arena Viewer page: no need to build them\n"
+                                   "again on the phone.");
+      PhoneExportProgress();
+      PhoneExportPopup();
     }
     if (ImGui::BeginPopupModal("revert_all", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
       ImGui::Text("Remove all %zu tron override(s) from the mods folder?", overrides_.size());
@@ -6420,7 +6829,7 @@ class App {
     s = d;
     rec_mode_ = 0;
     seeds_scenario_ = "\x01";
-    if (save_settings) SaveSettings(settings_path, s);
+    if (save_settings) SaveSettingsSynced();
     Status("Play settings reset to the defaults");
   }
 
@@ -6503,6 +6912,7 @@ class App {
       }
     }
     ImGui::SeparatorText("Command");
+    SyncSuperstarsKey(true);  // Session 98 (importer review): the switch as the importer may have just set it
     const Command cmd = BuildCommand(s, paths_);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
     ImGui::BeginChild("cmd", ImVec2(-1, ImGui::GetTextLineHeightWithSpacing() * 2.8f), ImGuiChildFlags_None);
@@ -6565,6 +6975,7 @@ class App {
   }
 
   void DoLaunch(bool sweep) {
+    SyncSuperstarsKey(true);  // Session 98 (importer review)
     const Command cmd = BuildCommand(s, paths_, sweep);
     StartGame(cmd, "Started: " + cmd.display);
   }
@@ -6712,6 +7123,7 @@ std::vector<Step> ParseArgs(App& app) {
     else if (a == "--shortcut-dir") app.shortcut_dir_ = fs::path(Widen(next()));  // Session 53 tests
     else if (a == "--create-shortcut") out.push_back({"create_shortcut"});
     else if (a == "--build-previews") out.push_back({"build_previews"});  // Session 53 item 2.2 test
+    else if (a == "--export-for-phone") out.push_back({"export_phone", next()}), out.push_back({"wait_export_phone"});  // Session 98
     else if (a == "--local-data") g_local_data_override = fs::path(Widen(next()));
     else if (a == "--quick-match") out.push_back({"quick_match"});
     else if (a == "--quick-type") out.push_back({"quick_type", next()});

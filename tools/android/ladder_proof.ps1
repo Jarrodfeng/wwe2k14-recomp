@@ -56,7 +56,8 @@ Plant E $quit; Start-Launcher E
 Ladder E
 "== F: a rung file for this version is used"
 [void](New-Item -ItemType Directory -Force "$base\F\logs")
-Set-Content "$base\F\rung.txt" "rung 2`nandroid-v0.2.5`n`nmediump_changed 0`n"
+$ver = (Get-Content "$root\android\VERSION" -TotalCount 1).Trim()  # (the launcher's own version: a fixed one went stale at v0.3.0)
+Set-Content "$base\F\rung.txt" "rung 2`n$ver`n`n"
 Plant F $quit; Start-Launcher F
 Ladder F
 "history files:"; Get-ChildItem "$base\*\logs\run_history.txt" | ForEach-Object { "  $($_.Directory.Parent.Name): $((Get-Content $_).Count) row(s)" }

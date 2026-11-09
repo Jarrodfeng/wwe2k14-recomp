@@ -57,6 +57,11 @@ def log_times(path):
 
 def main():
     print('== session start check, %s' % time.strftime('%Y-%m-%d %H:%M'))
+    # Session 95 (Jarrod: future sessions must know these): CLAUDE.md rule 7 and its Speed block, every session.
+    print('RULES (CLAUDE.md rule 7): game runs at milestones only; builders and reviewers 0 game runs; one check per step,')
+    print('  never re-run a pass; 2 logged diagnosis runs per question, then ask Jarrod; plan states runs, reports say used vs budget;')
+    print('  no soak except the final build, no census unless asked; every background job has a hard timeout + a timed log check;')
+    print('  launcher runs --exit --no-save; small changes done directly, not by an agent; never wait idle on a device.')
     branch = run(['git', 'branch', '--show-current'])
     dirty = [l for l in run(['git', 'status', '--short']).splitlines() if l.strip()]
     print('git: branch %s, %d uncommitted file(s)%s' % (branch, len(dirty), (': ' + ', '.join(l[3:] for l in dirty[:6])) if dirty else ''))
@@ -91,6 +96,11 @@ def main():
         print('STATUS: STATUS.md missing')
     free = shutil.disk_usage(REPO).free / 2**30
     print('disk: %.0f GB free on %s' % (free, os.path.splitdrive(REPO)[0] or '/'))
+    # 2026-11-09: the disk tidies itself (tools\harness\tidy.py); this only shows a problem it could not fix.
+    alert = os.path.join(REPO, 'out', 'tidy', 'alert.txt')
+    if os.path.exists(alert):
+        with open(alert, encoding='utf-8', errors='replace') as f:
+            print('DISK ALERT (tidy): ' + f.read().strip())
     print('MCP: %s' % ('wwe2k14-live in .mcp.json' if os.path.exists(os.path.join(REPO, '.mcp.json')) else 'none'))
     return 0
 

@@ -72,6 +72,7 @@ struct Settings {
   int aspect = 0;          // 0 16:9 with bars (the game's own), 1 fill the screen (Hor+, src\ultrawide.h)
   int language = 0;        // kLanguages id; 0 = automatic
   bool dlc = true;
+  bool superstars = false;  // Session 98: USE MY SUPERSTARS (the Superstar Importer's pack in <files>/mods/superstars; the PC launcher's key)
   std::string dlc_off;     // switched-off pack ids, "3,5"
   // Session 85 (Jarrod: "same work let's get it into android"): as the PC launcher's SHADOWS, CROWD DENSITY and DEPTH OF
   // FIELD (gfx_settings.h): defaults = the normal look; the SDK cvars gpu_dynamic_shadows, gpu_scene_crowd_density (0-100,
@@ -94,10 +95,10 @@ struct Settings {
   // default, even retroactively ... we'll still have the toggle"): on by default; a file from before settings_version 1
   // moves to it once (LoadSettings), so an OFF picked after that stays.
   bool true_native = true;
-  // Session 93 diagnostics (testers, only when asked): the shared-memory storage test 0 NORMAL / 1 WINDOWS ON / 2 SMALL WINDOWS /
-  // 3 OLD SPLIT, and the reduced-precision (mediump) colour maths (on = the phone default).
-  int storage_test = 0;
-  bool mediump = true;
+  // Session 95 after v0.3.0 (Jarrod: "We should disable it, and honestly remove that whole storage bit from the launcher settings
+  // now that it doesn't matter"): the Session 93 tester options are gone - the storage test (real vertex buffers removed the
+  // 128 MiB dependence) and reduced precision (never measured on its own, the lead for white arena surfaces on Adreno 720 / 830).
+  // Old files keep their "storage_test" / "mediump" keys; nothing reads them.
   int settings_version = 1;  // Session 93: 1 = the file has had the one-time move to TRUE NATIVE
   // Touch controls (ANDROID_PLAN F1, Jarrod 2026-10-28): 0 automatic (hidden while a controller is connected),
   // 1 always, 2 off; size and opacity in percent; a short vibration on each press (off by default).
@@ -177,6 +178,7 @@ inline Settings LoadSettings(const fs::path& p) {
     s.resolution = ResolutionIndex(resolution, draw_height);
     Get(j, "frame_rate", s.frame_rate), Get(j, "texture_filter", s.texture_filter), Get(j, "aspect", s.aspect);
     Get(j, "language", s.language), Get(j, "dlc", s.dlc), Get(j, "dlc_off", s.dlc_off);
+    Get(j, "superstars", s.superstars);  // Session 98
     Get(j, "touch_mode", s.touch_mode), Get(j, "touch_size", s.touch_size);
     Get(j, "touch_opacity", s.touch_opacity), Get(j, "touch_vibrate", s.touch_vibrate);
     Get(j, "check_updates", s.check_updates);
@@ -189,7 +191,6 @@ inline Settings LoadSettings(const fs::path& p) {
     Get(j, "true_native", s.true_native);  // Session 90
     Get(j, "quality_tier", s.quality_tier);  // Session 93
     Get(j, "tier_defaults_applied", s.tier_defaults_applied);
-    Get(j, "storage_test", s.storage_test), Get(j, "mediump", s.mediump);
     int version = 0;  // Session 93: files from before it move to TRUE NATIVE once (the next save writes version 1)
     Get(j, "settings_version", version);
     if (version < 1) s.true_native = true;
@@ -199,7 +200,6 @@ inline Settings LoadSettings(const fs::path& p) {
   if (s.frame_rate < 0 || s.frame_rate > 3) s.frame_rate = 1;
   s.texture_filter = std::clamp(s.texture_filter, 0, 2);
   s.quality_tier = std::clamp(s.quality_tier, 0, 2);
-  s.storage_test = std::clamp(s.storage_test, 0, 3);
   s.aspect = std::clamp(s.aspect, 0, 1);
   s.touch_mode = std::clamp(s.touch_mode, 0, 2);
   s.touch_size = std::clamp(s.touch_size, 60, 150);
@@ -225,6 +225,7 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"frame_rate", s.frame_rate},       {"texture_filter", s.texture_filter},
                             {"aspect", s.aspect},               {"language", s.language},
                             {"dlc", s.dlc},                     {"dlc_off", s.dlc_off},
+                            {"superstars", s.superstars},
                             {"touch_mode", s.touch_mode},       {"touch_size", s.touch_size},
                             {"touch_opacity", s.touch_opacity}, {"touch_vibrate", s.touch_vibrate},
                             {"check_updates", s.check_updates}, {"driver", s.driver},
@@ -234,7 +235,6 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"perf_overlay", s.perf_overlay},   {"shadows", s.shadows},
                             {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density},
                             {"quality_tier", s.quality_tier},       {"tier_defaults_applied", s.tier_defaults_applied},
-                            {"storage_test", s.storage_test},   {"mediump", s.mediump},
                             {"true_native", s.true_native},     {"settings_version", s.settings_version}};
   std::error_code ec;
   fs::create_directories(p.parent_path(), ec);
@@ -267,6 +267,7 @@ inline std::string JoinIds(const std::vector<int>& ids) {
 struct LaunchContext {
   std::string game_path;  // --game_data_root: a path, or kGameFdToken (the game's activity opens game_uri itself)
   std::string dlc_dir;    // the DLC folder (<files>/dlc); empty = none
+  std::string mods_dir;   // Session 98: <files>/mods (the Superstar Importer's pack); empty = none
   int screen_w = 0, screen_h = 0;  // the screen in landscape (for "fill the screen")
   int wm30 = -1;          // a 30 Years of WrestleMania match to jump into (this launch only)
   std::string driver_trial;  // Session 72: the trial file for a custom driver (the game deletes it once running)
@@ -287,7 +288,7 @@ inline int EffectiveDrawHeight(const Settings& s) {
 }
 
 // Session 95 (LADDER): SAFE MODE steps 2 and up lower these settings for this launch only (the saved settings stay): shadows off, crowd 30%, 30 FPS.
-// None of them is in PrecompileKey, so no step 1-2 launch starts a precompile. Step 3 (mediump off) is a saved setting, set by the launcher.
+// None of them is in PrecompileKey, so no step 1-2 launch starts a precompile. There is no step 3 since Session 95 (it only turned reduced precision off).
 inline Settings ApplyRung(Settings s, int rung) {
   if (rung >= 2) {
     s.shadows = false;
@@ -327,18 +328,9 @@ inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchCont
   if (s.true_native) f.push_back("--wwe2k14_d3d_owned=true");
   // Session 93 (Jarrod, 2026-11-06 07:xx, after testing on his phone: "tested well ... I did see performance increases ...
   // remove the toggle and keep these changes as just straight up the default"): the phone defaults - BC1 -> ASTC textures
-  // (only on GPUs without BC), mediump colour maths in our arena / combine shaders, display-timed presents, the thermal
+  // (only on GPUs without BC), [mediump colour maths: removed after v0.3.0], display-timed presents, the thermal
   // step-down (with DYNAMIC RES), the TRUE NATIVE pace gate (only under TRUE NATIVE).
   f.push_back("--vulkan_texture_transcode=true");
-  if (s.mediump) f.push_back("--wwe2k14_shader_mediump=true");
-  if (s.storage_test == 1) {
-    f.push_back("--vulkan_shared_memory_window=on");
-  } else if (s.storage_test == 2) {
-    f.push_back("--vulkan_shared_memory_window=auto");
-    f.push_back("--vulkan_emulate_limits=maxStorageBufferRange=67108864");
-  } else if (s.storage_test == 3) {
-    f.push_back("--vulkan_shared_memory_window=off");
-  }
   // Session 95 (PLAIN): present_display_timing and the pace gate are no longer passed here: a command-line value outranks the SDK's
   // plain mode (gpu_plain_mode), which has to be able to turn both off on an unknown GPU. They are Android defaults in
   // src/android_pace.h (Apply), same values as before.
@@ -388,6 +380,11 @@ inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchCont
     const std::string off = JoinIds(ParseIds(s.dlc_off));
     if (!off.empty()) f.push_back("--wwe2k14_dlc_off=" + off);
   }
+  // Session 98 (Superstar Importer): USE MY SUPERSTARS (the game side, the flag's cvar and reading <mods>/superstars, is the importer core's)
+  if (s.superstars && !c.mods_dir.empty()) {
+    f.push_back("--wwe2k14_mods_superstars=true");
+    f.push_back("--wwe2k14_mods_dir=" + c.mods_dir);
+  }
   if (c.wm30 >= 0) f.push_back("--wwe2k14_wm30=" + std::to_string(c.wm30));
   // Session 72: a custom Vulkan driver (src\android_driver.h; GameActivity adds the library folder).
   // Part 8: an imported one from its own folder (the hooks stay in the library folder).
@@ -418,8 +415,7 @@ inline std::string PrecompileKey(const Settings& s, const std::string& version, 
          " draw_height " + std::to_string(EffectiveDrawHeight(s)) +
          " true_native " + std::to_string(int(s.true_native)) + " s93_phone_defaults 1 s95_phone_input 1" +  // (s95: the attribute forms join the store only in a precompile with vertex input on)
          " fast_shaders " + std::to_string(int(s.fast_shaders)) + " texture_filter " + std::to_string(s.texture_filter) +
-         (s.storage_test ? " storage_test " + std::to_string(s.storage_test) : std::string()) +  // only when changed
-         (s.mediump ? std::string() : std::string(" mediump 0"));
+         " mediump 0";  // (Session 95: full precision for every phone; was the default's empty suffix, so stores rebuild once)
 }
 
 }  // namespace mlauncher

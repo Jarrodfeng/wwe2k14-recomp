@@ -37,10 +37,28 @@ REXCVAR_DEFINE_STRING(wwe2k14_mods_dir, "", "wwe2k14",
                       "Mods folder (empty = 'mods' next to the game data folder or disc image, e.g. "
                       "game_data\\mods)");
 
+REXCVAR_DEFINE_BOOL(wwe2k14_mods_lighting, false, "wwe2k14",
+                    "Session 98: lighting mods: <mods>\\lighting\\arena_NN.json replaces an arena's light colours / "
+                    "directions, entrance_NNN.json an entrance's (src\\lighting_mod.h, docs\\systems\\lighting_mod.md). "
+                    "Independent of --wwe2k14_mods (the trons / music switch): works with or without it. Default off");
+
+REXCVAR_DEFINE_BOOL(wwe2k14_mods_superstars, false, "wwe2k14",
+                    "Session 98: imported superstars (the Superstar Importer's pack in <mods>\\superstars\\pack6) join the "
+                    "game as one more DLC pack (src\\superstars.h, src\\dlc.h; needs --wwe2k14_dlc). Independent of "
+                    "--wwe2k14_mods. Off = vanilla. Default off (the launchers pass it: USE MY SUPERSTARS)");
+
 namespace wwe2k14::mods {
 
-inline std::filesystem::path g_dir;  // host folder (set by Install when the mods setting is on)
-inline bool g_on = false;
+// Session 98 (review): a path for a log line, UTF-8 (path::string() throws std::system_error on a folder name the ANSI code page
+// cannot hold, and these run at boot outside any try).
+inline std::string U8(const std::filesystem::path& p) {
+  const auto u = p.u8string();
+  return std::string(u.begin(), u.end());
+}
+inline bool g_superstars_on = false;  // --wwe2k14_mods_superstars: src\superstars.h reads g_dir\superstars\ (Session 98)
+inline std::filesystem::path g_dir;  // host folder (set by Install when the mods, lighting or superstars setting is on)
+inline bool g_on = false;            // the mods: device is mounted (trons, music, logos); NOT set by lighting alone
+inline bool g_lighting_on = false;   // --wwe2k14_mods_lighting: src\lighting_mod.h reads g_dir\lighting\ (Session 98)
 inline std::atomic<uint32_t> g_overrides{0};
 
 // Extensions in priority order: the game's own format first.
@@ -88,7 +106,9 @@ inline std::filesystem::path FindTron(int id) {
 }
 
 inline void Install(rex::filesystem::VirtualFileSystem* file_system, const std::filesystem::path& game_data_root) {
-  if (!REXCVAR_GET(wwe2k14_mods)) return;
+  const bool lighting = REXCVAR_GET(wwe2k14_mods_lighting);
+  const bool superstars = REXCVAR_GET(wwe2k14_mods_superstars);
+  if (!REXCVAR_GET(wwe2k14_mods) && !lighting && !superstars) return;
   // The default is next to the game files: game_data\mods for the folder game_data\extracted, and <folder>\mods for
   // a disc image <folder>\X.iso (Session 26).
   const std::string dir_flag = REXCVAR_GET(wwe2k14_mods_dir);
@@ -96,17 +116,27 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const std::
   std::error_code ec;
   std::filesystem::create_directories(g_dir / "titantron", ec);
   g_dir = std::filesystem::absolute(g_dir, ec);
+  if (lighting) {
+    // Session 98: lighting reads plain host files from <mods>\lighting\ on every use; it needs no guest mount, so it works
+    // on its own (the launcher's USE MY LIGHTING) and leaves trons / music vanilla while --wwe2k14_mods is off.
+    std::filesystem::create_directories(g_dir / "lighting", ec);
+    g_lighting_on = true;
+    REXLOG_INFO("[wwe2k14][mods] lighting mods on: reading {}", U8(g_dir / "lighting"));
+  }
+  // Session 98: imported superstars: plain host files too (src\dlc.h mounts the pack folder itself as a DLC pack).
+  g_superstars_on = superstars;
+  if (!REXCVAR_GET(wwe2k14_mods)) return;  // lighting only: no mods: device, g_on stays false (trons / music vanilla)
   constexpr std::string_view kMountPath = "\\Device\\WWE2K14Mods";
   auto device = std::make_unique<rex::filesystem::HostPathDevice>(kMountPath, g_dir, true);
   if (!device->Initialize() || !file_system->RegisterDevice(std::move(device)) ||
       !file_system->RegisterSymbolicLink("mods:", kMountPath)) {
-    REXLOG_WARN("[wwe2k14][mods] failed to mount mods: at {}", g_dir.string());
+    REXLOG_WARN("[wwe2k14][mods] failed to mount mods: at {}", U8(g_dir));
     return;
   }
   g_on = true;
   size_t count = 0;
   for (const auto& e : std::filesystem::directory_iterator(g_dir / "titantron", ec)) count += e.is_regular_file();
-  REXLOG_INFO("[wwe2k14][mods] mods: mounted at {} ({} file(s) in titantron\\)", g_dir.string(), count);
+  REXLOG_INFO("[wwe2k14][mods] mods: mounted at {} ({} file(s) in titantron\\)", U8(g_dir), count);
 }
 
 // RAII: redirects one NtCreateFile / NtOpenFile of a titantron to mods:\titantron\NNN.bik2 when that file exists.

@@ -1,0 +1,21 @@
+# viewer smoke test: run from the repo root:  out\tools\wwe2k14_assets.exe --script tools\assets\viewer_test.jsonl --exit --hidden
+{"cmd":"list","kind":"wrestler"}
+{"cmd":"list","kind":"arena"}
+{"cmd":"load","kind":"wrestler","id":1,"attire":0}
+{"cmd":"stats"}
+{"cmd":"camera","preset":"front"}
+{"cmd":"shot","path":"out\\assets\\viewer_test\\front.png","w":1280,"h":720}
+{"cmd":"camera","preset":"side"}
+{"cmd":"shot","path":"out\\assets\\viewer_test\\side.png","w":1280,"h":720}
+{"cmd":"camera","preset":"three_quarter"}
+{"cmd":"shot","path":"out\\assets\\viewer_test\\three_quarter.png","w":1280,"h":720}
+{"cmd":"camera","preset":"top"}
+{"cmd":"shot","path":"out\\assets\\viewer_test\\top.png","w":1280,"h":720}
+{"cmd":"camera","preset":"close"}
+{"cmd":"shot","path":"out\\assets\\viewer_test\\close.png","w":1280,"h":720}
+{"cmd":"camera","preset":"ring"}
+{"cmd":"shot","path":"out\\assets\\viewer_test\\ring.png","w":1280,"h":720}
+{"cmd":"camera","preset":"bogus"}
+{"cmd":"add","kind":"wrestler","id":2,"attire":1,"at":[200,0,0]}
+{"cmd":"clear"}
+{"cmd":"quit"}

@@ -189,6 +189,28 @@ void Share(const std::vector<fs::path>& files) {
 void ExportSaves(const fs::path& save_dir) { Java().CallStr("jExportSaves", U8(save_dir)); }
 void ImportSaves(const fs::path& save_dir) { Java().CallStr("jImportSaves", U8(save_dir)); }
 
+// Session 98 (IMPORT TRON PREVIEWS): the picked zip, read in place through its descriptor (jOpenFd: -2 = cannot seek).
+namespace {
+int g_tronzip_fd = -1;
+}
+void PickTronZip() { Java().CallVoid("jPickTronZip"); }
+std::string OpenPickedZip(const std::string& address) {
+  ClosePickedZip();
+  if (address.rfind("content://", 0) != 0) return address;
+  Java j;
+  if (!j) return {};
+  jmethodID m = j.Method("jOpenFd", "(Ljava/lang/String;)I");
+  if (!m) return {};
+  jstring s = j.Str(address);
+  g_tronzip_fd = j.env->CallIntMethod(j.activity, m, s);
+  j.env->DeleteLocalRef(s);
+  if (g_tronzip_fd < 0) return g_tronzip_fd = -1, std::string();
+  return "/proc/self/fd/" + std::to_string(g_tronzip_fd);
+}
+void ClosePickedZip() {
+  if (g_tronzip_fd >= 0) close(g_tronzip_fd), g_tronzip_fd = -1;
+}
+
 void CheckForUpdate(const std::string& version) {
   g_version = version;
   // The repo's newest releases (the PC's and the Android port's share one list); ReadAndroidRelease picks the
@@ -218,6 +240,18 @@ void StartGame(const std::vector<std::string>& args, const std::string& game_add
   j.env->DeleteLocalRef(a);
 }
 
+void StartViewer(const std::vector<std::string>& args, const std::string& game_address) {
+  Java j;
+  if (!j) return;
+  jmethodID m = j.Method("jStartViewer", "([Ljava/lang/String;Ljava/lang/String;)V");
+  if (!m) return;
+  jobjectArray a = j.Strings(args);
+  jstring g = j.Str(game_address);
+  j.env->CallVoidMethod(j.activity, m, a, g);
+  j.env->DeleteLocalRef(g);
+  j.env->DeleteLocalRef(a);
+}
+
 void EditTouchLayout(int size, int opacity) {
   Java j;
   if (!j) return;
@@ -229,6 +263,15 @@ void EditTouchLayout(int size, int opacity) {
   j.env->CallVoidMethod(j.activity, m, ta);
   j.env->DeleteLocalRef(ta);
 }
+
+bool GameAlive() {
+  Java j;
+  if (!j) return false;
+  jmethodID m = j.Method("jGameAlive", "()Z");
+  return m && j.env->CallBooleanMethod(j.activity, m) == JNI_TRUE;
+}
+
+void KillGame() { Java().CallVoid("jKillGame"); }
 
 void Quit() { Java().CallVoid("jQuit"); }
 

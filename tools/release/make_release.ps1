@@ -193,6 +193,10 @@ try {
     cmake --build $build -j 16 *>&1 | Out-File $log -Append
     if ($LASTEXITCODE) { Fail "build failed (see $log)" }
     foreach ($dll in Get-ChildItem "$env:REXSDK\bin\rex*.dll") { Copy-Item $dll.FullName (Join-Path $build $dll.Name) -Force }
+    # Session 98 (Jarrod: "Obviously we'll need to add those to the PC build"): the Arena Viewer / Superstar Importer. Our own code; it reads the player's files at run time.
+    pwsh -NoProfile -File "$R\tools\assets\build_viewer.ps1" *>&1 | Out-File $log -Append
+    if ($LASTEXITCODE) { Fail "wwe2k14_assets.exe failed (see $log)" }
+    Copy-Item (Join-Path $R 'out\tools\wwe2k14_assets.exe') (Join-Path $build 'wwe2k14_assets.exe') -Force
     if ($V3Exe) {
         & py "$R\tools\perf\guest_variant_exe.py" --name v3 --variant v3 --tus all --jobs 16 --build-dir $build --dlls $build `
             --out (Join-Path $build 'v3') --exe-name wwe2k14_v3.exe *>&1 | Out-File $log -Append
@@ -216,6 +220,7 @@ $null = New-Item -ItemType Directory -Force -Path $stage
 $files = [ordered]@{
     'wwe2k14.exe'             = Join-Path $build 'wwe2k14.exe'
     'wwe2k14_launcher.exe'    = Join-Path $build 'wwe2k14_launcher.exe'
+    'wwe2k14_assets.exe'      = Join-Path $build 'wwe2k14_assets.exe'
     'rexruntime.dll'          = Join-Path $build 'rexruntime.dll'
     'rexgpu-xenos.dll'        = Join-Path $build 'rexgpu-xenos.dll'
     'data\ids\characters.json'= Join-Path $R 'db\ids\characters.json'
@@ -238,7 +243,7 @@ if ($LocalTest) {  # our route: the launcher's performance test
     $files['perf_test.txt'] = Join-Path $R 'tools\input_scripts\short\s41_perf_breakdown.txt'  # Session 41
     $files['PERFORMANCE_TEST.txt'] = Join-Path $R 'tools\native\PERFORMANCE_TEST.txt'  # the steps for the tester
 }
-$buildOutputs = @('wwe2k14.exe', 'wwe2k14_launcher.exe', 'rexruntime.dll', 'rexgpu-xenos.dll')
+$buildOutputs = @('wwe2k14.exe', 'wwe2k14_launcher.exe', 'wwe2k14_assets.exe', 'rexruntime.dll', 'rexgpu-xenos.dll')
 if ($V3Exe) { $files['wwe2k14_v3.exe'] = Join-Path $build 'wwe2k14_v3.exe'; $buildOutputs += 'wwe2k14_v3.exe' }
 # Third-party redistributables: published path -> source (copied unmodified; the scan compares them byte for byte).
 $crt = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT' -Directory |

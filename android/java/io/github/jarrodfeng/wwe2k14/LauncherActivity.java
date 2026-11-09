@@ -44,6 +44,9 @@ public class LauncherActivity extends SDLActivity {
     static final int EV_GAME_PICKED = 0, EV_DLC_ADDED = 1, EV_SAVES_EXPORTED = 2, EV_SAVES_IMPORTED = 3, EV_UPDATE = 4,
             EV_BACK = 5, EV_MESSAGE = 6, EV_DRIVER_IMPORTED = 7, EV_UPDATE_PROGRESS = 8, EV_UPDATE_DOWNLOADED = 9;
     private static final int REQ_GAME = 7101, REQ_DLC = 7102, REQ_EXPORT = 7103, REQ_IMPORT = 7104, REQ_DRIVER = 7105;
+    // Session 98 (IMPORT TRON PREVIEWS): the PC launcher's EXPORT FOR PHONE zip; the native side reads it in place (jOpenFd)
+    static final int EV_TRONZIP_PICKED = 10;
+    private static final int REQ_TRONZIP = 7106;
 
     static native void nativeEvent(int kind, boolean ok, String a, String b);
 
@@ -60,7 +63,9 @@ public class LauncherActivity extends SDLActivity {
     protected void onCreate(Bundle savedInstanceState) {
         // Session 95: the icon tapped while a game runs brings that game forward; a second launcher here would only start a second
         // game over it. The process ends here, so SDL's onCreate never runs.
-        if (!getIntent().getBooleanExtra(GameActivity.EXTRA_FROM_GAME, false) && gameProcessAlive()) {
+        // Session 98: except while BUILD TRON PREVIEWS is past the game's boot (it needs no screen then: TronExportService): the
+        // launcher opens over it and shows the progress (mobile_main.cpp TronsPoll). During the boot the game comes forward as before.
+        if (!getIntent().getBooleanExtra(GameActivity.EXTRA_FROM_GAME, false) && gameProcessAlive() && !tronExportPastBoot()) {
             Log.i(TAG, "the game is running: bringing it forward");
             startActivity(new Intent(this, GameActivity.class).putExtra(GameActivity.EXTRA_BRING_BACK, true));
             finish();
@@ -134,6 +139,30 @@ public class LauncherActivity extends SDLActivity {
         for (ActivityManager.RunningAppProcessInfo p : running)
             if (p.processName != null && p.processName.endsWith(":game")) return true;
         return false;
+    }
+
+    // Session 98: the launcher's marker of a running tron export (mobile_main.cpp TronsPendingPath) and the export's own progress
+    // past the boot (src/tron_export.h writes "running" once it has started decoding).
+    private boolean tronExportPastBoot() {
+        File files = filesDir();
+        if (!new File(files, "trons_pending.txt").isFile()) return false;
+        TronExportService.Progress p = TronExportService.Progress.read(new File(files, "trons").getAbsolutePath());
+        return p != null && (p.exporting() || p.finished());
+    }
+
+    /** Session 98: is the game's process (":game") alive (the launcher's view of a running tron export). */
+    public boolean jGameAlive() { return gameProcessAlive(); }
+
+    /** Session 98 (review): STOP on a stuck tron export - ends the game's process (same app, same user: allowed). */
+    public void jKillGame() {
+        ActivityManager am = getSystemService(ActivityManager.class);
+        List<ActivityManager.RunningAppProcessInfo> running = am != null ? am.getRunningAppProcesses() : null;
+        if (running == null) return;
+        for (ActivityManager.RunningAppProcessInfo p : running)
+            if (p.processName != null && p.processName.endsWith(":game")) {
+                Log.i(TAG, "launcher: stopping the game's process " + p.pid + " (a stuck tron export)");
+                android.os.Process.killProcess(p.pid);
+            }
     }
 
     private static void event(int kind, boolean ok, String a, String b) {
@@ -326,6 +355,15 @@ public class LauncherActivity extends SDLActivity {
         });
     }
 
+    /** Session 98: the tron previews zip (EV_TRONZIP_PICKED: its address and name; the native side opens it with jOpenFd). */
+    public void jPickTronZip() {
+        runOnUiThread(() -> {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivityForResult(i, REQ_TRONZIP);
+        });
+    }
+
     /** GET the address (GitHub's latest release) on a thread; the body and the HTTP status go back as EV_UPDATE. */
     public void jCheckUpdate(String address) {
         new Thread(() -> {
@@ -502,6 +540,26 @@ public class LauncherActivity extends SDLActivity {
         });
     }
 
+    /** Session 98 (Arena Viewer phone port): ARENA VIEWER - ViewerActivity (its own process) over the launcher, which stays below. */
+    // Session 98 stage C review: a one-time token in the app's files folder proves the extras come from here (ViewerActivity is
+    // exported for adb; it ignores extras without the matching token and deletes the file).
+    public void jStartViewer(String[] args, String gameUri) {
+        runOnUiThread(() -> {
+            String token = java.util.UUID.randomUUID().toString();
+            try (OutputStream out = new FileOutputStream(new File(filesDir(), ViewerActivity.LAUNCH_TOKEN_FILE))) {
+                out.write(token.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                Log.w(TAG, "launcher: cannot write the viewer's launch token", e);
+                event(EV_MESSAGE, true, "The Arena Viewer could not be started (the app's files folder is not writable).", null);
+                return;
+            }
+            startActivity(new Intent(this, ViewerActivity.class)
+                    .putExtra(ViewerActivity.EXTRA_ARGS, args)
+                    .putExtra(ViewerActivity.EXTRA_GAME_URI, gameUri)
+                    .putExtra(ViewerActivity.EXTRA_LAUNCH_TOKEN, token));
+        });
+    }
+
     /** Session 74: MOVE THE CONTROLS (TouchEditActivity) with the launcher's Size and Opacity. */
     public void jEditTouch(int[] look) {
         runOnUiThread(() -> startActivity(new Intent(this, TouchEditActivity.class)
@@ -601,6 +659,12 @@ public class LauncherActivity extends SDLActivity {
                     }
                     event(EV_DRIVER_IMPORTED, r.ok, r.message, r.folder);
                 }, "wwe2k14-driver").start();
+                return;
+            }
+            case REQ_TRONZIP: {  // Session 98 (IMPORT TRON PREVIEWS)
+                if (!ok || data.getData() == null) return;
+                final Uri uri = data.getData();
+                event(EV_TRONZIP_PICKED, true, uri.toString(), displayName(uri));
                 return;
             }
             default:

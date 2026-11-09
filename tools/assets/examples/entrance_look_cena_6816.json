@@ -1,0 +1,23 @@
+{
+ "_doc": "Session 98 (generalisation 2): John Cena (139, slot 0) in run 6816 (arena 5, Cena vs Orton). Cue starts from the event bus: 5 = 5572, 10 = 6256, 15 = 6454, 20 = 6624; f = swap - start + 3 (the 6819 / Orton convention). c_slide = his slide in under the bottom rope (bookmark 2); c_stage = the stage pose with the belt (bookmark 1). His run (cue 10) has no probe frame (only the bookmark clip, camera take unknown): not an item.",
+ "c_stage": {
+  "shot": "6816_bookmark_1.png",
+  "probe": "out/s98/run1/probe.csv",
+  "swap": 5941,
+  "cue": 5,
+  "f": 372,
+  "arena": 5,
+  "wrestler": 139,
+  "parts": {}
+ },
+ "c_slide": {
+  "shot": "6816_bookmark_2.png",
+  "probe": "out/s98/run1/probe.csv",
+  "swap": 6541,
+  "cue": 15,
+  "f": 90,
+  "arena": 5,
+  "wrestler": 139,
+  "parts": {}
+ }
+}

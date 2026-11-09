@@ -31,7 +31,7 @@ build folder (tools\\bisect\\wt_build.ps1); the main tree and exe folder are nev
 Delete a bisect worktree ONLY with: pwsh -NoProfile -File tools\\bisect\\wt_build.ps1 -Clean -Repo ours|sdk
 (never "git worktree remove": it follows the junctions into game_data\\extracted / the SDK submodules).
 
-Every game launch goes through tools\\bench\\run_list.ps1 (run lock, frozen user data mirrored, timeline on, a run
+Every game launch goes through tools\\bench\\run_list.ps1 (run lock, frozen user data mirrored, a run
 still going after --wait seconds is killed). Default: the lock is taken per probe (others can run in between);
 --hold-lock holds it for the whole bisect. Results: out\\harness\\bisect\\<stamp>\\ (bisect.log, result.json).
 """

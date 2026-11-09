@@ -254,6 +254,9 @@
     {
       "id": 28,
       "name": "WrestleMania",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG28.PAC",
       "evidence": [
         "id_list",
@@ -266,6 +269,9 @@
     {
       "id": 29,
       "name": "WrestleMania 2",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG29.PAC",
       "evidence": [
         "id_list",
@@ -278,6 +284,9 @@
     {
       "id": 30,
       "name": "WrestleMania III",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG30.PAC",
       "evidence": [
         "id_list",
@@ -290,6 +299,9 @@
     {
       "id": 31,
       "name": "WrestleMania IV",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG31.PAC",
       "evidence": [
         "id_list",
@@ -302,6 +314,9 @@
     {
       "id": 32,
       "name": "WrestleMania V",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG32.PAC",
       "evidence": [
         "id_list",
@@ -314,6 +329,9 @@
     {
       "id": 33,
       "name": "WrestleMania VI",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG33.PAC",
       "evidence": [
         "id_list",
@@ -326,6 +344,9 @@
     {
       "id": 34,
       "name": "WrestleMania VII",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG34.PAC",
       "evidence": [
         "id_list",
@@ -338,6 +359,9 @@
     {
       "id": 35,
       "name": "WrestleMania VIII",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG35.PAC",
       "evidence": [
         "id_list",
@@ -350,6 +374,9 @@
     {
       "id": 36,
       "name": "WrestleMania IX",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG36.PAC",
       "evidence": [
         "id_list",
@@ -362,6 +389,9 @@
     {
       "id": 37,
       "name": "WrestleMania X",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG37.PAC",
       "evidence": [
         "id_list",
@@ -374,6 +404,9 @@
     {
       "id": 38,
       "name": "WrestleMania XI",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG38.PAC",
       "evidence": [
         "id_list",
@@ -386,6 +419,9 @@
     {
       "id": 39,
       "name": "WrestleMania XII",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG39.PAC",
       "evidence": [
         "id_list",
@@ -398,6 +434,9 @@
     {
       "id": 40,
       "name": "WrestleMania 13",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG40.PAC",
       "evidence": [
         "id_list",
@@ -410,6 +449,9 @@
     {
       "id": 41,
       "name": "WrestleMania XIV",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG41.PAC",
       "evidence": [
         "id_list",
@@ -422,6 +464,9 @@
     {
       "id": 42,
       "name": "WrestleMania XV",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG42.PAC",
       "evidence": [
         "id_list",
@@ -434,6 +479,9 @@
     {
       "id": 43,
       "name": "WrestleMania 2000",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG43.PAC",
       "evidence": [
         "id_list",
@@ -446,6 +494,9 @@
     {
       "id": 44,
       "name": "WrestleMania X-Seven",
+      "announcer": 252,
+      "announcer_evidence": "run 492 (lesnar_bryan, --wwe2k14_launch_arena=44): CH252.PAC loads in the place of CH187 after ENTRANCE00 (db/ids/characters.json id 252)",
+      "announcer_confidence": "high",
       "bg": "BG44.PAC",
       "evidence": [
         "id_list",
@@ -458,6 +509,9 @@
     {
       "id": 45,
       "name": "WrestleMania X8",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG45.PAC",
       "evidence": [
         "id_list",
@@ -470,6 +524,9 @@
     {
       "id": 46,
       "name": "WrestleMania XIX",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG46.PAC",
       "evidence": [
         "id_list",
@@ -482,6 +539,9 @@
     {
       "id": 47,
       "name": "WrestleMania XX",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG47.PAC",
       "evidence": [
         "id_list",
@@ -494,6 +554,9 @@
     {
       "id": 48,
       "name": "WrestleMania 21",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG48.PAC",
       "evidence": [
         "id_list",
@@ -506,6 +569,9 @@
     {
       "id": 49,
       "name": "WrestleMania 22",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG49.PAC",
       "evidence": [
         "id_list",
@@ -518,6 +584,9 @@
     {
       "id": 50,
       "name": "WrestleMania 23",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG50.PAC",
       "evidence": [
         "id_list",
@@ -530,6 +599,9 @@
     {
       "id": 51,
       "name": "WrestleMania XXIV",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG51.PAC",
       "evidence": [
         "id_list",
@@ -542,6 +614,9 @@
     {
       "id": 52,
       "name": "WrestleMania XXV",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG52.PAC",
       "evidence": [
         "id_list",
@@ -554,6 +629,9 @@
     {
       "id": 53,
       "name": "WrestleMania XXVI",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG53.PAC",
       "evidence": [
         "id_list",
@@ -566,6 +644,9 @@
     {
       "id": 54,
       "name": "WrestleMania XXVII",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG54.PAC",
       "evidence": [
         "id_list",
@@ -578,6 +659,9 @@
     {
       "id": 55,
       "name": "WrestleMania XXVIII",
+      "announcer": 252,
+      "announcer_evidence": "unconfirmed: never run in this arena; extended from arena 44 and the evidence line \"Jarrod: Howard Finkel is the ring announcer in the WrestleMania arenas\" of db/ids/characters.json id 252 (line 803), a recorded note",
+      "announcer_confidence": "unknown",
       "bg": "BG55.PAC",
       "evidence": [
         "id_list",

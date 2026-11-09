@@ -3,7 +3,8 @@
 #   pwsh -File tools\android\build_apk.ps1              -> out\android\apk\wwe2k14-android-dev.apk
 #   pwsh -File tools\android\build_apk.ps1 -Install     ... then adb install -r on the connected phone
 # Inputs: out\android\sdk-install-arm64\lib (build_sdk_android.ps1), out\android\game-arm64\libmain.so
-# (build_game_android.ps1), out\android\launcher-arm64\liblauncher.so (build_launcher.ps1 -Target android, Session 71).
+# (build_game_android.ps1), out\android\launcher-arm64\liblauncher.so + libviewer.so (build_launcher.ps1 -Target android, Session 71;
+# the Arena Viewer since Session 98).
 # Never game files: only our code, the recompiled code and shader_list.txt (CLAUDE.md rule 1), plus Jarrod's own logo
 # trace (assets\launcher\wwe2k14_logo.png, the launcher's) and the app icon made from game_logo.png (the fan-made
 # SteamGridDB icon the PC exe uses; F13, Jarrod 2026-10-28).
@@ -18,7 +19,14 @@ param([switch]$Install, [switch]$NoDebuggable)
 $ErrorActionPreference = 'Stop'
 . "$ProjectRoot\tools\runlock.ps1"
 
-$sdl = "$ProjectRoot\thirdparty\rexglue-sdk-src\thirdparty\sdl3\android-project\app\src\main\java"
+# Session 98 (phone port stage C): in a git worktree (.claude\worktrees\<name>: no thirdparty folder, no SDK / game build) the inputs
+# other than this worktree's own launcher + viewer come from the main checkout (its thirdparty and out\android).
+$deps = $ProjectRoot
+if (-not (Test-Path "$ProjectRoot\thirdparty\rexglue-sdk-src") -and (Test-Path "$ProjectRoot\..\..\..\thirdparty\rexglue-sdk-src")) {
+    $deps = (Resolve-Path "$ProjectRoot\..\..\..").Path
+}
+function In([string]$p) { if ((Test-Path $p) -or $deps -eq $ProjectRoot) { $p } else { $p.Replace($AndroidOut, "$deps\out\android") } }
+$sdl = "$deps\thirdparty\rexglue-sdk-src\thirdparty\sdl3\android-project\app\src\main\java"
 $ours = "$ProjectRoot\android\java"
 $manifest = "$ProjectRoot\android\AndroidManifest.xml"
 $obj = "$AndroidOut\apk-obj"
@@ -34,17 +42,19 @@ $versionCode = [int]$Matches[1] * 10000 + [int]$Matches[2] * 100 + [int]$Matches
 if ($versionCode -le 18) { "build_apk.ps1: versionCode $versionCode from android\VERSION is not above 18"; exit 2 }
 $libs = [ordered]@{
     'libc++_shared.so'   = "$Llvm\..\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so"
-    'librexruntime.so'   = "$($AndroidDirs.SdkInstall)\lib\librexruntime.so"
-    'librexgpu-xenos.so' = "$($AndroidDirs.SdkInstall)\lib\librexgpu-xenos.so"
-    'libmain.so'         = "$($AndroidDirs.Game)\libmain.so"
+    'librexruntime.so'   = (In "$($AndroidDirs.SdkInstall)\lib\librexruntime.so")
+    'librexgpu-xenos.so' = (In "$($AndroidDirs.SdkInstall)\lib\librexgpu-xenos.so")
+    'libmain.so'         = (In "$($AndroidDirs.Game)\libmain.so")
     'liblauncher.so'     = "$AndroidOut\launcher-arm64\liblauncher.so"
+    # Session 98 (Arena Viewer phone port, stage C): ViewerActivity's library, built with the launcher (build_launcher.ps1 -Target android).
+    'libviewer.so'       = "$AndroidOut\launcher-arm64\libviewer.so"
     # Session 72 (Android drivers, src\android_driver.h): libadrenotools' hook libraries, built with the game.
-    'libhook_impl.so'    = "$($AndroidDirs.Game)\adrenotools\src\hook\libhook_impl.so"
-    'libmain_hook.so'    = "$($AndroidDirs.Game)\adrenotools\src\hook\libmain_hook.so"
+    'libhook_impl.so'    = (In "$($AndroidDirs.Game)\adrenotools\src\hook\libhook_impl.so")
+    'libmain_hook.so'    = (In "$($AndroidDirs.Game)\adrenotools\src\hook\libmain_hook.so")
 }
 foreach ($k in $libs.Keys) { if (-not (Test-Path $libs[$k])) { "build_apk.ps1: missing $k ($($libs[$k]))"; exit 2 } }
 # Session 72: the custom Vulkan drivers built from source (tools\android\drivers\build_drivers.ps1); optional.
-foreach ($d in @(Get-ChildItem "$AndroidOut\drivers" -Filter 'libvulkan_*.so' -ErrorAction SilentlyContinue)) {
+foreach ($d in @(Get-ChildItem (In "$AndroidOut\drivers") -Filter 'libvulkan_*.so' -ErrorAction SilentlyContinue)) {
     $libs[$d.Name] = $d.FullName
 }
 
@@ -72,9 +82,9 @@ Copy-Item "$ProjectRoot\assets\launcher\wwe2k14_logo.png" "$obj\assets\"  # the 
 # Session 72: the notices, with the licence texts of the bundled drivers and their loader. Flat in assets/: aapt2 on
 # Windows keeps a subfolder's backslash in the entry name.
 Copy-Item "$ProjectRoot\docs\release\THIRD_PARTY_NOTICES.md" "$obj\assets\"
-foreach ($l in @(@{ n = 'LICENSE_mesa.txt'; p = "$ProjectRoot\thirdparty\mesa\docs\license.rst" },
-                 @{ n = 'LICENSE_mali-panvk.txt'; p = "$ProjectRoot\thirdparty\mali-panvk\LICENSE" },
-                 @{ n = 'LICENSE_libadrenotools.txt'; p = "$ProjectRoot\thirdparty\libadrenotools\LICENSE" })) {
+foreach ($l in @(@{ n = 'LICENSE_mesa.txt'; p = "$deps\thirdparty\mesa\docs\license.rst" },
+                 @{ n = 'LICENSE_mali-panvk.txt'; p = "$deps\thirdparty\mali-panvk\LICENSE" },
+                 @{ n = 'LICENSE_libadrenotools.txt'; p = "$deps\thirdparty\libadrenotools\LICENSE" })) {
     if (Test-Path $l.p) { Copy-Item $l.p "$obj\assets\$($l.n)" }
 }
 # The launcher icon in Android's five densities, from game_logo.png (512 x 512).
@@ -106,7 +116,7 @@ Copy-Item "$obj\dex\classes.dex" "$obj\zip\classes.dex"
 foreach ($k in $libs.Keys) {
     Run "llvm-strip $k" { & "$Llvm\llvm-strip.exe" --strip-debug -o "$obj\zip\lib\arm64-v8a\$k" $libs[$k] }
 }
-Copy-Item "$($AndroidDirs.SdkInstall)\lib\librexruntime.so", "$($AndroidDirs.SdkInstall)\lib\librexgpu-xenos.so" $AndroidDirs.Symbols -Force
+Copy-Item $libs['librexruntime.so'], $libs['librexgpu-xenos.so'] $AndroidDirs.Symbols -Force
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::Open("$obj\base.apk", [System.IO.Compression.ZipArchiveMode]::Update)
 try {
@@ -120,7 +130,7 @@ try {
 # 4. Align (16 KB for .so files) and sign
 Run 'zipalign' { & "$BuildTools\zipalign.exe" -f -P 16 4 "$obj\base.apk" "$obj\aligned.apk" }
 # Session 73: every library's LOAD segments 16 KB-aligned (phones with 16 KB pages refuse to load the rest).
-Run '16 KB alignment' { & py "$ProjectRoot\tools\android\check_page_align.py" "$obj\aligned.apk" }
+Run '16 KB alignment' { & py "$ProjectRoot\tools\android\check_page_align.py" "$obj\aligned.apk" --expect @($libs.Keys) }
 if (-not (Test-Path $keystore)) {
     if ((Test-Path $fingerprintFile) -and (Select-String -Path $fingerprintFile -Pattern '^[0-9a-fA-F]{64}\s*$' -Quiet)) {
         "build_apk.ps1: the signing key $keystore is missing and $fingerprintFile names one. Refusing to make a new key: restore the backup."

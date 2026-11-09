@@ -39,7 +39,9 @@
 //                                 (Session 77, the tester check's fresh-save boot) as press_until_state, but done when
 //                                 a string containing TEXT (any case, may hold spaces; the numbers come first) is on
 //                                 screen after the press is released: the next screen's own text as the "press
-//                                 accepted" signal, where no state is mapped (the storage notices and save prompts)
+//                                 accepted" signal, where no state is mapped (the storage notices and save prompts).
+//                                 Session 98: `press_until_text T N I H optional TEXT` warns and goes on instead of
+//                                 failing when TEXT never shows
 //   set BUTTONS LT RT LX LY RX RY set the full pad state until the next set/press (what recordings use);
 //                                 settings are changed with `cvar`, not `set`
 //   screenshot LABEL              save the current guest output to captures/NNN_LABEL.png
@@ -53,8 +55,9 @@
 //                                 (logged) while that setting is empty; any script end stops the clip and a quit
 //                                 (also on_fail quit) waits for clips to finish (src/clip_capture.h)
 //   log TEXT                      write TEXT to the log
-//   renderdoc_capture             (Session 76) RenderDoc captures the next frame (run with RenderDoc on the PATH and
-//                                 ENABLE_VULKAN_RENDERDOC_CAPTURE=1; captures land in %TEMP%\RenderDoc)
+//   renderdoc_capture [TEMPLATE]  (Session 76) RenderDoc captures the next frame (run with RenderDoc on the PATH and
+//                                 ENABLE_VULKAN_RENDERDOC_CAPTURE=1; captures land in %TEMP%\RenderDoc, or at
+//                                 TEMPLATE_frameN.rdc when given: Session 98, one file per capture)
 //   mark ID [TEXT]                log a numbered marker (ID decimal) and record timeline event "mark"
 //                                 (a = ID, b = guest frame) so analysis tools can cut runs at it
 //   cvar NAME VALUE               set a ReXGlue/app setting now (rex::cvar::SetFlagByName), e.g. to toggle a
@@ -1115,6 +1118,12 @@ class InputScript {
              interval > hold;
         std::getline(words >> std::ws, step.text);
         while (!step.text.empty() && std::isspace((unsigned char)step.text.back())) step.text.pop_back();
+        // Session 98: `optional` before TEXT = after the last press without the text, warn and go on.
+        if (step.text.rfind("optional ", 0) == 0) {
+          step.optional = true;
+          step.text.erase(0, 9);
+          while (!step.text.empty() && std::isspace((unsigned char)step.text.front())) step.text.erase(0, 1);
+        }
         ok = ok && !step.text.empty();
         step.op = Op::kPressUntilText;
         step.frames = uint64_t(interval);
@@ -1355,8 +1364,13 @@ class InputScript {
           why = "no struct named '" + name + "' in tools/input_scripts/structs.toml";
         }
         step.text = name;
-      } else if (cmd == "renderdoc_capture") {  // Session 76
+      } else if (cmd == "renderdoc_capture") {  // Session 76; Session 98: optional PATH_TEMPLATE (own file per capture)
         step.op = Op::kRenderDoc;
+        std::string rest;
+        std::getline(words, rest);
+        while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t')) rest.erase(rest.begin());
+        while (!rest.empty() && (rest.back() == ' ' || rest.back() == '\r')) rest.pop_back();
+        step.text = rest;
       } else if (cmd == "dump_mem") {  // Session 69: dump_mem PHYS_ADDR LENGTH FILE (guest physical memory to a file)
         step.op = Op::kDumpMem;
         std::string addr, len;
@@ -1619,6 +1633,12 @@ class InputScript {
                           screen_text::Joined(), frame_);
               start_press();
               return;
+            }
+            if (step.optional) {  // Session 98
+              REXLOG_WARN("[wwe2k14][input] line {}: '{}' not on screen after {} presses (optional: going on; screen "
+                          "text: {}, frame {})", L(step), step.text, press_attempt_, screen_text::Joined(), frame_);
+              sync_mark_ = frame_;
+              break;
             }
             REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: '{}' not on screen after {} presses (screen "
                          "text: {})", L(step), step.text, press_attempt_, screen_text::Joined());
@@ -1915,8 +1935,12 @@ class InputScript {
             if (auto get = reinterpret_cast<pRENDERDOC_GetAPI>(GetProcAddress(m, "RENDERDOC_GetAPI")))
               get(eRENDERDOC_API_Version_1_0_0, reinterpret_cast<void**>(&api));
           if (api) {
+            // Session 98: a path template per capture (RenderDoc appends _frameN.rdc); else its default name, which can
+            // repeat within a minute and overwrite.
+            if (!step.text.empty()) api->SetLogFilePathTemplate(step.text.c_str());
             api->TriggerCapture();
-            REXLOG_INFO("[wwe2k14][input] line {}: RenderDoc captures the next frame (frame {})", L(step), frame_);
+            REXLOG_INFO("[wwe2k14][input] line {}: RenderDoc captures the next frame (frame {}){}{}", L(step), frame_,
+                        step.text.empty() ? "" : " -> ", step.text);
           } else {
             REXLOG_WARN("[wwe2k14][input] line {}: renderdoc_capture: RenderDoc is not attached", L(step));
           }

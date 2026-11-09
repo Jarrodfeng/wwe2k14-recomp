@@ -25,6 +25,13 @@
     <!-- Session 81: the launcher's self-update hands the downloaded APK to Android's installer (the player still taps
          Install; the first time they allow installs from this app). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Session 98: BUILD TRON PREVIEWS keeps going in the background (TronExportService, a foreground service in the game's
+         process: mediaProcessing on Android 15+, dataSync before) and shows its progress as a notification (asked for on
+         Android 13+ when an export starts). Normal game runs start no service and post no notification. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="WWE 2K14"
@@ -65,6 +72,19 @@
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density|colorMode|fontWeightAdjustment|grammaticalGender|mcc|mnc|touchscreen" />
 
+        <!-- Session 98 (Arena Viewer phone port, stage C): the Arena Viewer (libviewer.so), its own process, landscape; started by the
+             launcher's MODS page. Exported for the phone test harness (tools/android/run.ps1 -Viewer starts it with adb). -->
+        <activity
+            android:name=".ViewerActivity"
+            android:process=":viewer"
+            android:exported="true"
+            android:label="WWE 2K14"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTask"
+            android:resizeableActivity="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density|colorMode|fontWeightAdjustment|grammaticalGender|mcc|mnc|touchscreen" />
+
         <!-- Session 74: the launcher's MOVE THE CONTROLS screen (the touch controls' edit mode), the launcher's process. -->
         <activity
             android:name=".TouchEditActivity"
@@ -73,6 +93,13 @@
             android:screenOrientation="sensorLandscape"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density|colorMode|fontWeightAdjustment|grammaticalGender|mcc|mnc|touchscreen" />
+
+        <!-- Session 98: the tron export's foreground service (see the permissions above), in the game's process. -->
+        <service
+            android:name=".TronExportService"
+            android:process=":game"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProcessing" />
 
         <provider
             android:name=".FileShareProvider"

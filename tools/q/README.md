@@ -95,6 +95,27 @@ address that is not inside the image at its preferred base 0x140000000 (an ASLR-
 refused with an error: pass `wwe2k14.exe+0xOFFSET` (the address minus the module base) instead. The answer
 includes the section and the symbol's extent (up to the next symbol or the section end).
 
+## The knowledge library: `q fact` (Session 98)
+
+```
+py tools\q\q.py fact WORDS... [--json] [--limit N] [--kind format|system|module|db|session] [--rebuild]
+```
+
+One ranked search over what we have LODGED (CLAUDE.md "Lodge what you learn"): `docs\formats\*.md` and
+`docs\systems\*.md` (weight 1.0), `docs\modules\*.md` (0.85), the function db `db\*.json` (name, summary, evidence;
+0.7) and the `SESSION*_SUMMARY.md` running logs (0.35, lowest). Each hit: file:line, the section heading path, up to 4
+matching lines, and every guest address in that section with its db name / confidence / file (`fn:` line).
+
+- All words must match (SQLite FTS5, bm25); when no section has them all, any word ("partial"). Words of 4+ letters
+  match as prefixes (`particle` finds particles), shorter ones also with a trailing s (`cap` -> caps); every spelling of
+  an address matches (`0x8230C688`, `sub_8230C688`, `8230c688`); `a_b` is the phrase "a b". Sections with the words side
+  by side, or all of them in their own heading, rank higher.
+- Index: `out\harness\index\fact.db` (our own text only), built by `tools\q\qfact.py` (no code index needed). It
+  rebuilds itself when any source file's size / mtime changes (~1-2 s); a query on a fresh index takes ~0.13 s.
+- `q fn` / `q db` print `documented in: <page>:<line>  <heading>` for every format / system / module section naming the
+  function (from the same index).
+- Write it down where `fact` finds it: a format page (`docs\formats\_template.md`), the system page, db entries.
+
 ## What the data means (and its limits)
 
 - **Function list**: `PPCFuncMappings` in `wwe2k14_init.cpp` (83,012 recompiled bodies + 270 mapped entries without

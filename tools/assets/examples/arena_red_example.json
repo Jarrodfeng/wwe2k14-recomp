@@ -1,0 +1,91 @@
+{
+ "format": 1,
+ "kind": "arena",
+ "arena": 5,
+ "name": "red light set 121 (example)",
+ "key_size": 404505,
+ "key_fnv": "0xD15539E3605FDC24",
+ "key_fnv_data": "0xCB2EA3A9F01EE367",
+ "patches": [
+  {
+   "act": 121,
+   "track": 10,
+   "chunk": 0,
+   "scale": [
+    4095,
+    0,
+    0
+   ]
+  },
+  {
+   "act": 121,
+   "track": 10,
+   "chunk": 1,
+   "scale": [
+    4095,
+    0,
+    0
+   ]
+  },
+  {
+   "act": 121,
+   "track": 11,
+   "chunk": 0,
+   "scale": [
+    4095,
+    0,
+    0
+   ]
+  },
+  {
+   "act": 121,
+   "track": 11,
+   "chunk": 1,
+   "scale": [
+    4095,
+    0,
+    0
+   ]
+  },
+  {
+   "act": 121,
+   "track": 12,
+   "chunk": 0,
+   "scale": [
+    4095,
+    0,
+    0
+   ]
+  },
+  {
+   "act": 121,
+   "track": 12,
+   "chunk": 1,
+   "scale": [
+    4095,
+    0,
+    0
+   ]
+  },
+  {
+   "act": 121,
+   "track": 13,
+   "chunk": 0,
+   "scale": [
+    4095,
+    0,
+    0
+   ]
+  },
+  {
+   "act": 121,
+   "track": 13,
+   "chunk": 1,
+   "scale": [
+    4095,
+    0,
+    0
+   ]
+  }
+ ]
+}

@@ -910,3 +910,20 @@ cvar = "gpu_d3d_draw_slot"
 on = ["1", "2"]
 requires = ["S95_draw_record"]
 proofs = [{ what = "the slots on", any = ['\[d3d\]\[slot\] on: gpu_d3d_draw_slot (\d+)'] }, { what = "cursor hits", any = ['\[d3d\]\[slot\] frames \d+-\d+: draws asked \d+: cursor hits (\d+) '] }]
+
+# Session 98 (Superstar Importer run 1, test only): the DLC packs offered highest pack id first (src\dlc.h).
+[[feature]]
+name = "dlc_reverse_order"
+cvar = "wwe2k14_dlc_reverse_order"
+on = ["true", "1"]
+proofs = [
+  { what = "an enumeration offered the packs reversed", any = ['\[wwe2k14\]\[dlc\] reverse order: item \d+ = pack \d+'] },
+]
+# Session 98 (Superstar Importer run 2, test only): the pack-id gate opened to one more id (src\dlc.h PatchGate).
+[[feature]]
+name = "dlc_gate_extra"
+cvar = "wwe2k14_dlc_gate_extra"
+on = ["6", "7", "8", "9"]
+proofs = [
+  { what = "the gate word was written", any = ['\[wwe2k14\]\[dlc\] gate table 82035E9C \(test only.*-> 000[6-9]0001 \(pack \d+ accepted'] },
+]

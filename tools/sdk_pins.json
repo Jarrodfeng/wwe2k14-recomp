@@ -13161,6 +13161,34 @@
           "size": 11918848
         }
       ]
+    },
+    {
+      "id": "pin-153678b-1109-1849",
+      "sdk_commit": "153678b86b1dd031257597e49d5fc56ec3736a2e",
+      "sdk_branch": "wwe2k14-local",
+      "patch": null,
+      "patch_match": "none: newest patch 0019-session24-dlss.patch does not match the tree",
+      "date": "2026-11-09",
+      "built": "build_sdk.ps1 -Run s98held, 2026-11-09T18:49:35 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s98held.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "S98: refused claims do not hold frames",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "d0aef8317a43be23cc8efe5fd0b4f5025e051e960c4ce2347b27eede279e9364",
+          "size": 3646976
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "f1cd4252a8d92059010b4a8419b433f643bd72328779e5d302588aa2035b73fc",
+          "size": 19501568
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "8f7c8c80629edfc18debbfcb1cbda68510599f642cb8e4b4c8de57a933693ccc",
+          "size": 11918848
+        }
+      ]
     }
   ]
 }

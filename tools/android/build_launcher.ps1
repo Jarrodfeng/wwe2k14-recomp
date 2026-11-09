@@ -1,4 +1,5 @@
 # Build the phone launcher (Session 71, src\launcher_mobile): -Target android -> out\android\launcher-arm64\liblauncher.so
+# (+ libviewer.so, the Arena Viewer for ViewerActivity: Session 98 phone port stage C)
 # (build_apk.ps1 packs it), -Target pc -> out\launcher_mobile\pc\wwe2k14_launcher_mobile.exe (the test build in a
 # phone-shaped window; tools\android\launcher_shots.ps1 takes its screenshots). Holds the run lock. SDL3 is compiled
 # into it from the SDK source tree (the first build takes a minute or two).
@@ -44,6 +45,10 @@ try {
     Get-Content $log | Select-String ': error|FAILED|error:|undefined symbol' | Select-Object -First 40 |
         ForEach-Object { $_.Line.Substring(0, [Math]::Min(400, $_.Line.Length)) }
     if ($code -ne 0) { exit $code }
-    $out = if ($Target -eq 'android') { "$build\liblauncher.so" } else { "$build\wwe2k14_launcher_mobile.exe" }
-    "{0}: {1:N1} MB" -f $out, ((Get-Item $out).Length / 1MB)
+    # Session 98 (Arena Viewer phone port, stage C): the android build also makes libviewer.so (ViewerActivity), same CMake project.
+    $outs = if ($Target -eq 'android') { @("$build\liblauncher.so", "$build\libviewer.so") } else { @("$build\wwe2k14_launcher_mobile.exe") }
+    foreach ($out in $outs) {
+        if (-not (Test-Path $out)) { "missing $out"; exit 1 }
+        "{0}: {1:N1} MB" -f $out, ((Get-Item $out).Length / 1MB)
+    }
 } finally { Exit-RunLock $lock }

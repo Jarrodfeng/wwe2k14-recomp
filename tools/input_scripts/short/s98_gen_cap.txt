@@ -1,0 +1,38 @@
+# Session 98 run 4 (generalisation): per entrant (slot 0, slot 1) 4 moments of its entrance: a distinct-label
+# screenshot + 2 probe frames (gpu_debug_draw_probe started with consts 0-511 and a path). The Rock vs Daniel Bryan,
+# arena 1 (RAW), CPU, seed 1. Offsets are the Orton ones (stage cue 5 +575, ramp cue 10 +427, ring-in cue 15 +300,
+# ring cue 20 +121): good enough to land in each part.
+on_fail quit
+wait_state entrance_step_0 5 7200
+wait_frames 400
+screenshot g0_stage
+cvar gpu_debug_draw_probe_frames 2
+wait_state entrance_step_0 10 3600
+wait_frames 300
+screenshot g0_ramp
+cvar gpu_debug_draw_probe_frames 2
+wait_state entrance_step_0 15 3600
+wait_frames 300
+screenshot g0_ringin
+cvar gpu_debug_draw_probe_frames 2
+wait_state entrance_step_0 20 3600
+wait_frames 121
+screenshot g0_ring
+cvar gpu_debug_draw_probe_frames 2
+wait_state entrance_step_1 5 7200
+wait_frames 400
+screenshot g1_stage
+cvar gpu_debug_draw_probe_frames 2
+wait_state entrance_step_1 10 3600
+wait_frames 300
+screenshot g1_ramp
+cvar gpu_debug_draw_probe_frames 2
+wait_state entrance_step_1 15 3600
+wait_frames 300
+screenshot g1_ringin
+cvar gpu_debug_draw_probe_frames 2
+wait_state entrance_step_1 20 3600
+wait_frames 121
+screenshot g1_ring
+cvar gpu_debug_draw_probe_frames 2
+wait_frames 60

@@ -49,6 +49,7 @@
 #include "runin.h"          // --wwe2k14_runin (Session 16 item 9 experiment, default off)
 #include "director.h"       // --wwe2k14_director (Session 17 Track 3, default off)
 #include "tron_shim.h"
+#include "lighting_mod.h"  // --wwe2k14_mods_lighting (Session 98 step 13: arena / entrance light colours from <mods>\lighting, default off)
 #include "logo_import.h"    // --wwe2k14_logo_import (Session 18, logo importer v0, default off)
 #include "audio_capture.h"  // --wwe2k14_audio_capture (Session 18, sound for re-shoots, default off)
 #include "precompile.h"     // --wwe2k14_precompile (Session 70: the launcher's precompile, default off)

@@ -53,4 +53,32 @@ inline bool WritePicture(const std::filesystem::path& path, const uint8_t* rgba,
   return !ec;
 }
 
+// Session 98 (the tron export on the phone, src/tron_export.h): RGBX / RGBA bytes -> a PNG, with its alpha when `alpha` (the title
+// reveals), written as NAME.part and renamed. Not tied to the diagnostic run.
+inline bool WritePngRgba(const std::filesystem::path& path, const uint8_t* rgba, uint32_t w, uint32_t h, uint32_t stride, bool alpha) {
+  if (!rgba || !w || !h) return false;
+  const int comp = alpha ? 4 : 3;
+  std::vector<uint8_t> px(size_t(w) * h * comp);
+  for (uint32_t y = 0; y < h; ++y) {
+    const uint8_t* s = rgba + size_t(y) * stride;
+    uint8_t* d = px.data() + size_t(y) * w * comp;
+    for (uint32_t x = 0; x < w; ++x, s += 4, d += comp)
+      for (int c = 0; c < comp; ++c) d[c] = s[c];
+  }
+  std::string bytes;
+  if (!stbi_write_png_to_func(jpeg_detail::Sink, &bytes, int(w), int(h), comp, px.data(), int(w) * comp) || bytes.empty()) return false;
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  auto part = path;
+  part += ".part";
+  {
+    std::ofstream f(part, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(bytes.data(), std::streamsize(bytes.size()));
+    if (!f) return false;
+  }
+  std::filesystem::rename(part, path, ec);
+  return !ec;
+}
+
 }  // namespace wwe2k14::diag

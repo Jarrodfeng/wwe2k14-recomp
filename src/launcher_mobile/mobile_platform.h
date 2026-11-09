@@ -36,6 +36,7 @@ struct Event {
     kDriverImported, // a = what happened (shown), b = the new driver's folder; ok = false: not imported
     kUpdateProgress, // Session 81: a = "done total" bytes of the update's download
     kUpdateDownloaded, // Session 81: ok = downloaded and checked; else a = why not
+    kTronZipPicked,    // Session 98 (IMPORT TRON PREVIEWS): a = the picked zip's address (content:// or a path), b = its name
   } kind = kMessage;
   bool ok = true;
   std::string a, b;
@@ -75,6 +76,12 @@ void Share(const std::vector<fs::path>& files);
 // <save>.before_import).
 void ExportSaves(const fs::path& save_dir);
 void ImportSaves(const fs::path& save_dir);
+// Session 98 (IMPORT TRON PREVIEWS): the system's file picker for the PC launcher's EXPORT FOR PHONE zip (answers kTronZipPicked).
+// OpenPickedZip gives a path the launcher reads it through in place (the phone: /proc/self/fd/N; empty = it cannot be read in place,
+// e.g. a cloud folder that streams), ClosePickedZip lets it go after the import.
+void PickTronZip();
+std::string OpenPickedZip(const std::string& address);
+void ClosePickedZip();
 void CheckForUpdate(const std::string& version);
 // Session 81: the launcher installs its own updates. DownloadUpdate fetches the release's APK (GitHub release downloads only)
 // and checks its SHA-256 (kUpdateProgress ..., then kUpdateDownloaded); InstallUpdate hands the file to Android's installer
@@ -86,12 +93,20 @@ void OpenUrl(const std::string& url);
 // Starts the game with these arguments (game_address: the picked file, opened by the game's own process) and closes
 // the launcher.
 void StartGame(const std::vector<std::string>& args, const std::string& game_address, const TouchChoice& touch);
+// Session 98 (Arena Viewer phone port, stage C): ARENA VIEWER - ViewerActivity (libviewer.so, its own process) over the launcher with
+// the viewer's arguments (game_address as for StartGame: a "@GAME_FD@" argument becomes the file the viewer's process opens).
+void StartViewer(const std::vector<std::string>& args, const std::string& game_address);
 // Session 74: the touch controls' edit screen (TouchEditActivity) at this Size / Opacity; it saves
 // FilesDir()/touch_layout.txt (no file = the default places).
 void EditTouchLayout(int size, int opacity);
 // Session 93 (M6 step 2): what identifies this phone's GPU stack for the shader precompile's stamp - the build fingerprint
 // (a system update can change the Vulkan driver, and with it the translator's device limits). "desktop" on the PC test build.
 std::string DeviceKey();
+// Session 98: whether the game's process (":game") is alive - the launcher's view of a running tron export (BUILD TRON PREVIEWS
+// can run behind the launcher). Always false on the PC test build.
+bool GameAlive();
+// Session 98 (review): ends the game's process (STOP on a stuck tron export). Nothing on the PC test build.
+void KillGame();
 // Leaves the app (Back on the main page).
 void Quit();
 // The screen's size in pixels, landscape (width >= height).
