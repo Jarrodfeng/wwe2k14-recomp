@@ -1,0 +1,15 @@
+{
+ "pac/bg/bg05.pac meshes": 601,
+ "pac/bg/bg05.pac textures": 205,
+ "pac/bg/bg05.pac unparsed": 0,
+ "pac/ch/ch100.pac meshes": 82,
+ "pac/ch/ch100.pac textures": 54,
+ "pac/ch/ch100.pac unparsed": 0,
+ "pac/menu/menuHD.pac meshes": 0,
+ "pac/menu/menuHD.pac textures": 303,
+ "pac/menu/menuHD.pac unparsed": 0,
+ "total effects": 12,
+ "total formats": 4,
+ "total models": 372,
+ "total texdirs": 58
+}

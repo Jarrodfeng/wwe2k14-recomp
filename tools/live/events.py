@@ -51,7 +51,7 @@ class Events:
     def skip_to_end(self):
         self.read()
 
-    def wait(self, pred, timeout_s=60.0, poll_s=0.05):
+    def wait(self, pred, timeout_s=60.0, poll_s=0.05, tick=None):   # S101 lane 145: tick = the stall watchdog's poll (may raise)
         """The first new event matching pred (callable, or a dict of field values); None on timeout."""
         test = pred if callable(pred) else (lambda e: all(e.get(k) == v for k, v in pred.items()))
         end = time.time() + timeout_s
@@ -59,6 +59,8 @@ class Events:
             for e in self.read():
                 if test(e):
                     return e
+            if tick:
+                tick()
             time.sleep(poll_s)
         return None
 

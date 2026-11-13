@@ -1,0 +1,6 @@
+{
+ "owner": "lane 7: the run contract (arc A4, tool 8)",
+ "checks": [
+  {"name": "run.selftest", "cmd": ["py", "-I", "tools/run/selftest.py"], "timeout_s": 300}
+ ]
+}

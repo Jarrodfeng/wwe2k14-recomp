@@ -1,0 +1,8 @@
+{
+ "owner": "lane 50 (S101): the crowd promotion's speed half (P2b drop the block draws at record time, P2c skip the CPU skin loops): src/scene_live/crowd_skip_core.h, crowd_skip.h, tools/crowd/crowd_skip_test.cpp",
+ "note": "builds out/tools/crowd_skip_test.exe, runs the shipped decision logic on a fake guest memory, then once per planted fault (each must exit 1). The game-side hooks are syntax-checked by tools/harness/wt_syntax_check.ps1 (main.cpp, live.cpp), not by the gate.",
+ "checks": [
+  {"name": "crowd_skip.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/crowd/build_crowd_skip_test.ps1"], "timeout_s": 600},
+  {"name": "crowd_skip.unit", "cmd": ["py", "-I", "tools/crowd/crowd_skip_selftest.py"], "timeout_s": 300}
+ ]
+}

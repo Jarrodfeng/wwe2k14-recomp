@@ -83,6 +83,7 @@ param([string[]]$Scripts, [string]$Extra = '', [string]$Data = 'userdata_frozen'
       [string]$WorkerDir = '', [int]$WorkerId = 0)   # internal (task L1): a -Parallel worker started by run_list
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 . "$R\tools\runlock.ps1"
+. "$PSScriptRoot\load_snapshot.ps1"   # Session 101 lane 302: Get-LoadSnapshot / Save-RunLoad (other heavy processes at the start and end of each run)
 
 # Session 16: '' when script $Path should run fast-forwarded, else why it runs at normal speed. $Flags = the run's
 # other flags (-ScriptExtras entry + -Extra). Relative paths are tried from here and from the exe folder.
@@ -190,12 +191,16 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     if ($why) { Write-Host "[run_list] $(Split-Path $s -Leaf): normal speed ($why)" }
     else {
         $flags += ' --vsync=false'; Write-Host "[run_list] $(Split-Path $s -Leaf): fast-forward (vsync off)"
-        # Session 82 (Jarrod: each new test exe starts with sound he has to mute in the mixer): fast-forwarded runs are
-        # muted - the SDK's audio_mute only zeroes the samples handed to SDL (sdl_audio_driver.cpp ~200), the game's
-        # audio work and its timing are unchanged. Normal-speed runs (watched, audio checks) keep their sound.
-        if ("$ScriptExtra $Extra" -notmatch '(^|\s)--audio_mute=') { $flags += ' --audio_mute=true' }
     }
-    $win = Get-RunListWindowFlags $s "$ScriptExtra $Extra" $(if ($Lock.Mode -eq 'Shared') { [int]$Lock.Slot } else { 0 })
+    # Session 82 (Jarrod: each new test exe starts with sound he has to mute in the mixer) muted fast-forwarded runs;
+    # S101 2026-11-12 (Jarrod: "ensure they're muted and in the background") mutes EVERY run. The SDK's audio_mute only
+    # zeroes the samples handed to SDL (sdl_audio_driver.cpp ~200): the game's audio work, its timing and the
+    # --wwe2k14_audio_capture tap (taken at submit, ~127) are unchanged. A run that must be heard passes --audio_mute=false.
+    if ("$ScriptExtra $Extra" -notmatch '(^|\s)--audio_mute=') { $flags += ' --audio_mute=true' }
+    # S101 2026-11-13: the PC exe now starts with the Check K promotions on by default (wwe2k14_s101_promotions, branch only). A harness run that
+    # names neither owner mode nor the bundle keeps the OLD defaults, so owned_check, references and old-path routes measure what they always did.
+    if ("$ScriptExtra $Extra" -notmatch '--wwe2k14_(rdr_owner|s101_promotions)=') { $flags += ' --wwe2k14_s101_promotions=false' }
+    $win =Get-RunListWindowFlags $s "$ScriptExtra $Extra" $(if ($Lock.Mode -eq 'Shared') { [int]$Lock.Slot } else { 0 })
     if ($win[0]) { $flags += " $($win[0])" }
     Write-Host "[run_list] $(Split-Path $s -Leaf): window $($win[1])"
     if ($ScriptExtra) { $flags += " $ScriptExtra" }
@@ -218,10 +223,18 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
             Write-Host "[run_list] $(Split-Path $s -Leaf): step 30 ($(if ($Step30) { '-Step30' } else { 'script header' }))"
         }
     }
+    # lane 168 (S101): a run that sets --wwe2k14_step_hz above 60 tests the 120 tween, but the PC test machine presents at 60 Hz and the
+    # pump now follows the display (display_rate.h). Keep the request on those runs (unless the flags already say otherwise).
+    $stepAll = "$flags $Extra"
+    if ($stepAll -match '(^|\s)--wwe2k14_step_hz=(\d+)' -and [int]$Matches[2] -gt 60 -and $stepAll -notmatch '(^|\s)--wwe2k14_pump_follow_display=') {
+        $flags += ' --wwe2k14_pump_follow_display=false'
+    }
+    $loadStart = Get-LoadSnapshot   # lane 302: what else the PC is running when this run starts
     $out = & "$R\tools\run_and_triage.ps1" -WaitSeconds $WaitSeconds -KillAfterWait:(-not $NoKill) -Exe $Exe -Exclusive:($Lock.Mode -eq 'Exclusive') -ExtraArgs "$flags $Extra" 2>&1
+    $loadEnd = Get-LoadSnapshot
     $log = ($out | Select-String '=== log: (wwe2k14_\d+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }) -join ','
     $exit = (($out | Select-String 'EXITED|STILL|KILLED|ABORT') | ForEach-Object Line) -join ' '
-    $fail = ($out | Select-String 'script FAILED|\]\[crash\]|device lost|Failed to await|run log number MISMATCH' | Select-Object -First 2 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(160, $_.Line.Length)) }) -join ' | '
+    $fail = ($out | Select-String 'script FAILED|\]\[crash\]|\[rdr\]\[live\] WARN pace_game|device lost|Failed to await|run log number MISMATCH' | Select-Object -First 2 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(160, $_.Line.Length)) }) -join ' | '
     $pass = if ($out | Select-String ': PASS') { ' PASS' } else { '' }
     $tri = ''
     if (-not $NoTriage) {
@@ -257,6 +270,9 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
             if ("$v".Trim()) { $script:RunListChecks = '    ' + ("$v".Trim() -replace '->', '>') }
         } catch { }
     }
+    # Session 101 lane 302: the run record of what else ran (out\harness\run_load\<log>.txt) + one line under the result
+    $loadNote = Save-RunLoad $log $loadStart $loadEnd
+    if ($loadNote) { $script:RunListChecks = if ($script:RunListChecks) { "$script:RunListChecks`n$loadNote" } else { $loadNote } }
     return "$line$tri"
 }
 

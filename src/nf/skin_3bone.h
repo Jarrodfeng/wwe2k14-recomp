@@ -369,6 +369,8 @@ struct Spec {
   static constexpr uint32_t kGuest = 0x82508958;
   static constexpr uint32_t kRegs = native_fn::kR3;
   static native_fn::Mode GetMode() { return native_fn::ModeFromCvar(REXCVAR_GET(wwe2k14_nf_skin_3bone)); }
+  static constexpr bool kSkinSkippable = true;  // S101 lane 50 (P2c: native_fn.h Dispatch asks scene_live/skin_skip_hook.h first)
+  static constexpr bool kNotifyWrites = true; static constexpr auto kWriter = ::wwe2k14::host_write::Writer::CrowdSkin;  // S101 A1c  // S100 strip-360 E2 / E3: these bytes reported to the reader (native_fn.h Dispatch)
   static void Writes(const PPCContext& ctx, uint8_t* base, native_fn::Ranges& out) {
     const int32_t count = int32_t(Be32(base, ctx.r4.u32));
     if (count > 0) out.Add(ctx.r6.u32, uint32_t(count) * 28);

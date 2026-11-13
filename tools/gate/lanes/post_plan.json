@@ -1,0 +1,16 @@
+{
+ "owner": "lane PS (S101): the post plan, src/renderer_scene/post_plan.{h,cpp} + tools/post/post_plan_test.cpp (POST_PROMOTION_MAP.md section 7 lane PS). GPU-free; 0 game runs. The plan is played over every frame of the 10 captures lane PC's census reads (tools/post/expect.json) and must reproduce the census group by group; the selftest runs four planted twins (layer_merged, dead_bloom_kept, dof_filter_fixed, last_pass_by_hash), each failing exactly its named check. The three case zips are unpacked (frames + images.bin only) into out/post_plan_cache of the main checkout. The build also compile-checks src/renderer_scene/post_pass.cpp (the marked lane PS lines).",
+ "checks": [
+  {"name": "post_plan.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/post/build_post_plan_test.ps1"], "timeout_s": 1800},
+  {"name": "post_plan.test", "cmd": ["py", "-I", "tools/post/post_plan_check.py", "-q"], "timeout_s": 900, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip",
+    "out/captures/s100_match300", "out/captures/s100_s89k_a", "out/captures/s100_wm30_300", "out/captures/brock_tron", "out/captures/brock_s15_300", "out/captures/s100_heenan_build", "out/captures/s100cards"]},
+  {"name": "post_plan.selftest", "cmd": ["py", "-I", "tools/post/post_plan_selftest.py"], "timeout_s": 1800, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip",
+    "out/captures/s100_match300", "out/captures/s100_s89k_a", "out/captures/s100_wm30_300", "out/captures/brock_tron", "out/captures/brock_s15_300", "out/captures/s100_heenan_build", "out/captures/s100cards"]}
+ ]
+}

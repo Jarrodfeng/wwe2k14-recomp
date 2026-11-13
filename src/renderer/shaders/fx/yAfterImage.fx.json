@@ -1,0 +1,49 @@
+{
+ "effect": "yAfterImage",
+ "vertex": [
+  {
+   "name": "quad",
+   "defines": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "alpha",
+   "defines": [],
+   "hashes": [
+    "FD103DDE03710DCB"
+   ],
+   "constants": [
+    {
+     "field": "g_fAlpha",
+     "register": 0,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

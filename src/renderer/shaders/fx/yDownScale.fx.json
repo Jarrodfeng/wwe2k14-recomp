@@ -1,0 +1,24 @@
+{
+  "effect": "yDownScale",
+  "vertex": [
+    { "name": "quad", "defines": [], "hashes": ["088496E2D7848F6D"],
+      "constants": [],
+      "attributes": [ { "fetch": 0, "location": 0 }, { "fetch": 1, "location": 1 } ] }
+  ],
+  "fragment": [
+    { "name": "box16", "defines": ["BOX16"], "hashes": ["FF22FC7165D4DB91"], "constants": [ { "field": "g_avSampleOffsets", "register": 0, "count": 16 } ],
+      "samplers": [ { "slot": 0, "kind": "2d" } ] },
+    { "name": "box16_z", "loop_constants": { "31": [16, 0, 1] }, "defines": ["BOX16_Z"], "hashes": ["7201B31AF0531DB5"], "constants": [ { "field": "g_avSampleOffsets", "register": 0, "count": 16 } ],
+      "samplers": [ { "slot": 0, "kind": "2d" }, { "slot": 1, "kind": "2d" } ] },
+    { "name": "box4", "defines": ["BOX4"], "hashes": ["9C85DA5F0879DA76"], "constants": [ { "field": "g_avSampleOffsets", "register": 0, "count": 4 } ],
+      "samplers": [ { "slot": 0, "kind": "2d" } ] },
+    { "name": "box4_down", "defines": ["BOX4_DOWN"], "hashes": ["156FA9A105B45F9B"], "constants": [ { "field": "g_avSampleOffsets", "register": 0, "count": 4 }, { "field": "g_fDownColor", "register": 16, "count": 1 } ],
+      "samplers": [ { "slot": 0, "kind": "2d" } ] },
+    { "name": "dof", "defines": ["DOF"], "hashes": ["A7AD68BE21C46E7A"], "constants": [ { "field": "g_avSampleOffsets", "register": 0, "count": 4 }, { "field": "g_f4DOFParam2", "register": 21, "count": 1 } ],
+      "samplers": [ { "slot": 0, "kind": "2d" }, { "slot": 1, "kind": "2d" } ] },
+    { "name": "copy", "defines": ["COPY"], "hashes": ["6E57A6E305D5D69B"], "constants": [],
+      "samplers": [ { "slot": 0, "kind": "2d" } ] },
+    { "name": "copy_z", "defines": ["COPY_Z"], "hashes": ["FA71BFEF988F04C1"], "constants": [],
+      "samplers": [ { "slot": 0, "kind": "2d" }, { "slot": 1, "kind": "2d" } ] }
+  ]
+}

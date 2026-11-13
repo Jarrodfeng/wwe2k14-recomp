@@ -1,0 +1,8 @@
+{
+ "owner": "lane 29: class C4, the wrestlers as a live scene contributor (src/scene_live/wrestler_contrib, wrestler_hook)",
+ "checks": [
+  {"name": "c4_wrestlers.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_wrestler.ps1"], "timeout_s": 900},
+  {"name": "c4_wrestlers.rsc_tools_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "c4_wrestlers.selftest", "cmd": ["py", "-I", "tools/scene/wrestler_selftest.py"], "timeout_s": 1500, "needs": ["game_data/extracted"]}
+ ]
+}

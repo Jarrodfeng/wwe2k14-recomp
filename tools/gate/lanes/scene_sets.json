@@ -1,0 +1,1 @@
+{"owner": "lane 77 (scene bank id -> the game's own arena: tools/goto/scene_sets.py; resolver pins live in scene_selftest.py)", "checks": [{"name": "scene_sets.selftest", "cmd": ["py", "-I", "tools/goto/scene_sets.py", "--selftest"], "timeout_s": 300, "needs": ["game_data/extracted/pac/menu/sas.pac", "game_data/extracted/pac/evt/WSD04.pac", "out/tools/xctd_unpack.exe"]}]}

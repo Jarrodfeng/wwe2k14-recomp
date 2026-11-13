@@ -27,6 +27,7 @@
 #include "bookmark.h"  // Session 29: the "that, just now" key (frame-time ring always on, the key in harness runs)
 #include "sampling_profiler.h"
 #include "file_trace.h"  // --wwe2k14_file_trace (Session 8 task 7, default off)
+#include "native_mem_probe.h"  // Session 100 strip-360 D2: the game's free-memory probes by binary search (--wwe2k14_native_mem_probe)
 #include "guest_peek.h"  // --wwe2k14_peek (Session 8 task 7 menu/UI, default off)
 #include "frame_hash.h"  // --wwe2k14_det_hash (Session 8 task 8b, default off)
 #include "flight_recorder.h"  // --wwe2k14_flight_recorder (Session 8 task 11, default off)
@@ -38,6 +39,9 @@
 #include "step_rate.h"   // --wwe2k14_step_hz (Session 19 item 10, default off)
 #include "discord_status.h"  // --wwe2k14_discord (Session 33 item 3, default off)
 #include "entrance_music.h"  // --wwe2k14_entrance_music (Session 33 item 5, default off)
+#include "user_playlist.h"   // lane 282: USER PLAYLIST plays the mods folder's songs (XMP play request)
+#include "music_picker.h"    // lane 291: the USER PLAYLIST song picker (the console Guide's part)
+#include "music_preview.h"   // lane 281: custom songs in the Create-an-Entrance MUSIC preview
 #include "ultrawide.h"       // --wwe2k14_aspect (Session 33 item 6, default off)
 #include "perf_report.h"  // --wwe2k14_perf_report (Session 20 item 9, default off)
 #include "half2_hooks.h"  // SDK gpu_native_half2 (Session 48, Half 2: the game's D3D library draws; default off)
@@ -309,6 +313,8 @@ inline void VdSwapOverride(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped
   if (g_pipeline_wait_frame_hook) g_pipeline_wait_frame_hook(g_guest_frame);  // --wwe2k14_load_pipeline_wait (S57)
   if (g_session_frame_hook) g_session_frame_hook(g_guest_frame);  // --wwe2k14_session_log (Session 58)
   entrance_music::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0));  // no-op unless a custom theme plays
+  user_playlist::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0));  // no-op unless the user playlist plays
+  music_picker::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0));  // lane 291: closes the picker when the game leaves its sequence
   ultrawide::OnFrame(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0), g_guest_frame);  // no-op at 16:9
   perf_report::OnFrame();  // no-op unless --wwe2k14_perf_report (after step_rate: its scene flags)
   ProfilerOnSwap();
@@ -316,6 +322,7 @@ inline void VdSwapOverride(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped
                                       texture_format_ptr, color_space_ptr, width, height);
   // Session 87 stage 2 (2b): the swap's words VdSwap_entry just formed, queued for the no-ring consumer (no-op unless attached).
   wwe2k14::d3d_noring::AfterVdSwap(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0), buffer_ptr.guest_address());
+  replay::g_replay.HoldPoint(g_guest_frame);  // S101 lane31: --wwe2k14_replay_hold, after frame F is hashed and presented
 }
 
 }  // namespace wwe2k14

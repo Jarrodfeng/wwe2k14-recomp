@@ -405,6 +405,8 @@ struct Spec {
   static constexpr uint32_t kGuest = 0x82261340;
   static constexpr uint32_t kRegs = native_fn::kR3;
   static native_fn::Mode GetMode() { return native_fn::ModeFromCvar(REXCVAR_GET(wwe2k14_nf_memcpy_vmx)); }
+  static constexpr bool kNotifyWrites = true; static constexpr auto kWriter = ::wwe2k14::host_write::Writer::Memcpy;  // S101 A1c
+  static uint32_t Source(const PPCContext& ctx) { return ctx.r4.u32; }  // S101 A1c: memcpy(r3 dst, r4 src, r5 n): the destination inherits the source's owner  // S100 strip-360 E2 / E3: these bytes reported to the reader (native_fn.h Dispatch)
   static void Writes(const PPCContext& ctx, uint8_t* base, native_fn::Ranges& out) {
     (void)base;
     out.Add(ctx.r3.u32, ctx.r5.u32);  // the destination

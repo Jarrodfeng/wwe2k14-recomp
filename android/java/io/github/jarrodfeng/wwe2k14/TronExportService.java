@@ -120,6 +120,10 @@ public class TronExportService extends Service {
     }
 
     /** The run is over (the game's exit request, or the player quit): the result notification, then the service stops. */
+    // S101 (2026-11-13, Jarrod): no result notification (the app no longer has the notification permission); the result is in
+    // the log and the launcher reports the run (ResumeAfterTrons). Flip to true together with POST_NOTIFICATIONS to bring it back.
+    static final boolean kResultNotification = false;
+
     static void finish(Context c, String trons, String quitReason) {
         Progress p = Progress.read(trons);
         String title, text;
@@ -144,7 +148,7 @@ public class TronExportService extends Service {
             icon = android.R.drawable.stat_notify_error;
         }
         try {
-            NotificationManager nm = c.getSystemService(NotificationManager.class);
+            NotificationManager nm = kResultNotification ? c.getSystemService(NotificationManager.class) : null;
             if (nm != null) {
                 makeChannels(nm);
                 Notification n = builder(c, CHANNEL_RESULT).setSmallIcon(icon).setContentTitle(title).setContentText(text)

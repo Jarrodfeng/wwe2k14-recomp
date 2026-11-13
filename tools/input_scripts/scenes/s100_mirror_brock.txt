@@ -1,0 +1,32 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_d3d_owned=true --wwe2k14_rdr_capture=true --wwe2k14_rdr_live=true --wwe2k14_rdr_live_validation=1
+# Session 100, milestone: the live mirror (docs\renderer\LIVE_ADAPTER.md stage A). The new renderer draws every frame of Brock's entrance, headless,
+# beside the old TRUE NATIVE renderer, which keeps the window. At the capture run's three moments (s100_capture_brock.txt) the script takes the old
+# renderer's screenshot and asks the mirror for its picture of the same frame: out\captures\live\live_<name>.png. The [rdr][live] lines report
+# frames drawn and skipped, draws bound and missing a shader; validation errors are in the log. Local only (rule 1).
+# Run with: & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\scenes\s100_mirror_brock.txt')
+on_fail quit
+log bench: start scene s100_mirror_brock
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 20000
+log scene=tron_343
+mark 1 tron_343
+wait_frames 300
+cvar wwe2k14_rdr_live_picture brock_tron
+screenshot mirror_brock_tron
+wait_frames 12
+wait_state entrance_step_0 >=15 20000 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+wait_frames 8
+cvar wwe2k14_rdr_live_picture brock_s15
+screenshot mirror_brock_s15
+wait_frames 288
+cvar wwe2k14_rdr_live_picture brock_s15_300
+screenshot mirror_brock_s15_300
+wait_frames 240
+log bench: done
+mark 3 end
+quit

@@ -1,0 +1,173 @@
+{
+ "effect": "ySoftParticle",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "LocalWorld",
+     "register": 228,
+     "count": 4
+    },
+    {
+     "field": "LocalWorldView",
+     "register": 203,
+     "count": 4
+    },
+    {
+     "field": "ZOffset",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "UseNormal",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "LightVector",
+     "register": 202,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "hashes": [
+    "C163CC4A57EC9044"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "FadeOutDistance",
+     "register": 211,
+     "count": 1,
+     "range": [
+      0.1,
+      100.0
+     ]
+    },
+    {
+     "field": "Proj",
+     "register": 207,
+     "count": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "FCA328BC237D8B19"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "LocalWorld",
+     "register": 228,
+     "count": 4
+    },
+    {
+     "field": "LocalWorldView",
+     "register": 203,
+     "count": 4
+    },
+    {
+     "field": "ZOffset",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "UseNormal",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "LightVector",
+     "register": 202,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ]
+  },
+  "fragment": {
+   "options": [],
+   "constants": [
+    {
+     "field": "FadeOutDistance",
+     "register": 211,
+     "count": 1,
+     "range": [
+      0.1,
+      100.0
+     ]
+    },
+    {
+     "field": "Proj",
+     "register": 207,
+     "count": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ]
+  }
+ }
+}

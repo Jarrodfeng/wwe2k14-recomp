@@ -1,0 +1,1961 @@
+{
+ "effect": "yBG_ReflectLM",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "956CC4DF8703CE4A"
+   ]
+  },
+  {
+   "name": "shadow",
+   "defines": [
+    "FX_SHADOW"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 2
+    },
+    {
+     "field": "TexProjLight",
+     "register": 68,
+     "count": 4
+    },
+    {
+     "field": "ViewLight",
+     "register": 164,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "3A0D922BEB27598A"
+   ]
+  },
+  {
+   "name": "vertex_lm",
+   "defines": [
+    "FX_VERTEX_LM"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "C8FC6B46B9CBE4CB"
+   ]
+  },
+  {
+   "name": "shadow_vertex_lm",
+   "defines": [
+    "FX_SHADOW",
+    "FX_VERTEX_LM"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 2
+    },
+    {
+     "field": "TexProjLight",
+     "register": 68,
+     "count": 4
+    },
+    {
+     "field": "ViewLight",
+     "register": 164,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "2AC4C8E6DF23D32E"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "24BACC8C42CF0843"
+   ]
+  },
+  {
+   "name": "shadow",
+   "defines": [
+    "FX_SHADOW"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "46F590C444717557"
+   ]
+  },
+  {
+   "name": "spec_map",
+   "defines": [
+    "FX_SPEC_MAP"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "08894D985C4F8CD4"
+   ]
+  },
+  {
+   "name": "alpha_spec",
+   "defines": [
+    "FX_ALPHA_SPEC"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "A15AC41ABE7BE259"
+   ]
+  },
+  {
+   "name": "reflect_add",
+   "defines": [
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "9C9A34288654ABC4"
+   ]
+  },
+  {
+   "name": "reflect_mask",
+   "defines": [
+    "FX_REFLECT_MASK"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "C9EF15F3F6B1BAB7"
+   ]
+  },
+  {
+   "name": "shadow_spec_map",
+   "defines": [
+    "FX_SHADOW",
+    "FX_SPEC_MAP"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "C8583CE9CDBBCCA7"
+   ]
+  },
+  {
+   "name": "shadow_alpha_spec",
+   "defines": [
+    "FX_SHADOW",
+    "FX_ALPHA_SPEC"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "A57435E4F6B05C39"
+   ]
+  },
+  {
+   "name": "shadow_reflect_add",
+   "defines": [
+    "FX_SHADOW",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "0C64D90AD1D84BBF"
+   ]
+  },
+  {
+   "name": "shadow_reflect_mask",
+   "defines": [
+    "FX_SHADOW",
+    "FX_REFLECT_MASK"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "42E3B9DDD4AAA959"
+   ]
+  },
+  {
+   "name": "spec_map_reflect_add",
+   "defines": [
+    "FX_SPEC_MAP",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "137852F8E3A61A95"
+   ]
+  },
+  {
+   "name": "spec_map_reflect_mask",
+   "defines": [
+    "FX_SPEC_MAP",
+    "FX_REFLECT_MASK"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7452AC8C747345D0"
+   ]
+  },
+  {
+   "name": "alpha_spec_reflect_add",
+   "defines": [
+    "FX_ALPHA_SPEC",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "33FA06BEA92AE2E0"
+   ]
+  },
+  {
+   "name": "alpha_spec_reflect_mask",
+   "defines": [
+    "FX_ALPHA_SPEC",
+    "FX_REFLECT_MASK"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "80516682BFA8A326"
+   ]
+  },
+  {
+   "name": "shadow_spec_map_reflect_add",
+   "defines": [
+    "FX_SHADOW",
+    "FX_SPEC_MAP",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "8F147798C55C811C"
+   ]
+  },
+  {
+   "name": "shadow_spec_map_reflect_mask",
+   "defines": [
+    "FX_SHADOW",
+    "FX_SPEC_MAP",
+    "FX_REFLECT_MASK"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "3A94BB580C147919"
+   ]
+  },
+  {
+   "name": "shadow_alpha_spec_reflect_add",
+   "defines": [
+    "FX_SHADOW",
+    "FX_ALPHA_SPEC",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "6975D16B632CA0B0"
+   ]
+  },
+  {
+   "name": "shadow_alpha_spec_reflect_mask",
+   "defines": [
+    "FX_SHADOW",
+    "FX_ALPHA_SPEC",
+    "FX_REFLECT_MASK"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "892E0724513A6C57"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SHADOW",
+    "FX_VERTEX_LM"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3,
+     "when": [
+      "!FX_STATIC"
+     ]
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "SpeLodParam",
+     "register": 209,
+     "count": 1,
+     "when": [
+      "FX_SPEC_FADE"
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 2,
+     "when": [
+      "FX_SHADOW"
+     ]
+    },
+    {
+     "field": "TexProjLight",
+     "register": 68,
+     "count": 4,
+     "when": [
+      "FX_SHADOW"
+     ]
+    },
+    {
+     "field": "ViewLight",
+     "register": 164,
+     "count": 3,
+     "when": [
+      "FX_SHADOW"
+     ]
+    },
+    {
+     "field": "Noise",
+     "register": 207,
+     "count": 1,
+     "when": [
+      "FX_NOISE"
+     ]
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d",
+     "when": [
+      "FX_VERTEX_LM"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_SHADOW",
+    "FX_SPEC_MAP",
+    "FX_ALPHA_SPEC",
+    "FX_REFLECT_ADD",
+    "FX_REFLECT_MASK"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "iSpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ]
+  }
+ }
+}

@@ -30,7 +30,8 @@ namespace ui {
 // The viewer's side, owned by viewer_main.cpp (same thread as the UI).
 struct ImporterHost {
   std::string mods_dir;       // the player's real mods folder (the pack lives in <mods>\superstars)
-  std::string dlc_dir;        // the DLC folder the launcher gave (BuildPack / FreeSlots)
+  std::string dlc_dir;        // the DLC folder the launcher gave (BuildPack / FreeSlots); "" = USE MY DLC off
+  std::string dlc_off;        // Session 101: the launcher's switched-off pack ids ("3,5"): the pack is built on what the game gets
   std::string game;           // --game (a folder or a disc image)
   std::string settings_file;  // the launcher's settings file: its "superstars" key is the ON / OFF switch ("" = not linked)
   int edit_slot = -1;         // --importer-edit SLOT: open that pack entry

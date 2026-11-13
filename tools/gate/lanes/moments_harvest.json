@@ -1,0 +1,1 @@
+{"owner": "go-anywhere L-2 (lane 111, harvest: carried place cvars, harvest.py, live verbs as E events)", "checks": [{"name": "moments_harvest.selftest", "cmd": ["py", "-I", "tools/goto/harvest_selftest.py"], "timeout_s": 600, "needs": []}]}

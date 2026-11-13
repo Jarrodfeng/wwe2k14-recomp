@@ -1,0 +1,6 @@
+[2026-11-12 10:05:41.616] [info] [core] [t10484] [wwe2k14][scene][director] menu: scene 4025 requested (exit action 5 on SmartMenu A5075BC0), program mode 2, frame=3632
+[2026-11-12 10:05:41.937] [info] [core] [t10484] [wwe2k14][scene][director] stage: ready R=A4B69FC0 ctx(read)=4025 listener=A4B79820 gate [0x836F2E54]+156=n/a, frame=3913 (+281)
+[2026-11-12 10:05:42.630] [info] [core] [t10484] [wwe2k14][scene][director] play: pushed scene 4001 (arena 76, performers [324/0,139/0]); after the call: pending=1 ctx(write 1) type=4 slot0=4001 arena=76 skip=0, M+40 restored to A646BB80, frame=4463
+[2026-11-12 10:05:42.631] [info] [core] [t10484] [wwe2k14][scene][director] play: committed (pending cleared) ring read=0 write=2 for scene 4001, frame=4464
+[2026-11-12 10:05:42.649] [info] [core] [t10484] [wwe2k14][scene][director] play: dispatched scene 4001 (ctx(read) 1 slot0=4001 type=4 skip=0 arena=76), G+18572(mode)=7, command class vtable 00000000 (not the story class: ends at its own end, what follows is logged below), frame=4483
+[2026-11-12 10:06:14.420] [info] [core] [t10484] [wwe2k14][scene][director] play: pushed scene 4001 (arena 76, performers [324/0,139/0]); after the call: pending=1 ctx(write 2) type=4 slot0=4001 arena=76 skip=0, M+40 restored to A646BB80, frame=17100

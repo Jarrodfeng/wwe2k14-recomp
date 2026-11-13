@@ -1,0 +1,38 @@
+# harness: flags --wwe2k14_launch=sixpack --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=4 --wwe2k14_launch_participants=335,229,325,344,364,298 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
+# Session 101 lane 167: the REDUCED roster-wide route (replaces lane 158's legs 1 and 2). Same mechanism and steps as s101_roster_sixpack.txt (6-Pack Challenge, all CPU, entrances
+# skipped, seed 1, arena 4); only the six ids differ. The ids come from `py -I tools\census\roster_classes.py` (docs\renderer\WRESTLER_PROMOTION_MAP.md section 15): the
+# classes of the roster's 692 model entries that NO kept capture proves, one attire-0 representative each (the launcher seats the default attire only), the sixth seat an unproven skeleton family:
+#   335 Diesel          EXTRA Rt         two rigid extra pieces (20000 gear, 20001 Reflect); 133-node skeleton
+#   229 Kaitlyn         HAIR Rt+Wt T    mixed rigid + weighted alpha hair piece (6 parts); 111-node skeleton (39daa1, 7 bodies)
+#   325 Wade Barrett   BODY Rt+Wt T    a body with trans parts (30 parts)
+#   344 The Rock (Retro) SET Wn        accessory sets 26 / 27: the only attire-0 parts with NO tangent stream (S3 = 0, the Wn layout); (100 The Rock is the same class)
+#   364 Ric Flair      EXTRA Rt T      rigid trans extra piece 21020 (robe)
+#   298 AJ Lee         (skeleton)      111-node skeleton (bcd12b), the second 111 family
+# PROOF (offline, 0 runs, after the run):  py -I tools\census\roster_proof.py <case zip> --frames 60,150,240,300 --arm both --picks 335,229,325,344,364,298 --json out\s101\roster_proof\classes.json
+# Then add the capture: py -I tools\census\roster_classes.py --scan-proven <case zip>  (prints the class table again: every class that is still unproven is listed).
+# Expected wall time ~3 min (boot 12 s + load + 60 s match); door --timeout 720 is plenty. on_fail quit.
+on_fail quit
+log bench: start scene roster_classes
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=roster_classes
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_roster_classes_1
+screenshot sc_roster_classes_1
+mark 3 shot1
+wait_frames 1500
+cvar wwe2k14_rdr_live_picture sc_roster_classes_2
+screenshot sc_roster_classes_2
+mark 4 shot2
+wait_frames 700
+log scene=end (match clock +2300)
+mark 5 end
+log bench: done
+quit

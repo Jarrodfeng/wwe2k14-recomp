@@ -53,4 +53,10 @@ foreach ($so in 'librexruntime.so', 'librexgpu-xenos.so') {
     $f = Get-ChildItem $inst -Recurse -Filter $so -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($f) { "{0}: {1:N1} MB  {2}" -f $so, ($f.Length / 1MB), $f.FullName } else { "${so}: not in the install folder" }
 }
+# Release lane 280: stamp which SDK commit this install was built from. build_apk.ps1 -Release refuses an install whose commit is not the
+# PC pin's (tools\sdk_pins.json, last entry), so the APK and the PC exe never carry different SDK code. Written only after a successful install.
+$sdkCommit = (git -C $sdk rev-parse HEAD).Trim()
+$sdkDirty = @(git -C $sdk status --porcelain --untracked-files=no --ignore-submodules=all).Count
+@("commit=$sdkCommit", "branch=$branch", "dirty_tracked_files=$sdkDirty", "built=$(Get-Date -Format 'yyyy-MM-dd HH:mm')", "run=$Run") | Set-Content "$inst\sdk_commit.txt"
+"stamp: $inst\sdk_commit.txt  commit=$sdkCommit dirty=$sdkDirty"
 } finally { Exit-RunLock $lock }

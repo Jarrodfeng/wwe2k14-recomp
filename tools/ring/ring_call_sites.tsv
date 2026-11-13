@@ -1,0 +1,22 @@
+# The ring's call sites of sub_82C04DF0 as the LISTINGS give them (Session 101, lane 194; the oracle of tools\ring\ring_rows_test.cpp reads this table, NOT the stream's values).
+# Sources: docs\systems\ring.md Part A section 1 (G+ offsets, stores 0x824EB6DC-0x824EBD58 of sub_824EB648), Part D (call sites, r5 meaning), SKIP_GAME_WORK_MAP.md 16.1 / 16.2 (calls a frame, the three
+# heights sharing one r5). Marks: C = read in a listing / image word, T = a TEST PARAMETER (a number the listings do not give; the test chooses it so every rule of the reader is exercised).
+# Columns (tab separated): class, g_offset (byte offset of the model pointer in the object at [0x836F4C74]), caller, call_site (the guest address ring.md Part D cites: the `lwz rX,<slot offset>(rY)` that loads the vtable slot, or the bctrl for the ropes; the selftest finds the load within 12 bytes before it), vtable_slot_offset, r5_rule,
+#   calls_per_frame, sides, heights, nodes, count_path, marks
+# r5_rule: model200 = r5 is [model+200] of the model (every instance of a model shares it; the game writes the instance's rows into it before each submit); rope_buf = r5 is X + 29184 + 8192 * side (a buffer
+#   owned by the rope context, shared by a side's heights, rewritten between heights).
+# count_path: direct = [model+296] != 0 and [model+300] = the node count; forward = [model+296] == 0, [model+220] = a sub-object whose own slot 2 gives the count (verified, then followed).
+# sides/heights: rope classes only (calls_per_frame = sides * heights); other classes 0 0.
+class	g_offset	caller	call_site	vtable_slot_offset	r5_rule	calls_per_frame	sides	heights	nodes	count_path	marks
+post_hi	48	sub_825CCFE0	0x825CD23C	132	model200	2	0	0	2	direct	C(site, slot, offset) T(split of the 4 post calls, nodes)
+post_lo	52	sub_825CCFE0	0x825CD23C	132	model200	2	0	0	2	direct	C(site, slot, offset) T(split of the 4 post calls, nodes)
+turnbuckle	44	sub_825CE250	0x825CE614	52	model200	12	0	0	3	direct	C(site, slot, offset, 12 calls) T(nodes)
+cover_hi	36	sub_825CE668	0x825CEC98	52	model200	6	0	0	4	forward	C(site, slot, offset, 12 calls over hi+lo) T(split, nodes, forward path)
+cover_lo	40	sub_825CE668	0x825CEC98	52	model200	6	0	0	4	forward	C(site, slot, offset, 12 calls over hi+lo) T(split, nodes, forward path)
+rope_hi	20	sub_825CF2F8	0x825CFB3C	128	rope_buf	9	3	3	21	direct	C(site, slot, offset, buffer, 9 hi calls on 3 buffers) T(nodes=21 from 16.3 N~21)
+rope_lo	24	sub_825CF2F8	0x825CFB3C	128	rope_buf	3	1	3	21	direct	C(site, slot, offset, buffer, 3 lo calls on 1 buffer) T(nodes)
+canvas	56	G56	0x00000000	52	model200	1	0	0	17	direct	C(1 draw, palette 17 from ring.md B1) U(writer and site unknown)
+skirt	332	sub_82609290	0x82609458	52	model200	1	0	0	66	direct	C(site, slot, offset, 66 nodes 16.3) T(one of the four skirt pointers; 3 of 4 drawn)
+skirt	336	sub_82609290	0x82609458	52	model200	1	0	0	66	direct	C(site, slot, offset, 66 nodes 16.3) T(one of the four skirt pointers; 3 of 4 drawn)
+skirt	340	sub_82609290	0x82609458	52	model200	1	0	0	66	direct	C(site, slot, offset, 66 nodes 16.3) T(one of the four skirt pointers; 3 of 4 drawn)
+skirt	344	sub_82609290	0x82609458	52	model200	0	0	0	66	direct	C(site, slot, offset, 66 nodes 16.3) T(the fourth skirt: not drawn in this camera quadrant)

@@ -1,0 +1,18 @@
+{
+ "owner": "lane RJ (S101): the ring join census, tools/ring/ (RING_PROMOTION_MAP.md section 7 lane RJ). Python only, 0 game runs. Captures are named relative to the main checkout (ring_census resolves them there).",
+ "checks": [
+  {"name": "ring_join.census", "cmd": ["py", "-I", "tools/ring/ring_census.py",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip:4",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip:4",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip:29", "-q"],
+   "timeout_s": 1800, "needs": ["game_data/extracted",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip"]},
+  {"name": "ring_join.files", "cmd": ["py", "-I", "tools/ring/ring_census.py", "--files", "-q"], "timeout_s": 900, "needs": ["game_data/extracted"]},
+  {"name": "ring_join.selftest", "cmd": ["py", "-I", "tools/ring/selftest.py"], "timeout_s": 2400, "needs": ["game_data/extracted",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip"]}
+ ]
+}

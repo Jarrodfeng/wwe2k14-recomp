@@ -1,0 +1,133 @@
+{
+ "effect": "yParticle",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "LocalWorld",
+     "register": 228,
+     "count": 4
+    },
+    {
+     "field": "ZOffset",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "UseNormal",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "LightVector",
+     "register": 202,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "hashes": [
+    "5F1EF76E69256C9C"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "34B29856453FE506"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "LocalWorld",
+     "register": 228,
+     "count": 4
+    },
+    {
+     "field": "ZOffset",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "UseNormal",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "LightVector",
+     "register": 202,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ]
+  },
+  "fragment": {
+   "options": [],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  }
+ }
+}

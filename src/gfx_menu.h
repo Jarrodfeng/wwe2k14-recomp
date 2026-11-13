@@ -606,6 +606,7 @@ inline TextEntry g_texts[] = {
     {kTextQuit, "QUIT TO DESKTOP", 0},
     {kTextQuitAsk, "Quit to desktop?", 0},
     {kTextPhoto, "PHOTO MODE", 0},
+    {50303, "Pick a song from your Mods > Music folder.", 0},  // lane 291: the game's own text id of the USER PLAYLIST hint, answered only while g_music_hint_on
 };
 
 inline uint32_t TextFor(uint32_t id) {
@@ -999,6 +1000,12 @@ REX_HOOK_RAW(sub_822563F8) {
     ctx.r3.u64 = s;
     if (wwe2k14::screen_text::Enabled()) wwe2k14::screen_text::Note(id, GuestStr(base, s, 120));
     return;
+  }
+  if (id == 50303 && wwe2k14::g_music_hint_on && wwe2k14::g_music_hint_on()) {  // lane 291: the USER PLAYLIST hint in our words
+    if (const uint32_t s = TextFor(id)) {
+      ctx.r3.u64 = s;
+      return;
+    }
   }
   if (REXCVAR_GET(wwe2k14_gfx_menu) || REXCVAR_GET(wwe2k14_quit_item) || g_photo_pause_item) {
     uint32_t want = id;

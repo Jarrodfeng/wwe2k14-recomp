@@ -249,6 +249,17 @@ struct ImporterPanel::Impl {
 
   // ---------------------------------------------------------------- helpers
   void Say(const std::string& m, bool bad = false) { msg = m, msg_bad = bad; }
+  // Session 101 (lane 199): why the game would leave the built pack out with the DLC the launcher gives it (src\importer\pack_fit.h,
+  // the rule src\dlc.h applies at boot); "" = it fits. A misfit marks the pack to build again and says why in the footer.
+  std::string fit_why;
+  bool BuiltOnDisk() const {  // a built pack is in the mods folder (an empty list then builds = takes it out of the game)
+    std::error_code ec;
+    return host && fs::is_regular_file(fs::u8path(host->mods_dir) / "superstars" / "pack6" / "info" / "catalog.dlc", ec);
+  }
+  void RefreshFit() {
+    fit_why = host ? importer::PackProblem(host->mods_dir, host->dlc_dir, host->dlc_off) : std::string();
+    if (!fit_why.empty()) pack.needs_build = true;
+  }
   bool Building() const { return job && job->state == 1; }
   // The pack folder's signature (file names, sizes, times; the launcher's StarsSig rule): the launcher's REMOVE shows up here.
   std::string PackSig() const {
@@ -279,7 +290,7 @@ struct ImporterPanel::Impl {
     if (!importer::LoadPack(host->mods_dir, st, err)) return Say("The pack could not be read again: " + err, true);
     const int slot = list_sel >= 0 && list_sel < int(pack.stars.size()) ? pack.stars[size_t(list_sel)].slot : -1;
     pack = std::move(st);
-    if (importer::PackOutOfDate(host->mods_dir, host->dlc_dir)) pack.needs_build = true;
+    RefreshFit();  // (Session 101: the game's own rule, with the switched-off packs)
     list_sel = -1;
     for (size_t i = 0; i < pack.stars.size(); ++i)
       if (slot >= 0 && pack.stars[i].slot == slot) list_sel = int(i);
@@ -312,7 +323,7 @@ struct ImporterPanel::Impl {
     started = true;
     std::string err;
     if (!importer::LoadPack(host->mods_dir, pack, err)) pack_err = err, Say("The pack could not be read: " + err, true);
-    if (importer::PackOutOfDate(host->mods_dir, host->dlc_dir)) pack.needs_build = true;  // (your DLC changed: the game leaves the old pack out)
+    RefreshFit();  // (your DLC changed: the game leaves the old pack out; Session 101: the game's rule, with the switched-off packs)
     pack_sig = PackSig();
     // (review: the launcher's "superstars" setting is the ONLY on / off; PackState::enabled is never used for it. Not started from
     // the launcher = no settings file = the switch shows OFF and cannot be changed here.)
@@ -565,14 +576,14 @@ struct ImporterPanel::Impl {
   void StartBuild() {
     if (Building() || bulk_running) return;
     CheckReload();
-    if (pack.stars.empty()) return Say("The pack is empty: add a superstar first", true);
+    if (pack.stars.empty() && !BuiltOnDisk()) return Say("The pack is empty: add a superstar first", true);
     if (job_thread.joinable()) job_thread.join();
     job = std::make_shared<Job>();
     job->state = 1;
     auto j = job;
     const importer::PackState st = pack;
-    const std::string mods = host->mods_dir, game = host->game, dlc = host->dlc_dir;
-    job_thread = std::thread([j, st, mods, game, dlc] {
+    const std::string mods = host->mods_dir, game = host->game, dlc = host->dlc_dir, off = host->dlc_off;
+    job_thread = std::thread([j, st, mods, game, dlc, off] {
       launcher::GameFiles g;
       g.SetRoot(fs::u8path(game));
       std::string err;
@@ -582,7 +593,7 @@ struct ImporterPanel::Impl {
           j->frac = f;
           std::lock_guard<std::mutex> lk(j->m);
           j->phase = phase ? phase : "";
-        }, err);
+        }, err, off);
       } catch (const std::exception& e) {
         err = std::string("build failed: ") + e.what();
       }
@@ -1098,6 +1109,8 @@ struct ImporterPanel::Impl {
       ImGui::ProgressBar(job->frac.load(), ImVec2(mid_w, 0), ph.c_str());
     } else {
       const std::string t = !msg.empty() ? msg
+                            : pack.needs_build && !fit_why.empty()  // (Session 101)
+                                ? "The game would leave the pack out: " + fit_why + ". BUILD INTO GAME puts it right (so does PLAY in the launcher)."
                             : pack.needs_build ? std::string("The pack changed since the last build: BUILD INTO GAME to put it in the game.")
                                                : std::string("Built into your mods folder from your own game files.");
       ImGui::SetCursorPos(ImVec2(x, (h - ImGui::GetTextLineHeight() * (mid_w < 420 * d ? 2 : 1)) / 2));
@@ -1107,7 +1120,8 @@ struct ImporterPanel::Impl {
       ImGui::PopTextWrapPos();
     }
     ImGui::SetCursorPos(ImVec2(w - bw - 18 * d, y));
-    if (SlantButton(cx, building ? "BUILDING..." : "BUILD INTO GAME", ImVec2(bw, th), true, !building && !bulk_running && !pack.stars.empty()))
+    if (SlantButton(cx, building ? "BUILDING..." : "BUILD INTO GAME", ImVec2(bw, th), true,
+                    !building && !bulk_running && (!pack.stars.empty() || BuiltOnDisk())))  // (Session 101: empty = take the old pack out)
       StartBuild();
   }
 
@@ -1135,8 +1149,20 @@ struct ImporterPanel::Impl {
       }
       if (job->state == 2) {
         pack.needs_build = false;
-        Say("Built: " + std::to_string(pack.stars.size()) + " superstar" + (pack.stars.size() == 1 ? "" : "s") +
-            (enabled ? " in the game (USE MY SUPERSTARS is on)." : ". Switch USE MY SUPERSTARS on to see them in the game."));
+        fit_why.clear();
+        // Session 101 (lane 199: "as simple as possible"): BUILD INTO GAME means "in the game", so the one switch goes on with it
+        // (a player who built and never found USE MY SUPERSTARS saw nothing in the game). Not linked = no settings file to write.
+        const bool was_on = enabled;
+        if (pack.stars.empty()) {
+          Say("The pack is taken out of the game: the game's own roster only.");
+        } else {
+          if (!enabled && settings_linked) SetEnabled(true);
+          std::string moved;  // (Session 101, review S5b: a character moved to another slot is said, not only logged)
+          for (const std::string& m : importer::LastBuildMoves()) moved += " " + m;
+          Say("Built: " + std::to_string(pack.stars.size()) + " superstar" + (pack.stars.size() == 1 ? "" : "s") +
+              (enabled ? (was_on ? " in the game (USE MY SUPERSTARS is on)." : " in the game (USE MY SUPERSTARS switched on).")
+                       : ". Switch USE MY SUPERSTARS on to see them in the game.") + moved);
+        }
       } else {
         Say("The build failed: " + err, true);
       }

@@ -34,6 +34,8 @@ struct CatalogEntry {
 
 struct Catalog {
   uint16_t version = 0, pack_id = 0;
+  uint16_t revision = 0;  // header +10 (Session 101)
+  uint32_t sig = 0;       // FNV-1a of the whole file (Session 101)
   std::vector<CatalogEntry> entries;
   std::vector<std::string> files;  // relative to the pack folder, '\' separators as in the file
 };
@@ -68,6 +70,9 @@ struct Pack {
   uint64_t bytes = 0;
   std::vector<int> char_ids;  // the wrestlers it adds: its catalog's pac\ch\chNNN_dlcPP.pac files (Session 32)
   std::string string_pack;    // its string file (pac\string_dlcPP.pac): the names, src\launcher\dlc_names.h
+  bool has_chetc = false;     // Session 101: its catalog lists pac\ch\chEtc_dlcPP.pac (the roster; with string_pack = a roster pack)
+  uint16_t revision = 0;      // Session 101: catalog header +10 (the game's gate compares it: GateAccepts)
+  uint32_t sig = 0;           // Session 101: FNV-1a of its catalog.dlc (which copy of a pack: src\importer\pack_fit.h)
 
   // The pack's own names: its bundle entries (type 21), else every entry; UTF-8.
   std::string DisplayName() const {
@@ -99,6 +104,22 @@ struct Pack {
 };
 
 constexpr size_t kHeaderSize = 28, kEntrySize = 64;
+
+// Session 101: the game's pack-id gate (0x82035E9C, read in the listing in Session 98, run 072; docs\systems\dlc.md): the
+// game parses a catalog only when a word (pack id << 16) | minimum revision matches it. Ids 1..5 only: the Superstar
+// Importer's pack (id 6) gets word 0 patched at run time (src\dlc.h PatchGate). Same table as src\importer\pack_io.h
+// kGateTable (tools\importer\test_core.cpp checks the two agree).
+constexpr uint32_t kGateWords[5] = {0x00010001, 0x00020001, 0x00030008, 0x00040008, 0x00050008};
+inline bool GateAccepts(int pack_id, uint16_t revision) {
+  for (uint32_t w : kGateWords)
+    if (int(w >> 16) == pack_id && revision >= (w & 0xFFFF)) return true;
+  return false;
+}
+inline uint32_t Fnv32(const uint8_t* p, size_t n) {
+  uint32_t h = 2166136261u;
+  for (size_t i = 0; i < n; ++i) h = (h ^ p[i]) * 16777619u;
+  return h ? h : 1;  // (0 means "not known" to the readers)
+}
 constexpr size_t kMaxCatalogBytes = 64u << 10;  // the four known catalogs are 288 - 1632 bytes
 constexpr size_t kMaxPacks = 64;               // the game enumerates 128 items (sub_8281BE28)
 
@@ -160,6 +181,7 @@ inline bool ParseCatalog(const std::vector<uint8_t>& d, Catalog& c, std::string&
   c.version = U16(&d[4]);
   if (U16(&d[6]) != kHeaderSize) return why = "unknown catalog layout", false;
   c.pack_id = U16(&d[8]);
+  c.revision = U16(&d[10]), c.sig = Fnv32(d.data(), d.size());  // (Session 101)
   const size_t n_entries = U16(&d[12]), n_files = U16(&d[18]);
   if (kHeaderSize + kEntrySize * n_entries > d.size()) return why = "catalog cut short", false;
   c.entries.clear();
@@ -479,6 +501,7 @@ inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool
       pk.status = Status::kDamaged;
     } else {
       pk.pack_id = c.pack_id;
+      pk.revision = c.revision, pk.sig = c.sig;  // (Session 101)
       pk.entries = std::move(c.entries);
       pk.files_listed = c.files.size();
       NoteCatalogFiles(c.files, pk);
@@ -548,6 +571,7 @@ inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool
     } else {
       pk.package_name = pkg.display_name;
       pk.pack_id = c.pack_id;
+      pk.revision = c.revision, pk.sig = c.sig;  // (Session 101)
       pk.entries = std::move(c.entries);
       pk.files_listed = c.files.size();
       NoteCatalogFiles(c.files, pk);
@@ -607,6 +631,8 @@ inline void NoteCatalogFiles(const std::vector<std::string>& files, Pack& pk) {
         pk.char_ids.push_back(id);
     } else if (low.rfind("pac\\string_dlc", 0) == 0 && low.size() > 4 && low.compare(low.size() - 4, 4, ".pac") == 0) {
       pk.string_pack = f;
+    } else if (low.rfind("pac\\ch\\chetc_dlc", 0) == 0) {
+      pk.has_chetc = true;  // (Session 101: the roster file; src\importer\pack_fit.h IsRosterPack)
     }
   }
   std::sort(pk.char_ids.begin(), pk.char_ids.end());

@@ -1,0 +1,8 @@
+{
+ "owner": "lane 224 (S101): the post census 'slot' fallbacks were the PERSISTENT-ONLY binds of skipped frames (their per-frame copies left out, never shown), now planned on nothing (Binder::persist_only_bind); and the combine alone (fog-only permutation, the CAW editor's 88 % of chain frames) is drawn by our pass. Needs rplay.exe + out/tools/post_ours_core_test.exe of this tree (tools/renderer/build.ps1, tools/post/build_post_ours_test.ps1) and the case zips of tonight's sweep (arena-44 match, victory). See docs/renderer/POST_OURS.md 'Fallback census (lane 224)'.",
+ "checks": [
+  {"name": "post_persist.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/post/build_post_ours_test.ps1"], "timeout_s": 1800},
+  {"name": "post_persist.proof", "cmd": ["py", "-I", "tools/post/post_persist_check.py", "--root", "."], "timeout_s": 1800, "needs": [
+    "out/s101/runs/20261113_093119_s101_sweep_match_type", "out/s101/runs/20261113_063415_s101_sweep_victory"]}
+ ]
+}

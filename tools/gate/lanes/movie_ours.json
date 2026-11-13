@@ -1,0 +1,7 @@
+{
+ "owner": "lane 131 (S101): the movie planes (T_SpriteYUVAlpha, call site 0x82BC7E50: the entrance titantron, the menu backdrop) drawn by our own quad and YUV shader through the replace seam's own-draw extension (rplay / fview --movie-ours), docs/renderer/MOVIE_OURS.md",
+ "note": "needs: Bryan's entrance case zip and the boot / menu case zip (the census lane's l125_bryan / l125_menu inputs; no game files), and out/renderer/dev/rplay.exe + fview.exe built from the tree under test (the script builds both unless --no-build; the gate runs it with --no-build, so build first). Bars and plants: the header of tools/movie/movie_ours_check.py. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "movie_ours.proof", "cmd": ["py", "-I", "tools/movie/movie_ours_check.py", "--root", ".", "--no-build"], "timeout_s": 3600, "needs": ["out/s101/runs/20261112_122700_s100_owner_bryan_entrance", "out/s101/runs/20261112_122344_s100_owner_boot_menu_quit"]}
+ ]
+}

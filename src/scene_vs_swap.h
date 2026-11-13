@@ -347,6 +347,7 @@ inline bool RegisterOne(Cp* cp, const VertexMaterial& m) {
 inline void Install() {
   rex::graphics::CommandProcessor* cp = wwe2k14::half2::Cp();
   if (!cp) {
+    if (wwe2k14::GuestGpuOnly()) return;  // lane 241 (3b): no command processor by design, not a late start
     REXLOG_WARN("[wwe2k14][scene_vs_swap] no command processor yet: no vertex shaders registered");
     return;
   }

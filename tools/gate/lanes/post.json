@@ -1,0 +1,9 @@
+{
+ "owner": "lane 34 (S101): the post pass (src/renderer_scene/post_pass.*): the replay proof with the exact bar and planted faults, the check against what was on screen (case zip picture.png), the viewer defaults against the game's tables, a real past bug re-found, and the rdr viewer's post path (haze alone, the near blur)",
+ "checks": [
+  {"name": "post.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/post/build_proof.ps1"], "timeout_s": 1500},
+  {"name": "post.proof", "cmd": ["py", "-I", "tools/post/post_proof.py", "--selftest", "--root", "."], "timeout_s": 2400, "needs": ["out/captures/s100_match300", "out/captures/s100_s89k_a", "out/captures/s100_wm30_300", "out/captures/brock_s15_300"]},
+  {"name": "post.viewer_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1", "-Backend", "rdr"], "timeout_s": 1500, "needs": ["game_data/extracted"]},
+  {"name": "post.viewer", "cmd": ["py", "-I", "tools/post/viewer_post_check.py", "--exe", "out/tools/wwe2k14_assets_rdr.exe"], "timeout_s": 900, "needs": ["game_data/extracted"]}
+ ]
+}

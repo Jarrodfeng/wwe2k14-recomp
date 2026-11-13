@@ -1,0 +1,23 @@
+{
+ "owner": "lane 129 (S101, KC): the wrestlers's D1 thin draws through the real binder (fview --thin wrestlers, the reader emulated on the capture), docs/renderer/THIN_DRAWS.md",
+ "note": "needs Check B's case zip (held, KEEP), the game files, and out/renderer/dev/fview.exe built by tools/fview/build.ps1 (the script rebuilds it unless --no-build). One fview process per arm, one pass over the 341 frames each. Bars: the picture of all 341 frames byte-equal to the --wrestlers-ours arm; census thin + hook replaced = reference replaced; holes 0; proof mismatches 0; churn arm (handshake workout) holes 0; planted release_without_ack, read_stream, template_rows and cloth_pinned each DETECTED. A missing input FAILs loudly.",
+ "checks": [
+  {
+   "name": "thin_wrestlers.proof",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/thin/thin_check.py",
+    "--root",
+    ".",
+    "--cls",
+    "wrestlers"
+   ],
+   "timeout_s": 5400,
+   "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock",
+    "game_data/extracted"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+{
+ "owner": "lane 148 (S101): the UI's sprites and flat rectangles (T_Sprite 0x82BC5688, T_Rect 0x82BC3EE8) drawn with our own quad and our own 2D program through the replace seam's own-draw extension (fview / rplay --ui-quads, with --ui-ours), docs/renderer/UI_QUADS_OURS.md",
+ "note": "needs: the menu / editor case captures (extracted under the main out/s101/ui_ours/), the Bryan / WM30 / Brock captures (out/s101/ui_inmatch/), Check B's capture (out/s101/lane92/case_20261111_215233_217_0_pc_run_exit/, rebuilt by tools/gate/inputs.py), the game files (the UI pictures), out/renderer/dev/fview.exe + rplay.exe built from the tree under test (the gate runs it with --no-build, so build first: tools/fview/build.ps1 and tools/renderer/build.ps1), a GPU (shared: only the frame-ring refusal is retried). Bars and plants: the header of tools/ui/ui_quads_check.py. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "ui_quads.proof", "cmd": ["py", "-I", "tools/ui/ui_quads_check.py", "--root", ".", "--no-build"], "timeout_s": 3600,
+   "needs": ["game_data/extracted/pac/menu", "out/s101/ui_ours/case_menu/capture/images.bin", "out/s101/ui_ours/case_editor/capture/images.bin", "out/s101/ui_inmatch/case_bryan/capture/images.bin", "out/s101/ui_inmatch/case_wm30/capture/images.bin", "out/s101/ui_inmatch/case_brock/capture/images.bin", "out/s101/lane92/case_20261111_215233_217_0_pc_run_exit/capture/images.bin"]}
+ ]
+}

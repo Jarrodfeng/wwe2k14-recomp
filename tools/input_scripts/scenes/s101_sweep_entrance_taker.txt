@@ -1,0 +1,38 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=103,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
+# harness: realtime (the entrance follows the wall clock; the roster is built on a worker thread)
+# Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): the Undertaker's entrance as an OWNER route. GATE_FAULTS row 3 ("The Undertaker's blocks",
+# open, run 7030) has no owner route (Check K K.E: "an Undertaker owner route does not exist [U]"); this is it: scenes\s100_owner_bryan_entrance.txt with the participants swapped so
+# the Undertaker (103, db\ids\characters.json "Undertaker") is slot 0 and comes out first (Lesnar 343 behind him), entrances KEPT (no skip flag), fixed seed 1.
+# The route name keeps "entrance" so the board files the zip under Entrances. It plays the entrance to step 15 and then 1500 frames more (two 600-frame census windows with the
+# stage, the pyro and the crowd on screen), then quits (run_exit zip).
+# UNCONFIRMED: that 103.bik2 is the titantron the Undertaker's entrance opens (game_data\extracted\movies\titantron\103.bik2 exists; the file name = the character id, as 324.bik2 = Bryan,
+# 343.bik2 = Brock) and that his entrance reaches step 15 (entrance_step_0). If the file wait times out the route fails (on_fail quit) with a run_failure zip.
+# For the 21:9 variant (the blocks fault was a 2x ultrawide entrance) add --wwe2k14_aspect=21:9 and S1440 on the command line.
+# Marks: 1 tron_103, 2 step15, 3 step15 + 900, 4 end.
+on_fail quit
+log bench: start scene sweep_entrance_taker
+include boot_to_menu
+wait_file INGAMELUA.PAC 7200
+log bench: match launched
+wait_file BG04.PAC 3600
+wait_file 103.bik2 7200
+log scene=tron_103
+mark 1 tron_103
+wait_frames 200
+cvar wwe2k14_rdr_live_picture sc_sweep_taker_200
+screenshot sc_sweep_taker_200
+wait_state entrance_step_0 >=15 7200 2
+log scene=step15 (the Undertaker's entrance step 15)
+mark 2 step15
+cvar wwe2k14_rdr_live_picture sc_sweep_taker_s15
+screenshot sc_sweep_taker_s15
+wait_frames 900
+cvar wwe2k14_rdr_live_picture sc_sweep_taker_s15_900
+screenshot sc_sweep_taker_s15_900
+mark 3 step15_900
+wait_frames 600
+log scene=end (step 15 + 1500 frames)
+mark 4 end
+log bench: done
+wait_frames 10
+quit

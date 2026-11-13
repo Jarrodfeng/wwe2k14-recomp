@@ -1,0 +1,45 @@
+{
+ "effect": "yEmboss",
+ "vertex": [
+  {
+   "name": "quad",
+   "defines": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "emboss",
+   "defines": [],
+   "hashes": [
+    "34CA88BAFBA133D2"
+   ],
+   "constants": [
+    {
+     "field": "g_f2SampleOffsets",
+     "register": 0,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

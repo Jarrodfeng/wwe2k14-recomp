@@ -1,0 +1,17 @@
+{
+ "owner": "lane PC (S101): the post census, tools/post/post_census.py (POST_PROMOTION_MAP.md section 7 lane PC). Python only, 0 game runs. Captures are named relative to the main checkout (the tool resolves them there): the three case zips (Check B, Bryan, wm30) and the seven version-1 capture folders under out/captures.",
+ "checks": [
+  {"name": "post_census.census", "cmd": ["py", "-I", "tools/post/post_census.py",
+    "brock=out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "bryan=out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "wm30=out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip",
+    "match300=out/captures/s100_match300", "s89k_a=out/captures/s100_s89k_a", "wm30_300=out/captures/s100_wm30_300", "brock_tron=out/captures/brock_tron",
+    "brock_s15_300=out/captures/brock_s15_300", "heenan=out/captures/s100_heenan_build", "cards=out/captures/s100cards", "-q"],
+   "timeout_s": 900, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip",
+    "out/captures/s100_match300", "out/captures/s100_s89k_a", "out/captures/s100_wm30_300", "out/captures/brock_tron", "out/captures/brock_s15_300", "out/captures/s100_heenan_build", "out/captures/s100cards"]},
+  {"name": "post_census.selftest", "cmd": ["py", "-I", "tools/post/census_selftest.py"], "timeout_s": 900, "needs": ["out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip", "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip", "out/captures/s100_match300"]}
+ ]
+}

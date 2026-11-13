@@ -1,0 +1,7 @@
+{
+ "owner": "lane 20: the judge, v1 (tools/judge, fview --judge-out)",
+ "checks": [
+  {"name": "judge.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 1200},
+  {"name": "judge.selftest", "cmd": ["py", "-I", "tools/judge/selftest.py"], "timeout_s": 2700, "needs": ["out/s101/judge/fixture/brock_exit_f0-200.zip"]}
+ ]
+}

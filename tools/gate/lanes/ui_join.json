@@ -1,0 +1,17 @@
+{
+ "owner": "lane 62 (S101): the UI join census, tools/ui/ (UI_PROMOTION_MAP.md section 9 lane UJ). Python only, 0 game runs. Captures are named relative to the main checkout. The menu zip is Check B's (20261111_214249): Check A's menu run left no zip.",
+ "checks": [
+  {"name": "ui_join.census", "cmd": ["py", "-I", "tools/ui/ui_join_census.py",
+    "out/s101/runs/20261111_214249_s100_owner_boot_menu_quit/case_20261111_214258_490_0_pc_run_exit.zip:menu",
+    "out/s101/runs/20261111_223313_s101_checkB_caw_walk/case_20261111_223420_216_0_pc_run_exit.zip:editor", "--no-search", "-q"],
+   "timeout_s": 1800, "needs": ["game_data/extracted", "out/tools/xctd_unpack.exe",
+    "out/s101/runs/20261111_214249_s100_owner_boot_menu_quit/case_20261111_214258_490_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_223313_s101_checkB_caw_walk/case_20261111_223420_216_0_pc_run_exit.zip"]},
+  {"name": "ui_join.match", "cmd": ["py", "-I", "tools/ui/ui_join_census.py",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip:match", "-q"],
+   "timeout_s": 3000, "needs": ["game_data/extracted", "out/tools/xctd_unpack.exe",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip"]},
+  {"name": "ui_join.selftest", "cmd": ["py", "-I", "tools/ui/selftest.py"], "timeout_s": 3000, "needs": ["game_data/extracted", "out/tools/xctd_unpack.exe",
+    "out/s101/runs/20261111_223313_s101_checkB_caw_walk/case_20261111_223420_216_0_pc_run_exit.zip"]}
+ ]
+}

@@ -1,0 +1,19 @@
+{
+ "about": "S101 renderer names (docs\\renderer\\NAMES.md 'Surface roles'): the functions that create render targets (callers of the surface creator 0x82CA88E0), each with the role of what it makes and whether that follows the render scale. Our annotations only. Source: docs\\systems\\render_targets.md (lodged from docs\\research\\s101\\A0-2.md / A0-2b.md, 2026-11-11). scales = a screen image (follows the render scale); 'screen_shaped' = the class makes surfaces of several sizes (luminance, reductions) and which create is which needs a logged run (render_targets.md Unknown), so within this declared role only its screen-shaped surfaces scale; lasting = read in a later frame (never dropped by a skipped frame). [L] until a logged run confirms each creator's surfaces. tools\\names\\gen_origin_table.py writes src\\renderer_adapter\\surface_role_table.h.",
+ "creators": [
+  {"fn": "0x82C22AF8", "role": "scene_color", "scales": "screen_shaped", "lasting": false, "name": "scene targets (colour +272, depth +276; also the 736x1280 roster picture object, tiling_hooks.h)"},
+  {"fn": "0x82799890", "role": "feedback_map", "scales": false, "lasting": true, "name": "yliquidmap (sweat / damage)"},
+  {"fn": "0x827EE5C0", "role": "shadow_map", "scales": false, "lasting": false, "name": "ring plane shadow mask (T_PlaneShadowMap)"},
+  {"fn": "0x827EE480", "role": "shadow_map", "scales": false, "lasting": false, "name": "plane shadow blur (yBlur)"},
+  {"fn": "0x827E8CC8", "role": "shadow_map", "scales": false, "lasting": false, "name": "wrestler shadow maps A (T_ShadowMap, yBlur)"},
+  {"fn": "0x827EA4F0", "role": "rim_map", "scales": false, "lasting": false, "name": "rim light map (T_RimLightMap 512x256: colour, depth, blur target) [S101 lane 86: was tagged shadow_map as 'shadow maps B']"},
+  {"fn": "0x827FD3C8", "role": "atlas_target", "scales": false, "lasting": false, "name": "crowd thumbnails (redrawn every frame: not lasting until a later-frame read is shown)"},
+  {"fn": "0x825BB398", "role": "atlas_target", "scales": false, "lasting": true, "name": "crowd atlas"},
+  {"fn": "0x82C202D0", "role": "other", "scales": false, "lasting": true, "name": "light-cube strips (yprelight)"},
+  {"fn": "0x82C1C278", "role": "post_step", "scales": "screen_shaped", "lasting": false, "name": "HDR chain (yDownScale, yBlur, yToneMap, yGlareEtc)"},
+  {"fn": "0x82C2B128", "role": "post_step", "scales": "screen_shaped", "lasting": false, "name": "DoF downsample / blur (candidate)"},
+  {"fn": "0x82C296C0", "role": "post_step", "scales": "screen_shaped", "lasting": false, "name": "halation / radial blur"},
+  {"fn": "0x82BC39E0", "role": "other", "scales": "screen_shaped", "lasting": false, "name": "screen-size RT pair [U which]"},
+  {"fn": "0x83419478", "role": "atlas_target", "scales": false, "lasting": true, "name": "attire atlas (CEditExSSCompositTexture)"}
+ ]
+}

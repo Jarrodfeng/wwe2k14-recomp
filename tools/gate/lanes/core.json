@@ -1,0 +1,10 @@
+{
+ "owner": "lane 1 (main session): formats, names, hooks",
+ "checks": [
+  {"name": "core.renderer_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 900},
+  {"name": "core.lint_effects", "cmd": ["py", "-I", "tools/renderer/lint_effects.py", "--quiet"], "timeout_s": 300},
+  {"name": "core.rplay_s100cards", "cmd": ["py", "-I", "tools/gate/run_rplay.py", "s100cards"], "timeout_s": 300, "needs": ["out/captures/s100cards"]},
+  {"name": "core.corpus", "cmd": ["py", "-I", "tools/gate/corpus.py"], "timeout_s": 1800, "needs": ["out/captures"]},
+  {"name": "core.origin_table", "cmd": ["py", "-I", "tools/names/gen_origin_table.py", "--check"], "timeout_s": 180}
+ ]
+}

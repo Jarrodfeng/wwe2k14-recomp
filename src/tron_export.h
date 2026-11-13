@@ -12,7 +12,7 @@
 // --wwe2k14_tron_export_media_at=2,5.5  also write frames at these times (seconds) as NNN_tNN.png / <GROUP>_<Mnnn>_tNN.png (tron
 //                             sheets and stage movies), so an A/B against a game picture can take the frame of its moment.
 // A plain export (no _only filters) writes every tron NNN.png/.mp4 and every pacevtevtmov*.pac movie (MOV, MOVT, MVSW, MVSB,
-// MVAB, MOVN, MOVL: all wrestlers) to DIRevtmovGROUP_Mnnn.png, the layout the asset viewer (srcssetsstage_media.h) reads.
+// MVAB, MOVN, MOVL: all wrestlers) to DIRevtmovGROUP_Mnnn.png, the layout the asset viewer (src\assets\stage_media.h) reads.
 //
 // The Bink calls are the ones the movie module uses (src\tron_shim.h header): BinkSetIOSize / BinkSetIO (the game's IO
 // provider 0x83598F78) + BinkOpen with BINKIOSIZE | BINKIOPROCESSOR | BINKNOFRAMEBUFFERS (0x03000400, as the movie

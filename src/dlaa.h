@@ -181,6 +181,8 @@ inline void Configure() {
     if (dir.empty())
       REXLOG_WARN("[wwe2k14][dlaa] --wwe2k14_dlaa / _dlss: no Streamline runtime (set --wwe2k14_dlaa_dir, or put "
                   "sl.interposer.dll next to the exe): DLAA not available");
+    else if (rex::cvar::GetFlagByName("wwe2k14_rdr_owner") == "true")
+      rex::cvar::SetFlagByName("wwe2k14_rdr_streamline_dir", dir);  // S100 settings parity S10b: the new renderer's; the SDK's idle device stays plain
     else
       set("vulkan_streamline_dir", dir);
   }

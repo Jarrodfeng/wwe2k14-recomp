@@ -1,0 +1,1268 @@
+{
+ "effect": "yProp_UVScrolLM",
+ "vertex": [
+  {
+   "name": "lightmap",
+   "defines": [
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "F2C72595582BAE66"
+   ]
+  },
+  {
+   "name": "skinned_lightmap",
+   "defines": [
+    "FX_SKINNED",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "08999E913FA22EB3"
+   ]
+  },
+  {
+   "name": "lightmap_uv2",
+   "defines": [
+    "FX_LIGHTMAP",
+    "FX_UV2"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "22DA836F618393FB"
+   ]
+  },
+  {
+   "name": "lightmap_uv3",
+   "defines": [
+    "FX_LIGHTMAP",
+    "FX_UV3"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "309FABAF3B0B1D3E"
+   ]
+  },
+  {
+   "name": "lightmap_uv4",
+   "defines": [
+    "FX_LIGHTMAP",
+    "FX_UV4"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "A15E2AAF646BD720"
+   ]
+  },
+  {
+   "name": "skinned_lightmap_uv2",
+   "defines": [
+    "FX_SKINNED",
+    "FX_LIGHTMAP",
+    "FX_UV2"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "C479F320A627D729"
+   ]
+  },
+  {
+   "name": "skinned_lightmap_uv3",
+   "defines": [
+    "FX_SKINNED",
+    "FX_LIGHTMAP",
+    "FX_UV3"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "24AA8F87FC49F038"
+   ]
+  },
+  {
+   "name": "skinned_lightmap_uv4",
+   "defines": [
+    "FX_SKINNED",
+    "FX_LIGHTMAP",
+    "FX_UV4"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "7FE59982EFA88886"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "lightmap",
+   "defines": [
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "12280371DFCC7F44"
+   ]
+  },
+  {
+   "name": "uv2_lightmap",
+   "defines": [
+    "FX_UV2",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "DDBEB05B1F79ABF4"
+   ]
+  },
+  {
+   "name": "uv3_lightmap",
+   "defines": [
+    "FX_UV3",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "D5E931234271890C"
+   ]
+  },
+  {
+   "name": "uv4_lightmap",
+   "defines": [
+    "FX_UV4",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "4036A8EBE8CA3981"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_LIGHTMAP",
+    "FX_UV2",
+    "FX_UV3",
+    "FX_UV4"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 4,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 5,
+     "location": 5,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 4,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 5,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_UV2",
+    "FX_UV3",
+    "FX_UV4",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_UV2"
+     ]
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_UV3"
+     ]
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_UV4"
+     ]
+    },
+    {
+     "slot": 2,
+     "kind": "2d",
+     "when": [
+      "FX_UV3"
+     ]
+    },
+    {
+     "slot": 2,
+     "kind": "2d",
+     "when": [
+      "FX_UV4"
+     ]
+    },
+    {
+     "slot": 3,
+     "kind": "2d",
+     "when": [
+      "FX_UV4"
+     ]
+    },
+    {
+     "slot": 13,
+     "kind": "2d",
+     "when": [
+      "FX_LIGHTMAP"
+     ]
+    }
+   ]
+  }
+ }
+}

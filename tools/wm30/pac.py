@@ -23,6 +23,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 GAME = os.path.join(REPO, 'game_data', 'extracted')
 UNPACK = os.path.join(REPO, 'out', 'tools', 'xctd_unpack.exe')
 CACHE = os.path.join(REPO, 'out', 'wm30', 'cache')
+# S101 goto: in a git worktree (<main>/.claude/worktrees/<name>) the gitignored game_data and out\ live in the main checkout.
+_MAIN = os.path.abspath(os.path.join(REPO, '..', '..', '..'))
+if not os.path.isfile(UNPACK) and os.path.isfile(os.path.join(_MAIN, 'out', 'tools', 'xctd_unpack.exe')):
+    GAME = os.path.join(_MAIN, 'game_data', 'extracted')
+    UNPACK = os.path.join(_MAIN, 'out', 'tools', 'xctd_unpack.exe')
+    CACHE = os.path.join(_MAIN, 'out', 'wm30', 'cache')
 
 
 def bpe_decode(block):

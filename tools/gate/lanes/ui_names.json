@@ -1,0 +1,7 @@
+{
+ "owner": "lane 18: UI draw names (2D scopes, the widget field)",
+ "checks": [
+  {"name": "ui_names.gen_check", "cmd": ["py", "-I", "tools/names/gen_origin_table.py", "--check"], "timeout_s": 300, "needs": ["generated/default/wwe2k14_recomp.0.cpp"]},
+  {"name": "ui_names.selftest", "cmd": ["py", "-I", "tools/names/ui_names_selftest.py"], "timeout_s": 2400, "needs": ["generated/default/wwe2k14_recomp.0.cpp", "out/captures/s100cards", "out/renderer/dev/rplay.exe"]}
+ ]
+}

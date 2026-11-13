@@ -42,6 +42,8 @@ function Get-VariantMissing([int]$run, [string]$vflags) {
 # Render-only settings the variants change (anything else differing still makes the pair INVALID).
 $allow = '^(render_|readback_|wwe2k14_use_launcher_settings|wwe2k14_settings_file|wwe2k14_aspect|wwe2k14_preset_|' +
          'resolution_|gpu_|vulkan_|wwe2k14_light_renderer|wwe2k14_force_no_msaa)'
+# (Lane 176: wwe2k14_aspect is render-only ONLY while --wwe2k14_crowd_fill_wide=off, which stageA.flags pins: with it on (the default 'auto') a wider
+# aspect widens the stands crowd's screen tests, so member flags / LOD words, the section bytes, the floor records' bit 31 and the draw-recorder calls change in guest memory.)
 # (Session 77: wwe2k14_scene_crowd is NOT allowed: it skips the game's own draw-recorder calls for crowd members, so the
 # guest's render lists differ. Stage A pins it off on every device, stageA.flags; it belongs to stage B.)
 $vflagsOf = @{}

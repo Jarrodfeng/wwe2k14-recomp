@@ -7,7 +7,10 @@
 //     pack 6                 the pack id in its catalog (always above the player's real packs)
 //     built_on 4 5           the real packs its copied files come from (its chEtc / string / sound are pack 5's + ours; empty
 //                            with no DLC: then they are the disc's own, and the pack needs neither USE MY DLC nor a DLC folder)
+//     top 5 8A1C33F0         Session 101: the top roster pack it copied + its catalog's FNV-1a (0 0 = the disc)
 //     star 397 music 100     per character: the music id to play for him (his entrance wrestler's)
+// Session 101: whether the pack fits the packs the game gets is src\importer\pack_fit.h Problem() - the same rule the importer and
+// the launchers use (they rebuild the pack before PLAY when it does not fit). The game's verdict goes to game_status.txt.
 // With the switch on, src\dlc.h offers that folder to the game as one more DLC pack (read-only, like the player's own) and
 // opens the game's pack-id gate (0x82035E9C, ids 1-5) for its id - the same mechanism the S98 test switches proved in runs
 // 073 / 074 (--wwe2k14_dlc_extra_dir + --wwe2k14_dlc_gate_extra). It is left out (logged) when a built_on pack is not offered
@@ -33,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "importer/pack_fit.h"  // Session 101: the one "does the pack fit the DLC the game gets" rule + superstars.txt's parser
 #include "mods.h"
 
 namespace wwe2k14::superstars {
@@ -43,6 +47,21 @@ inline std::filesystem::path g_pack;  // <mods>\superstars\pack6
 inline int g_pack_id = 0;
 inline std::vector<int> g_built_on;
 inline std::map<int, int> g_music;  // slot -> music id
+inline superstars_fit::Built g_built;  // Session 101: superstars.txt as read (src\importer\pack_fit.h: what it was built on)
+
+// Session 101 (lane 199: a pack the game left out said so only in the log): the game's verdict for the launchers,
+// <mods>\superstars\game_status.txt = "in N" or "out <why>" (pack_fit.h ReadStatus). Written only when it changes; never throws.
+inline void WriteStatus(const std::string& line) {
+  try {
+    if (mods::g_dir.empty()) return;
+    const std::filesystem::path f = superstars_fit::StatusFile(mods::g_dir);
+    std::error_code ec;
+    if (!std::filesystem::is_directory(f.parent_path(), ec)) return;  // (no superstars folder: nothing to report on)
+    if (superstars_fit::ReadStatus(mods::g_dir) == line) return;
+    std::ofstream(f, std::ios::trunc) << line << "\n";
+  } catch (...) {
+  }
+}
 
 // Reads <mods>\superstars\superstars.txt (src\mods.h Install has set mods::g_dir when the switch is on).
 inline void Load() {
@@ -54,39 +73,29 @@ inline void Load() {
   if (!std::filesystem::is_regular_file(g_pack / "info" / "catalog.dlc", ec)) {
     REXLOG_INFO("[wwe2k14][superstars] USE MY SUPERSTARS on, no pack built yet in {} (the Superstar Importer builds it)",
                 mods::U8(g_pack));
+    WriteStatus("out the pack is not built yet (the importer's BUILD INTO GAME, or PLAY from the launcher, builds it)");
     return;
   }
-  std::ifstream f(root / "superstars.txt");
-  if (!f) {
+  // Session 101: one parser for the game, the importer and the launchers (src\importer\pack_fit.h)
+  g_built = superstars_fit::ReadBuilt(root / "superstars.txt");
+  if (!g_built.found) {
     REXLOG_WARN("[wwe2k14][superstars] {} has a pack but no superstars.txt: rebuild it in the importer", mods::U8(root));
+    WriteStatus("out the pack has no superstars.txt (build it again in the importer)");
     return;
   }
-  g_built_on.clear(), g_music.clear();
-  g_pack_id = 0;
-  for (std::string line; std::getline(f, line);) {
-    std::istringstream in(line);
-    std::string key;
-    in >> key;
-    if (key == "pack") in >> g_pack_id;
-    else if (key == "built_on") for (int id; in >> id;) g_built_on.push_back(id);
-    else if (key == "star") {
-      int slot = -1, music = -1;
-      std::string m;
-      in >> slot >> m >> music;
-      if (m == "music" && slot >= 397 && slot <= 499 && music >= 0 && music < 10000) g_music[slot] = music;
-    }
-  }
+  g_built_on = g_built.built_on, g_music = g_built.music, g_pack_id = g_built.pack_id;
   if (g_pack_id < 6 || g_pack_id > 0xFFFF) {
     REXLOG_WARN("[wwe2k14][superstars] superstars.txt names pack id {} (6.. expected): left out", g_pack_id);
+    WriteStatus("out superstars.txt is damaged (build the pack again in the importer)");
     return;
   }
   g_found = true;
-  REXLOG_INFO("[wwe2k14][superstars] pack {} at {} ({} character(s), built on pack(s) {}){}", g_pack_id, mods::U8(g_pack),
+  REXLOG_INFO("[wwe2k14][superstars] pack {} at {} ({} character(s), built on pack(s) {}, top {}{}){}", g_pack_id, mods::U8(g_pack),
               g_music.size(), [] {
                 std::string s;
                 for (int id : g_built_on) s += (s.empty() ? "" : ",") + std::to_string(id);
                 return s.empty() ? std::string("-") : s;
-              }(), "");
+              }(), g_built.Top(), g_built.top < 0 ? " (old superstars.txt: no top line)" : "", "");
 }
 
 // Music: "Play_MUS_0397_0_0" -> "Play_MUS_0100_0_0" in place (same length) when 397 is an imported character. buf = a

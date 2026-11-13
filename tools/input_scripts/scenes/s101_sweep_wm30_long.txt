@@ -1,0 +1,35 @@
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true
+# Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): the 30 YEARS OF WRESTLEMANIA row, LONG. scenes\s100_owner_s90_wm30.txt ends 540 frames after the clock
+# (about one census window), so the four wm30 cells that were "unproven" in Check J (Seated floor crowd, Props, Crowd flashes, Particle runs: their census lines print per 600-frame
+# window or at the stop) and the Post chain (mixed, 20%) never got a full window. This is the same route (menu_to_wm30, the era card, the match pick, A presses until the clock) with the
+# stay lengthened to 1800 frames after the clock (3 windows) and the shots at +300 / +900 / +1500. The file name keeps "wm30" so the board files the zip under 30 Years of WrestleMania.
+# Fast-forward is fine here (menus are driven by state; the era presentation is the same): run it like J2 (the plan gives the flags). Untimed. For the plane-shadow arm pass
+# --wwe2k14_rdr_shadow_casters_ours=false --wwe2k14_rdr_plane_shadow_ours=true; for the final arm leave it on (the plan's order: plane arm first, casters arm last).
+# UNCONFIRMED: nothing new (the menu steps are the J2 ones); the longer stay is the only change.
+# Marks: 1 match_clock, 2 +900, 3 end. on_fail quit.
+on_fail quit
+log bench: start scene sweep_wm30_long
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log bench: wm30 match picked
+press_until_state A match_clock !=0 60 600 5
+log scene=match
+mark 1 match_clock
+wait_frames 300
+cvar wwe2k14_rdr_live_picture sc_sweep_wm30_300
+screenshot sc_sweep_wm30_300
+wait_frames 600
+mark 2 plus900
+cvar wwe2k14_rdr_live_picture sc_sweep_wm30_900
+screenshot sc_sweep_wm30_900
+wait_frames 600
+cvar wwe2k14_rdr_live_picture sc_sweep_wm30_1500
+screenshot sc_sweep_wm30_1500
+wait_frames 300
+log scene=end (match clock +1800)
+mark 3 end
+log bench: done
+wait_frames 10
+quit

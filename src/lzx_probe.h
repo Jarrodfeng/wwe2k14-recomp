@@ -43,6 +43,8 @@
 #include <rex/logging.h>
 #include <rex/ppc/context.h>
 
+#include "host_write.h"  // Session 100 strip-360 E2 / E3
+
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -507,7 +509,9 @@ inline void NativeCall(PPCContext& __restrict ctx, uint8_t* base, bool verify, b
 
 }  // namespace wwe2k14::lzx_probe
 
-REX_HOOK_RAW(sub_82CA4088) {
+// Session 100 strip-360 E2 / E3: the decompressor's output (r4 = destination, r5 -> a big-endian u32: bytes written, on return) reported to
+// the new renderer's reader after whichever version ran (src/host_write.h).
+inline void LzxCallBody(PPCContext& ctx, uint8_t* base) {
   const bool probe = REXCVAR_GET(wwe2k14_lzx_probe);
   if (REXCVAR_GET(wwe2k14_lzx_corpus)) {
     wwe2k14::lzx_probe::GuestCall(ctx, base);
@@ -523,4 +527,11 @@ REX_HOOK_RAW(sub_82CA4088) {
     return;
   }
   wwe2k14::lzx_probe::GuestCall(ctx, base);
+}
+REX_HOOK_RAW(sub_82CA4088) {
+  const uint32_t dst = ctx.r4.u32, len_ptr = ctx.r5.u32;
+  LzxCallBody(ctx, base);
+  if (dst && len_ptr) {
+    wwe2k14::host_write::NoteBy(dst, wwe2k14::lzx_probe::Be32(wwe2k14::lzx_probe::GuestPtr(base, len_ptr)), wwe2k14::host_write::Writer::Decompress);  // S101 A1c
+  }
 }

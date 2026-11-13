@@ -1,0 +1,25 @@
+{
+ "about": "S101 lane 145: the evidence of run 7091 (check J3), counts and our own log text only. Source: out/build/win-amd64-release/logs/wwe2k14_7091.log and captures/7091_bookmark_5.txt, _6.txt (read 2026-11-12). No pictures, no game data.",
+ "bell_frame": 215029,
+ "log_lines": {
+  "bell": "[wwe2k14][scene] match clock started at frame 215029, 543.7 s after start",
+  "step_set": "[wwe2k14][wm30] step: set 2 at frame 215315 (was: slot -1, shared 1; now: slot -1, shared 2",
+  "step_end": "[wwe2k14][wm30] step: watch ended after 601 frames (variable 267 = 2, slot = -1)"
+ },
+ "census_windows": [
+  {"frames": [212400, 213000], "text_draws": 0},
+  {"frames": [213000, 213600], "text_draws": 0},
+  {"frames": [213600, 214200], "text_draws": 0},
+  {"frames": [214200, 214800], "text_draws": 0},
+  {"frames": [214800, 215400], "text_draws": 28588},
+  {"frames": [215400, 216000], "text_draws": 48000},
+  {"frames": [216000, 216600], "text_draws": 48000},
+  {"frames": [216600, 217200], "text_draws": 48000}
+ ],
+ "glyph_draws_per_frame": 80,
+ "bookmarks": [
+  {"n": 5, "frame": 216002, "seq": 9, "scene_word": 1, "match_clock": 15, "text": "??? OK"},
+  {"n": 6, "frame": 261956, "seq": 9, "scene_word": 1, "match_clock": 15, "text": "??? OK"}
+ ],
+ "expect": {"box_start_frame": 215043, "clock_held_at": 15, "button": "A"}
+}

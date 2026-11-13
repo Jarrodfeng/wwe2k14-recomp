@@ -1,0 +1,11 @@
+{
+ "owner": "lane 83 (S101): the passive cost counters, src/cost_counters.h + tools/cost/",
+ "note": "also lane 94: per-op table, sampling, overhead subtraction and the overhead microbenchmark. builds tools/cost/cost_counters_test.cpp (the shipped header, fake clock) and runs it; four planted faults (wrong class, wrong replay op, reader time booked as record, a sampler that skips one opcode) must each FAIL the test. No game, no data.",
+ "checks": [
+  {
+   "name": "cost_counters.unit",
+   "cmd": ["py", "-I", "tools/cost/cost_selftest.py"],
+   "timeout_s": 600
+  }
+ ]
+}

@@ -1,0 +1,60 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_events_moves=all --wwe2k14_rdr_owner=true
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
+# Session 101 lane 173 (Check K, route K2 / K3): Cena (139, slot 0) v Lesnar (343, slot 1), both CPU, Over the Limit (BG04), entrances skipped,
+# fixed seed 1, 1v1 (so the HUD and the pin are unambiguous), the bus move option on (--wwe2k14_events_moves=all).
+# It carries, in one run: the roster (Cena's 17-attire pac, Lesnar), the director verbs live (docs\systems\situation_director.md 8.4 items 1-5),
+# and the Cena Attitude Adjustment / carry capture (docs\renderer\CARRY_DARKENING.md section 6; GATE_FAULTS row 2).
+# Order matters: the verb checks first (short), then the long capture window LAST, because the case zip is written at the quit and holds only
+# the last --wwe2k14_case_window_s seconds (the check's flags set 30). In the last window slot 1 is passive and slot 0 has momentum 100 / stock 1,
+# so the CPU is free to pin / finish him (the finisher is the game's own CPU choice: the 'finisher' verb is not built; unconfirmed that the AA lands).
+# The verbs' answers are [director] log lines (read them: a refused verb is not a script failure). Marks: 1 clock, 2 roster, 3 shot1, 4 verbs done, 5 window, 6 end.
+on_fail quit
+log bench: start scene checkK_cena_aa
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=checkK_cena_aa
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_checkK_aa_1
+screenshot sc_checkK_aa_1
+mark 3 shot1
+# 8.4 item 1: slot 0's meter full and a finisher in stock
+momentum 0 100
+stock 0 1
+wait_frames 120
+# 8.4 item 2: slot 1 passive for 600 frames (no 'move' bus lines for slot 1; slot 0 still acts), then restored
+passive 1 on
+wait_frames 600
+passive 1 off
+wait_frames 300
+# 8.4 item 3: every CPU slot passive (both here), then given back
+passive all on
+wait_frames 600
+passive all off
+wait_frames 300
+# 8.4 item 4: refusals worth one look (an error / refused answer in the log, never a script failure)
+passive 6 on
+# (S101 05:4x) momentum 1 101 removed: the script parser refuses an out-of-range percent at load, so the whole route failed (run 7118)
+wait_frames 60
+mark 4 verbs_done
+# the long capture window (last ~30 s before the quit = the case zip): meter and stock again, slot 1 passive
+momentum 0 100
+stock 0 1
+passive 1 on
+wait_frames 120
+cvar wwe2k14_rdr_live_picture sc_checkK_aa_2
+screenshot sc_checkK_aa_2
+mark 5 window
+wait_frames 1500
+cvar wwe2k14_rdr_live_picture sc_checkK_aa_3
+screenshot sc_checkK_aa_3
+wait_frames 60
+log scene=end
+mark 6 end
+log bench: done
+quit

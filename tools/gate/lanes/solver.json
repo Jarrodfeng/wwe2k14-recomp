@@ -1,0 +1,1 @@
+{"owner": "lane 16 (constant solver)", "checks": [{"name": "solver.selftest", "cmd": ["py", "-I", "tools/solver/selftest.py"], "timeout_s": 900, "needs": ["out/s101/runs", "out/atlas/atlas.json"]}]}

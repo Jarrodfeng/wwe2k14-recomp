@@ -1,0 +1,4 @@
+{
+ "_source": "Measured by tools/arena/join_census.py (lane 39, S101, 2026-11-12) on Check B run 7051's case zip (arena 4, 341 frames with scene records, the record's guest-frame stamp equals the capture frame's on all 341, but that is true by construction: case_writer.cpp stamps both from one snapshot, so it is NOT a measured offset; lane 36 measured +1 by content on this capture, and the static arena slots cannot measure it). The record has every drawn stage slot and every mirrored draw's :r twin; it gives slots 390-397 an identity world while the stream draws them translated (the ARENA map named 390-393 and 395 from one frame; the whole capture shows 390-397). Update only from a new measurement, with the capture named here.",
+ "4": {"texture_padded_differ": 141, "slot_missing": [], "twin_missing": [], "world_differs": [390, 391, 392, 393, 394, 395, 396, 397]}
+}

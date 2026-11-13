@@ -1,0 +1,1127 @@
+{
+ "effect": "yDefault",
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_SHADOW"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "ViewProjLightDepth",
+     "register": 62,
+     "count": 2,
+     "when": [
+      "FX_SHADOW"
+     ]
+    },
+    {
+     "field": "TexProjLight",
+     "register": 68,
+     "count": 4,
+     "when": [
+      "FX_SHADOW"
+     ]
+    },
+    {
+     "field": "LightEye",
+     "register": 166,
+     "count": 1,
+     "when": [
+      "FX_SHADOW"
+     ]
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 5,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 5,
+     "location": 4,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 5,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 4,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_SHADOW",
+    "FX_SPECULAR",
+    "FX_SPEC_MAP",
+    "FX_SPEC_TEX_ALPHA"
+   ],
+   "constants": [
+    {
+     "field": "ShadowPrm0",
+     "register": 168,
+     "count": 1,
+     "when": [
+      "FX_SHADOW"
+     ],
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm1",
+     "register": 169,
+     "count": 1,
+     "when": [
+      "FX_SHADOW"
+     ],
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm2",
+     "register": 170,
+     "count": 1,
+     "when": [
+      "FX_SHADOW"
+     ],
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "FirstLightVec",
+     "register": 8,
+     "count": 1,
+     "when": [
+      "FX_SPECULAR"
+     ]
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1,
+     "when": [
+      "FX_SPECULAR"
+     ]
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1,
+     "when": [
+      "FX_SPECULAR"
+     ]
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "when": [
+      "FX_SPECULAR"
+     ],
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_SPEC_MAP"
+     ]
+    },
+    {
+     "slot": 12,
+     "kind": "2d",
+     "when": [
+      "FX_SHADOW"
+     ]
+    }
+   ]
+  }
+ },
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "0B023F5C14B30A6D"
+   ]
+  },
+  {
+   "name": "skinned",
+   "defines": [
+    "FX_SKINNED"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 5
+    },
+    {
+     "fetch": 5,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "B9156461C071EEA3"
+   ]
+  },
+  {
+   "name": "shadow",
+   "defines": [
+    "FX_SHADOW"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "ViewProjLightDepth",
+     "register": 62,
+     "count": 2
+    },
+    {
+     "field": "TexProjLight",
+     "register": 68,
+     "count": 4
+    },
+    {
+     "field": "LightEye",
+     "register": 166,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "13EE461355D3AB63"
+   ]
+  },
+  {
+   "name": "skinned_shadow",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SHADOW"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "ViewProjLightDepth",
+     "register": 62,
+     "count": 2
+    },
+    {
+     "field": "TexProjLight",
+     "register": 68,
+     "count": 4
+    },
+    {
+     "field": "LightEye",
+     "register": 166,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 5
+    },
+    {
+     "fetch": 5,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "DE9292CE4276ACBC"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "9A39D20F274CF7D9"
+   ]
+  },
+  {
+   "name": "shadow",
+   "defines": [
+    "FX_SHADOW"
+   ],
+   "constants": [
+    {
+     "field": "ShadowPrm0",
+     "register": 168,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm1",
+     "register": 169,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm2",
+     "register": 170,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7C213480F3F11DC0"
+   ]
+  },
+  {
+   "name": "specular",
+   "defines": [
+    "FX_SPECULAR"
+   ],
+   "constants": [
+    {
+     "field": "FirstLightVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "166E29BA231DAC02"
+   ]
+  },
+  {
+   "name": "shadow_specular",
+   "defines": [
+    "FX_SHADOW",
+    "FX_SPECULAR"
+   ],
+   "constants": [
+    {
+     "field": "ShadowPrm0",
+     "register": 168,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm1",
+     "register": 169,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm2",
+     "register": 170,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "FirstLightVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "5D27AFAFA58D3244"
+   ]
+  },
+  {
+   "name": "specular_spec_map",
+   "defines": [
+    "FX_SPECULAR",
+    "FX_SPEC_MAP"
+   ],
+   "constants": [
+    {
+     "field": "FirstLightVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7896BCA87068BF0A"
+   ]
+  },
+  {
+   "name": "specular_spec_tex_alpha",
+   "defines": [
+    "FX_SPECULAR",
+    "FX_SPEC_TEX_ALPHA"
+   ],
+   "constants": [
+    {
+     "field": "FirstLightVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "738A271D741CB9C8"
+   ]
+  },
+  {
+   "name": "shadow_specular_spec_map",
+   "defines": [
+    "FX_SHADOW",
+    "FX_SPECULAR",
+    "FX_SPEC_MAP"
+   ],
+   "constants": [
+    {
+     "field": "ShadowPrm0",
+     "register": 168,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm1",
+     "register": 169,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm2",
+     "register": 170,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "FirstLightVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "5AE64EA0567295BE"
+   ]
+  },
+  {
+   "name": "shadow_specular_spec_tex_alpha",
+   "defines": [
+    "FX_SHADOW",
+    "FX_SPECULAR",
+    "FX_SPEC_TEX_ALPHA"
+   ],
+   "constants": [
+    {
+     "field": "ShadowPrm0",
+     "register": 168,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm1",
+     "register": 169,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "ShadowPrm2",
+     "register": 170,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "FirstLightVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "BF7CBB821D11572E"
+   ]
+  }
+ ]
+}

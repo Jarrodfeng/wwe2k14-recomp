@@ -1,0 +1,11 @@
+{
+ "owner": "lane 84 (S101): the props of other pacs (commentary table, ring steps, announcer microphone) drawn in place through the replace seam: src/assets/prop_game_space.*, src/renderer_scene/props_ours*.{h,cpp}, tools/props/*. docs/renderer/PROPS_OURS.md",
+ "note": "unit: builds out/tools/props_ours_test.exe (also compile-checks the GPU side props_ours.cpp), then the prop files (17 table PACHs, 3 microphones, 10 step leaves), the clean runs on Check F (run 7067's case zip) / Check B / run 7074 (post-u-fix), frame 200 = 17 draws, a live-style run, the planted faults (each fails its exact check) and the loud failures. proof: fview --props-ours on Check F (byte-equal pictures, census 0x82C0A950 stream draws 18 -> 1 at frame 200, mismatch 0, validation 0, plants moving the picture or census). Needs the case zips (held), the game files and out/renderer/dev/fview.exe built from the tree under test; a missing input FAILs loudly.",
+ "checks": [
+  {"name": "props_ours_unit.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/props/build_props_ours_test.ps1"], "timeout_s": 1800},
+  {"name": "props_ours_unit.proof", "cmd": ["py", "-I", "tools/props/props_ours_selftest.py"], "timeout_s": 3600,
+   "needs": ["out/s101/runs/20261112_101633_s100_owner_s89_brock", "out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261112_121740_s100_owner_s89_brock", "out/s101/runs/20261112_131029_s100_owner_s90_wm30", "out/s101/runs/20261113_063621_s101_sweep_victory", "game_data/extracted"]},
+  {"name": "props_ours.proof", "cmd": ["py", "-I", "tools/props/props_ours_check.py", "--root", ".", "--no-build"], "timeout_s": 5400,
+   "needs": ["out/s101/runs/20261112_101633_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

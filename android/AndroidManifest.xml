@@ -26,12 +26,13 @@
          Install; the first time they allow installs from this app). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Session 98: BUILD TRON PREVIEWS keeps going in the background (TronExportService, a foreground service in the game's
-         process: mediaProcessing on Android 15+, dataSync before) and shows its progress as a notification (asked for on
-         Android 13+ when an export starts). Normal game runs start no service and post no notification. -->
+         process: mediaProcessing on Android 15+, dataSync before). S101 (2026-11-13, Jarrod: phones flag the notification
+         permission as sensitive; not worth it for building tron preview caches): no POST_NOTIFICATIONS, never asked for, no
+         result notification; the progress is the bar on the game's screen. The service's own foreground notification needs no
+         permission (Android hides it without one). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="WWE 2K14"

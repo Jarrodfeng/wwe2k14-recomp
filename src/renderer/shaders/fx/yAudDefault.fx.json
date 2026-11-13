@@ -1,0 +1,1795 @@
+{
+ "effect": "yAudDefault",
+ "vertex": [
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "lit_lm_vertex",
+   "defines": [
+    "FX_LIT",
+    "FX_LM_VERTEX"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    },
+    {
+     "fetch": 4,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "AD191126A40238A0"
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "lit_lm_uv",
+   "defines": [
+    "FX_LIT",
+    "FX_LM_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    },
+    {
+     "fetch": 4,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "9F1F1CCCC55DDD62"
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "frame_lm_vertex",
+   "defines": [
+    "FX_FRAME",
+    "FX_LM_VERTEX"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    },
+    {
+     "fetch": 4,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "F768FBDB52DC192E"
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "frame_lm_uv",
+   "defines": [
+    "FX_FRAME",
+    "FX_LM_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    },
+    {
+     "fetch": 4,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "F5787EAC3D5A0DBF"
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "skinned_lit_lm_vertex",
+   "defines": [
+    "FX_SKINNED",
+    "FX_LIT",
+    "FX_LM_VERTEX"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "F1E713918DBC57B1"
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "skinned_lit_lm_uv",
+   "defines": [
+    "FX_SKINNED",
+    "FX_LIT",
+    "FX_LM_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "1AC7F61B62AC4EC0"
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "skinned_frame_lm_vertex",
+   "defines": [
+    "FX_SKINNED",
+    "FX_FRAME",
+    "FX_LM_VERTEX"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "F8DADDE652FE85A9"
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "skinned_frame_lm_uv",
+   "defines": [
+    "FX_SKINNED",
+    "FX_FRAME",
+    "FX_LM_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "BCDE016780FB64B0"
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "frame_eye_lm_vertex",
+   "defines": [
+    "FX_FRAME",
+    "FX_EYE",
+    "FX_LM_VERTEX"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    },
+    {
+     "fetch": 4,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "B4D8DA82F2CC8279"
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "frame_eye_lm_uv",
+   "defines": [
+    "FX_FRAME",
+    "FX_EYE",
+    "FX_LM_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    },
+    {
+     "fetch": 4,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "C791C6AD5D1A802F"
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "skinned_frame_eye_lm_vertex",
+   "defines": [
+    "FX_SKINNED",
+    "FX_FRAME",
+    "FX_EYE",
+    "FX_LM_VERTEX"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "43AF36D954F02490"
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "name": "skinned_frame_eye_lm_uv",
+   "defines": [
+    "FX_SKINNED",
+    "FX_FRAME",
+    "FX_EYE",
+    "FX_LM_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "34FBFFD3BA4772A6"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "ED94EC2F6D52E14F"
+   ]
+  },
+  {
+   "name": "normal_map",
+   "defines": [
+    "FX_NORMAL_MAP"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "880835A1F0456B87"
+   ]
+  },
+  {
+   "name": "lm_pixel",
+   "defines": [
+    "FX_LM_PIXEL"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "803205E3BEA932C8"
+   ]
+  },
+  {
+   "name": "normal_map_specular",
+   "defines": [
+    "FX_NORMAL_MAP",
+    "FX_SPECULAR"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "6B90A4AC1694A0DC"
+   ]
+  },
+  {
+   "name": "normal_map_lm_pixel",
+   "defines": [
+    "FX_NORMAL_MAP",
+    "FX_LM_PIXEL"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "C160E766F7AFDAA5"
+   ]
+  },
+  {
+   "name": "normal_map_specular_lm_pixel",
+   "defines": [
+    "FX_NORMAL_MAP",
+    "FX_SPECULAR",
+    "FX_LM_PIXEL"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "5D6DE78BBBF96CE4"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_LIT",
+    "FX_FRAME",
+    "FX_EYE",
+    "FX_LM_VERTEX",
+    "FX_LM_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 4,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 5,
+     "location": 5,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 4,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 5,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    }
+   ],
+   "bool_choices": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_NORMAL_MAP",
+    "FX_SPECULAR",
+    "FX_LM_PIXEL",
+    "FX_COLOR_ALPHA"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "LightMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d",
+     "when": [
+      "FX_NORMAL_MAP"
+     ]
+    },
+    {
+     "slot": 13,
+     "kind": "2d",
+     "when": [
+      "FX_LM_PIXEL"
+     ]
+    }
+   ]
+  }
+ }
+}

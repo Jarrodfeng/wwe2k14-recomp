@@ -1,0 +1,13 @@
+{
+ "owner": "lane CD / 110 (S101): the far cards drawn by us (C1): src/renderer_scene/crowd_cards_core.* (the plan), crowd_cards.* (the instanced draws), src/renderer/shaders/fx/yAudienceCard.* (our vertex stage), CrowdHook::InjectCards (crowd_hook.h) and the binder's first-card call (binder.h), CrowdOursOptions::cards, fview --crowd-cards / --hash-frames, rplay --crowd-cards, leftovers.py --promote cards; docs/renderer/CROWD_CARDS.md",
+ "note": "needs Check B's and Check F's case zips and the game files (main checkout); a machine without them SKIPs, the script run directly FAILS loudly. Builds fview from this worktree (tools/fview/build.ps1) unless --no-build. About 10 minutes: two whole-capture replays per arm and ~28 plant arms (each 20 s). Pass --leftovers to the script to also re-run the leftovers census on Check B frame 200 with --promote auto,cards.",
+ "checks": [
+  {"name": "crowd_cards.proof", "cmd": ["py", "-I", "tools/crowd/crowd_cards_check.py", "--root", "."], "timeout_s": 3000, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_101633_s100_owner_s89_brock/case_20261112_101714_809_0_pc_run_exit.zip",
+    "out/s101/runs/20261113_062508_s101_sweep_match_type/case_20261113_062627_236_0_pc_run_exit.zip",
+    "out/s101/runs/20261113_062819_s101_sweep_match_type/case_20261113_062908_185_0_pc_run_exit.zip",
+    "out/s101/runs/20261113_093119_s101_sweep_match_type/case_20261113_093212_244_0_pc_run_exit.zip",
+    "game_data/extracted"]}
+ ]
+}

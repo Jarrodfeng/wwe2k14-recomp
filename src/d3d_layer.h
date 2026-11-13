@@ -58,6 +58,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_d3d_layer, false, "wwe2k14",
                     "built from the device object (register runs, shader identity, the draw) that the command processor "
                     "applies directly; needs an SDK build with gpu_d3d_layer_abi, a counted, logged fallback runs the "
                     "original writer");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_owner);  // (renderer_adapter/reader.h)
+REXCVAR_DEFINE_BOOL(wwe2k14_d3d_layer_owner_null, true, "wwe2k14",
+                    "Session 100 (speed): in owner mode (--wwe2k14_rdr_owner, the old path draws nothing) the library's indexed draw "
+                    "(or the layer's) is replaced by the device bookkeeping it leaves (the shader bind's device words, the dirty masks and "
+                    "flush flags cleared as the flush does): no packets or record for a command processor that would not draw them");
 
 REX_EXTERN(__imp__sub_82CB19E0);
 REX_EXTERN(sub_82CB70E0);
@@ -100,6 +105,7 @@ struct Stats {
   std::atomic<uint64_t> shader_items{0};
   std::atomic<uint64_t> chunks{0};         // draw chunks
   std::atomic<uint64_t> empty_state{0};    // draws with no dirty state at all
+  std::atomic<uint64_t> owner_null{0};     // Session 100: owner mode, bookkeeping only (no record)
   std::array<std::atomic<uint64_t>, kReasonCount> fallbacks{};
   std::array<std::atomic<bool>, kReasonCount> logged{};
 };
@@ -188,6 +194,7 @@ inline void CensusMaybe() {
   const uint64_t shaders = s.shader_items.exchange(0, std::memory_order_relaxed);
   const uint64_t chunks = s.chunks.exchange(0, std::memory_order_relaxed);
   const uint64_t empty = s.empty_state.exchange(0, std::memory_order_relaxed);
+  const uint64_t owner_null = s.owner_null.exchange(0, std::memory_order_relaxed);
   {
     const uint64_t rns = g_rec.ns.exchange(0, std::memory_order_relaxed), rcalls = g_rec.calls.exchange(0, std::memory_order_relaxed),
                    rframes = g_rec.frames.exchange(0, std::memory_order_relaxed);
@@ -200,10 +207,10 @@ inline void CensusMaybe() {
                   wwe2k14::d3d_bind::g_stat_fast_misses.load(std::memory_order_relaxed));
     }
   }
-  if (!draws && !fb_total) return;
+  if (!draws && !fb_total && !owner_null) return;
   REXLOG_INFO("[d3d] frames {}-{}: indexed draws taken {} ({} draw chunks, {} with no dirty state), tokens {} ({} dwords "
-              "written), {} register runs ({} registers), {} shader loads; fallbacks {}{}",
-              last, frame, draws, chunks, empty, tokens, dwords, runs, regs, shaders, fb_total,
+              "written), {} register runs ({} registers), {} shader loads; owner mode bookkeeping only {}; fallbacks {}{}",
+              last, frame, draws, chunks, empty, tokens, dwords, runs, regs, shaders, owner_null, fb_total,
               fb_total ? ": " + fb : "");
 }
 
@@ -338,6 +345,41 @@ inline void FallbackBind(wwe2k14::d3d_bind::Fail f) {
 
 // The hook. Returns true when the layer drew (the original writer did not run); false = nothing was touched, the caller
 // runs the original.
+// Session 100 (speed): owner mode (the new renderer draws; the old path draws nothing, gpu_no_draw): the library's indexed draw replaced by
+// the device bookkeeping it leaves behind, as IndexedDraw models it: the shader bind's device words (Plan + Commit), the five dirty masks
+// cleared as the flush does, 0x82CB21F8's flag bytes. No packets, no record. Run 6936: the old path's draw writer (the original, the layer
+// being off) cost the game's thread 0.3-0.74 ms a frame in WM30's match. The cases IndexedDraw also leaves to the original keep it: the
+// extents wrapper (tiling's recording), no index buffer, a bind plan failure or inline microcode, the HiZ pre-pass selector.
+inline bool OwnerNullDraw(PPCContext& ctx, uint8_t* base) {
+  if (!REXCVAR_GET(wwe2k14_rdr_owner) || !REXCVAR_GET(wwe2k14_d3d_layer_owner_null)) return false;
+  const uint32_t dev = ctx.r3.u32;
+  if (base[dev + 11068] & 1) return false;
+  if (!Ld32(base, dev + 12812)) return false;
+  const uint64_t m_vs = Ld64(base, dev + 0), m_ps = Ld64(base, dev + 8), m_main = Ld64(base, dev + 16), m_fetch = Ld64(base, dev + 24),
+                 m_misc = Ld64(base, dev + 32);
+  static thread_local wwe2k14::d3d_bind::BindPlan plan;
+  bool binds = false;
+  uint64_t r30 = m_main;
+  if (m_main && (uint32_t(m_main) & 0x1E0000u)) {
+    if (wwe2k14::d3d_bind::Plan(ctx, base, dev, m_main, ~0u, plan, true) != wwe2k14::d3d_bind::Fail::kNone) return false;
+    binds = true;
+    r30 = plan.mask;
+  }
+  if (m_main && (Ld64(base, dev + 40) & r30)) return false;
+  if (binds) wwe2k14::d3d_bind::Commit(base, dev, plan);
+  if (m_vs) St64(base, dev + 0, 0);
+  if (m_ps) St64(base, dev + 8, 0);
+  if (m_main) St64(base, dev + 16, 0);
+  if (m_fetch) St64(base, dev + 24, 0);
+  if (m_misc) St64(base, dev + 32, 0);
+  if ((m_misc & 0xC000000000000000ull) && (base[dev + 11072] & 0xC0)) {
+    base[dev + 11072] = uint8_t(base[dev + 11072] & 0x3F);
+    base[dev + 11071] = uint8_t(base[dev + 11071] & 0xFC);
+  }
+  g_stats.owner_null.fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
 inline bool IndexedDraw(PPCContext& ctx, uint8_t* base) {
   if (!REXCVAR_GET(wwe2k14_d3d_layer)) return false;
   RecScope rec_scope;  // Session 94: [d3d][rec] sample
@@ -479,7 +521,7 @@ inline bool IndexedDraw(PPCContext& ctx, uint8_t* base) {
   const uint32_t ib_addr = Ld32(base, ib + 24);
   const uint32_t table_byte = base[dev + 12563];
   const uint32_t viz = (uint32_t(base[dev + 12498 + table_byte]) | (table_byte != 0 ? 0x100u : 0u)) & 0x13Fu;
-  auto dma_base = [](uint32_t a) { return ((((a >> 20) & 0xFFFu) + 512u) & 0x1000u) + (a & 0x1FFFFFFFu); };
+  auto dma_base = [](uint32_t a) { return wwe2k14::guest_view::ToPhysical(a); };
   uint32_t remaining = index_count, start = start_index;
   for (;;) {
     uint32_t n = remaining;

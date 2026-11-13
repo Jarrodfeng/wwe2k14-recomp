@@ -1,0 +1,1 @@
+{"owner": "lane 147 (S101): src/render_signal.h queue / flush + the long owner route's roster wait", "checks": [{"name": "render_signal.unit", "cmd": ["py", "-I", "tools/render_signal/selftest.py"], "timeout_s": 300}]}

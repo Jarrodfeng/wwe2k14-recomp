@@ -1,0 +1,51 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time)
+# Session 101 lane 173 (Check K, route K4): a match played to its FINISH, the victory scene, and BACK TO THE MENU, so the title logo is drawn after a match
+# (the phone's brief title-logo glitch happens only after one: GATE_FAULTS row 1, MOVIE_OURS.md 8; the census note flush_driven_plane_repointed in reader.h).
+# How the match ends: slot 1 is made passive after the bell and slot 0 has full momentum, so the CPU pins the idle wrestler (as run 7092 did by itself;
+# the bus 'finish' line / G+472 = 0x8376ACCC != 0 is the end). The victory scene (the game's own chooser; PWC particles / pyro) follows; then A presses carry
+# the post-match screens to the main menu. The shots at the match start sit at the same spots as J1's for the plane shadow's picture check.
+# Not confirmed live: how many A presses the post-match screens need (press_until_state tries 40 at 300-frame intervals; a failure stops with a run_failure zip).
+# Marks: 1 clock, 2 roster, 3 shot1, 4 finish, 5 victory, 6 menu, 7 logo window, 8 end.
+on_fail quit
+log bench: start scene checkK_finish_logo
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=checkK_finish_logo
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+cvar wwe2k14_rdr_live_picture sc_checkK_fin_1
+screenshot sc_checkK_fin_1
+mark 3 shot1
+momentum 0 100
+stock 0 1
+passive 1 on
+wait_frames 120
+# the match ends by itself (a pin or a finisher on the passive wrestler): up to 20 minutes of match at 60 steps a second
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+log_state match_clock
+mark 4 finish
+wait_frames 600
+cvar wwe2k14_rdr_live_picture sc_checkK_fin_victory
+screenshot sc_checkK_fin_victory
+mark 5 victory
+# the post-match screens to the main menu (the game's own flow; seq 75 = the menu sequence)
+press_until_state A seq 75 40 300 5
+wait_state menu 1 3600 2
+mark 6 menu
+log scene=menu_after_match
+# 1300 frames at the main menu: two census windows (600 each) with the title logo drawn after a match
+wait_frames 700
+cvar wwe2k14_rdr_live_picture sc_checkK_fin_menu
+screenshot sc_checkK_fin_menu
+mark 7 logo_window
+wait_frames 700
+log scene=end
+mark 8 end
+log bench: done
+quit

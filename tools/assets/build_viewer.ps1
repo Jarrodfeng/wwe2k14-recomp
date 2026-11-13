@@ -3,14 +3,14 @@
 # Also copies the exe to out\build\win-amd64-release\ when that folder exists (the launcher's ASSET VIEWER button looks for it beside itself).
 # Usage: pwsh -NoProfile -File tools\assets\build_viewer.ps1 [-Seam path\to\seam.cpp] [-Extra "extra clang args"] [-DebugUi]
 # -DebugUi (Session 98 phone fixes): Dear ImGui's recoverable errors assert and show their tooltip again (a player build only logs them, ui.cpp Init).
-param([string]$Seam = '', [string[]]$Extra = @(), [switch]$DebugUi)
+param([string]$Seam = '', [string[]]$Extra = @(), [switch]$DebugUi, [string]$Backend = '')  # S101 lane 6: -Backend rdr adds the "rdr" backend (our renderer + the scene front-end) -> out\tools\wwe2k14_assets_rdr.exe
 if ($DebugUi) { $Extra += '-DWWE_VIEWER_DEBUG' }
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 . (Join-Path $repo 'tools\env.ps1') | Out-Null
 $outDir = Join-Path $repo 'out\tools'
 New-Item -ItemType Directory -Force $outDir | Out-Null
-$exe = Join-Path $outDir 'wwe2k14_assets.exe'
+$exe = Join-Path $outDir $(if ($Backend -eq 'rdr') { 'wwe2k14_assets_rdr.exe' } else { 'wwe2k14_assets.exe' })  # S101 lane 6
 $v = Join-Path $repo 'src\assets\view'
 # Session 96: the default is the real seam (the player's game files); -Seam test builds the built-in test model.
 if (-not $Seam) { $Seam = Join-Path $v 'loader_seam_game.cpp' } elseif ($Seam -eq 'test') { $Seam = Join-Path $v 'loader_seam_test.cpp' }
@@ -65,26 +65,44 @@ $xexMod = Join-Path (Split-Path (Split-Path $imgui -Parent) -Parent) 'src\system
 if ((Test-Path $xexMod) -and ((Get-Content $xexMod -Raw) -match 'xe_xex2_retail_key\[16\]\s*=\s*\{([^}]*)\}')) {
   $inc += @("-DWWE_XEX_RETAIL_KEY=$((($Matches[1] -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -join ',')")
 } else { Write-Host "warning: no XEX key in $xexMod (the stance table is then read from --guest_image only)" }
-$names = @('viewer_main', 'renderer', 'render_shared', 'renderer_d3d11', 'renderer_vk', 'vk_loader', 'shot', 'platform_win32', 'platform_sdl', 'ui', 'ui_light',
+$names = @('scene_record_out', 'viewer_main', 'renderer', 'render_shared', 'renderer_d3d11', 'renderer_vk', 'vk_loader', 'shot', 'platform_win32', 'platform_sdl', 'ui', 'ui_light',
            'ui_backend_win32_dx11', 'ui_backend_sdl3_vk', 'post', 'shadow', 'pick', 'ui_inspect', 'render_job', 'ui_path', 'ui_timeline', 'ui_mods', 'ui_importer', 'mods_win32',
            'video_player')
 $srcs = @($names | ForEach-Object { Join-Path $v "$_.cpp" }) + @($Seam)
 $srcs += @(Join-Path $repo 'src\importer\importer_core.cpp')  # Session 98: the Superstar Importer core (src\importer\importer_core.h)
-$vobj = Join-Path $outDir 'viewer_obj'
+# S101 lane 6: the "rdr" backend: the viewer's own sources get -DWWE_VIEWER_RDR, plus our renderer (src\renderer, not the player) and the scene front-end.
+$vdefs = $defs
+if ($Backend -eq 'rdr') {
+  $vdefs = $defs + '-DWWE_VIEWER_RDR'
+  $srcs += @(Join-Path $v 'renderer_rdr.cpp')
+  $srcs += @(Get-ChildItem (Join-Path $repo 'src\renderer') -Recurse -Filter '*.cpp' | Where-Object { $_.FullName -notmatch '\\player\\|_test\.cpp$' } | Select-Object -ExpandProperty FullName)
+  $srcs += @(Join-Path $repo 'src\renderer_scene\front_end.cpp')
+  $srcs += @(Join-Path $repo 'src\renderer_scene\char_effects.cpp')  # S101 lane 13: the wrestlers' effects, skin chunks, the ambient cube
+  $srcs += @(Join-Path $repo 'src\renderer_scene\shader_reload.cpp')  # S101 lane24: live shader reload (dev only)
+  $srcs += @(Join-Path $repo 'src\renderer_scene\post_pass.cpp')  # S101 lane 34: the post pass (depth of field, haze, bloom, glare)
+}
+# S101 lane 14: the `record` command (scene_record_out.cpp + the record file code of src\renderer_scene); PC only (the phone build does not define it).
+$vdefs = $vdefs + '-DWWE_VIEWER_RECORD'
+$srcs += @(Join-Path $repo 'src\renderer_scene\record_io.cpp')
+# (objects of src\renderer and src\renderer_scene get a prefix: the renderer's renderer.cpp shares a name with the viewer's)
+function ObjName($p) { $n = [IO.Path]::GetFileNameWithoutExtension($p); if ($p -like '*\src\renderer_scene\*') { "scene_$n" } elseif ($p -like '*\src\renderer\*') { "rdr_$n" } else { $n } }
+$vobj = Join-Path $outDir $(if ($Backend -eq 'rdr') { 'viewer_obj_rdr' } else { 'viewer_obj' })
 New-Item -ItemType Directory -Force $vobj | Out-Null
 $fails = $srcs | ForEach-Object -ThrottleLimit 16 -Parallel {
-  $o = Join-Path $using:vobj ([IO.Path]::GetFileNameWithoutExtension($_) + '.o')
-  $log = & clang++ -O2 -std=c++20 -c @using:defs -Wno-unused-command-line-argument @using:inc @using:Extra $_ -o $o 2>&1
+  $n = [IO.Path]::GetFileNameWithoutExtension($_)
+  if ($_ -like '*\src\renderer_scene\*') { $n = "scene_$n" } elseif ($_ -like '*\src\renderer\*') { $n = "rdr_$n" }
+  $o = Join-Path $using:vobj ($n + '.o')
+  $log = & clang++ -O2 -std=c++20 -c @using:vdefs -Wno-unused-command-line-argument @using:inc @using:Extra $_ -o $o 2>&1
   if ($LASTEXITCODE -ne 0) { "FAILED $_`n" + ($log -join "`n") } elseif ($log) { ($log | Where-Object { $_ -match 'warning' }) -join "`n" }
 }
 $bad = @($fails | Where-Object { $_ -match '^FAILED' })
 $fails | Where-Object { $_ } | ForEach-Object { Write-Host $_ }
 if ($bad.Count) { throw "clang++ failed on $($bad.Count) file(s)" }
-$objs = @($srcs | ForEach-Object { Join-Path $vobj ([IO.Path]::GetFileNameWithoutExtension($_) + '.o') }) + $imguiObjs
+$objs = @($srcs | ForEach-Object { Join-Path $vobj ((ObjName $_) + '.o') }) + $imguiObjs
 $libs = @('-Wl,/SUBSYSTEM:WINDOWS,/ENTRY:mainCRTStartup', '-ld3d11', '-ldxgi', '-ld3dcompiler', '-lwindowscodecs', '-lole32', '-luser32', '-luuid', '-lshell32', '-ldwmapi', '-lgdi32', '-lcomdlg32', '-lmfplat', '-lmfreadwrite', '-lmfuuid', '-lshlwapi', '-lpropsys',
           $sdlLib, '-lsetupapi', '-lwinmm', '-limm32', '-lversion', '-loleaut32', '-lcfgmgr32', '-ladvapi32', '-lhid')
 & clang++ -O2 -Wno-unused-command-line-argument @objs -o $exe @libs
 if ($LASTEXITCODE -ne 0) { throw "link failed ($LASTEXITCODE)" }
 Write-Host "built $exe"
 $rel = Join-Path $repo 'out\build\win-amd64-release'
-if (Test-Path $rel) { Copy-Item -Force $exe (Join-Path $rel 'wwe2k14_assets.exe'); Write-Host "copied to $rel" }
+if ((Test-Path $rel) -and $Backend -ne 'rdr') { Copy-Item -Force $exe (Join-Path $rel 'wwe2k14_assets.exe'); Write-Host "copied to $rel" }

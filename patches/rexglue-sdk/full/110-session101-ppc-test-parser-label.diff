@@ -1,0 +1,36 @@
+# ReXGlue SDK changes for WWE 2K14 (session101-ppc-test-parser-label): b68952176941..9b81c0c201c4 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  9b81c0c Session 101 lane 46: ppc test parser keeps a label that directly follows the last REGISTER_OUT line (it was consumed, 15 upstream tests never ran)
+
+diff --git a/src/rexglue/commands/test_recompiler.cpp b/src/rexglue/commands/test_recompiler.cpp
+index 179b2df53af136d3be8ed1f06d298b0208feab33..7dd10fc193977d16ba98e052f477327f72b8e09c 100644
+--- a/src/rexglue/commands/test_recompiler.cpp
++++ b/src/rexglue/commands/test_recompiler.cpp
+@@ -209,7 +209,11 @@ std::vector<TestSpec> ParseTestSpecs(const std::string& asmPath,
+     return false;
+   };
+ 
+-  while (getline()) {
++  // wwe2k14 patch (Session 101, lane 46): the REGISTER_OUT loop below reads one line past the last `#_` line;
++  // when that line is the NEXT test's label (no blank line between tests) it was consumed and the test dropped.
++  // `pending` hands that line back to this loop.
++  bool pending = false;
++  while (pending ? !(pending = false) : getline()) {
+     if (line.empty() || line[0] == '#')
+       continue;
+     auto colonIndex = line.find(':');
+@@ -231,9 +235,13 @@ std::vector<TestSpec> ParseTestSpecs(const std::string& asmPath,
+       if (!getline())
+         break;
+     }
++    bool more;
+     do {
+       ApplyDirective(line, "REGISTER_OUT", "MEMORY_OUT", spec.outputs, spec.mem_outputs);
+-    } while (getline() && !line.empty() && line[0] == '#');
++      more = getline();
++    } while (more && !line.empty() && line[0] == '#');
++    if (more && !line.empty())
++      pending = true;  // a label (or any non-comment line) right after the last REGISTER_OUT
+ 
+     if (!spec.inputs.empty() || !spec.outputs.empty() || !spec.mem_inputs.empty() ||
+         !spec.mem_outputs.empty()) {

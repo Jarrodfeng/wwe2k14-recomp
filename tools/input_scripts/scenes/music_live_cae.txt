@@ -1,0 +1,10 @@
+# harness: flags --wwe2k14_mods=true --wwe2k14_entrance_music=true --wwe2k14_music_mix_into_game=true --wwe2k14_music_arena_fx=true --wwe2k14_music_probe=true --wwe2k14_music_picker_trace=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# harness: realtime (menu presses must not drop; the picker is a wall-clock UI)
+# Lane 303: part 1 of the combined custom-music check alone (items 2 of music_live_check.py: preview + picker). Same flags / fixtures / -Extra as
+# scenes\music_live_check.txt; use it when the combined route stops in the editor and the row / keys need a second look. Quits at the main menu.
+on_fail quit
+log l303: start music_live_cae
+include boot_to_menu
+include music_live_cae_part
+wait_frames 10
+quit

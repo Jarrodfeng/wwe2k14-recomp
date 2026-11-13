@@ -1,0 +1,7 @@
+{
+ "owner": "lane 35 (S101): the crowd's first promotion: src/renderer_scene/crowd_ours.*, the binder switch g_crowd_ours (binder.h, crowd_hook.h), fview --crowd-ours; docs/renderer/CROWD_PROMOTION.md",
+ "note": "needs: Check B's 7051 case zip (held, KEEP file) and the game files; a machine without them SKIPs, the script run directly fails loudly. The pinned base picture md5 (BASE_STREAM_MD5 in tools/crowd/crowd_ours_check.py) is per GPU / driver: recorded on RTX 4090, driver 93D28000, Vulkan 1.4.325, base commit 9627608e; re-record recipe in docs/renderer/CROWD_PROMOTION.md",
+ "checks": [
+  {"name": "crowd_ours.proof", "cmd": ["py", "-I", "tools/crowd/crowd_ours_check.py", "--root", "."], "timeout_s": 3000, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

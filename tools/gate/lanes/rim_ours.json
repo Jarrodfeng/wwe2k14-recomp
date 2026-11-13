@@ -1,0 +1,8 @@
+{
+ "owner": "lane 124 = RM (S101): the rim light map's casters (T_RimLightMap, site 0x82BFBD58, the 512x256 target the wrestler materials read in slot 15) drawn in place by ours through the replace seam (fate 15, class rim_map): src/renderer_scene/rim_map_{ours.h,ours.cpp,factory.h} on lane 99's ShadowCore and the wrestlers' joins, tools/rim/*. docs/renderer/RIM_MAP_OURS.md",
+ "note": "proof: fview --wrestlers-ours --ring-ours with and without --rim-ours over ALL frames of Check B / run 7079 / Bryan (--sweep): the picture, the rim map target (img 1189) and the slot-15 images the wrestler materials sample are byte-equal per frame, every replaced draw byte-compared, the census equals an independent oracle read from the capture alone, validation 0; then the planted faults no_pose / first_object / wrong_target (each fails its exact check) and rplay's rim_as_shadow (half rate) which moves the picture. The captures are kept (KEEP files). A machine without them FAILS (never skips).",
+ "checks": [
+  {"name": "rim_ours.proof", "cmd": ["py", "-I", "tools/rim/rim_ours_check.py", "--root", "."], "timeout_s": 7200,
+   "needs": ["out/lane40/brock/capture", "out/lane85/r7079/capture", "out/lane99/bryan/capture", "game_data/extracted"]}
+ ]
+}

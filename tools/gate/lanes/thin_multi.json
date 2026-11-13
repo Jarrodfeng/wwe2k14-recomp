@@ -1,0 +1,21 @@
+{
+ "owner": "lane 129 (S101, KC) review F2 / F3: the thin draws of all three classes together (a wrestler part release must not clear the arena's or the ring's templates), and the wrestler core's starts with the shadow casters on",
+ "note": "needs Check B's capture extracted by thin_check.py (out/s101/thin/case_brock), the game files and out/renderer/dev/fview.exe. Five fview arms. Bars: thin3 picture byte-equal to the three ours hooks; release_part: arena and ring epoch drops 0 and holes 0; shadow: starts = binds, picture equal.",
+ "checks": [
+  {
+   "name": "thin_multi.proof",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/thin/thin_multi_check.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 5400,
+   "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock",
+    "game_data/extracted"
+   ]
+  }
+ ]
+}

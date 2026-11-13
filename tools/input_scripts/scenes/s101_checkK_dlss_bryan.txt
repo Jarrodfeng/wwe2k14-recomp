@@ -1,0 +1,83 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=324,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# contract: allow shots S101 Check A: the frozen v0.3.1 reference was taken the same way (fast-forwarded, no other game alive); S100 run 6985 alone matched within 2 levels
+# Session 101 Check K (lane 193): copy of s100_owner_bryan_entrance.txt with a still-hold picture series.
+# Session 100: owner-mode twin of bryan_entrance.txt (tools\renderer\owner_route.py): the new renderer writes live_<name>.png of
+# every screenshot the reference build takes. Run with --wwe2k14_rdr_owner=true.
+# Session 89 scene route: Daniel Bryan's entrance on its own. The lesnar_bryan launch (Over the Limit BG04, Quick pace)
+# with the participants swapped so Bryan (324) is slot 0 and comes out FIRST (Jarrod: no START skips); fixed seed 1 pins
+# his camera variant. Quits 300 frames (5 s of game time) after his entrance reaches step 15 (Jarrod: "end Bryan's run 5s
+# after step 15"): no Brock, no match. Fast-forwarded, the tron and the entrance follow the wall clock, so the 300 frames
+# can be less than 5 s of entrance; -Exclusive / -RealTime runs are 5 s.
+# Boot pipelines skipped (Jarrod, for runs like this): the 406 stored pipelines are made on first use, not at boot (a boot
+# that made them took 2-18 s, runs 5805 / 5812). For a TIMED run pass -Extra '--vulkan_stored_pipelines_at_boot=true'
+# (the caller's flag wins), or the compiles land inside the measured scene.
+# One command: & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\scenes\bryan_entrance.txt') (fast-forwarded;
+# -Exclusive for a timed run). Marks: 1 tron_324, 2 step15, 3 end. Shots sc_bryan_200 (tron +200), sc_bryan_s15 (step
+# 15), sc_bryan_s15_240 are local only. Scene map: tools\q\map\scenes.toml. on_fail quit.
+on_fail quit
+log bench: start scene bryan_entrance
+include boot_to_menu
+# (owner twin) wait x4: wait_file INGAMELUA.PAC 1800
+wait_file INGAMELUA.PAC 7200
+log bench: match launched
+# (owner twin) wait x4: wait_file BG04.PAC 900
+wait_file BG04.PAC 3600
+# (owner twin) wait x4: wait_file 324.bik2 1800
+wait_file 324.bik2 7200
+log scene=tron_324
+mark 1 tron_324
+wait_frames 200
+cvar wwe2k14_rdr_live_picture sc_bryan_200
+screenshot sc_bryan_200
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Bryan's entrance step 15)
+mark 2 step15
+cvar wwe2k14_rdr_live_picture sc_bryan_s15
+screenshot sc_bryan_s15
+# Check K (lane 193): the hold after step 15 as 6 pairs of live pictures ONE frame apart (a DLSS jitter A/B reads the silhouette edge difference inside each pair).
+wait_frames 20
+cvar wwe2k14_rdr_live_picture dl_1a
+screenshot dl_1a
+wait_frames 1
+cvar wwe2k14_rdr_live_picture dl_1b
+screenshot dl_1b
+wait_frames 30
+cvar wwe2k14_rdr_live_picture dl_2a
+screenshot dl_2a
+wait_frames 1
+cvar wwe2k14_rdr_live_picture dl_2b
+screenshot dl_2b
+wait_frames 30
+cvar wwe2k14_rdr_live_picture dl_3a
+screenshot dl_3a
+wait_frames 1
+cvar wwe2k14_rdr_live_picture dl_3b
+screenshot dl_3b
+wait_frames 30
+cvar wwe2k14_rdr_live_picture dl_4a
+screenshot dl_4a
+wait_frames 1
+cvar wwe2k14_rdr_live_picture dl_4b
+screenshot dl_4b
+wait_frames 30
+cvar wwe2k14_rdr_live_picture dl_5a
+screenshot dl_5a
+wait_frames 1
+cvar wwe2k14_rdr_live_picture dl_5b
+screenshot dl_5b
+wait_frames 30
+cvar wwe2k14_rdr_live_picture dl_6a
+screenshot dl_6a
+wait_frames 1
+cvar wwe2k14_rdr_live_picture dl_6b
+screenshot dl_6b
+wait_frames 30
+cvar wwe2k14_rdr_live_picture sc_bryan_s15_240
+screenshot sc_bryan_s15_240
+wait_frames 60
+log scene=end (step 15 + 300 frames)
+mark 3 end
+log bench: done
+# (owner twin) time for the last live picture
+wait_frames 10
+quit

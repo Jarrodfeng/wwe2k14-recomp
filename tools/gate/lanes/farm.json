@@ -1,0 +1,6 @@
+{
+ "owner": "lane 22: the replay farm (tools/farm/farm.py)",
+ "checks": [
+  {"name": "farm.selftest", "cmd": ["py", "-I", "tools/farm/selftest.py"], "timeout_s": 900, "needs": ["out/captures/s100_heenan_build", "out/captures/brock_s15"]}
+ ]
+}

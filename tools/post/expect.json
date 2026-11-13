@@ -1,0 +1,3006 @@
+{
+ "brock": {
+  "after_combine": {
+   "all": [
+    0,
+    16
+   ],
+   "chain_after_combine": [
+    0,
+    0
+   ]
+  },
+  "after_combine_sites": {
+   "0x82bdef38": 1071
+  },
+  "combine_call_sites": {
+   "0x82c1f674": 341
+  },
+  "combine_per_frame": {
+   "1": 341
+  },
+  "combine_slots": {
+   "s0 s2 s3 s6 s7 s8": 341
+  },
+  "combine_variants": {
+   "dof_fog_bloom": 341
+  },
+  "combine_variants_seen": {
+   "dof_fog_bloom": 341
+  },
+  "constants": {
+   "c20_DOFParam": {
+    "distinct": 307,
+    "max": [
+     "inf",
+     350.46722,
+     0.0,
+     0.6
+    ],
+    "min": [
+     "inf",
+     71.0905,
+     0.0,
+     0.5
+    ]
+   },
+   "c21_DOFParam2": {
+    "distinct": 316,
+    "max": [
+     0.0,
+     0.99379,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.9806,
+     0.0,
+     0.0
+    ]
+   },
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c31_BloomScale": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     1.6,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.4,
+     1.6,
+     0.0,
+     0.0
+    ]
+   },
+   "c32_StarScale": {
+    "distinct": 1,
+    "max": [
+     1.6,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     1.6,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "229 160x90 RGBA8 unnamed": [
+    "255 160x90 RGBA8 post_step"
+   ],
+   "230 160x90 RGBA8 unnamed": [
+    "256 160x90 RGBA8 post_step"
+   ],
+   "231 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "232 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "235 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "236 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "237 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "238 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 post_step"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 post_step"
+   ]
+  },
+  "dead_copies": {
+   "bloom_side_copies": [
+    4,
+    4
+   ],
+   "glare_side_copies": [
+    10,
+    10
+   ]
+  },
+  "dead_draws": {
+   "bloom_side_drawn": [
+    4,
+    4
+   ],
+   "glare_side_drawn": [
+    9,
+    9
+   ]
+  },
+  "dead_work_flags": {
+   "bloom_zero=0 glare_zero=0": 341
+  },
+  "dof_depth": {
+   "point | restores in frame 1 | image written by ext | fmt23": 341
+  },
+  "dof_layers": {
+   "1": 341
+  },
+  "filters": {
+   "box4_down.s0": "point",
+   "combine.s0": "linear",
+   "combine.s2": "linear",
+   "combine.s3": "point",
+   "combine.s6": "linear",
+   "combine.s7": "linear",
+   "combine.s8": "linear",
+   "copy_depth.s0": "point",
+   "copy_depth.s1": "point",
+   "dof.s0": "linear",
+   "dof.s1": "point",
+   "hole_fill.s0": "point",
+   "m1_m2.s0": "linear",
+   "m1_m2.s1": "linear",
+   "m1_m2.s2": "linear",
+   "m1_m2.s3": "linear",
+   "t1.s0": "linear",
+   "t1_t2.s0": "point",
+   "t2.s0": "point"
+  },
+  "frames": 341,
+  "helper_sites": {
+   "0x828159fc yDownScale/box4": 341,
+   "0x82c1f48c yBlur/flag_any": 682,
+   "0x82c1f514 yBlur/flag_any": 1178
+  },
+  "monotone_distinct_banks": 0,
+  "monotone_values": {},
+  "named": true,
+  "named_frames": 341,
+  "no_chain_frames": 0,
+  "null_slots": {},
+  "outputs": [
+   3,
+   4,
+   229,
+   230,
+   231,
+   232,
+   235,
+   236,
+   237,
+   238,
+   254,
+   255,
+   256,
+   257
+  ],
+  "post_class": {
+   "all": [
+    22,
+    26
+   ],
+   "chain": [
+    17,
+    17
+   ],
+   "helpers": [
+    5,
+    9
+   ]
+  },
+  "post_copies": {
+   "all": [
+    18,
+    18
+   ],
+   "from_scratch_and_scene": [
+    2,
+    2
+   ],
+   "from_step_targets": [
+    16,
+    16
+   ]
+  },
+  "post_draws": {
+   "all": [
+    17,
+    17
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    1,
+    1
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 341,
+   "gpu_copy_of_source": 5797
+  },
+  "readers": {
+   "chain:box4_down": 341,
+   "chain:combine": 341,
+   "chain:hole_fill": 341,
+   "chain:m1_m2": 341,
+   "chain:t1": 2728,
+   "chain:t1_t2": 682,
+   "chain:t2": 341
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "copy_depth dof hole_fill box4_down t2 t1_t2x2 t1x8 m1_m2 combine": 341
+  },
+  "shapes": {
+   "entrance": 341
+  },
+  "slot2_vs_slot6": {
+   "same": 341
+  },
+  "slot6_source": {},
+  "targets": {
+   "box4_down": [
+    "255 160x90 RGBA8 post_step"
+   ],
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "copy_depth": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "254 320x180 RGBA8 post_step"
+   ],
+   "hole_fill": [
+    "254 320x180 RGBA8 post_step"
+   ],
+   "m1_m2": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "t1": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "t1_t2": [
+    "256 160x90 RGBA8 post_step"
+   ],
+   "t2": [
+    "256 160x90 RGBA8 post_step"
+   ]
+  }
+ },
+ "brock_s15_300": {
+  "after_combine": {
+   "all": [
+    0,
+    3
+   ],
+   "chain_after_combine": [
+    0,
+    0
+   ]
+  },
+  "after_combine_sites": {
+   "vs yFlashDefault/base": 3
+  },
+  "combine_call_sites": {},
+  "combine_per_frame": {
+   "1": 16
+  },
+  "combine_slots": {
+   "s0 s2 s3 s6 s7 s8": 16
+  },
+  "combine_variants": {
+   "dof_fog_bloom": 16
+  },
+  "combine_variants_seen": {
+   "dof_fog_bloom": 16
+  },
+  "constants": {
+   "c20_DOFParam": {
+    "distinct": 16,
+    "max": [
+     "inf",
+     347.73593,
+     0.0,
+     0.5
+    ],
+    "min": [
+     "inf",
+     346.67252,
+     0.0,
+     0.5
+    ]
+   },
+   "c21_DOFParam2": {
+    "distinct": 16,
+    "max": [
+     0.0,
+     0.99376,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.99375,
+     0.0,
+     0.0
+    ]
+   },
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c31_BloomScale": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     1.6,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.4,
+     1.6,
+     0.0,
+     0.0
+    ]
+   },
+   "c32_StarScale": {
+    "distinct": 1,
+    "max": [
+     1.6,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     1.6,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "229 160x90 RGBA8 unnamed": [
+    "255 160x90 RGBA8 unnamed"
+   ],
+   "230 160x90 RGBA8 unnamed": [
+    "256 160x90 RGBA8 unnamed"
+   ],
+   "231 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "232 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "235 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "236 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "237 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "238 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ]
+  },
+  "dead_copies": {
+   "bloom_side_copies": [
+    4,
+    4
+   ],
+   "glare_side_copies": [
+    10,
+    10
+   ]
+  },
+  "dead_draws": {
+   "bloom_side_drawn": [
+    4,
+    4
+   ],
+   "glare_side_drawn": [
+    9,
+    9
+   ]
+  },
+  "dead_work_flags": {
+   "bloom_zero=0 glare_zero=0": 16
+  },
+  "dof_depth": {
+   "linear | image 0 (a fetch of nothing)": 16
+  },
+  "dof_layers": {
+   "1": 16
+  },
+  "filters": {
+   "box4_down.s0": "linear",
+   "combine.s0": "linear",
+   "combine.s2": "linear",
+   "combine.s3": "point",
+   "combine.s6": "linear",
+   "combine.s7": "linear",
+   "combine.s8": "linear",
+   "copy_depth.s0": "point",
+   "copy_depth.s1": "point",
+   "dof.s0": "linear",
+   "dof.s1": "linear",
+   "hole_fill.s0": "linear",
+   "m1_m2.s0": "linear",
+   "m1_m2.s1": "linear",
+   "m1_m2.s2": "linear",
+   "m1_m2.s3": "linear",
+   "t1.s0": "linear",
+   "t1_t2.s0": "linear",
+   "t2.s0": "linear"
+  },
+  "frames": 16,
+  "helper_sites": {},
+  "monotone_distinct_banks": 0,
+  "monotone_values": {},
+  "named": false,
+  "named_frames": 0,
+  "no_chain_frames": 0,
+  "null_slots": {
+   "box4_down.s0": 16,
+   "dof.s0": 16,
+   "dof.s1": 16,
+   "hole_fill.s0": 16,
+   "m1_m2.s0": 16,
+   "m1_m2.s1": 16,
+   "m1_m2.s2": 16,
+   "m1_m2.s3": 16,
+   "t1_t2.s0": 32,
+   "t2.s0": 16
+  },
+  "outputs": [
+   3,
+   4,
+   229,
+   230,
+   231,
+   232,
+   235,
+   236,
+   237,
+   238,
+   254,
+   255,
+   256,
+   257
+  ],
+  "post_class": {},
+  "post_copies": {
+   "all": [
+    18,
+    18
+   ],
+   "from_scratch_and_scene": [
+    2,
+    2
+   ],
+   "from_step_targets": [
+    16,
+    16
+   ]
+  },
+  "post_draws": {
+   "all": [
+    17,
+    17
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    1,
+    1
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 288
+  },
+  "readers": {
+   "chain:combine": 16,
+   "chain:t1": 128
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "copy_depth dof hole_fill box4_down t2 t1_t2x2 t1x8 m1_m2 combine": 16
+  },
+  "shapes": {
+   "entrance": 16
+  },
+  "slot2_vs_slot6": {
+   "same": 16
+  },
+  "slot6_source": {},
+  "targets": {
+   "box4_down": [
+    "255 160x90 RGBA8 unnamed"
+   ],
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "copy_depth": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "hole_fill": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "m1_m2": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "t1": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "t1_t2": [
+    "256 160x90 RGBA8 unnamed"
+   ],
+   "t2": [
+    "256 160x90 RGBA8 unnamed"
+   ]
+  }
+ },
+ "brock_tron": {
+  "after_combine": {
+   "all": [
+    1,
+    14
+   ],
+   "chain_after_combine": [
+    0,
+    0
+   ]
+  },
+  "after_combine_sites": {
+   "vs yFlashDefault/base": 36,
+   "vs ySprite/channel_select": 22,
+   "vs ySprite/tint_constant": 16
+  },
+  "combine_call_sites": {},
+  "combine_per_frame": {
+   "1": 16
+  },
+  "combine_slots": {
+   "s0 s2 s3 s6 s7 s8": 16
+  },
+  "combine_variants": {
+   "dof_fog_bloom": 16
+  },
+  "combine_variants_seen": {
+   "dof_fog_bloom": 16
+  },
+  "constants": {
+   "c20_DOFParam": {
+    "distinct": 16,
+    "max": [
+     "inf",
+     338.22305,
+     0.0,
+     0.5
+    ],
+    "min": [
+     "inf",
+     330.48785,
+     0.0,
+     0.5
+    ]
+   },
+   "c21_DOFParam2": {
+    "distinct": 16,
+    "max": [
+     0.0,
+     0.99365,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.99355,
+     0.0,
+     0.0
+    ]
+   },
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c31_BloomScale": {
+    "distinct": 1,
+    "max": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c32_StarScale": {
+    "distinct": 1,
+    "max": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "229 160x90 RGBA8 unnamed": [
+    "255 160x90 RGBA8 unnamed"
+   ],
+   "230 160x90 RGBA8 unnamed": [
+    "256 160x90 RGBA8 unnamed"
+   ],
+   "231 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "232 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "235 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "236 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "237 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "238 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ]
+  },
+  "dead_copies": {
+   "bloom": [
+    4,
+    4
+   ],
+   "bloom_side_copies": [
+    4,
+    4
+   ],
+   "both": [
+    14,
+    14
+   ],
+   "glare": [
+    10,
+    10
+   ],
+   "glare_side_copies": [
+    10,
+    10
+   ]
+  },
+  "dead_draws": {
+   "bloom": [
+    4,
+    4
+   ],
+   "bloom_side_drawn": [
+    4,
+    4
+   ],
+   "both": [
+    13,
+    13
+   ],
+   "glare": [
+    9,
+    9
+   ],
+   "glare_side_drawn": [
+    9,
+    9
+   ]
+  },
+  "dead_work_flags": {
+   "bloom_zero=1 glare_zero=1": 16
+  },
+  "dof_depth": {
+   "linear | image 0 (a fetch of nothing)": 16
+  },
+  "dof_layers": {
+   "1": 16
+  },
+  "filters": {
+   "box4_down.s0": "linear",
+   "combine.s0": "linear",
+   "combine.s2": "linear",
+   "combine.s3": "point",
+   "combine.s6": "linear",
+   "combine.s7": "linear",
+   "combine.s8": "linear",
+   "copy_depth.s0": "point",
+   "copy_depth.s1": "point",
+   "dof.s0": "linear",
+   "dof.s1": "linear",
+   "hole_fill.s0": "linear",
+   "m1_m2.s0": "linear",
+   "m1_m2.s1": "linear",
+   "m1_m2.s2": "linear",
+   "m1_m2.s3": "linear",
+   "t1.s0": "linear",
+   "t1_t2.s0": "linear",
+   "t2.s0": "linear"
+  },
+  "frames": 16,
+  "helper_sites": {},
+  "monotone_distinct_banks": 0,
+  "monotone_values": {},
+  "named": false,
+  "named_frames": 0,
+  "no_chain_frames": 0,
+  "null_slots": {
+   "box4_down.s0": 16,
+   "dof.s0": 16,
+   "dof.s1": 16,
+   "hole_fill.s0": 16,
+   "m1_m2.s0": 16,
+   "m1_m2.s1": 16,
+   "m1_m2.s2": 16,
+   "m1_m2.s3": 16,
+   "t1_t2.s0": 32,
+   "t2.s0": 16
+  },
+  "outputs": [
+   3,
+   4,
+   229,
+   230,
+   231,
+   232,
+   235,
+   236,
+   237,
+   238,
+   254,
+   255,
+   256,
+   257
+  ],
+  "post_class": {},
+  "post_copies": {
+   "all": [
+    18,
+    18
+   ],
+   "from_scratch_and_scene": [
+    2,
+    2
+   ],
+   "from_step_targets": [
+    16,
+    16
+   ]
+  },
+  "post_draws": {
+   "all": [
+    17,
+    17
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    1,
+    1
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 288
+  },
+  "readers": {
+   "chain:combine": 16,
+   "chain:t1": 128
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "copy_depth dof hole_fill box4_down t2 t1_t2x2 t1x8 m1_m2 combine": 16
+  },
+  "shapes": {
+   "entrance": 16
+  },
+  "slot2_vs_slot6": {
+   "same": 16
+  },
+  "slot6_source": {},
+  "targets": {
+   "box4_down": [
+    "255 160x90 RGBA8 unnamed"
+   ],
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "copy_depth": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "hole_fill": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "m1_m2": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "t1": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "t1_t2": [
+    "256 160x90 RGBA8 unnamed"
+   ],
+   "t2": [
+    "256 160x90 RGBA8 unnamed"
+   ]
+  }
+ },
+ "bryan": {
+  "after_combine": {
+   "all": [
+    28,
+    32
+   ],
+   "chain_after_combine": [
+    0,
+    0
+   ]
+  },
+  "after_combine_sites": {
+   "0x82bc3784": 2457,
+   "0x82bc7e50": 91,
+   "0x82bdef38": 125
+  },
+  "combine_call_sites": {
+   "0x82c1f674": 91
+  },
+  "combine_per_frame": {
+   "1": 91
+  },
+  "combine_slots": {
+   "s0 s2 s3 s6 s7 s8": 91
+  },
+  "combine_variants": {
+   "dof_fog_bloom": 91
+  },
+  "combine_variants_seen": {
+   "dof_fog_bloom": 91
+  },
+  "constants": {
+   "c20_DOFParam": {
+    "distinct": 91,
+    "max": [
+     "inf",
+     38.75774,
+     0.0,
+     0.7
+    ],
+    "min": [
+     "inf",
+     34.73162,
+     0.0,
+     0.7
+    ]
+   },
+   "c21_DOFParam2": {
+    "distinct": 91,
+    "max": [
+     0.0,
+     0.96822,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.96513,
+     0.0,
+     0.0
+    ]
+   },
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c31_BloomScale": {
+    "distinct": 1,
+    "max": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c32_StarScale": {
+    "distinct": 1,
+    "max": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "1288 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 post_step"
+   ],
+   "1289 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "1194 1280x720 RGBA8 scene_color",
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "229 160x90 RGBA8 unnamed": [
+    "255 160x90 RGBA8 post_step"
+   ],
+   "230 160x90 RGBA8 unnamed": [
+    "256 160x90 RGBA8 post_step"
+   ],
+   "231 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "232 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "235 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "236 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "237 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "238 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 post_step"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 post_step"
+   ]
+  },
+  "dead_copies": {
+   "bloom": [
+    4,
+    4
+   ],
+   "bloom_side_copies": [
+    4,
+    4
+   ],
+   "both": [
+    14,
+    14
+   ],
+   "glare": [
+    10,
+    10
+   ],
+   "glare_side_copies": [
+    10,
+    10
+   ]
+  },
+  "dead_draws": {
+   "bloom": [
+    4,
+    4
+   ],
+   "bloom_side_drawn": [
+    4,
+    4
+   ],
+   "both": [
+    13,
+    13
+   ],
+   "glare": [
+    9,
+    9
+   ],
+   "glare_side_drawn": [
+    9,
+    9
+   ]
+  },
+  "dead_work_flags": {
+   "bloom_zero=1 glare_zero=1": 91
+  },
+  "dof_depth": {
+   "point | restores in frame 3 | image written by ext | fmt23": 182
+  },
+  "dof_layers": {
+   "2": 91
+  },
+  "filters": {
+   "box4_down.s0": "point",
+   "combine.s0": "linear",
+   "combine.s2": "linear",
+   "combine.s3": "point",
+   "combine.s6": "linear",
+   "combine.s7": "linear",
+   "combine.s8": "linear",
+   "copy_depth.s0": "point",
+   "copy_depth.s1": "point",
+   "dof.s0": "linear",
+   "dof.s1": "point",
+   "hole_fill.s0": "point",
+   "m1_m2.s0": "linear",
+   "m1_m2.s1": "linear",
+   "m1_m2.s2": "linear",
+   "m1_m2.s3": "linear",
+   "t1.s0": "linear",
+   "t1_t2.s0": "point",
+   "t2.s0": "point"
+  },
+  "frames": 91,
+  "helper_sites": {
+   "0x828159fc yDownScale/box4": 91,
+   "0x82c1f48c yBlur/flag_any": 182,
+   "0x82c1f514 yBlur/flag_any": 182
+  },
+  "monotone_distinct_banks": 0,
+  "monotone_values": {},
+  "named": true,
+  "named_frames": 91,
+  "no_chain_frames": 0,
+  "null_slots": {},
+  "outputs": [
+   3,
+   4,
+   229,
+   230,
+   231,
+   232,
+   235,
+   236,
+   237,
+   238,
+   254,
+   255,
+   256,
+   257,
+   1288
+  ],
+  "post_class": {
+   "all": [
+    26,
+    26
+   ],
+   "chain": [
+    21,
+    21
+   ],
+   "helpers": [
+    5,
+    5
+   ]
+  },
+  "post_copies": {
+   "all": [
+    24,
+    24
+   ],
+   "from_scratch_and_scene": [
+    6,
+    6
+   ],
+   "from_step_targets": [
+    18,
+    18
+   ]
+  },
+  "post_draws": {
+   "all": [
+    21,
+    21
+   ],
+   "dof_layers": [
+    2,
+    2
+   ],
+   "restores": [
+    3,
+    3
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 91,
+   "gpu_source_image_unfilled": 2093
+  },
+  "readers": {
+   "chain:box4_down": 91,
+   "chain:combine": 91,
+   "chain:hole_fill": 182,
+   "chain:m1_m2": 91,
+   "chain:t1": 728,
+   "chain:t1_t2": 182,
+   "chain:t2": 91
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "copy_depth dof hole_fill copy_depthx2 dof hole_fill box4_down t2 t1_t2x2 t1x8 m1_m2 combine": 91
+  },
+  "shapes": {
+   "two_layer": 91
+  },
+  "slot2_vs_slot6": {
+   "different": 91
+  },
+  "slot6_source": {
+   "hole_fill <- slot2 hole_fill": 91,
+   "layers 1 vs 2": 91
+  },
+  "targets": {
+   "box4_down": [
+    "255 160x90 RGBA8 post_step"
+   ],
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "copy_depth": [
+    "1194 1280x720 RGBA8 scene_color",
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "254 320x180 RGBA8 post_step"
+   ],
+   "hole_fill": [
+    "254 320x180 RGBA8 post_step"
+   ],
+   "m1_m2": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "t1": [
+    "257 160x90 RGBA8 post_step"
+   ],
+   "t1_t2": [
+    "256 160x90 RGBA8 post_step"
+   ],
+   "t2": [
+    "256 160x90 RGBA8 post_step"
+   ]
+  }
+ },
+ "cards": {
+  "after_combine": {
+   "all": [
+    1,
+    1
+   ],
+   "chain_after_combine": [
+    0,
+    0
+   ]
+  },
+  "after_combine_sites": {
+   "vs yRect/base": 2
+  },
+  "combine_call_sites": {},
+  "combine_per_frame": {
+   "1": 2
+  },
+  "combine_slots": {
+   "s0 s3 s7 s8": 2
+  },
+  "combine_variants": {
+   "fog_bloom": 2
+  },
+  "combine_variants_seen": {
+   "fog_bloom": 2
+  },
+  "constants": {
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c31_BloomScale": {
+    "distinct": 1,
+    "max": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c32_StarScale": {
+    "distinct": 1,
+    "max": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "1206 1280x720 RGBA8 unnamed",
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "229 160x90 RGBA8 unnamed": [
+    "255 160x90 RGBA8 unnamed"
+   ],
+   "230 160x90 RGBA8 unnamed": [
+    "256 160x90 RGBA8 unnamed"
+   ],
+   "231 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "232 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "235 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "236 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "237 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "238 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ]
+  },
+  "dead_copies": {
+   "bloom": [
+    4,
+    4
+   ],
+   "bloom_side_copies": [
+    4,
+    4
+   ],
+   "both": [
+    14,
+    14
+   ],
+   "glare": [
+    10,
+    10
+   ],
+   "glare_side_copies": [
+    10,
+    10
+   ]
+  },
+  "dead_draws": {
+   "bloom": [
+    4,
+    4
+   ],
+   "bloom_side_drawn": [
+    4,
+    4
+   ],
+   "both": [
+    13,
+    13
+   ],
+   "glare": [
+    9,
+    9
+   ],
+   "glare_side_drawn": [
+    9,
+    9
+   ]
+  },
+  "dead_work_flags": {
+   "bloom_zero=1 glare_zero=1": 2
+  },
+  "dof_depth": {
+   "point | restores in frame 2 | image written by ext | fmt23": 2
+  },
+  "dof_layers": {
+   "1": 2
+  },
+  "filters": {
+   "box4_down.s0": "point",
+   "combine.s0": "linear",
+   "combine.s3": "point",
+   "combine.s7": "linear",
+   "combine.s8": "linear",
+   "copy_depth.s0": "point",
+   "copy_depth.s1": "point",
+   "dof.s0": "linear",
+   "dof.s1": "point",
+   "hole_fill.s0": "point",
+   "m1_m2.s0": "linear",
+   "m1_m2.s1": "linear",
+   "m1_m2.s2": "linear",
+   "m1_m2.s3": "linear",
+   "t1.s0": "linear",
+   "t1_t2.s0": "point",
+   "t2.s0": "point"
+  },
+  "frames": 2,
+  "helper_sites": {},
+  "monotone_distinct_banks": 0,
+  "monotone_values": {},
+  "named": false,
+  "named_frames": 0,
+  "no_chain_frames": 0,
+  "null_slots": {},
+  "outputs": [
+   3,
+   4,
+   229,
+   230,
+   231,
+   232,
+   235,
+   236,
+   237,
+   238,
+   254,
+   255,
+   256,
+   257
+  ],
+  "post_class": {},
+  "post_copies": {
+   "all": [
+    20,
+    20
+   ],
+   "from_scratch_and_scene": [
+    4,
+    4
+   ],
+   "from_step_targets": [
+    16,
+    16
+   ]
+  },
+  "post_draws": {
+   "all": [
+    18,
+    18
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    2,
+    2
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 40
+  },
+  "readers": {
+   "chain:box4_down": 2,
+   "chain:combine": 2,
+   "chain:hole_fill": 2,
+   "chain:m1_m2": 2,
+   "chain:t1": 16,
+   "chain:t1_t2": 4,
+   "chain:t2": 2
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "copy_depthx2 dof hole_fill box4_down t2 t1_t2x2 t1x8 m1_m2 combine": 2
+  },
+  "shapes": {
+   "cards": 2
+  },
+  "slot2_vs_slot6": {},
+  "slot6_source": {},
+  "targets": {
+   "box4_down": [
+    "255 160x90 RGBA8 unnamed"
+   ],
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "copy_depth": [
+    "1206 1280x720 RGBA8 unnamed",
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "hole_fill": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "m1_m2": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "t1": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "t1_t2": [
+    "256 160x90 RGBA8 unnamed"
+   ],
+   "t2": [
+    "256 160x90 RGBA8 unnamed"
+   ]
+  }
+ },
+ "heenan": {
+  "after_combine": {
+   "all": [
+    531,
+    531
+   ],
+   "chain_after_combine": [
+    0,
+    0
+   ]
+  },
+  "after_combine_sites": {
+   "vs yRect/base": 900,
+   "vs ySprite/channel_select": 45500,
+   "vs ySprite/tint_constant": 6700
+  },
+  "combine_call_sites": {},
+  "combine_per_frame": {
+   "1": 100
+  },
+  "combine_slots": {
+   "s0 s7 s8": 100
+  },
+  "combine_variants": {
+   "bloom": 100
+  },
+  "combine_variants_seen": {
+   "bloom": 100
+  },
+  "constants": {
+   "c31_BloomScale": {
+    "distinct": 1,
+    "max": [
+     0.2,
+     1.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.2,
+     1.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c32_StarScale": {
+    "distinct": 1,
+    "max": [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "785 320x180 RGBA8 unnamed"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "785 320x180 RGBA8 unnamed"
+   ],
+   "767 160x90 RGBA8 unnamed": [
+    "786 160x90 RGBA8 unnamed"
+   ],
+   "768 160x90 RGBA8 unnamed": [
+    "787 160x90 RGBA8 unnamed"
+   ],
+   "769 160x90 RGBA8 unnamed": [
+    "788 160x90 RGBA8 unnamed"
+   ],
+   "770 160x90 RGBA8 unnamed": [
+    "788 160x90 RGBA8 unnamed"
+   ],
+   "773 160x90 RGBA8 unnamed": [
+    "788 160x90 RGBA8 unnamed"
+   ],
+   "774 160x90 RGBA8 unnamed": [
+    "788 160x90 RGBA8 unnamed"
+   ],
+   "775 160x90 RGBA8 unnamed": [
+    "788 160x90 RGBA8 unnamed"
+   ],
+   "776 160x90 RGBA8 unnamed": [
+    "788 160x90 RGBA8 unnamed"
+   ]
+  },
+  "dead_copies": {
+   "bloom_side_copies": [
+    4,
+    4
+   ],
+   "glare_side_copies": [
+    10,
+    10
+   ]
+  },
+  "dead_draws": {
+   "bloom_side_drawn": [
+    4,
+    4
+   ],
+   "glare_side_drawn": [
+    9,
+    9
+   ]
+  },
+  "dead_work_flags": {
+   "bloom_zero=0 glare_zero=0": 100
+  },
+  "dof_depth": {
+   "linear | restores in frame 0 | image written by ext | fmt23": 100
+  },
+  "dof_layers": {
+   "1": 100
+  },
+  "filters": {
+   "box4_down.s0": "point",
+   "combine.s0": "linear",
+   "combine.s7": "linear",
+   "combine.s8": "linear",
+   "dof.s0": "linear",
+   "dof.s1": "linear",
+   "hole_fill.s0": "point",
+   "m1_m2.s0": "linear",
+   "m1_m2.s1": "linear",
+   "m1_m2.s2": "linear",
+   "m1_m2.s3": "linear",
+   "t1.s0": "linear",
+   "t1_t2.s0": "point",
+   "t2.s0": "point"
+  },
+  "frames": 100,
+  "helper_sites": {},
+  "monotone_distinct_banks": 0,
+  "monotone_values": {},
+  "named": false,
+  "named_frames": 0,
+  "no_chain_frames": 0,
+  "null_slots": {},
+  "outputs": [
+   3,
+   4,
+   767,
+   768,
+   769,
+   770,
+   773,
+   774,
+   775,
+   776,
+   785,
+   786,
+   787,
+   788
+  ],
+  "post_class": {},
+  "post_copies": {
+   "all": [
+    18,
+    18
+   ],
+   "from_scratch_and_scene": [
+    2,
+    2
+   ],
+   "from_step_targets": [
+    16,
+    16
+   ]
+  },
+  "post_draws": {
+   "all": [
+    16,
+    16
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    0,
+    0
+   ]
+  },
+  "postish_not_chain": {
+   "yComposition/channel_split": 3,
+   "yComposition/offset_copy": 7
+  },
+  "pre_chain": {
+   "yComposition": 10
+  },
+  "provenance": {
+   "absent": 1800
+  },
+  "readers": {
+   "chain:box4_down": 100,
+   "chain:combine": 100,
+   "chain:hole_fill": 100,
+   "chain:m1_m2": 100,
+   "chain:t1": 800,
+   "chain:t1_t2": 200,
+   "chain:t2": 100
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "dof hole_fill box4_down t2 t1_t2x2 t1x8 m1_m2 combine": 100
+  },
+  "shapes": {
+   "editor": 100
+  },
+  "slot2_vs_slot6": {},
+  "slot6_source": {},
+  "targets": {
+   "box4_down": [
+    "786 160x90 RGBA8 unnamed"
+   ],
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "785 320x180 RGBA8 unnamed"
+   ],
+   "hole_fill": [
+    "785 320x180 RGBA8 unnamed"
+   ],
+   "m1_m2": [
+    "788 160x90 RGBA8 unnamed"
+   ],
+   "t1": [
+    "788 160x90 RGBA8 unnamed"
+   ],
+   "t1_t2": [
+    "787 160x90 RGBA8 unnamed"
+   ],
+   "t2": [
+    "787 160x90 RGBA8 unnamed"
+   ]
+  }
+ },
+ "match300": {
+  "after_combine": {
+   "all": [
+    0,
+    0
+   ],
+   "chain_after_combine": [
+    0,
+    0
+   ]
+  },
+  "after_combine_sites": {},
+  "combine_call_sites": {},
+  "combine_per_frame": {
+   "1": 3
+  },
+  "combine_slots": {
+   "s0 s2 s3 s6": 3
+  },
+  "combine_variants": {
+   "dof_fog": 3
+  },
+  "combine_variants_seen": {
+   "dof_fog": 3
+  },
+  "constants": {
+   "c20_DOFParam": {
+    "distinct": 3,
+    "max": [
+     126.26885,
+     369.85178,
+     0.99264,
+     0.8
+    ],
+    "min": [
+     124.98392,
+     368.75433,
+     0.99262,
+     0.8
+    ]
+   },
+   "c21_DOFParam2": {
+    "distinct": 3,
+    "max": [
+     0.99264,
+     0.99539,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.99262,
+     0.99538,
+     0.0,
+     0.0
+    ]
+   },
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ]
+  },
+  "dead_copies": {},
+  "dead_draws": {},
+  "dead_work_flags": {},
+  "dof_depth": {
+   "linear | restores in frame 0 | image written by ext | fmt23": 3
+  },
+  "dof_layers": {
+   "1": 3
+  },
+  "filters": {
+   "combine.s0": "linear",
+   "combine.s2": "linear",
+   "combine.s3": "point",
+   "combine.s6": "linear",
+   "dof.s0": "linear",
+   "dof.s1": "linear",
+   "hole_fill.s0": "point"
+  },
+  "frames": 3,
+  "helper_sites": {},
+  "monotone_distinct_banks": 0,
+  "monotone_values": {},
+  "named": false,
+  "named_frames": 0,
+  "no_chain_frames": 0,
+  "null_slots": {},
+  "outputs": [
+   3,
+   4,
+   254
+  ],
+  "post_class": {},
+  "post_copies": {
+   "all": [
+    3,
+    3
+   ],
+   "from_scratch_and_scene": [
+    1,
+    1
+   ],
+   "from_step_targets": [
+    2,
+    2
+   ]
+  },
+  "post_draws": {
+   "all": [
+    3,
+    3
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    0,
+    0
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 9
+  },
+  "readers": {
+   "chain:combine": 3,
+   "chain:hole_fill": 3
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "dof hole_fill combine": 3
+  },
+  "shapes": {
+   "match": 3
+  },
+  "slot2_vs_slot6": {
+   "same": 3
+  },
+  "slot6_source": {},
+  "targets": {
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "hole_fill": [
+    "254 320x180 RGBA8 unnamed"
+   ]
+  }
+ },
+ "s89k_a": {
+  "after_combine": {
+   "all": [
+    1,
+    3
+   ],
+   "chain_after_combine": [
+    0,
+    0
+   ]
+  },
+  "after_combine_sites": {
+   "vs yFlashDefault/base": 13
+  },
+  "combine_call_sites": {},
+  "combine_per_frame": {
+   "1": 6
+  },
+  "combine_slots": {
+   "s0 s2 s3 s6 s7 s8": 6
+  },
+  "combine_variants": {
+   "dof_fog_bloom": 6
+  },
+  "combine_variants_seen": {
+   "dof_fog_bloom": 6
+  },
+  "constants": {
+   "c20_DOFParam": {
+    "distinct": 6,
+    "max": [
+     "inf",
+     118.77338,
+     0.0,
+     0.6
+    ],
+    "min": [
+     "inf",
+     117.21417,
+     0.0,
+     0.6
+    ]
+   },
+   "c21_DOFParam2": {
+    "distinct": 6,
+    "max": [
+     0.0,
+     0.98687,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.0,
+     0.98675,
+     0.0,
+     0.0
+    ]
+   },
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "c31_BloomScale": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     1.6,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.4,
+     1.6,
+     0.0,
+     0.0
+    ]
+   },
+   "c32_StarScale": {
+    "distinct": 1,
+    "max": [
+     1.6,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     1.6,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "229 160x90 RGBA8 unnamed": [
+    "255 160x90 RGBA8 unnamed"
+   ],
+   "230 160x90 RGBA8 unnamed": [
+    "256 160x90 RGBA8 unnamed"
+   ],
+   "231 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "232 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "235 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "236 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "237 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "238 160x90 RGBA8 unnamed": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "254 320x180 RGBA8 unnamed"
+   ]
+  },
+  "dead_copies": {
+   "bloom_side_copies": [
+    4,
+    4
+   ],
+   "glare_side_copies": [
+    10,
+    10
+   ]
+  },
+  "dead_draws": {
+   "bloom_side_drawn": [
+    4,
+    4
+   ],
+   "glare_side_drawn": [
+    9,
+    9
+   ]
+  },
+  "dead_work_flags": {
+   "bloom_zero=0 glare_zero=0": 6
+  },
+  "dof_depth": {
+   "point | restores in frame 1 | image written by ext | fmt23": 6
+  },
+  "dof_layers": {
+   "1": 6
+  },
+  "filters": {
+   "box4_down.s0": "point",
+   "combine.s0": "linear",
+   "combine.s2": "linear",
+   "combine.s3": "point",
+   "combine.s6": "linear",
+   "combine.s7": "linear",
+   "combine.s8": "linear",
+   "copy_depth.s0": "point",
+   "copy_depth.s1": "point",
+   "dof.s0": "linear",
+   "dof.s1": "point",
+   "hole_fill.s0": "point",
+   "m1_m2.s0": "linear",
+   "m1_m2.s1": "linear",
+   "m1_m2.s2": "linear",
+   "m1_m2.s3": "linear",
+   "t1.s0": "linear",
+   "t1_t2.s0": "point",
+   "t2.s0": "point"
+  },
+  "frames": 6,
+  "helper_sites": {},
+  "monotone_distinct_banks": 0,
+  "monotone_values": {},
+  "named": false,
+  "named_frames": 0,
+  "no_chain_frames": 0,
+  "null_slots": {},
+  "outputs": [
+   3,
+   4,
+   229,
+   230,
+   231,
+   232,
+   235,
+   236,
+   237,
+   238,
+   254,
+   255,
+   256,
+   257
+  ],
+  "post_class": {},
+  "post_copies": {
+   "all": [
+    18,
+    18
+   ],
+   "from_scratch_and_scene": [
+    2,
+    2
+   ],
+   "from_step_targets": [
+    16,
+    16
+   ]
+  },
+  "post_draws": {
+   "all": [
+    17,
+    17
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    1,
+    1
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 108
+  },
+  "readers": {
+   "chain:box4_down": 6,
+   "chain:combine": 6,
+   "chain:hole_fill": 6,
+   "chain:m1_m2": 6,
+   "chain:t1": 48,
+   "chain:t1_t2": 12,
+   "chain:t2": 6
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "copy_depth dof hole_fill box4_down t2 t1_t2x2 t1x8 m1_m2 combine": 6
+  },
+  "shapes": {
+   "entrance": 6
+  },
+  "slot2_vs_slot6": {
+   "same": 6
+  },
+  "slot6_source": {},
+  "targets": {
+   "box4_down": [
+    "255 160x90 RGBA8 unnamed"
+   ],
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "copy_depth": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "hole_fill": [
+    "254 320x180 RGBA8 unnamed"
+   ],
+   "m1_m2": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "t1": [
+    "257 160x90 RGBA8 unnamed"
+   ],
+   "t1_t2": [
+    "256 160x90 RGBA8 unnamed"
+   ],
+   "t2": [
+    "256 160x90 RGBA8 unnamed"
+   ]
+  }
+ },
+ "wm30": {
+  "after_combine": {
+   "all": [
+    95,
+    95
+   ],
+   "chain_after_combine": [
+    1,
+    1
+   ]
+  },
+  "after_combine_sites": {
+   "0x82bc3784": 33840,
+   "0x82bc3ee8": 846,
+   "0x82bc5688": 5499
+  },
+  "combine_call_sites": {
+   "0x82c1f674": 423
+  },
+  "combine_per_frame": {
+   "1": 423
+  },
+  "combine_slots": {
+   "s0 s2 s3 s6": 423
+  },
+  "combine_variants": {
+   "dof_fog": 423
+  },
+  "combine_variants_seen": {
+   "dof_fog": 423
+  },
+  "constants": {
+   "c20_DOFParam": {
+    "distinct": 1,
+    "max": [
+     228.41682,
+     282.50653,
+     0.99402,
+     0.8
+    ],
+    "min": [
+     228.41682,
+     282.50653,
+     0.99402,
+     0.8
+    ]
+   },
+   "c21_DOFParam2": {
+    "distinct": 1,
+    "max": [
+     0.99402,
+     0.99466,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.99402,
+     0.99466,
+     0.0,
+     0.0
+    ]
+   },
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "765 320x180 RGBA8 post_step"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "765 320x180 RGBA8 post_step"
+   ]
+  },
+  "dead_copies": {},
+  "dead_draws": {},
+  "dead_work_flags": {},
+  "dof_depth": {
+   "linear | restores in frame 0 | image written by ext | fmt23": 423
+  },
+  "dof_layers": {
+   "1": 423
+  },
+  "filters": {
+   "combine.s0": "linear",
+   "combine.s2": "linear",
+   "combine.s3": "point",
+   "combine.s6": "linear",
+   "dof.s0": "linear",
+   "dof.s1": "linear",
+   "hole_fill.s0": "point",
+   "monotone.s0": "point"
+  },
+  "frames": 423,
+  "helper_sites": {
+   "0x82c1f48c yBlur/flag_any": 846,
+   "0x82c1f514 yBlur/flag_any": 3384
+  },
+  "monotone_distinct_banks": 1,
+  "monotone_values": {
+   "g_fAlpha=[0.18, 0.0, 0.0, -0.0]": 423,
+   "g_fCb=[-0.25, 0.18, 0.0, 0.0]": 423,
+   "g_fCr=[0.1, -0.25, 0.18, 0.0]": 423
+  },
+  "named": true,
+  "named_frames": 423,
+  "no_chain_frames": 0,
+  "null_slots": {},
+  "outputs": [
+   3,
+   4,
+   765
+  ],
+  "post_class": {
+   "all": [
+    14,
+    14
+   ],
+   "chain": [
+    4,
+    4
+   ],
+   "helpers": [
+    10,
+    10
+   ]
+  },
+  "post_copies": {
+   "all": [
+    4,
+    4
+   ],
+   "from_scratch_and_scene": [
+    2,
+    2
+   ],
+   "from_step_targets": [
+    2,
+    2
+   ]
+  },
+  "post_draws": {
+   "all": [
+    4,
+    4
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    0,
+    0
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 423,
+   "gpu_source_image_unfilled": 1269
+  },
+  "readers": {
+   "chain:combine": 423,
+   "chain:hole_fill": 423
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "dof hole_fill combine monotone": 423
+  },
+  "shapes": {
+   "film": 423
+  },
+  "slot2_vs_slot6": {
+   "same": 423
+  },
+  "slot6_source": {},
+  "targets": {
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "765 320x180 RGBA8 post_step"
+   ],
+   "hole_fill": [
+    "765 320x180 RGBA8 post_step"
+   ],
+   "monotone": [
+    "8 1280x720 RGBA8 unnamed"
+   ]
+  }
+ },
+ "wm30_300": {
+  "after_combine": {
+   "all": [
+    95,
+    95
+   ],
+   "chain_after_combine": [
+    1,
+    1
+   ]
+  },
+  "after_combine_sites": {
+   "vs yRect/base": 4,
+   "vs ySprite/channel_select": 160,
+   "vs ySprite/tint_constant": 26
+  },
+  "combine_call_sites": {},
+  "combine_per_frame": {
+   "1": 2
+  },
+  "combine_slots": {
+   "s0 s2 s3 s6": 2
+  },
+  "combine_variants": {
+   "dof_fog": 2
+  },
+  "combine_variants_seen": {
+   "dof_fog": 2
+  },
+  "constants": {
+   "c20_DOFParam": {
+    "distinct": 1,
+    "max": [
+     228.41682,
+     282.50653,
+     0.99402,
+     0.8
+    ],
+    "min": [
+     228.41682,
+     282.50653,
+     0.99402,
+     0.8
+    ]
+   },
+   "c21_DOFParam2": {
+    "distinct": 1,
+    "max": [
+     0.99402,
+     0.99466,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.99402,
+     0.99466,
+     0.0,
+     0.0
+    ]
+   },
+   "c27_RGB": {
+    "distinct": 1,
+    "max": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ],
+    "min": [
+     0.4,
+     0.55,
+     0.55,
+     1.0
+    ]
+   },
+   "c29_Alpha": {
+    "distinct": 1,
+    "max": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.08,
+     0.993,
+     0.0,
+     0.0
+    ]
+   },
+   "c30_ZAdj": {
+    "distinct": 1,
+    "max": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "min": [
+     0.993,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "copy_destinations": {
+   "1 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "2 1280x720 RGBA8 unnamed": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "3 320x180 RGBA8 unnamed": [
+    "770 320x180 RGBA8 unnamed"
+   ],
+   "4 320x180 RGBA8 unnamed": [
+    "770 320x180 RGBA8 unnamed"
+   ]
+  },
+  "dead_copies": {},
+  "dead_draws": {},
+  "dead_work_flags": {},
+  "dof_depth": {
+   "linear | restores in frame 0 | image written by ext | fmt23": 2
+  },
+  "dof_layers": {
+   "1": 2
+  },
+  "filters": {
+   "combine.s0": "linear",
+   "combine.s2": "linear",
+   "combine.s3": "point",
+   "combine.s6": "linear",
+   "dof.s0": "linear",
+   "dof.s1": "linear",
+   "hole_fill.s0": "point",
+   "monotone.s0": "point"
+  },
+  "frames": 2,
+  "helper_sites": {},
+  "monotone_distinct_banks": 1,
+  "monotone_values": {
+   "g_fAlpha=[0.18, 0.0, 0.0, -0.0]": 2,
+   "g_fCb=[-0.25, 0.18, 0.0, 0.0]": 2,
+   "g_fCr=[0.1, -0.25, 0.18, 0.0]": 2
+  },
+  "named": false,
+  "named_frames": 0,
+  "no_chain_frames": 0,
+  "null_slots": {},
+  "outputs": [
+   3,
+   4,
+   770
+  ],
+  "post_class": {},
+  "post_copies": {
+   "all": [
+    4,
+    4
+   ],
+   "from_scratch_and_scene": [
+    2,
+    2
+   ],
+   "from_step_targets": [
+    2,
+    2
+   ]
+  },
+  "post_draws": {
+   "all": [
+    4,
+    4
+   ],
+   "dof_layers": [
+    1,
+    1
+   ],
+   "restores": [
+    0,
+    0
+   ]
+  },
+  "postish_not_chain": {},
+  "pre_chain": {},
+  "provenance": {
+   "absent": 8
+  },
+  "readers": {
+   "chain:combine": 2,
+   "chain:hole_fill": 2
+  },
+  "retro_draws": 0,
+  "sequences": {
+   "dof hole_fill combine monotone": 2
+  },
+  "shapes": {
+   "film": 2
+  },
+  "slot2_vs_slot6": {
+   "same": 2
+  },
+  "slot6_source": {},
+  "targets": {
+   "combine": [
+    "8 1280x720 RGBA8 unnamed"
+   ],
+   "dof": [
+    "770 320x180 RGBA8 unnamed"
+   ],
+   "hole_fill": [
+    "770 320x180 RGBA8 unnamed"
+   ],
+   "monotone": [
+    "8 1280x720 RGBA8 unnamed"
+   ]
+  }
+ }
+}

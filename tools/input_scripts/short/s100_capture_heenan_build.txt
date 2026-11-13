@@ -1,0 +1,17 @@
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_capture=true
+# Session 100: capture of Bobby Heenan's attire build (30 Years of WrestleMania match 1): the frames after his character file
+# (CH249.PAC) opens at the match load, where the game draws his attire on the GPU and reads it back (runs 6905 / 6906: 2048x1024
+# copies ~28-62 frames after the open). The old path draws (mirror reader, no live renderer); rplay draws the capture offline.
+on_fail quit
+log bench: start scene s90_wm30
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log bench: wm30 match picked
+press_until_file A CH249.PAC 6 600 3
+cvar wwe2k14_rdr_capture_label s100_heenan_build
+cvar wwe2k14_rdr_capture_frames 100
+wait_frames 160
+log bench: done
+quit

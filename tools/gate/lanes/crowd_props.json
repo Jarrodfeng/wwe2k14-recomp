@@ -1,0 +1,9 @@
+{
+ "owner": "lane 133 (S101): N4, the crowd's sign / foam-hand draws (T_Audience_LightMap 0x82518D60, T_Audience 0x825192D0) ours in place through the replace seam: src/assets/crowd_prop_game_space.{h,cpp}, src/renderer_scene/crowd_props_{core.h,ours.h,ours.cpp,factory.h}, tools/crowd/crowd_props_join.py + crowd_props_check.py; docs/renderer/CROWD_PROMOTION.md (N4), docs/systems/crowd.md",
+ "note": "join: the independent Python oracle (file census over every arena pac + the draws of run 7079 / Check I match 7083 / Bryan joined by bytes, plants wrong_entry / half_nearest / pos_not_x10 / index_swapped). proof: fview --crowd-props on those captures (needs out/renderer/release/fview.exe built from the tree under test: tools/fview/build.ps1 -Release; the gate runs it with --no-build). A missing input FAILs loudly. The hook's live path (live.cpp, reader.h, the binder's read_geometry on the live store) is NOT proven offline: the live check rides Check J1.",
+ "checks": [
+  {"name": "crowd_props.join", "cmd": ["py", "-I", "tools/crowd/crowd_props_join.py", "--selftest"], "timeout_s": 1800, "needs": ["out/s101/runs/20261112_122623_s100_owner_s89_brock", "out/s101/runs/20261112_131008_s100_owner_match", "out/s101/runs/20261112_122700_s100_owner_bryan_entrance", "game_data/extracted"]},
+  {"name": "crowd_props.unit", "cmd": ["py", "-I", "tools/crowd/crowd_props_unit_selftest.py", "--root", "."], "timeout_s": 900},
+  {"name": "crowd_props.proof", "cmd": ["py", "-I", "tools/crowd/crowd_props_check.py", "--root", ".", "--no-build"], "timeout_s": 3600, "needs": ["out/s101/runs/20261112_122623_s100_owner_s89_brock", "out/s101/runs/20261112_131008_s100_owner_match", "out/s101/runs/20261112_122700_s100_owner_bryan_entrance", "game_data/extracted"]}
+ ]
+}

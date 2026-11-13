@@ -38,6 +38,7 @@
 #include <rex/logging.h>
 
 #include "../native_fn.h"
+#include "../crowd_wide.h"  // lane 176: the test follows the displayed aspect (same scale as the midasm hooks)
 #include "../native_skin.h"
 
 REXCVAR_DEFINE_STRING(wwe2k14_nf_frustum_cull, "off", "wwe2k14",
@@ -73,7 +74,9 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
       m2[j][c] = BeF(base, ((obj + 240 + 16 * j) & ~0xFu) + 4 * c);
     }
   const double k_scale = Cd(base, 0x82020000u - 16936u);
-  const double sx = Rd(double(m1[0][0]) * k_scale), sy = Rd(double(m1[1][1]) * k_scale);
+  const wwe2k14::crowd_wide::Scale ws = wwe2k14::crowd_wide::Current();  // lane 176: (1, 1) on a 16:9 display = the game's own test
+  double sx = Rd(double(m1[0][0]) * k_scale), sy = Rd(double(m1[1][1]) * k_scale);
+  wwe2k14::crowd_wide::NativeRadius(sx, sy, ws);  // lane 203: shared with the unit test (tools/crowd/crowd_wide_test.cpp)
   // sub_822505B8: prod = m1 x m2, per row j of m2 and column c, separate multiplies and adds in flush-to-zero mode.
   ctx.fpscr.enableFlushMode();
   for (int j = 0; j < 4; ++j)
@@ -85,6 +88,8 @@ inline void Run(PPCContext& ctx, uint8_t* base) {
       prod[j][c] = t;
     }
   ctx.fpscr.disableFlushMode();
+  // lane 176: output x / y of the point scaled by 1/k, 1/t (the hook at 0x8250E1D0 does the same to the original's stack copy).
+  wwe2k14::crowd_wide::NativeProduct(prod, ws);
   // Thresholds: slot 0 = fma(b, c31, a), slot 1 = a + b (the third, fma(b, k, a), is stored by the original but unused).
   const float thr[2] = {float(std::fma(b, Cd(base, 0x8218B8CCu), a)), float(a + b)};
   const double lim = Rd(std::fma(b, Cd(base, 0x82000000u + 19884u), a));
@@ -169,6 +174,10 @@ struct Spec {
   static constexpr const char* kName = "frustum_cull";
   static constexpr uint32_t kGuest = 0x8250E110;
   static constexpr uint32_t kRegs = native_fn::kR3;
+  // Lane 203: verify is not strict for this function. The strict probes (volatile registers r4-r12, the 512 bytes below r1) differ by design: the original
+  // leaves its matrix scratch there, this version keeps it in host arrays (header: dead after the call, not reproduced). Declared outputs, r3, the
+  // non-volatile registers and the FP mode are still compared.
+  static constexpr bool kStrictVerify = false;
   static native_fn::Mode GetMode() { return native_fn::ModeFromCvar(REXCVAR_GET(wwe2k14_nf_frustum_cull)); }
   static void Writes(const PPCContext& ctx, uint8_t* base, native_fn::Ranges& out) {
     (void)base;

@@ -1,0 +1,5 @@
+{"owner": "lane 108 (S101 L-5): wm30:N@fire:BANK / !wm30 fire BANK - the guard truth table (compiled), planted twins, the resolver's table guard, listing pins. 0 game runs.", "checks": [
+ {"name": "fire.selftest", "cmd": ["py", "-I", "tools/goto/fire_selftest.py"], "timeout_s": 300, "needs": []},
+ {"name": "fire.table", "cmd": ["py", "-I", "tools/goto/fire_selftest.py", "--table"], "timeout_s": 600, "needs": ["game_data/extracted/pac/evtdsc/evtdsc0.pac", "game_data/extracted/pac/evt/Season00.pac", "out/tools/xctd_unpack.exe"]},
+ {"name": "fire.listing", "cmd": ["py", "-I", "tools/goto/fire_selftest.py", "--listing"], "timeout_s": 300, "needs": ["generated/default/wwe2k14_recomp.263.cpp"]}
+]}

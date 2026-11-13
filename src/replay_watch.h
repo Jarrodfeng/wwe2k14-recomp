@@ -48,6 +48,7 @@
 #include <atomic>
 #include <cstdint>
 
+#include "cost_counters.h"  // S101 lane 83
 #include "frame_stats.h"  // g_guest_frame
 
 #if defined(__ANDROID__)
@@ -202,9 +203,51 @@ REX_HOOK_RAW(sub_82BB5BE8) {
 }
 
 // render_cmd_dispatch: r3 = the manager, r4 = the stack slot holding the record's address.
+// Session 100 (WM30 crash, runs 6861-6892): a record with opcode 81 calls a model's cached record list (the address at rec+16, kept in the
+// model: holder at object +864 / +868, filled by 0x82BB4AE0; recorder 0x82C24500). The update thread can release that model (0x82BD91B0)
+// while the render thread replays last frame's lists, which still call the list: the call then lands in freed, reused memory (the
+// crash: a "record" whose length is a code address). Before an op 81 runs, its target is checked: up to kCallCheckRecords records must have
+// opcodes the replay knows (<= 105) and lengths that fit (< 4096 slots) until the list's own return (82). A target that fails is not
+// called: the replay loop's own step moves past the 81 (the model misses that frame). --wwe2k14_replay_call_check (default on).
+REXCVAR_DEFINE_BOOL(wwe2k14_replay_call_check, true, "wwe2k14",
+                    "Session 100: skip a render-command call (opcode 81) whose cached list is not a valid record list (freed memory) "
+                    "instead of jumping into it (src/replay_watch.h)");
+namespace wwe2k14::replay_watch {
+inline constexpr uint32_t kCallCheckRecords = 64;
+inline std::atomic<uint64_t> g_calls_skipped{0};
+// True when the list at `list` looks like a record list up to its return (or for kCallCheckRecords records).
+inline bool CallTargetValid(const uint8_t* base, uint32_t list) {
+  if (!list || (list & 15)) return false;
+  uint32_t at = list;
+  for (uint32_t k = 0; k < kCallCheckRecords; ++k) {
+    const uint32_t op = Be32(base, at), len = Be32(base, at + 8);
+    if (op == 82) return true;
+    if (op > 105 || len >= 4096) return false;
+    at += 16 * (len + 1);
+  }
+  return true;
+}
+}  // namespace wwe2k14::replay_watch
+
 REX_HOOK_RAW(sub_82BB53D0) {
   namespace rw = wwe2k14::replay_watch;
   const uint32_t manager = ctx.r3.u32, slot = ctx.r4.u32;
+  if (REXCVAR_GET(wwe2k14_replay_call_check)) {
+    const uint32_t record = rw::Be32(base, slot);
+    if (rw::Be32(base, record) == 81) {
+      const uint32_t target = rw::Be32(base, record + 16);
+      if (!rw::CallTargetValid(base, target)) {
+        const uint64_t n = rw::g_calls_skipped.fetch_add(1, std::memory_order_relaxed);
+        if (n < 8 || (n & 1023) == 0) {
+          REXLOG_WARN("[wwe2k14][replay_watch] call skipped (frame {}): record 0x{:08X} calls 0x{:08X}, whose first words {:08X} {:08X} {:08X} {:08X} "
+                      "are not a record list (a released model's cached list); {} skipped so far",
+                      wwe2k14::g_guest_frame.load(std::memory_order_relaxed), record, target, rw::Be32(base, target), rw::Be32(base, target + 4),
+                      rw::Be32(base, target + 8), rw::Be32(base, target + 12), n + 1);
+        }
+        return;  // the loop's own step ([manager+44] += len + 1) moves past the 81
+      }
+    }
+  }
 #if defined(__ANDROID__)
   constexpr bool kWatch = true;
 #else
@@ -216,7 +259,11 @@ REX_HOOK_RAW(sub_82BB53D0) {
                                          rw::Be32(base, manager + 44)};
     ++rw::t_dispatches;
   }
-  __imp__sub_82BB53D0(ctx, base);
+  {
+    // S101 lane 83: replay cost per record by opcode (outermost dispatch only; the record's opcode is read only when the counters are on).
+    wwe2k14::cost::ReplaySpan cost_span(wwe2k14::cost::On() ? rw::Be32(base, rw::Be32(base, slot)) : 0u);
+    __imp__sub_82BB53D0(ctx, base);
+  }
   if (REXCVAR_GET(wwe2k14_replay_guard)) {
     rw::Guard(base, manager, slot);
   } else if (kWatch && rw::t_dispatches == rw::kRunaway && rw::g_reports.fetch_add(1) == 0) {

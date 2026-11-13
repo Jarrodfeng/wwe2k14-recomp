@@ -1,0 +1,8 @@
+{
+ "owner": "lane PN (S101): post draws named at their source (POST_PROMOTION_MAP.md section 7 lane PN). Python + clang unit test, 0 game runs. The live proof is tools/names/post_names_check.py on a capture from the build with the hooks (PO1's check).",
+ "checks": [
+  {"name": "post_names.gen_check", "cmd": ["py", "-I", "tools/names/gen_origin_table.py", "--check"], "timeout_s": 300, "needs": ["generated/default/wwe2k14_recomp.0.cpp"]},
+  {"name": "post_names.site_synth", "cmd": ["py", "-I", "tools/names/post_site_synth_test.py"], "timeout_s": 900, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip", "game_data/extracted"]},
+  {"name": "post_names.selftest", "cmd": ["py", "-I", "tools/names/post_names_selftest.py"], "timeout_s": 900, "needs": ["generated/default/wwe2k14_recomp.0.cpp"]}
+ ]
+}

@@ -1,0 +1,1989 @@
+{
+ "effect": "yGlareEtc",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "C72CDA5858538C1A"
+   ]
+  },
+  {
+   "name": "corner_uv",
+   "defines": [
+    "FX_CORNER_UV"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "F4D1D66368C3B378"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "E15F1D470281D5D5"
+   ]
+  },
+  {
+   "name": "adapt",
+   "defines": [
+    "FX_ADAPT"
+   ],
+   "constants": [
+    {
+     "field": "ElapsedTime",
+     "register": 7,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1B49E86DDA5B46A6"
+   ]
+  },
+  {
+   "name": "dof",
+   "defines": [
+    "FX_DOF"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "30E5A7F732232FEB"
+   ]
+  },
+  {
+   "name": "fog",
+   "defines": [
+    "FX_FOG"
+   ],
+   "constants": [
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "F9F3B6A5DCCF1529"
+   ]
+  },
+  {
+   "name": "night",
+   "defines": [
+    "FX_NIGHT"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "0CF7A9D56CA60B91"
+   ]
+  },
+  {
+   "name": "tonemap",
+   "defines": [
+    "FX_TONEMAP"
+   ],
+   "constants": [
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "983A8F892191E756"
+   ]
+  },
+  {
+   "name": "bloom",
+   "defines": [
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "E20ED394267DF732"
+   ]
+  },
+  {
+   "name": "dof_fog",
+   "defines": [
+    "FX_DOF",
+    "FX_FOG"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1233F68C15FDF948"
+   ]
+  },
+  {
+   "name": "dof_night",
+   "defines": [
+    "FX_DOF",
+    "FX_NIGHT"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "D7413C6862C2FE37"
+   ]
+  },
+  {
+   "name": "dof_tonemap",
+   "defines": [
+    "FX_DOF",
+    "FX_TONEMAP"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "E4344557BCE7C89F"
+   ]
+  },
+  {
+   "name": "dof_bloom",
+   "defines": [
+    "FX_DOF",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "4424463DB04D1285"
+   ]
+  },
+  {
+   "name": "fog_night",
+   "defines": [
+    "FX_FOG",
+    "FX_NIGHT"
+   ],
+   "constants": [
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "285B615BA3031A79"
+   ]
+  },
+  {
+   "name": "fog_tonemap",
+   "defines": [
+    "FX_FOG",
+    "FX_TONEMAP"
+   ],
+   "constants": [
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "5FECCF9A138AF84E"
+   ]
+  },
+  {
+   "name": "fog_bloom",
+   "defines": [
+    "FX_FOG",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "A8342F25CDB3A855"
+   ]
+  },
+  {
+   "name": "night_tonemap",
+   "defines": [
+    "FX_NIGHT",
+    "FX_TONEMAP"
+   ],
+   "constants": [
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "32E0933FC12164A0"
+   ]
+  },
+  {
+   "name": "night_bloom",
+   "defines": [
+    "FX_NIGHT",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "D42A6EE1FD5E483E"
+   ]
+  },
+  {
+   "name": "tonemap_bloom",
+   "defines": [
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "ADC9A7EFEEA1739C"
+   ]
+  },
+  {
+   "name": "dof_fog_night",
+   "defines": [
+    "FX_DOF",
+    "FX_FOG",
+    "FX_NIGHT"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "F9757BE5E33CDCA5"
+   ]
+  },
+  {
+   "name": "dof_fog_tonemap",
+   "defines": [
+    "FX_DOF",
+    "FX_FOG",
+    "FX_TONEMAP"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "414A1858D566990E"
+   ]
+  },
+  {
+   "name": "dof_fog_bloom",
+   "defines": [
+    "FX_DOF",
+    "FX_FOG",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "4E2CD8031D93DE3E"
+   ]
+  },
+  {
+   "name": "dof_night_tonemap",
+   "defines": [
+    "FX_DOF",
+    "FX_NIGHT",
+    "FX_TONEMAP"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "F639CAE86714D86B"
+   ]
+  },
+  {
+   "name": "dof_night_bloom",
+   "defines": [
+    "FX_DOF",
+    "FX_NIGHT",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "94B6CC6040BF009C"
+   ]
+  },
+  {
+   "name": "dof_tonemap_bloom",
+   "defines": [
+    "FX_DOF",
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "FF5713DE37C3FB83"
+   ]
+  },
+  {
+   "name": "fog_night_tonemap",
+   "defines": [
+    "FX_FOG",
+    "FX_NIGHT",
+    "FX_TONEMAP"
+   ],
+   "constants": [
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "DD7BFAD67D8585BA"
+   ]
+  },
+  {
+   "name": "fog_night_bloom",
+   "defines": [
+    "FX_FOG",
+    "FX_NIGHT",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "C08451705E9CE56C"
+   ]
+  },
+  {
+   "name": "fog_tonemap_bloom",
+   "defines": [
+    "FX_FOG",
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "2E70F52D882C0D33"
+   ]
+  },
+  {
+   "name": "night_tonemap_bloom",
+   "defines": [
+    "FX_NIGHT",
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "A57B29AF196428EA"
+   ]
+  },
+  {
+   "name": "dof_fog_night_tonemap",
+   "defines": [
+    "FX_DOF",
+    "FX_FOG",
+    "FX_NIGHT",
+    "FX_TONEMAP"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "2BFCA574F4F77291"
+   ]
+  },
+  {
+   "name": "dof_fog_night_bloom",
+   "defines": [
+    "FX_DOF",
+    "FX_FOG",
+    "FX_NIGHT",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "86EFDE3E065F8536"
+   ]
+  },
+  {
+   "name": "dof_fog_tonemap_bloom",
+   "defines": [
+    "FX_DOF",
+    "FX_FOG",
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "F960F860037B7E24"
+   ]
+  },
+  {
+   "name": "dof_night_tonemap_bloom",
+   "defines": [
+    "FX_DOF",
+    "FX_NIGHT",
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "4C59F89CEA670E44"
+   ]
+  },
+  {
+   "name": "fog_night_tonemap_bloom",
+   "defines": [
+    "FX_FOG",
+    "FX_NIGHT",
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "B3E5C7C5B06C2CA4"
+   ]
+  },
+  {
+   "name": "dof_fog_night_tonemap_bloom",
+   "defines": [
+    "FX_DOF",
+    "FX_FOG",
+    "FX_NIGHT",
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "2d"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "07C2B90A0D24DA6A"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_CORNER_UV"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_ADAPT",
+    "FX_DOF",
+    "FX_FOG",
+    "FX_NIGHT",
+    "FX_TONEMAP",
+    "FX_BLOOM"
+   ],
+   "constants": [
+    {
+     "field": "ElapsedTime",
+     "register": 7,
+     "count": 1,
+     "when": [
+      "FX_ADAPT"
+     ]
+    },
+    {
+     "field": "DOFParam",
+     "register": 20,
+     "count": 1,
+     "when": [
+      "FX_DOF"
+     ]
+    },
+    {
+     "field": "DOFParam2",
+     "register": 21,
+     "count": 1,
+     "when": [
+      "FX_DOF"
+     ]
+    },
+    {
+     "field": "RGB",
+     "register": 27,
+     "count": 1,
+     "when": [
+      "FX_FOG"
+     ]
+    },
+    {
+     "field": "Alpha",
+     "register": 29,
+     "count": 1,
+     "when": [
+      "FX_FOG"
+     ]
+    },
+    {
+     "field": "ZAdj",
+     "register": 30,
+     "count": 1,
+     "when": [
+      "FX_FOG"
+     ],
+     "range": [
+      0.0,
+      0.9
+     ]
+    },
+    {
+     "field": "BloomScale",
+     "register": 31,
+     "count": 1,
+     "when": [
+      "FX_BLOOM"
+     ]
+    },
+    {
+     "field": "StarScale",
+     "register": 32,
+     "count": 1,
+     "when": [
+      "FX_BLOOM"
+     ]
+    },
+    {
+     "field": "MiddleGray",
+     "register": 33,
+     "count": 1,
+     "when": [
+      "FX_TONEMAP"
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_ADAPT"
+     ]
+    },
+    {
+     "slot": 2,
+     "kind": "2d",
+     "when": [
+      "FX_DOF"
+     ]
+    },
+    {
+     "slot": 3,
+     "kind": "2d",
+     "when": [
+      "FX_DOF"
+     ]
+    },
+    {
+     "slot": 3,
+     "kind": "2d",
+     "when": [
+      "FX_FOG",
+      "!FX_DOF"
+     ]
+    },
+    {
+     "slot": 6,
+     "kind": "2d",
+     "when": [
+      "FX_DOF"
+     ]
+    },
+    {
+     "slot": 7,
+     "kind": "2d",
+     "when": [
+      "FX_BLOOM"
+     ]
+    },
+    {
+     "slot": 8,
+     "kind": "2d",
+     "when": [
+      "FX_BLOOM"
+     ]
+    },
+    {
+     "slot": 9,
+     "kind": "2d",
+     "when": [
+      "FX_NIGHT"
+     ]
+    },
+    {
+     "slot": 9,
+     "kind": "2d",
+     "when": [
+      "FX_TONEMAP",
+      "!FX_NIGHT"
+     ]
+    }
+   ]
+  }
+ }
+}

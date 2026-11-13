@@ -45,9 +45,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "draw_origin.h"  // S101 lane18: NoteText (the set-text registry behind the 2D draws' widget names)
 #include "frame_stats.h"   // g_guest_frame (VdSwap count)
 #include "guest_read.h"    // GuestWordReadableFast
 #include "input_script.h"  // g_mouse_pad_filter
+#include "music_picker_ui.h"  // lane 292: PickerIsOpen
 
 REXCVAR_DEFINE_BOOL(wwe2k14_mouse_menus, true, "wwe2k14",
                     "Session 67: the mouse in the game's list menus (main menu, PLAY, CREATIONS, OPTIONS, ...): "
@@ -179,7 +181,7 @@ inline void OnMenuFrame(uint64_t frame) {
   s.seen_ms = NowMs();
   if (frame < s.next_frame) return;  // a press held, then released
   const uint32_t sm = SmartMenu();
-  if (!ListActive(sm) || g_input_script.Busy() || InMatch()) {  // a screen / message box over the list, a script: idle
+  if (!ListActive(sm) || g_input_script.Busy() || InMatch() || music_picker::PickerIsOpen()) {  // the song picker is open (lane 292): its targets are dropped; a screen / message box over the list, a script: idle
     s.target = -1;
     s.select = false;
     s.wheel = 0;
@@ -235,6 +237,7 @@ inline void ArenaPadFilter(rex::input::X_INPUT_STATE* state, uint64_t frame);
 inline void LegendPadFilter(rex::input::X_INPUT_STATE* state, uint64_t frame);
 inline void DumpTextElements();
 inline void PadFilter(rex::input::X_INPUT_STATE* state) {
+  if (music_picker::PickerIsOpen()) return;  // lane 292: the song picker owns the pad (a mouse click is the picker's, not a press for the menu under it)
   State& s = S();
   const uint64_t frame = g_guest_frame.load(std::memory_order_relaxed);
   if (REXCVAR_GET(wwe2k14_mouse_menus_dump)) {
@@ -264,7 +267,7 @@ inline bool RightButtonBound() {
 // And never in a match.
 inline bool MouseTaken() {
   return (rex::cvar::GetFlagByName("mnk_mode") == "true" && rex::cvar::GetFlagByName("mnk_mouse") == "true") ||
-         g_input_script.Busy() || InMatch();
+         g_input_script.Busy() || InMatch() || music_picker::PickerIsOpen();  // lane 292: the USER PLAYLIST picker takes the mouse (its own overlay reads it)
 }
 
 // UI thread: the window pixel (x, y) in the game's 1280 x 720 screen; false outside the picture.
@@ -1583,6 +1586,7 @@ REX_HOOK_RAW(sub_82B53068) {
   }
   const uint32_t element = ctx.r3.u32, id = ctx.r4.u32;
   __imp__sub_82B53068(ctx, base);
+  wwe2k14::draw_origin::NoteText(base, element, id);  // S101 lane18: the set-text registry (widget names of the 2D draws; no-op unless the reader reads names)
   if (REXCVAR_GET(wwe2k14_mouse_menus)) OnTextElement(element, id);  // filed under its parent (the UI lists' labels)
 }
 REX_EXTERN(__imp__sub_82B49A70);

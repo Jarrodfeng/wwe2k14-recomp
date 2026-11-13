@@ -1,0 +1,7 @@
+{
+ "owner": "lane 15: entrances on the viewer's rdr backend (light rig, props, tron video surfaces, the entrant)",
+ "checks": [
+  {"name": "scene_ent.viewer_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1", "-Backend", "rdr"], "timeout_s": 1800},
+  {"name": "scene_ent.selftest", "cmd": ["py", "-I", "tools/scene/entrance_selftest.py"], "timeout_s": 2400, "needs": ["game_data/extracted"]}
+ ]
+}

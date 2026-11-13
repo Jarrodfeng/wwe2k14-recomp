@@ -1,0 +1,1821 @@
+{
+ "effect": "yProp_Default",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "99E1F3453375F147"
+   ]
+  },
+  {
+   "name": "skinned",
+   "defines": [
+    "FX_SKINNED"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "2FB1CFF656522B95"
+   ]
+  },
+  {
+   "name": "spec",
+   "defines": [
+    "FX_SPEC"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "AF4ED9426D91E6C1"
+   ]
+  },
+  {
+   "name": "screen_convert",
+   "defines": [
+    "FX_SCREEN_CONVERT"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "16E7D41DA67E7FCE"
+   ]
+  },
+  {
+   "name": "noise",
+   "defines": [
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "NoiseParam",
+     "register": 207,
+     "count": 1
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "2E36B5AA56212381"
+   ]
+  },
+  {
+   "name": "skinned_spec",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SPEC"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "B36CD990D3F3CEC6"
+   ]
+  },
+  {
+   "name": "skinned_screen_convert",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SCREEN_CONVERT"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "A7FFCB9E6502D108"
+   ]
+  },
+  {
+   "name": "skinned_noise",
+   "defines": [
+    "FX_SKINNED",
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "NoiseParam",
+     "register": 207,
+     "count": 1
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "3192C1A0EDF56A45"
+   ]
+  },
+  {
+   "name": "spec_screen_convert",
+   "defines": [
+    "FX_SPEC",
+    "FX_SCREEN_CONVERT"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "56B24C0635428F20"
+   ]
+  },
+  {
+   "name": "screen_convert_noise",
+   "defines": [
+    "FX_SCREEN_CONVERT",
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "NoiseParam",
+     "register": 207,
+     "count": 1
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "BF1AD112418098F0"
+   ]
+  },
+  {
+   "name": "skinned_spec_screen_convert",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SPEC",
+    "FX_SCREEN_CONVERT"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "7CBA574F107F12EE"
+   ]
+  },
+  {
+   "name": "skinned_screen_convert_noise",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SCREEN_CONVERT",
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "NoiseParam",
+     "register": 207,
+     "count": 1
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "7E1274E0D3B34F24"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "468C06E826088769"
+   ]
+  },
+  {
+   "name": "spec",
+   "defines": [
+    "FX_SPEC"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "B73643DDFFC89BAC"
+   ]
+  },
+  {
+   "name": "logo",
+   "defines": [
+    "FX_LOGO"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "E9178926E7F46BAB"
+   ]
+  },
+  {
+   "name": "noise",
+   "defines": [
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "Noise",
+     "register": 207,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "006B13BFA203F87C"
+   ]
+  },
+  {
+   "name": "spec_spec_map",
+   "defines": [
+    "FX_SPEC",
+    "FX_SPEC_MAP"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "9A3940E10D11E98A"
+   ]
+  },
+  {
+   "name": "spec_alpha_gloss",
+   "defines": [
+    "FX_SPEC",
+    "FX_ALPHA_GLOSS"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "072B4BDE9B14E56F"
+   ]
+  },
+  {
+   "name": "spec_logo",
+   "defines": [
+    "FX_SPEC",
+    "FX_LOGO"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "6C0BC8D9BA88D8BF"
+   ]
+  },
+  {
+   "name": "logo_noise",
+   "defines": [
+    "FX_LOGO",
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "Noise",
+     "register": 207,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "46DE3EB245D1B498"
+   ]
+  },
+  {
+   "name": "spec_spec_map_logo",
+   "defines": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_LOGO"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "5A1BA219CA49DA74"
+   ]
+  },
+  {
+   "name": "spec_alpha_gloss_logo",
+   "defines": [
+    "FX_SPEC",
+    "FX_ALPHA_GLOSS",
+    "FX_LOGO"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "83C0800EE67FB414"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_SPEC",
+    "FX_SCREEN_CONVERT",
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "NoiseParam",
+     "register": 207,
+     "count": 1,
+     "when": [
+      "FX_NOISE"
+     ]
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 4,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 5,
+     "location": 5,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 4,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 5,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_ALPHA_GLOSS",
+    "FX_LOGO",
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Noise",
+     "register": 207,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d",
+     "when": [
+      "FX_SPEC_MAP"
+     ]
+    },
+    {
+     "slot": 14,
+     "kind": "2d",
+     "when": [
+      "FX_LOGO"
+     ]
+    },
+    {
+     "slot": 6,
+     "kind": "2d",
+     "when": [
+      "FX_NOISE"
+     ]
+    }
+   ]
+  }
+ }
+}

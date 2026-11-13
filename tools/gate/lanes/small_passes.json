@@ -1,0 +1,8 @@
+{
+ "owner": "lane 135 (S101): the wrestlers' sweat map (yLiquidMap, call sites 0x8279A19C x2 / 0x82799CB4 / 0x82799DC8) and skin pre-light (yPreLight, call 0x82C20B90) passes drawn by ours in place through the replace seam (fate 18, class small_passes): src/renderer_scene/small_passes_{core.h,ours.h,ours.cpp,factory.h}, tools/small/*. docs/renderer/SMALL_PASSES.md",
+ "note": "proof: fview with and without --small-passes-ours over ALL frames of Check B / run 7079 / Bryan (--sweep): the sweat scratch + persistent maps byte-equal per frame (the feedback loop, frame N+1 built from OUR frame N), the picture / pre-light targets / slot-13 cube maps within owned_check's tolerance (the cube directions are rule-built floats: 1 level at most), every replaced draw compared with the rules, the census equals an independent oracle read from the capture alone, validation 0 over all frames; then the planted faults sweat_no_prev, slot_null (SH2's blur_input_null class), prelight_wrong_target_size (and with the compare off) and the control no_verify. The captures are kept (KEEP files). A machine without them FAILS (never skips).",
+ "checks": [
+  {"name": "small_passes.proof", "cmd": ["py", "-I", "tools/small/small_passes_check.py", "--root", "."], "timeout_s": 7200,
+   "needs": ["out/lane40/brock/capture", "out/lane85/r7079/capture", "out/lane99/bryan/capture"]}
+ ]
+}

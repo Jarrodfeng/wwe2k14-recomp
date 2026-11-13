@@ -1,0 +1,65 @@
+{
+ "effect": "yPartsBlur",
+ "vertex": [
+  {
+   "name": "mesh",
+   "defines": [],
+   "hashes": [
+    "E79F4412B1D14E2F"
+   ],
+   "constants": [
+    {
+     "field": "g_fm44LocalWorld",
+     "register": 228,
+     "count": 4
+    },
+    {
+     "field": "g_fm44ViewProj",
+     "register": 56,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "blur13",
+   "defines": [],
+   "hashes": [
+    "F16A9B2D0052AEDE"
+   ],
+   "constants": [
+    {
+     "field": "g_avSampleOffsets",
+     "register": 0,
+     "count": 13
+    },
+    {
+     "field": "g_avSampleWeights",
+     "register": 16,
+     "count": 13
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

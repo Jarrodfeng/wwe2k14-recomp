@@ -64,6 +64,22 @@ address = 0x82BD362C
 name = "wwe2k14_skel_shift"
 registers = ["r3", "r4"]
 
+# S101 lane 43 (W1): sub_82C04DF0 (the wrestler main-pass draw function) at 0x82C04E1C, `mr r23,r3` after the prologue (r5 only stored so far):
+# r3 = model object, r5 = [model+200] = the bone array the draw's c76 rows are cut from. Read only (src/scene_live/model_hooks.h).
+# NEW HOOK: needs one codegen (the main session); not applied by this lane.
+[[midasm_hook]]
+address = 0x82C04E1C
+name = "wwe2k14_model_entry"
+registers = ["r3", "r5", "r13"]
+
+# S101 lane 43 (W1): sub_82720658 (the char model reader) at 0x827207F0 (`stw r11,100(r31)`, before reader+100 / +96 are cleared): r31 = the reader; its slot
+# descriptor [r31+96] then holds the model key (+28), the body model (+4) and the piece array ([+12]). Read only (src/scene_live/model_hooks.h ModelLinkRead).
+# NEW HOOK: needs the same one codegen.
+[[midasm_hook]]
+address = 0x827207F0
+name = "wwe2k14_model_link"
+registers = ["r31"]
+
 # Session 8 task 2 experiment: wait for the motion decompression worker right after posting a character to it
 # (--wwe2k14_det_inline_motion=true, default off; src/fp_probe.h). sub_823FABB8 (per-character motion component
 # update; py tools/analysis/list_function.py 0x823FABB8): 0x823FACB4 is `bl 0x823b7b90` (post the slot, r4 = owner

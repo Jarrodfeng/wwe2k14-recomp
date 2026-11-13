@@ -1,0 +1,1 @@
+{"owner": "go-anywhere N5 (lane 31, moments from recordings)", "checks": [{"name": "moments.selftest", "cmd": ["py", "-I", "tools/goto/moments_selftest.py"], "timeout_s": 300, "needs": []}]}

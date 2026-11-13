@@ -1,0 +1,7 @@
+{"f": 100, "kind": "match", "what": "entered", "n": 1, "slot": 0, "id": 11, "starter": true}
+{"f": 100, "kind": "match", "what": "entered", "n": 2, "slot": 1, "id": 12, "starter": true}
+{"f": 101, "kind": "match", "what": "eliminated", "n": 1, "slot": 3, "id": 77, "over_the_top": true, "by_idx": 2, "victim_idx": 5, "remaining": 39}
+{"f": 102, "kind": "match", "what": "eliminated", "n": 2, "slot": -1, "id": 88, "over_the_top": true, "by_idx": -1, "victim_idx": 6, "remaining": 38, "same_frame": true}
+{"f": 102, "kind": "match", "what": "eliminated", "n": 3, "slot": 4, "id": 99, "over_the_top": true, "by_idx": -1, "victim_idx": 7, "remaining": 37, "same_frame": true}
+{"f": 103, "kind": "match", "what": "entered", "n": 3, "slot": 3, "id": -1}
+{"f": 105, "kind": "match", "what": "entered_id", "n": 3, "slot": 3, "id": 77}

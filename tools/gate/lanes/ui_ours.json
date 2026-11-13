@@ -1,0 +1,8 @@
+{
+ "owner": "lane 66 (S101): our UI textures drawn in place through the REAL replace seam (fview --ui-ours), docs/renderer/UI_OURS.md. Unit half (out/tools/ui_ours_test.exe on the pacs and the capture frames) + fview half (pictures, census, validation, plants, stale_after_join).",
+ "note": "needs: the menu / editor / match case zips (extracted once under the main out/s101/ui_ours/), the game files, a GPU for the fview half (shared: only the frame-ring refusal is retried). Builds both exes itself. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "ui_ours.proof", "cmd": ["py", "-I", "tools/ui/ui_ours_check.py", "--root", "."], "timeout_s": 3600,
+   "needs": ["game_data/extracted/pac/menu", "out/s101/runs/20261111_214249_s100_owner_boot_menu_quit", "out/s101/runs/20261111_223313_s101_checkB_caw_walk", "out/s101/runs/20261111_215201_s100_owner_s89_brock"]}
+ ]
+}

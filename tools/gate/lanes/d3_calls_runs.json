@@ -1,0 +1,9 @@
+{
+ "owner": "lane 274 (S101): calls = runs for every D3 chain from the capture's REAL calls (docs/renderer/SKIP_GAME_WORK_MAP.md 10.12), 0 game runs.",
+ "note": "d3_calls_runs.tool_* = tools/d3/calls_runs_check.py on J1 and run 7147: the capture's LightRefs (one per real colour call) against ScanRuns' runs, per chain; arena, ring, wrestlers and casters must be clean (the ring too since lane 258 / 274 (ok = calls == the runs the shipped split scan makes)). d3_calls_runs.arena = tools/d3/d3_arena_calls_check.py: the arena chain through the real binder (fview, record route) with the hook tally fed from the real calls (D3_REAL_CALLS=1): calls = runs differ 0, picture of all frames byte-equal to D1, holes 0, plus the control (emulated tally, blind) and the plant arena_merge_instances (differ > 0). Needs the kept captures (J1 run 7086, RL1 run 7171 case), the game files and out/renderer/dev/fview.exe (rebuilt unless --no-build).",
+ "checks": [
+  {"name": "d3_calls_runs.tool_j1", "cmd": ["py", "-I", "tools/d3/calls_runs_check.py", "out/s101/lane92/case_20261112_172341_872_0_pc_run_exit/capture", "--ring-from", "out/s101/rl1_diag/case/capture", "--expect-clean", "arena,ring,wrestlers"], "timeout_s": 600, "needs": ["out/s101/lane92", "out/s101/rl1_diag/case/capture"]},
+  {"name": "d3_calls_runs.tool_7147", "cmd": ["py", "-I", "tools/d3/calls_runs_check.py", "out/d3caster/z7147/capture", "--ring-from", "out/s101/rl1_diag/case/capture", "--expect-clean", "arena,ring,wrestlers,casters"], "timeout_s": 600, "needs": ["out/d3caster/z7147", "out/s101/rl1_diag/case/capture"]},
+  {"name": "d3_calls_runs.arena", "cmd": ["py", "-I", "tools/d3/d3_arena_calls_check.py", "--root", "."], "timeout_s": 3600, "needs": ["game_data/extracted", "out/s101/lane92", "out/s101/rl1_diag/case/capture"]}
+ ]
+}

@@ -1,0 +1,7 @@
+{
+ "owner": "lane 58 (S101): the leftovers census (what is still the stream's with the three promotions on): tools/census/leftovers.py, leftovers_selftest.py, fview --ops json (fate / class / technique / call site / prims per draw), fview --judge-pixels 'grid W H'; docs/renderer/LEFTOVERS.md",
+ "note": "unit level always runs (the shipped aggregation on a hand-made frame, with planted twins); the live level needs Check B's case zip (out/s101/runs/20261111_215201_s100_owner_s89_brock) and a built fview.exe (tools/fview/build.ps1) and SKIPs without them; run directly it fails loudly. It checks the tool's fate counts against fview's own census counters (frame 200 -> 201) and two planted twins through the real tool.",
+ "checks": [
+  {"name": "leftovers.unit_and_live", "cmd": ["py", "-I", "tools/census/leftovers_selftest.py"], "timeout_s": 1800, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/renderer/dev/fview.exe", "game_data/extracted"]}
+ ]
+}

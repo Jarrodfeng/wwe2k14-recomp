@@ -1,0 +1,7 @@
+{
+ "owner": "lane 217 (S101): Caster D3 E2b, the binder seam (docs/renderer/SKIP_GAME_WORK_MAP.md 17.9), INERT: the caster class's chain through the REAL binder on run 7138's capture (the one capture that carries caster pass draws and CasterCall records), fview --d3 casters with the guest hook emulated on the capture.",
+ "note": "d3_caster_proof = tools/d3/d3_caster_check.py: pass 1 writes the offline ledger, pass 2 (stream mode) must show markers > 0, holes 0, no sequence 0, ordinal mismatch 0, unconsumed 0, proof mismatches 0, calls = runs differ 0, no caster run not learnable, every marker part's banks byte-equal to the stream's; the run grouping equals the record's CasterCall entries; ten planted faults each change the census as named; the record-mode arm is INFO (which objects the caster registers mark, the named reasons for the rest). One fview process per arm (~5 s each, ~16 arms). Needs the held case zip of run 7138, the game files and out/renderer/dev/fview.exe (the script rebuilds it unless --no-build). A missing input FAILs loudly. The arena's d3_arena lane stays the proof that the generalised core, guest decision and binder did not change the arena.",
+ "checks": [
+  {"name": "d3_caster_proof", "cmd": ["py", "-I", "tools/d3/d3_caster_check.py", "--root", "."], "timeout_s": 3600, "needs": ["out/s101/runs/20261113_065822_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

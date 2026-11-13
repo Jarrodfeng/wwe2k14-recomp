@@ -11,7 +11,7 @@ Parts
                                 targets, raw, with a manifest (5 s, no game).
 
   transcode_test.py             (Session 93) bit test of the BC1 -> ASTC 4x4, BC4 -> EAC R11, BC5 -> EAC RG11 texture load shaders of the
-                                SDK (thirdparty\sdk-wt\s93-astc\src\graphics\shadersulkan_glsl	exture_transcode_cs.glsl): addressing vs the shipped
+                                SDK (thirdparty\sdk-wt\s93-astc\src\graphics\shaders\vulkan_glsl	exture_transcode_cs.glsl): addressing vs the shipped
                                 load shaders, CPU BC / ASTC / EAC decoders, error tables; synthetic corpus, no game data.
                                 py -I tools
 ative\compute_test	ranscode_test.py [--blocks N] [--only addr,ref,bc1,bc4,bc5]

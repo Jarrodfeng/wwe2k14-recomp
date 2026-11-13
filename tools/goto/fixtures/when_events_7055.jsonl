@@ -1,0 +1,12 @@
+{"f": 1, "t": 1.597, "kind": "seq", "seq": 3, "from": -1}
+{"f": 2965, "t": 4.733, "kind": "seq", "seq": 75, "from": 3}
+{"f": 3271, "t": 5.104, "kind": "seq", "seq": 9, "from": 75}
+{"f": 11975, "t": 44.298, "kind": "match", "what": "clock_started", "clock": 1}
+{"f": 16564, "t": 61.563, "kind": "match", "what": "pin", "pinning_slot": 1}
+{"f": 16564, "t": 61.563, "kind": "entrance", "slot": 0, "step": 1, "from": 0}
+{"f": 16564, "t": 61.563, "kind": "entrance", "slot": 1, "step": 1, "from": 0}
+{"f": 16593, "t": 61.687, "kind": "match", "what": "count", "count": 1}
+{"f": 16651, "t": 61.947, "kind": "match", "what": "count", "count": 2}
+{"f": 16710, "t": 62.213, "kind": "match", "what": "finish", "finish_type": 1, "finish_name": "pinfall", "winner_slot": 1, "winner_id": 343, "loser_slot": 0, "loser_id": 324, "clock": 4705}
+{"f": 18176, "t": 67.616, "kind": "load", "file": "D:\\PAC\\EVT\\WINNING00.PAC"}
+{"f": 18226, "t": 67.764, "kind": "load", "file": "D:\\PAC\\EVT\\WINNING00.PAC"}

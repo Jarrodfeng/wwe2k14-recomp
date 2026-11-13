@@ -36,6 +36,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "../audio_import/audio_import.h"
 #include "cpu_features.h"  // Session 95: wwe2k14.exe or wwe2k14_v3.exe
 #include "disc_image.h"
 #include "../gfx_settings.h"  // Session 28: the graphics settings mapping the game shares
@@ -113,6 +114,8 @@ struct Settings {
   bool shadows = true;         // Session 85: dynamic shadows (false = off; gfx_settings.h)
   bool depth_of_field = true;  // Session 85: depth-of-field blur
   int crowd_density = 100;     // Session 85: 0..100 in steps of 10
+  bool film_grain = true;      // Session 100 settings parity S3: FILM GRAIN (30 YEARS) (gfx_settings.h)
+  bool vsync = true;           // Session 100 settings parity S13: V-SYNC (present only; gfx_settings.h)
   int quality_tier = 0;        // Session 93: 0 AUTO (LOW on integrated graphics), 1 LOW, 2 STANDARD (gfx_settings.h)
   bool low_start_done = false; // Session 95: LOW's starting values have been written into the sliders once for this file (App::Load); a key of its own, no settings_version bump
   bool discord = false;        // Session 33: Discord status (off by default)
@@ -187,7 +190,7 @@ inline void to_json(json& j, const Settings& s) {
   j = json{{"game_exe", s.game_exe}, {"mods_dir", s.mods_dir}, {"scenario", s.scenario}, {"preset", s.preset},
            {"mods", s.mods}, {"lighting", s.lighting}, {"superstars", s.superstars}, {"skip_entrances", s.skip_entrances}, {"logo_legacy_route", s.logo_legacy_route}, {"quick_mode", s.quick_mode}, {"quick_type", s.quick_type}, {"quick_arena", s.quick_arena}, {"quick_ids", s.quick_ids}, {"quick_cpu_only", s.quick_cpu_only}, {"cinecam", s.cinecam}, {"look", s.look},
            {"upscale", s.upscale}, {"texture_filter", s.texture_filter}, {"post_effects", s.post_effects},
-           {"shadows", s.shadows}, {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density}, {"quality_tier", s.quality_tier}, {"low_start_done", s.low_start_done},
+           {"shadows", s.shadows}, {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density}, {"film_grain", s.film_grain}, {"vsync", s.vsync}, {"quality_tier", s.quality_tier}, {"low_start_done", s.low_start_done},
            {"dlss_dir", s.dlss_dir},
            {"fsr_note", s.fsr_note}, {"renderer", s.renderer}, {"settings_version", s.settings_version},
            {"discord", s.discord}, {"discord_app_id", s.discord_app_id}, {"aspect", s.aspect},
@@ -225,6 +228,8 @@ inline void from_json(const json& j, Settings& s) {
   // Session 85: missing keys keep the defaults (shadows on, depth of field on, crowd 100%).
   Get(j, "shadows", s.shadows), Get(j, "depth_of_field", s.depth_of_field), Get(j, "crowd_density", s.crowd_density);
   s.crowd_density = wwe2k14::gfxs::RoundCrowdDensity(s.crowd_density);
+  Get(j, "film_grain", s.film_grain), Get(j, "vsync", s.vsync);  // Session 100 (missing keys = on)
+  s.post_effects = 0;  // Session 100 (Jarrod 08:1x): ENHANCED post effects removed; an older file's 1 reads as the original
   Get(j, "quality_tier", s.quality_tier);  // Session 93: a missing key = 0 AUTO
   Get(j, "low_start_done", s.low_start_done);  // Session 95: a missing key = not done yet (App::Load does it once)
   s.quality_tier = std::clamp(s.quality_tier, 0, 2);
@@ -255,7 +260,7 @@ inline void from_json(const json& j, Settings& s) {
   Get(j, "display_720p", s.display_720p);  // Session 95
   // Session 93 (Jarrod, 2026-11-06 01:1x: "True native should become the default, even retroactively"): a file from
   // before settings_version 4 moves to TRUE NATIVE once; the next save writes version 4, so an OFF picked after stays.
-  if (version < 4) s.true_native = true;
+  s.true_native = true;  // S101 (Jarrod 2026-11-13: "hide true native"): always on; the toggle is hidden (owner mode draws everything)
   Get(j, "page", s.page), Get(j, "mods_tab", s.mods_tab), Get(j, "runin", s.runin), Get(j, "keyboard", s.keyboard);
   Get(j, "keyboard_own_player", s.keyboard_own_player);
   Get(j, "language", s.language), Get(j, "gpu", s.gpu), Get(j, "windowed", s.windowed), Get(j, "titles_view", s.titles_view), Get(j, "check_updates", s.check_updates);
@@ -767,7 +772,10 @@ inline std::string AssignTron(const Paths& p, int tron, const fs::path& src, boo
 }
 
 // Session 33: custom entrance music, <mods>\music\ID.ext (ID = the wrestler's character id; src\entrance_music.h).
-inline constexpr const char* kMusicExts[] = {".mp3", ".m4a", ".wav", ".flac", ".wma", ".aac"};
+// Lane 283: every common audio format is accepted; the song is converted + loudness-normalised at import (src/audio_import, which
+// the launcher links) and the game plays the cached copy. The list is audio_import::kExts (one list for the game and the launcher).
+inline constexpr const auto& kMusicExts = audio_import::kExts;
+inline fs::path MusicCacheDir(const Paths& p) { return p.mods / "music" / ".cache"; }
 inline fs::path MusicFor(const Paths& p, int id) {
   std::error_code ec;
   for (const char* ext : kMusicExts) {
@@ -789,7 +797,7 @@ inline std::string AssignMusic(const Paths& p, int id, const fs::path& src) {
   if (!fs::is_regular_file(src, ec)) return "file not found: " + PathStr(src);
   const std::string ext = Lower(PathStr(src.extension()));
   if (std::find(std::begin(kMusicExts), std::end(kMusicExts), ext) == std::end(kMusicExts))
-    return "use a .mp3, .m4a, .wav, .flac, .wma or .aac file";
+    return "use a .mp3, .wav, .ogg, .opus, .flac, .m4a, .aac or .wma file";
   const fs::path dir = p.mods / "music";
   fs::create_directories(dir, ec);
   const fs::path dst = dir / (std::to_string(id) + ext), tmp = dir / (std::to_string(id) + ext + ".part");
@@ -914,7 +922,7 @@ inline std::vector<NewSong> ReadNewSongs(const Paths& p) {
 inline std::string AddNewSong(const Paths& p, const fs::path& src) {
   std::error_code ec;
   if (!fs::is_regular_file(src, ec)) return "file not found: " + PathStr(src);
-  if (!IsSongFile(src)) return "use a .mp3, .m4a, .wav, .flac, .wma or .aac file";
+  if (!IsSongFile(src)) return "use a .mp3, .wav, .ogg, .opus, .flac, .m4a, .aac or .wma file";
   const fs::path dir = NewSongsDir(p), dst = dir / src.filename(), tmp = dir / (PathStr(src.filename()) + ".part");
   fs::create_directories(dir, ec);
   if (fs::exists(dst, ec)) return "a song named " + PathStr(src.filename()) + " is already there";
@@ -1191,6 +1199,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     c.texture_filter = s.texture_filter;  // Session 33
     c.post_effects = s.post_effects;      // Session 72
     c.shadows = s.shadows, c.depth_of_field = s.depth_of_field, c.crowd_density = s.crowd_density;  // Session 85
+    c.film_grain = s.film_grain, c.vsync = s.vsync;  // Session 100 settings parity S3 / S13
     c.true_native = s.true_native;        // Session 87
     c.display_720p = s.display_720p;      // Session 95
     c.renderer = s.renderer;              // Session 37 (Session 61: NATIVE, or the performance test's own run)

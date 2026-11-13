@@ -1,0 +1,2771 @@
+{
+ "F": {
+  "data": {
+   "bake": {
+    "copies_ne1": 0,
+    "copy_extra": [
+     [
+      0,
+      0,
+      6,
+      1
+     ]
+    ],
+    "copy_rect_bad": 0,
+    "copy_src_bad": 0,
+    "dest_dup_frames": 0,
+    "dest_first_ids": [
+     414
+    ],
+    "dest_not_ascending": 0,
+    "dest_not_consecutive": 0,
+    "dest_size_bad": 0,
+    "draws_ne1": 0,
+    "effects": [
+     [
+      "yAudDefault/skinned_lit_lm_vertex",
+      "yAudience/base"
+     ]
+    ],
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.003921568859368563,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1,
+    "frames_with": 337,
+    "lightset_counts_per_frame": [
+     1
+    ],
+    "lightsets_all": 337,
+    "lightsets_gt1_frames": 0,
+    "lmp": [
+     [
+      0.00017857142665889114,
+      0.0001739130384521559,
+      2.5,
+      1.0
+     ]
+    ],
+    "mat": [
+     [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    ],
+    "no_clear": 0,
+    "pass_site_bad": 0,
+    "pass_site_other_draws": 3631,
+    "pass_site_other_effects": {
+     "yAudDefault/skinned_lit_lm_uv": 3631
+    },
+    "pic_flags": [
+     11
+    ],
+    "pic_mips": [
+     1
+    ],
+    "plane_after_bake_frames": 0,
+    "tex0_dims": [
+     [
+      256,
+      256
+     ]
+    ],
+    "tex0_dup_frames": 0,
+    "tex0_first_ids": [
+     392
+    ],
+    "tex0_not_ascending": 0,
+    "tex0_not_consecutive": 0,
+    "tex16_multi_frames": 0,
+    "vertex_count_range": [
+     104,
+     127
+    ],
+    "vertex_counts_per_slot_distinct": {
+     "0": 1,
+     "1": 1,
+     "10": 1,
+     "11": 1,
+     "12": 1,
+     "13": 1,
+     "14": 1,
+     "15": 1,
+     "16": 1,
+     "17": 1,
+     "18": 1,
+     "19": 1,
+     "2": 1,
+     "3": 1,
+     "4": 1,
+     "5": 1,
+     "6": 1,
+     "7": 1,
+     "8": 1,
+     "9": 1
+    },
+    "viewport": [
+     [
+      0.0,
+      0.0,
+      64.0,
+      64.0,
+      1.0,
+      0.0
+     ]
+    ],
+    "viewproj": [
+     [
+      0.012195121496915817,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -0.00800000037997961,
+      0.0,
+      -1.0,
+      0.0,
+      0.0,
+      0.0010000000474974513,
+      0.5,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "viewproj_distinct": 1
+   },
+   "bakes": [
+    20
+   ],
+   "binding": {
+    "bad": 0,
+    "block_bad": 0,
+    "block_multi": 0,
+    "block_types": 6639,
+    "block_unpaired": 0,
+    "blocks_paired": 62711,
+    "cards": 228214,
+    "frames_without_20_bakes": 0
+   },
+   "blocks": {
+    "max": 574,
+    "sum": 62767
+   },
+   "cards": {
+    "frames_with": 337,
+    "max": 1827,
+    "median": 196,
+    "min": 38,
+    "min_nonzero": 38,
+    "p90": 1695,
+    "sum": 228433
+   },
+   "frames": 337,
+   "frames_bakes_20": 337,
+   "named": true,
+   "order": {
+    "adjacent_pairs": 227878,
+    "bad_frames": 0,
+    "inversions": 0,
+    "member_desc": 0,
+    "type_desc": 0
+   },
+   "page": {
+    "after_bakes": 337,
+    "cards_after_page": 337,
+    "clear_frames": 0,
+    "copies_ne1": 0,
+    "copy_dest_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "effects": [
+     [
+      "ySprite/tint_constant"
+     ]
+    ],
+    "frames_with": 337,
+    "img_ids": [
+     388
+    ],
+    "sprite_textures": {
+     "32x32": 337,
+     "512x512": 337,
+     "64x64": 2696
+    },
+    "target": [
+     [
+      512,
+      512
+     ]
+    ]
+   },
+   "pairing": {
+    "count_equal_frames": 336,
+    "dup_keys": 0,
+    "exact_frames": 336,
+    "frames_with_records": 336,
+    "paired": 228214,
+    "record_blocks": 62711,
+    "record_cards": 228214,
+    "stream_cards": 228214,
+    "unpaired_record": 0,
+    "unpaired_stream": 0
+   },
+   "program": {
+    "hashes": [
+     [
+      "D734762D2180F0F5",
+      "EFC4EFCB5FC51945"
+     ]
+    ],
+    "names": [
+     [
+      "yAudience/lm_uv",
+      "yAudience/lm_pixel_color_alpha"
+     ]
+    ],
+    "pairs": 1
+   },
+   "quad": {
+    "blobs": 1,
+    "data": {
+     "indices": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "pos": [
+      [
+       82.0,
+       0.0,
+       0.0
+      ],
+      [
+       -82.0,
+       0.0,
+       0.0
+      ],
+      [
+       82.0,
+       -250.0,
+       0.0
+      ],
+      [
+       -82.0,
+       -250.0,
+       0.0
+      ]
+     ],
+     "uv": [
+      [
+       1.0,
+       1.0
+      ],
+      [
+       0.0,
+       1.0
+      ],
+      [
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ]
+     ]
+    },
+    "layout": [
+     [
+      16,
+      [
+       [
+        106,
+        0
+       ],
+       [
+        83,
+        12
+       ]
+      ]
+     ]
+    ],
+    "offsets_gt1_frames": 0,
+    "shape": [
+     [
+      4,
+      4,
+      0,
+      6,
+      0,
+      64,
+      8
+     ]
+    ]
+   },
+   "readers": {
+    "by": {
+     "825130C4": 228433
+    },
+    "draws": 228433,
+    "frames_with": 337,
+    "not_card": 0,
+    "slots": {
+     "0": 228433
+    }
+   },
+   "registers": {
+    "block_c184_z": [
+     2.5
+    ],
+    "c184": [
+     [
+      0.00017857142665889114,
+      0.0001739130384521559,
+      2.125,
+      1.0
+     ]
+    ],
+    "c184_ps_equal_vs": true,
+    "frames_with_cards_and_blocks": 337,
+    "ps_varying": [],
+    "viewproj_block_equal_frames": 337,
+    "viewproj_distinct": 337,
+    "vs_varying": [
+     76,
+     77,
+     78
+    ]
+   },
+   "sprites": [
+    10
+   ],
+   "state": {
+    "dyn": [
+     {
+      "flags": 4,
+      "viewport": [
+       0.0,
+       0.0,
+       1280.0,
+       720.0,
+       1.0,
+       0.0
+      ]
+     }
+    ],
+    "dyn_distinct": 1,
+    "dyn_equal_blocks": 337,
+    "dyn_gt1_frames": 0,
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.7529412508010864,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1
+   },
+   "stream": {
+    "block_after_cards": 0,
+    "follows_block": 337,
+    "noncontiguous": 0,
+    "pic_distinct_max": 20,
+    "type_order_bad": 0
+   },
+   "textures": {
+    "block_slot13_is_page": 337,
+    "card_pics_in_bake_dests": 337,
+    "rows": [
+     {
+      "dimension": 1,
+      "levels": [
+       0,
+       0
+      ],
+      "lod_bias": 0.0,
+      "sampler": {
+       "aniso": 1,
+       "border": 0,
+       "lod": [
+        0.0,
+        0.0,
+        1000.0
+       ],
+       "mag": 1,
+       "min": 1,
+       "mip": 1,
+       "u": 2,
+       "v": 2,
+       "w": 0
+      },
+      "sign": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "slot": 0,
+      "swizzle": [
+       3,
+       4,
+       5,
+       6
+      ],
+      "view_format": 0
+     },
+     {
+      "dimension": 1,
+      "levels": [
+       0,
+       0
+      ],
+      "lod_bias": 0.0,
+      "sampler": {
+       "aniso": 1,
+       "border": 0,
+       "lod": [
+        0.0,
+        0.0,
+        1000.0
+       ],
+       "mag": 1,
+       "min": 1,
+       "mip": 1,
+       "u": 2,
+       "v": 2,
+       "w": 0
+      },
+      "sign": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "slot": 13,
+      "swizzle": [
+       3,
+       4,
+       5,
+       6
+      ],
+      "view_format": 0
+     }
+    ],
+    "slot0_dims": [
+     [
+      64,
+      64
+     ]
+    ],
+    "slot0_flags": [
+     11
+    ],
+    "slot13_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "slot13_is_page": 337,
+    "slot13_multi_frames": 0,
+    "slotset_gt1_frames": 0,
+    "slotsets": [
+     [
+      0,
+      13
+     ]
+    ]
+   }
+  },
+  "named": true
+ },
+ "brock": {
+  "data": {
+   "bake": {
+    "copies_ne1": 0,
+    "copy_extra": [
+     [
+      0,
+      0,
+      6,
+      1
+     ]
+    ],
+    "copy_rect_bad": 0,
+    "copy_src_bad": 0,
+    "dest_dup_frames": 0,
+    "dest_first_ids": [
+     414
+    ],
+    "dest_not_ascending": 0,
+    "dest_not_consecutive": 0,
+    "dest_size_bad": 0,
+    "draws_ne1": 0,
+    "effects": [
+     [
+      "yAudDefault/skinned_lit_lm_vertex",
+      "yAudience/base"
+     ]
+    ],
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.003921568859368563,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1,
+    "frames_with": 341,
+    "lightset_counts_per_frame": [
+     1
+    ],
+    "lightsets_all": 341,
+    "lightsets_gt1_frames": 0,
+    "lmp": [
+     [
+      0.00017857142665889114,
+      0.0001739130384521559,
+      2.5,
+      1.0
+     ]
+    ],
+    "mat": [
+     [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    ],
+    "no_clear": 0,
+    "pass_site_bad": 0,
+    "pass_site_other_draws": 3716,
+    "pass_site_other_effects": {
+     "yAudDefault/skinned_lit_lm_uv": 3716
+    },
+    "pic_flags": [
+     11
+    ],
+    "pic_mips": [
+     1
+    ],
+    "plane_after_bake_frames": 0,
+    "tex0_dims": [
+     [
+      256,
+      256
+     ]
+    ],
+    "tex0_dup_frames": 0,
+    "tex0_first_ids": [
+     392
+    ],
+    "tex0_not_ascending": 0,
+    "tex0_not_consecutive": 0,
+    "tex16_multi_frames": 0,
+    "vertex_count_range": [
+     104,
+     127
+    ],
+    "vertex_counts_per_slot_distinct": {
+     "0": 1,
+     "1": 1,
+     "10": 1,
+     "11": 1,
+     "12": 1,
+     "13": 1,
+     "14": 1,
+     "15": 1,
+     "16": 1,
+     "17": 1,
+     "18": 1,
+     "19": 1,
+     "2": 1,
+     "3": 1,
+     "4": 1,
+     "5": 1,
+     "6": 1,
+     "7": 1,
+     "8": 1,
+     "9": 1
+    },
+    "viewport": [
+     [
+      0.0,
+      0.0,
+      64.0,
+      64.0,
+      1.0,
+      0.0
+     ]
+    ],
+    "viewproj": [
+     [
+      0.012195121496915817,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -0.00800000037997961,
+      0.0,
+      -1.0,
+      0.0,
+      0.0,
+      0.0010000000474974513,
+      0.5,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "viewproj_distinct": 1
+   },
+   "bakes": [
+    20
+   ],
+   "binding": {
+    "bad": 0,
+    "block_bad": 0,
+    "block_multi": 0,
+    "block_types": 6719,
+    "block_unpaired": 0,
+    "blocks_paired": 62937,
+    "cards": 229093,
+    "frames_without_20_bakes": 0
+   },
+   "blocks": {
+    "max": 574,
+    "sum": 62994
+   },
+   "cards": {
+    "frames_with": 341,
+    "max": 1827,
+    "median": 197,
+    "min": 38,
+    "min_nonzero": 38,
+    "p90": 1692,
+    "sum": 229316
+   },
+   "frames": 341,
+   "frames_bakes_20": 341,
+   "named": true,
+   "order": {
+    "adjacent_pairs": 228753,
+    "bad_frames": 0,
+    "inversions": 0,
+    "member_desc": 0,
+    "type_desc": 0
+   },
+   "page": {
+    "after_bakes": 341,
+    "cards_after_page": 341,
+    "clear_frames": 0,
+    "copies_ne1": 0,
+    "copy_dest_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "effects": [
+     [
+      "ySprite/tint_constant"
+     ]
+    ],
+    "frames_with": 341,
+    "img_ids": [
+     388
+    ],
+    "sprite_textures": {
+     "32x32": 341,
+     "512x512": 341,
+     "64x64": 2728
+    },
+    "target": [
+     [
+      512,
+      512
+     ]
+    ]
+   },
+   "pairing": {
+    "count_equal_frames": 340,
+    "dup_keys": 0,
+    "exact_frames": 340,
+    "frames_with_records": 340,
+    "paired": 229093,
+    "record_blocks": 62937,
+    "record_cards": 229093,
+    "stream_cards": 229093,
+    "unpaired_record": 0,
+    "unpaired_stream": 0
+   },
+   "program": {
+    "hashes": [
+     [
+      "D734762D2180F0F5",
+      "EFC4EFCB5FC51945"
+     ]
+    ],
+    "names": [
+     [
+      "yAudience/lm_uv",
+      "yAudience/lm_pixel_color_alpha"
+     ]
+    ],
+    "pairs": 1
+   },
+   "quad": {
+    "blobs": 1,
+    "data": {
+     "indices": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "pos": [
+      [
+       82.0,
+       0.0,
+       0.0
+      ],
+      [
+       -82.0,
+       0.0,
+       0.0
+      ],
+      [
+       82.0,
+       -250.0,
+       0.0
+      ],
+      [
+       -82.0,
+       -250.0,
+       0.0
+      ]
+     ],
+     "uv": [
+      [
+       1.0,
+       1.0
+      ],
+      [
+       0.0,
+       1.0
+      ],
+      [
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ]
+     ]
+    },
+    "layout": [
+     [
+      16,
+      [
+       [
+        106,
+        0
+       ],
+       [
+        83,
+        12
+       ]
+      ]
+     ]
+    ],
+    "offsets_gt1_frames": 0,
+    "shape": [
+     [
+      4,
+      4,
+      0,
+      6,
+      0,
+      64,
+      8
+     ]
+    ]
+   },
+   "readers": {
+    "by": {
+     "825130C4": 229316
+    },
+    "draws": 229316,
+    "frames_with": 341,
+    "not_card": 0,
+    "slots": {
+     "0": 229316
+    }
+   },
+   "registers": {
+    "block_c184_z": [
+     2.5
+    ],
+    "c184": [
+     [
+      0.00017857142665889114,
+      0.0001739130384521559,
+      2.125,
+      1.0
+     ]
+    ],
+    "c184_ps_equal_vs": true,
+    "frames_with_cards_and_blocks": 341,
+    "ps_varying": [],
+    "viewproj_block_equal_frames": 341,
+    "viewproj_distinct": 341,
+    "vs_varying": [
+     76,
+     77,
+     78
+    ]
+   },
+   "sprites": [
+    10
+   ],
+   "state": {
+    "dyn": [
+     {
+      "flags": 4,
+      "viewport": [
+       0.0,
+       0.0,
+       1280.0,
+       720.0,
+       1.0,
+       0.0
+      ]
+     }
+    ],
+    "dyn_distinct": 1,
+    "dyn_equal_blocks": 341,
+    "dyn_gt1_frames": 0,
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.7529412508010864,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1
+   },
+   "stream": {
+    "block_after_cards": 0,
+    "follows_block": 341,
+    "noncontiguous": 0,
+    "pic_distinct_max": 20,
+    "type_order_bad": 0
+   },
+   "textures": {
+    "block_slot13_is_page": 341,
+    "card_pics_in_bake_dests": 341,
+    "rows": [
+     {
+      "dimension": 1,
+      "levels": [
+       0,
+       0
+      ],
+      "lod_bias": 0.0,
+      "sampler": {
+       "aniso": 1,
+       "border": 0,
+       "lod": [
+        0.0,
+        0.0,
+        1000.0
+       ],
+       "mag": 1,
+       "min": 1,
+       "mip": 1,
+       "u": 2,
+       "v": 2,
+       "w": 0
+      },
+      "sign": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "slot": 0,
+      "swizzle": [
+       3,
+       4,
+       5,
+       6
+      ],
+      "view_format": 0
+     },
+     {
+      "dimension": 1,
+      "levels": [
+       0,
+       0
+      ],
+      "lod_bias": 0.0,
+      "sampler": {
+       "aniso": 1,
+       "border": 0,
+       "lod": [
+        0.0,
+        0.0,
+        1000.0
+       ],
+       "mag": 1,
+       "min": 1,
+       "mip": 1,
+       "u": 2,
+       "v": 2,
+       "w": 0
+      },
+      "sign": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "slot": 13,
+      "swizzle": [
+       3,
+       4,
+       5,
+       6
+      ],
+      "view_format": 0
+     }
+    ],
+    "slot0_dims": [
+     [
+      64,
+      64
+     ]
+    ],
+    "slot0_flags": [
+     11
+    ],
+    "slot13_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "slot13_is_page": 341,
+    "slot13_multi_frames": 0,
+    "slotset_gt1_frames": 0,
+    "slotsets": [
+     [
+      0,
+      13
+     ]
+    ]
+   }
+  },
+  "named": true
+ },
+ "bryan": {
+  "data": {
+   "bake": {
+    "copies_ne1": 0,
+    "copy_extra": [
+     [
+      0,
+      0,
+      6,
+      1
+     ]
+    ],
+    "copy_rect_bad": 0,
+    "copy_src_bad": 0,
+    "dest_dup_frames": 0,
+    "dest_first_ids": [
+     414
+    ],
+    "dest_not_ascending": 0,
+    "dest_not_consecutive": 0,
+    "dest_size_bad": 0,
+    "draws_ne1": 0,
+    "effects": [
+     [
+      "yAudDefault/skinned_lit_lm_vertex",
+      "yAudience/base"
+     ]
+    ],
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.003921568859368563,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1,
+    "frames_with": 91,
+    "lightset_counts_per_frame": [
+     1
+    ],
+    "lightsets_all": 91,
+    "lightsets_gt1_frames": 0,
+    "lmp": [
+     [
+      0.00017857142665889114,
+      0.0001739130384521559,
+      2.5,
+      1.0
+     ]
+    ],
+    "mat": [
+     [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    ],
+    "no_clear": 0,
+    "pass_site_bad": 0,
+    "pass_site_other_draws": 943,
+    "pass_site_other_effects": {
+     "yAudDefault/skinned_lit_lm_uv": 943
+    },
+    "pic_flags": [
+     11
+    ],
+    "pic_mips": [
+     1
+    ],
+    "plane_after_bake_frames": 0,
+    "tex0_dims": [
+     [
+      256,
+      256
+     ]
+    ],
+    "tex0_dup_frames": 0,
+    "tex0_first_ids": [
+     392
+    ],
+    "tex0_not_ascending": 0,
+    "tex0_not_consecutive": 0,
+    "tex16_multi_frames": 0,
+    "vertex_count_range": [
+     104,
+     127
+    ],
+    "vertex_counts_per_slot_distinct": {
+     "0": 1,
+     "1": 1,
+     "10": 1,
+     "11": 1,
+     "12": 1,
+     "13": 1,
+     "14": 1,
+     "15": 1,
+     "16": 1,
+     "17": 1,
+     "18": 1,
+     "19": 1,
+     "2": 1,
+     "3": 1,
+     "4": 1,
+     "5": 1,
+     "6": 1,
+     "7": 1,
+     "8": 1,
+     "9": 1
+    },
+    "viewport": [
+     [
+      0.0,
+      0.0,
+      64.0,
+      64.0,
+      1.0,
+      0.0
+     ]
+    ],
+    "viewproj": [
+     [
+      0.012195121496915817,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -0.00800000037997961,
+      0.0,
+      -1.0,
+      0.0,
+      0.0,
+      0.0010000000474974513,
+      0.5,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "viewproj_distinct": 1
+   },
+   "bakes": [
+    20
+   ],
+   "binding": {
+    "bad": 0,
+    "block_bad": 0,
+    "block_multi": 0,
+    "block_types": 0,
+    "block_unpaired": 0,
+    "blocks_paired": 0,
+    "cards": 0,
+    "frames_without_20_bakes": 0
+   },
+   "blocks": {
+    "max": 122,
+    "sum": 11009
+   },
+   "cards": {
+    "frames_with": 91,
+    "max": 583,
+    "median": 578,
+    "min": 570,
+    "min_nonzero": 570,
+    "p90": 581,
+    "sum": 52587
+   },
+   "frames": 91,
+   "frames_bakes_20": 91,
+   "named": true,
+   "order": {
+    "adjacent_pairs": 0,
+    "bad_frames": 0,
+    "inversions": 0,
+    "member_desc": 0,
+    "type_desc": 0
+   },
+   "page": {
+    "after_bakes": 91,
+    "cards_after_page": 91,
+    "clear_frames": 0,
+    "copies_ne1": 0,
+    "copy_dest_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "effects": [
+     [
+      "ySprite/tint_constant"
+     ]
+    ],
+    "frames_with": 91,
+    "img_ids": [
+     388
+    ],
+    "sprite_textures": {
+     "32x32": 91,
+     "512x512": 91,
+     "64x64": 728
+    },
+    "target": [
+     [
+      512,
+      512
+     ]
+    ]
+   },
+   "pairing": {
+    "count_equal_frames": 0,
+    "dup_keys": 0,
+    "exact_frames": 0,
+    "frames_with_records": 0,
+    "paired": 0,
+    "record_blocks": 0,
+    "record_cards": 0,
+    "stream_cards": 0,
+    "unpaired_record": 0,
+    "unpaired_stream": 0
+   },
+   "program": {
+    "hashes": [
+     [
+      "D734762D2180F0F5",
+      "EFC4EFCB5FC51945"
+     ]
+    ],
+    "names": [
+     [
+      "yAudience/lm_uv",
+      "yAudience/lm_pixel_color_alpha"
+     ]
+    ],
+    "pairs": 1
+   },
+   "quad": {
+    "blobs": 1,
+    "data": {
+     "indices": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "pos": [
+      [
+       82.0,
+       0.0,
+       0.0
+      ],
+      [
+       -82.0,
+       0.0,
+       0.0
+      ],
+      [
+       82.0,
+       -250.0,
+       0.0
+      ],
+      [
+       -82.0,
+       -250.0,
+       0.0
+      ]
+     ],
+     "uv": [
+      [
+       1.0,
+       1.0
+      ],
+      [
+       0.0,
+       1.0
+      ],
+      [
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ]
+     ]
+    },
+    "layout": [
+     [
+      16,
+      [
+       [
+        106,
+        0
+       ],
+       [
+        83,
+        12
+       ]
+      ]
+     ]
+    ],
+    "offsets_gt1_frames": 0,
+    "shape": [
+     [
+      4,
+      4,
+      0,
+      6,
+      0,
+      64,
+      8
+     ]
+    ]
+   },
+   "readers": {
+    "by": {
+     "825130C4": 52587
+    },
+    "draws": 52587,
+    "frames_with": 91,
+    "not_card": 0,
+    "slots": {
+     "0": 52587
+    }
+   },
+   "registers": {
+    "block_c184_z": [
+     2.5
+    ],
+    "c184": [
+     [
+      0.00017857142665889114,
+      0.0001739130384521559,
+      2.125,
+      1.0
+     ]
+    ],
+    "c184_ps_equal_vs": true,
+    "frames_with_cards_and_blocks": 91,
+    "ps_varying": [],
+    "viewproj_block_equal_frames": 91,
+    "viewproj_distinct": 91,
+    "vs_varying": [
+     76,
+     77,
+     78
+    ]
+   },
+   "sprites": [
+    10
+   ],
+   "state": {
+    "dyn": [
+     {
+      "flags": 4,
+      "viewport": [
+       0.0,
+       0.0,
+       1280.0,
+       720.0,
+       1.0,
+       0.0
+      ]
+     }
+    ],
+    "dyn_distinct": 1,
+    "dyn_equal_blocks": 91,
+    "dyn_gt1_frames": 0,
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.7529412508010864,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1
+   },
+   "stream": {
+    "block_after_cards": 0,
+    "follows_block": 91,
+    "noncontiguous": 0,
+    "pic_distinct_max": 20,
+    "type_order_bad": 0
+   },
+   "textures": {
+    "block_slot13_is_page": 91,
+    "card_pics_in_bake_dests": 91,
+    "rows": [
+     {
+      "dimension": 1,
+      "levels": [
+       0,
+       0
+      ],
+      "lod_bias": 0.0,
+      "sampler": {
+       "aniso": 1,
+       "border": 0,
+       "lod": [
+        0.0,
+        0.0,
+        1000.0
+       ],
+       "mag": 1,
+       "min": 1,
+       "mip": 1,
+       "u": 2,
+       "v": 2,
+       "w": 0
+      },
+      "sign": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "slot": 0,
+      "swizzle": [
+       3,
+       4,
+       5,
+       6
+      ],
+      "view_format": 0
+     },
+     {
+      "dimension": 1,
+      "levels": [
+       0,
+       0
+      ],
+      "lod_bias": 0.0,
+      "sampler": {
+       "aniso": 1,
+       "border": 0,
+       "lod": [
+        0.0,
+        0.0,
+        1000.0
+       ],
+       "mag": 1,
+       "min": 1,
+       "mip": 1,
+       "u": 2,
+       "v": 2,
+       "w": 0
+      },
+      "sign": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "slot": 13,
+      "swizzle": [
+       3,
+       4,
+       5,
+       6
+      ],
+      "view_format": 0
+     }
+    ],
+    "slot0_dims": [
+     [
+      64,
+      64
+     ]
+    ],
+    "slot0_flags": [
+     11
+    ],
+    "slot13_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "slot13_is_page": 91,
+    "slot13_multi_frames": 0,
+    "slotset_gt1_frames": 0,
+    "slotsets": [
+     [
+      0,
+      13
+     ]
+    ]
+   }
+  },
+  "named": true
+ },
+ "s100cards": {
+  "data": {
+   "bake": {
+    "copies_ne1": 0,
+    "copy_extra": [
+     [
+      0,
+      0,
+      6,
+      1
+     ]
+    ],
+    "copy_rect_bad": 0,
+    "copy_src_bad": 0,
+    "dest_dup_frames": 0,
+    "dest_first_ids": [
+     418
+    ],
+    "dest_not_ascending": 0,
+    "dest_not_consecutive": 0,
+    "dest_size_bad": 0,
+    "draws_ne1": 0,
+    "effects": [
+     [
+      "yAudDefault/skinned_lit_lm_vertex",
+      "yAudience/base"
+     ]
+    ],
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.003921568859368563,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1,
+    "frames_with": 2,
+    "lightset_counts_per_frame": [
+     1
+    ],
+    "lightsets_all": 2,
+    "lightsets_gt1_frames": 0,
+    "lmp": [
+     [
+      0.0001709401694824919,
+      0.00018691588775254786,
+      2.5,
+      1.0
+     ]
+    ],
+    "mat": [
+     [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    ],
+    "no_clear": 0,
+    "pass_site_bad": 0,
+    "pass_site_other_draws": 0,
+    "pass_site_other_effects": {},
+    "pic_flags": [
+     11
+    ],
+    "pic_mips": [
+     1
+    ],
+    "plane_after_bake_frames": 0,
+    "tex0_dims": [
+     [
+      256,
+      256
+     ]
+    ],
+    "tex0_dup_frames": 0,
+    "tex0_first_ids": [
+     396
+    ],
+    "tex0_not_ascending": 0,
+    "tex0_not_consecutive": 0,
+    "tex16_multi_frames": 0,
+    "vertex_count_range": [
+     107,
+     127
+    ],
+    "vertex_counts_per_slot_distinct": {
+     "0": 1,
+     "1": 1,
+     "10": 1,
+     "11": 1,
+     "12": 1,
+     "13": 1,
+     "14": 1,
+     "15": 1,
+     "16": 1,
+     "17": 1,
+     "18": 1,
+     "19": 1,
+     "2": 1,
+     "3": 1,
+     "4": 1,
+     "5": 1,
+     "6": 1,
+     "7": 1,
+     "8": 1,
+     "9": 1
+    },
+    "viewport": [
+     [
+      0.0,
+      0.0,
+      64.0,
+      64.0,
+      1.0,
+      0.0
+     ]
+    ],
+    "viewproj": [
+     [
+      0.012195121496915817,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -0.00800000037997961,
+      0.0,
+      -1.0,
+      0.0,
+      0.0,
+      0.0010000000474974513,
+      0.5,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "viewproj_distinct": 1
+   },
+   "bakes": [
+    20
+   ],
+   "binding": {
+    "bad": 0,
+    "block_bad": 0,
+    "block_multi": 0,
+    "block_types": 0,
+    "block_unpaired": 0,
+    "blocks_paired": 0,
+    "cards": 0,
+    "frames_without_20_bakes": 0
+   },
+   "blocks": {
+    "max": 0,
+    "sum": 0
+   },
+   "cards": {
+    "frames_with": 2,
+    "max": 1640,
+    "median": 1640,
+    "min": 1636,
+    "min_nonzero": 1636,
+    "p90": 1640,
+    "sum": 3276
+   },
+   "frames": 2,
+   "frames_bakes_20": 2,
+   "named": false,
+   "order": {
+    "adjacent_pairs": 0,
+    "bad_frames": 0,
+    "inversions": 0,
+    "member_desc": 0,
+    "type_desc": 0
+   },
+   "page": {
+    "after_bakes": 2,
+    "cards_after_page": 2,
+    "clear_frames": 0,
+    "copies_ne1": 0,
+    "copy_dest_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "effects": [
+     [
+      "ySprite/tint_constant"
+     ]
+    ],
+    "frames_with": 2,
+    "img_ids": [
+     389
+    ],
+    "sprite_textures": {
+     "512x512": 2,
+     "64x64": 16
+    },
+    "target": [
+     [
+      512,
+      512
+     ]
+    ]
+   },
+   "pairing": {
+    "count_equal_frames": 0,
+    "dup_keys": 0,
+    "exact_frames": 0,
+    "frames_with_records": 0,
+    "paired": 0,
+    "record_blocks": 0,
+    "record_cards": 0,
+    "stream_cards": 0,
+    "unpaired_record": 0,
+    "unpaired_stream": 0
+   },
+   "program": {
+    "hashes": [
+     [
+      "D734762D2180F0F5",
+      "EFC4EFCB5FC51945"
+     ]
+    ],
+    "names": [
+     [
+      "yAudience/lm_uv",
+      "yAudience/lm_pixel_color_alpha"
+     ]
+    ],
+    "pairs": 1
+   },
+   "quad": {
+    "blobs": 1,
+    "data": {
+     "indices": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "pos": [
+      [
+       82.0,
+       0.0,
+       0.0
+      ],
+      [
+       -82.0,
+       0.0,
+       0.0
+      ],
+      [
+       82.0,
+       -250.0,
+       0.0
+      ],
+      [
+       -82.0,
+       -250.0,
+       0.0
+      ]
+     ],
+     "uv": [
+      [
+       1.0,
+       1.0
+      ],
+      [
+       0.0,
+       1.0
+      ],
+      [
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ]
+     ]
+    },
+    "layout": [
+     [
+      16,
+      [
+       [
+        106,
+        0
+       ],
+       [
+        83,
+        12
+       ]
+      ]
+     ]
+    ],
+    "offsets_gt1_frames": 0,
+    "shape": [
+     [
+      4,
+      4,
+      0,
+      6,
+      0,
+      64,
+      8
+     ]
+    ]
+   },
+   "readers": {
+    "by": {
+     "yAudience/lm_uv": 3276
+    },
+    "draws": 3276,
+    "frames_with": 2,
+    "not_card": 0,
+    "slots": {
+     "0": 3276
+    }
+   },
+   "registers": {
+    "block_c184_z": [],
+    "c184": [
+     [
+      0.0001709401694824919,
+      0.00018691588775254786,
+      2.125,
+      1.0
+     ]
+    ],
+    "c184_ps_equal_vs": true,
+    "frames_with_cards_and_blocks": 0,
+    "ps_varying": [],
+    "viewproj_block_equal_frames": 0,
+    "viewproj_distinct": 2,
+    "vs_varying": [
+     76,
+     77,
+     78
+    ]
+   },
+   "sprites": [
+    9
+   ],
+   "state": {
+    "dyn": [
+     {
+      "flags": 4,
+      "viewport": [
+       0.0,
+       0.0,
+       1280.0,
+       720.0,
+       1.0,
+       0.0
+      ]
+     }
+    ],
+    "dyn_distinct": 1,
+    "dyn_equal_blocks": 0,
+    "dyn_gt1_frames": 0,
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.7529412508010864,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1
+   },
+   "stream": {
+    "block_after_cards": 0,
+    "follows_block": 0,
+    "noncontiguous": 0,
+    "pic_distinct_max": 20,
+    "type_order_bad": 0
+   },
+   "textures": {
+    "block_slot13_is_page": 0,
+    "card_pics_in_bake_dests": 2,
+    "rows": [
+     {
+      "dimension": 1,
+      "levels": [
+       0,
+       0
+      ],
+      "lod_bias": 0.0,
+      "sampler": {
+       "aniso": 1,
+       "border": 0,
+       "lod": [
+        0.0,
+        0.0,
+        1000.0
+       ],
+       "mag": 1,
+       "min": 1,
+       "mip": 1,
+       "u": 2,
+       "v": 2,
+       "w": 0
+      },
+      "sign": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "slot": 0,
+      "swizzle": [
+       3,
+       4,
+       5,
+       6
+      ],
+      "view_format": 0
+     },
+     {
+      "dimension": 1,
+      "levels": [
+       0,
+       0
+      ],
+      "lod_bias": 0.0,
+      "sampler": {
+       "aniso": 1,
+       "border": 0,
+       "lod": [
+        0.0,
+        0.0,
+        1000.0
+       ],
+       "mag": 1,
+       "min": 1,
+       "mip": 1,
+       "u": 2,
+       "v": 2,
+       "w": 0
+      },
+      "sign": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "slot": 13,
+      "swizzle": [
+       3,
+       4,
+       5,
+       6
+      ],
+      "view_format": 0
+     }
+    ],
+    "slot0_dims": [
+     [
+      64,
+      64
+     ]
+    ],
+    "slot0_flags": [
+     11
+    ],
+    "slot13_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "slot13_is_page": 2,
+    "slot13_multi_frames": 0,
+    "slotset_gt1_frames": 0,
+    "slotsets": [
+     [
+      0,
+      13
+     ]
+    ]
+   }
+  },
+  "named": false
+ },
+ "wm30": {
+  "data": {
+   "bake": {
+    "copies_ne1": 0,
+    "copy_extra": [
+     [
+      0,
+      0,
+      6,
+      1
+     ]
+    ],
+    "copy_rect_bad": 0,
+    "copy_src_bad": 0,
+    "dest_dup_frames": 0,
+    "dest_first_ids": [
+     1580
+    ],
+    "dest_not_ascending": 0,
+    "dest_not_consecutive": 0,
+    "dest_size_bad": 0,
+    "draws_ne1": 0,
+    "effects": [
+     [
+      "yAudDefault/skinned_lit_lm_vertex",
+      "yAudience/base"
+     ]
+    ],
+    "fixed": [
+     {
+      "alpha_func": 6,
+      "alpha_ref": 0.003921568859368563,
+      "alpha_test": 1,
+      "alpha_to_coverage": 0,
+      "blend": [
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        15
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ],
+       [
+        1,
+        6,
+        7,
+        0,
+        6,
+        7,
+        0,
+        0
+       ]
+      ],
+      "clip_off": 0,
+      "cull": 2,
+      "depth_bias": 0,
+      "depth_clamp": 0,
+      "depth_compare": 6,
+      "depth_test": 1,
+      "depth_write": 1,
+      "front_face": 1,
+      "primitive_restart": 1,
+      "stencil_test": 0,
+      "topology": 4
+     }
+    ],
+    "fixed_distinct": 1,
+    "frames_with": 423,
+    "lightset_counts_per_frame": [
+     1
+    ],
+    "lightsets_all": 1,
+    "lightsets_gt1_frames": 0,
+    "lmp": [
+     [
+      0.00017857142665889114,
+      0.0001739130384521559,
+      2.5,
+      1.0
+     ]
+    ],
+    "mat": [
+     [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    ],
+    "no_clear": 0,
+    "pass_site_bad": 0,
+    "pass_site_other_draws": 0,
+    "pass_site_other_effects": {},
+    "pic_flags": [
+     11
+    ],
+    "pic_mips": [
+     1
+    ],
+    "plane_after_bake_frames": 0,
+    "tex0_dims": [
+     [
+      256,
+      256
+     ]
+    ],
+    "tex0_dup_frames": 0,
+    "tex0_first_ids": [
+     1558
+    ],
+    "tex0_not_ascending": 0,
+    "tex0_not_consecutive": 0,
+    "tex16_multi_frames": 0,
+    "vertex_count_range": [
+     104,
+     124
+    ],
+    "vertex_counts_per_slot_distinct": {
+     "0": 1,
+     "1": 1,
+     "10": 1,
+     "11": 1,
+     "12": 1,
+     "13": 1,
+     "14": 1,
+     "15": 1,
+     "16": 1,
+     "17": 1,
+     "18": 1,
+     "19": 1,
+     "2": 1,
+     "3": 1,
+     "4": 1,
+     "5": 1,
+     "6": 1,
+     "7": 1,
+     "8": 1,
+     "9": 1
+    },
+    "viewport": [
+     [
+      0.0,
+      0.0,
+      64.0,
+      64.0,
+      1.0,
+      0.0
+     ]
+    ],
+    "viewproj": [
+     [
+      0.012195121496915817,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -0.00800000037997961,
+      0.0,
+      -1.0,
+      0.0,
+      0.0,
+      0.0010000000474974513,
+      0.5,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "viewproj_distinct": 1
+   },
+   "bakes": [
+    20
+   ],
+   "binding": {
+    "bad": 0,
+    "block_bad": 0,
+    "block_multi": 0,
+    "block_types": 0,
+    "block_unpaired": 0,
+    "blocks_paired": 0,
+    "cards": 0,
+    "frames_without_20_bakes": 0
+   },
+   "blocks": {
+    "max": 501,
+    "sum": 211923
+   },
+   "cards": {
+    "frames_with": 0,
+    "max": 0,
+    "median": 0,
+    "min": 0,
+    "min_nonzero": 0,
+    "p90": 0,
+    "sum": 0
+   },
+   "frames": 423,
+   "frames_bakes_20": 423,
+   "named": true,
+   "order": {
+    "adjacent_pairs": 0,
+    "bad_frames": 0,
+    "inversions": 0,
+    "member_desc": 0,
+    "type_desc": 0
+   },
+   "page": {
+    "after_bakes": 423,
+    "cards_after_page": 0,
+    "clear_frames": 0,
+    "copies_ne1": 0,
+    "copy_dest_dims": [
+     [
+      512,
+      512
+     ]
+    ],
+    "effects": [
+     [
+      "ySprite/tint_constant"
+     ]
+    ],
+    "frames_with": 423,
+    "img_ids": [
+     1550
+    ],
+    "sprite_textures": {
+     "512x512": 846
+    },
+    "target": [
+     [
+      512,
+      512
+     ]
+    ]
+   },
+   "pairing": {
+    "count_equal_frames": 0,
+    "dup_keys": 0,
+    "exact_frames": 0,
+    "frames_with_records": 0,
+    "paired": 0,
+    "record_blocks": 0,
+    "record_cards": 0,
+    "stream_cards": 0,
+    "unpaired_record": 0,
+    "unpaired_stream": 0
+   },
+   "program": {
+    "hashes": [],
+    "names": [],
+    "pairs": 0
+   },
+   "quad": {
+    "blobs": 0,
+    "data": null,
+    "layout": [],
+    "offsets_gt1_frames": 0,
+    "shape": []
+   },
+   "readers": {
+    "by": {},
+    "draws": 0,
+    "frames_with": 0,
+    "not_card": 0,
+    "slots": {}
+   },
+   "registers": {
+    "block_c184_z": [],
+    "c184": [],
+    "c184_ps_equal_vs": true,
+    "frames_with_cards_and_blocks": 0,
+    "ps_varying": [],
+    "viewproj_block_equal_frames": 0,
+    "viewproj_distinct": 0,
+    "vs_varying": []
+   },
+   "sprites": [
+    2
+   ],
+   "state": {
+    "dyn": [],
+    "dyn_distinct": 0,
+    "dyn_equal_blocks": 0,
+    "dyn_gt1_frames": 0,
+    "fixed": [],
+    "fixed_distinct": 0
+   },
+   "stream": {
+    "block_after_cards": 0,
+    "follows_block": 0,
+    "noncontiguous": 0,
+    "pic_distinct_max": 0,
+    "type_order_bad": 0
+   },
+   "textures": {
+    "block_slot13_is_page": 0,
+    "card_pics_in_bake_dests": 0,
+    "rows": [],
+    "slot0_dims": [],
+    "slot0_flags": [],
+    "slot13_dims": [],
+    "slot13_is_page": 0,
+    "slot13_multi_frames": 0,
+    "slotset_gt1_frames": 0,
+    "slotsets": []
+   }
+  },
+  "named": true
+ }
+}

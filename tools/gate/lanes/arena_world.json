@@ -1,0 +1,12 @@
+{
+ "owner": "lane 130 (S101): the arena's D3 gaps in the scene record (docs/renderer/ARENA_OURS.md 'D3 gaps'): section kScArenaWorlds (placed world, moving world, stage clock), the model-entry tracker, the contributor, the capture-side oracle. 0 game runs.",
+ "note": "build = tools/scene/build_arena_world.ps1 (clang only). selftest = tools/scene/arena_world_selftest.py: the C++ unit test (pure functions, tracker against a fake guest, Emit, record round trip, an older record, an unknown layout), the capture-side oracle on Check B (run 7051), run 7079 and h1 (needs their unpacked cases under <main>/out: a machine without them SKIPs, the script run directly fails loudly), arena_ready fed with the oracle's values, planted twins placed_identity, moving_static, clock_frozen, stamp_off_by_one, refuse_foreign_palette, node1_assumed, origin_after_reload (unit test; the first four also at oracle level), the Python record reader and the J1 analysis on synthetic records. The game-side hooks are syntax-checked by tools/harness/wt_syntax_check.ps1 (main.cpp, live.cpp), not by the gate.",
+ "checks": [
+  {
+   "name": "arena_world.selftest",
+   "cmd": ["py", "-I", "tools/scene/arena_world_selftest.py"],
+   "timeout_s": 3000,
+   "needs": ["out/s101/lane92/case_20261112_122658_040_0_pc_run_exit/manifest.json", "out/s101/lane92/case_20261111_215233_217_0_pc_run_exit/manifest.json", "out/lane115/h1/manifest.json"]
+  }
+ ]
+}

@@ -25,6 +25,9 @@ link lines of the release build (`rexruntime.dll`, `rexgpu-xenos.dll`) and the b
 | utfcpp | header-only | Boost Software License 1.0 |
 | stb_image 2.29 | rexruntime.dll, wwe2k14.exe, wwe2k14_launcher.exe, wwe2k14_assets.exe | MIT or public domain. Copyright (c) 2017 Sean Barrett |
 | stb_image_write 1.16 | wwe2k14.exe (the diagnostic run's JPEGs and the phone's pictures), third_party/stb | public domain (or MIT). Sean Barrett |
+| dr_mp3 0.7.5, dr_wav 0.14.7, dr_flac 0.13.5 (mackron/dr_libs; song import) | wwe2k14.exe, wwe2k14_launcher.exe, third_party/audio | public domain or MIT-0. David Reid |
+| stb_vorbis 1.22 (song import: Ogg Vorbis), stb_image 2.32 (cover art; static copy) | wwe2k14.exe, wwe2k14_launcher.exe, third_party/audio, third_party/stb | public domain (or MIT). Sean Barrett |
+| libopus 1.5.2 (song import: Ogg Opus; decoder use) | wwe2k14.exe, wwe2k14_launcher.exe, third_party/audio/opus | BSD 3-clause. Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Monty Montgomery (full text: third_party/audio/opus/COPYING) |
 | nlohmann/json 3.11.3 | wwe2k14_launcher.exe | MIT. Copyright (c) 2013-2021 Niels Lohmann |
 | NVIDIA Streamline 2.14.1 headers | rexruntime.dll | MIT. Copyright (c) 2022-2023 NVIDIA CORPORATION |
 | DXBCChecksum (derived from the RSA Data Security, Inc. MD5 Message-Digest Algorithm) | rexgpu-xenos.dll | Notice in its source: Copyright 2008-2016 (c) Advanced Micro Devices, Inc.; Copyright (C) 1990, RSA Data Security, Inc. |
@@ -61,12 +64,12 @@ The GNU Lesser General Public License 2.1 text follows below.
   `vcruntime140_1.dll`): Microsoft's redistributable files from Visual Studio 2022, distributed unmodified under the
   Visual Studio licence's Distributable Code terms.
 
-## Android app only (Session 72: the bundled graphics drivers)
+## Android app only
+
+The Android app ships libadrenotools (used to load a graphics driver you import yourself). It packs no graphics drivers of its own: the phone's own Vulkan driver is the default. (An APK made with `build_apk.ps1 -BundleDrivers`, not the release build, also carries Mesa's Turnip and mali-panvk; that build adds `THIRD_PARTY_NOTICES_DRIVERS.md` to the app with their notices.)
 
 | Library | In | Licence |
 |---|---|---|
-| Mesa 26.2.5: Turnip, the Adreno Vulkan driver (built unmodified from https://gitlab.freedesktop.org/mesa/mesa) | libvulkan_freedreno.so | MIT (the Mesa 3D Graphics Library authors, as listed in each source file); some files under other permissive licences, each named in its header |
-| mali-panvk (https://github.com/JimVulkan/mali-panvk, commit d896b0a): Mesa's PanVK Mali Vulkan driver with a kbase backend, built unmodified | libvulkan_panfrost.so | MIT. Copyright (c) 2026 JimVulkan; Copyright (c) The Mesa 3D Graphics Library authors, as listed in each source file |
 | libadrenotools (https://github.com/bylaws/libadrenotools) with linkernsbypass | libmain.so (static), libhook_impl.so, libmain_hook.so | BSD 2-clause. Copyright (c) 2021, Billy Laws |
 
 ## Not included

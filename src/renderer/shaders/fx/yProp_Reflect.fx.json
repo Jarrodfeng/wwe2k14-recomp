@@ -1,0 +1,1885 @@
+{
+ "effect": "yProp_Reflect",
+ "vertex": [
+  {
+   "name": "spec",
+   "defines": [
+    "FX_SPEC"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "0FEE76BE3A345BBD",
+    "1B61AD459CD5C01B",
+    "43C5AF9933151CD8",
+    "43F06D8A1719288A",
+    "50C8D7CECE4E5027",
+    "67AD97B6A9231430",
+    "6F09A1C595FE5AA7",
+    "7B97372331587BD9",
+    "8E1D8A856F561F6E",
+    "D29077B89DEFE9B5"
+   ]
+  },
+  {
+   "name": "skinned_spec",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SPEC"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "031ECCEF7B4D9D9B",
+    "181247D7A9EE5304",
+    "23455EA671F46747",
+    "5CBFD7951940804A",
+    "6F68DFDBCC6CDB0C",
+    "AEFEFF6B9C4DCFE5",
+    "B014EE34701864AB",
+    "B897DD841FD8B1C2",
+    "D83C2A9FB34444A0",
+    "F55DD6FA4C129C26"
+   ]
+  },
+  {
+   "name": "spec_screen_convert",
+   "defines": [
+    "FX_SPEC",
+    "FX_SCREEN_CONVERT"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "45DC727A790FF158"
+   ]
+  },
+  {
+   "name": "skinned_spec_screen_convert",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SPEC",
+    "FX_SCREEN_CONVERT"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "53267D3C69240163"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "spec_reflect",
+   "defines": [
+    "FX_SPEC",
+    "FX_REFLECT"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    }
+   ],
+   "hashes": [
+    "36E6347E1C5CB402"
+   ]
+  },
+  {
+   "name": "spec_spec_map_reflect",
+   "defines": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_REFLECT"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    }
+   ],
+   "hashes": [
+    "E584E3740D7776D1"
+   ]
+  },
+  {
+   "name": "spec_alpha_gloss_reflect",
+   "defines": [
+    "FX_SPEC",
+    "FX_ALPHA_GLOSS",
+    "FX_REFLECT"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    }
+   ],
+   "hashes": [
+    "B2F483F88C32E5A1"
+   ]
+  },
+  {
+   "name": "spec_reflect_reflect_map",
+   "defines": [
+    "FX_SPEC",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "73EFD17504429BFB"
+   ]
+  },
+  {
+   "name": "spec_reflect_cc_mask",
+   "defines": [
+    "FX_SPEC",
+    "FX_REFLECT",
+    "FX_CC_MASK"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "26993A8D6AF7B5CB",
+    "46F510E077DDDF41",
+    "A285774C4C78E953"
+   ]
+  },
+  {
+   "name": "spec_reflect_reflect_add",
+   "defines": [
+    "FX_SPEC",
+    "FX_REFLECT",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    }
+   ],
+   "hashes": [
+    "A85C60A378E0E7D3"
+   ]
+  },
+  {
+   "name": "spec_spec_map_reflect_reflect_map",
+   "defines": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "8794889F83CEEF35"
+   ]
+  },
+  {
+   "name": "spec_spec_map_reflect_cc_mask",
+   "defines": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_REFLECT",
+    "FX_CC_MASK"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "109A13892C368B1B",
+    "B0F9781E5CF764F4",
+    "EF1F6DAE69D69327"
+   ]
+  },
+  {
+   "name": "spec_spec_map_reflect_reflect_add",
+   "defines": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_REFLECT",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    }
+   ],
+   "hashes": [
+    "5C0EF5A2DD824127"
+   ]
+  },
+  {
+   "name": "spec_alpha_gloss_reflect_reflect_map",
+   "defines": [
+    "FX_SPEC",
+    "FX_ALPHA_GLOSS",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "C4F851848F79AABC"
+   ]
+  },
+  {
+   "name": "spec_alpha_gloss_reflect_cc_mask",
+   "defines": [
+    "FX_SPEC",
+    "FX_ALPHA_GLOSS",
+    "FX_REFLECT",
+    "FX_CC_MASK"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "590EA9049BCC7AF2",
+    "A2790951DE000295",
+    "B3EA5E6C9EE3F275"
+   ]
+  },
+  {
+   "name": "spec_alpha_gloss_reflect_reflect_add",
+   "defines": [
+    "FX_SPEC",
+    "FX_ALPHA_GLOSS",
+    "FX_REFLECT",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    }
+   ],
+   "hashes": [
+    "528965D465287077"
+   ]
+  },
+  {
+   "name": "spec_reflect_reflect_map_cc_mask",
+   "defines": [
+    "FX_SPEC",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP",
+    "FX_CC_MASK"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1175C360E4183501",
+    "14D03ABC2AAFB466",
+    "DBE675BCB766802C"
+   ]
+  },
+  {
+   "name": "spec_reflect_cc_mask_reflect_add",
+   "defines": [
+    "FX_SPEC",
+    "FX_REFLECT",
+    "FX_CC_MASK",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "745FAB9A4A091568",
+    "881D94AFFFCF21ED",
+    "DE48127614F25098"
+   ]
+  },
+  {
+   "name": "spec_spec_map_reflect_reflect_map_cc_mask",
+   "defines": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP",
+    "FX_CC_MASK"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1BC8BD507C2AD5CA",
+    "1F7E3915D9196701",
+    "FF216391C895CB22"
+   ]
+  },
+  {
+   "name": "spec_spec_map_reflect_cc_mask_reflect_add",
+   "defines": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_REFLECT",
+    "FX_CC_MASK",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "44E167DCC21A1DF6",
+    "7806F0DD74731946",
+    "F3E0E81472754273"
+   ]
+  },
+  {
+   "name": "spec_alpha_gloss_reflect_reflect_map_cc_mask",
+   "defines": [
+    "FX_SPEC",
+    "FX_ALPHA_GLOSS",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP",
+    "FX_CC_MASK"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "48C89B6E01F96A87",
+    "4E1FBD43C37020A4",
+    "E0E9DE8CDEA2FF29"
+   ]
+  },
+  {
+   "name": "spec_alpha_gloss_reflect_cc_mask_reflect_add",
+   "defines": [
+    "FX_SPEC",
+    "FX_ALPHA_GLOSS",
+    "FX_REFLECT",
+    "FX_CC_MASK",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1E917657ED861148",
+    "AB242D760039C8C7",
+    "C9129D671133737A"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_SPEC",
+    "FX_SCREEN_CONVERT",
+    "FX_NOISE"
+   ],
+   "constants": [
+    {
+     "field": "NoiseParam",
+     "register": 207,
+     "count": 1,
+     "when": [
+      "FX_NOISE"
+     ]
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 4,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 5,
+     "location": 5,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 4,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 5,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_SPEC",
+    "FX_SPEC_MAP",
+    "FX_ALPHA_GLOSS",
+    "FX_LOGO",
+    "FX_NOISE",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP",
+    "FX_CC_MASK",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Noise",
+     "register": 207,
+     "count": 1
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1,
+     "when": [
+      "FX_REFLECT"
+     ]
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4,
+     "when": [
+      "FX_CC_MASK"
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d",
+     "when": [
+      "FX_SPEC_MAP"
+     ]
+    },
+    {
+     "slot": 14,
+     "kind": "2d",
+     "when": [
+      "FX_LOGO"
+     ]
+    },
+    {
+     "slot": 6,
+     "kind": "2d",
+     "when": [
+      "FX_NOISE"
+     ]
+    },
+    {
+     "slot": 8,
+     "kind": "cube",
+     "when": [
+      "FX_REFLECT"
+     ]
+    },
+    {
+     "slot": 9,
+     "kind": "2d",
+     "when": [
+      "FX_REFLECT_MAP"
+     ]
+    },
+    {
+     "slot": 12,
+     "kind": "2d",
+     "when": [
+      "FX_CC_MASK"
+     ]
+    }
+   ]
+  }
+ }
+}

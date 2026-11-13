@@ -1,0 +1,8 @@
+{
+ "owner": "lane 138 (S101); lane 152 (D3-F: the record arms on J1, the plants, Check B / 7079 in record mode, the verify arm): D3 skip the object for the arena (docs/renderer/SKIP_GAME_WORK_MAP.md 8.3 / 10): the guest decision core (unit), and the real binder on Check B and run 7079 with the guest hook emulated on the capture (fview --thin arena --d3 arena).",
+ "note": "d3_arena.unit builds tools/d3/d3_unit_test.cpp (the shipped d3_arena.h / d3_guest_core.h; two threads, 3000 frames, holes 0, nothing skipped in a proof frame or before the gate) and runs five planted twins. d3_arena.proof needs Check B's case zip (held), run 7079's capture (out/lane115/r7079), the game files and out/renderer/dev/fview.exe built by tools/fview/build.ps1 (the script rebuilds it unless --no-build); one fview process per arm (~10 s each, ~35 arms). Bars: the picture of every frame byte-equal to --arena-ours with the offline ledger in, holes 0, proof compare 0, the fallback arm (side table 20), the sourced-mode readiness numbers, the plants each DETECTED. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "d3_arena.unit", "cmd": ["py", "-I", "tools/d3/d3_unit_selftest.py"], "timeout_s": 900},
+  {"name": "d3_arena.proof", "cmd": ["py", "-I", "tools/d3/d3_check.py", "--root", "."], "timeout_s": 3600, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/lane92", "game_data/extracted"]}
+ ]
+}

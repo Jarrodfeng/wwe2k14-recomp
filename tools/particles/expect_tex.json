@@ -1,0 +1,5 @@
+{
+ "brock": {"particle_images": [1236, 1237, 1239, 1240, 1241, 1242, 1243, 1244, 1245], "flash_images": [300]},
+ "bryan": {"particle_images": [1247], "flash_images": [300]},
+ "_unknown": {}
+}

@@ -1,0 +1,6 @@
+{"owner": "lane 121 (S101): wm30:N@step:K / wm30:N@moment:BANK / !wm30 step K - the guard truth table (compiled), planted twins (wrong step index, clock guard dropped, entry condition without force), the step table over all 46 matches against lane R1's 50 plays, listing pins. 0 game runs.", "checks": [
+ {"name": "step.selftest", "cmd": ["py", "-I", "tools/goto/step_selftest.py"], "timeout_s": 300, "needs": []},
+ {"name": "step.table", "cmd": ["py", "-I", "tools/goto/step_selftest.py", "--table"], "timeout_s": 600, "needs": ["game_data/extracted/pac/evtdsc/evtdsc0.pac", "game_data/extracted/pac/evt/Season00.pac", "out/tools/xctd_unpack.exe"]},
+ {"name": "step.listing", "cmd": ["py", "-I", "tools/goto/step_selftest.py", "--listing"], "timeout_s": 300, "needs": ["generated/default/wwe2k14_recomp.300.cpp"]},
+ {"name": "step.scripts", "cmd": ["py", "-I", "tools/wm30/step_table.py", "--check"], "timeout_s": 600, "needs": ["game_data/extracted/pac/evtdsc/evtdsc0.pac", "game_data/extracted/pac/evt/Season00.pac", "out/tools/xctd_unpack.exe"]}
+]}

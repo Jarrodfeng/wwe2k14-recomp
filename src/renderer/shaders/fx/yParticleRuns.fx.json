@@ -1,0 +1,27 @@
+{
+ "effect": "yParticleRuns",
+ "vertex": [
+  {
+   "name": "runs",
+   "defines": [],
+   "hashes": [],
+   "constants": [
+    {"field": "ViewProj", "register": 56, "count": 4},
+    {"field": "ZOffset", "register": 200, "count": 1},
+    {"field": "UseNormal", "register": 201, "count": 1},
+    {"field": "LightVector", "register": 202, "count": 1}
+   ],
+   "attributes": [
+    {"fetch": 0, "location": 0},
+    {"fetch": 1, "location": 1},
+    {"fetch": 2, "location": 2},
+    {"fetch": 3, "location": 3},
+    {"fetch": 4, "location": 4},
+    {"fetch": 5, "location": 5},
+    {"fetch": 6, "location": 6},
+    {"fetch": 7, "location": 7}
+   ]
+  }
+ ],
+ "fragment": []
+}

@@ -1,0 +1,24 @@
+# harness: flags --wwe2k14_replay_play=s89_brock --wwe2k14_use_launcher_settings=true --wwe2k14_settings_file=..\..\owned_check\settings_native720.json --wwe2k14_rdr_pace_game=true --wwe2k14_background_full_speed=true
+# contract: allow shots S101 Check A: the frozen v0.3.1 reference was taken the same way (fast-forwarded, no other game alive); S100 run 6985 alone matched within 2 levels
+# Session 100: owner-mode copy of s89_brock_census.txt (replay s89_brock): the new renderer owns the window and writes its picture of the same frames the
+# reference build screenshots (s89k_a at step 15 + 100, s89k_b at + 240). Run with --wwe2k14_rdr_owner=true and owned_check's common flags.
+on_fail quit
+log bench: start s89_brock_census
+wait_file 343.bik2 3600
+log scene=tron_343
+mark 1 tron_343
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+wait_frames 50
+cvar gpu_native_owned_frame_log 2
+wait_frames 50
+cvar wwe2k14_rdr_live_picture s89k_a
+screenshot s89k_a
+wait_frames 140
+cvar wwe2k14_rdr_live_picture s89k_b
+screenshot s89k_b
+wait_frames 33
+log bench: done
+wait_frames 120
+quit

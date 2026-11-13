@@ -1,0 +1,7 @@
+{
+ "owner": "lane 196 (S101): the caster / wrestler temporal + source ledger, tools/skip/caster_ledger.py (SKIP_GAME_WORK_MAP.md sections 17 and 18). Python only, 0 game runs, about 30 s. Captures: the unpacked Check B and run 7079 case folders under the main checkout's out/s101/lane92 (local game data; the selftest SKIPs when they are absent).",
+ "checks": [
+  {"name": "caster_ledger.selftest", "cmd": ["py", "-I", "tools/skip/caster_ledger_selftest.py"], "timeout_s": 600,
+   "needs": ["out/s101/lane92/case_20261111_215233_217_0_pc_run_exit/capture/frames", "out/s101/lane92/case_20261112_122658_040_0_pc_run_exit/capture/frames"]}
+ ]
+}

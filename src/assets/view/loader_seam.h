@@ -38,7 +38,7 @@ bool ViewerCrowd(bool stored, int act, int frame, std::string& err);
 // Session 97 (stage key): whether the next arena loads use the stage motion key (pac entries 30000 light sets, 30001 slot motions m(N))
 // and at which game frame it is evaluated. False (and err) when the seam has no stage key (the test seam).
 bool ViewerStageKey(bool enabled, double time, std::string& err);
-// Session 97 (stage movies, srcssets\stage_media.h): the folder of PNGs the game exported (--wwe2k14_tron_export) that feeds the
+// Session 97 (stage movies, src\assets\stage_media.h): the folder of PNGs the game exported (--wwe2k14_tron_export) that feeds the
 // entrance stage / video wall of arenas loaded from now on ("" = the launcher's tron cache, if any; off = untextured as before), and
 // the titantron number that feeds the big screen and banner ring.
 // `map` = A/B overrides (sampler name -> spec, see Settings::map in stage_media.h); empty keeps the built-in mapping.

@@ -1,0 +1,40 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time, ~5 s; a fast-forwarded run would outrun it, run 7087)
+# Session 101 lane 141: the LONG owner-mode match route. s100_owner_match.txt ends ~16 s after boot (10 s of match), before the wrestler roster
+# (src\renderer_scene\wrestler_ours.cpp: roster_.BuildAsync, ready when Poll()==1) finishes, so in Check J1b (run 7087) the wrestlers class
+# stayed "not ready" the whole run and the referee's pieces, wrestler thin draws, sweat / pre-light, circle / plane shadows and the rim map
+# were never exercised live in a match. This route plays long enough for all of them.
+# What it does: same match as s100_owner_match (Bryan v Lesnar, Over the Limit, entrances skipped, fixed seed 1), but BOTH wrestlers are CPU
+# (participants 343 = Lesnar, 324 = Bryan, no PAD = CPU: src\scenario.h wwe2k14_launch_participants; ids db\ids\characters.json / bryan_entrance.txt)
+# so they move, sweat builds up and the referee moves with no input from us.
+# 1. wait_state match_clock >0 (the bell, by state, not by frames), 2. play 900 frames (15 s, realtime) so the roster worker is done,
+# 3. shot 1, 4. play 1200 more frames (20 s), 5. shot 2, 6. 300 more frames, quit. Match time ~ 40 s after the bell.
+# READY SIGNAL (lane 147): wait_event render roster_ready (src/render_signal.h; the bus also logs {"kind":"render","what":"roster_ready","pacs":N,"models":M,"seconds":T}). The route waits on it (timeout 2400 frames; a failed build fails the route), then 60 frames more. The census line "[rdr][wrestlers] ... roster N pacs" is still in the log. Run is realtime so frames track the wall clock the worker needs.
+# Camera: the game's own match camera; the referee's place in it is not controllable, so the two shots are 20 s apart to catch him at
+# different spots (check both). Marks: 1 match_clock, 2 roster_wait_done, 3 shot1, 4 shot2, 5 end. Shots sc_match_long_* are local only.
+# Run with --wwe2k14_rdr_owner=true (in the header flags). on_fail quit.
+on_fail quit
+log bench: start scene match_long
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match_long
+mark 1 match_clock
+# lane 147: waits for the roster, not a fixed 15 s
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_match_long_1
+screenshot sc_match_long_1
+mark 3 shot1
+wait_frames 1200
+cvar wwe2k14_rdr_live_picture sc_match_long_2
+screenshot sc_match_long_2
+mark 4 shot2
+wait_frames 300
+log scene=end (match clock +2400)
+mark 5 end
+log bench: done
+quit

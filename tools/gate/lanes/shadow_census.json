@@ -1,0 +1,15 @@
+{
+ "owner": "lane SC (S101): the shadow census, tools/shadow/ (SHADOW_PROMOTION_MAP.md section 7 lane SC). Python only, 0 game runs. Captures are named relative to the main checkout (shadow_census resolves them there); the files side reads chCommon.pac and the arena pacs from game_data/extracted.",
+ "checks": [
+  {"name": "shadow_census.census", "cmd": ["py", "-I", "tools/shadow/shadow_census.py",
+    "brock=out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "bryan=out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "wm30=out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip", "-q"],
+   "timeout_s": 900, "needs": ["game_data/extracted",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip"]},
+  {"name": "shadow_census.selftest", "cmd": ["py", "-I", "tools/shadow/selftest.py"], "timeout_s": 900, "needs": ["game_data/extracted",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip"]}
+ ]
+}

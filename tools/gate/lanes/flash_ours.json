@@ -1,0 +1,7 @@
+{
+ "owner": "lane 68 (S101): the crowd flashes drawn in place through the REAL replace seam (rplay / fview --flash-ours), PARTICLES_PROMOTION_MAP.md lane F, docs/formats/crowd_flash.md",
+ "note": "needs: Check B's case zip and Bryan's entrance case zip (held, KEEP), the game files, and out/renderer/dev/rplay.exe + fview.exe built from the tree under test (the script builds both unless --no-build; the gate runs it with --no-build, so build first). Bars and plants: the header of tools/particles/flash_ours_check.py. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "flash_ours.proof", "cmd": ["py", "-I", "tools/particles/flash_ours_check.py", "--root", ".", "--no-build"], "timeout_s": 3600, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261111_174549_s100_owner_bryan_entrance", "game_data/extracted"]}
+ ]
+}

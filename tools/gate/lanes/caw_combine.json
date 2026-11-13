@@ -1,0 +1,7 @@
+{
+ "owner": "lane 244 (S101): the wide (21:9) rule left the clip-off (pixel-placed) post and offscreen passes squeezed about the 8192 viewport's centre: in the CAW editor (a menu frame, gpu_wide_all) the post combine landed 976 px to the right and the wrestler vanished. wide_rule.h Decide(..., clip_off) now leaves them alone. Offline: rplay --wide 1.3125 --wide-all --wide-from-squeezed (rebuilds a wide-recorded capture's 16:9 dynamics first); the old rule (--wide-clipoff-squeezed, the plant) reproduces the recorded picture exactly, then the new rule. Needs the dev rplay.exe of this tree (tools/renderer/build.ps1). The plant run (caw_combine_check.py --plant) must exit 1 (run it by hand: the gate has no expect-fail field). See docs/renderer/POST_OURS.md 'Lane 244'.",
+ "checks": [
+  {"name": "caw_combine.proof", "cmd": ["py", "-I", "tools/post/caw_combine_check.py", "--root", "."], "timeout_s": 1800, "needs": [
+    "out/s101/runs/20261113_035959_s101_checkB_caw_walk", "out/s101/runs/20261113_062332_s101_sweep_match_type"]}
+ ]
+}

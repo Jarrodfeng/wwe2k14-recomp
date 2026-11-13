@@ -1,0 +1,120 @@
+{
+ "case_20261112_122658_040_0_pc_run_exit.zip": {
+  "frames": 380,
+  "frames_with_bakes": 343,
+  "reader_objects_disjoint": true,
+  "shapes": {
+   "5": 343
+  },
+  "slots": {
+   "0": {
+    "baked": 343,
+    "copies": 2058,
+    "dead_copies": 0,
+    "dead_draw": 0,
+    "reader_objects": 7,
+    "reads": 18522
+   },
+   "1": {
+    "baked": 343,
+    "copies": 2058,
+    "dead_copies": 2058,
+    "dead_draw": 343,
+    "reader_objects": 0,
+    "reads": 0
+   },
+   "2": {
+    "baked": 343,
+    "copies": 2058,
+    "dead_copies": 2058,
+    "dead_draw": 343,
+    "reader_objects": 0,
+    "reads": 0
+   },
+   "3": {
+    "baked": 343,
+    "copies": 2058,
+    "dead_copies": 2058,
+    "dead_draw": 343,
+    "reader_objects": 0,
+    "reads": 0
+   },
+   "4": {
+    "baked": 343,
+    "copies": 2058,
+    "dead_copies": 2058,
+    "dead_draw": 343,
+    "reader_objects": 0,
+    "reads": 0
+   }
+  }
+ },
+ "case_20261112_122719_969_0_pc_run_exit.zip": {
+  "frames": 236,
+  "frames_with_bakes": 236,
+  "reader_objects_disjoint": true,
+  "shapes": {
+   "5": 236
+  },
+  "slots": {
+   "0": {
+    "baked": 236,
+    "copies": 1416,
+    "dead_copies": 0,
+    "dead_draw": 0,
+    "reader_objects": 5,
+    "reads": 8260
+   },
+   "1": {
+    "baked": 236,
+    "copies": 1416,
+    "dead_copies": 1416,
+    "dead_draw": 236,
+    "reader_objects": 0,
+    "reads": 0
+   },
+   "2": {
+    "baked": 236,
+    "copies": 1416,
+    "dead_copies": 1416,
+    "dead_draw": 236,
+    "reader_objects": 0,
+    "reads": 0
+   },
+   "3": {
+    "baked": 236,
+    "copies": 1416,
+    "dead_copies": 1416,
+    "dead_draw": 236,
+    "reader_objects": 0,
+    "reads": 0
+   },
+   "4": {
+    "baked": 236,
+    "copies": 1416,
+    "dead_copies": 0,
+    "dead_draw": 0,
+    "reader_objects": 2,
+    "reads": 2360
+   }
+  }
+ },
+ "case_20261112_131027_265_0_pc_run_exit.zip": {
+  "frames": 502,
+  "frames_with_bakes": 6,
+  "reader_objects_disjoint": true,
+  "shapes": {
+   "1": 6
+  },
+  "slots": {
+   "0": {
+    "baked": 6,
+    "copies": 36,
+    "dead_copies": 0,
+    "dead_draw": 0,
+    "reader_objects": 12,
+    "reads": 480
+   }
+  }
+ }
+}

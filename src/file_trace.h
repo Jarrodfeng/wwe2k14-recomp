@@ -38,12 +38,17 @@
 
 #include "frame_stats.h"
 #include "flight_recorder.h"  // NtReadFile events for --wwe2k14_flight_recorder (Session 8 task 11)
+#include "host_write.h"       // Session 100 strip-360 E2 / E3: file reads reported to the new renderer's reader
+#include <rex/system/xfile.h>  // S101 names A1c: a read's file path (XFile::path)
 
 namespace rex::kernel::xboxkrnl {
 // ReXGlue's implementation (xboxkrnl_io.cpp), exported by rexruntime.dll but not declared in the headers.
 uint32_t NtReadFile_entry(uint32_t file_handle, uint32_t event_handle, mapped_void apc_routine_ptr,
                           mapped_void apc_context, ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
                           mapped_void buffer, uint32_t buffer_length, mapped_u64 byte_offset_ptr);
+uint32_t NtReadFileScatter_entry(uint32_t file_handle, uint32_t event_handle, mapped_void apc_routine_ptr, mapped_void apc_context,
+                                 ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block, mapped_u32 segment_array, uint32_t length,
+                                 mapped_u64 byte_offset_ptr);
 }  // namespace rex::kernel::xboxkrnl
 
 REXCVAR_DEFINE_BOOL(wwe2k14_file_trace, false, "wwe2k14",
@@ -238,9 +243,47 @@ inline uint32_t NtReadFileTraceOverride(uint32_t file_handle, uint32_t event_han
     CacheFileLog("read", cache_path, file_handle, cache_offset, buffer_length, event_handle,
                  apc_routine_ptr.guest_address(), result, io_status_block);
   }
+  // Strip-360 E2 / E3: the bytes the read wrote, to the new renderer's reader (src\host_write.h). The SDK completes reads at once
+  // (xboxkrnl_io.cpp: "Synchronous"), so the buffer holds them now; the requested length is an upper bound (harmless: a re-read).
+  if (int32_t(result) >= 0) {  // (success or pending: NT status >= 0)
+    // S101 names A1c: the file it came from, looked up only while the reader listens (reads are ~1,600 a match).
+    std::string path;
+    if (host_write::g_writer_hook.load(std::memory_order_relaxed)) {
+      if (auto file = REX_KERNEL_OBJECTS()->LookupObject<rex::system::XFile>(file_handle)) path = file->path();
+    }
+    // S101 lane17: the bytes actually read (the status block's count), not the requested length.
+    const uint32_t got = host_write::BytesRead(int32_t(result), buffer_length, io_status_block.guest_address() ? uint32_t(io_status_block->information) : 0u,
+                                               !io_status_block.guest_address(),
+                                               io_status_block.guest_address() ? int32_t(uint32_t(io_status_block->status)) : 0);  // (a pending return with a filled block: the block's count)
+    if (got) host_write::NoteBy(buffer.guest_address(), got, host_write::Writer::FileRead, path.empty() ? nullptr : path.c_str());
+  }
+  return result;
+}
+
+// Strip-360 E2 / E3: the scatter read (the game imports it): one 32-bit buffer pointer per 4 KB page of the read (XFile::ReadScatter,
+// xfile.cpp:201-231), each reported to the reader after the SDK's read.
+inline uint32_t NtReadFileScatterOverride(uint32_t file_handle, uint32_t event_handle, mapped_void apc_routine_ptr, mapped_void apc_context,
+                                          ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block, mapped_u32 segment_array,
+                                          uint32_t length, mapped_u64 byte_offset_ptr) {
+  const uint32_t result = rex::kernel::xboxkrnl::NtReadFileScatter_entry(file_handle, event_handle, apc_routine_ptr, apc_context,
+                                                                         io_status_block, segment_array, length, byte_offset_ptr);
+  if (int32_t(result) >= 0 && segment_array.guest_address()) {
+    const auto* segments = REX_KERNEL_MEMORY()->TranslateVirtual<const rex::be<uint32_t>*>(segment_array.guest_address());
+    std::string path;  // S101 names A1c
+    if (host_write::g_writer_hook.load(std::memory_order_relaxed)) {
+      if (auto file = REX_KERNEL_OBJECTS()->LookupObject<rex::system::XFile>(file_handle)) path = file->path();
+    }
+    // S101 lane17: only the bytes read (status block count), page by page.
+    const uint32_t got = host_write::BytesRead(int32_t(result), length, io_status_block.guest_address() ? uint32_t(io_status_block->information) : 0u,
+                                               !io_status_block.guest_address(),
+                                               io_status_block.guest_address() ? int32_t(uint32_t(io_status_block->status)) : 0);
+    for (uint32_t done = 0, i = 0; done < got; done += 4096, ++i)
+      host_write::NoteBy(segments[i], std::min<uint32_t>(4096, got - done), host_write::Writer::FileRead, path.empty() ? nullptr : path.c_str());
+  }
   return result;
 }
 
 }  // namespace wwe2k14
 
 REX_HOOK(__imp__NtReadFile, wwe2k14::NtReadFileTraceOverride)
+REX_HOOK(__imp__NtReadFileScatter, wwe2k14::NtReadFileScatterOverride)

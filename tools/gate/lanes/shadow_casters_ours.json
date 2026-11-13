@@ -1,0 +1,15 @@
+{
+ "owner": "lane 99 = SO (S101): the shadow passes' casters (wrestler maps A / B, the ring's rope proxy 956, the wrestlers' chCommon.pac plane proxy) drawn in place through the replace seam: src/renderer_scene/shadow_casters_{core,ours,factory}, shadow_join_board.h, src/assets/chcommon_proxy.*, tools/shadow/shadow_casters_{check.py,unit.cpp,unit_selftest.py}. docs/renderer/SHADOW_CASTERS_OURS.md",
+ "note": "unit: out/tools/shadow_casters_unit.exe (the shipped ShadowCore on a real Check B frame): an arena swap does not reuse the pairing or the buffer; the planted arena_stale fails exactly three checks. proof: fview --wrestlers-ours --ring-ours with and without --shadow-casters-ours, ALL frames of Check B / run 7079 / Bryan (--sweep): the picture and the images the readers sample are byte-equal per frame, the census is exact against lane SV's independent oracle, validation 0; then the planted faults (each fails its exact check) and the loud failures. The captures are kept (KEEP files). A machine without them FAILS (never skips).",
+ "checks": [
+  {"name": "shadow_casters.unit_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/shadow/build_shadow_casters_unit.ps1"], "timeout_s": 1800},
+  {"name": "shadow_casters.unit", "cmd": ["py", "-I", "tools/shadow/shadow_casters_unit_selftest.py"], "timeout_s": 900,
+   "needs": ["out/lane40/brock/capture", "game_data/extracted"]},
+  {"name": "shadow_casters.oracle_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/shadow/build_caster_vertex_check.ps1"], "timeout_s": 1800},
+  {"name": "shadow_casters.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 2400},
+  {"name": "shadow_casters.proof", "cmd": ["py", "-I", "tools/shadow/shadow_casters_check.py", "--root", ".", "--no-build"], "timeout_s": 7200,
+   "needs": ["out/lane40/brock/capture", "out/lane85/r7079/capture", "out/lane99/bryan/capture", "out/s101/runs/20261111_174549_s100_owner_bryan_entrance", "game_data/extracted"]},
+  {"name": "shadow_casters.editor_proof", "cmd": ["py", "-I", "tools/shadow/caw_casters_check.py", "--root", ".", "--no-build"], "timeout_s": 3600,
+   "needs": ["out/s101/runs/20261113_035959_s101_checkB_caw_walk", "game_data/extracted"]}
+ ]
+}

@@ -1,0 +1,35 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=@CAWID@,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
+# TEMPLATE, NOT A ROUTE (extension .tmpl: no lint, no run). Make the route with `py -I tools\census\roster_caw_route.py CAWID` (lane 158 review B3): it refuses a missing, non-numeric or
+# out-of-range id, so this leg can never start with a placeholder id. Why it matters: scenario.h skips a participant id outside 0-499 ("launch participant ... skipped") and leaves the
+# captured wrestler in the seat, so a wrong id plays Lesnar v BRYAN and the "unexplained body" the CAW proof looks for is Bryan.
+# Session 101 lane 158: the ROSTER-WIDE wrestler route, leg 3b of 3: a CREATED WRESTLER (CAW) in a NORMAL exhibition match. Exactly scenes\s101_owner_match_long.txt (the same
+# Lesnar-v-Bryan scenario, entrances skipped, fixed seed 1, Over the Limit, both CPU) with seat 0 replaced: the CAW instead of Bryan, Brock (343) as the CONTROL beside it.
+# WHY the scenario launcher and not the builder: the builder cannot skip entrances (game_atlas.md "Not in the builder yet"); a CAW's entrance is the least-tested path in the game
+# and a stalled entrance would hide the question this leg asks. sub_82C13DA8 (the CAW caller of sub_82C04DF0) draws the created wrestler's composite attire; lane 153 (N3) makes it ours.
+# PREREQUISITE: a save with a CAW (leg 3a, docs\renderer\WRESTLER_PROMOTION_MAP.md 14.6), copied to out\bench\userdata_caw_s101.
+# Steps (as the long route): the bell by state, roster_ready, 60 frames, shot 1, 20 s, shot 2, 5 s, quit. ~2.5 min. on_fail quit.
+on_fail quit
+log bench: start scene roster_caw
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=roster_caw
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_roster_caw_1
+screenshot sc_roster_caw_1
+mark 3 shot1
+wait_frames 1200
+cvar wwe2k14_rdr_live_picture sc_roster_caw_2
+screenshot sc_roster_caw_2
+mark 4 shot2
+wait_frames 400
+log scene=end (match clock +1700)
+mark 5 end
+log bench: done
+quit

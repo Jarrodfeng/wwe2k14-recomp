@@ -1,0 +1,8 @@
+{
+ "owner": "lane 6: the scene front-end and the Arena Viewer's rdr backend",
+ "checks": [
+  {"name": "scene.fx_tables_current", "cmd": ["py", "-I", "tools/scene/gen_fx_tables.py", "--check"], "timeout_s": 900},
+  {"name": "scene.viewer_rdr_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1", "-Backend", "rdr"], "timeout_s": 1800},
+  {"name": "scene.selftest", "cmd": ["py", "-I", "tools/scene/selftest.py"], "timeout_s": 900, "needs": ["game_data/extracted"]}
+ ]
+}

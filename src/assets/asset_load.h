@@ -14,6 +14,7 @@
 #include <fstream>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,13 @@
 namespace assets {
 
 namespace load_detail {
+
+// S101 lane 40 (Opus review A1): the loader's pac cache (TheCache), stage_pools' cache and CrowdPose() are process-wide statics and the loader is not thread-safe, while the crowd's
+// and the arena's workers both load. Every public entry that reaches them (crowd_body.cpp, arena_game_space.cpp) holds this. Recursive: LoadBodyLodGameSpace calls LoadBody.
+inline std::recursive_mutex& LoadMutex() {
+  static std::recursive_mutex m;
+  return m;
+}
 
 struct Cache {
   std::string rel;
@@ -597,6 +605,10 @@ inline Matrix TransFile(float x, float y, float z) { return {1, 0, 0, 0, 0, 1, 0
 // [U] ropes: RotY(s * pi/2) * T(0, y_j, -320) (shape and side distance from the data; the heights are written at run time
 // by the rope simulation, not in the pac: ours below are a guess judged against the game census shots), corner covers
 // and turnbuckles the same way per corner, skirts RotY(s * pi/2) * T(0, 0, -320) alternating 974 / 973.
+// Session 101 lane 275 [C, ring-rows records of the RL1 capture, arena 4, node 2 of each instance = the rest pose; docs\renderer\FILE_CENSUS.md "Lane 275"]: the TURNBUCKLE (952) is NOT the
+// post's RotY copy. Its file mesh sits beside the post at (-324..-283, y, -322..-318); the game's world for corner 0 is RotY(-45 deg) with the translation (-310.015, y, 142.534), so the pad
+// swings onto the corner diagonal and its strap reaches the post (before this, T(0, y, 0) * RotY(corner) left it floating beside the post). Heights y = -154 / -196 / -238 (node 2),
+// the other three corners = RotY(i * pi/2) after it (checked against all 12 instances). The cover (964) world is a pure shift (-2.931, y, -2.928) then RotY(i * pi/2), y = -153.844 / -195.879 / -237.844.
 inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring, Model& m) {
   const float kPi = 3.14159265f;
   const float canvas_y = -111.f;                       // file space: the canvas corner bones (C)
@@ -614,7 +626,9 @@ inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring,
     m.placements.push_back(std::move(pl));
     for (size_t i = it->second.first; i < it->second.second; ++i) m.meshes[i].placement = int(m.placements.size()) - 1;
   };
-  std::vector<Matrix> corners, ropes, per_corner_rope, skirt_a, skirt_b;
+  const float buckle_above[3] = {43.f, 85.f, 127.f};                  // lane 275 [C]: turnbuckle node-2 rest heights -154 / -196 / -238
+  const float cover_y[3] = {-153.844f, -195.879f, -237.844f};          // lane 275 [C]: cover node-2 heights (calls 0-2 of the capture)
+  std::vector<Matrix> corners, ropes, per_corner_rope, buckles, covers, skirt_a, skirt_b;
   for (int i = 0; i < 4; ++i) {
     const Matrix r = RotYFile(float(i) * kPi * 0.5f);
     corners.push_back(r);
@@ -622,12 +636,14 @@ inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring,
       ropes.push_back(Mul(TransFile(0, canvas_y - h, rope_z), r));
       per_corner_rope.push_back(Mul(TransFile(0, canvas_y - h, 0), r));
     }
+    for (float h : buckle_above) buckles.push_back(Mul(Mul(RotYFile(-kPi * 0.25f), TransFile(-310.015f, canvas_y - h, 142.534f)), r));
+    for (float y : cover_y) covers.push_back(Mul(TransFile(-2.931f, y, -2.928f), r));
     (i % 2 == 0 ? skirt_b : skirt_a).push_back(Mul(TransFile(0, 0, -320.f), r));
   }
   place(951, corners, "ring post");
   place(960, ropes, "ring rope");
-  place(952, per_corner_rope, "ring turnbuckle");
-  place(964, per_corner_rope, "ring corner cover");
+  place(952, buckles, "ring turnbuckle");
+  place(964, covers, "ring corner cover");
   place(973, skirt_a, "ring skirt");
   place(974, skirt_b, "ring skirt");
 }
@@ -1029,6 +1045,11 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
         }
         if (!big)
           for (int k = 0; k < 3; ++k) ls.sky[k] = BeF(d.data() + 0x100 + 4 * k), ls.ground[k] = BeF(d.data() + 0x110 + 4 * k);
+        if (!big)  // S101 lane33: the per-light camera-attach flags (asset_model.h LightSet::follow)
+          for (int i = 0; i < 4; ++i) {
+            const uint8_t* q = d.data() + 0x120 + 4 * i;
+            ls.follow[i] = (uint32_t(q[0]) << 24 | uint32_t(q[1]) << 16 | uint32_t(q[2]) << 8 | uint32_t(q[3])) == 1u;
+          }
         if (big)  // Session 98 (match oracle): the cube falloff per light (asset_model.h LightSet::fall)
           for (int i = 0; i < 4; ++i) {
             const float f = BeF(d.data() + 0x140 + 4 * i);
@@ -1069,6 +1090,10 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
     // 6816, every l(502) truss-lamp / glow-sheet draw (slots 219-221, 240-252 ...) in the entrance frames 8341-12241 and the match frame
     // 13741 has c0-c3 = 0 and c181 = c182 = 0.615 [C]. (The ring pieces' l(502) are set 31 / 32 below: their own evidence.)
     if (have_kl && s.id == 502) return false;
+    // S101 lane33: set 100 (the default `l(100)` of a slot with no choice) with the key is drawn as the key gives it, like 502: lights 0, sky /
+    // ground as keyed (arena 29: sky 0.784, ground 0.588; 36 + 29 draws of the wm30 and the Triple H / Brock matches had exactly those
+    // c0-c3 = 0 / c181 / c182, not the stand-in's lights) [C: docs\renderer\LIGHT_MATCH.md]. A set 100 whose key has no ambient still falls back.
+    if (have_kl && s.id == 100 && (s.sky[0] + s.sky[1] + s.sky[2] + s.ground[0] + s.ground[1] + s.ground[2]) > 1e-4f) return false;
     float t = 0;
     for (int i = 0; i < 4; ++i)
       for (int k = 0; k < 3; ++k) t += s.col[i][k];
@@ -1132,13 +1157,14 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
       if (j < line.size() && line[j] == ')') slot_set[slot] = ln;
     }
   }
-  // OUR CHOICE (not the game's): a mesh with no `l(N)` gets set 100, which is all zero in the file (the game fills it at
-  // run time; unconfirmed how), and so do other black sets. Those meshes use the arena's commonest usable set (121 in bg05).
+  // OUR CHOICE (not the game's): a mesh with no `l(N)` gets set 100. In the file it is all zero; with the stage key (S101 lane33) it has the
+  // key's sky / ground and is drawn as such like the game (black() above; it now also shows in the lighting editor's list). Other black sets
+  // (and a set 100 whose key has no ambient) still take the stand-in. Those meshes use the arena's commonest usable set (121 in bg05).
   int fallback_id = -1;
   {
     std::map<int, int> use;
     for (auto& kv : slot_set)
-      if (kv.second != 502 && all_sets.count(kv.second) && !black(all_sets[kv.second])) ++use[kv.second];  // (502: never the stand-in)
+      if (kv.second != 502 && kv.second != 100 && all_sets.count(kv.second) && !black(all_sets[kv.second])) ++use[kv.second];  // (502 / S101 lane33: 100: never the stand-in)
     int best = 0;
     for (auto& kv : use)
       if (kv.second > best) best = kv.second, fallback_id = kv.first;

@@ -30,6 +30,7 @@
 // through the same queue ("ring packets in the scene" are counted as segment dwords: 0 in tier 2c).
 #pragma once
 
+#include "guest_gpu_only.h"  // lane 241 (3b)
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -51,6 +52,7 @@
 #include <rex/logging.h>
 
 #include "d3d_layer.h"  // F1: Ld32 / St32 / Ld64 / St64, the layer switch, g_guest_frame
+#include "guest_view.h"  // S100 strip-360 tier C: the 0xE0000000 view rule, one place
 
 REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring, 0, "wwe2k14",
                      "Session 87 (D3D layer stage 2, experimental): 0 = off; 1 = segments through a host queue instead of the "
@@ -89,6 +91,15 @@ REX_EXTERN(sub_82CB3300);
 REX_EXTERN(sub_82CC4338);
 REX_EXTERN(sub_82CB7770);
 REX_EXTERN(sub_82CB6EA8);
+
+// Session 100 (strip-360 B4/B5): owner mode answers fences, interrupts and flips on its own thread (src\owner_timing.h, included after the
+// adapter reader in half2_hooks.h); the three hooks below ask it first.
+namespace wwe2k14::owner_timing {
+inline bool Fence(PPCContext& ctx, uint8_t* base);
+inline bool Interrupt(PPCContext& ctx, uint8_t* base);
+inline bool Flip(PPCContext& ctx, uint8_t* base);
+inline bool Submit(PPCContext& ctx, uint8_t* base);  // B6: the ring submit 0x82CB5EF0 a no-op in owner mode
+}  // namespace wwe2k14::owner_timing
 
 namespace wwe2k14::d3d_noring {
 
@@ -165,7 +176,7 @@ inline constexpr uint32_t kDevNoWaitFlags = 24584;     // non-zero: the handshak
 
 // The GPU-form address the library puts into its packets for a guest virtual address (listing 0x82CB3300: rlwinm 12,20,31 / addi
 // 512 / rlwinm 19,19 / clrlwi 3 / add).
-inline constexpr uint32_t GpuForm(uint32_t a) { return ((((a >> 20) & 0xFFFu) + 512u) & 0x1000u) + (a & 0x1FFFFFFFu); }
+inline constexpr uint32_t GpuForm(uint32_t a) { return wwe2k14::guest_view::ToPhysical(a); }
 
 // ------------------------------------------------------------------------------------------------------------------------------
 // State
@@ -511,6 +522,7 @@ inline bool WaitFenceIdle(uint8_t* base, uint32_t dev, uint32_t timeout_ms) {
 }
 
 inline void Enter(PPCContext& ctx, uint8_t* base, uint32_t dev, int level) {
+  if (wwe2k14::GuestGpuOnly()) return;  // lane 241 (3b): never attach a queue nobody consumes (TickTransition already wants 0)
   if (base[dev + kDevByte11069] & 0x02) {  // the library's no-GPU mode: it writes the fences itself (Session 51); never combine
     Count(kRefusedNoGpuBit);
     return;
@@ -560,6 +572,8 @@ inline void Leave(PPCContext& ctx, uint8_t* base, uint32_t dev) {
 inline void TickTransition(PPCContext& ctx, uint8_t* base, uint32_t dev) {
   if (t_original_depth) return;
   int want = REXCVAR_GET(wwe2k14_d3d_noring);
+  // Lane 241 (3b): guest_gpu_only has no command processor to consume the queue (Enter would kick the ring and wait 5 s for a fence nobody writes, every frame).
+  if (wwe2k14::GuestGpuOnly()) want = 0;
   if (want > 0 && (!AbiOk() || int64_t(wwe2k14::g_guest_frame.load()) < REXCVAR_GET(wwe2k14_d3d_noring_from_frame))) want = 0;
   // Review A2: the no-ring levels are for the one-tile scene. Without force_no_msaa the game tiles (4 strips, the D3D worker replays the
   // recorded segments per strip): stay on the ring.
@@ -652,6 +666,7 @@ inline bool EmitInterrupt(uint8_t* base, uint32_t dev, uint32_t r5, uint32_t cal
 // Ring submit 0x82CB5EF0 (r3 device, r4 an array of {size | flags << 24, address} pairs, r5 the count): with the queue on, the pieces
 // go to the queue; nothing is written to the ring, no WPTR (so the library's ring-space wait, reason 1, is never reached).
 REX_HOOK_RAW(sub_82CB5EF0) {
+  if (wwe2k14::owner_timing::Submit(ctx, base)) return;
   const uint32_t dev = ctx.r3.u32;
   // (Review A1: at Level >= 1 a kick NEVER reaches the real ring - not from the fallbacks that run an original under t_original_depth, not in
   // the recording modes: queued work is pending and an early fence would free segment memory (Session 51, failure 1). The debug objects
@@ -680,6 +695,7 @@ REX_HOOK_RAW(sub_82CB5EF0) {
 // The segment-end fence pair 0x82CB63D0 (r3 device, r4 the write pointer; returns the pointer after what it wrote): a Fence item,
 // written by the consumer after every item before it. The library's own bookkeeping is kept as the original keeps it.
 REX_HOOK_RAW(sub_82CB63D0) {
+  if (wwe2k14::owner_timing::Fence(ctx, base)) return;
   const uint32_t dev = ctx.r3.u32, ptr = ctx.r4.u32;
   if (Level() < 2 || t_original_depth || Recording(base, dev)) {
     __imp__sub_82CB63D0(ctx, base);
@@ -706,6 +722,7 @@ REX_HOOK_RAW(sub_82CB63D0) {
 // The interrupt emitter 0x82CB6510 (r3 device, r4 the write pointer, r5 flags, r6 callback, r7 argument; returns the pointer after what
 // it wrote). Users: the flip handshake (replaced as a whole below), the scene-timing pair (0x82CB71D0), the tiling hand-off, profiling.
 REX_HOOK_RAW(sub_82CB6510) {
+  if (wwe2k14::owner_timing::Interrupt(ctx, base)) return;
   const uint32_t dev = ctx.r3.u32, ptr = ctx.r4.u32;
   if (t_expect_flip_arg != 0xFFFFFFFFu && ctx.r6.u32 == kFlipScheduler) {  // --wwe2k14_d3d_noring_verify: the original 3300's call
     if (ctx.r7.u32 == t_expect_flip_arg) {
@@ -731,6 +748,7 @@ REX_HOOK_RAW(sub_82CB6510) {
 // 0 - the one frame limiter - become ONE FlipHandshake item. The two helper calls (profiling packets only) and the per-frame bit
 // stay. This is also where the ring <-> queue hand-over happens (a frame boundary).
 REX_HOOK_RAW(sub_82CB3300) {
+  if (wwe2k14::owner_timing::Flip(ctx, base)) return;
   const uint32_t dev = ctx.r3.u32, flag = ctx.r4.u32;
   if (!t_original_depth) {
     TickTransition(ctx, base, dev);

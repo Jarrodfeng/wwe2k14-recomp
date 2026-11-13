@@ -1,0 +1,16 @@
+{
+ "owner": "lane 153 (N3, S101): the Create a Superstar editor's wrestler replaced in place, part by part from pac/edit: src/renderer_scene/caw_core.h (the GPU-free decisions), caw_ours.*, the Roster::BuildEdit / LoadEditLeaf additions in src/assets/wrestler_roster.*, fview --caw-ours, docs/renderer/CAW_OURS.md",
+ "note": "needs the caw_walk case zip (out/s101/runs/20261112_122353_s101_checkB_caw_walk, no scene records) and the game files (pac/edit); a machine without them FAILS loudly (the script run directly). CPU half = out/tools/caw_ours_check.exe: clean proof, the slider-move arm (refused at the next frame), the stale-model plant (pinned) re-finds the past bug, no_verify and wrong_leaf are positive controls of the independent proof.",
+ "checks": [
+  {
+   "name": "caw_ours.proof",
+   "cmd": ["py", "-I", "tools/wrestler/caw_ours_check.py", "--root", "."],
+   "timeout_s": 1800,
+   "exes": ["out/renderer/release/fview.exe"],
+   "needs": [
+    "out/s101/runs/20261112_122353_s101_checkB_caw_walk",
+    "game_data/extracted"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,19 @@
+diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
+index b9db013..f318a92 100644
+--- a/src/ui/window_sdl.cpp
++++ b/src/ui/window_sdl.cpp
+@@ -325,6 +325,14 @@ void* WindowSDL::GetNativeWindowHandle() const {
+   }
+   return SDL_GetPointerProperty(SDL_GetWindowProperties(sdl_window_),
+                                 SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
++#elif defined(__ANDROID__)
++  // wwe2k14 patch (Session 100): the ANativeWindow, for an app renderer that owns the window (present_detached; the game's new renderer
++  // creates its own VK_KHR_android_surface on it).
++  if (!sdl_window_) {
++    return nullptr;
++  }
++  return SDL_GetPointerProperty(SDL_GetWindowProperties(sdl_window_),
++                                SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+ #else
+   return nullptr;
+ #endif

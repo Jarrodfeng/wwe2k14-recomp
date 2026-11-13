@@ -1,0 +1,19 @@
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 100 (strip-360 E3 diagnosis): WM30's match 1 as s100_owner_s90_wm30.txt, with hardware write watches on the first 8 bytes of the
+# three shadow-pass vertex streams that change once during the match load with no host write report (runs 6976 / 6987: physical 0x1C546000,
+# 0x1C553000, 0x1C55E000 = E view 0xFC545000, 0xFC552000, 0xFC55D000): the [wwe2k14][watch] lines name the writing function.
+on_fail quit
+log bench: start scene s100_wm30_shadow_watch
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+watch 0xFC545000 8 any
+watch 0xFC552000 8 any
+watch 0xFC55D000 8 any
+press_until_file A EVTDSC 6 300 4
+press_until_state A match_clock !=0 60 600 5
+log scene=match
+wait_frames 120
+unwatch
+log bench: done
+quit

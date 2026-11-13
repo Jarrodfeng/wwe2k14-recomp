@@ -1,0 +1,18 @@
+# harness: flags --wwe2k14_mods=true --wwe2k14_entrance_music=true --wwe2k14_music_mix_into_game=true --wwe2k14_music_arena_fx=true --wwe2k14_music_probe=true --wwe2k14_music_picker_trace=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# harness: realtime (sound: the audio capture and the menu presses need wall-clock speed; fast-forwarded menus drop presses, LESSONS)
+# Lane 303 (Session 101): the ONE combined custom-music live check. Part 1 (music_live_cae_part.txt): Create-an-Entrance > MUSIC list > preview of a
+# custom song, the USER PLAYLIST picker (open, PLAY, choose, close). Part 2 (music_live_match_part.txt): a match whose entrance plays the custom
+# theme through the shared player, with the stock theme of the other wrestler as the loudness control.
+# Needs the fixtures (py tools\audio\music_live_fixtures.py: synthetic songs, converted by the real importer) and the command line it prints
+# (-Extra: --wwe2k14_mods_dir, --wwe2k14_audio_capture, --wwe2k14_settings_file). Read the result: py tools\audio\music_live_check.py --run N.
+# Do NOT pass --wwe2k14_launch (the route arms it). Muted + behind + unfocused come from run_list (audio_mute, window_show_behind, no activate);
+# the capture is taken BEFORE the mute, so the speakers stay silent and the file still holds the song. ~6 min. On failure it quits (on_fail quit).
+# Split runs if part 1 stalls: scenes\music_live_cae.txt (part 1 only) and scenes\music_live_match.txt (part 2 only, 1 run each).
+on_fail quit
+log l303: start music_live_check
+include boot_to_menu
+include music_live_cae_part
+include music_live_match_part
+log l303: done
+wait_frames 10
+quit

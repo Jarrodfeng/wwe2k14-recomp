@@ -1,0 +1,18 @@
+{
+ "owner": "lane 136 (S101, SH3 slice 1): the circle blob shadows drawn by ours from the scene record: record sections 16 / 17, the writer's tracker (src/scene_live/circle_hook.h), the pure core (src/renderer_scene/circle_shadow_core.h), the DrawReplaceHook (circle_shadows_ours.cpp), fview --circles-check. docs/renderer/SHADOW_CIRCLES.md. 0 game runs.",
+ "note": "build = tools/shadow/build_circles_unit.ps1 + tools/fview/build.ps1. unit = tools/shadow/circles_ours_check.py unit: the oracle dump of Check B / run 7079 / Bryan (tools/shadow/circles_oracle.py, which also cross-checks ViewProj = Trapezoidal x ViewProj) is laid out as guest memory and read by the SHIPPED tracker; the record's rows equal the stream's constants bit for bit; record / guard / board checks; plants circle_bind_pose, circle_join_by_index, circle_no_fade must fail. clean = fview lockstep (stream vs the circle hook): every circle draw replaced, offset learned, mesh equal, picture byte-equal, validation 0; once more with SH2 on in both arms. sizes = the clean check with SH2 maps at 1024 and 256 px. plants = each planted fault (run without the verify check) changes the picture while its control is byte-equal; verify refuses the planted join; R floor_reads_wrestler_map re-planted with the circles on. The GPU is shared: only 'Not enough graphics memory' is retried.",
+ "checks": [
+  {"name": "circles_ours.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/shadow/build_circles_unit.ps1"], "timeout_s": 600},
+  {"name": "circles_ours.build_fview", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 1800},
+  {"name": "circles_ours.unit", "cmd": ["py", "-I", "tools/shadow/circles_ours_check.py", "unit"], "timeout_s": 900,
+   "needs": ["out/lane86/brock/capture", "out/lane86/bryan/capture", "out/s101/lane92/case_20261112_122658_040_0_pc_run_exit/capture", "out/s101/runs/20261113_035022_s100_owner_s89_brock/case_20261113_035137_389_0_pc_run_exit.zip"]},
+  {"name": "circles_ours.join", "cmd": ["py", "-I", "tools/shadow/circles_ours_check.py", "join"], "timeout_s": 3600,
+   "needs": ["out/s101/runs/20261113_063415_s101_sweep_victory/case_20261113_063616_724_0_pc_run_exit.zip"]},
+  {"name": "circles_ours.clean", "cmd": ["py", "-I", "tools/shadow/circles_ours_check.py", "clean"], "timeout_s": 3600,
+   "needs": ["out/lane86/brock/capture", "out/lane86/bryan/capture", "out/s101/lane92/case_20261112_122658_040_0_pc_run_exit/capture"]},
+  {"name": "circles_ours.sizes", "cmd": ["py", "-I", "tools/shadow/circles_ours_check.py", "sizes"], "timeout_s": 3600,
+   "needs": ["out/lane86/brock/capture"]},
+  {"name": "circles_ours.plants", "cmd": ["py", "-I", "tools/shadow/circles_ours_check.py", "plants"], "timeout_s": 3600,
+   "needs": ["out/lane86/brock/capture"]}
+ ]
+}

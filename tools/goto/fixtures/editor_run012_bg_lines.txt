@@ -1,0 +1,4 @@
+[2026-10-09 06:08:01.431] [info] [core] [t12136] [wwe2k14][file] NtCreateFile 'D:\PAC\YASE\INGAMELUA.PAC' open access=0x80120089 -> 0x00000000 handle=0xF8000750 frame=2625
+[2026-10-09 06:08:01.698] [info] [core] [t12136] [wwe2k14][file] NtCreateFile 'D:\PAC\BG\BG76.PAC' open access=0x80120089 -> 0x00000000 handle=0xF8000750 frame=2641
+[2026-10-09 06:08:27.915] [info] [core] [t12136] [wwe2k14][file] NtCreateFile 'D:\PAC\BG\BG01.PAC' open access=0x80120089 -> 0x00000000 handle=0xF8000768 frame=4137
+[2026-10-09 06:08:46.315] [info] [core] [t12136] [wwe2k14][file] NtCreateFile 'D:\PAC\BG\BG78.PAC' open access=0x80120089 -> 0x00000000 handle=0xF8000770 frame=4800

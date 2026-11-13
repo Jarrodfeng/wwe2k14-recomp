@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -39,6 +40,8 @@
 namespace view {
 
 struct LightCtl {
+  // S101 lane33: the viewer turns the camera-attached lights of an edited set (the edit replaces the whole set at the draw: renderer.cpp MakeDrawCB)
+  std::function<void(assets::LightSet&)> post_eval;
   // arena mode
   // One editor per arena for the whole session (edits survive switching arenas; nothing is lost until the viewer closes).
   std::map<int, std::unique_ptr<assets::lighting_edit::Editor>> eds;
@@ -131,7 +134,10 @@ struct LightCtl {
       for (int id : Ed().SetIds())
         if (Ed().Edited(id)) {
           assets::LightSet ls;
-          if (Ed().Eval(id, t, ls)) r.SetSetEdit(id, &ls);
+          if (Ed().Eval(id, t, ls)) {
+            if (post_eval) post_eval(ls);  // S101 lane33
+            r.SetSetEdit(id, &ls);
+          }
         }
     if (entrance)
       for (auto& kv : EntCur()) r.SetSetEdit(kv.first, &kv.second.cur);

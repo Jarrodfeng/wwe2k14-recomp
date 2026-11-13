@@ -9,6 +9,7 @@
 package io.github.jarrodfeng.wwe2k14;
 
 import android.app.ActivityManager;
+import android.app.AlertDialog;
 import android.app.ApplicationExitInfo;
 import android.content.ClipData;
 import android.content.Intent;
@@ -18,7 +19,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
+import android.text.InputType;
 import android.util.Log;
+import android.widget.EditText;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 
@@ -47,6 +50,14 @@ public class LauncherActivity extends SDLActivity {
     // Session 98 (IMPORT TRON PREVIEWS): the PC launcher's EXPORT FOR PHONE zip; the native side reads it in place (jOpenFd)
     static final int EV_TRONZIP_PICKED = 10;
     private static final int REQ_TRONZIP = 7106;
+    // Lane 286 (custom music on the phone): songs picked into a folder (EV_SONGS_ADDED: a = what happened, b = the theme stem, "" = new
+    // songs) and a text typed in a dialog (EV_TEXT: a = the text, b = the tag the native side gave; ok = false: cancelled).
+    static final int EV_SONGS_ADDED = 11, EV_TEXT = 12;
+    private static final int REQ_SONGS = 7107;
+    private static final String[] SONG_EXTS = {".mp3", ".m4a", ".wav", ".flac", ".wma", ".aac", ".ogg", ".opus", ".oga", ".mp4"};  // = audio_import::kExts
+    // What the audio picker is for (lane 297): "@library" / "@new" = several files, each keeps its name; digits = one file saved as <id>.<ext> (a wrestler's theme).
+    // The whole value travels back in the answer (EV_SONGS_ADDED's b), so the launcher knows the purpose even if it was recreated meanwhile.
+    private String pendingStem = "";
 
     static native void nativeEvent(int kind, boolean ok, String a, String b);
 
@@ -75,7 +86,11 @@ public class LauncherActivity extends SDLActivity {
         }
         writeLastGameExit();  // Session 73: before the native launcher starts (it reads the file at its start)
         writeLastLauncherExit();  // Session 95 (LADDER): the launcher's own process
-        if (savedInstanceState != null) pendingDir = savedInstanceState.getString("pendingDir");  // Session 95 (LADDER)
+        if (savedInstanceState != null) {  // Session 95 (LADDER)
+            pendingDir = savedInstanceState.getString("pendingDir");
+            String st = savedInstanceState.getString("pendingStem");
+            if (st != null) pendingStem = st;
+        }
         super.onCreate(savedInstanceState);
         // Back = the launcher's own page back (the main page leaves the app). Android 13+ with predictive back
         // (the manifest opts in) sends it here; older versions send the Back key to SDL, which the native side reads.
@@ -91,6 +106,7 @@ public class LauncherActivity extends SDLActivity {
     protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         if (pendingDir != null) out.putString("pendingDir", pendingDir);
+        out.putString("pendingStem", pendingStem);
     }
 
     @Override
@@ -305,6 +321,97 @@ public class LauncherActivity extends SDLActivity {
                     .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
             startActivityForResult(i, REQ_DLC);
         });
+    }
+
+    /**
+     * Lane 286: pick songs (the MUSIC group of the MODS page). stem "" = several files, each keeps its name (NEW SONGS); a stem such as
+     * "343" = one file, saved as 343.<its extension> (a wrestler's theme). The copy goes to dir; the answer is EV_SONGS_ADDED.
+     */
+    public void jPickAudio(String dir, String stem) {
+        runOnUiThread(() -> {
+            pendingDir = dir;
+            pendingStem = stem == null ? "" : stem;
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                    .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"audio/*", "application/ogg", "application/octet-stream"})
+                    .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, pendingStem.isEmpty() || pendingStem.startsWith("@"));
+            startActivityForResult(i, REQ_SONGS);
+        });
+    }
+
+    /** Lane 286: a one-line text box (renaming a song). The answer is EV_TEXT with the same tag. */
+    public void jPromptText(String title, String initial, String tag) {
+        runOnUiThread(() -> {
+            final EditText box = new EditText(this);
+            box.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+            box.setText(initial);
+            box.setSelection(box.getText().length());
+            new AlertDialog.Builder(this).setTitle(title).setView(box)
+                    .setPositiveButton("OK", (d, w) -> event(EV_TEXT, true, box.getText().toString(), tag))
+                    .setNegativeButton("Cancel", (d, w) -> event(EV_TEXT, false, "", tag))
+                    .setOnCancelListener(d -> event(EV_TEXT, false, "", tag)).show();
+        });
+    }
+
+    private static boolean isSongName(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        for (String e : SONG_EXTS) if (n.endsWith(e)) return true;
+        return false;
+    }
+
+    private static String extOf(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? "" : name.substring(dot).toLowerCase(Locale.ROOT);
+    }
+
+    /** Copies the picked songs into dir (lane 286). A "x.part" file first, renamed when whole, so a stopped copy leaves no half song. */
+    private void copySongs(ArrayList<Uri> uris, File dir, String purpose) {
+        try {
+            copySongsImpl(uris, dir, purpose);
+        } catch (Throwable t) {  // never an uncaught exception on the copy thread (a null name, a vanished file ...)
+            Log.w(TAG, "launcher: song copy crashed", t);
+            event(EV_SONGS_ADDED, false, "The songs could not be copied: " + t, purpose);
+        }
+    }
+
+    private void copySongsImpl(ArrayList<Uri> uris, File dir, String purpose) {
+        final String stem = purpose.startsWith("@") ? "" : purpose;  // "" = keep each file's name
+        dir.mkdirs();
+        long need = 0;
+        for (Uri u : uris) need += sizeOf(u);
+        if (need > 0 && dir.getUsableSpace() < need + (64L << 20)) {
+            event(EV_SONGS_ADDED, false, "Not enough free storage for these songs: they need " + (need >> 20) + " MB and the phone has "
+                    + (dir.getUsableSpace() >> 20) + " MB free.", purpose);
+            return;
+        }
+        int copied = 0, skipped = 0;
+        String failed = null;  int failedCount = 0;  // the first failed name and how many
+        for (Uri u : uris) {
+            String name = displayName(u).replaceAll("[\\\\/:*?\"<>|]", "_").replaceAll("^\\.+", "");
+            if (!isSongName(name)) { skipped++; continue; }
+            String target = stem.isEmpty() ? name : stem + extOf(name);
+            File out = new File(dir, target), part = new File(dir, target + ".part");
+            if (stem.isEmpty() && out.exists()) {  // the same file name again: a second copy keeps both
+                int dot = name.lastIndexOf('.');
+                String base = name.substring(0, dot), ext = name.substring(dot);
+                for (int k = 2; out.exists() && k < 100; k++) out = new File(dir, base + " (" + k + ")" + ext);
+            }
+            try (InputStream in = getContentResolver().openInputStream(u); OutputStream o = new FileOutputStream(part)) {
+                if (in == null) throw new java.io.IOException("cannot read");
+                byte[] buf = new byte[1 << 20];
+                for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
+            } catch (Exception e) {
+                Log.w(TAG, "launcher: song copy failed for " + u, e);
+                part.delete();
+                if (failed == null) failed = name;  failedCount++;
+                continue;
+            }
+            if (!stem.isEmpty()) for (String e : SONG_EXTS) new File(dir, stem + e).delete();  // (lane 297b: dir is the theme STAGING folder; the earlier theme in the music folder is replaced by the app only after this file converts)
+            if (part.renameTo(out)) copied++;
+            else { part.delete(); if (failed == null) failed = name;  failedCount++; }
+        }
+        String msg = copied + " song(s) added" + (skipped > 0 ? ", " + skipped + " not a song file (mp3, m4a, wav, flac, ogg, opus, aac, wma)" : "")
+                + (failed != null ? ", " + (failedCount > 1 ? failed + " and " + (failedCount - 1) + " more" : failed) + " failed" : "");
+        event(EV_SONGS_ADDED, copied > 0, msg, purpose);  // ok = something was copied (the rest is in the message)
     }
 
     public void jShare(String[] paths) {
@@ -574,7 +681,10 @@ public class LauncherActivity extends SDLActivity {
 
     private String displayName(Uri uri) {
         try (Cursor c = getContentResolver().query(uri, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
-            if (c != null && c.moveToFirst()) return c.getString(0);
+            if (c != null && c.moveToFirst()) {
+                String n = c.getString(0);
+                if (n != null && !n.isEmpty()) return n;
+            }
         } catch (Exception ignored) {
         }
         String s = uri.getLastPathSegment();
@@ -661,6 +771,19 @@ public class LauncherActivity extends SDLActivity {
                 }, "wwe2k14-driver").start();
                 return;
             }
+            case REQ_SONGS: {  // lane 286 (custom music)
+                if (!ok) return;
+                ArrayList<Uri> uris = new ArrayList<>();
+                if (data.getClipData() != null)
+                    for (int k = 0; k < data.getClipData().getItemCount(); k++) uris.add(data.getClipData().getItemAt(k).getUri());
+                else if (data.getData() != null) uris.add(data.getData());
+                if (uris.isEmpty()) return;
+                final String dir = pendingDir, purpose = pendingStem;
+                if (dir == null) return;
+                event(EV_MESSAGE, true, "Copying " + uris.size() + " song(s)...", null);
+                new Thread(() -> copySongs(uris, new File(dir), purpose), "wwe2k14-songs").start();
+                return;
+            }
             case REQ_TRONZIP: {  // Session 98 (IMPORT TRON PREVIEWS)
                 if (!ok || data.getData() == null) return;
                 final Uri uri = data.getData();
@@ -681,6 +804,15 @@ public class LauncherActivity extends SDLActivity {
     }
 
     private void copyDlc(ArrayList<Uri> uris, File dir) {
+        try {
+            copyDlcImpl(uris, dir);
+        } catch (Throwable t) {
+            Log.w(TAG, "launcher: DLC copy crashed", t);
+            event(EV_DLC_ADDED, false, "The files could not be copied: " + t, null);
+        }
+    }
+
+    private void copyDlcImpl(ArrayList<Uri> uris, File dir) {
         dir.mkdirs();
         // Session 95 (LADDER): the free space is checked before the copy starts, so a full phone says so instead of leaving half a file.
         long need = 0;

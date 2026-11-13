@@ -1,0 +1,16 @@
+{
+ "owner": "lane 272 (S101): the crowd members' thin record (an invisible cut, SKIP_GAME_WORK_MAP 20): src/scene_live/member_thin_core.h (decision logic + gate use + per-site tally + the delivery check, the unit test's subject), member_thin_hook.h (the game-side glue, syntax-checked by tools/harness/wt_syntax_check.ps1 main.cpp,live.cpp, not by the gate), the thin branch of CrowdOurs::Inject (src/renderer_scene/crowd_ours.cpp, InjectBody), CrowdInject::member_result, binder.h's gate report, fview --crowd-members-thin / --crowd-members-probe, tools/crowd/member_thin_test.cpp, member_thin_cut.py, member_thin_check.py. 0 game runs.",
+ "note": "unit = the shipped decider / tally / delivery check driven one op 15 at a time per site (RL1) + 18 planted faults; proof = the cut EMULATED on Check B, run 7079, J1, Bryan's entrance and the matches 131008 / 7174 (the op-15 of every member but the first of each mesh run removed in every thin frame, the op-21s kept, the tally written one call at a time) and replayed by fview with --crowd-members-thin against the full replay (byte-equal on every frame, holes 0, validation 0), the class-uniformity census on every full frame, the stamp probe, plus the plants of 20.7 (drop_first, run_per_frame, calls_collapsed, offset, tiled_double, floor_site_dropped_unobserved, bank_nonuniform, picture_nonuniform, member_one_material, undrawable_type = no_palette_dropped) and a control. Needs an fview.exe from this tree (tools/fview/build.ps1) and the main checkout's game files.",
+ "checks": [
+  {"name": "crowd_member_thin.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/crowd/build_member_thin_test.ps1"], "timeout_s": 600},
+  {"name": "crowd_member_thin.unit", "cmd": ["py", "-I", "tools/crowd/member_thin_selftest.py"], "timeout_s": 300},
+  {"name": "crowd_member_thin.proof", "cmd": ["py", "-I", "tools/crowd/member_thin_check.py", "--root", "."], "timeout_s": 5400, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_122623_s100_owner_s89_brock/case_20261112_122658_040_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_172304_s100_owner_s89_brock/case_20261112_172341_872_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "out/s101/runs/20261113_135405_s101_owner_match_long/case_20261113_135453_130_0_pc_run_exit.zip",
+    "game_data/extracted"]}
+ ]
+}

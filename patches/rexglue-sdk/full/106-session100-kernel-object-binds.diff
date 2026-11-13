@@ -1,0 +1,60 @@
+diff --git a/src/system/xobject.cpp b/src/system/xobject.cpp
+index d300353..2341a68 100644
+--- a/src/system/xobject.cpp
++++ b/src/system/xobject.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <rex/det.h>  // wwe2k14 patch (Session 15): det_frames
+ #include <optional>
++#include <unordered_map>  // wwe2k14 patch (Session 100, tier E0)
+ #include <vector>
+ 
+ #include <rex/chrono/clock.h>
+@@ -532,6 +533,14 @@ void XObject::SetNativePointer(uint32_t native_ptr, bool uninitialized) {
+   guest_object_ptr_ = native_ptr;
+ }
+ 
++// wwe2k14 patch (Session 100, strip-360 tier E0): guest address of each lazily bound dispatcher header -> the handle of its host object
++// (read and written under the global critical region, GetNativeObject).
++static std::unordered_map<uint32_t, uint32_t>& NativeBinds() {
++  static std::unordered_map<uint32_t, uint32_t> binds;
++  return binds;
++}
++static void RecordNativeBind(uint32_t guest, uint32_t handle) { NativeBinds()[guest] = handle; }
++
+ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state, void* native_ptr,
+                                              int32_t as_type) {
+   assert_not_null(native_ptr);
+@@ -562,6 +571,24 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state, void* na
+     // TODO(benvanik): assert nothing has been changed in the struct.
+     return object;
+   } else {
++    // wwe2k14 patch (Session 100, strip-360 tier E0, docs\native\mem_tier_e_kernel_objects.md): every lazy bind of a guest-embedded
++    // dispatcher header is recorded by guest address. A second bind of an address whose first host object is still alive means the guest
++    // re-initialised the header inline (the signature overwritten) and the first host object is orphaned: its waiters would never wake.
++    // Logged (the first 32 binds, every re-bind); behaviour unchanged.
++    {
++      static uint32_t logged = 0;
++      const uint32_t guest = kernel_state->memory()->HostToGuestVirtual(native_ptr);
++      auto& binds = NativeBinds();
++      auto it = binds.find(guest);
++      if (it != binds.end() && kernel_state->object_table()->LookupObject<XObject>(it->second)) {
++        REXSYS_WARN("[wwe2k14][kobj] re-bind of guest header {:08X} (type {}): its first host object (handle {:08X}) is still alive and is "
++                    "now orphaned",
++                    guest, as_type, it->second);
++      } else if (logged < 32) {
++        ++logged;
++        REXSYS_INFO("[wwe2k14][kobj] lazy bind #{} of guest header {:08X} (type {})", logged, guest, as_type);
++      }
++    }
+     // First use, create new.
+     // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
+     XObject* object = nullptr;
+@@ -608,6 +635,7 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state, void* na
+     // Stash pointer in struct.
+     // FIXME: This assumes the object contains a dispatch header (some don't!)
+     StashHandle(header, object->handle());
++    RecordNativeBind(kernel_state->memory()->HostToGuestVirtual(native_ptr), object->handle());  // wwe2k14 tier E0
+ 
+     return object_ref<XObject>(object);
+   }

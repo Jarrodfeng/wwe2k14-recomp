@@ -1,0 +1,11 @@
+{
+ "owner": "lane 70 (S101): our ring drawn in place through the replace seam: src/assets/ring_game_space.*, src/renderer_scene/ring_ours*.{h,cpp}, tools/ring/ring_ours_*. docs/renderer/RING_OURS.md",
+ "note": "unit: builds out/tools/ring_ours_test.exe (also compile-checks the GPU side ring_ours.cpp), then the files of arenas 4 / 29, the clean runs on Check B / Bryan / wm30 (every frame at step 12), a live-style run (key store with decoys, no tie texture), the eight planted faults (each fails its exact check) and the loud failures. proof: fview --ring-ours on Check B (byte-equal pictures every 40th frame + the plant frames, census, validation, plants moving the picture or census); builds fview first unless it exists. Check B / Bryan / wm30 case zips (held, KEEP) and the game files are needed; a machine without them FAILs loudly.",
+ "checks": [
+  {"name": "ring_ours_unit.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/ring/build_ring_ours_test.ps1"], "timeout_s": 1800},
+  {"name": "ring_ours_unit.proof", "cmd": ["py", "-I", "tools/ring/ring_ours_selftest.py"], "timeout_s": 3600,
+   "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261111_174549_s100_owner_bryan_entrance", "out/s101/runs/20261111_174707_s100_owner_s90_wm30", "out/s101/runs/20261112_121740_s100_owner_s89_brock", "game_data/extracted"]},
+  {"name": "ring_ours.proof", "cmd": ["py", "-I", "tools/ring/ring_ours_check.py", "--root", ".", "--step", "40"], "timeout_s": 5400,
+   "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261112_121740_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

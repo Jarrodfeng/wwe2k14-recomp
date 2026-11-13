@@ -1,0 +1,262 @@
+{
+ "effect": "yRect",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "PosScale",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "Color",
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "fUseProjMatrix",
+     "register": 28,
+     "count": 1
+    },
+    {
+     "field": "matProj",
+     "register": 29,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    }
+   ],
+   "hashes": [
+    "CAAB5FD3B6EE4944"
+   ]
+  },
+  {
+   "name": "vertex_color",
+   "defines": [
+    "FX_VERTEX_COLOR"
+   ],
+   "constants": [
+    {
+     "field": "PosScale",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "Color",
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "fUseProjMatrix",
+     "register": 28,
+     "count": 1
+    },
+    {
+     "field": "matProj",
+     "register": 29,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "DE1E7AFFD19C2FCB"
+   ]
+  },
+  {
+   "name": "texcoord",
+   "defines": [
+    "FX_TEXCOORD"
+   ],
+   "constants": [
+    {
+     "field": "PosScale",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "Color",
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "fUseProjMatrix",
+     "register": 28,
+     "count": 1
+    },
+    {
+     "field": "matProj",
+     "register": 29,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2
+    }
+   ],
+   "hashes": [
+    "AFD5268C040B9C22"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "loop_constants": {
+    "31": [
+     12,
+     0,
+     1
+    ]
+   },
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [],
+   "hashes": [
+    "A4A965C189287B99"
+   ]
+  },
+  {
+   "loop_constants": {
+    "31": [
+     12,
+     0,
+     1
+    ]
+   },
+   "name": "gradation",
+   "defines": [
+    "FX_GRADATION"
+   ],
+   "constants": [
+    {
+     "field": "GradationPointNum",
+     "register": 11,
+     "count": 1,
+     "range": [
+      0.0,
+      12.0
+     ]
+    },
+    {
+     "field": "GradationPointColors",
+     "register": 12,
+     "count": 12
+    },
+    {
+     "field": "GradationPointOffsets",
+     "register": 24,
+     "count": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "64D37D8BB28475E9"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_VERTEX_COLOR",
+    "FX_TEXCOORD"
+   ],
+   "constants": [
+    {
+     "field": "PosScale",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "Color",
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "fUseProjMatrix",
+     "register": 28,
+     "count": 1
+    },
+    {
+     "field": "matProj",
+     "register": 29,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_VERTEX_COLOR"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "when": [
+      "FX_TEXCOORD"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_GRADATION"
+   ],
+   "loop_constants": {
+    "31": [
+     12,
+     0,
+     1
+    ]
+   },
+   "constants": [
+    {
+     "field": "GradationPointNum",
+     "register": 11,
+     "count": 1,
+     "range": [
+      0.0,
+      12.0
+     ]
+    },
+    {
+     "field": "GradationPointColors",
+     "register": 12,
+     "count": 12
+    },
+    {
+     "field": "GradationPointOffsets",
+     "register": 24,
+     "count": 3
+    }
+   ],
+   "samplers": []
+  }
+ }
+}

@@ -1,0 +1,322 @@
+# ReXGlue SDK changes for WWE 2K14 (session101-async-log): 59838b80715e..1903e00da44e on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  1903e00 Session 101 lane 302 review: no atexit/dtor drain, critical drains, warn cap, per-line try, no idle wake
+#  1fff2a1 Session 101 lane 302: async log file sink (rex::AsyncSink): no thread blocks on a disk write; FlushLogging/ShutdownLogging/atexit drain; DrainLogging, TakeLogWriteStats; cvar log_async
+
+diff --git a/include/rex/logging/api.h b/include/rex/logging/api.h
+index 9748d235d663c518ca5d50a4cc9e4e9120429996..c234f47f148bc2352a87cafbaab1f12a4cba64ab 100644
+--- a/include/rex/logging/api.h
++++ b/include/rex/logging/api.h
+@@ -13,6 +13,7 @@
+ 
+ #include <atomic>
+ 
++#include <rex/logging/async_sink.h>
+ #include <rex/logging/types.h>
+ 
+ #include <filesystem>
+@@ -82,6 +83,16 @@ void ShutdownLogging();
+  */
+ void FlushLogging();
+ 
++/**
++ * Session 101 lane 302: the log file is written by one background thread (rex::AsyncSink) so no game / render / timing
++ * thread blocks on a disk write. DrainLogging blocks (up to timeout_ms) until every line logged so far is written and flushed;
++ * FlushLogging and ShutdownLogging call it. Returns true when drained (or when the async sink is off).
++ */
++bool DrainLogging(unsigned timeout_ms);
++
++/** Worst write times and the dropped-line count of the async log sink since the last call (zeros when it is off). */
++LogWriteStats TakeLogWriteStats();
++
+ /**
+  * Session 95: a tail-window flush on quit. The owner (a thread that keeps running until the hard exit) registers a request flag and an
+  * acknowledgement flag; RunQuitFlushes (called by the app before the hard exit) sets every request and waits, up to `timeout_ms` in all, for
+diff --git a/include/rex/logging/async_sink.h b/include/rex/logging/async_sink.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..67f13275f8fbe6f612e38284f8e52b6de4c8b92f
+--- /dev/null
++++ b/include/rex/logging/async_sink.h
+@@ -0,0 +1,185 @@
++/**
++ * @file        logging/async_sink.h
++ * @brief       Session 101 lane 302: a sink wrapper that moves the (slow, blocking) disk write off the calling thread.
++ *
++ * Why: the SDK logger flushes on every info line (LogConfig::flush_level = info), so each log call was a synchronous WriteFile on
++ * the game / render / timing thread. When C: stalled (47-62 s in run 7202) the det-baton swap thread, the vblank thread and the
++ * owner-timing thread all blocked inside their log calls. Header only so the offline test (tools\tests\log_async_test.cpp)
++ * compiles it on its own.
++ *
++ * Contract:
++ *   - log() copies the message into a queue under a mutex held for the copy only (never across I/O). One writer thread
++ *     writes the batch to the inner sink and flushes it. flush() on the wrapper is a no-op (the writer flushes after every
++ *     batch, so a line is on disk one write after it was logged); it never blocks the caller.
++ *   - error / critical are NEVER dropped. info and below are dropped when the queue holds max_queue messages (the disk is
++ *     stalled); warn is dropped only above a large cap (warn_cap, a warn storm during a long stall); the writer then logs one
++ *     "[log] async sink dropped N lines" warn line when it catches up.
++ *   - A CRITICAL line blocks its caller in Drain(1000) after the enqueue: critical is what precedes abort() / _Exit(), and
++ *     nothing else would flush it (flush() is a no-op).
++ *   - Drain(timeout) is the blocking path (crash handlers, FlushLogging, exit): waits until everything queued so far is
++ *     written AND flushed, or the timeout (so a dead disk cannot hang a crash handler).
++ *   - The writer thread is detached and owns the shared state, so process exit / sink destruction never joins a thread
++ *     stuck in a write.
++ */
++#pragma once
++
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <cstdint>
++#include <deque>
++#include <memory>
++#include <mutex>
++#include <string>
++#include <thread>
++
++#include <spdlog/details/log_msg_buffer.h>
++#include <spdlog/sinks/sink.h>
++
++namespace rex {
++
++/** Counters of the async log sink, read by the app's [perf][sys] line. */
++struct LogWriteStats {
++  uint64_t lines_queued = 0;      // total lines accepted
++  uint64_t lines_dropped = 0;     // total info-and-below lines dropped on a full queue
++  uint64_t queue_depth = 0;       // lines waiting right now
++  uint64_t worst_write_us = 0;    // slowest single inner write / batch flush since the last take
++  uint64_t worst_caller_us = 0;   // slowest log() call on a calling thread since the last take (mutex + copy)
++};
++
++struct AsyncSinkOptions {
++  size_t max_queue = 65536;   // info-and-below dropped at this depth
++  size_t warn_cap = 262144;   // warn dropped at this depth (error / critical never are)
++};
++
++class AsyncSink final : public spdlog::sinks::sink {
++ public:
++  using Options = AsyncSinkOptions;
++
++  explicit AsyncSink(std::shared_ptr<spdlog::sinks::sink> inner) : AsyncSink(std::move(inner), AsyncSinkOptions()) {}
++  AsyncSink(std::shared_ptr<spdlog::sinks::sink> inner, const AsyncSinkOptions& opt)
++      : st_(std::make_shared<State>()) {
++    st_->inner = std::move(inner);
++    st_->opt = opt;
++    auto st = st_;
++    std::thread([st] { Run(st); }).detach();
++  }
++
++  // Non-blocking and lock free: it can run in a DLL's process-detach after ExitProcess killed the writer (a thread killed inside st_->mu
++  // would hang a locking destructor). Whoever needs the queue written calls Drain() first (ShutdownLogging does).
++  ~AsyncSink() override {
++    st_->stop.store(true, std::memory_order_release);
++    st_->cv.notify_all();
++  }
++
++  void log(const spdlog::details::log_msg& msg) override {
++    const auto t0 = std::chrono::steady_clock::now();
++    bool wake = false;
++    {
++      std::lock_guard<std::mutex> lk(st_->mu);
++      if ((msg.level < spdlog::level::warn && st_->q.size() >= st_->opt.max_queue) ||
++          (msg.level == spdlog::level::warn && st_->q.size() >= st_->opt.warn_cap)) {
++        ++st_->dropped;
++        return;
++      }
++      wake = st_->q.empty();
++      st_->q.emplace_back(msg);
++      ++st_->enq;
++    }
++    if (wake) st_->cv.notify_one();
++    if (msg.level >= spdlog::level::critical) Drain(1000);  // before abort() / _Exit(): see the contract above
++    const uint64_t us = (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
++    uint64_t cur = st_->worst_caller_us.load(std::memory_order_relaxed);
++    while (us > cur && !st_->worst_caller_us.compare_exchange_weak(cur, us, std::memory_order_relaxed)) {}
++  }
++
++  // Never blocks: the writer thread flushes the inner sink after every batch.
++  void flush() override {}
++
++  void set_pattern(const std::string& p) override { st_->inner->set_pattern(p); }
++  void set_formatter(std::unique_ptr<spdlog::formatter> f) override { st_->inner->set_formatter(std::move(f)); }
++
++  /** Blocks until every line queued before this call is written and flushed; false on timeout. */
++  bool Drain(unsigned timeout_ms) {
++    std::unique_lock<std::mutex> lk(st_->mu);
++    const uint64_t target = st_->enq;
++    if (st_->done >= target) return true;
++    st_->cv.notify_all();
++    return st_->idle_cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&] { return st_->done >= target; });
++  }
++
++  LogWriteStats TakeStats() {
++    LogWriteStats s;
++    std::lock_guard<std::mutex> lk(st_->mu);
++    s.lines_queued = st_->enq;
++    s.lines_dropped = st_->dropped;
++    s.queue_depth = st_->enq - st_->done;
++    s.worst_write_us = st_->worst_write_us.exchange(0);
++    s.worst_caller_us = st_->worst_caller_us.exchange(0);
++    return s;
++  }
++
++ private:
++  struct State {
++    std::shared_ptr<spdlog::sinks::sink> inner;
++    Options opt;
++    std::mutex mu;
++    std::condition_variable cv, idle_cv;
++    std::deque<spdlog::details::log_msg_buffer> q;
++    uint64_t enq = 0, done = 0, dropped = 0, dropped_reported = 0;
++    std::atomic<bool> stop{false};
++    std::atomic<uint64_t> worst_write_us{0}, worst_caller_us{0};
++  };
++
++  static void Run(std::shared_ptr<State> st) {
++    std::deque<spdlog::details::log_msg_buffer> batch;
++    for (;;) {
++      uint64_t n = 0, drop_now = 0;
++      {
++        std::unique_lock<std::mutex> lk(st->mu);
++        st->cv.wait(lk, [&] { return !st->q.empty() || st->stop.load(std::memory_order_acquire) || st->dropped != st->dropped_reported; });
++        if (st->q.empty() && st->dropped == st->dropped_reported) {
++          if (st->stop.load(std::memory_order_acquire)) return;
++          continue;
++        }
++        batch.swap(st->q);
++        n = batch.size();
++        drop_now = st->dropped - st->dropped_reported;
++        st->dropped_reported = st->dropped;
++      }
++      auto timed = [&](auto&& fn) {
++        const auto t0 = std::chrono::steady_clock::now();
++        fn();
++        const uint64_t us = (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
++        uint64_t cur = st->worst_write_us.load(std::memory_order_relaxed);
++        while (us > cur && !st->worst_write_us.compare_exchange_weak(cur, us, std::memory_order_relaxed)) {}
++      };
++      // (one try per line: a rotation rename failure on one line must not drop the rest of the batch)
++      for (auto& m : batch) {
++        try {
++          timed([&] { st->inner->log(m); });
++        } catch (...) {
++        }
++      }
++      try {
++        if (drop_now) {
++          std::string text = "[log] async sink dropped " + std::to_string(drop_now) + " lines (info and below, or warn in a storm; disk write stalled, queue full)";
++          spdlog::details::log_msg dm(spdlog::source_loc{}, "core", spdlog::level::warn, text);
++          timed([&] { st->inner->log(dm); });
++        }
++        timed([&] { st->inner->flush(); });
++      } catch (...) {
++      }
++      batch.clear();
++      {
++        std::lock_guard<std::mutex> lk(st->mu);
++        st->done += n;
++      }
++      st->idle_cv.notify_all();
++    }
++  }
++
++  std::shared_ptr<State> st_;
++};
++
++}  // namespace rex
+diff --git a/src/core/logging.cpp b/src/core/logging.cpp
+index f97f1389ff741f581af773c4dc7d2ed1d80ce9b1..7f326ffaa2a855cae10b3f8d4266e59c19e966d9 100644
+--- a/src/core/logging.cpp
++++ b/src/core/logging.cpp
+@@ -26,6 +26,7 @@
+ 
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
++#include <rex/logging/async_sink.h>
+ #include <rex/platform.h>
+ #include <rex/platform/env.h>
+ 
+@@ -43,6 +44,9 @@ REXCVAR_DEFINE_STRING(log_level, "info", "Log",
+ 
+ REXCVAR_DEFINE_STRING(log_file, "", "Log", "Log file path (empty = auto sequential naming)");
+ 
++REXCVAR_DEFINE_BOOL(log_async, true, "Log",
++                    "Session 101 lane 302: write the log file on a background thread (no game thread blocks on a disk write)");
++
+ REXCVAR_DEFINE_BOOL(log_verbose, false, "Log", "Enable verbose logging (sets level to trace)")
+     .debug_only();
+ 
+@@ -67,6 +71,7 @@ namespace {
+ std::vector<LogCategoryEntry> g_registry;
+ spdlog::sink_ptr g_console_sink;
+ spdlog::sink_ptr g_file_sink;
++std::shared_ptr<rex::AsyncSink> g_async_sink;  // wraps g_file_sink when log_async
+ spdlog::sink_ptr g_early_sink;
+ std::vector<spdlog::sink_ptr> g_extra_sinks;
+ bool g_early_initialized = false;
+@@ -242,7 +247,14 @@ void InitLogging(const LogConfig& config) {
+         static_cast<size_t>(REXCVAR_GET(log_max_files)), false);
+     sink->set_level(spdlog::level::trace);
+     sink->set_pattern(config.file_pattern);
+-    g_file_sink = sink;
++    if (REXCVAR_GET(log_async)) {
++      g_async_sink = std::make_shared<rex::AsyncSink>(sink);
++      g_file_sink = g_async_sink;
++      // (no atexit drain: on Windows it would run in rexruntime.dll's process-detach after ExitProcess killed the writer. The exit paths
++      //  call FlushLogging() themselves; a CRITICAL line drains in AsyncSink::log.)
++    } else {
++      g_file_sink = sink;
++    }
+   }
+ 
+   g_extra_sinks = config.extra_sinks;
+@@ -288,11 +300,14 @@ void ShutdownLogging() {
+   for (auto& entry : g_registry)
+     if (entry.logger)
+       entry.logger->flush();
++  if (g_async_sink)
++    g_async_sink->Drain(2000);
+ 
+   spdlog::shutdown();
+   g_registry.clear();
+   g_console_sink.reset();
+   g_file_sink.reset();
++  g_async_sink.reset();
+   g_early_sink.reset();
+   g_extra_sinks.clear();
+   g_initialized = false;
+@@ -300,10 +315,31 @@ void ShutdownLogging() {
+ }
+ 
+ void FlushLogging() {
+-  std::lock_guard lock(g_mutex);
+-  for (auto& entry : g_registry)
+-    if (entry.logger)
+-      entry.logger->flush();
++  {
++    std::lock_guard lock(g_mutex);
++    for (auto& entry : g_registry)
++      if (entry.logger)
++        entry.logger->flush();
++  }
++  DrainLogging(2000);  // lane 302: the file is written by the async sink; crash handlers / the case zip read it right after this
++}
++
++bool DrainLogging(unsigned timeout_ms) {
++  std::shared_ptr<rex::AsyncSink> s;
++  {
++    std::lock_guard lock(g_mutex);
++    s = g_async_sink;
++  }
++  return !s || s->Drain(timeout_ms);
++}
++
++LogWriteStats TakeLogWriteStats() {
++  std::shared_ptr<rex::AsyncSink> s;
++  {
++    std::lock_guard lock(g_mutex);
++    s = g_async_sink;
++  }
++  return s ? s->TakeStats() : LogWriteStats{};
+ }
+ 
+ namespace {

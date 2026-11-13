@@ -45,6 +45,7 @@
 
 #include <rex/cvar.h>
 #include "d3d_inline_types.h"
+#include "guest_view.h"  // S100 strip-360 tier C: the 0xE0000000 view rule, one place
 #include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/system/kernel_state.h>
@@ -147,11 +148,19 @@ inline uint8_t* Host(uint8_t* base, uint32_t a) { return base + a + ::rex::memor
 
 // The library's GPU address form of a virtual address (listing 0x82CBE264-0x82CBE2CC): the low 29 bits plus 0x1000 for the
 // 4 KB-page physical view.
-inline uint32_t PhysForm(uint32_t a) { return (((a >> 20) + 512) & 0x1000u) + (a & 0x1FFFFFFFu); }
+inline uint32_t PhysForm(uint32_t a) { return wwe2k14::guest_view::ToPhysical(a); }
 
 // ---- the private region (Session 90: GUEST VIRTUAL heap, 64 KB pages, no address shift; none of the game physical pool) ----------------------------------------
 inline constexpr uint32_t kRegionBytes = 4u << 20;
 inline constexpr uint32_t kArgBytes = 4096;  // [0, 4096): the stride argument; copies follow
+// S101 2026-11-13 (run 7221: after 5 match loads the pause menu and much of the crowd vanished: vs_patch_failed_5 = this region
+// full). The copies below are append-only and keyed by the shader OBJECT address, so every load adds copies and none is freed. The
+// owner renderer's reader only needs the patched bytes once (it parses them into host facts), so it patches in a fixed scratch slot
+// of its own (PatchedVertexShaderToHost, EnsureScratch: 256 KB taken the first time the reader patches) and takes nothing from the
+// region. (Opus review A: the scratch is NOT carved out of the region, so the bind path keeps its whole 4 MB.)
+inline constexpr uint32_t kScratchBytes = 256u << 10;  // = the largest microcode either path accepts
+inline constexpr uint32_t kBumpLimit = kRegionBytes;
+inline uint32_t g_scratch = 0;  // guest virtual; 0 = not taken yet (guarded by g_region_mutex)
 struct Region {
   uint32_t virt = 0, used = kArgBytes;
   bool failed = false;
@@ -244,7 +253,14 @@ inline Fail PatchedVertexShaderSlow(PPCContext& ctx, uint8_t* base, uint32_t dev
   }
   if (!EnsureRegion()) return Fail::kNoRegion;
   const uint32_t at = (g_region.used + 15u) & ~15u;
-  if (at + bytes > kRegionBytes) return Fail::kNoRegion;
+  if (at + bytes > kBumpLimit) {
+    static std::atomic<bool> told{false};
+    if (!told.exchange(true)) {
+      REXLOG_ERROR("[d3d][mem] shader-bind region FULL ({} of {} bytes, {} copies): new patched vertex shaders fail from now on",
+                   g_region.used, kBumpLimit, g_copies.size());
+    }
+    return Fail::kNoRegion;
+  }
   g_region.used = at + bytes;
   const uint32_t copy = g_region.virt + at;
   // Our private copy of the microcode as the object holds it; the patch overwrites the fetch instructions it names.
@@ -345,6 +361,60 @@ inline Fail PatchedVertexShader(PPCContext& ctx, uint8_t* base, uint32_t dev, ui
     t_fast[fk] = std::move(e);
   }
   return f;
+}
+
+// S101 2026-11-13: the owner renderer's reader (renderer_adapter\reader.h GetVertexShader) needs the patched microcode only to parse
+// it into host facts once per shader key, never as guest memory. So the copy is made in the fixed scratch slot [kBumpLimit,
+// kRegionBytes) and handed back as host bytes: nothing is kept in the region, however many loads run (run 7221: the bump area
+// filled after 5 match loads). Same inputs and the same library patch call as PatchedVertexShaderSlow, under the same mutex (the
+// stride argument at the region's start is shared).
+inline Fail PatchedVertexShaderToHost(PPCContext& ctx, uint8_t* base, uint32_t vs, uint32_t decl, const uint8_t strides[24], bool patch,
+                                      std::vector<uint8_t>& out) {
+  const uint32_t rec = VariantRecord(base, vs, 0);
+  const uint32_t ucode_offset = Ld32(base, rec + 872), bytes = Ld32(base, rec + 876);
+  const uint32_t count = patch ? Ld32(base, decl + 24) : 0;
+  if (!bytes || (bytes & 3) || bytes > kScratchBytes || count > 64) return Fail::kBadInput;
+  const uint8_t* source = Host(base, Ld32(base, vs + 32) + ucode_offset);
+  if (!patch) {  // a plain copy: host bytes, no guest memory at all
+    out.assign(source, source + bytes);
+    return Fail::kNone;
+  }
+  std::lock_guard lock(g_region_mutex);
+  if (!EnsureRegion()) return Fail::kNoRegion;  // the stride argument lives at the region's start
+  if (!g_scratch) {
+    rex::memory::BaseHeap* heap = REX_KERNEL_MEMORY()->LookupHeapByType(false, 0x10000);
+    uint32_t address = 0;
+    if (!heap || !heap->Alloc(kScratchBytes, 0x10000, rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
+                              rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite, false, &address)) {
+      return Fail::kNoRegion;
+    }
+    g_scratch = address;
+    REXLOG_INFO("[d3d][mem] reader shader scratch: {} bytes at guest virtual {:08X} (reused for every patch)", kScratchBytes, address);
+  }
+  const uint32_t copy = g_scratch;
+  std::memcpy(Host(base, copy), source, bytes);
+  std::memcpy(Host(base, g_region.virt), strides, 24);
+  const uint32_t frame80 = ctx.r1.u32 - 592u + 80u;  // lhz r10,80(r1) of 0x82CBD910's own frame (as the slow path)
+  std::memset(Host(base, frame80), 0, 2);
+  const uint64_t r1 = ctx.r1.u64, r3 = ctx.r3.u64, r4 = ctx.r4.u64, r5 = ctx.r5.u64, r6 = ctx.r6.u64, r7 = ctx.r7.u64,
+                 lr = ctx.lr;
+  ctx.r3.u64 = vs;
+  ctx.r4.u64 = copy;
+  ctx.r5.u64 = decl;
+  ctx.r6.u64 = g_region.virt;
+  ctx.r7.u64 = 0;
+  ctx.lr = 0x82CBE4E0;
+  sub_82CBD910(ctx, base);
+  ctx.r1.u64 = r1;
+  ctx.r3.u64 = r3;
+  ctx.r4.u64 = r4;
+  ctx.r5.u64 = r5;
+  ctx.r6.u64 = r6;
+  ctx.r7.u64 = r7;
+  ctx.lr = lr;
+  const uint8_t* p = Host(base, copy);
+  out.assign(p, p + bytes);
+  return Fail::kNone;
 }
 
 // The runtime check of "our copy has the content the library's patched copy has": when the library's slot cache holds the same
@@ -449,7 +519,9 @@ inline uint64_t HizPrepass(const uint8_t* base, uint32_t dev, uint64_t m, uint32
 // The bind (listing 0x82CBE558, non-binned form), as a plan. `mask` = the main dirty mask the flush holds (bit 19 already
 // raised by the stride rule where it applies); stride0_dword = the stream-0 stride byte for this draw (stride / 4) for an inline
 // draw, or ~0u to use the device's +12904 as it is.
-inline Fail Plan(PPCContext& ctx, uint8_t* base, uint32_t dev, uint64_t mask, uint32_t stride0_dword, BindPlan& p) {
+// device_only (Session 100, owner mode's bookkeeping-only draws, d3d_layer.h OwnerNullDraw): the device words, flag bytes and strides
+// only; no literal runs and no patched vertex-shader copy (they feed the old command processor's record, which is not written).
+inline Fail Plan(PPCContext& ctx, uint8_t* base, uint32_t dev, uint64_t mask, uint32_t stride0_dword, BindPlan& p, bool device_only = false) {
   p.Reset();
   uint64_t m = mask;
   uint8_t b69 = base[dev + 11069], b70 = base[dev + 11070], b71 = base[dev + 11071];
@@ -493,7 +565,7 @@ inline Fail Plan(PPCContext& ctx, uint8_t* base, uint32_t dev, uint64_t mask, ui
     b71 |= 0x02;  // flags 0x82CB21F8 / the clear pass / the no-PS bind path
   }
   if (m & 0x100000ull) {  // the pixel shader changed
-    AddLiterals(p, base, ps + 40, Ld32(base, ps + 24));
+    if (!device_only) AddLiterals(p, base, ps + 40, Ld32(base, ps + 24));
     p.ps_literal_runs = uint32_t(p.runs.size());
     p.has_ps = true;
     p.pixel_shader.guest_address = PhysForm(Ld32(base, blk + 40) + Ld32(base, ps + 24));
@@ -526,13 +598,15 @@ inline Fail Plan(PPCContext& ctx, uint8_t* base, uint32_t dev, uint64_t mask, ui
   const bool seven_c = (b70 & 0x80) != 0;
   const bool vs_changed = seven_c ? (m & 0x180000ull) != 0 : (m & 0x80000ull) != 0;
   if (vs_changed) {
-    AddLiterals(p, base, vs + 872, Ld32(base, vs + 32));
+    if (!device_only) AddLiterals(p, base, vs + 872, Ld32(base, vs + 32));
     b70 &= 0xBF;
     p.has_vs = true;
     const bool no_patch = !seven_c && (!decl || (Ld32(base, vs + 872) & 0x40));
     if (no_patch) {  // 0x82CBEA40: the object's own microcode, the strides from the slot
       PatchedCopy c;
-      if (Fail f = PatchedVertexShader(ctx, base, dev, vs, decl, strides, false, c); f != Fail::kNone) return f;
+      if (!device_only) {
+        if (Fail f = PatchedVertexShader(ctx, base, dev, vs, decl, strides, false, c); f != Fail::kNone) return f;
+      }
       p.vertex_shader.guest_address = c.physical;
       p.vertex_shader.dword_count = c.dwords;
       std::memcpy(p.strides, Host(base, vs + 48), 8);  // (raw 8-byte copies, as ld / std)
@@ -540,12 +614,14 @@ inline Fail Plan(PPCContext& ctx, uint8_t* base, uint32_t dev, uint64_t mask, ui
     } else {
       if (!decl) return Fail::kDecl0Patch;
       PatchedCopy c;
-      if (Fail f = PatchedVertexShader(ctx, base, dev, vs, decl, strides, true, c); f != Fail::kNone) return f;
+      if (!device_only) {
+        if (Fail f = PatchedVertexShader(ctx, base, dev, vs, decl, strides, true, c); f != Fail::kNone) return f;
+      }
       p.vertex_shader.guest_address = c.physical;
       p.vertex_shader.dword_count = c.dwords;
       std::memcpy(p.strides, strides, 16);
       if (seven_c) b70 &= 0x7F;  // 0x82CBE210 with the variant flag 0 clears bit 7
-      if (REXCVAR_GET(wwe2k14_d3d_bind_verify)) VerifyCopy(base, vs, decl, strides, c);
+      if (!device_only && REXCVAR_GET(wwe2k14_d3d_bind_verify)) VerifyCopy(base, vs, decl, strides, c);
     }
     p.write_strides = true;
   }

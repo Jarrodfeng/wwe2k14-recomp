@@ -211,6 +211,29 @@ void ClosePickedZip() {
   if (g_tronzip_fd >= 0) close(g_tronzip_fd), g_tronzip_fd = -1;
 }
 
+// Lane 286 (custom music): LauncherActivity.jPickAudio / jPromptText.
+void PickAudio(const fs::path& dir, const std::string& stem) {
+  Java j;
+  if (!j) return;
+  jmethodID m = j.Method("jPickAudio", "(Ljava/lang/String;Ljava/lang/String;)V");
+  if (!m) return;
+  jstring d = j.Str(U8(dir)), s = j.Str(stem);
+  j.env->CallVoidMethod(j.activity, m, d, s);
+  j.env->DeleteLocalRef(d);
+  j.env->DeleteLocalRef(s);
+}
+void PromptText(const std::string& title, const std::string& initial, const std::string& tag) {
+  Java j;
+  if (!j) return;
+  jmethodID m = j.Method("jPromptText", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+  if (!m) return;
+  jstring t = j.Str(title), i = j.Str(initial), g = j.Str(tag);
+  j.env->CallVoidMethod(j.activity, m, t, i, g);
+  j.env->DeleteLocalRef(t);
+  j.env->DeleteLocalRef(i);
+  j.env->DeleteLocalRef(g);
+}
+
 void CheckForUpdate(const std::string& version) {
   g_version = version;
   // The repo's newest releases (the PC's and the Android port's share one list); ReadAndroidRelease picks the

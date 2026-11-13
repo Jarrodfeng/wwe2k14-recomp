@@ -1,4 +1,5 @@
 # harness: fast-forward ok (Session 19 item 10 step-rate check; untimed)
+# lane 168: runs with --wwe2k14_step_hz above 60 also need --wwe2k14_pump_follow_display=false on a 60 Hz PC (run_list.ps1 adds it by itself)
 # Session 19 item 10: the step-rate check. profile_lesnar_bryan.txt with 3 screenshots 1 frame apart at match +600 and
 # 7,200 match frames in all (60 s of game time at --wwe2k14_step_hz=120). Use with --wwe2k14_launch=lesnar_bryan.
 # Compare scene lengths in frames (scene marks) and the s_* shots between step rates.

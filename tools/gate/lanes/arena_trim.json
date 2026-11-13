@@ -1,0 +1,7 @@
+{
+ "owner": "lane 243 (S101): a stage mesh the game loads without its leading unused vertices is replaced, not refused (arena 44, slot 111 part 2): src/renderer_scene/arena_ours_core.* WindowOf, docs/renderer/ARENA_OURS.md 'Lane 243'",
+ "note": "needs run 7162's case zip (route s101_sweep_match_type, arena 44; KEEP in its run folder), the game files and out/renderer/dev/fview.exe (tools/fview/build.ps1). Three fview replays: clean (mismatch 0), the past bug (--replace-fault no_trim_window: mismatch 72) and the plant window_shift (refused by the position compare). A missing input FAILs loudly.",
+ "checks": [
+  {"name": "arena_trim.proof", "cmd": ["py", "-I", "tools/arena/arena_trim_check.py", "--root", "."], "timeout_s": 1800, "needs": ["out/s101/runs/20261113_121725_s101_sweep_match_type", "game_data/extracted"]}
+ ]
+}

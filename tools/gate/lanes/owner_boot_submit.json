@@ -1,0 +1,7 @@
+{
+ "owner": "lane 231 (S101): LEAVE_THE_COMMAND_STREAM 3a, the boot submit answered by us in owner mode (src/owner_boot_submit.h, switch --wwe2k14_owner_boot_submit_ours, default off).",
+ "note": "owner_boot_submit.unit builds tools/owner/boot_submit_test.cpp (the shipped header; a model of the SDK processor's packet handlers as the reference) and runs the honest arm plus seven planted faults (read pointer unwritten / wrong value / wrong block; the scan blind to MEM_WRITE, SCRATCH_REG, COND_WRITE-to-memory, a truncated packet), each of which must FAIL its named check.",
+ "checks": [
+  {"name": "owner_boot_submit.unit", "cmd": ["py", "-I", "tools/owner/boot_submit_selftest.py"], "timeout_s": 600}
+ ]
+}

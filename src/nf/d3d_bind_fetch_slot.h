@@ -47,6 +47,7 @@
 #include <rex/logging.h>
 
 #include "../native_fn.h"
+#include "observers.h"
 
 REXCVAR_DEFINE_STRING(wwe2k14_nf_d3d_bind_fetch_slot, "off", "wwe2k14",
                       "Session 66: native version of sub_82CA8B40 (bind a fetch slot): off | verify | on");
@@ -202,4 +203,8 @@ struct Spec {
 
 }  // namespace wwe2k14::nf_d3d_bind_fetch_slot
 
-WWE2K14_NATIVE_FN(sub_82CA8B40, wwe2k14::nf_d3d_bind_fetch_slot::Spec)
+// WWE2K14_NATIVE_FN written out, with the Session 100 observer (src\nf\observers.h: the adapter reader's bind trace) ahead of the dispatch.
+REX_HOOK_RAW(sub_82CA8B40) {
+  if (const auto observer = ::wwe2k14::nf_observers::g_set_texture.load(std::memory_order_relaxed)) observer(ctx, base);
+  ::wwe2k14::native_fn::Dispatch<::wwe2k14::nf_d3d_bind_fetch_slot::Spec>(ctx, base, __imp__sub_82CA8B40);
+}

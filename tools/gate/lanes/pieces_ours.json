@@ -1,0 +1,8 @@
+{
+ "owner": "lane 134 (S101): the character pieces (the referee's shirt patch, the alpha pieces) drawn by ours: src/assets/wrestler_geom.h (Classify's 11-dword maps), wrestler_core.h (plants piece_wrong_entry / piece_bind_pose, join notes), tools/wrestler/pieces_check.py, piece_scan.cpp. docs/renderer/WRESTLER_PROMOTION_MAP.md section 13",
+ "note": "needs Check I's in-ring match (run 7083), run 7079, Check B (run 7051), WM30 (run 7084) case zips and the game files; run directly it fails loudly, the gate SKIPs without them. CPU half = out/tools/wrestler_ours_check.exe over every frame of the four captures + the plants on / off + the R plant (own_model_only); picture half = fview arms on 7083 frames 200 / 400 (ours == the pieces-refused arm, plants on / off, validation 0). Needs numpy + Pillow.",
+ "checks": [
+  {"name": "pieces_ours.proof", "cmd": ["py", "-I", "tools/wrestler/pieces_check.py", "--root", "."], "timeout_s": 5400,
+   "needs": ["out/s101/runs/20261112_131008_s100_owner_match", "out/s101/runs/20261112_124537_s100_owner_s89_brock", "out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261112_131029_s100_owner_s90_wm30", "game_data/extracted"]}
+ ]
+}

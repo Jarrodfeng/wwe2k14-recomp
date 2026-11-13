@@ -1,0 +1,9 @@
+# nav: main menu -> WWE UNIVERSE (main menu item 2). Session 101 lane 198 (coverage sweep); `include menu_to_universe`.
+# Start: main menu (menu 1), any cursor. End: the Universe screen (menu 1497, screen_mode 15, sequence stays 75: atlas node mode:universe, crawl run 5892).
+# Not run live: UNCONFIRMED what the first page shows (the atlas says "inner pages not mapped"); the route screenshots and logs the state words.
+# Back out: `press_until_state B menu 1 6 60 5` (the atlas: B x3 to the main menu).
+wait_state menu 1 1200 10
+press_until_state DOWN cursor >=2 24 30 5 if_needed
+press_until_state UP cursor 2 24 30 5 if_needed
+press_until_state A menu !=1 24 30 5
+wait_frames 120

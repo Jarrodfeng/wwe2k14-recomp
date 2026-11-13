@@ -28,3 +28,6 @@
 # lists then differ); the phone's NATIVE settings file turns it on. The command line wins over the settings file
 # (gfx_menu.h ApplyLauncherSettings: by flag source), so this pins it off on every device.
 --wwe2k14_scene_crowd=0
+# Lane 176 (S101): the aspect would change game memory through the stands crowd's screen tests (member flags / LOD words, the section
+# bytes, the floor records' bit 31 and the facing byte, the draw-recorder calls). Pinned off here so a --wwe2k14_aspect variant stays render-only.
+--wwe2k14_crowd_fill_wide=off

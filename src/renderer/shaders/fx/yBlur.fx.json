@@ -1,0 +1,1161 @@
+{
+ "effect": "yBlur",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ]
+  },
+  {
+   "name": "masked",
+   "defines": [
+    "FX_MASKED"
+   ],
+   "constants": [
+    {
+     "field": "VertexConvert",
+     "register": 32,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "C82B85F54BABCB7D"
+   ]
+  },
+  {
+   "name": "plane_x",
+   "defines": [
+    "FX_PLANE_X"
+   ],
+   "constants": [
+    {
+     "field": "BlurStep",
+     "register": 33,
+     "count": 1
+    },
+    {
+     "field": "PlaneMatrix",
+     "register": 36,
+     "count": 4
+    },
+    {
+     "field": "PlaneScale",
+     "register": 40,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 2
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "070C0CD54C42B9B2"
+   ]
+  },
+  {
+   "name": "plane_z",
+   "defines": [
+    "FX_PLANE_Z"
+   ],
+   "constants": [
+    {
+     "field": "BlurStep",
+     "register": 33,
+     "count": 1
+    },
+    {
+     "field": "PlaneMatrix",
+     "register": 36,
+     "count": 4
+    },
+    {
+     "field": "PlaneScale",
+     "register": 40,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 2
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "225CDCAAD1FD3435"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "t1",
+   "defines": [
+    "FX_T1"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 8
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 8
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "75641266549A40C0"
+   ]
+  },
+  {
+   "name": "t2",
+   "defines": [
+    "FX_T2"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 13
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 13
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "632189BAFAE233F0"
+   ]
+  },
+  {
+   "name": "single",
+   "defines": [
+    "FX_SINGLE"
+   ],
+   "constants": [
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "B234ABEF5D9C22E0"
+   ]
+  },
+  {
+   "name": "highpass",
+   "defines": [
+    "FX_HIGHPASS"
+   ],
+   "constants": [
+    {
+     "field": "HiPass",
+     "register": 42,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "4E4204C4F9F15747"
+   ]
+  },
+  {
+   "name": "m1",
+   "defines": [
+    "FX_M1"
+   ],
+   "constants": [
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "0C62CC97BE158032"
+   ]
+  },
+  {
+   "name": "m2",
+   "defines": [
+    "FX_M2"
+   ],
+   "constants": [
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "98F78E014D3D1DA9"
+   ]
+  },
+  {
+   "name": "m4",
+   "defines": [
+    "FX_M4"
+   ],
+   "constants": [
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 5
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "8FAA0055757B156D"
+   ]
+  },
+  {
+   "name": "flag_any",
+   "defines": [
+    "FX_FLAG_ANY"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "0DC910FA641514C0",
+    "901118D1EF082BEC"
+   ]
+  },
+  {
+   "name": "min_r",
+   "defines": [
+    "FX_MIN_R"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "330F7B839443E731"
+   ]
+  },
+  {
+   "name": "min_rg",
+   "defines": [
+    "FX_MIN_RG"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "E5FE06D824FDFBD9"
+   ]
+  },
+  {
+   "name": "min_rgba",
+   "defines": [
+    "FX_MIN_RGBA"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "694A6D148DC33CFF"
+   ]
+  },
+  {
+   "name": "min_pair",
+   "defines": [
+    "FX_MIN_PAIR"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7C650AA1C792DFF6"
+   ]
+  },
+  {
+   "name": "hole_fill",
+   "defines": [
+    "FX_HOLE_FILL"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 1,
+     "count": 12
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 13
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "A5C9AC54E4868DC1"
+   ]
+  },
+  {
+   "name": "shadow_blur",
+   "defines": [
+    "FX_SHADOW_BLUR"
+   ],
+   "constants": [
+    {
+     "field": "ShadowThreshold",
+     "register": 34,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "E1AD4BB4E0563253"
+   ]
+  },
+  {
+   "name": "t1_t2",
+   "defines": [
+    "FX_T1",
+    "FX_T2"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 15
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 15
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "755AC86C4301F2BB"
+   ]
+  },
+  {
+   "name": "m1_m2",
+   "defines": [
+    "FX_M1",
+    "FX_M2"
+   ],
+   "constants": [
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "9C84E33D39058FB0"
+   ]
+  },
+  {
+   "name": "m1_m4",
+   "defines": [
+    "FX_M1",
+    "FX_M4"
+   ],
+   "constants": [
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 6
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "953BC36BAF0BA08E"
+   ]
+  },
+  {
+   "name": "m2_m4",
+   "defines": [
+    "FX_M2",
+    "FX_M4"
+   ],
+   "constants": [
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 7
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "759739E13261F0AE"
+   ]
+  },
+  {
+   "name": "m1_m2_m4",
+   "defines": [
+    "FX_M1",
+    "FX_M2",
+    "FX_M4"
+   ],
+   "constants": [
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 8
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "4E18C9FC8C85079B"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_MASKED",
+    "FX_PLANE_X",
+    "FX_PLANE_Z"
+   ],
+   "exclusive": [
+    [
+     "FX_MASKED",
+     "FX_PLANE_X",
+     "FX_PLANE_Z"
+    ]
+   ],
+   "constants": [
+    {
+     "field": "BlurStep",
+     "register": 33,
+     "count": 1,
+     "when": [
+      "FX_PLANE_X"
+     ]
+    },
+    {
+     "field": "PlaneMatrix",
+     "register": 36,
+     "count": 4,
+     "when": [
+      "FX_PLANE_X"
+     ]
+    },
+    {
+     "field": "PlaneScale",
+     "register": 40,
+     "count": 1,
+     "when": [
+      "FX_PLANE_X"
+     ]
+    },
+    {
+     "field": "BlurStep",
+     "register": 33,
+     "count": 1,
+     "when": [
+      "FX_PLANE_Z"
+     ]
+    },
+    {
+     "field": "PlaneMatrix",
+     "register": 36,
+     "count": 4,
+     "when": [
+      "FX_PLANE_Z"
+     ]
+    },
+    {
+     "field": "PlaneScale",
+     "register": 40,
+     "count": 1,
+     "when": [
+      "FX_PLANE_Z"
+     ]
+    },
+    {
+     "field": "VertexConvert",
+     "register": 32,
+     "count": 1,
+     "when": [
+      "FX_MASKED"
+     ]
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 2,
+     "when": [
+      "FX_PLANE_X"
+     ]
+    },
+    {
+     "fetch": 0,
+     "location": 2,
+     "when": [
+      "FX_PLANE_Z"
+     ]
+    },
+    {
+     "fetch": 0,
+     "location": 0,
+     "when": [
+      "!FX_PLANE_X",
+      "!FX_PLANE_Z"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "!FX_PLANE_X",
+      "!FX_PLANE_Z"
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d",
+     "when": [
+      "FX_MASKED"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_T1",
+    "FX_T2",
+    "FX_SINGLE",
+    "FX_HIGHPASS",
+    "FX_M1",
+    "FX_M2",
+    "FX_M4",
+    "FX_FLAG_ANY",
+    "FX_FLAG_NOT_ONE",
+    "FX_MIN_R",
+    "FX_MIN_RG",
+    "FX_MIN_RGBA",
+    "FX_MIN_PAIR",
+    "FX_HOLE_FILL",
+    "FX_SHADOW_BLUR"
+   ],
+   "constants": [
+    {
+     "field": "ShadowThreshold",
+     "register": 34,
+     "count": 1,
+     "when": [
+      "FX_SHADOW_BLUR"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 1,
+     "count": 12,
+     "when": [
+      "FX_HOLE_FILL"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 13,
+     "when": [
+      "FX_HOLE_FILL"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 8,
+     "when": [
+      "FX_T1",
+      "!FX_T2"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 8,
+     "when": [
+      "FX_T1",
+      "!FX_T2"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 13,
+     "when": [
+      "!FX_T1",
+      "FX_T2"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 13,
+     "when": [
+      "!FX_T1",
+      "FX_T2"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 15,
+     "when": [
+      "FX_T1",
+      "FX_T2"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 15,
+     "when": [
+      "FX_T1",
+      "FX_T2"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 1,
+     "when": [
+      "FX_SINGLE"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2,
+     "when": [
+      "FX_M1",
+      "!FX_M2",
+      "!FX_M4"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 3,
+     "when": [
+      "!FX_M1",
+      "FX_M2",
+      "!FX_M4"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 4,
+     "when": [
+      "FX_M1",
+      "FX_M2",
+      "!FX_M4"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 5,
+     "when": [
+      "!FX_M1",
+      "!FX_M2",
+      "FX_M4"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 6,
+     "when": [
+      "FX_M1",
+      "!FX_M2",
+      "FX_M4"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 7,
+     "when": [
+      "!FX_M1",
+      "FX_M2",
+      "FX_M4"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 8,
+     "when": [
+      "FX_M1",
+      "FX_M2",
+      "FX_M4"
+     ]
+    },
+    {
+     "field": "HiPass",
+     "register": 42,
+     "count": 1,
+     "when": [
+      "FX_HIGHPASS"
+     ],
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2,
+     "when": [
+      "FX_FLAG_ANY"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2,
+     "when": [
+      "FX_FLAG_NOT_ONE"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2,
+     "when": [
+      "FX_MIN_R"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2,
+     "when": [
+      "FX_MIN_R"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2,
+     "when": [
+      "FX_MIN_RG"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2,
+     "when": [
+      "FX_MIN_RG"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 2,
+     "when": [
+      "FX_MIN_RGBA"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2,
+     "when": [
+      "FX_MIN_RGBA"
+     ]
+    },
+    {
+     "field": "SampleOffsets",
+     "register": 0,
+     "count": 4,
+     "when": [
+      "FX_MIN_PAIR"
+     ]
+    },
+    {
+     "field": "SampleWeights",
+     "register": 16,
+     "count": 2,
+     "when": [
+      "FX_MIN_PAIR"
+     ]
+    }
+   ],
+   "exclusive": [
+    [
+     "FX_HOLE_FILL",
+     "FX_T1"
+    ],
+    [
+     "FX_HOLE_FILL",
+     "FX_T2"
+    ],
+    [
+     "FX_HOLE_FILL",
+     "FX_M1"
+    ],
+    [
+     "FX_HOLE_FILL",
+     "FX_M2"
+    ],
+    [
+     "FX_HOLE_FILL",
+     "FX_M4"
+    ],
+    [
+     "FX_HOLE_FILL",
+     "FX_SINGLE",
+     "FX_HIGHPASS",
+     "FX_FLAG_ANY",
+     "FX_FLAG_NOT_ONE",
+     "FX_MIN_R",
+     "FX_MIN_RG",
+     "FX_MIN_RGBA",
+     "FX_MIN_PAIR"
+    ],
+    [
+     "FX_T1",
+     "FX_SINGLE",
+     "FX_HIGHPASS",
+     "FX_M1",
+     "FX_FLAG_ANY",
+     "FX_FLAG_NOT_ONE",
+     "FX_MIN_R",
+     "FX_MIN_RG",
+     "FX_MIN_RGBA",
+     "FX_MIN_PAIR"
+    ],
+    [
+     "FX_T2",
+     "FX_SINGLE",
+     "FX_HIGHPASS",
+     "FX_M2",
+     "FX_FLAG_ANY",
+     "FX_FLAG_NOT_ONE",
+     "FX_MIN_R",
+     "FX_MIN_RG",
+     "FX_MIN_RGBA",
+     "FX_MIN_PAIR"
+    ],
+    [
+     "FX_M4",
+     "FX_SINGLE",
+     "FX_HIGHPASS",
+     "FX_FLAG_ANY",
+     "FX_FLAG_NOT_ONE",
+     "FX_MIN_R",
+     "FX_MIN_RG",
+     "FX_MIN_RGBA",
+     "FX_MIN_PAIR"
+    ]
+   ]
+  }
+ }
+}

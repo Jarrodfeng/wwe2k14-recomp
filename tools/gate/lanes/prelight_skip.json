@@ -1,0 +1,11 @@
+{
+ "owner": "lane 184 (S101): candidate D of SKIP_GAME_WORK_MAP 13.2 (the yPreLight bakes of unread light slots). The slot rule was NOT confirmed (SKIP_GAME_WORK_MAP 15), so there is no build and no proof lane: this lane holds the census and its self-test. 0 game runs.",
+ "note": "unit = tools/prelight/slots_selftest.py (null cut + 5 plants on the committed rows); census = tools/prelight/slots_census.py reproduces the committed rows (tools/prelight/slots_expect.json) on Bryan's entrance, Brock's entrance (run 7079) and the 15-type match, from the captures, with --cut 1,2,3 NOT given (the check is the rows).",
+ "checks": [
+  {"name": "prelight_skip.unit", "cmd": ["py", "-I", "tools/prelight/slots_selftest.py"], "timeout_s": 120},
+  {"name": "prelight_skip.census", "cmd": ["py", "-I", "tools/prelight/slots_census.py", "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip", "out/s101/runs/20261112_122623_s100_owner_s89_brock/case_20261112_122658_040_0_pc_run_exit.zip", "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip", "--check", "tools/prelight/slots_expect.json"], "timeout_s": 900, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_122623_s100_owner_s89_brock/case_20261112_122658_040_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip"]}
+ ]
+}

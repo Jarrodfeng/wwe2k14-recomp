@@ -1,0 +1,73 @@
+{
+ "effect": "yScaleDownZ",
+ "vertex": [
+  {
+   "name": "quad",
+   "defines": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "depth",
+   "defines": [
+    "DEPTH_ONLY"
+   ],
+   "hashes": [
+    "A04AB68F5220D3D8"
+   ],
+   "constants": [
+    {
+     "field": "sampleOffsets",
+     "register": 200,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "name": "frame_depth",
+   "defines": [
+    "FRAME_DEPTH"
+   ],
+   "hashes": [
+    "80DB8FA5EF30B291"
+   ],
+   "constants": [
+    {
+     "field": "sampleOffsets",
+     "register": 200,
+     "count": 4
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

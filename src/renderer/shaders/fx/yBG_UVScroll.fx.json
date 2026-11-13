@@ -1,0 +1,3074 @@
+{
+ "effect": "yBG_UVScroll",
+ "vertex": [
+  {
+   "name": "no_lm",
+   "defines": [
+    "FX_NO_LM"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "99087FBD8D7DE237"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "2A921C76825287F3"
+   ]
+  },
+  {
+   "name": "no_lm_layer2",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER2"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "BA7C822827F8E603"
+   ]
+  },
+  {
+   "name": "no_lm_layer3",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER3"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "81393F51F7F70999"
+   ]
+  },
+  {
+   "name": "no_lm_layer4",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER4"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "D807BCDD1923CF5A"
+   ]
+  },
+  {
+   "name": "no_lm_conv_screen",
+   "defines": [
+    "FX_NO_LM",
+    "FX_CONV_SCREEN"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "6EA68A9A5E4A1368"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer2",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER2"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "68E36809833AC12F"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer3",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER3"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "08BCD185C786C43E"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer4",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER4"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "49703045DC523355"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_conv_screen",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_CONV_SCREEN"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "62468A66ACF5C24B"
+   ]
+  },
+  {
+   "name": "no_lm_layer2_conv_screen",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_CONV_SCREEN"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "9B701F8FCA47CC43"
+   ]
+  },
+  {
+   "name": "no_lm_layer2_planar_uv",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_PLANAR_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "1BD4B5B5C8D100A0"
+   ]
+  },
+  {
+   "name": "no_lm_layer3_conv_screen",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER3",
+    "FX_CONV_SCREEN"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "C18E01B6085B7A76"
+   ]
+  },
+  {
+   "name": "no_lm_layer4_conv_screen",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER4",
+    "FX_CONV_SCREEN"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "9B18554E068B13E4"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer2_conv_screen",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_CONV_SCREEN"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "FD049D9DCE5F6A02"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer2_planar_uv",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_PLANAR_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "92941F2E813F6C45"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer3_conv_screen",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER3",
+    "FX_CONV_SCREEN"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "20ED40A0539EDB06"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer4_conv_screen",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER4",
+    "FX_CONV_SCREEN"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "C339C43E34D65C73"
+   ]
+  },
+  {
+   "name": "no_lm_layer2_conv_screen_planar_uv",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_CONV_SCREEN",
+    "FX_PLANAR_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "6ABB039B088B6C5B"
+   ]
+  },
+  {
+   "name": "no_lm_layer2_planar_uv_planar_yz",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_PLANAR_UV",
+    "FX_PLANAR_YZ"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "6938EEA3DD9484B2"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer2_conv_screen_planar_uv",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_CONV_SCREEN",
+    "FX_PLANAR_UV"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "889073006C6C5231"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer2_planar_uv_planar_yz",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_PLANAR_UV",
+    "FX_PLANAR_YZ"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "875FF79DA40175D2"
+   ]
+  },
+  {
+   "name": "no_lm_layer2_conv_screen_planar_uv_planar_yz",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_CONV_SCREEN",
+    "FX_PLANAR_UV",
+    "FX_PLANAR_YZ"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "17A2183C8F22AC05"
+   ]
+  },
+  {
+   "name": "vertex_lm_no_lm_layer2_conv_screen_planar_uv_planar_yz",
+   "defines": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_CONV_SCREEN",
+    "FX_PLANAR_UV",
+    "FX_PLANAR_YZ"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "E5E235B5A2643FF3"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "no_lm",
+   "defines": [
+    "FX_NO_LM"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7ABDFEFBCADB4BF9"
+   ]
+  },
+  {
+   "name": "no_lm_layer2",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER2"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "DB603A91AD911046"
+   ]
+  },
+  {
+   "name": "no_lm_layer3",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER3"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7D78F82E94EDAF9A"
+   ]
+  },
+  {
+   "name": "no_lm_layer4",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER4"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "D264A398D126C9BF"
+   ]
+  },
+  {
+   "name": "no_lm_layer2_caa",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_CAA"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "CCFA2BB9A4C22D9C"
+   ]
+  },
+  {
+   "name": "no_lm_layer3_caa",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER3",
+    "FX_CAA"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1BFE4E9A817E9771"
+   ]
+  },
+  {
+   "name": "no_lm_layer4_caa",
+   "defines": [
+    "FX_NO_LM",
+    "FX_LAYER4",
+    "FX_CAA"
+   ],
+   "constants": [
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "37F2AAF1778F7011"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_VERTEX_LM",
+    "FX_NO_LM",
+    "FX_STATIC",
+    "FX_LAYER2",
+    "FX_LAYER3",
+    "FX_LAYER4",
+    "FX_CONV_SCREEN",
+    "FX_PLANAR_UV",
+    "FX_PLANAR_YZ"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3,
+     "when": [
+      "!FX_STATIC"
+     ]
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "vMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "Time",
+     "register": 186,
+     "count": 1
+    },
+    {
+     "field": "UVScroll0",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "UVScroll1",
+     "register": 204,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1,
+     "when": [
+      "FX_CONV_SCREEN"
+     ]
+    },
+    {
+     "field": "SL_Scale",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "when": [
+      "!FX_PLANAR_UV"
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 16,
+     "kind": "2d",
+     "when": [
+      "FX_VERTEX_LM"
+     ]
+    }
+   ],
+   "exclusive": [
+    [
+     "FX_LAYER2",
+     "FX_LAYER3",
+     "FX_LAYER4"
+    ]
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_NO_LM",
+    "FX_LAYER2",
+    "FX_LAYER3",
+    "FX_LAYER4",
+    "FX_CAA"
+   ],
+   "constants": [
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1,
+     "when": [
+      "!FX_NO_LM"
+     ]
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1,
+     "when": [
+      "!FX_NO_BIAS"
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d",
+     "when": [
+      "!FX_NO_LM"
+     ]
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_LAYER2"
+     ]
+    },
+    {
+     "slot": 2,
+     "kind": "2d",
+     "when": [
+      "FX_LAYER3"
+     ]
+    },
+    {
+     "slot": 3,
+     "kind": "2d",
+     "when": [
+      "FX_LAYER4"
+     ]
+    },
+    {
+     "slot": 14,
+     "kind": "2d",
+     "when": [
+      "FX_CAA"
+     ]
+    }
+   ],
+   "exclusive": [
+    [
+     "FX_LAYER2",
+     "FX_LAYER3",
+     "FX_LAYER4"
+    ]
+   ]
+  }
+ }
+}

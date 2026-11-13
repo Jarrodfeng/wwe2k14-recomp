@@ -1,0 +1,40 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true
+# harness: realtime (menu presses; fast-forwarded menus drop presses, LESSONS)
+# Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): the UNIVERSE column of the coverage board (4 cells: UI pictures, UI text, UI sprites + rects,
+# Movie planes; all "none" before: no zip has ever been assigned to Universe). The board assigns a zip to an item by the ROUTE NAME first (tools\board\coverage.py ITEM_RULES:
+# 'universe' in the name), so the file name must keep the word "universe". Boot -> main menu -> UNIVERSE (item 2), ~1600 frames on the screen (two census windows of 600),
+# two shots, back to the main menu, quit (the run_exit case zip). The menu census windows (ui, ui_text, ui_quads, movie) need the J+ flags (the plan's list).
+# UNCONFIRMED (never driven): what the Universe first page needs from the player (a message box, a "create a universe" prompt). The route only looks: the state words
+# (menu / screen_mode / seq / msgbox) and the screen text are logged, nothing is answered. If a YES / NO box is up the shots show it and the cells still fill from the menu draws.
+# Marks: 1 main menu, 2 universe up, 3 window 1, 4 window 2, 5 back at the main menu. on_fail quit.
+on_fail quit
+log bench: start scene sweep_universe
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 main_menu
+include menu_to_universe
+log scene=universe
+log_state menu
+log_state screen_mode
+log_state seq
+log_state msgbox
+log_text 8
+mark 2 universe_up
+wait_frames 300
+cvar wwe2k14_rdr_live_picture sc_universe_1
+screenshot sc_universe_1
+wait_frames 700
+mark 3 window1
+log_state msgbox
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_universe_2
+screenshot sc_universe_2
+wait_frames 600
+mark 4 window2
+press_until_state B menu 1 6 60 5
+log scene=back_at_menu
+mark 5 back
+wait_frames 60
+log bench: done
+wait_frames 10
+quit

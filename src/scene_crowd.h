@@ -31,6 +31,12 @@
 #include <rex/hook.h>
 
 #include "half2_hooks.h"  // wwe2k14::half2::Cp(), Load32
+#include "cost_counters.h"  // S101 lane 83
+#include "draw_origin.h"  // S101 names: RecordTag in the op-15 recorder hook
+#include "scene_live/crowd_skip.h"  // S101 lane 50: P2b / P2c, the game's crowd work dropped while ours draws (switches default off)
+#include "scene_live/crowd_hooks.h"  // S101 lane27: the crowd contributor's observation (read only), also hooks sub_82509CB8 / sub_82519508
+#include "scene_live/plane_glue.h"  // lane 139: the plane shadow chain's constants (read only)
+#include "scene_live/circle_glue.h"  // lane 136: the circle blob shadows' constants (read only), seen by the same game-wide op-21 recorder
 
 REXCVAR_DEFINE_INT32(wwe2k14_scene_crowd, 0, "wwe2k14",
                      "Session 50: the crowd drawn from its members' matrices (SCENE_MAP.md section 7): 0 off; 1 each crowd "
@@ -123,6 +129,10 @@ inline void wwe2k14::scene_crowd::Flush(PPCContext& ctx, uint8_t* base, uint32_t
 // The op-21 recorder: the crowd's member constants.
 REX_HOOK_RAW(sub_82BB27D8) {
   using namespace wwe2k14::scene_crowd;
+  // S101 lane27: observe the member (read only), then the hook goes on as before. This recorder is game-wide: the return address is tested first.
+  if (wwe2k14::crowd_live::IsCrowdOp21(uint32_t(ctx.lr)) && wwe2k14::crowd_live::Active()) wwe2k14::crowd_live::OnOp21(ctx, base);
+  if (wwe2k14::plane::Active()) wwe2k14::plane::OnOp21(ctx);  // lane 139: the plane shadow chain's constants (sub_82BF22C8 / sub_827ECD10); read only, tests the return address first
+  if (rdr_scene::live::circles::Tracker::IsOurs(uint32_t(ctx.lr)) && wwe2k14::circles::Active()) wwe2k14::circles::OnOp21(ctx);  // lane 136: the circle blob shadows' constants (T_CircleShadow, sub_82812E90); read only, tests the return address first
   int mode = REXCVAR_GET(wwe2k14_scene_crowd);
   Run& r = t_run;
   // (Review: with MSAA - predicated tiling - the command processor cannot use the runs: every member recorded.)
@@ -160,8 +170,16 @@ REX_HOOK_RAW(sub_82BB27D8) {
 
 // The op-15 recorder: the crowd's member draws.
 REX_HOOK_RAW(sub_82BB10C0) {
+  wwe2k14::draw_origin::RecordTag origin_tag(ctx, base, 15);  // S101 names: the record carries its submitter (draw_origin.h)
+  if (wwe2k14::plane::Active()) wwe2k14::plane::OnBlurDraw(ctx);  // lane 139: the plane blur's draw (LR 0x827EEC88): snapshot of its constants; read only
   using namespace wwe2k14::scene_crowd;
   Run& r = t_run;
+  // S101 lane 50 (P2b): a crowd block / card draw ours replaces is not recorded (own switch; only outside an open scene_crowd run).
+  if (!r.first_valid && (wwe2k14::crowd_skip::DropDraw(uint32_t(ctx.lr)) || wwe2k14::card_thin::DropCard(uint32_t(ctx.lr)))) return;  // lane 175: DropCard = the far cards thin record (card_thin_hook.h; inert as built)
+  if (!r.first_valid && wwe2k14::member_thin::RawMode() > 0 && wwe2k14::member_thin::IsMemberSite(uint32_t(ctx.lr))) {  // lane 272: the stands / floor members' thin record (member_thin_hook.h; inert as built). Tiled = MSAA / predicated tiling (the crowd draw runs once per tile); cp is NULL under guest_gpu_only (default): not tiled there, a doubled tally would be caught by CheckTally (hole, latch).
+    rex::graphics::CommandProcessor* cp = wwe2k14::half2::Cp();
+    if (wwe2k14::member_thin::DropMember(uint32_t(ctx.lr), cp && cp->scene_crowd_blocked(), wwe2k14::crowd_live::g_floor_observe.load(std::memory_order_relaxed))) return;
+  }
   if (!r.first_valid || uint32_t(ctx.lr) != r.op15_return) {
     __imp__sub_82BB10C0(ctx, base);
     return;
@@ -183,6 +201,7 @@ REX_HOOK_RAW(sub_82BB10C0) {
 // The next group's op 14 (SetStreamSource): the previous group's run ends before it.
 REX_HOOK_RAW(sub_82BB0F30) {
   using namespace wwe2k14::scene_crowd;
+  wwe2k14::member_thin::OnOp14(uint32_t(ctx.lr));  // lane 272: a stands group / floor object mesh begins a member run
   if (t_run.first_valid && t_run.op15_return == kOp15Return && uint32_t(ctx.lr) == kGroupReturn) {
     Flush(ctx, base, ctx.r1.u32);
   }
@@ -193,6 +212,8 @@ REX_HOOK_RAW(sub_82BB0F30) {
 REX_HOOK_RAW(sub_82518340) {
   using namespace wwe2k14::scene_crowd;
   const uint32_t entry_r1 = ctx.r1.u32;
+  wwe2k14::crowd_skip::t_draws.BeginRun();  // S101 lane 50: the block draw is also a run boundary of the (refused) P2b trigger rule
+  wwe2k14::cost::CrowdSpan cost_span;  // S101 lane 83: the crowd block's recording (to the end of the call)
   __imp__sub_82518340(ctx, base);
   if (t_run.first_valid && t_run.op15_return == kOp15Return) Flush(ctx, base, entry_r1 - kFrameSize);
 }
@@ -201,6 +222,10 @@ REX_HOOK_RAW(sub_82518340) {
 REX_HOOK_RAW(sub_82512F70) {
   using namespace wwe2k14::scene_crowd;
   const uint32_t entry_r1 = ctx.r1.u32;
+  wwe2k14::bake_skip::OnCardLoop(ctx.r3.u32);  // lane 155: the type's cards are asked for (the bake skip's ledger)
+  wwe2k14::card_thin::OnCardLoop();  // lane 175: a type loop begins (the first card draw of it is kept)
+  wwe2k14::crowd_live::t_card_block = ctx.r3.u32;  // S101 lane27: the card loop's block i (r3 at entry), for the op-21 observer
+  wwe2k14::cost::CrowdSpan cost_span;  // S101 lane 83: the card loop's recording
   __imp__sub_82512F70(ctx, base);
   if (t_run.first_valid && t_run.op15_return == kCardOp15Return) Flush(ctx, base, entry_r1 - kCardFrameSize);
 }

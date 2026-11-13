@@ -87,6 +87,16 @@ TOOLS = [
                     'kind="seq,match" to filter.',
      'inputSchema': {'type': 'object', 'properties': {'last': {'type': 'integer'}, 'kind': {'type': 'string'},
                                                        'name': NAME_PROP}}},
+    # S101 goto (N1): the go-anywhere verb (tools/goto/goto.py, docs/systems/goto.md)
+    {'name': 'game_go',
+     'description': 'S101 go-anywhere: take the live game to an ADDRESS through the game\'s own functions and states (never timed '
+                    'presses). Forms: menu:PATH (an atlas node id or the words of its path name), match:SPEC (the game_match spec; '
+                    'optional @entrance:N and @bell suffixes wait on the event bus), wm30:N (30 Years of WrestleMania match 0-45), '
+                    'wm30:N@moment:K (K = 0 / 1 / 2 for the match\'s X00 / X01 / X02 SCEX code, or a raw code), and the parsed-only '
+                    'caw:CATEGORY/ITEM, universe:PAGE, cutscene:ID (not reachable yet, with the reason). dry=true returns the plan with no game. '
+                    'A goto that cannot arrive says where the game is and takes the bookmark bundle.',
+     'inputSchema': {'type': 'object', 'required': ['address'], 'properties': {
+         'address': {'type': 'string'}, 'dry': {'type': 'boolean'}, 'name': NAME_PROP}}},
     {'name': 'game_match_state',
      'description': 'Session 91 match state snapshot (src/event_bus.h): the match clock (frames), the referee\'s mode '
                     '(0 watch, 1 pin count, 3 DQ count, 5 count-out) and count, the finish (type + name, winner / '
@@ -508,6 +518,18 @@ def call(tool, args):
         kinds = set(str(args.get('kind') or '').split(',')) - {''}
         got = [e for e in ev.read() if not kinds or e.get('kind') in kinds][-int(args.get('last') or 30):]
         return [text('\n'.join(json.dumps(e) for e in got) or 'no events (is --wwe2k14_events on?)')], False
+    if tool == 'game_go':  # S101 goto (N1)
+        sys.path.insert(0, os.path.join(live.REPO, 'tools', 'goto'))
+        import resolve as goto_resolve
+        plan = goto_resolve.resolve(args['address'])
+        out = plan.lines()
+        if plan.status != 'plan' or args.get('dry'):
+            return [text('\n'.join(out))], plan.status == 'error'
+        try:
+            goto_resolve.execute(plan, name, say=out.append)
+        except goto_resolve.Stopped as x:
+            return [text('\n'.join(out) + '\n' + goto_resolve.failure_report(name, str(x)))], True
+        return [text('\n'.join(out))], False
     if tool == 'game_match':  # Session 91: the match builder (tools/atlas/match.py)
         sys.path.insert(0, os.path.join(live.REPO, 'tools', 'atlas'))
         import match

@@ -119,6 +119,36 @@ def catalogue(game):
     return out
 
 
+# S101 goto (N1): the SCEX moment codes of each era (docs/research/s101/N0-2.md). evtdsc<era>.pac, first PACH (R00<era>), entry 0 =
+# '0FOP' + SCEX block (big-endian: 'SCEX', u32 0x100, u32 0, u32 count, u32 0x20, then 8-byte entries {u16 code, u16 commands,
+# u32 offset} from +0x20). The codes are the phases the jump (src/wm30_jump.h) can start: per match X00 begin, X01 run, X02 post-match.
+def scex_codes(game, era):
+    """Sorted moment codes of the era's SCEX flow script (list of int). Raises SystemExit if the file cannot be read."""
+    path = os.path.join(game, 'pac', 'evtdsc', 'evtdsc%d.pac' % era)
+    if not os.path.isfile(path):
+        raise SystemExit('missing %s' % path)
+    for name, dec in pac.entries(pac.load(path), depth=0):
+        if name == 'p0/0':
+            if dec[:4] != b'0FOP' or dec[8:12] != b'SCEX':
+                raise SystemExit('%s: entry p0/0 is not a SCEX block' % path)
+            blk = dec[8:]
+            count, table = struct.unpack_from('>II', blk, 12)
+            if not 0 < count < 400 or table + 8 * count > len(blk):
+                raise SystemExit('%s: implausible SCEX table (%d entries at %d)' % (path, count, table))
+            return sorted(struct.unpack_from('>H', blk, table + 8 * i)[0] for i in range(count))
+    raise SystemExit('%s: no SCEX entry' % path)
+
+
+def scex_all(game):
+    """{era: [codes]} for the five eras."""
+    return {era: scex_codes(game, era) for era in range(5)}
+
+
+def moments(cat, codes):
+    """{match index: [codes of that match's own X00 / X01 / X02 present in its era's SCEX list]}."""
+    return {m['index']: [c for c in (m['code'], m['code'] + 1, m['code'] + 2) if c in codes[m['era']]] for m in cat}
+
+
 def main():
     sys.stdout.reconfigure(encoding='utf-8')
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
@@ -126,7 +156,18 @@ def main():
     ap.add_argument('--era', type=int)
     ap.add_argument('--json')
     ap.add_argument('--full', action='store_true')
+    ap.add_argument('--scex', metavar='OUT', help="S101: write the per-era SCEX code lists and each match's moments as JSON (under out\\)")
     a = ap.parse_args()
+    if a.scex:
+        codes = scex_all(a.game)
+        cat = catalogue(a.game)
+        mom = moments(cat, codes)
+        os.makedirs(os.path.dirname(os.path.abspath(a.scex)), exist_ok=True)
+        with open(a.scex, 'w') as f:
+            json.dump({'eras': {str(e): c for e, c in codes.items()}, 'moments': {str(i): c for i, c in mom.items()},
+                   'matches': {str(m['index']): {'era': m['era'], 'code': m['code'], 'record': m['record']} for m in cat}}, f, indent=1)
+        print('wrote %s (%s codes per era; %d matches)' % (a.scex, '/'.join(str(len(c)) for c in codes.values()), len(mom)))
+        return 0
     cat = catalogue(a.game)
     if a.json:
         os.makedirs(os.path.dirname(os.path.abspath(a.json)), exist_ok=True)

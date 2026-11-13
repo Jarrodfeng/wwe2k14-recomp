@@ -1,0 +1,6 @@
+{
+ "owner": "lane 26: the live scene writer (live_scene.cpp, the capture-folder sink, the case ring's scene part)",
+ "checks": [
+  {"name": "live_writer.selftest", "cmd": ["py", "-I", "tools/scene/live_writer_selftest.py"], "timeout_s": 1500}
+ ]
+}

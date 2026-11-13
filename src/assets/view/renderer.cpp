@@ -20,7 +20,14 @@ std::unique_ptr<Renderer> MakeRendererD3D11();  // renderer_d3d11.cpp
 std::unique_ptr<Renderer> MakeRendererVk();  // renderer_vk.cpp
 #endif
 
+#ifdef WWE_VIEWER_RDR  // S101 lane 6: the "rdr" backend (our renderer + the scene front-end); tools\assets\build_viewer.ps1 -Backend rdr
+std::unique_ptr<Renderer> MakeRendererRdr();  // renderer_rdr.cpp
+#endif
+
 std::unique_ptr<Renderer> MakeRenderer(const std::string& backend, std::string& err) {
+#ifdef WWE_VIEWER_RDR
+  if (backend == "rdr") return MakeRendererRdr();  // S101 lane 6
+#endif
 #ifdef _WIN32
   if (backend == "d3d11") return MakeRendererD3D11();
 #endif
@@ -59,6 +66,7 @@ static bool gm_wrestler_mesh(const assets::Model& m, const assets::Mesh& me) {
 bool Renderer::AddModel(const assets::Model& m, const float offset[3], std::vector<std::string>& warnings, std::string& err) {
   GpuModel g;
   g.gpu = NewModelData();
+  OnModelAdded(*g.gpu, m);  // S101 lane 6
   memcpy(g.offset, offset, sizeof g.offset);
   float wbmin[3] = {1e30f, 1e30f, 1e30f}, wbmax[3] = {-1e30f, -1e30f, -1e30f};
   for (auto& t : m.textures) g.tex_ok.push_back(UploadTexture(*g.gpu, t, warnings) ? 1 : 0);

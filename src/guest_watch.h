@@ -3,7 +3,9 @@
 // Nothing here runs unless an input script asks for it (src/input_script.h). With no watch/snap command the per-frame
 // hook only tests two atomics.
 //
-// watch ADDR [LEN] [any|change|VALUE]
+// watch ADDR [LEN] [any|change|access|VALUE]   (access, S100: every read or write, DR7 RW = 11)
+//   CAUTION (S100 run 6910): the one run with `access` on an attire atlas (0xFE8DD000) died at address 0 soon after arming, before
+//   any hit was logged; cause unconfirmed (a read by non-guest code through that view is the suspect). Write watches are unaffected.
 //   Hardware data breakpoint (x64 DR0-DR3, set on every thread in the process; every 120 frames a helper re-reads
 //   every thread's debug registers and re-sets any that differ, so threads created later, reused thread IDs and
 //   registers lost to exception dispatch are armed within ~120 frames) on the host bytes backing guest
@@ -266,7 +268,7 @@ class GuestWatchSymbols {
 
 class GuestWatch {
  public:
-  enum class Mode : uint8_t { kAny, kChange, kValue, kZeroing };
+  enum class Mode : uint8_t { kAny, kChange, kValue, kZeroing, kAccess };  // kAccess (S100): reads too (DR7 RW = 11)
 
   static GuestWatch& Instance() {
     static GuestWatch instance;
@@ -504,6 +506,7 @@ class GuestWatch {
       case Mode::kChange: return "writes that change it";
       case Mode::kValue: return "writes of " + Hex(s.value, s.len);
       case Mode::kZeroing: return "writes that turn it to zero";
+      case Mode::kAccess: return "any read or write";
     }
     return "?";
   }
@@ -542,7 +545,7 @@ class GuestWatch {
       const uint32_t len = slots[i].len;
       const DWORD64 len_bits = len == 1 ? 0 : len == 2 ? 1 : len == 8 ? 2 : 3;
       dr7 |= DWORD64(1) << (i * 2);           // local enable
-      dr7 |= DWORD64(1) << (16 + i * 4);      // RW = 01: data writes
+      dr7 |= DWORD64(slots[i].mode == Mode::kAccess ? 3 : 1) << (16 + i * 4);  // RW = 01: data writes; 11: reads and writes (kAccess)
       dr7 |= len_bits << (18 + i * 4);        // LEN
     }
     return dr7;
@@ -712,6 +715,7 @@ class GuestWatch {
         case Mode::kChange: pass = value != old_value; break;
         case Mode::kValue: pass = value == s.value; break;
         case Mode::kZeroing: pass = value == 0 && old_value != 0; break;
+        case Mode::kAccess: break;
       }
       if (!pass) continue;
       const uint64_t hit_number = s.matched.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1102,6 +1106,8 @@ inline bool ParseGuestWatchCommand(const std::string& cmd, const std::string& ar
       std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) { return std::tolower(c); });
       if (mode == "any") {
         out.mode = GuestWatch::Mode::kAny;
+      } else if (mode == "access") {
+        out.mode = GuestWatch::Mode::kAccess;
       } else if (mode == "change") {
         out.mode = GuestWatch::Mode::kChange;
       } else {

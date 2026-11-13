@@ -1,0 +1,7 @@
+{
+ "owner": "lane 41 (S101): the generic in-place replace seam: binder.h AddReplaceHook / TryReplace, draw_replace_hook.h consumers, replace_seam.h, replace_test_hook.h, replace_factories.h, live/reader switches, fview --replace-test / --arena-ours / --wrestlers-ours",
+ "note": "needs Check B's 7051 case zip and the game files (the crowd arms); a machine without them SKIPs, the script run directly fails loudly. The switch-off md5 reads the crowd lane's BASE_STREAM_MD5 pin (per GPU / driver, see CROWD_PROMOTION.md). The row-override unit test needs only clang++.",
+ "checks": [
+  {"name": "replace_seam.proof", "cmd": ["py", "-I", "tools/replace/replace_seam_check.py", "--root", "."], "timeout_s": 3000, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

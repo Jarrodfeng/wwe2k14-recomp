@@ -7,8 +7,8 @@
 // and the menus, squeezed by k first, come out as a centred 16:9. Costs horizontal sharpness (the same pixels spread
 // k times wider). k = the screen's aspect / (16/9): 21:9 (2560x1080, 3440x1440) = 1.33, 32:9 = 2.
 // --wwe2k14_aspect=auto takes the monitor's aspect (or the window's, with --fullscreen=false and a window size),
-// 21:9 / 32:9 force one. Known limit (unconfirmed how much it shows): the game still culls to its own 16:9 view, so
-// things at the far left / right can be missing.
+// 21:9 / 32:9 force one. The game's stands crowd used to be culled to its own 16:9 view (the people missing at the far left / right); since
+// lane 176 (S101) its two screen tests follow gpu_wide_factor / gpu_tall_factor (src/crowd_wide.h, --wwe2k14_crowd_fill_wide=auto|off).
 // Session 72 part 9: a screen taller than 16:9 (an unfolded fold ~1.1:1, 16:10 / 4:3 tablets) gets the same along y
 // (anamorphic Vert+, SDK gpu_tall_factor = (16/9) / aspect): more above and below, the HUD and menus a centred 16:9.
 // Before, such a screen kept the game's 16:9 with bars (the phone launcher's "fill the screen" did nothing there).

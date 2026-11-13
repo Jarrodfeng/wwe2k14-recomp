@@ -1,0 +1,838 @@
+{
+  "effect": "yProp_PSMLM",
+  "solve": {
+    "vertex": {
+      "options": [
+        "FX_SKINNED",
+        "FX_SHADOW_LIGHT"
+      ],
+      "constants": [
+        {
+          "field": "ViewProj",
+          "register": 56,
+          "count": 4
+        },
+        {
+          "field": "WorldMatrixArray",
+          "register": 76,
+          "count": 3,
+          "when": [
+            "!FX_SKINNED"
+          ]
+        },
+        {
+          "field": "WorldMatrixArray",
+          "register": 76,
+          "count": 63,
+          "when": [
+            "FX_SKINNED"
+          ]
+        },
+        {
+          "field": "SkyDir",
+          "register": 180,
+          "count": 1
+        },
+        {
+          "field": "SkyCol",
+          "register": 181,
+          "count": 1
+        },
+        {
+          "field": "GroundCol",
+          "register": 182,
+          "count": 1
+        },
+        {
+          "field": "DifLghCol",
+          "register": 0,
+          "count": 4
+        },
+        {
+          "field": "DifLghVec",
+          "register": 8,
+          "count": 4
+        },
+        {
+          "field": "fvMin",
+          "register": 74,
+          "count": 1
+        },
+        {
+          "field": "MatAmbCol",
+          "register": 189,
+          "count": 1
+        },
+        {
+          "field": "MatDifCol",
+          "register": 190,
+          "count": 1
+        },
+        {
+          "field": "MdlAlpha",
+          "register": 185,
+          "count": 1
+        },
+        {
+          "field": "NoiseParam",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "CameraViewProj",
+          "register": 234,
+          "count": 4
+        },
+        {
+          "field": "PlaneInv",
+          "register": 230,
+          "count": 4,
+          "range": [
+            0.25,
+            4.0
+          ]
+        },
+        {
+          "field": "ShadowPrm",
+          "register": 168,
+          "count": 2,
+          "when": [
+            "FX_SHADOW_LIGHT"
+          ]
+        },
+        {
+          "field": "TexProjLight",
+          "register": 68,
+          "count": 4,
+          "when": [
+            "FX_SHADOW_LIGHT"
+          ]
+        },
+        {
+          "field": "ViewLight",
+          "register": 164,
+          "count": 3,
+          "when": [
+            "FX_SHADOW_LIGHT"
+          ]
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "attributes": [
+        {
+          "fetch": 0,
+          "location": 0
+        },
+        {
+          "fetch": 1,
+          "location": 3,
+          "when": [
+            "!FX_SKINNED"
+          ]
+        },
+        {
+          "fetch": 2,
+          "location": 4,
+          "when": [
+            "!FX_SKINNED"
+          ]
+        },
+        {
+          "fetch": 3,
+          "location": 5,
+          "when": [
+            "!FX_SKINNED"
+          ]
+        },
+        {
+          "fetch": 1,
+          "location": 1,
+          "when": [
+            "FX_SKINNED"
+          ]
+        },
+        {
+          "fetch": 2,
+          "location": 2,
+          "range": [
+            0,
+            20
+          ],
+          "integer": true,
+          "when": [
+            "FX_SKINNED"
+          ]
+        },
+        {
+          "fetch": 3,
+          "location": 3,
+          "when": [
+            "FX_SKINNED"
+          ]
+        },
+        {
+          "fetch": 4,
+          "location": 4,
+          "when": [
+            "FX_SKINNED"
+          ]
+        },
+        {
+          "fetch": 5,
+          "location": 5,
+          "when": [
+            "FX_SKINNED"
+          ]
+        }
+      ]
+    },
+    "fragment": {
+      "options": [
+        "FX_SCREEN_SHADOW",
+        "FX_LIGHT_SHADOW"
+      ],
+      "constants": [
+        {
+          "field": "Noise",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "ShadowPrm",
+          "register": 168,
+          "count": 3,
+          "range": [
+            0.0,
+            4.0
+          ]
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "exclusive": [
+        [
+          "FX_SCREEN_SHADOW",
+          "FX_LIGHT_SHADOW"
+        ]
+      ]
+    }
+  },
+  "vertex": [
+    {
+      "name": "skinned",
+      "defines": [
+        "FX_SKINNED"
+      ],
+      "constants": [
+        {
+          "field": "ViewProj",
+          "register": 56,
+          "count": 4
+        },
+        {
+          "field": "WorldMatrixArray",
+          "register": 76,
+          "count": 63
+        },
+        {
+          "field": "SkyDir",
+          "register": 180,
+          "count": 1
+        },
+        {
+          "field": "SkyCol",
+          "register": 181,
+          "count": 1
+        },
+        {
+          "field": "GroundCol",
+          "register": 182,
+          "count": 1
+        },
+        {
+          "field": "DifLghCol",
+          "register": 0,
+          "count": 4
+        },
+        {
+          "field": "DifLghVec",
+          "register": 8,
+          "count": 4
+        },
+        {
+          "field": "fvMin",
+          "register": 74,
+          "count": 1
+        },
+        {
+          "field": "MatAmbCol",
+          "register": 189,
+          "count": 1
+        },
+        {
+          "field": "MatDifCol",
+          "register": 190,
+          "count": 1
+        },
+        {
+          "field": "MdlAlpha",
+          "register": 185,
+          "count": 1
+        },
+        {
+          "field": "NoiseParam",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "CameraViewProj",
+          "register": 234,
+          "count": 4
+        },
+        {
+          "field": "PlaneInv",
+          "register": 230,
+          "count": 4,
+          "range": [
+            0.25,
+            4.0
+          ]
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "attributes": [
+        {
+          "fetch": 0,
+          "location": 0
+        },
+        {
+          "fetch": 1,
+          "location": 1
+        },
+        {
+          "fetch": 2,
+          "location": 2,
+          "range": [
+            0,
+            20
+          ],
+          "integer": true
+        },
+        {
+          "fetch": 3,
+          "location": 3
+        },
+        {
+          "fetch": 4,
+          "location": 4
+        },
+        {
+          "fetch": 5,
+          "location": 5
+        }
+      ],
+      "hashes": [
+        "5E9E772D5BBBD4FA"
+      ]
+    },
+    {
+      "name": "skinned_shadow_light",
+      "defines": [
+        "FX_SKINNED",
+        "FX_SHADOW_LIGHT"
+      ],
+      "constants": [
+        {
+          "field": "ViewProj",
+          "register": 56,
+          "count": 4
+        },
+        {
+          "field": "WorldMatrixArray",
+          "register": 76,
+          "count": 63
+        },
+        {
+          "field": "SkyDir",
+          "register": 180,
+          "count": 1
+        },
+        {
+          "field": "SkyCol",
+          "register": 181,
+          "count": 1
+        },
+        {
+          "field": "GroundCol",
+          "register": 182,
+          "count": 1
+        },
+        {
+          "field": "DifLghCol",
+          "register": 0,
+          "count": 4
+        },
+        {
+          "field": "DifLghVec",
+          "register": 8,
+          "count": 4
+        },
+        {
+          "field": "fvMin",
+          "register": 74,
+          "count": 1
+        },
+        {
+          "field": "MatAmbCol",
+          "register": 189,
+          "count": 1
+        },
+        {
+          "field": "MatDifCol",
+          "register": 190,
+          "count": 1
+        },
+        {
+          "field": "MdlAlpha",
+          "register": 185,
+          "count": 1
+        },
+        {
+          "field": "NoiseParam",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "CameraViewProj",
+          "register": 234,
+          "count": 4
+        },
+        {
+          "field": "PlaneInv",
+          "register": 230,
+          "count": 4,
+          "range": [
+            0.25,
+            4.0
+          ]
+        },
+        {
+          "field": "ShadowPrm",
+          "register": 168,
+          "count": 2
+        },
+        {
+          "field": "TexProjLight",
+          "register": 68,
+          "count": 4
+        },
+        {
+          "field": "ViewLight",
+          "register": 164,
+          "count": 3
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "attributes": [
+        {
+          "fetch": 0,
+          "location": 0
+        },
+        {
+          "fetch": 1,
+          "location": 1
+        },
+        {
+          "fetch": 2,
+          "location": 2,
+          "range": [
+            0,
+            20
+          ],
+          "integer": true
+        },
+        {
+          "fetch": 3,
+          "location": 3
+        },
+        {
+          "fetch": 4,
+          "location": 4
+        },
+        {
+          "fetch": 5,
+          "location": 5
+        }
+      ],
+      "hashes": [
+        "CF139FF5D49E0AA7"
+      ]
+    },
+    {
+      "name": "plain",
+      "defines": [],
+      "constants": [
+        {
+          "field": "ViewProj",
+          "register": 56,
+          "count": 4
+        },
+        {
+          "field": "WorldMatrixArray",
+          "register": 76,
+          "count": 3
+        },
+        {
+          "field": "SkyDir",
+          "register": 180,
+          "count": 1
+        },
+        {
+          "field": "SkyCol",
+          "register": 181,
+          "count": 1
+        },
+        {
+          "field": "GroundCol",
+          "register": 182,
+          "count": 1
+        },
+        {
+          "field": "DifLghCol",
+          "register": 0,
+          "count": 4
+        },
+        {
+          "field": "DifLghVec",
+          "register": 8,
+          "count": 4
+        },
+        {
+          "field": "fvMin",
+          "register": 74,
+          "count": 1
+        },
+        {
+          "field": "MatAmbCol",
+          "register": 189,
+          "count": 1
+        },
+        {
+          "field": "MatDifCol",
+          "register": 190,
+          "count": 1
+        },
+        {
+          "field": "MdlAlpha",
+          "register": 185,
+          "count": 1
+        },
+        {
+          "field": "NoiseParam",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "CameraViewProj",
+          "register": 234,
+          "count": 4
+        },
+        {
+          "field": "PlaneInv",
+          "register": 230,
+          "count": 4,
+          "range": [
+            0.25,
+            4.0
+          ]
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "attributes": [
+        {
+          "fetch": 0,
+          "location": 0
+        },
+        {
+          "fetch": 1,
+          "location": 3
+        },
+        {
+          "fetch": 2,
+          "location": 4
+        },
+        {
+          "fetch": 3,
+          "location": 5
+        }
+      ],
+      "hashes": [
+        "16E7CCD14EDE437D"
+      ]
+    },
+    {
+      "name": "shadow_light",
+      "defines": [
+        "FX_SHADOW_LIGHT"
+      ],
+      "constants": [
+        {
+          "field": "ViewProj",
+          "register": 56,
+          "count": 4
+        },
+        {
+          "field": "WorldMatrixArray",
+          "register": 76,
+          "count": 3
+        },
+        {
+          "field": "SkyDir",
+          "register": 180,
+          "count": 1
+        },
+        {
+          "field": "SkyCol",
+          "register": 181,
+          "count": 1
+        },
+        {
+          "field": "GroundCol",
+          "register": 182,
+          "count": 1
+        },
+        {
+          "field": "DifLghCol",
+          "register": 0,
+          "count": 4
+        },
+        {
+          "field": "DifLghVec",
+          "register": 8,
+          "count": 4
+        },
+        {
+          "field": "fvMin",
+          "register": 74,
+          "count": 1
+        },
+        {
+          "field": "MatAmbCol",
+          "register": 189,
+          "count": 1
+        },
+        {
+          "field": "MatDifCol",
+          "register": 190,
+          "count": 1
+        },
+        {
+          "field": "MdlAlpha",
+          "register": 185,
+          "count": 1
+        },
+        {
+          "field": "NoiseParam",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "CameraViewProj",
+          "register": 234,
+          "count": 4
+        },
+        {
+          "field": "PlaneInv",
+          "register": 230,
+          "count": 4,
+          "range": [
+            0.25,
+            4.0
+          ]
+        },
+        {
+          "field": "ShadowPrm",
+          "register": 168,
+          "count": 2
+        },
+        {
+          "field": "TexProjLight",
+          "register": 68,
+          "count": 4
+        },
+        {
+          "field": "ViewLight",
+          "register": 164,
+          "count": 3
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "attributes": [
+        {
+          "fetch": 0,
+          "location": 0
+        },
+        {
+          "fetch": 1,
+          "location": 3
+        },
+        {
+          "fetch": 2,
+          "location": 4
+        },
+        {
+          "fetch": 3,
+          "location": 5
+        }
+      ],
+      "hashes": [
+        "FB7E020A2821CC80"
+      ]
+    }
+  ],
+  "fragment": [
+    {
+      "name": "base",
+      "defines": [],
+      "constants": [
+        {
+          "field": "Noise",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "samplers": [
+        {
+          "slot": 0,
+          "kind": "2d"
+        },
+        {
+          "slot": 6,
+          "kind": "2d"
+        },
+        {
+          "slot": 13,
+          "kind": "2d"
+        }
+      ],
+      "hashes": [
+        "C76329BDDF319EB2"
+      ]
+    },
+    {
+      "name": "screen_shadow",
+      "defines": [
+        "FX_SCREEN_SHADOW"
+      ],
+      "constants": [
+        {
+          "field": "Noise",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "samplers": [
+        {
+          "kind": "2d",
+          "slot": 0
+        },
+        {
+          "kind": "2d",
+          "slot": 6
+        },
+        {
+          "kind": "2d",
+          "slot": 12
+        },
+        {
+          "slot": 13,
+          "kind": "2d"
+        }
+      ],
+      "hashes": [
+        "4E1A94BC95B4C2E9"
+      ]
+    },
+    {
+      "name": "light_shadow",
+      "defines": [
+        "FX_LIGHT_SHADOW"
+      ],
+      "constants": [
+        {
+          "field": "Noise",
+          "register": 207,
+          "count": 1
+        },
+        {
+          "field": "ShadowPrm",
+          "register": 168,
+          "count": 3,
+          "range": [
+            0.0,
+            4.0
+          ]
+        },
+        {
+          "field": "LightMapParam",
+          "register": 184,
+          "count": 1
+        }
+      ],
+      "samplers": [
+        {
+          "slot": 0,
+          "kind": "2d"
+        },
+        {
+          "slot": 6,
+          "kind": "2d"
+        },
+        {
+          "slot": 12,
+          "kind": "2d"
+        },
+        {
+          "slot": 13,
+          "kind": "2d"
+        }
+      ],
+      "hashes": [
+        "43194287C452978F"
+      ]
+    }
+  ]
+}

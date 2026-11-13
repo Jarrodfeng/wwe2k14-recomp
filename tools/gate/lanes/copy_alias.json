@@ -1,0 +1,16 @@
+{
+ "owner": "lane 190 (S101): the resolve-copy elision by alias (SKIP_GAME_WORK_MAP.md 14.6): src/renderer_adapter/copy_alias.h (the elide planner, the unit test's subject), the binder's AliasBegin / SetAlias / HookImages / AliasEnd, switches --wwe2k14_rdr_copy_alias[_classes] (live) and --copy-alias[-classes|-fault|-list] (fview / rplay), tools/skip/copy_alias_test.cpp, build_copy_alias_test.ps1, copy_alias_selftest.py, copy_alias_check.py. 0 game runs.",
+ "note": "unit = the rule on synthetic frames + 6 planted faults (each must fail); proof = fview off vs --copy-alias 2 (crowd bake class, and every class with --all-classes) presented-surface hashes byte-equal on every frame of Check B, Check F, run 7079, Bryan, wm30 and a match, validation 0, violations 0; the null self-test (empty set) byte-equal; plants src_dirty / sub_rect / format / read_first / late / outlive on Check B, each must change the picture. The proof needs an fview.exe from this tree (tools/fview/build.ps1) and the main checkout's game files.",
+ "checks": [
+  {"name": "copy_alias.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/skip/build_copy_alias_test.ps1"], "timeout_s": 600},
+  {"name": "copy_alias.selftest", "cmd": ["py", "-I", "tools/skip/copy_alias_selftest.py"], "timeout_s": 300},
+  {"name": "copy_alias.proof", "cmd": ["py", "-I", "tools/skip/copy_alias_check.py", "--all-classes"], "timeout_s": 3600, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_101633_s100_owner_s89_brock/case_20261112_101714_809_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_122623_s100_owner_s89_brock/case_20261112_122658_040_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131029_s100_owner_s90_wm30/case_20261112_131111_940_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "game_data/extracted"]}
+ ]
+}

@@ -83,6 +83,38 @@ void PickTronZip() {
 std::string OpenPickedZip(const std::string& address) { return address; }
 void ClosePickedZip() {}
 
+// Lane 286 (custom music), the PC test build: the same copy as the phone's, from SDL's file dialog; the text box is a fixed answer.
+void PickAudio(const fs::path& dir, const std::string& stem) {
+  static fs::path d;
+  static std::string st;
+  d = dir, st = stem;
+  SDL_ShowOpenFileDialog(
+      [](void*, const char* const* list, int) {
+        if (!list || !list[0]) return;
+        std::vector<fs::path> files;
+        for (int i = 0; list[i]; ++i) files.push_back(fs::u8path(list[i]));
+        std::thread([files] {
+          std::error_code ec;
+          fs::create_directories(d, ec);
+          int copied = 0;
+          for (const auto& f : files) {
+            const bool keep_name = st.empty() || st[0] == '@';  // "@library" / "@new": several files keep their names; digits: one theme file
+            const fs::path dst = d / (keep_name ? f.filename() : fs::u8path(st) += f.extension());
+            if (fs::copy_file(f, dst, fs::copy_options::overwrite_existing, ec)) ++copied;
+          }
+          Event e;
+          e.kind = Event::kSongsAdded, e.ok = copied > 0, e.a = std::to_string(copied) + " song(s) added", e.b = st;  // (e.b = the purpose, as on the phone)
+          Post(std::move(e));
+        }).detach();
+      },
+      nullptr, nullptr, nullptr, 0, nullptr, stem.empty() || stem[0] == '@');
+}
+void PromptText(const std::string&, const std::string& initial, const std::string& tag) {
+  Event e;  // (the phone shows Android's text box; this build answers with "<text> 2" so the rename path can be exercised)
+  e.kind = Event::kTextEntered, e.a = initial + " 2", e.b = tag;
+  Post(std::move(e));
+}
+
 void AddDlc(const fs::path& dlc_dir) {
   static fs::path dir;
   dir = dlc_dir;

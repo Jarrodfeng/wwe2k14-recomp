@@ -1,0 +1,7 @@
+{
+ "owner": "lane 47 (S101): the live image-info supplier (src/renderer_adapter/image_info_table.h, live.cpp) and the promotion switches in rplay / the replay farm (src/renderer_scene/promotion_rig.h, tools/farm/farm.py promo)",
+ "note": "needs Check B's 7051 case zip, the game files and a GPU (fview and rplay, 0 game runs); a machine without them SKIPs, the script run directly fails loudly. The switch-off md5 reads the crowd lane's BASE_STREAM_MD5 pin (per GPU / driver, CROWD_PROMOTION.md). The unit twin of the supplier (every id, threads, planted tables) is the arena_ours_unit lane.",
+ "checks": [
+  {"name": "promo_farm.proof", "cmd": ["py", "-I", "tools/farm/promo_check.py", "--root", "."], "timeout_s": 3600, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "game_data/extracted", "out/captures/brock_s15"]}
+ ]
+}

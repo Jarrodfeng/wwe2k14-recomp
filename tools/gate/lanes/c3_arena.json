@@ -1,0 +1,8 @@
+{
+ "owner": "lane 28: class C3, the arena as a live scene contributor (src/scene_live/arena_*, tools/scene/arena_rec.cpp)",
+ "checks": [
+  {"name": "c3_arena.arena_rec_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_arena_rec.ps1"], "timeout_s": 1800},
+  {"name": "c3_arena.rsc_tools_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "c3_arena.selftest", "cmd": ["py", "-I", "tools/scene/arena_selftest.py"], "timeout_s": 1800, "needs": ["game_data/extracted", "out/tools/wwe2k14_assets_rdr.exe"]}
+ ]
+}

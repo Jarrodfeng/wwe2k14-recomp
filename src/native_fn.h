@@ -51,6 +51,9 @@
 #include <rex/logging.h>
 #include <rex/system/xmemory.h>
 
+#include "scene_live/skin_skip_hook.h"  // S101 lane 50
+#include "host_write.h"  // Session 100 strip-360 E2 / E3: declared guest writes reported to the new renderer's reader
+
 REXCVAR_DEFINE_STRING(wwe2k14_nf_all, "", "wwe2k14",
                       "Session 66 (native function factory): off | verify | on for EVERY native function (empty = each "
                       "function's own cvar)");
@@ -354,7 +357,27 @@ Mode CachedMode() {
 }
 #endif
 template <class Spec>
+void DispatchMode(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint8_t*));
+
+// Session 100, strip-360 E2 / E3 (src\host_write.h): a Spec with `static constexpr bool kNotifyWrites = true` reports the guest bytes it
+// declares in Writes() to the new renderer's reader after the call, whichever version ran (native, verify or the recompiled original):
+// the crowd's CPU skinning and the memcpys, so the reader needs no page protection to see them.
+template <class Spec>
 void Dispatch(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint8_t*)) {
+  // S101 lane 50 (P2c, scene_live\skin_skip_hook.h): a Spec with `static constexpr bool kSkinSkippable = true` (the crowd's skin loops) may be skipped whole.
+  if constexpr (requires { Spec::kSkinSkippable; }) {
+    if (::wwe2k14::crowd_skip::SkinLoopSkipped(ctx, base)) return;
+  }
+  if constexpr (requires { Spec::kNotifyWrites; }) {
+    // S101 lane17 review: writer and Source are read BEFORE the call (the natives leave other values in r4), in host_write::CallReporting.
+    host_write::CallReporting<Spec, Ranges>(ctx, base, [&] { DispatchMode<Spec>(ctx, base, original); });
+  } else {
+    DispatchMode<Spec>(ctx, base, original);
+  }
+}
+
+template <class Spec>
+void DispatchMode(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint8_t*)) {
   const Mode mode = CachedMode<Spec>();
   if (mode == Mode::kOff) {
     original(ctx, base);
@@ -390,7 +413,8 @@ void Dispatch(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint
   Ranges ranges;
   Spec::Writes(ctx, base, ranges);
   const bool lean = mode == Mode::kVerifyLean;
-  const bool strict = !lean && REXCVAR_GET(wwe2k14_nf_verify_strict);
+  bool strict = !lean && REXCVAR_GET(wwe2k14_nf_verify_strict);
+  if constexpr (requires { Spec::kStrictVerify; }) strict = strict && Spec::kStrictVerify;  // lane 203: a spec can opt out (its comment says why)
   const uint32_t regs = lean ? LeanRegs<Spec>() : Spec::kRegs;
   if (strict) ranges.Add(ctx.r1.u32 - kStackProbe, kStackProbe);
   Scratch& sc = t_scratch[t_depth < 8 ? t_depth : 7];

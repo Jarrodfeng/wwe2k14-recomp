@@ -29,6 +29,8 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
+
 
 REXCVAR_DEFINE_BOOL(wwe2k14_mods, false, "wwe2k14",
                     "Mods folder: a titantron in <mods>\\titantron\\NNN.bik2 replaces movies\\titantron\\NNN.bik2 "
@@ -54,6 +56,14 @@ namespace wwe2k14::mods {
 inline std::string U8(const std::filesystem::path& p) {
   const auto u = p.u8string();
   return std::string(u.begin(), u.end());
+}
+// The other way: UTF-8 text (slots.txt, flags) -> a path; an empty path for text that is not valid UTF-8. Never throws.
+inline std::filesystem::path FromU8(const std::string& s) {
+  try {
+    return std::filesystem::path(std::u8string(s.begin(), s.end()));
+  } catch (...) {
+    return {};
+  }
 }
 inline bool g_superstars_on = false;  // --wwe2k14_mods_superstars: src\superstars.h reads g_dir\superstars\ (Session 98)
 inline std::filesystem::path g_dir;  // host folder (set by Install when the mods, lighting or superstars setting is on)
@@ -112,7 +122,15 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const std::
   // The default is next to the game files: game_data\mods for the folder game_data\extracted, and <folder>\mods for
   // a disc image <folder>\X.iso (Session 26).
   const std::string dir_flag = REXCVAR_GET(wwe2k14_mods_dir);
-  g_dir = dir_flag.empty() ? game_data_root.parent_path() / "mods" : std::filesystem::path(dir_flag);
+  // Session 101 (lane 199): flags are UTF-8 (ReXGlue converts the wide command line: windowed_app_main_sdl.cpp); path(std::string)
+  // would read them in the ANSI code page on Windows, so a mods folder under "C:\Users\João\..." was never found (no trons, no
+  // music, no imported superstars) and a mangled twin was created beside it. dlc.h reads its folder flags the same way.
+  try {
+    g_dir = dir_flag.empty() ? game_data_root.parent_path() / "mods"
+                             : std::filesystem::path(std::u8string(dir_flag.begin(), dir_flag.end()));
+  } catch (const std::exception&) {  // (review N3: a flag that is not valid UTF-8 must not stop the boot: the old reading)
+    g_dir = std::filesystem::path(dir_flag);
+  }
   std::error_code ec;
   std::filesystem::create_directories(g_dir / "titantron", ec);
   g_dir = std::filesystem::absolute(g_dir, ec);

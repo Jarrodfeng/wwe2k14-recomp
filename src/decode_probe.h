@@ -67,6 +67,7 @@
 #include <rex/cvar.h>
 #include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <rex/hook.h>
+#include "host_write.h"  // S101 lane17: NoteDecoded
 #include <rex/logging.h>
 #include <rex/ppc/context.h>
 
@@ -744,7 +745,7 @@ inline void NativeCallTimed(PPCContext& __restrict ctx, uint8_t* base, bool veri
 // Session 58: outside the in-game sequence the game's own decoder runs unless --wwe2k14_native_bpe_menus (30 Years of
 // WrestleMania match 1, run 3929 vs 3930: native BPE in the menu, where the match preview builds Bobby Heenan, left
 // him red in the match; the same build at the game's decoder speed was right, and so was native BPE in the match load).
-REX_HOOK_RAW(sub_82C41918) {
+inline void BpeDispatch(PPCContext& ctx, uint8_t* base) {  // (S101 lane17: the body of the hook below, unchanged; the hook reports its output)
   if (REXCVAR_GET(wwe2k14_bpe_corpus)) {
     wwe2k14::decode_probe::BpeCall(ctx, base);
     return;
@@ -771,9 +772,22 @@ REX_HOOK_RAW(sub_82C41918) {
   wwe2k14::decode_probe::BpeCall(ctx, base);
 }
 
+// S101 lane17: CData::Copy's BPE output (r3 = block: tag +0, expanded size LE at +12; r4 = destination) is guest memory written by the host
+// (native BPE is default on), so it is reported to the reader with its input block as the source: the output keeps the block's FILE owner.
+REX_HOOK_RAW(sub_82C41918) {
+  const uint32_t block = ctx.r3.u32, dst = ctx.r4.u32;
+  uint32_t expanded = 0;
+  if (block && dst) {
+    const uint8_t* b = wwe2k14::decode_probe::GuestPtr(base, block);  // (the file's own rule for a guest address)
+    expanded = uint32_t(b[12]) | (uint32_t(b[13]) << 8) | (uint32_t(b[14]) << 16) | (uint32_t(b[15]) << 24);
+  }
+  BpeDispatch(ctx, base);
+  if (expanded && expanded < (64u << 20)) wwe2k14::host_write::NoteDecoded(dst, expanded, block);
+}
+
 #include "native_zlib.h"  // Session 15: --wwe2k14_native_zlib / _verify, --wwe2k14_zlib_probe
 
-REX_HOOK_RAW(sub_82C41738) {
+inline void ZlibDispatch(PPCContext& ctx, uint8_t* base) {  // (S101 lane17: the body of the hook below, unchanged)
   if (wwe2k14::native_zlib::Wanted()) {
     wwe2k14::native_zlib::Call(ctx, base);
     return;
@@ -783,4 +797,12 @@ REX_HOOK_RAW(sub_82C41738) {
     return;
   }
   wwe2k14::decode_probe::ZlibCall(ctx, base);
+}
+
+// S101 lane17: the zlib block decoder (r3 = destination, r4 = its length, r5 = the stored block, r6 = its length), reported like the BPE one.
+REX_HOOK_RAW(sub_82C41738) {
+  const uint32_t dst = ctx.r3.u32, dst_len = ctx.r4.u32, src = ctx.r5.u32;
+  ZlibDispatch(ctx, base);
+  // (r3 = 0: a failed decode, nothing was written)
+  if (ctx.r3.u32 != 0 && dst && src && dst_len && dst_len < (64u << 20)) wwe2k14::host_write::NoteDecoded(dst, dst_len, src);
 }

@@ -1,0 +1,6 @@
+{
+ "owner": "lane 21: the file-fed census on rdr (arenas, wrestlers x attires), tools/filecensus",
+ "checks": [
+  {"name": "filecensus.check", "cmd": ["py", "-I", "tools/filecensus/check.py"], "timeout_s": 3600, "needs": ["game_data/extracted"]}
+ ]
+}

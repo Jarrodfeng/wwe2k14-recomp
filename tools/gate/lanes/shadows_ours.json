@@ -1,0 +1,10 @@
+{
+ "owner": "lane 123 (S101, SH2): our shadow passes: src/renderer_adapter/shadows_ours.h (the GPU-free core), the marked lines in binder.h, fview --shadows-check (src/fview/shadows_check.cpp), tools/shadow/shadows_ours_check.py. docs/renderer/SHADOWS_OURS.md",
+ "note": "0 game runs. Needs this checkout's out/renderer/dev/fview.exe (tools/fview/build.ps1) and the extracted captures out/lane86/<brock|bryan|wm30>/capture (tools/shadow/shadow_roles.py check makes them). clean512: A = the stream, B = ours at 512, every frame of Check B / Bryan / wm30 in lockstep: reader images equal within rounding, picture byte-equal, validation 0. size1024 (all sizes): Check B at 256, 1024, 2048, plane mask 200% and plane following scale 2: every image at its wanted size, footprints match, props-map mean bar, picture bar. plants: each of ten faults (scaled_map, copy_swap, blur_input_null, floor_reads_wrestler_map, half_texel_rescaled, dup_no_invalidate, no_viewport_scale, plane_unscaled_chain, p_slots_cast, rim_as_shadow) must FAIL while its control (same arguments, fault none) is clean. A build step runs first. The GPU is shared: only 'Not enough graphics memory' is retried.",
+ "checks": [
+  {"name": "shadows_ours.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 1800},
+  {"name": "shadows_ours.clean512", "cmd": ["py", "-I", "tools/shadow/shadows_ours_check.py", "clean512"], "timeout_s": 3600, "needs": ["out/lane86/brock/capture", "out/lane86/bryan/capture", "out/lane86/wm30/capture"]},
+  {"name": "shadows_ours.size1024", "cmd": ["py", "-I", "tools/shadow/shadows_ours_check.py", "size1024"], "timeout_s": 3600, "needs": ["out/lane86/brock/capture"]},
+  {"name": "shadows_ours.plants", "cmd": ["py", "-I", "tools/shadow/shadows_ours_check.py", "plants"], "timeout_s": 3600, "needs": ["out/lane86/brock/capture"]}
+ ]
+}

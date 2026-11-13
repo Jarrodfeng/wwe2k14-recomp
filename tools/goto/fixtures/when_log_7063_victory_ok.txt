@@ -1,0 +1,6 @@
+[2026-11-11 23:28:52.876] [info] [core] [t31296] [wwe2k14][scene][director] victory: armed scene 6139 layout -1 (!scene), frame=4141
+[2026-11-11 23:29:35.515] [info] [core] [t31296] [wwe2k14][event] {"f": 12877, "t": 49.474, "kind": "match", "what": "clock_started", "clock": 1}
+[2026-11-11 23:29:51.046] [info] [core] [t31296] [wwe2k14][event] {"f": 16591, "t": 65.004, "kind": "match", "what": "finish", "finish_type": 1, "finish_name": "pinfall", "winner_slot": 1, "winner_id": 324, "loser_slot": 0, "loser_id": 343, "clock": 3684}
+[2026-11-11 23:29:52.723] [info] [core] [t31296] [wwe2k14][scene][director] victory: forced scene 6139 (the ladder chose 7006), layout 12 (the ladder's own kept; the ladder chose 12); /EVP test -> 1, frame=16975
+[2026-11-11 23:29:54.484] [info] [core] [t34484] [wwe2k14][event] {"f": 17338, "t": 68.441, "kind": "load", "file": "D:\\PAC\\EVT\\WINNING00.PAC"}
+[2026-11-11 23:29:54.663] [info] [core] [t34484] [wwe2k14][event] {"f": 17373, "t": 68.621, "kind": "load", "file": "D:\\PAC\\EVT\\WINNING00.PAC"}

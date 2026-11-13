@@ -1,7 +1,7 @@
 """Session 91: make an "everything unlocked" copy of a frozen test save (the game atlas's second mirror).
 
   py tools/save/unlock_all.py [--src out/bench/userdata_frozen] [--dst out/bench/userdata_unlocked_s91]
-                              [--ids-from out/bench/userdata_unlocked] [--force]
+                              [--ids-from out/bench/userdata_unlocked] [--force] [--wm30-open]
 
 Copies the whole user-data folder SRC to DST (DST must not exist unless --force), then edits DST's
 `<profile>/545408B2/00000001/SaveData.dat/SaveData.Dat` in place:
@@ -18,6 +18,10 @@ Copies the whole user-data folder SRC to DST (DST must not exist unless --force)
   4. which ids: those the game marked in the Accelerator-unlocked save's 196-bit set at P+0x80378 (bit i = word i>>5,
      bit i&31 from the LSB; bits 1..195 = items the game itself listed as unlocked), plus 166..169 (arena-tab
      candidates the Accelerator does not cover); never 0, 1, 2, 165 (entitlement-only, the flag is not read).
+5. (S101, --wm30-open, off by default) every 30 Years of WrestleMania match open: profile word 25+n = 1 for n = 0..45, big-endian u32 at
+   payload 0x75EC4 + 4*n (block A, absolute payload offsets, not relative to block B), before the sum is recomputed. n is field 3 of the
+   match index row, a permutation of 0..45. The cleared / completed arrays (words 105+n, 185+n) stay 0. Evidence:
+   docs/research/s101/N0-6b.md; [U] until one game check (the timeline icons all unlocked; a late match pickable).
 Evidence: out/harness/atlas/readers/h_unlocks.md and h_review.md (Session 91 readers; listings cited there).
 Our test copies only: never point it at Jarrod's real save; the result is game-derived data (never committed / shipped).
 """
@@ -33,6 +37,8 @@ PREFIX = 0x2CA000
 REL = os.path.join('545408B2', '00000001', 'SaveData.dat', 'SaveData.Dat')
 NEVER = {0, 1, 2, 165}
 EXTRA = {166, 167, 168, 169}
+WM30_OPEN = 0x75EC4  # S101: payload offset of profile word 25 (match slot 0's open flag); slot n is at + 4*n
+WM30_SLOTS = 46
 
 
 def find_save(root):
@@ -65,9 +71,22 @@ def main():
     ap.add_argument('--dst', default=os.path.join(REPO, 'out', 'bench', 'userdata_unlocked_s91'))
     ap.add_argument('--ids-from', default=os.path.join(REPO, 'out', 'bench', 'userdata_unlocked'))
     ap.add_argument('--force', action='store_true')
+    ap.add_argument('--wm30-open', action='store_true', help='S101: also open all 46 30 Years of WrestleMania matches (docs/research/s101/N0-6b.md)')
     a = ap.parse_args()
-    if 'appdata' in os.path.abspath(a.dst).lower() or not os.path.abspath(a.dst).startswith(os.path.join(REPO, 'out')):
-        raise SystemExit('refused: DST must be a test copy under out\\')
+    # S101: also the main checkout's out\ when this runs from a git worktree (<main>/.claude/worktrees/<name>). Only a worktree
+    # layout (<main>/.claude/worktrees/<name>) may name the checkout above; anywhere else that path would be C:\out or similar.
+    outs = {os.path.realpath(os.path.join(REPO, 'out'))}
+    up = os.path.abspath(os.path.join(REPO, '..', '..', '..'))
+    if os.path.basename(os.path.dirname(REPO)) == 'worktrees' and os.path.basename(os.path.dirname(os.path.dirname(REPO))) == '.claude' \
+            and os.path.isdir(os.path.join(up, 'game_data')):
+        outs.add(os.path.realpath(os.path.join(up, 'out')))
+    dst_real, src_real = os.path.realpath(a.dst), os.path.realpath(a.src)
+    if 'appdata' in dst_real.lower() or not any(dst_real.startswith(o + os.sep) for o in outs):
+        raise SystemExit('refused: DST must be a test copy under out\\ (%s)' % ', '.join(sorted(outs)))
+    # --force deletes DST: never the source, never the frozen mirror the test runs read, never a folder holding the source
+    frozen = {os.path.realpath(os.path.join(o, 'bench', 'userdata_frozen')) for o in outs}
+    if dst_real == src_real or dst_real in frozen or src_real.startswith(dst_real + os.sep):
+        raise SystemExit('refused: DST %s is the source, the frozen mirror, or contains the source' % dst_real)
     # the ids: the Accelerator save's set bits 1..195
     _, _, ref, rhdr = read_payload(find_save(a.ids_from))
     base = 0x1C + rhdr[0]
@@ -93,6 +112,17 @@ def main():
     for i in ids:
         w[i >> 5] |= 1 << (i & 31)
     struct.pack_into('>7I', p, seen, *w)
+    if a.wm30_open:  # S101: before the sum recompute below
+        # the edit must stay in block A (payload 0x1C .. 0x1C + size(A)), and the layout must be the one N0-6b read: word 25 (match
+        # slot 0, always open) is 1 in the file we start from; anything else means this is not the save the offsets were read from
+        if not (0x1C <= WM30_OPEN and WM30_OPEN + 4 * WM30_SLOTS <= 0x1C + hdr[0]):
+            raise SystemExit('wm30 open words 0x%X..0x%X fall outside block A (0x1C..0x%X): layout differs from N0-6b' % (
+                WM30_OPEN, WM30_OPEN + 4 * WM30_SLOTS, 0x1C + hdr[0]))
+        if struct.unpack_from('>I', p, WM30_OPEN)[0] != 1:
+            raise SystemExit('wm30 open word 25 is %d, not 1 (match slot 0 is open in every save N0-6b read): wrong offset or an '
+                             'unexpected save; nothing written' % struct.unpack_from('>I', p, WM30_OPEN)[0])
+        for n in range(WM30_SLOTS):
+            struct.pack_into('>I', p, WM30_OPEN + 4 * n, 1)
     struct.pack_into('>I', p, 24, sum(p[28:]) & 0xFFFFFFFF)
     stream = zlib.compress(bytes(p), 9)
     out = data[:PREFIX] + b'ZLIB' + struct.pack('<III', word, len(stream), len(p)) + stream
@@ -101,6 +131,12 @@ def main():
     read_payload(path)  # re-check what we wrote
     print('%s: %d unlock flags set (%d before), ids %d..%d; save %d -> %d bytes' % (
         path, len(ids), before, min(ids), max(ids), len(data), len(out)))
+    if a.wm30_open:
+        _, _, chk, _ = read_payload(path)
+        opened = sum(1 for n in range(WM30_SLOTS) if struct.unpack_from('>I', chk, WM30_OPEN + 4 * n)[0] == 1)
+        print('%d of %d 30 Years match-open words set' % (opened, WM30_SLOTS))
+        if opened != WM30_SLOTS:
+            raise SystemExit('wm30 open words did not read back')
 
 
 if __name__ == '__main__':

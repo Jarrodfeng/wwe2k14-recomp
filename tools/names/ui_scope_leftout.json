@@ -1,0 +1,16 @@
+{
+ "about": "S101 lane 18: the functions that call the op-19 recorder sub_82C1B350 and are NOT given a 2D scope in src\\draw_origin.h (S101_UI_SCOPE), each with the reason. tools\\names\\ui_names_selftest.py fails when a caller is neither scoped nor listed here, or a listed function is no longer a caller. Our annotations only. Source of the caller list: py tools\\q\\q.py callers 82C1B350 (18 functions).",
+ "leftout": {
+  "0x827568E0": "post step T_PartsBlur: not a UI draw; classified by its call site (origin table: post)",
+  "0x8279A328": "T_Paste: not a UI draw; classified by its call site (origin table: other)",
+  "0x82A0D0E0": "particle draw method (vtable 0x82057280 slot 3): classified by its call site (origin table: particle), no widget",
+  "0x82A0DAC8": "particle draw method (vtable 0x820572A0 slot 3): classified by its call site (origin table: particle), no widget",
+  "0x82A0E3D8": "particle draw method (vtable 0x82057260 slot 3; never ran in the coverage scenes): classified by its call site (origin table: particle)",
+  "0x83327F00": "never ran in any coverage scene; what it draws is unknown [U]: not scoped, not classified (listed so it is seen if a capture ever names it)",
+  "0x833A1F40": "never ran in any coverage scene; what it draws is unknown [U]: not scoped, not classified (listed so it is seen if a capture ever names it)"
+ },
+ "not_recorders": {
+  "0x82BC56D0": "sprite-class state setup (technique + constants, returns 1 / 0): calls no recorder (callees listed by q fn), reached only through vtables; nothing to scope",
+  "0x82BC7250": "text/sprite-class state setup, same shape as 0x82BC56D0: calls no recorder; nothing to scope"
+ }
+}

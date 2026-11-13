@@ -1,0 +1,8 @@
+{
+ "owner": "lane 170 (S101): the 16-bit target rule. Our float targets hold the value the shader wrote (the fx build no longer divides a shadow-map pass's output by 32 / 64): the wrestler shadow map reaches the skin / gear shaders at the game's scale. tools/fview/t16_check.py, tools/fview/target16_audit.py, docs/renderer/CARRY_DARKENING.md section 12",
+ "note": "t16_check: R1 the compile rule (divisor 1), R2 the map pass's stored texel at a Brock pixel (blue 255, was 3), R3 the precondition census (no colour exp bias, exp_adjust or fetch sign in the frame), R4 the carry bar (the lowered wrestler within 8% of its own w = 1 arm), R5 the normal-distance wrestler-on-wrestler shadow is present (>= 1% on frame 113). The selftest plants the old rule and the rule applied twice and each must be caught. Reads the kept match capture zip (out/s101/runs/20261112_172456_s100_owner_match); a machine without it FAILS.",
+ "checks": [
+  {"name": "target16.check", "cmd": ["py", "-I", "tools/fview/t16_check.py"], "timeout_s": 1800, "exes": ["out/renderer/dev/fview.exe"], "needs": ["out/s101/runs/20261112_172456_s100_owner_match"]},
+  {"name": "target16.plants", "cmd": ["py", "-I", "tools/fview/t16_check.py", "--selftest"], "timeout_s": 3600, "exes": ["out/renderer/dev/fview.exe"], "needs": ["out/s101/runs/20261112_172456_s100_owner_match"]}
+ ]
+}

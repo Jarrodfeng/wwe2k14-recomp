@@ -1,0 +1,129 @@
+{
+ "effect": "yCircleShadow",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ShadowParam",
+     "register": 0,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewProj",
+     "register": 4,
+     "count": 4
+    },
+    {
+     "field": "WorldPosArray",
+     "register": 8,
+     "count": 32
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      1
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      31
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ],
+   "hashes": [
+    "2AF027A927D2159D"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [],
+   "hashes": [
+    "D05BFEA12F4350AD"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [],
+   "constants": [
+    {
+     "field": "ShadowParam",
+     "register": 0,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewProj",
+     "register": 4,
+     "count": 4
+    },
+    {
+     "field": "WorldPosArray",
+     "register": 8,
+     "count": 32
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      1
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      31
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    }
+   ]
+  },
+  "fragment": {
+   "options": [],
+   "constants": [],
+   "samplers": []
+  }
+ }
+}

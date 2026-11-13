@@ -1,0 +1,322 @@
+{
+ "effect": "yPreLight",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ScreenScale",
+     "register": 201,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "B799CCB8D7FE9C4C"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "light_color",
+   "defines": [
+    "FX_LIGHT_COLOR"
+   ],
+   "constants": [
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghMaxD",
+     "register": 198,
+     "count": 1
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "EDCCD8BC2D0AF8B9"
+   ]
+  },
+  {
+   "name": "light_dot",
+   "defines": [
+    "FX_LIGHT_DOT"
+   ],
+   "constants": [
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "8CFCC3B78180B75E"
+   ]
+  },
+  {
+   "name": "spec_pow",
+   "defines": [
+    "FX_SPEC_POW"
+   ],
+   "constants": [
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghMaxD",
+     "register": 198,
+     "count": 1
+    },
+    {
+     "field": "SpecPow",
+     "register": 203,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "DABDD2CD10C85387"
+   ]
+  },
+  {
+   "name": "soft",
+   "defines": [
+    "FX_SOFT"
+   ],
+   "constants": [
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghMaxD",
+     "register": 198,
+     "count": 1
+    },
+    {
+     "field": "SS",
+     "register": 202,
+     "count": 1
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "E7A887D7B1F6981B"
+   ]
+  },
+  {
+   "name": "sss",
+   "defines": [
+    "FX_SSS"
+   ],
+   "constants": [
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghMaxD",
+     "register": 198,
+     "count": 1
+    },
+    {
+     "field": "DifLghPrm",
+     "register": 16,
+     "count": 4
+    },
+    {
+     "field": "DifLghMaxA",
+     "register": 199,
+     "count": 1
+    },
+    {
+     "field": "SssLobeA",
+     "register": 204,
+     "count": 3
+    },
+    {
+     "field": "SssLobeB",
+     "register": 207,
+     "count": 3
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "8479D8DA0BB01D6B"
+   ]
+  },
+  {
+   "name": "debug_cube",
+   "defines": [
+    "FX_DEBUG_CUBE"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "cube"
+    }
+   ],
+   "hashes": [
+    "26196280855E21E2"
+   ]
+  },
+  {
+   "name": "debug_cube_alpha",
+   "defines": [
+    "FX_DEBUG_CUBE_ALPHA"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "cube"
+    }
+   ],
+   "hashes": [
+    "53557F6C44E8911C"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [],
+   "constants": [
+    {
+     "field": "ScreenScale",
+     "register": 201,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_LIGHT_COLOR",
+    "FX_LIGHT_DOT",
+    "FX_SPEC_POW",
+    "FX_SOFT",
+    "FX_SSS",
+    "FX_DEBUG_CUBE",
+    "FX_DEBUG_CUBE_ALPHA"
+   ],
+   "constants": [
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghMaxD",
+     "register": 198,
+     "count": 1
+    },
+    {
+     "field": "SpecPow",
+     "register": 203,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "DifLghPrm",
+     "register": 16,
+     "count": 4
+    },
+    {
+     "field": "DifLghMaxA",
+     "register": 199,
+     "count": 1
+    },
+    {
+     "field": "SssLobeA",
+     "register": 204,
+     "count": 3
+    },
+    {
+     "field": "SssLobeB",
+     "register": 207,
+     "count": 3
+    },
+    {
+     "field": "SS",
+     "register": 202,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "cube",
+     "when": [
+      "FX_DEBUG_CUBE"
+     ]
+    },
+    {
+     "slot": 0,
+     "kind": "cube",
+     "when": [
+      "FX_DEBUG_CUBE_ALPHA"
+     ]
+    }
+   ]
+  }
+ }
+}

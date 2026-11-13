@@ -1,0 +1,304 @@
+{
+ "effect": "yZPass",
+ "vertex": [
+  {
+   "bool_choices": [
+    [],
+    [
+     1
+    ],
+    [
+     1,
+     2
+    ],
+    [
+     1,
+     2,
+     3
+    ],
+    [
+     1,
+     2,
+     3,
+     4
+    ]
+   ],
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    }
+   ],
+   "hashes": [
+    "645941D1BBA570AF"
+   ]
+  },
+  {
+   "bool_choices": [
+    [],
+    [
+     1
+    ],
+    [
+     1,
+     2
+    ],
+    [
+     1,
+     2,
+     3
+    ],
+    [
+     1,
+     2,
+     3,
+     4
+    ]
+   ],
+   "name": "single_bone",
+   "defines": [
+    "FX_SINGLE_BONE"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    }
+   ],
+   "hashes": [
+    "318486FF48EF34DE"
+   ]
+  },
+  {
+   "bool_choices": [
+    [],
+    [
+     1
+    ],
+    [
+     1,
+     2
+    ],
+    [
+     1,
+     2,
+     3
+    ],
+    [
+     1,
+     2,
+     3,
+     4
+    ]
+   ],
+   "name": "multi_bone",
+   "defines": [
+    "FX_MULTI_BONE"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2
+    },
+    {
+     "fetch": 2,
+     "location": 3,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 4,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    }
+   ],
+   "hashes": [
+    "95A368082E44C5C0"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [],
+   "hashes": [
+    "3A6876055FEC1674"
+   ]
+  },
+  {
+   "name": "depth_override",
+   "defines": [
+    "FX_DEPTH_OVERRIDE"
+   ],
+   "constants": [
+    {
+     "field": "Depth",
+     "register": 200,
+     "count": 1
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "6BBF90A8F66C50CD"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SINGLE_BONE",
+    "FX_MULTI_BONE"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SINGLE_BONE"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "when": [
+      "FX_MULTI_BONE"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 3,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_MULTI_BONE"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 4,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_MULTI_BONE"
+     ]
+    }
+   ],
+   "bool_choices": [
+    [],
+    [
+     1
+    ],
+    [
+     1,
+     2
+    ],
+    [
+     1,
+     2,
+     3
+    ],
+    [
+     1,
+     2,
+     3,
+     4
+    ]
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_DEPTH_OVERRIDE"
+   ],
+   "constants": [
+    {
+     "field": "Depth",
+     "register": 200,
+     "count": 1
+    }
+   ],
+   "samplers": []
+  }
+ }
+}

@@ -1,0 +1,6 @@
+{
+ "owner": "lane 37: arena 54's two flagged slots (216, 220: `e` events-only, not drawn in a match) and the r / y slot count on all 57 arenas, tools/filecensus/arena_slots_check.py; match look only, the entrance look (`e` slots drawn, `g` hidden) is not counted",
+ "checks": [
+  {"name": "arena_slots.check", "cmd": ["py", "-I", "tools/filecensus/arena_slots_check.py"], "timeout_s": 3600, "needs": ["game_data/extracted"]}
+ ]
+}

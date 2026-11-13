@@ -1,0 +1,7 @@
+{
+ "owner": "lane 36: the crowd's pairing and pose test (CROWD_PROMOTION_MAP.md section 6): tools\\crowd\\crowd_pair.cpp, crowd_pair_selftest.py",
+ "checks": [
+  {"name": "crowd_pair.tools_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/crowd/build_crowd_pair.ps1"], "timeout_s": 1800},
+  {"name": "crowd_pair.selftest", "cmd": ["py", "-I", "tools/crowd/crowd_pair_selftest.py"], "timeout_s": 900, "needs": ["game_data/extracted", "out/s101/runs/20261111_215201_s100_owner_s89_brock"]}
+ ]
+}

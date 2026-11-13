@@ -1,0 +1,7 @@
+{
+ "owner": "lane 142 (S101): the arena's picture slots keep the stream's image (draw ours) instead of refusing the draw; the wrestlers' roster loads start together and keep the pac. docs/renderer/ARENA_OURS.md, WRESTLER_PROMOTION_MAP.md 'Lane 142'",
+ "note": "needs Check B's Brock case zip and run 7088's J2 case zip (both held), the game files, numpy + Pillow; builds out/renderer/release/fview.exe. Plants: strict_texture, serial_load, no_pac_keep (slow_load is the test latency).",
+ "checks": [
+  {"name": "lane142.proof", "cmd": ["py", "-I", "tools/arena/lane142_check.py", "--root", "."], "timeout_s": 1800, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261112_172550_s100_owner_s90_wm30", "game_data/extracted"]}
+ ]
+}

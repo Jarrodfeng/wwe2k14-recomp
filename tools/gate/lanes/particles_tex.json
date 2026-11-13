@@ -1,0 +1,14 @@
+{
+ "owner": "lane 69 (S101): which pac entry owns each particle / flash texture, tools/particles/tex_owner.py (PARTICLES_PROMOTION_MAP.md lane N). Python only, 0 game runs. Captures are named relative to the main checkout.",
+ "checks": [
+  {"name": "particles_tex.owner", "cmd": ["py", "-I", "tools/particles/tex_owner.py",
+    "brock=out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "bryan=out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip", "-q"],
+   "timeout_s": 900, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip"]},
+  {"name": "particles_tex.selftest", "cmd": ["py", "-I", "tools/particles/tex_selftest.py"], "timeout_s": 1800, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip"]}
+ ]
+}

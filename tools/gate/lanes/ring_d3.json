@@ -1,0 +1,9 @@
+{
+ "owner": "lane 194 (S101): Ring D3 pieces R0-R2, INERT (docs/renderer/SKIP_GAME_WORK_MAP.md 16.3 / 16.7): the scene record sections kScRingRows / kScRingNodes, the per-call ring rows reader (model table at [0x836F4C74], node count rule of sub_82BD3AB8, rows copied AT THE CALL), the contributor, the don't-care rule for registers past the palette count, and the offline checker for the one live verify run. Nothing is skipped (kRingSkipBuilt = false). 0 game runs.",
+ "note": "ring_d3.build = tools/ring/build_ring_rows.ps1 (clang only). ring_d3.unit = the C++ unit test against a fake guest built from the LISTINGS table tools/ring/ring_call_sites.tsv, frames in live order, the null-edit self-test. ring_d3.selftest = tools/ring/ring_rows_selftest.py: the unit test, nine planted twins each failing its named check (dedupe_model_r5, late_copy, endless_retry, dropped_frame_failure, offset0, late_record, ordinal_by_model_r5, alpha_zero, no_forward), the call sites checked against the main checkout's generated listings (SKIP without generated/), the Python record reader, and ring_rows_check.py's pure parts with its plants (no_npal_cut = the stale-slot bug re-found, wrong_offset0, no_call_index). The game-side hooks are syntax-checked by tools/harness/wt_syntax_check.ps1 (main.cpp, live.cpp), not by the gate. The checker's capture path has no real capture until the verify run exists.",
+ "checks": [
+  {"name": "ring_d3.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/ring/build_ring_rows.ps1"], "timeout_s": 900},
+  {"name": "ring_d3.unit", "cmd": ["out/ring/ring_rows_test.exe", "--sites", "tools/ring/ring_call_sites.tsv"], "timeout_s": 300},
+  {"name": "ring_d3.selftest", "cmd": ["py", "-I", "tools/ring/ring_rows_selftest.py", "--no-build"], "timeout_s": 900}
+ ]
+}

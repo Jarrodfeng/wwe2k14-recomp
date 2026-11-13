@@ -1,5 +1,71 @@
 # Changelog
 
+## v0.3.2
+
+**v0.3.2: the game now draws with a renderer I wrote, and it brings your own music.**
+
+Until now the game's scenes were replayed from the Xbox 360's graphics commands, one by one, through an emulated 360 graphics chip. Now the crowd, the arena, the ring, the wrestlers,
+the lights, the shadows, the effects and the post effects are built from the game's own data and drawn by my own renderer, which also owns the window and the pacing. Whatever it
+does not know yet, it still gets from the game, so nothing is dropped. The picture should look the same. The point is that it is mine to fix and to improve. It is on for everyone.
+
+### New
+
+- **Your own music in the game.** Put in songs in almost any format (MP3, M4A, WAV, FLAC, OGG, Opus, WMA and more) and give them to a superstar's entrance. Every song is brought to
+  the same loudness as the game's own entrance themes, so a quiet recording is not drowned out and a loud one does not blast, and it gets the same arena echo the stock themes
+  have. Your original file is never changed; switch USE MY MUSIC off and the game's own themes come back.
+- **Songs are converted the moment you add them.** In the launcher's MUSIC tab, Add a song... and Assign music... convert right then, with a progress bar (song 2 of 5, what it is
+  doing, a Cancel button). The game itself never converts anything, so it cannot slow a match down. A song that cannot be read is refused with a plain sentence instead of
+  failing later. If something is still unconverted when you press PLAY, the launcher finishes it first (or you can PLAY WITHOUT WAITING).
+- **Hear your song in Create an Entrance.** The MUSIC list's preview now plays your own songs (before, they were silent there and only played in matches).
+- **USER PLAYLIST works, with a Custom Playlist picker.** On the Xbox 360, USER PLAYLIST played a song from the console's own music library, so on PC and phones it was
+  greyed out and did nothing. Now choosing it in the entrance editor's MUSIC list opens a picker over your music library (`Mods > music > library`), with the album art
+  from the file's tags, the title and artist, a play button on each cover to hear it, a CURRENT tag on the saved song, and mouse, keyboard, controller and touch all working.
+  The song you pick plays in the editor's preview and at the entrance, for every superstar set to USER PLAYLIST (one song per superstar is coming).
+- **Ultrawide screens are filled properly.** On 21:9 and 32:9 the game decided who was in the crowd with a test against its own 16:9 camera, so the sides of the stands were
+  empty and the corner pieces of the barricade were cut off. I now feed the game's own tests the shape of your screen: more of the crowd and the barricade corners out to the
+  edges, with 16:9 exactly as before. Checked on my PC at 21:9 and on my phone at 20:9.
+- **Menu bars and the match-info box stay in the picture on ultrawide.** Some rectangles stayed at their 16:9 positions while everything around them squeezed. Fixed
+  (Create a Superstar's clothing menu, the 30 Years cage-controls bar, the match-info screen).
+- **Create a Superstar works at ultrawide.** At 21:9 and wider the editor was dark with no wrestler in it. A pass that is placed in whole pixels was squeezed around the wrong
+  centre. It is lit again and the wrestler is back, with no dark outline. The editor's body and backdrop are now drawn by my renderer too.
+- **Shadows and effects from the new renderer.** Wrestler shadows, the ring's plane shadow, rim light, the screens, the post effects (the 30 Years film look included) are all drawn
+  by my renderer. Dark patches in carries and pins (Cena's AA) are gone, and wrestlers cast shadows on each other again.
+- **Two new launcher settings:** V-SYNC (how pictures reach the screen; the game's speed never changes) and FILM GRAIN (30 YEARS), which draws that mode's old-film look clean.
+- **The Superstar Importer is easier.** Imported superstars are built in before every game start (YOUR SUPERSTARS), and the importer can add many at once and edit one.
+- **Launcher tidy-up.** The MODS page's tab headers no longer run under the buttons: when they do not fit they get arrows. The MUSIC tab explains what each part does. The
+  TRUE NATIVE switch is gone from the launcher (the new renderer draws everything it did, and more); ORIGINAL LOOK stays. ENHANCED POST EFFECTS is gone too (the new renderer's post look replaces it).
+- **Dynamic resolution is removed, on purpose.** It was an experimental phone setting that dropped the picture to a smaller size while the phone could not keep up, and it caused problems more often than it helped. The new renderer's speed work replaces it, so nothing you relied on is lost.
+
+### Smoother
+
+- **No Xbox 360 graphics chip is emulated any more, and the game keeps its own time.** The game used to run a whole emulated graphics processor next to my renderer, only to
+  answer a handful of fences and flips. That is gone: the game's timing now comes from my own, smoother 60 Hz clock (a Taker entrance at normal speed: 60.0 fps, 1 ms late at
+  worst, no hitches) and the game uses 34 fewer threads and, in my one comparison, about 150 MB less RAM (video memory went up a little, about 45 MB).
+- **Fewer stutters the first time you play something.** The game now keeps the compiled graphics pipelines between runs (per player, on your own drive, built from your own files), so
+  the second launch builds them in about a tenth of the time (100 ms to 11 ms in my pair of runs).
+- **The 600-frame stall in entrances is gone.** About ten seconds into an entrance (frame 600) the game used to freeze for around half a second. It was a clean-up of
+  geometry that ran all at once. Frames 600 and 601 now take as long as their neighbours (Undertaker's entrance, measured).
+- **Matches start sooner and calmer.** The arena, ring and crowd used to start loading only when the first frame that drew them arrived. They now start as soon as the match
+  card names the arena, about 1.5 seconds earlier: the crowd is ready around 2.5 seconds before the match clock starts.
+- **The crowd costs about half as much.** Per member 2.2 to 1.2 microseconds, the far cards 0.65 to 0.16 (a long match, normal speed, measured). Less CPU, same crowd.
+- **Crowd signs no longer flicker.** The waved signs and foam hands re-rolled whether to draw every frame below crowd density 100 (the phone's 70 default). They now keep their place.
+- **Replay thumbnails no longer stop the game.** Saving the highlight picture used to hold the game's thread for 50 to 90 ms per picture; it is delivered a few frames later now.
+- **Create a Superstar loads faster.** The editor no longer loads about 160 MB of match props it never draws.
+- **The wrestler list no longer blinks at the start of a run.** The game folder is scanned from the first frame.
+
+### Bugs you reported
+
+- **The pause menu and parts of the crowd could vanish after several matches.** My renderer kept a copy of each new vertex shader in a fixed 4 MB area of the game's
+  memory and never let one go, so after about five loads (matches, or trips into the entrance editor) the area was full. From then on every draw that needed a new shader was
+  dropped: the pause menu went invisible and the crowd blinked in and out. The copies are no longer kept (each is made in one reused slot and read once), so the area
+  does not fill however long you play.
+- **Phones: crash when pressing Home, and a black picture on coming back.** Android replaces the game's window when you leave. My renderer kept the dead one and later released the
+  graphics objects the game was still using. It now lets go of the window and re-creates its drawing surface on the new one when you return, and releases nothing while the
+  game is in the background. I tested home-and-back on the release build of the phone app and it worked.
+- **Phones: a false "BLACK" / "HANG" warning in the log.** The watchdog counted frames the new renderer never submits. It now only counts real presents.
+- **Phones no longer ask for notification permission.** Building tron previews in the background used to ask for it, and some phones flag it as sensitive. It is gone; the
+  progress is the bar on the game's screen. The background build itself still works.
+
 ## v0.3.1
 
 **v0.3.1: fixes, and two big new tools.**

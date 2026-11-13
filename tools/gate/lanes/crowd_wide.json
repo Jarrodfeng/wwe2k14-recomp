@@ -1,0 +1,56 @@
+{
+ "owner": "lane 176 (S101): the stands crowd's screen test follows the displayed aspect: src/crowd_wide_core.h (pure), src/crowd_wide.h (switch + the two midasm hooks), config/crowd_wide_hooks.toml, nf/frustum_cull.h (the native copy), tools/crowd/crowd_wide_test.cpp, crowd_wide_census.py; lane 234: crowd_rank.h (density rank with tracking), the stage frustum hook (config/crowd_wide_hooks.toml 0x82769D10)",
+ "note": "builds out/tools/crowd_wide_test.exe, runs the shipped edits on a fake guest stack frame against the game's two screen tests written out from the listings (must pass), then once per planted fault (each must exit 1). The census reads a kept 16:9 capture: no stands member beyond |x| 1.15 (the BEFORE; --expect-wide on the same capture must FAIL). The game-side hooks are syntax-checked by tools/harness/wt_syntax_check.ps1 (main.cpp, live.cpp), not by the gate.",
+ "checks": [
+  {
+   "name": "crowd_wide.build",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/crowd/build_crowd_wide_test.ps1"
+   ],
+   "timeout_s": 600
+  },
+  {
+   "name": "crowd_wide.unit",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/crowd/crowd_wide_selftest.py"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "crowd_rank.build",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/crowd/build_crowd_rank_test.ps1"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "crowd_rank.unit",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/crowd/crowd_rank_selftest.py"
+   ],
+   "timeout_s": 120
+  },
+  {
+   "name": "crowd_wide.census_before",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/crowd/crowd_wide_census.py",
+    "brock=out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "--frames",
+    "0:340:10"
+   ],
+   "timeout_s": 900
+  }
+ ]
+}

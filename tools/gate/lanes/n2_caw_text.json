@@ -1,0 +1,11 @@
+{
+ "owner": "lane 118 (S101): the N2 editor driver (L-6): src/caw_text.h + src/caw_live.h (the `!caw` verb), tools/n2/caw_read.py / caw_driver.py, the caw: goto address. docs/systems/caw_driver.md, docs/research/s101/N2_EDITOR_DRIVER.md",
+ "note": "build: out/tools/caw_text_test.exe (the SHIPPED src/caw_text.h reader over a capture; compile only). reader: the two kept CAW walks (Check B, section 69; extracted once under out/s101/n2_editor/): pinned title / tab / hot-row sequence and the 292/293 count, the two zips agree, C++ == Python on every frame, a past-bug fixture (counts from the summary, not a re-find: the drawn state changes where the peeked words did not), five planted twins (white, PS bank, r >= 0.3, section 69 removed in the reader and in a real frame) that must FAIL in both readers. driver: the driver's own code against a model of the editor (lost press, overshoot, flicker, leaving the editor, refusals with no press) and against the real kept stream (arrival only after 4 frames; a stream that never leaves OTHER fails), plus the caw: address and resolver. A missing zip or exe FAILs loudly.",
+ "checks": [
+  {"name": "n2_caw_text.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/n2/build_caw_text_test.ps1"], "timeout_s": 600},
+  {"name": "n2_caw_text.reader", "cmd": ["py", "-I", "tools/n2/caw_text_selftest.py"], "timeout_s": 1200,
+   "needs": ["out/s101/runs/20261112_122353_s101_checkB_caw_walk", "out/s101/runs/20261112_121944_s101_checkB_caw_walk"]},
+  {"name": "n2_caw_text.driver", "cmd": ["py", "-I", "tools/n2/caw_driver_selftest.py"], "timeout_s": 1200,
+   "needs": ["out/s101/runs/20261112_122353_s101_checkB_caw_walk", "out/s101/runs/20261112_121944_s101_checkB_caw_walk"]}
+ ]
+}

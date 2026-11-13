@@ -1,0 +1,47 @@
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true
+# harness: realtime (the pre-match video plays at its own length; menu presses)
+# Session 101 lane 252 (UNTESTED: never run; copy of scenes\s101_sweep_wm30_long.txt with the A presses that skip the era presentation held back): the CUTSCENES row of the coverage board
+# (tools\board\coverage.py ITEMS 'cutscenes'). The board assigns a zip to this item by the ROUTE NAME (ITEM_RULES: 'sweep_cutscene'), so this file name keeps the words. What it reaches:
+# 30 Years of WrestleMania, era card, the first match picked (EVTDSC opens), then the game's OWN pre-match presentation (video + loading card) is watched for 2400 frames with NO press
+# (the other wm30 routes press A every 600 frames to skip it; run 2864 "sat in the video"), and only then the A presses of wm30_long start so the route still reaches the match clock.
+# The match then runs 1800 frames (the Season scene banks are opened by the script's preload at the bell and by its scenes: docs\systems\wm30.md). The board reads, from the game log,
+# opens of SEASONnn / UNIVERSEnn / WSDnn packs after frame 0 (bank_open: reach, a bank OPEN is not proof a scene played) and the scene director's 'play: pushed scene' (none in this route).
+# The log words (seq, menu, on-screen text) are logged every 600 frames so a later reader can tell a video / card / scene from the match.
+# UNCONFIRMED: how long the pre-match presentation lasts (2400 frames is a guess); whether it waits for a press; that any in-match cutscene plays in the 1800 frames. No Universe cutscene route
+# exists: the Universe first page is unconfirmed (s101_sweep_universe only looks). A Create a Story scene would need the scene director (`!scene play`, docs\systems\goto.md): live driver, not a route.
+# Marks: 1 era presentation start, 2 +2400, 3 match_clock, 4 +900, 5 end. on_fail quit.
+on_fail quit
+log bench: start scene sweep_cutscene_wm30
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log bench: wm30 match picked
+mark 1 presentation_start
+log_state seq
+log_text 8
+wait_frames 600
+log_state seq
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_sweep_cut_600
+screenshot sc_sweep_cut_600
+wait_frames 1800
+log_state seq
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_sweep_cut_2400
+screenshot sc_sweep_cut_2400
+mark 2 presentation_2400
+press_until_state A match_clock !=0 60 600 5
+log scene=match
+mark 3 match_clock
+wait_frames 900
+log_state seq
+cvar wwe2k14_rdr_live_picture sc_sweep_cut_match_900
+screenshot sc_sweep_cut_match_900
+mark 4 plus900
+wait_frames 900
+log scene=end (match clock +1800)
+mark 5 end
+log bench: done
+wait_frames 10
+quit

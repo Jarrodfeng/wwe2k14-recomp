@@ -1,0 +1,10 @@
+{
+ "owner": "lane PO (S101): the post chain recorded by OUR pass through the region hook (rplay / fview --post-ours), POST_PROMOTION_MAP.md section 5, docs/renderer/POST_OURS.md. Needs the case zips of Check B / Bryan / wm30 (held), the 7 version-1 captures, and out/renderer/dev/rplay.exe + fview.exe built from the tree under test (tools/renderer/build.ps1, tools/fview/build.ps1: the gate runs the proof with --no-build, so build first).",
+ "note": "post_ours.build compiles the GPU-free decision test (and compile-checks post_pass.cpp / post_ours.cpp). The proof takes about 25 minutes: every frame of 10 captures twice through rplay, the scale-2 arms, the settings arms, the planted twins (each fails its check, and moves the picture with its check off), fview validation. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "post_ours.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/post/build_post_ours_test.ps1"], "timeout_s": 1800},
+  {"name": "post_ours.proof", "cmd": ["py", "-I", "tools/post/post_ours_check.py", "--root", ".", "--no-build"], "timeout_s": 5400, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261111_174549_s100_owner_bryan_entrance", "out/s101/runs/20261111_174707_s100_owner_s90_wm30",
+    "out/captures/s100_match300", "out/captures/s100_s89k_a", "out/captures/s100_wm30_300", "out/captures/brock_tron", "out/captures/brock_s15_300", "out/captures/s100_heenan_build", "out/captures/s100cards"]}
+ ]
+}

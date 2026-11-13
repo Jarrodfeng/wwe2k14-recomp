@@ -1,0 +1,7 @@
+{
+ "owner": "lane 42 (W0): the wrestlers' pairing tool (WRESTLER_PROMOTION_MAP.md lane W0): tools\\wrestler\\wrestler_pair.cpp, wrestler_pair_selftest.py",
+ "checks": [
+  {"name": "wrestler_pair.tools_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/wrestler/build_wrestler_pair.ps1"], "timeout_s": 1800},
+  {"name": "wrestler_pair.selftest", "cmd": ["py", "-I", "tools/wrestler/wrestler_pair_selftest.py"], "timeout_s": 1500, "needs": ["game_data/extracted", "out/s101/runs/20261111_215201_s100_owner_s89_brock"]}
+ ]
+}

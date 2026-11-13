@@ -1,0 +1,13 @@
+{
+ "effect": "yVelocity",
+ "vertex": [],
+ "fragment": [
+  {
+   "name": "motion",
+   "defines": [],
+   "hashes": [],
+   "constants": [],
+   "samplers": []
+  }
+ ]
+}

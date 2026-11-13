@@ -44,3 +44,8 @@ thirdparty/
 *.flac
 *.wma
 *.aac
+
+# S101 case zips (game data: never committed; CLAUDE.md hard rule 1)
+/cases/
+*.zip.part
+case_*.zip

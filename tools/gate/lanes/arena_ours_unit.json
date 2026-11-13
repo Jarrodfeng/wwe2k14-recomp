@@ -1,0 +1,29 @@
+{
+ "owner": "lane 40 (S101): our arena drawer, unit level: src/renderer_scene/arena_ours*.{h,cpp}, src/assets/arena_game_space.*, tools/arena/arena_ours_test.cpp",
+ "note": "builds out/tools/arena_ours_test.exe first (its own step; S101 full gate: the exe existed only in the builder worktree), Check B's case zip (held, KEEP) and the game files; a machine without the zip / game data SKIPs. The planted faults are run through the same code path; the loud failures are exit codes 2 / 3.",
+ "checks": [
+  {
+   "name": "arena_ours_unit.build",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/arena/build_arena_ours_test.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "arena_ours_unit.proof",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/arena/arena_ours_selftest.py"
+   ],
+   "timeout_s": 1800,
+   "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock",
+    "game_data/extracted"
+   ]
+  }
+ ]
+}

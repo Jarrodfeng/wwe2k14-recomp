@@ -1,0 +1,18 @@
+{
+ "owner": "lane 39 (S101): the arena join census, tools/arena/ (ARENA_PROMOTION_MAP.md section 6 lane J). Python only, 0 game runs. Captures are named relative to the main checkout (join_census resolves them there).",
+ "checks": [
+  {"name": "arena_join.census", "cmd": ["py", "-I", "tools/arena/join_census.py",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip:4",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip:4",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip:29", "-q"],
+   "timeout_s": 1800, "needs": ["game_data/extracted", "out/tools/rsc_dump.exe",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip"]},
+  {"name": "arena_join.dupes", "cmd": ["py", "-I", "tools/arena/files_dupes.py", "-q"], "timeout_s": 900, "needs": ["game_data/extracted"]},
+  {"name": "arena_join.selftest", "cmd": ["py", "-I", "tools/arena/selftest.py"], "timeout_s": 1800, "needs": ["game_data/extracted", "out/tools/rsc_dump.exe",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip"]}
+ ]
+}

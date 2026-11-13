@@ -1,0 +1,119 @@
+{
+ "_about": "Lane RJ (S101): what the ring census must find. Sources: docs/renderer/RING_PROMOTION_MAP.md sections 1-2 (the [C] facts) as re-measured by tools/ring/ring_census.py on Check B (run 7051), Bryan's entrance and wm30; the files part is the 57 bgNN.pac. Counts only.",
+ "captures": {
+  "4": {
+   "instances": {
+    "post": 4,
+    "turnbuckle": 12,
+    "canvas": 1,
+    "cover": 12,
+    "proxy": 12,
+    "rope": 12,
+    "skirt": 3
+   },
+   "lod_both_seen": true,
+   "skirt_both_entries": true,
+   "layouts": {
+    "canvas/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "cover/colour": [
+     "colour,normal,pos,uv"
+    ],
+    "post/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "proxy/plane": [
+     "fill,ids,pos,xdword"
+    ],
+    "rope_high/colour": [
+     "colour,ids,normal,pos,uv,weights"
+    ],
+    "rope_low/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "skirt/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "turnbuckle/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ]
+   },
+   "weights_compared": true
+  },
+  "29": {
+   "instances": {
+    "post": 4,
+    "turnbuckle": 12,
+    "canvas": 1,
+    "cover": 12,
+    "proxy": 12,
+    "rope": 12,
+    "skirt": 3
+   },
+   "lod_both_seen": false,
+   "skirt_both_entries": false,
+   "layouts": {
+    "canvas/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "cover/colour": [
+     "colour,normal,pos,uv"
+    ],
+    "post/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "rope_low/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "skirt/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "turnbuckle/colour": [
+     "colour,fill,ids,normal,pos,uv"
+    ],
+    "proxy/lambert": [
+     "colour,ids,normal,pos,uv"
+    ]
+   },
+   "weights_compared": false
+  }
+ },
+ "files": {
+  "arenas": 57,
+  "with_ring": 49,
+  "ringless": [
+   66,
+   67,
+   68,
+   76,
+   77,
+   78,
+   79,
+   80
+  ],
+  "contents": {
+   "951": 6,
+   "952": 2,
+   "953": 1,
+   "956": 1,
+   "960": 4,
+   "964": 1,
+   "973": 1,
+   "974": 1,
+   "980": 3,
+   "981": 6,
+   "982": 1
+  },
+  "pairs": [
+   1,
+   2
+  ],
+  "neg_u_entries": [
+   951,
+   960,
+   980,
+   981
+  ]
+ }
+}

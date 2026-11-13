@@ -1,0 +1,10 @@
+{
+ "_about": "Known classes the baseline must reproduce. FILE: S98's value-matched skin / gear parameters (asset_model.h:55-60 [C: value match, probe run 6816 / ch161 JBOY]). RUNTIME: the hair highlight colours S98 left 'zero, unconfirmed' as RUNTIME (docs/renderer/SCENE_FRONTEND.md 'RUNTIME values left at the file's value / neutral'). SCENE: the camera. Keys are '<stage>:<constant>'.",
+ "classes": {
+  "FILE": ["yCh_skin fragment:SpecCubPrm1", "yCh_skin fragment:Reflect", "yCh_skin fragment:SSS", "yCh_skin fragment:SSSSinCol2", "yCh_skin fragment:Param0", "yCh_gear vertex:NoiseLodParam", "yCh_skin vertex:RimLightParam3"],
+  "RUNTIME": ["yCh_Aniso_trans fragment:SpeCol1", "yCh_Aniso_trans fragment:SpeCol2", "yCh_skin vertex:WorldMatrixArray", "yCh_skin vertex:MdlAlpha", "yCh_gear fragment:NoiseTile"],
+  "SCENE": ["yCh_skin vertex:ViewProj", "yCh_skin vertex:EyePos"]
+ },
+ "plant": ["yCh_skin:SpecCubPrm1:fragment", "yCh_skin:MatAmbCol:vertex", "yCh_skin:MatAmbCol:fragment"],
+ "min_joined": 3000
+}

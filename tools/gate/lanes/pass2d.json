@@ -1,0 +1,6 @@
+{
+ "owner": "lanes 9 + 23 (S101): our 2D pass (pass2d.*, ui_assets.*) and its gap scenarios (A4R4G4B4, GPU pictures, movies, blend modes, wrap / clip)",
+ "checks": [
+  {"name": "pass2d.selftest", "cmd": ["py", "-I", "tools/pass2d/selftest.py"], "timeout_s": 1500, "needs": ["game_data/extracted/pac/menu/fontHD.pac", "game_data/extracted/pac/string.pac", "game_data/extracted/pac/menu/MnLayHD.pac", "game_data/extracted/pac/cab/CAB.pac"]}
+ ]
+}

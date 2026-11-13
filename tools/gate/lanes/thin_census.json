@@ -1,0 +1,7 @@
+{
+ "owner": "lane 143 (S101): the census refuses to measure a thin capture wrongly: leftovers.py detects kFrameHasThin and replays with fview --thin, marks frames with unlearned lite draws INCOMPLETE, and the last-frame proof bar (proof_bar.py) fails loudly when the redraw does not match the zip's picture.png",
+ "note": "unit level always runs (detector on hand-made frame headers with a flag-cleared twin, the proof bar on synthetic pictures with a guard-disabled twin, an unreadable picture fails); the live level needs the Check J1 case zip (out/s101/runs/20261112_172304_s100_owner_s89_brock) and a built fview.exe from lane 143 and SKIPs without them. Live: --plant thin_ignored on J1 (the old behaviour, R = the ring-missing bug of run 7086) must exit 3 with INCOMPLETE and PROOF BAR FAIL.",
+ "checks": [
+  {"name": "thin_census.unit_and_live", "cmd": ["py", "-I", "tools/census/thin_census_selftest.py"], "timeout_s": 1800, "needs": ["out/s101/runs/20261112_172304_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

@@ -1,0 +1,8 @@
+{
+ "owner": "lane 24: live shader reload (the viewer's rdr backend and fview)",
+ "checks": [
+  {"name": "reload.viewer_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1", "-Backend", "rdr"], "timeout_s": 1800},
+  {"name": "reload.fview_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 1200},
+  {"name": "reload.selftest", "cmd": ["py", "-I", "tools/reload/selftest.py"], "timeout_s": 1800, "needs": ["out/captures/s100cards", "game_data/extracted"]}
+ ]
+}

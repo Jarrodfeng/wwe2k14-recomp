@@ -1,0 +1,102 @@
+# ReXGlue SDK changes for WWE 2K14 (session101-guest-vblank-ours, lane 260): on top of 113 (branch wwe2k14-local).
+# NOT applied to the SDK branch and NOT built by the lane (it ran no SDK build): apply with the series (git apply, in order), then tools\build_sdk.ps1.
+# Made by diffing the six touched files of thirdparty/rexglue-sdk-src (which carries 113) against edited copies.
+# RuntimeConfig::guest_vblank_ours: SetupGuestGpu registers the MMIO range but starts NO VSync thread; GraphicsSystem::interrupt_callback() /
+# interrupt_callback_data() expose what the game registered (VdSetGraphicsInterruptCallback). IGraphicsSystem::SetGuestVblankOurs appended last; plugin ABI 2 -> 3. Default false = unchanged.
+
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -96,6 +96,10 @@
+   // wwe2k14 patch (Session 101, lane 233): RuntimeConfig::guest_gpu_only, set by the Runtime before Setup. Appended last so the
+   // other vtable slots keep their places (the plugin ABI is bumped all the same).
+   virtual void SetGuestGpuOnly(bool guest_gpu_only) { (void)guest_gpu_only; }
++
++  // wwe2k14 patch (Session 101, lane 260, LEAVE_THE_COMMAND_STREAM.md 3e): RuntimeConfig::guest_vblank_ours. The app ticks the guest vblank itself;
++  // the system starts no VSync thread. Appended after SetGuestGpuOnly (vtable order kept; ABI bumped).
++  virtual void SetGuestVblankOurs(bool guest_vblank_ours) { (void)guest_vblank_ours; }
+ };
+ 
+ }  // namespace rex::system
+diff --git a/include/rex/system/gpu_plugin.h b/include/rex/system/gpu_plugin.h
+--- a/include/rex/system/gpu_plugin.h
++++ b/include/rex/system/gpu_plugin.h
+@@ -29,7 +29,7 @@
+ namespace rex::system {
+ 
+ // Bump on any change to GpuCreateInfo or to the IGraphicsSystem interface.
+-inline constexpr uint32_t kGpuPluginAbiVersion = 2;  // wwe2k14 (S101 lane 233): 2 = IGraphicsSystem::SetGuestGpuOnly
++inline constexpr uint32_t kGpuPluginAbiVersion = 3;  // wwe2k14 (S101 lane 233): 2 = IGraphicsSystem::SetGuestGpuOnly; (lane 260): 3 = SetGuestVblankOurs
+ 
+ inline constexpr const char* kGpuCreateSymbol = "rex_gpu_create";
+ inline constexpr const char* kGpuAbiVersionSymbol = "rex_gpu_abi_version";
+diff --git a/include/rex/runtime.h b/include/rex/runtime.h
+--- a/include/rex/runtime.h
++++ b/include/rex/runtime.h
+@@ -84,6 +84,11 @@
+   // processor is the queue's only consumer: the exe must not set this unless it answers fences / flips itself (the VSync thread warns once). The caller must answer the game's ring submit itself (the Vd ring calls are
+   // accepted and ignored). Default false = the unchanged SDK behaviour.
+   bool guest_gpu_only = false;
++  // wwe2k14 patch (Session 101, lane 260, docs/renderer/LEAVE_THE_COMMAND_STREAM.md 3e): the app ticks the guest vblank itself (its own clock
++  // dispatches the interrupt callback, source 0, as GraphicsSystem::MarkVblank does). SetupGuestGpu still registers the MMIO range (ReadRegister
++  // answers) and keeps SetInterruptCallback's data (GraphicsSystem::interrupt_callback() / interrupt_callback_data()), but starts NO VSync thread.
++  // Only meaningful with guest_gpu_only (the det modes live in the VSync loop: the app must refuse them). Default false = the unchanged SDK behaviour.
++  bool guest_vblank_ours = false;
+ };
+ 
+ /// Helper macros for populating RuntimeConfig with concrete backends.
+diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
+--- a/src/system/runtime.cpp
++++ b/src/system/runtime.cpp
+@@ -105,6 +105,9 @@
+   if (graphics_system_ && config.guest_gpu_only) {
+     graphics_system_->SetGuestGpuOnly(true);  // wwe2k14 patch (Session 101, lane 233): before Setup builds anything
+   }
++  if (graphics_system_ && config.guest_vblank_ours) {
++    graphics_system_->SetGuestVblankOurs(true);  // wwe2k14 patch (Session 101, lane 260): the app ticks the vblank
++  }
+   auto fail = [](X_STATUS status, std::string_view reason) {
+     REXSYS_ERROR("Runtime::Setup failed: {}", reason);
+     return status;
+diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
+--- a/include/rex/graphics/graphics_system.h
++++ b/include/rex/graphics/graphics_system.h
+@@ -70,6 +70,13 @@
+   void SetGuestGpuOnly(bool guest_gpu_only) override { guest_gpu_only_ = guest_gpu_only; }
+   bool guest_gpu_only() const { return guest_gpu_only_; }
+ 
++  // wwe2k14 patch (Session 101, lane 260): RuntimeConfig::guest_vblank_ours. Set before SetupGuestGpu: no VSync thread is started; the app dispatches the
++  // vblank interrupt itself with the callback the game registered (VdSetGraphicsInterruptCallback -> SetInterruptCallback), read back below.
++  void SetGuestVblankOurs(bool guest_vblank_ours) override { guest_vblank_ours_ = guest_vblank_ours; }
++  bool guest_vblank_ours() const { return guest_vblank_ours_; }
++  uint32_t interrupt_callback() const { return interrupt_callback_.load(std::memory_order_acquire); }
++  uint32_t interrupt_callback_data() const { return interrupt_callback_data_.load(std::memory_order_relaxed); }
++
+   // May be called from any thread any number of times, even during recovery
+   // from a device loss.
+   void OnHostGpuLossFromAnyThread(bool is_responsible);
+@@ -124,6 +131,7 @@
+   std::unique_ptr<::rex::ui::GraphicsProvider> provider_;
+   bool provider_supports_presentation_ = false;
+   bool guest_gpu_only_ = false;  // wwe2k14 patch (Session 101, lane 233)
++  bool guest_vblank_ours_ = false;  // wwe2k14 patch (Session 101, lane 260)
+ 
+   // wwe2k14 patch (Session 95, RACE R3): written by a guest thread, read by the vsync and command threads. Data first, callback
+   // published with release (graphics_system.cpp). atomic<uint32_t> keeps the size and alignment of uint32_t.
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -548,6 +548,13 @@
+                                  this,        // context (GraphicsSystem*)
+                                  reinterpret_cast<runtime::MMIOReadCallback>(ReadRegisterThunk),
+                                  reinterpret_cast<runtime::MMIOWriteCallback>(WriteRegisterThunk));
++
++  if (guest_vblank_ours_) {
++    // wwe2k14 patch (Session 101, lane 260, LEAVE_THE_COMMAND_STREAM.md 3e): the app ticks the guest vblank (src/owner_timing.h); no VSync thread, so nothing
++    // here dispatches interrupt source 0. Shutdown() already handles an absent thread.
++    REXGPU_INFO("[gpu] guest_vblank_ours: no VSync thread (the app dispatches the guest vblank)");
++    return X_STATUS_SUCCESS;
++  }
+ 
+   // Guest vblank timer based on the configured guest video mode.
+   vsync_worker_running_ = true;

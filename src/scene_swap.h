@@ -421,7 +421,7 @@ inline constexpr uint8_t kSkin2EntranceFloats[] = {0,   1,   2,   3,   4,   8,  
                                                    155, 156, 158, 161, 162, 166, 168, 169, 170, 180, 181, 182,
                                                    187, 189, 190, 195, 197, 199, 201, 204, 205, 218, 254, 255};
 // Session 93 (idea 8, --wwe2k14_shader_mediump): the arena materials that have a second compile with hand-placed mediump
-// colour maths (tools\postuild_shaders.ps1 $MediumpShaders; out\s938_mediump_notes.md), by the guest hash.
+// colour maths (tools\post\build_shaders.ps1 $MediumpShaders; out\s93\b8_mediump_notes.md), by the guest hash.
 struct MediumpVariant {
   uint64_t hash;
   const uint32_t* spv;
@@ -497,6 +497,7 @@ inline void Install() {
   if (!REXCVAR_GET(wwe2k14_scene_shaders) && !probe) return;
   rex::graphics::CommandProcessor* cp = wwe2k14::half2::Cp();
   if (!cp) {
+    if (wwe2k14::GuestGpuOnly()) return;  // lane 241 (3b): no command processor by design, not a late start
     REXLOG_WARN("[wwe2k14][scene_swap] no command processor yet: no scene shaders registered");
     return;
   }

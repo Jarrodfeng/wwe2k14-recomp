@@ -1,0 +1,6 @@
+{
+ "owner": "lane 17: texture provenance accuracy (arc A1c)",
+ "checks": [
+  {"name": "prov.selftest", "cmd": ["py", "-I", "tools/prov/selftest.py"], "timeout_s": 900}
+ ]
+}

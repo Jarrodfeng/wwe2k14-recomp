@@ -72,6 +72,7 @@
 #include "d3d_hiz.h"  // the HiZ helper 0x82CBD098 (Clear and Resolve call it with r4 = 0x100)
 #include "d3d_resolve_mip.h"  // the mip / face addressing of a resolve destination (0x82CA78F8 and helpers)
 #include "d3d_layer.h"  // F1: wwe2k14::d3d_layer::{Ld32, St32, Ld64, WriteRing, g_stats}
+#include "renderer_adapter/reader.h"  // Session 100: the adapter reader (the one guarded call in each hook below)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_d3d_copy, true, "wwe2k14",
                     "Session 87 (D3D layer F2): with --wwe2k14_d3d_layer, the library's Clear (one colour target + depth + "
@@ -605,10 +606,16 @@ inline bool GprSplit(PPCContext& ctx, uint8_t* base) {
 
 }  // namespace wwe2k14::d3d_copy
 
+#include "owner_null_copy.h"  // Session 100 (strip-360 B3): owner mode's clears / resolves = their device bookkeeping only
+
 REX_HOOK_RAW(sub_82CB52B8) {
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnClear(ctx, base);
+  if (wwe2k14::owner_null_copy::Clear(ctx, base)) return;
   if (!wwe2k14::d3d_copy::Clear(ctx, base)) __imp__sub_82CB52B8(ctx, base);
 }
 REX_HOOK_RAW(sub_82CAFB88) {
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnResolve(ctx, base);
+  if (wwe2k14::owner_null_copy::Resolve(ctx, base)) return;
   if (!wwe2k14::d3d_copy::Resolve(ctx, base)) __imp__sub_82CAFB88(ctx, base);
 }
 REX_HOOK_RAW(sub_82CB0F58) {

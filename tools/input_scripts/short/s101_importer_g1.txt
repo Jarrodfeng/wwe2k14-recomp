@@ -1,0 +1,29 @@
+# Session 101 (lane 199's game check G1, the Superstar Importer): boot with the imported pack offered, PLAY -> ONE ON ONE -> NORMAL,
+# the select screen, A on the slot (grid), DOWN x4 to the tab row and A (Jarrod's S32 path to DOWNLOADED SUPERSTARS, as
+# s98_importer_run1.txt), a screenshot of the list (the three FIT TEST names) with its screen text logged, quit.
+# The caller passes --wwe2k14_dlc / --wwe2k14_dlc_dir / --wwe2k14_mods_superstars / --wwe2k14_mods_dir (test packs under out\ only).
+# State-driven up to the select screen (fast-forward safe), frame waits after it.
+# harness: realtime (menu presses after the select screen; fast-forwarded menus drop presses, LESSONS; run 7144 picked a wrestler instead)
+on_fail quit
+log g1: start
+include boot_to_menu
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+# runs 7144 / 7145: on the frozen save the grid already has the focus when the select screen opens, so S98's first 'press A' picked the
+# wrestler under the cursor (Wade Barrett). Unrun fix: straight DOWN x4 to the tab row. [U] until one run shows the list.
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 60
+press A
+wait_frames 150
+screenshot g1_downloaded
+log_text
+log g1: downloaded superstars
+quit

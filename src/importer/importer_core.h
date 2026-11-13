@@ -64,23 +64,47 @@ struct PackState {
 bool LoadPack(const std::string& mods_dir, PackState& out, std::string& err);
 // Writes pack.json + renders\ WITHOUT building (the list as the UI has it: REMOVE, an edit not built yet).
 bool SavePack(const std::string& mods_dir, const PackState& st, std::string& err);
-// True when the built pack no longer matches the player's DLC (a pack it was built on is gone, or a newer roster pack arrived): the game
-// leaves it out until it is rebuilt. Not built yet = false.
-bool PackOutOfDate(const std::string& mods_dir, const std::string& dlc_dir);
+// The DLC the game gets, as everywhere below (Session 101): dlc_dir = the player's DLC folder, "" when USE MY DLC is off; dlc_off = the
+// launcher's switched-off pack ids ("3,5"). The same view the launchers give the game (--wwe2k14_dlc_dir / --wwe2k14_dlc_off).
+//
+// "" when the built pack fits that DLC (or nothing is built yet); else why the game would leave it out (src\importer\pack_fit.h
+// Problem: a pack it was built on is not offered, another top roster pack, a different copy of it), as the middle of a sentence.
+std::string PackProblem(const std::string& mods_dir, const std::string& dlc_dir, const std::string& dlc_off = "");
+// PackProblem() is not empty.
+bool PackOutOfDate(const std::string& mods_dir, const std::string& dlc_dir, const std::string& dlc_off = "");
+
+// Session 101 (lane 199): what a launcher must do before PLAY with USE MY SUPERSTARS on.
+struct PlayCheck {
+  int stars = 0;          // characters in pack.json
+  bool build = false;     // build now: the list changed / never built / the pack no longer fits the DLC (`why` says which)
+  std::string why;        // one sentence for the player ("" = nothing to do)
+};
+PlayCheck CheckBeforePlay(const std::string& mods_dir, const std::string& dlc_dir, const std::string& dlc_off = "");
+// The game's own verdict at its last boot (<mods>\superstars\game_status.txt, written by src\dlc.h): "" when it took the pack in (or
+// never said), else one sentence for the player.
+std::string LastGameProblem(const std::string& mods_dir);
 
 // Writes <mods>\superstars\pack6\ (the whole pack, rebuilt from scratch into pack6.building, then swapped in), pack.json,
-// renders\ and superstars.txt; needs_build is written false. dlc_dir = the player's DLC folder ("" or no packs = built on the disc's own files; else on the highest pack with a chEtc).
-// progress(0..1, what) is called along the way. Up to 103 characters (slots 397..499); each gets a type-1 catalog entry.
+// renders\ and superstars.txt; needs_build is written false. Built on the packs the game gets (dlc_dir / dlc_off above; none = the
+// disc's own files; else the highest roster pack, folder or Xbox 360 package). A character whose slot is no longer free (a pack
+// added since) or used twice is moved to a free slot (logged; pack.json follows). progress(0..1, what) is called along the way. Up
+// to 103 characters (slots 397..499); each gets a type-1 catalog entry.
 bool BuildPack(const std::string& mods_dir, const launcher::GameFiles& game, const std::string& dlc_dir, const PackState& st,
-               std::function<void(float, const char*)> progress, std::string& err);
-// 397..499 minus the ids the player's real packs use (catalog entries' characters, chNNN_dlcPP pacs: pack 4's 399). Our own
-// pack's slots are NOT removed (the UI knows its own characters; a rebuild reuses them).
+               std::function<void(float, const char*)> progress, std::string& err, const std::string& dlc_off = "");
+// 397..499 minus kReservedSlots and the ids any pack in the DLC folder uses (catalog entries' characters, chNNN_dlcPP pacs; switched
+// off or not). Our own pack's slots are NOT removed (the UI knows its own characters; a rebuild reuses them).
 std::vector<int> FreeSlots(const launcher::GameFiles& game, const std::string& dlc_dir);
 
 // For tests / the UI's log: what the last BuildPack did, one line per step.
 const std::vector<std::string>& LastBuildLog();
+// Session 101 (review S5b): the last successful BuildPack's slot moves, one sentence each for the player ("X moved from slot A to B
+// (saves that used him may show someone else)."); empty = none.
+std::vector<std::string> LastBuildMoves();
 
 constexpr int kFirstSlot = 397, kLastSlot = 499;
+// Session 101: ids in 397..499 a real 2K14 pack uses, never given out (whether or not this player has the pack): 399 = pack 4's
+// "SuperStar Pack" bundle entry (catalog char id; docs\systems\dlc.md item 0, Jarrod's four packs).
+constexpr int kReservedSlots[] = {399};
 // The wrestlers a character may be based on / take his entrance from (roster ids; BuildPack refuses others): for the pickers.
 constexpr int kMinBase = 100, kMaxBase = kFirstSlot - 1;
 

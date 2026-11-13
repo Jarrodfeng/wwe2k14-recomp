@@ -1,0 +1,99 @@
+{
+ "effect": "yRetroFilm",
+ "vertex": [
+  {
+   "name": "quad",
+   "defines": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "retro",
+   "defines": [],
+   "hashes": [
+    "0D70387BB8818E9B"
+   ],
+   "constants": [
+    {
+     "field": "g_Time",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "g_Range",
+     "register": 4,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "name": "clean",
+   "defines": [
+    "CLEAN"
+   ],
+   "hashes": [],
+   "constants": [
+    {
+     "field": "g_Time",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "g_Range",
+     "register": 4,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 3,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

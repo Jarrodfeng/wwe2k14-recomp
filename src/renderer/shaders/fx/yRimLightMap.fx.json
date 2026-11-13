@@ -1,0 +1,194 @@
+{
+ "effect": "yRimLightMap",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    }
+   ],
+   "hashes": [
+    "35F37FECA75A9C9D"
+   ]
+  },
+  {
+   "name": "skinned",
+   "defines": [
+    "FX_SKINNED"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    }
+   ],
+   "hashes": [
+    "9B7159278601125C"
+   ]
+  },
+  {
+   "name": "single_bone",
+   "defines": [
+    "FX_SINGLE_BONE"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    }
+   ],
+   "hashes": [
+    "ADAFC820BF2B67FC"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [],
+   "hashes": [
+    "D03E7D4C719B0EDB"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_SINGLE_BONE"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SINGLE_BONE"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [],
+   "constants": [],
+   "samplers": []
+  }
+ }
+}

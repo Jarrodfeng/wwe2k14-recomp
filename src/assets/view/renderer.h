@@ -261,6 +261,8 @@ class Renderer {
  protected:
   // ---- backend hooks of the shared model code ----
   virtual std::unique_ptr<GpuModelData> NewModelData() = 0;
+  // S101 lane 6: the whole model as the loader made it, right after NewModelData (a backend that draws from the model itself, "rdr", takes it here).
+  virtual void OnModelAdded(GpuModelData& d, const assets::Model& m) { (void)d, (void)m; }
   // Upload texture `t` as the next texture slot of `d` (a failed upload still takes its slot). True = uploaded.
   virtual bool UploadTexture(GpuModelData& d, const assets::Texture& t, std::vector<std::string>& warnings) = 0;
   virtual bool UploadPlacement(GpuModelData& d, const std::vector<assets::Matrix>& transforms, std::string& err) = 0;  // the next placement slot

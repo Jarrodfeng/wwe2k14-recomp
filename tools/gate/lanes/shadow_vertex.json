@@ -1,0 +1,8 @@
+{
+ "owner": "lane 85 = SV (S101): the shadow-layout vertex writers src/assets/shadow_caster_vertex.h (SHADOW_PROMOTION_MAP.md section 7 lane SV), unit level against the shadow-pass vertex bytes of Check B (run 7051) and run 7079",
+ "note": "builds out/tools/caster_vertex_check.exe first, then runs it on every frame of both captures (Check B: u is |u|, run 7079: signed; the sign is LEARNED from the stream): clean run + 5 planted writer faults (fetch_order, weights_as_fill, xdword_colour, bone_zero, uv_sign) each failing exactly its own checks on both captures + loud failures. Run 7079's case zip is unpacked once to <main checkout>/out/lane85/r7079 (game data, never committed). A machine without the zips / game data SKIPs.",
+ "checks": [
+  {"name": "shadow_vertex.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/shadow/build_caster_vertex_check.ps1"], "timeout_s": 1800},
+  {"name": "shadow_vertex.proof", "cmd": ["py", "-I", "tools/shadow/caster_vertex_selftest.py"], "timeout_s": 1800, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261112_122623_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

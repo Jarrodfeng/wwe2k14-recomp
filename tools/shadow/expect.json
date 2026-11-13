@@ -1,0 +1,1747 @@
+{
+ "brock": {
+  "arena": 4,
+  "bias": {
+   "mapB_final.wrestler.row0_ok": 16368,
+   "mapB_final.wrestler.row1_flipped_ok": 16368,
+   "mapB_final.wrestler.rows23_equal_light": 16368,
+   "props_map.floor.row0_ok": 4382,
+   "props_map.floor.row1_flipped_ok": 4382,
+   "props_map.floor.rows23_equal_light": 4382,
+   "wrestler_c166_eq_light_row3": 16368
+  },
+  "bias_err_max": {
+   "mapB_final.wrestler": 7.2e-08,
+   "props_map.floor": 5.8e-08
+  },
+  "casters": {
+   "mapA": {
+    "wrestler.draws": [
+     34,
+     34
+    ],
+    "wrestler.objects": [
+     2,
+     2
+    ]
+   },
+   "mapB": {
+    "piece.draws": [
+     3,
+     3
+    ],
+    "piece.objects": [
+     3,
+     3
+    ],
+    "prop.draws": [
+     11,
+     11
+    ],
+    "prop.objects": [
+     2,
+     2
+    ],
+    "wrestler.draws": [
+     34,
+     34
+    ],
+    "wrestler.objects": [
+     2,
+     2
+    ]
+   },
+   "plane": {
+    "ring_proxy.draws": [
+     24,
+     24
+    ],
+    "ring_proxy.objects": [
+     1,
+     1
+    ],
+    "wrestler_proxy.draws": [
+     8,
+     16
+    ],
+    "wrestler_proxy.objects": [
+     1,
+     1
+    ]
+   },
+   "props": {
+    "prop.draws": [
+     11,
+     11
+    ],
+    "prop.objects": [
+     2,
+     2
+    ]
+   }
+  },
+  "chcommon": {
+   "draws": 4024,
+   "index_counts_equal": 4024,
+   "part_is_mesh": 4024,
+   "unique_mesh": 4024
+  },
+  "circle": {
+   "circle_c0_x_is_1": 1364,
+   "circle_vp_bits_equal": 916,
+   "circle_vp_eq_trap_x_vp": 1364,
+   "circle_vp_not_bit_equal": 448
+  },
+  "circle_err": 3.8e-08,
+  "collapse_points_per_frame": [
+   2,
+   2
+  ],
+  "copies_per_pass_kind": {
+   "mapA": [
+    1,
+    3
+   ],
+   "mapB": [
+    1,
+    1
+   ],
+   "min_pair": [
+    1,
+    3
+   ],
+   "min_rgba": [
+    1,
+    3
+   ],
+   "plane": [
+    1,
+    1
+   ],
+   "plane_blur": [
+    1,
+    1
+   ],
+   "plane_down": [
+    1,
+    1
+   ],
+   "props": [
+    1,
+    1
+   ],
+   "reduce": [
+    1,
+    1
+   ],
+   "rim": [
+    1,
+    1
+   ],
+   "rim_reduce": [
+    1,
+    1
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "copy_style": {
+   "mapA": {
+    "rect": 589
+   },
+   "mapB": {
+    "whole": 341
+   },
+   "min_pair": {
+    "rect": 589
+   },
+   "min_rgba": {
+    "rect": 589
+   },
+   "plane": {
+    "whole": 341
+   },
+   "plane_blur": {
+    "whole": 682
+   },
+   "plane_down": {
+    "whole": 341
+   },
+   "props": {
+    "whole": 341
+   },
+   "reduce": {
+    "whole": 682
+   },
+   "rim": {
+    "whole": 341
+   },
+   "rim_reduce": {
+    "whole": 682
+   },
+   "rim_t2": {
+    "whole": 341
+   }
+  },
+  "eyepos": {
+   "ring_proxy": {
+    "(-1000.0,-800.0,0.0)": 2046,
+    "(0.0,-800.0,-1000.0)": 2046,
+    "(0.0,-800.0,1000.0)": 2046,
+    "(1000.0,-800.0,0.0)": 2046
+   },
+   "wrestler_proxy": {
+    "(-450.0,-1400.0,0.0)": 4024
+   }
+  },
+  "fade": [
+   [
+    500.0,
+    300.0,
+    40.0,
+    1.5,
+    0.5,
+    0.35,
+    0.21
+   ]
+  ],
+  "final_same": {
+   "min_rgba==mapB": 341
+  },
+  "frames": 341,
+  "frames_with": {
+   "circles": 341,
+   "mapA": 341,
+   "mapB": 341,
+   "min_pair": 341,
+   "min_rgba": 341,
+   "plane": 341,
+   "plane_blur": 341,
+   "plane_down": 341,
+   "props": 341,
+   "reduce": 341,
+   "rim": 341,
+   "rim_reduce": 341,
+   "rim_t2": 341
+  },
+  "instances": {
+   "ring_proxy": [
+    12,
+    12
+   ],
+   "wrestler_proxy": [
+    1,
+    2
+   ]
+  },
+  "lambert956": {},
+  "layout": {
+   "piece.rigid.ids.equal": 682,
+   "piece.rigid.pos.equal": 682,
+   "piece.rigid.u8x4_g0.equal": 682,
+   "piece.skinned.ids.equal": 341,
+   "piece.skinned.pos.equal": 341,
+   "piece.skinned.weights.equal": 341,
+   "prop.rigid.ids.equal": 7502,
+   "prop.rigid.pos.equal": 7502,
+   "prop.rigid.u8x4_g0.differs": 7502,
+   "wrestler.rigid.ids.equal": 2046,
+   "wrestler.rigid.pos.equal": 2046,
+   "wrestler.rigid.u8x4_g0.equal": 2046,
+   "wrestler.skinned.ids.equal": 21142,
+   "wrestler.skinned.pos.equal": 21142,
+   "wrestler.skinned.weights.equal": 21142
+  },
+  "layout_draws": {
+   "piece.rigid": 682,
+   "piece.skinned": 341,
+   "prop.rigid": 7502,
+   "wrestler.rigid": 2046,
+   "wrestler.skinned": 21142
+  },
+  "light": {
+   "A_B_same_light_bits": 341,
+   "mapA.distinct1": 341,
+   "mapA.frames": 341,
+   "mapA.trap_off_diag_zero": 341,
+   "mapA.trap_rows23_identity": 341,
+   "mapA.viewdepth_eq_vp_row3_bits": 341,
+   "mapB.distinct1": 341,
+   "mapB.frames": 341,
+   "mapB.trap_off_diag_zero": 341,
+   "mapB.trap_rows23_identity": 341,
+   "mapB.viewdepth_eq_vp_row3_bits": 341,
+   "props.distinct1": 341,
+   "props.frames": 341,
+   "props.trap_off_diag_zero": 341,
+   "props.trap_rows23_identity": 341,
+   "props.viewdepth_eq_vp_row3_bits": 341,
+   "props.vp_row3_up": 341
+  },
+  "light_dir": {
+   "unit_len": [
+    1.0,
+    1.0
+   ],
+   "y": [
+    0.51504,
+    0.51504
+   ]
+  },
+  "light_vs_camera_row3_deg": {
+   "max": 0.87,
+   "mean": 0.43
+  },
+  "mat_reader": {
+   "camvp_eq_plane": 341,
+   "planeinv_eq_plane": 341
+  },
+  "named": 341,
+  "order_mode": "plane>plane_down>plane_blur>props>mapA>mapB>reduce>min_pair>min_rgba>rim>rim_reduce>rim_t2",
+  "order_modes": 1,
+  "order_violations": 0,
+  "p_slots": {
+   "cast_joined_draws": 0,
+   "cast_slots": [],
+   "control_p_slots_joined": 19,
+   "control_slots_joined": 135,
+   "p_slots_in_pac": 24
+  },
+  "palette_frames_100_200": {
+   "wrestler.differs": 60,
+   "wrestler.draws": 136
+  },
+  "palettes": {
+   "piece.mapB.draws": 1023,
+   "prop.mapB.draws": 3751,
+   "prop.props.draws": 3751,
+   "wrestler.mapA.collapsed_to_one_point": 10230,
+   "wrestler.mapA.differs": 10230,
+   "wrestler.mapA.differs_all_bones_rotation_zero": 10230,
+   "wrestler.mapA.differs_with_some_bones_kept": 6138,
+   "wrestler.mapA.draws": 11594,
+   "wrestler.mapB.draws": 11594
+  },
+  "pass_count": {
+   "mapA": [
+    1,
+    1
+   ],
+   "mapB": [
+    1,
+    1
+   ],
+   "min_pair": [
+    1,
+    1
+   ],
+   "min_rgba": [
+    1,
+    1
+   ],
+   "plane": [
+    1,
+    1
+   ],
+   "plane_blur": [
+    2,
+    2
+   ],
+   "plane_down": [
+    1,
+    1
+   ],
+   "props": [
+    1,
+    1
+   ],
+   "reduce": [
+    2,
+    2
+   ],
+   "rim": [
+    1,
+    1
+   ],
+   "rim_reduce": [
+    2,
+    2
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "pass_draws": {
+   "circles": [
+    4,
+    4
+   ],
+   "mapA": [
+    34,
+    34
+   ],
+   "mapB": [
+    48,
+    48
+   ],
+   "min_pair": [
+    1,
+    1
+   ],
+   "min_rgba": [
+    1,
+    1
+   ],
+   "plane": [
+    32,
+    40
+   ],
+   "plane_blur": [
+    2,
+    2
+   ],
+   "plane_down": [
+    1,
+    1
+   ],
+   "props": [
+    11,
+    11
+   ],
+   "reduce": [
+    2,
+    6
+   ],
+   "rim": [
+    51,
+    51
+   ],
+   "rim_reduce": [
+    2,
+    2
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "plane_consts": {
+   "camvp_eq_scene_bits": 341,
+   "frames": 341,
+   "one_camvp": 341,
+   "one_planeinv": 341,
+   "planeinv_fit_form": 341,
+   "planeinv_shape_ok": 341
+  },
+  "planeinv_range": {
+   "sx": [
+    1.0,
+    4.898
+   ],
+   "sy": [
+    2.185,
+    5.237
+   ]
+  },
+  "planepos_y": [
+   -120.0
+  ],
+  "provenance": {
+   "mapA_copy:gpu_copy_of_source": 341,
+   "mapB_final:gpu_copy_of_source": 341,
+   "min_pair_copy:gpu_copy_of_source": 341,
+   "plane_copy:gpu_copy_of_source": 341,
+   "plane_mask:gpu_copy_of_source": 341,
+   "props_map:gpu_copy_of_source": 341,
+   "reduce_copy:gpu_copy_of_source": 682,
+   "rim_map:gpu_copy_of_source": 341,
+   "rim_t2_map:gpu_copy_of_source": 341
+  },
+  "readers": {
+   "mapA_copy|slot1|blur": [
+    1,
+    1
+   ],
+   "mapB_final|slot0|blur": [
+    1,
+    1
+   ],
+   "mapB_final|slot0|yToneMap": [
+    1,
+    3
+   ],
+   "mapB_final|slot12|wrestler": [
+    48,
+    48
+   ],
+   "min_pair_copy|slot0|blur": [
+    1,
+    1
+   ],
+   "plane_copy|slot0|yToneMap": [
+    1,
+    1
+   ],
+   "plane_mask|slot0|blur": [
+    2,
+    2
+   ],
+   "plane_mask|slot12|ring_mat": [
+    1,
+    1
+   ],
+   "props_map|slot12|floor": [
+    6,
+    18
+   ],
+   "reduce_copy|slot0|yToneMap": [
+    1,
+    3
+   ],
+   "reduce_copy|slot16|blur": [
+    2,
+    2
+   ],
+   "rim_map|slot0|blur": [
+    1,
+    1
+   ],
+   "rim_map|slot0|yToneMap": [
+    1,
+    1
+   ],
+   "rim_t2_map|slot15|wrestler": [
+    54,
+    54
+   ]
+  },
+  "ring956": {
+   "draws": 8184,
+   "part_is_mesh": 8184,
+   "unique_mesh": 8184
+  },
+  "ring_pieces_joined": {
+   "colour": [
+    951,
+    952,
+    953,
+    960,
+    964,
+    973,
+    974,
+    980,
+    981
+   ],
+   "plane": [
+    956
+   ]
+  },
+  "ring_pieces_joined_draws": {
+   "colour:951": 2728,
+   "colour:952": 8184,
+   "colour:953": 341,
+   "colour:960": 3790,
+   "colour:964": 12276,
+   "colour:973": 5115,
+   "colour:974": 5115,
+   "colour:980": 4394,
+   "colour:981": 1364,
+   "plane:956": 8184
+  },
+  "roles": {
+   "mapA": {
+    "shadow_map": 341
+   },
+   "mapB": {
+    "shadow_map": 341
+   },
+   "min_pair": {
+    "shadow_map": 341
+   },
+   "min_rgba": {
+    "shadow_map": 341
+   },
+   "plane": {
+    "shadow_map": 341
+   },
+   "plane_blur": {
+    "shadow_map": 682
+   },
+   "plane_down": {
+    "shadow_map": 341
+   },
+   "props": {
+    "shadow_map": 341
+   },
+   "reduce": {
+    "unnamed": 682
+   },
+   "rim": {
+    "shadow_map": 341
+   },
+   "rim_reduce": {
+    "unnamed": 682
+   },
+   "rim_t2": {
+    "shadow_map": 341
+   }
+  },
+  "scope": {
+   "ring_proxy:instances_walk_parts_in_order": 341,
+   "ring_proxy:plane_pass_only": 341,
+   "wrestler_proxy:instances_walk_parts_in_order": 341,
+   "wrestler_proxy:plane_pass_only": 341
+  },
+  "shadow_prm_zw": {
+   "mapA": [
+    [
+     0.009999999776482582,
+     0.699999988079071
+    ],
+    [
+     0.019999999552965164,
+     0.699999988079071
+    ]
+   ],
+   "mapB": [
+    [
+     0.009999999776482582,
+     0.699999988079071
+    ],
+    [
+     0.019999999552965164,
+     0.699999988079071
+    ]
+   ],
+   "props": [
+    [
+     0.009999999776482582,
+     0.20000000298023224
+    ],
+    [
+     0.029999999329447746,
+     0.20000000298023224
+    ]
+   ]
+  },
+  "targets": {
+   "mapA": [
+    "512x512 f16 gf4 role3"
+   ],
+   "mapB": [
+    "512x512 f16 gf5 role3"
+   ],
+   "min_pair": [
+    "512x512 f16 gf5 role3"
+   ],
+   "min_rgba": [
+    "512x512 f16 gf5 role3"
+   ],
+   "plane": [
+    "512x512 f1 gf0 role3"
+   ],
+   "plane_blur": [
+    "256x256 f1 gf0 role3"
+   ],
+   "plane_down": [
+    "256x256 f1 gf0 role3"
+   ],
+   "props": [
+    "512x512 f1 gf0 role3"
+   ],
+   "reduce": [
+    "128x128 f1 gf0 role0",
+    "32x32 f1 gf0 role0"
+   ],
+   "rim": [
+    "512x256 f1 gf0 role3"
+   ],
+   "rim_reduce": [
+    "128x64 f1 gf0 role0",
+    "32x16 f1 gf0 role0"
+   ],
+   "rim_t2": [
+    "512x256 f1 gf0 role3"
+   ]
+  },
+  "xdword": {
+   "chcommon:be_of_x": 0,
+   "chcommon:n": 601085,
+   "chcommon:zero_then_b123": 601085,
+   "ring:be_of_x": 0,
+   "ring:n": 1362636,
+   "ring:zero_then_b123": 1362636
+  }
+ },
+ "bryan": {
+  "arena": 4,
+  "bias": {
+   "mapB_final.wrestler.row0_ok": 3367,
+   "mapB_final.wrestler.row1_flipped_ok": 3367,
+   "mapB_final.wrestler.rows23_equal_light": 3367,
+   "props_map.floor.row0_ok": 1427,
+   "props_map.floor.row1_flipped_ok": 1427,
+   "props_map.floor.rows23_equal_light": 1427,
+   "wrestler_c166_eq_light_row3": 3367
+  },
+  "bias_err_max": {
+   "mapB_final.wrestler": 8e-08,
+   "props_map.floor": 3.5e-08
+  },
+  "casters": {
+   "mapA": {
+    "wrestler.draws": [
+     23,
+     23
+    ],
+    "wrestler.objects": [
+     2,
+     2
+    ]
+   },
+   "mapB": {
+    "piece.draws": [
+     2,
+     2
+    ],
+    "piece.objects": [
+     2,
+     2
+    ],
+    "prop.draws": [
+     11,
+     11
+    ],
+    "prop.objects": [
+     2,
+     2
+    ],
+    "wrestler.draws": [
+     25,
+     25
+    ],
+    "wrestler.objects": [
+     3,
+     3
+    ]
+   },
+   "plane": {
+    "ring_proxy.draws": [
+     24,
+     24
+    ],
+    "ring_proxy.objects": [
+     1,
+     1
+    ],
+    "wrestler_proxy.draws": [
+     8,
+     8
+    ],
+    "wrestler_proxy.objects": [
+     1,
+     1
+    ]
+   },
+   "props": {
+    "prop.draws": [
+     11,
+     11
+    ],
+    "prop.objects": [
+     2,
+     2
+    ]
+   }
+  },
+  "chcommon": {
+   "draws": 728,
+   "index_counts_equal": 728,
+   "part_is_mesh": 728,
+   "unique_mesh": 728
+  },
+  "circle": {
+   "circle_c0_x_is_1": 364,
+   "circle_vp_bits_equal": 216,
+   "circle_vp_eq_trap_x_vp": 364,
+   "circle_vp_not_bit_equal": 148
+  },
+  "circle_err": 3.5e-08,
+  "collapse_points_per_frame": [
+   2,
+   2
+  ],
+  "copies_per_pass_kind": {
+   "mapA": [
+    1,
+    1
+   ],
+   "mapB": [
+    1,
+    1
+   ],
+   "min_pair": [
+    1,
+    1
+   ],
+   "min_rgba": [
+    1,
+    1
+   ],
+   "plane": [
+    1,
+    1
+   ],
+   "plane_blur": [
+    1,
+    1
+   ],
+   "plane_down": [
+    1,
+    1
+   ],
+   "props": [
+    1,
+    1
+   ],
+   "reduce": [
+    1,
+    1
+   ],
+   "rim": [
+    1,
+    1
+   ],
+   "rim_reduce": [
+    1,
+    1
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "copy_style": {
+   "mapA": {
+    "rect": 91
+   },
+   "mapB": {
+    "whole": 91
+   },
+   "min_pair": {
+    "rect": 91
+   },
+   "min_rgba": {
+    "rect": 91
+   },
+   "plane": {
+    "whole": 91
+   },
+   "plane_blur": {
+    "whole": 182
+   },
+   "plane_down": {
+    "whole": 91
+   },
+   "props": {
+    "whole": 91
+   },
+   "reduce": {
+    "whole": 182
+   },
+   "rim": {
+    "whole": 91
+   },
+   "rim_reduce": {
+    "whole": 182
+   },
+   "rim_t2": {
+    "whole": 91
+   }
+  },
+  "eyepos": {
+   "ring_proxy": {
+    "(-1000.0,-800.0,0.0)": 546,
+    "(0.0,-800.0,-1000.0)": 546,
+    "(0.0,-800.0,1000.0)": 546,
+    "(1000.0,-800.0,0.0)": 546
+   },
+   "wrestler_proxy": {
+    "(-450.0,-1400.0,0.0)": 728
+   }
+  },
+  "fade": [
+   [
+    500.0,
+    300.0,
+    40.0,
+    1.5,
+    0.5,
+    0.35,
+    0.21
+   ]
+  ],
+  "final_same": {
+   "min_rgba==mapB": 91
+  },
+  "frames": 91,
+  "frames_with": {
+   "circles": 91,
+   "mapA": 91,
+   "mapB": 91,
+   "min_pair": 91,
+   "min_rgba": 91,
+   "plane": 91,
+   "plane_blur": 91,
+   "plane_down": 91,
+   "props": 91,
+   "reduce": 91,
+   "rim": 91,
+   "rim_reduce": 91,
+   "rim_t2": 91
+  },
+  "instances": {
+   "ring_proxy": [
+    12,
+    12
+   ],
+   "wrestler_proxy": [
+    1,
+    1
+   ]
+  },
+  "lambert956": {},
+  "layout": {
+   "piece.rigid.ids.equal": 91,
+   "piece.rigid.pos.equal": 91,
+   "piece.rigid.u8x4_g0.equal": 91,
+   "piece.skinned.ids.equal": 91,
+   "piece.skinned.pos.equal": 91,
+   "piece.skinned.weights.equal": 91,
+   "prop.rigid.ids.equal": 2002,
+   "prop.rigid.pos.equal": 2002,
+   "prop.rigid.u8x4_g0.differs": 2002,
+   "wrestler.rigid.ids.equal": 546,
+   "wrestler.rigid.pos.equal": 546,
+   "wrestler.rigid.u8x4_g0.equal": 546,
+   "wrestler.skinned.ids.equal": 3822,
+   "wrestler.skinned.pos.equal": 3822,
+   "wrestler.skinned.weights.equal": 3822
+  },
+  "layout_draws": {
+   "piece.rigid": 91,
+   "piece.skinned": 91,
+   "prop.rigid": 2002,
+   "wrestler.rigid": 546,
+   "wrestler.skinned": 3822
+  },
+  "light": {
+   "A_B_same_light_bits": 91,
+   "mapA.distinct1": 91,
+   "mapA.frames": 91,
+   "mapA.trap_off_diag_zero": 91,
+   "mapA.trap_rows23_identity": 91,
+   "mapA.viewdepth_eq_vp_row3_bits": 91,
+   "mapB.distinct1": 91,
+   "mapB.frames": 91,
+   "mapB.trap_off_diag_zero": 91,
+   "mapB.trap_rows23_identity": 91,
+   "mapB.viewdepth_eq_vp_row3_bits": 91,
+   "props.distinct1": 91,
+   "props.frames": 91,
+   "props.trap_off_diag_zero": 91,
+   "props.trap_rows23_identity": 91,
+   "props.viewdepth_eq_vp_row3_bits": 91,
+   "props.vp_row3_up": 91
+  },
+  "light_dir": {
+   "unit_len": [
+    1.0,
+    1.0
+   ],
+   "y": [
+    0.51504,
+    0.51504
+   ]
+  },
+  "light_vs_camera_row3_deg": {
+   "max": 0.01,
+   "mean": 0.0
+  },
+  "mat_reader": {
+   "camvp_eq_plane": 91,
+   "planeinv_eq_plane": 91
+  },
+  "named": 91,
+  "order_mode": "plane>plane_down>plane_blur>props>mapA>mapB>reduce>min_pair>min_rgba>rim>rim_reduce>rim_t2",
+  "order_modes": 1,
+  "order_violations": 0,
+  "p_slots": {
+   "cast_joined_draws": 0,
+   "cast_slots": [],
+   "control_p_slots_joined": 11,
+   "control_slots_joined": 101,
+   "p_slots_in_pac": 24
+  },
+  "palette_frames_100_200": {},
+  "palettes": {
+   "piece.mapB.draws": 182,
+   "prop.mapB.draws": 1001,
+   "prop.props.draws": 1001,
+   "wrestler.mapA.collapsed_to_one_point": 1820,
+   "wrestler.mapA.differs": 1820,
+   "wrestler.mapA.differs_all_bones_rotation_zero": 1820,
+   "wrestler.mapA.differs_with_some_bones_kept": 819,
+   "wrestler.mapA.draws": 2093,
+   "wrestler.mapB.draws": 2275
+  },
+  "pass_count": {
+   "mapA": [
+    1,
+    1
+   ],
+   "mapB": [
+    1,
+    1
+   ],
+   "min_pair": [
+    1,
+    1
+   ],
+   "min_rgba": [
+    1,
+    1
+   ],
+   "plane": [
+    1,
+    1
+   ],
+   "plane_blur": [
+    2,
+    2
+   ],
+   "plane_down": [
+    1,
+    1
+   ],
+   "props": [
+    1,
+    1
+   ],
+   "reduce": [
+    2,
+    2
+   ],
+   "rim": [
+    1,
+    1
+   ],
+   "rim_reduce": [
+    2,
+    2
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "pass_draws": {
+   "circles": [
+    4,
+    4
+   ],
+   "mapA": [
+    23,
+    23
+   ],
+   "mapB": [
+    38,
+    38
+   ],
+   "min_pair": [
+    1,
+    1
+   ],
+   "min_rgba": [
+    1,
+    1
+   ],
+   "plane": [
+    32,
+    32
+   ],
+   "plane_blur": [
+    2,
+    2
+   ],
+   "plane_down": [
+    1,
+    1
+   ],
+   "props": [
+    11,
+    11
+   ],
+   "reduce": [
+    2,
+    2
+   ],
+   "rim": [
+    41,
+    41
+   ],
+   "rim_reduce": [
+    2,
+    2
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "plane_consts": {
+   "camvp_eq_scene_bits": 91,
+   "frames": 91,
+   "one_camvp": 91,
+   "one_planeinv": 91,
+   "planeinv_negated_identity": 91,
+   "planeinv_shape_ok": 91
+  },
+  "planepos_y": [
+   -120.0
+  ],
+  "provenance": {
+   "mapA_copy:gpu_source_image_unfilled": 91,
+   "mapB_final:gpu_source_image_unfilled": 91,
+   "min_pair_copy:gpu_source_image_unfilled": 91,
+   "plane_copy:gpu_source_image_unfilled": 91,
+   "plane_mask:gpu_source_image_unfilled": 91,
+   "props_map:gpu_source_image_unfilled": 91,
+   "reduce_copy:gpu_source_image_unfilled": 182,
+   "rim_map:gpu_source_image_unfilled": 91,
+   "rim_t2_map:gpu_source_image_unfilled": 91
+  },
+  "readers": {
+   "mapA_copy|slot1|blur": [
+    1,
+    1
+   ],
+   "mapB_final|slot0|blur": [
+    1,
+    1
+   ],
+   "mapB_final|slot0|yToneMap": [
+    1,
+    1
+   ],
+   "mapB_final|slot12|wrestler": [
+    37,
+    37
+   ],
+   "min_pair_copy|slot0|blur": [
+    1,
+    1
+   ],
+   "plane_copy|slot0|yToneMap": [
+    1,
+    1
+   ],
+   "plane_mask|slot0|blur": [
+    2,
+    2
+   ],
+   "plane_mask|slot12|ring_mat": [
+    1,
+    1
+   ],
+   "props_map|slot12|floor": [
+    14,
+    17
+   ],
+   "reduce_copy|slot0|yToneMap": [
+    1,
+    1
+   ],
+   "reduce_copy|slot16|blur": [
+    2,
+    2
+   ],
+   "rim_map|slot0|blur": [
+    1,
+    1
+   ],
+   "rim_map|slot0|yToneMap": [
+    1,
+    1
+   ],
+   "rim_t2_map|slot15|wrestler": [
+    45,
+    45
+   ]
+  },
+  "ring956": {
+   "draws": 2184,
+   "part_is_mesh": 2184,
+   "unique_mesh": 2184
+  },
+  "ring_pieces_joined": {
+   "colour": [
+    951,
+    952,
+    953,
+    960,
+    964,
+    973,
+    974,
+    980,
+    981
+   ],
+   "plane": [
+    956
+   ]
+  },
+  "ring_pieces_joined_draws": {
+   "colour:951": 728,
+   "colour:952": 2184,
+   "colour:953": 91,
+   "colour:960": 546,
+   "colour:964": 3276,
+   "colour:973": 1365,
+   "colour:974": 1365,
+   "colour:980": 1638,
+   "colour:981": 364,
+   "plane:956": 2184
+  },
+  "roles": {
+   "mapA": {
+    "shadow_map": 91
+   },
+   "mapB": {
+    "shadow_map": 91
+   },
+   "min_pair": {
+    "shadow_map": 91
+   },
+   "min_rgba": {
+    "shadow_map": 91
+   },
+   "plane": {
+    "shadow_map": 91
+   },
+   "plane_blur": {
+    "shadow_map": 182
+   },
+   "plane_down": {
+    "shadow_map": 91
+   },
+   "props": {
+    "shadow_map": 91
+   },
+   "reduce": {
+    "unnamed": 182
+   },
+   "rim": {
+    "shadow_map": 91
+   },
+   "rim_reduce": {
+    "unnamed": 182
+   },
+   "rim_t2": {
+    "shadow_map": 91
+   }
+  },
+  "scope": {
+   "ring_proxy:instances_walk_parts_in_order": 91,
+   "ring_proxy:plane_pass_only": 91,
+   "wrestler_proxy:instances_walk_parts_in_order": 91,
+   "wrestler_proxy:plane_pass_only": 91
+  },
+  "shadow_prm_zw": {
+   "mapA": [
+    [
+     0.019999999552965164,
+     0.699999988079071
+    ]
+   ],
+   "mapB": [
+    [
+     0.019999999552965164,
+     0.699999988079071
+    ]
+   ],
+   "props": [
+    [
+     0.019999999552965164,
+     0.20000000298023224
+    ]
+   ]
+  },
+  "targets": {
+   "mapA": [
+    "512x512 f16 gf4 role3"
+   ],
+   "mapB": [
+    "512x512 f16 gf5 role3"
+   ],
+   "min_pair": [
+    "512x512 f16 gf5 role3"
+   ],
+   "min_rgba": [
+    "512x512 f16 gf5 role3"
+   ],
+   "plane": [
+    "512x512 f1 gf0 role3"
+   ],
+   "plane_blur": [
+    "256x256 f1 gf0 role3"
+   ],
+   "plane_down": [
+    "256x256 f1 gf0 role3"
+   ],
+   "props": [
+    "512x512 f1 gf0 role3"
+   ],
+   "reduce": [
+    "128x128 f1 gf0 role0",
+    "32x32 f1 gf0 role0"
+   ],
+   "rim": [
+    "512x256 f1 gf0 role3"
+   ],
+   "rim_reduce": [
+    "128x64 f1 gf0 role0",
+    "32x16 f1 gf0 role0"
+   ],
+   "rim_t2": [
+    "512x256 f1 gf0 role3"
+   ]
+  },
+  "xdword": {
+   "chcommon:be_of_x": 0,
+   "chcommon:n": 108745,
+   "chcommon:zero_then_b123": 108745,
+   "ring:be_of_x": 0,
+   "ring:n": 363636,
+   "ring:zero_then_b123": 363636
+  }
+ },
+ "wm30": {
+  "arena": 29,
+  "bias": {
+   "mapB_final.wrestler.row0_ok": 30879,
+   "mapB_final.wrestler.row1_flipped_ok": 30879,
+   "mapB_final.wrestler.rows23_equal_light": 30879,
+   "props_map.floor.row0_ok": 2115,
+   "props_map.floor.row1_flipped_ok": 2115,
+   "props_map.floor.rows23_equal_light": 2115,
+   "props_map.ring_mat.row0_ok": 423,
+   "props_map.ring_mat.row1_flipped_ok": 423,
+   "props_map.ring_mat.rows23_equal_light": 423,
+   "wrestler_c166_eq_light_row3": 30879
+  },
+  "bias_err_max": {
+   "mapB_final.wrestler": 6.3e-09,
+   "props_map.floor": 3.4e-09,
+   "props_map.ring_mat": 3.4e-09
+  },
+  "casters": {
+   "mapB": {
+    "wrestler.draws": [
+     59,
+     59
+    ],
+    "wrestler.objects": [
+     3,
+     3
+    ]
+   },
+   "props": {
+    "prop.draws": [
+     1,
+     1
+    ],
+    "prop.objects": [
+     1,
+     1
+    ]
+   }
+  },
+  "chcommon": {},
+  "circle": {
+   "circle_c0_x_is_1": 2115,
+   "circle_vp_eq_trap_x_vp": 2115,
+   "circle_vp_not_bit_equal": 2115
+  },
+  "circle_err": 6.5e-09,
+  "copies_per_pass_kind": {
+   "mapB": [
+    1,
+    1
+   ],
+   "min_r": [
+    4,
+    4
+   ],
+   "min_rg": [
+    4,
+    4
+   ],
+   "props": [
+    1,
+    1
+   ],
+   "reduce": [
+    1,
+    1
+   ],
+   "rim": [
+    1,
+    1
+   ],
+   "rim_reduce": [
+    1,
+    1
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "copy_style": {
+   "mapB": {
+    "whole": 423
+   },
+   "min_r": {
+    "rect": 1692
+   },
+   "min_rg": {
+    "rect": 1692
+   },
+   "props": {
+    "whole": 423
+   },
+   "reduce": {
+    "whole": 846
+   },
+   "rim": {
+    "whole": 423
+   },
+   "rim_reduce": {
+    "whole": 846
+   },
+   "rim_t2": {
+    "whole": 423
+   }
+  },
+  "eyepos": {},
+  "fade": [],
+  "final_same": {
+   "min_r!=mapB": 423,
+   "min_rg==mapB": 423
+  },
+  "frames": 423,
+  "frames_with": {
+   "circles": 423,
+   "mapB": 423,
+   "min_r": 423,
+   "min_rg": 423,
+   "props": 423,
+   "reduce": 423,
+   "rim": 423,
+   "rim_reduce": 423,
+   "rim_t2": 423
+  },
+  "instances": {},
+  "lambert956": {
+   "frames_with_joined": 423,
+   "joined": 10152
+  },
+  "layout": {
+   "prop.rigid.ids.equal": 423,
+   "prop.rigid.pos.equal": 423,
+   "prop.rigid.u8x4_g0.differs": 423,
+   "wrestler.rigid.ids.equal": 2961,
+   "wrestler.rigid.pos.equal": 2538,
+   "wrestler.rigid.pos.within_1e-4": 423,
+   "wrestler.rigid.u8x4_g0.equal": 2961,
+   "wrestler.skinned.ids.equal": 21996,
+   "wrestler.skinned.pos.equal": 21996,
+   "wrestler.skinned.weights.equal": 21996
+  },
+  "layout_draws": {
+   "prop.rigid": 423,
+   "wrestler.rigid": 2961,
+   "wrestler.skinned": 21996
+  },
+  "light": {
+   "mapB.distinct1": 423,
+   "mapB.frames": 423,
+   "mapB.trap_off_diag_zero": 423,
+   "mapB.trap_rows23_identity": 423,
+   "mapB.viewdepth_eq_vp_row3_bits": 423,
+   "props.distinct1": 423,
+   "props.frames": 423,
+   "props.trap_off_diag_zero": 423,
+   "props.trap_rows23_identity": 423,
+   "props.viewdepth_eq_vp_row3_bits": 423,
+   "props.vp_row3_up": 423
+  },
+  "light_dir": {
+   "unit_len": [
+    1.0,
+    1.0
+   ],
+   "y": [
+    0.51504,
+    0.51504
+   ]
+  },
+  "light_vs_camera_row3_deg": {
+   "max": 0.0,
+   "mean": 0.0
+  },
+  "mat_reader": {},
+  "named": 423,
+  "order_mode": "props>mapB>reduce>min_r>min_rg>rim>rim_reduce>rim_t2",
+  "order_modes": 1,
+  "order_violations": 0,
+  "p_slots": {
+   "cast_joined_draws": 0,
+   "cast_slots": [],
+   "control_p_slots_joined": 5,
+   "control_slots_joined": 24,
+   "p_slots_in_pac": 17
+  },
+  "palette_frames_100_200": {
+   "wrestler.draws": 118
+  },
+  "palettes": {
+   "prop.props.draws": 423,
+   "wrestler.mapB.draws": 24957
+  },
+  "pass_count": {
+   "mapB": [
+    1,
+    1
+   ],
+   "min_r": [
+    1,
+    1
+   ],
+   "min_rg": [
+    1,
+    1
+   ],
+   "props": [
+    1,
+    1
+   ],
+   "reduce": [
+    2,
+    2
+   ],
+   "rim": [
+    1,
+    1
+   ],
+   "rim_reduce": [
+    2,
+    2
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "pass_draws": {
+   "circles": [
+    5,
+    5
+   ],
+   "mapB": [
+    59,
+    59
+   ],
+   "min_r": [
+    1,
+    1
+   ],
+   "min_rg": [
+    1,
+    1
+   ],
+   "props": [
+    1,
+    1
+   ],
+   "reduce": [
+    8,
+    8
+   ],
+   "rim": [
+    81,
+    81
+   ],
+   "rim_reduce": [
+    2,
+    2
+   ],
+   "rim_t2": [
+    1,
+    1
+   ]
+  },
+  "plane_consts": {},
+  "planepos_y": [],
+  "provenance": {
+   "mapB_final:gpu_source_image_unfilled": 423,
+   "min_r_copy:gpu_source_image_unfilled": 423,
+   "props_map:gpu_source_image_unfilled": 423,
+   "reduce_copy:gpu_source_image_unfilled": 846,
+   "rim_map:gpu_source_image_unfilled": 423,
+   "rim_t2_map:gpu_source_image_unfilled": 423
+  },
+  "readers": {
+   "mapB_final|slot0|blur": [
+    1,
+    1
+   ],
+   "mapB_final|slot0|yToneMap": [
+    4,
+    4
+   ],
+   "mapB_final|slot12|wrestler": [
+    73,
+    73
+   ],
+   "min_r_copy|slot0|blur": [
+    1,
+    1
+   ],
+   "props_map|slot12|floor": [
+    5,
+    5
+   ],
+   "props_map|slot12|ring_mat": [
+    1,
+    1
+   ],
+   "reduce_copy|slot0|yToneMap": [
+    4,
+    4
+   ],
+   "reduce_copy|slot16|blur": [
+    2,
+    2
+   ],
+   "rim_map|slot0|blur": [
+    1,
+    1
+   ],
+   "rim_map|slot0|yToneMap": [
+    1,
+    1
+   ],
+   "rim_t2_map|slot15|wrestler": [
+    89,
+    89
+   ]
+  },
+  "ring956": {},
+  "ring_pieces_joined": {
+   "colour": [
+    951,
+    952,
+    953,
+    964,
+    973,
+    974,
+    980,
+    981
+   ]
+  },
+  "ring_pieces_joined_draws": {
+   "colour:951": 3384,
+   "colour:952": 10152,
+   "colour:953": 423,
+   "colour:964": 15228,
+   "colour:973": 6345,
+   "colour:974": 6345,
+   "colour:980": 10152,
+   "colour:981": 1692
+  },
+  "roles": {
+   "mapB": {
+    "shadow_map": 423
+   },
+   "min_r": {
+    "shadow_map": 423
+   },
+   "min_rg": {
+    "shadow_map": 423
+   },
+   "props": {
+    "shadow_map": 423
+   },
+   "reduce": {
+    "unnamed": 846
+   },
+   "rim": {
+    "shadow_map": 423
+   },
+   "rim_reduce": {
+    "unnamed": 846
+   },
+   "rim_t2": {
+    "shadow_map": 423
+   }
+  },
+  "scope": {},
+  "shadow_prm_zw": {
+   "mapB": [
+    [
+     0.009999999776482582,
+     0.699999988079071
+    ]
+   ],
+   "props": [
+    [
+     0.009999999776482582,
+     0.20000000298023224
+    ]
+   ]
+  },
+  "targets": {
+   "mapB": [
+    "512x512 f16 gf5 role3"
+   ],
+   "min_r": [
+    "512x512 f16 gf5 role3"
+   ],
+   "min_rg": [
+    "512x512 f16 gf5 role3"
+   ],
+   "props": [
+    "512x512 f1 gf0 role3"
+   ],
+   "reduce": [
+    "128x128 f1 gf0 role0",
+    "32x32 f1 gf0 role0"
+   ],
+   "rim": [
+    "512x256 f1 gf0 role3"
+   ],
+   "rim_reduce": [
+    "128x64 f1 gf0 role0",
+    "32x16 f1 gf0 role0"
+   ],
+   "rim_t2": [
+    "512x256 f1 gf0 role3"
+   ]
+  },
+  "xdword": {}
+ }
+}

@@ -1,0 +1,7 @@
+{
+ "owner": "lane 260 (S101): LEAVE_THE_COMMAND_STREAM 3e, the 'Owner timing' thread's state machine (src/owner_timing_core.h): fence / flip / gate order, the vblank from our clock, a flip's wait ticking the vblank, the fixed scene-timing value.",
+ "note": "owner_timing_core.unit builds tools/owner/timing_core_test.cpp (the shipped header, a model of the guest's handlers on a virtual clock) and runs the honest arm plus six planted faults (a fence released before its flip clears, a flip word never cleared, a missed vblank, a flip wait that does not tick the vblank, the fixed scene value ignored, the clock re-gridding at every vblank), each of which must FAIL its named check.",
+ "checks": [
+  {"name": "owner_timing_core.unit", "cmd": ["py", "-I", "tools/owner/timing_core_selftest.py"], "timeout_s": 600}
+ ]
+}

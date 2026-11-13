@@ -1,0 +1,7 @@
+{
+ "owner": "lane 93 (S101): the Phase D coverage board, tools/board/coverage.py -> docs/renderer/COVERAGE_BOARD.md. Python only, 0 game runs. The real-data check reads only manifest.json + log.txt of each case zip under out/s101/runs (local game data, never copied).",
+ "checks": [
+  {"name": "coverage_board.selftest", "cmd": ["py", "-I", "tools/board/coverage.py", "--selftest"], "timeout_s": 120},
+  {"name": "coverage_board.zips_readable", "cmd": ["py", "-I", "tools/board/coverage.py", "--check"], "timeout_s": 600, "needs": ["out/s101/runs"]}
+ ]
+}

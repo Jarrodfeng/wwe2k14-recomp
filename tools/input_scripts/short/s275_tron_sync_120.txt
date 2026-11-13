@@ -1,4 +1,5 @@
 # harness: fast-forward ok (Session 27.5 item B: stage screens at the same game times, step 120; use with --wwe2k14_step_hz=120 except at 60)
+# lane 168: runs with --wwe2k14_step_hz above 60 also need --wwe2k14_pump_follow_display=false on a 60 Hz PC (run_list.ps1 adds it by itself)
 # Session 27 item C (Cena's title flying mid-entrance): launch_boot_check.txt, then screenshots every 60 game frames
 # from INGAMELUA.PAC for 2400 frames (both entrances at a 120 entrance step). Use with --wwe2k14_launch=hiac_cena_brodus
 # --wwe2k14_replay_mode=true (same entrance every run).

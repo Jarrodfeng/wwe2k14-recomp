@@ -1,0 +1,1219 @@
+{
+ "effect": "yProp_BumpMapLM",
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_SPEC_FADE",
+    "FX_LIGHTMAP",
+    "FX_SCREEN_CONVERT"
+   ],
+   "constants": [
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1,
+     "when": [
+      "FX_SCREEN_CONVERT"
+     ]
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "SpeLodParam",
+     "register": 209,
+     "count": 1,
+     "when": [
+      "FX_SPEC_FADE"
+     ]
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 4,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 5,
+     "location": 5,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 4,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 5,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_SPEC_MAP",
+    "FX_ALPHA_GLOSS",
+    "FX_LOGO",
+    "FX_LIGHTMAP",
+    "FX_NORMAL_GLOSS",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP",
+    "FX_CC_MASK",
+    "FX_REFLECT_ADD"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1,
+     "when": [
+      "FX_REFLECT"
+     ]
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 4,
+     "when": [
+      "FX_CC_MASK"
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d",
+     "when": [
+      "FX_SPEC_MAP"
+     ]
+    },
+    {
+     "slot": 13,
+     "kind": "2d",
+     "when": [
+      "FX_LIGHTMAP"
+     ]
+    },
+    {
+     "slot": 14,
+     "kind": "2d",
+     "when": [
+      "FX_LOGO"
+     ]
+    },
+    {
+     "slot": 8,
+     "kind": "cube",
+     "when": [
+      "FX_REFLECT"
+     ]
+    },
+    {
+     "slot": 9,
+     "kind": "2d",
+     "when": [
+      "FX_REFLECT_MAP"
+     ]
+    },
+    {
+     "slot": 12,
+     "kind": "2d",
+     "when": [
+      "FX_CC_MASK"
+     ]
+    }
+   ]
+  }
+ },
+ "vertex": [
+  {
+   "name": "lightmap",
+   "defines": [
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "0A514F3CA2F3E4E3"
+   ]
+  },
+  {
+   "name": "skinned_lightmap",
+   "defines": [
+    "FX_SKINNED",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "4E4E4E073FC6E8C4"
+   ]
+  },
+  {
+   "name": "spec_fade_lightmap",
+   "defines": [
+    "FX_SPEC_FADE",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 3
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "SpeLodParam",
+     "register": 209,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 3
+    },
+    {
+     "fetch": 2,
+     "location": 4
+    },
+    {
+     "fetch": 3,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "FC99A7AB9B5FFEFC"
+   ]
+  },
+  {
+   "name": "skinned_spec_fade_lightmap",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SPEC_FADE",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "SpeLodParam",
+     "register": 209,
+     "count": 1
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    },
+    {
+     "fetch": 5,
+     "location": 5
+    }
+   ],
+   "hashes": [
+    "A23CE94757D4F5DF"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "spec_map_lightmap",
+   "defines": [
+    "FX_SPEC_MAP",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "11167B1A30F9B134"
+   ]
+  },
+  {
+   "name": "alpha_gloss_lightmap",
+   "defines": [
+    "FX_ALPHA_GLOSS",
+    "FX_LIGHTMAP"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "4F3D902410EE0568"
+   ]
+  },
+  {
+   "name": "lightmap_normal_gloss",
+   "defines": [
+    "FX_LIGHTMAP",
+    "FX_NORMAL_GLOSS"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "819EA798B2C638D1"
+   ]
+  },
+  {
+   "name": "spec_map_lightmap_reflect_reflect_map",
+   "defines": [
+    "FX_SPEC_MAP",
+    "FX_LIGHTMAP",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 5,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "CC737ECB0EA39FA1"
+   ]
+  },
+  {
+   "name": "alpha_gloss_lightmap_reflect_reflect_map",
+   "defines": [
+    "FX_ALPHA_GLOSS",
+    "FX_LIGHTMAP",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "59CE14BF7EF3072C"
+   ]
+  },
+  {
+   "name": "lightmap_normal_gloss_reflect_reflect_map",
+   "defines": [
+    "FX_LIGHTMAP",
+    "FX_NORMAL_GLOSS",
+    "FX_REFLECT",
+    "FX_REFLECT_MAP"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "fvMin",
+     "register": 74,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "MipmapBias",
+     "register": 248,
+     "count": 1
+    },
+    {
+     "field": "SpecularCol",
+     "register": 200,
+     "count": 1
+    },
+    {
+     "field": "SpecularLev",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "SpecularPow",
+     "register": 202,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "LightMapParam",
+     "register": 184,
+     "count": 1
+    },
+    {
+     "field": "ReflectAlpha",
+     "register": 208,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "2d"
+    },
+    {
+     "slot": 8,
+     "kind": "cube"
+    },
+    {
+     "slot": 9,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "3F54AA6740CAA87A"
+   ]
+  }
+ ]
+}

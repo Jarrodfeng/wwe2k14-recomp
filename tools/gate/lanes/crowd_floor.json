@@ -1,0 +1,9 @@
+{
+ "owner": "lane 82 (S101): the seated floor crowd at draw site 0x8276ED60 through the crowd seam: src/scene_live/crowd_floor.h (+ crowd_hooks.h / crowd_contrib.*), src/renderer_scene/crowd_ours.* (floor option, plants), crowd_floor_synth.h (fview test mode), binder.h crowd origin, tools/crowd/floor_join.py + floor_check.py, tools/scene/crowd_make.cpp --contract; docs/renderer/CROWD_FLOOR.md",
+ "note": "needs Check B's extracted capture (out/s101/crowd/case_brock/capture, made by the crowd_ours lane) and the game files; a machine without them SKIPs, run directly it fails loudly. BASE_CLEAN_MD5 in floor_check.py is per GPU / driver (RTX 4090, 93D28000, Vulkan 1.4.325). The hook's register reads are NOT proven offline: the live check. The contract check needs out/tools/crowd_make.exe (c2_crowd.tools_build makes it).",
+ "checks": [
+  {"name": "crowd_floor.join", "cmd": ["py", "-I", "tools/crowd/floor_join.py", "--selftest"], "timeout_s": 900, "needs": ["out/s101/crowd/case_brock/capture/scene", "game_data/extracted"]},
+  {"name": "crowd_floor.contract", "cmd": ["out/tools/crowd_make.exe", "--contract"], "timeout_s": 120},
+  {"name": "crowd_floor.proof", "cmd": ["py", "-I", "tools/crowd/floor_check.py", "--root", "."], "timeout_s": 3000, "needs": ["out/s101/crowd/case_brock/capture/scene", "game_data/extracted"]}
+ ]
+}

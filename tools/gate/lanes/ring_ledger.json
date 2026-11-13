@@ -1,0 +1,7 @@
+{
+ "owner": "lane 189 (S101): the ring's temporal ledger, tools/ring/ring_ledger.py (SKIP_GAME_WORK_MAP.md section 16). Python only, 0 game runs, about 1 minute. Captures: the unpacked Check B case under the main checkout's out/s101/lane92 and wm30 under out/lane84 (local game data; the selftest SKIPs when both are absent).",
+ "checks": [
+  {"name": "ring_ledger.selftest", "cmd": ["py", "-I", "tools/ring/ring_ledger_selftest.py"], "timeout_s": 900,
+   "needs": ["game_data/extracted", "out/s101/lane92/case_20261111_215233_217_0_pc_run_exit/capture/frames"]}
+ ]
+}

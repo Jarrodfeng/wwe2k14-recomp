@@ -8,6 +8,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,7 @@
 #include "../dlc_catalog.h"
 #include "../xctd_file.h"
 #include "bc3.h"
+#include "pack_fit.h"  // Session 101: the game's DLC view + the "does the pack fit" rule (shared with src\dlc.h and the launchers)
 #include "pack_io.h"
 #include "png.h"
 
@@ -32,6 +34,7 @@ using io::Bytes;
 namespace {
 
 std::vector<std::string> g_log;
+std::vector<std::string> g_moves;  // Session 101 (review S5b): the last build's slot moves, said to the player
 std::mutex g_log_mutex;
 
 fs::path U8Path(const std::string& s) { return fs::u8path(s); }
@@ -82,6 +85,18 @@ bool WriteAll(const fs::path& p, const Bytes& b) {
   return f && f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size())) && f.flush();
 }
 bool WriteText(const fs::path& p, const std::string& s) { return WriteAll(p, Bytes(s.begin(), s.end())); }
+// Session 101 (lane 199): pack.json records each source pac as an absolute path. When that file is gone (the player unzipped a new
+// release elsewhere and copied his mods folder over, or moved the folder), the copy ExtractSource made in THIS mods folder's
+// superstars\sources\ is used, found by its file name; otherwise the next build failed with "cannot read <old path>".
+std::string ResolveSource(const fs::path& stars_root, const std::string& recorded) {
+  std::error_code ec;
+  if (recorded.empty() || fs::is_regular_file(U8Path(recorded), ec)) return recorded;
+  const size_t cut = recorded.find_last_of("\\/");  // (either separator: a pack.json from the other platform)
+  const std::string name = cut == std::string::npos ? recorded : recorded.substr(cut + 1);
+  if (name.empty()) return recorded;
+  const fs::path here = stars_root / "sources" / U8Path(name);
+  return fs::is_regular_file(here, ec) ? PathU8(here) : recorded;
+}
 Bytes Unxctd(Bytes raw) {
   if (!wwe2k14::xctd::IsXctd(raw)) return raw;
   Bytes out;
@@ -397,8 +412,11 @@ std::string Latin1(const std::string& u) {
 // ------------------------------------------------------------------ the build
 struct RealPack {
   int id = -1;
-  fs::path root;
+  fs::path root;  // the pack's folder, or the package file (pkg set)
+  std::shared_ptr<wwe2k14::dlc::StfsPackage> pkg;  // Session 101: an Xbox 360 package, read in place (it was skipped before, so a
+                                                   // player with packages got a pack built on the disc, which the game then left out)
   uint16_t revision = 0;
+  uint32_t sig = 0;  // Session 101: its catalog's FNV-1a (superstars.txt "top": which copy of the pack it was built on)
   std::vector<io::CatFile> files;
   std::vector<io::CatEntry> entries;
   std::string Pp() const { char b[8]; std::snprintf(b, sizeof b, "%02d", id); return b; }
@@ -407,26 +425,59 @@ struct RealPack {
       if (Lower(f.name) == Lower(rel)) return true;
     return false;
   }
+  bool roster = false;  // (review N6) pack_fit.h IsRosterPack - the one rule the game uses too
+  bool Roster() const { return roster; }
+  // One of its files (a catalog path, any case), from the folder or from inside the package.
+  bool Read(const std::string& rel, Bytes& out, uint64_t cap = 1ull << 31) const {
+    out.clear();
+    if (pkg) {
+      const wwe2k14::dlc::StfsPackage::File* f = pkg->Find(rel);
+      return f && pkg->Read(*f, out, size_t(std::min<uint64_t>(cap, SIZE_MAX)));
+    }
+    const fs::path f = FindUnder(root, rel);
+    return !f.empty() && ReadAll(f, out, cap);
+  }
+  uint64_t Size(const std::string& rel) const {
+    if (pkg) {
+      const wwe2k14::dlc::StfsPackage::File* f = pkg->Find(rel);
+      return f ? f->length : 0;
+    }
+    std::error_code ec;
+    const fs::path f = FindUnder(root, rel);
+    const uint64_t n = f.empty() ? 0 : fs::file_size(f, ec);
+    return ec ? 0 : n;
+  }
 };
 
-std::vector<RealPack> RealPacks(const std::string& dlc_dir, const fs::path& exclude) {
+// Session 101 (lane 199): the real packs THE GAME WILL GET (src\importer\pack_fit.h GamePacks: ready, not switched off, accepted by
+// the game's gate; folders and packages), so the pack is built on exactly what the game sees. `off` = the launcher's dlc_off ("3,5");
+// before this it was ignored, and a pack built on a switched-off pack was left out by the game.
+std::vector<RealPack> RealPacks(const std::string& dlc_dir, const fs::path& exclude, const std::string& off = "") {
   std::vector<RealPack> out;
   std::error_code ec;
   if (dlc_dir.empty() || !fs::is_directory(U8Path(dlc_dir), ec)) return out;
   const fs::path ex = exclude.empty() ? fs::path() : fs::weakly_canonical(exclude, ec);
-  for (const wwe2k14::dlc::Pack& p : wwe2k14::dlc::Scan(U8Path(dlc_dir))) {
-    if (p.status != wwe2k14::dlc::Status::kReady || p.package) continue;  // (STFS packages: read in place by the game only)
-    if (!ex.empty()) {
+  for (const wwe2k14::dlc::Pack& p : wwe2k14::superstars_fit::GamePacks(U8Path(dlc_dir), off)) {
+    if (!ex.empty() && !p.package) {
       const std::string a = Lower(PathU8(fs::weakly_canonical(p.root, ec))), b = Lower(PathU8(ex));
       if (a.compare(0, b.size(), b) == 0) continue;  // our own pack (a mods folder inside the DLC folder)
     }
+    RealPack r;
     Bytes cat;
-    if (!ReadAll(p.root / "info" / "catalog.dlc", cat, 1 << 20)) continue;
+    if (p.package) {
+      r.pkg = std::make_shared<wwe2k14::dlc::StfsPackage>();
+      std::string why;
+      const wwe2k14::dlc::StfsPackage::File* f = nullptr;
+      if (!r.pkg->Open(p.root, why) || !(f = r.pkg->Find("info\\catalog.dlc")) || !r.pkg->Read(*f, cat, 1 << 20)) continue;
+    } else if (!ReadAll(p.root / "info" / "catalog.dlc", cat, 1 << 20)) {
+      continue;
+    }
     io::CatInfo info;
     std::vector<uint32_t> gate(std::begin(io::kGateTable), std::end(io::kGateTable));
     if (!io::ParseCatalogLikeGame(cat, gate, info).empty()) continue;
-    RealPack r;
     r.id = info.pack, r.root = p.root, r.revision = info.revision, r.files = info.files, r.entries = info.entries;
+    r.sig = wwe2k14::dlc::Fnv32(cat.data(), cat.size());
+    r.roster = wwe2k14::superstars_fit::IsRosterPack(p);
     out.push_back(std::move(r));
   }
   std::sort(out.begin(), out.end(), [](const RealPack& a, const RealPack& b) { return a.id < b.id; });
@@ -456,10 +507,7 @@ struct Builder {
     out = Unxctd(std::move(out));
     return !out.empty();
   }
-  bool ReadPackFile(const RealPack& p, const std::string& rel, Bytes& out) {
-    const fs::path f = FindUnder(p.root, rel);
-    return !f.empty() && ReadAll(f, out);
-  }
+  bool ReadPackFile(const RealPack& p, const std::string& rel, Bytes& out) { return p.Read(rel, out); }
   // The pack that holds character `id`'s model pac (a DLC character), or nullptr (a disc character).
   const RealPack* PackOfChar(int id) const {
     for (const RealPack& p : packs)
@@ -508,7 +556,8 @@ bool PatchChEtc(Builder& b, io::Pac& etc, const std::vector<Superstar>& stars, s
     if (!ld || !ls || !lsd || !lp || !lpd || rit == rows.end() || rit->second.size() != 208 || io::L16(&rit->second[kRecHead]) != src)
       return err = "base wrestler " + std::to_string(src) + " (or slot " + std::to_string(slot) + ") has no usable roster row", false;
     if (!b.top && rit->second[kRecHead + 16] != 1)  // (no DLC: a DLC wrestler's row exists on the disc but he is not in this game)
-      return err = "base wrestler " + std::to_string(src) + " is not on this game's roster (a DLC wrestler?): pick another", false;
+      return err = "base wrestler " + std::to_string(src) + " comes with DLC the game does not get now (USE MY DLC is off, or you have no "
+                   "DLC): switch USE MY DLC on, or pick another base wrestler in the Superstar Importer", false;
     const uint16_t att_lo = uint16_t(src * 100), att_hi = uint16_t(src * 100 + 99);
     auto att = [&](uint16_t v) { return uint16_t(v - att_lo + slot * 100); };
     Bytes rec = rit->second;
@@ -751,6 +800,44 @@ bool WriteManifest(const fs::path& root, const PackState& st, int pack_id, bool 
   return true;
 }
 
+// Session 101 (review S4): <mods>\superstars\build.lock, created exclusively (fails when it exists), removed when the build ends. One
+// older than 10 minutes is a build that died (a full pack takes ~14 s on the PC, about a minute on a phone): taken over.
+struct BuildLock {
+  fs::path file;
+  bool ok = false;
+  std::string why;
+  explicit BuildLock(const fs::path& root) {
+    std::error_code ec;
+    fs::create_directories(root, ec);
+    file = root / "build.lock";
+    for (int attempt = 0; attempt < 2 && !ok; ++attempt) {
+#ifdef _WIN32
+      FILE* f = _wfopen(file.c_str(), L"wx");
+#else
+      FILE* f = std::fopen(file.c_str(), "wx");
+#endif
+      if (f) {
+        std::fprintf(f, "superstars build\n");
+        std::fclose(f);
+        ok = true;
+        break;
+      }
+      std::error_code e2;
+      const auto t = fs::last_write_time(file, e2);
+      const bool stale = !e2 && fs::file_time_type::clock::now() - t > std::chrono::minutes(10);
+      if (attempt == 0 && stale) fs::remove(file, e2);  // (a build that died: taken over once)
+      else break;
+    }
+    if (!ok) why = "another build of your superstars is running (the importer or the launcher): try again when it has finished";
+  }
+  ~BuildLock() {
+    std::error_code ec;
+    if (ok) fs::remove(file, ec);
+  }
+  BuildLock(const BuildLock&) = delete;
+  BuildLock& operator=(const BuildLock&) = delete;
+};
+
 uint64_t FileTimeNow() {
   using namespace std::chrono;
   const auto unix100ns = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count() / 100;
@@ -760,6 +847,10 @@ uint64_t FileTimeNow() {
 }  // namespace
 
 const std::vector<std::string>& LastBuildLog() { return g_log; }
+std::vector<std::string> LastBuildMoves() {
+  std::lock_guard lock(g_log_mutex);
+  return g_moves;
+}
 
 // ------------------------------------------------------------------ sources
 SourceInfo InspectSource(const std::string& path) {
@@ -876,7 +967,8 @@ static std::string ExtractSourceImpl(const std::string& zip_path, const std::str
 }
 
 // ------------------------------------------------------------------ manifest
-static bool LoadPackImpl(const std::string& mods_dir, PackState& out, std::string& err) {
+// portraits = false (review N3): the list without the PNG portraits, for the check before every PLAY (cheap).
+static bool LoadPackImpl(const std::string& mods_dir, PackState& out, std::string& err, bool portraits = true) {
   out = {};
   const fs::path root = U8Path(mods_dir) / "superstars";
   Bytes b;
@@ -893,8 +985,8 @@ static bool LoadPackImpl(const std::string& mods_dir, PackState& out, std::strin
       Superstar s;
       s.slot = x.Int("slot", -1), s.name = x.Str("name"), s.short_name = x.Str("short_name");
       s.base_id = x.Int("base_id", 100), s.entrance_from = x.Int("entrance_from", -1);
-      s.copy_ratings = x.Bool("copy_ratings", true), s.source_pac = x.Str("source_pac");
-      for (int k = 0; k < 3; ++k) {  // the portraits kept by SavePack / BuildPack
+      s.copy_ratings = x.Bool("copy_ratings", true), s.source_pac = ResolveSource(root, x.Str("source_pac"));  // (Session 101: a moved folder)
+      for (int k = 0; k < 3 && portraits; ++k) {  // the portraits kept by SavePack / BuildPack
         Bytes f;
         int w = 0, h = 0;
         if (ReadAll(RenderFile(root, s.slot, k), f, 64 << 20) && png::Read(f, s.render_rgba[k], w, h)) s.render_w[k] = w, s.render_h[k] = h;
@@ -923,8 +1015,9 @@ static bool SavePackImpl(const std::string& mods_dir, const PackState& st, std::
   return WriteManifest(root, st, pack_id, st.needs_build, err);
 }
 
-static std::vector<int> FreeSlotsImpl(const launcher::GameFiles& game, const std::string& dlc_dir) {
-  (void)game;
+// The ids in 397..499 the player's own packs use (every pack in the DLC folder, on or off; and the top pack's MUSIC ids). Session 101
+// (review S5): a slot is MOVED by a build only when one of these uses it; kReservedSlots only keeps new imports off 399.
+static std::set<int> UsedByPacks(const std::string& dlc_dir) {
   std::set<int> used;
   std::error_code ec;
   if (!dlc_dir.empty() && fs::is_directory(U8Path(dlc_dir), ec))
@@ -942,11 +1035,11 @@ static std::vector<int> FreeSlotsImpl(const launcher::GameFiles& game, const std
   {
     const std::vector<RealPack> packs = RealPacks(dlc_dir, {});
     for (auto it = packs.rbegin(); it != packs.rend(); ++it) {
-      const fs::path f = it->Has("pac\\DLC_dlc" + it->Pp() + ".pac") ? FindUnder(it->root, "pac\\DLC_dlc" + it->Pp() + ".pac") : fs::path();
+      const std::string f = "pac\\DLC_dlc" + it->Pp() + ".pac";
       Bytes d;
       io::Pac p;
       std::string e;
-      if (f.empty() || !ReadAll(f, d, 64 << 20) || !io::ReadPac(d, p, e)) continue;
+      if (!it->Has(f) || !it->Read(f, d, 64 << 20) || !io::ReadPac(d, p, e)) continue;
       const io::Entry* lsd = p.Find("ENEX", "LSD ");
       std::vector<io::Leaf> lists;
       if (!lsd || !io::ReadPach(io::Decode(lsd->blob), lists)) break;
@@ -962,6 +1055,16 @@ static std::vector<int> FreeSlotsImpl(const launcher::GameFiles& game, const std
       break;  // (the highest pack's list is the cumulative one)
     }
   }
+  return used;
+}
+
+static std::vector<int> FreeSlotsImpl(const launcher::GameFiles& game, const std::string& dlc_dir) {
+  (void)game;
+  // Session 101 (lane 199): the ids the real 2K14 packs use in 397..499 are never handed out, whether or not THIS player has those
+  // packs (399: pack 4's "SuperStar Pack" entry, docs\systems\dlc.md item 0). Before, a player without pack 4 got 399 for his third
+  // import; adding pack 4 later made every rebuild fail ("slot 399 is not free").
+  std::set<int> used = UsedByPacks(dlc_dir);
+  used.insert(std::begin(kReservedSlots), std::end(kReservedSlots));
   std::vector<int> out;
   for (int id = kFirstSlot; id <= kLastSlot; ++id)
     if (!used.count(id)) out.push_back(id);
@@ -969,21 +1072,29 @@ static std::vector<int> FreeSlotsImpl(const launcher::GameFiles& game, const std
 }
 
 // ------------------------------------------------------------------ BuildPack
-static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles& game_in, const std::string& dlc_dir, const PackState& st,
-               std::function<void(float, const char*)> progress, std::string& err) {
+static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles& game_in, const std::string& dlc_dir, const PackState& st_in,
+               std::function<void(float, const char*)> progress, std::string& err, const std::string& dlc_off) {
   std::lock_guard lock(g_log_mutex);
-  g_log.clear();
+  g_log.clear(), g_moves.clear();
   Builder b;
   b.log = &g_log;
   b.progress = std::move(progress);
   if (mods_dir.empty()) return err = "no mods folder", false;
   const fs::path root = U8Path(mods_dir) / "superstars";
+  // Session 101 (review S4): one build at a time across processes (the importer, the PC launcher, the phone's launcher and viewer
+  // all build the same pack6.building): an exclusive lock file, released on every return.
+  BuildLock held(root);
+  if (!held.ok) return err = held.why, false;
   b.game.SetRoot(game_in.root());
   if (!b.game.image_error().empty()) return err = "game files: " + b.game.image_error(), false;
   std::error_code ec;
-  b.packs = RealPacks(dlc_dir, root);
+  // Session 101 (lane 199): built on the packs the game gets (USE MY DLC, the switched-off ones, packages: pack_fit.h GamePacks)
+  b.packs = RealPacks(dlc_dir, root, dlc_off);
   for (const RealPack& p : b.packs)
-    if (p.Has("pac\\ch\\chEtc_dlc" + p.Pp() + ".pac") && p.Has("pac\\string_dlc" + p.Pp() + ".pac")) b.top = &p;
+    if (p.Roster()) b.top = &p;
+  // Session 101: the build's own copy of the list - sources found again after a moved folder, slots no longer free moved (below)
+  PackState st = st_in;
+  for (Superstar& s : st.stars) s.source_pac = ResolveSource(root, s.source_pac);
   // No DLC pack with a roster: the disc's own cumulative files are the base (b.top stays null; built_on stays empty).
   int max_real = 0, max_entry = 0;
   for (const RealPack& p : b.packs) {
@@ -1000,16 +1111,86 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
         ", our pack id " + std::to_string(b.pack_id) + " revision " + std::to_string(revision));
 
   // ---- check the characters
-  if (st.stars.empty()) return err = "no characters to build", false;
+  if (st.stars.empty()) {
+    // Session 101 (lane 199): the last one was removed - the old pack (still holding him) comes out of the game; before, the build
+    // refused an empty list and the removed characters stayed in the game.
+    std::error_code e2;
+    fs::remove(root / "superstars.txt", e2);
+    fs::remove_all(root / "pack6", e2);
+    if (e2) return err = "the old pack could not be removed (close the game first): " + e2.message(), false;
+    if (!WriteManifest(root, st, b.pack_id, /*needs_build=*/false, err)) return false;
+    fs::remove(wwe2k14::superstars_fit::StatusFile(U8Path(mods_dir)), e2);
+    b.Log("no characters: the pack is removed (the game's own roster only)");
+    return true;
+  }
+  {
+    // Session 101 (lane 199): a base / entrance wrestler from DLC the game does not get now (USE MY DLC off, that pack switched off or
+    // gone) - said plainly, with what to do, instead of a missing-render or roster-row error further on.
+    std::set<int> dlc_ids, offered_ids;  // every pack in the DLC folder (on or off) / the packs the game gets
+    std::error_code e2;
+    if (!dlc_dir.empty() && fs::is_directory(U8Path(dlc_dir), e2))
+      for (const wwe2k14::dlc::Pack& p : wwe2k14::dlc::Scan(U8Path(dlc_dir), false, false)) {
+        for (int c : p.char_ids) dlc_ids.insert(c);
+        for (const auto& e : p.entries)
+          if (e.type == 1 && e.char_id > 0) dlc_ids.insert(e.char_id);
+      }
+    for (const RealPack& p : b.packs) {
+      for (const auto& e : p.entries)
+        if (e.type == 1 && e.char_id > 0) offered_ids.insert(e.char_id);
+      for (int c : dlc_ids)
+        if (b.PackOfChar(c) == &p) offered_ids.insert(c);
+    }
+    for (size_t i = 0; i < st.stars.size(); ++i) {
+      const Superstar& s = st.stars[i];
+      for (int w : {s.base_id, s.entrance_from}) {
+        if (w < 0 || !dlc_ids.count(w) || offered_ids.count(w)) continue;
+        return err = s.name + ": his " + (w == s.base_id ? "base" : "entrance") + " wrestler (" + std::to_string(w) +
+                     ") comes with DLC the game does not get now. Switch that DLC on (USE MY DLC, and the pack itself), or pick "
+                     "another wrestler for him in the Superstar Importer", false;
+      }
+    }
+  }
   if (st.stars.size() > size_t(kMaxStars)) return err = "more than " + std::to_string(kMaxStars) + " characters", false;
   const std::vector<int> free = FreeSlots(game_in, dlc_dir);
+  const std::set<int> pack_used = UsedByPacks(dlc_dir);
+  {
+    // Session 101 (lane 199; review S5): a slot one of the player's packs now uses (a pack added since the last build), one used
+    // twice or one outside 397..499 is MOVED to a free slot, not refused: before, such a rebuild failed and the player had to remove
+    // and import the character again. Only those: a character already on 399 (kReservedSlots) with no pack using it stays (the
+    // reservation is for new imports). His id changes, so a save that used the old one (Universe, a match card) shows someone else
+    // there; pack.json follows, and the player is told (LastBuildMoves).
+    std::set<int> kept;
+    std::vector<size_t> move;
+    for (size_t i = 0; i < st.stars.size(); ++i) {
+      const int slot = st.stars[i].slot;
+      if (slot >= kFirstSlot && slot <= kLastSlot && !pack_used.count(slot) && kept.insert(slot).second) continue;
+      move.push_back(i);
+    }
+    for (size_t i : move) {
+      int to = -1;
+      for (int f : free)  // (never a slot another character keeps or was just given; a slot a mover leaves is a pack's: never free)
+        if (!kept.count(f)) {
+          to = f;
+          break;
+        }
+      Superstar& s = st.stars[i];
+      if (to < 0) return err = "character " + std::to_string(i + 1) + " (" + s.name + "): no free slot left for him", false;
+      b.Log("slot " + std::to_string(s.slot) + " of " + s.name + " is not free (a DLC pack uses it, or it was used twice): moved to " +
+            std::to_string(to));
+      g_moves.push_back(s.name + " moved from slot " + std::to_string(s.slot) + " to " + std::to_string(to) +
+                        " (saves that used him may show someone else).");
+      b.warnings.push_back(g_moves.back());
+      s.slot = to;
+      kept.insert(to);
+    }
+  }
   std::set<int> slots;
   std::vector<ModPac> mods(st.stars.size());
   uint64_t source_bytes = 0;
   for (size_t i = 0; i < st.stars.size(); ++i) {
     const Superstar& s = st.stars[i];
     const std::string who = "character " + std::to_string(i + 1) + " (" + s.name + ")";
-    if (std::find(free.begin(), free.end(), s.slot) == free.end()) return err = who + ": slot " + std::to_string(s.slot) + " is not free", false;
+    if (s.slot < kFirstSlot || s.slot > kLastSlot || pack_used.count(s.slot)) return err = who + ": slot " + std::to_string(s.slot) + " is not free", false;
     if (!slots.insert(s.slot).second) return err = who + ": slot " + std::to_string(s.slot) + " used twice", false;
     if (s.name.empty()) return err = who + ": no name", false;
     if (s.base_id < kMinBase || s.base_id > kMaxBase || (s.entrance_from >= 0 && (s.entrance_from < kMinBase || s.entrance_from > kMaxBase)))
@@ -1032,10 +1213,8 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
     if (b.top) {
       for (const auto& f : b.top->files) {
         const std::string l = Lower(f.name);
-        if (l.rfind("pac\\", 0) == 0 && l.find("\\ch\\ch") == std::string::npos && l.find("\\evt\\") == std::string::npos) {
-          const fs::path x = FindUnder(b.top->root, f.name);
-          if (!x.empty()) need += fs::file_size(x, ec), ec.clear();
-        }
+        if (l.rfind("pac\\", 0) == 0 && l.find("\\ch\\ch") == std::string::npos && l.find("\\evt\\") == std::string::npos)
+          need += b.top->Size(f.name);
       }
     } else {
       need += 64ull << 20;  // (the disc's string, DLC, sound, audience, AI and roster pacs, unpacked)
@@ -1246,10 +1425,14 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
     fs::create_directories(to.parent_path(), ec);
     bool found = false, ok = false;
     const RealPack* rp = b.PackOfChar(e);
-    const fs::path f = rp && rp->Has(src) ? FindUnder(rp->root, src) : fs::path();
+    const fs::path f = rp && !rp->pkg && rp->Has(src) ? FindUnder(rp->root, src) : fs::path();
     if (!f.empty()) {
       found = true;
       ok = fs::copy_file(f, to, fs::copy_options::overwrite_existing, ec) && !ec;
+    } else if (rp && rp->pkg && rp->Has(src)) {  // (Session 101: from inside an Xbox 360 package)
+      Bytes d;
+      found = true;
+      ok = rp->Read(src, d) && WriteAll(to, d);
     } else if (b.game.Exists(src)) {
       found = true;
       std::ofstream o(to, std::ios::binary | std::ios::trunc);
@@ -1383,32 +1566,44 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
           " type-1 entries (" + std::to_string(first_entry) + ".." + std::to_string(first_entry + entries.size() - 1) + "), " +
           std::to_string(files.size()) + " files");
   }
-  // 9. swap in, then the manifest, the renders and the game's file
+  // 9. swap in, then the manifest, the renders and the game's file. The game's file is written aside BEFORE the swap (review N1) and
+  // renamed right after it, so the pack and it always agree (nothing slow between the two). No on / off in it: the launcher's
+  // USE MY SUPERSTARS is the only switch (Jarrod, S98: one simple switch).
   b.Prog(0.96f, "finishing");
-  const fs::path final_dir = root / "pack6", old = root / "pack6.old";
-  fs::remove_all(old, ec);
-  if (fs::exists(final_dir, ec)) {
-    fs::rename(final_dir, old, ec);
-    if (ec) return fail("the old pack is in use (close the game first): " + ec.message());
-  }
-  fs::rename(b.out, final_dir, ec);
-  if (ec) {
-    std::error_code e2;
-    fs::rename(old, final_dir, e2);
-    return fail("could not put the new pack in place: " + ec.message());
-  }
-  fs::remove_all(old, ec);
-  // the game's file right after the swap (review), written aside and renamed: the pack and it always agree. No on / off in it:
-  // the launcher's USE MY SUPERSTARS is the only switch (Jarrod, S98: one simple switch).
   {
     std::string txt = "# WWE 2K14 Superstar Importer: read by the game at boot (src\\superstars.h). Written by the importer.\npack " +
                       std::to_string(b.pack_id) + "\nbuilt_on";
     for (int id : b.built_on) txt += " " + std::to_string(id);
     txt += "\n";
+    {  // Session 101: the top roster pack and which copy of it (pack_fit.h: the game, the importer and the launchers compare it)
+      char top[48];
+      std::snprintf(top, sizeof top, "top %d %08X\n", b.top ? b.top->id : 0, b.top ? unsigned(b.top->sig) : 0u);
+      txt += top;
+    }
     for (const Superstar& s : st.stars)
       txt += "star " + std::to_string(s.slot) + " music " + std::to_string(s.entrance_from >= 0 ? s.entrance_from : s.base_id) + "\n";
+    if (!WriteText(root / "superstars.txt.part", txt)) return fail("superstars.txt could not be written");
+  }
+  const fs::path final_dir = root / "pack6", old = root / "pack6.old";
+  fs::remove_all(old, ec);
+  if (fs::exists(final_dir, ec)) {
+    fs::rename(final_dir, old, ec);
+    if (ec) {
+      const std::string why = ec.message();
+      std::error_code e2;
+      fs::remove(root / "superstars.txt.part", e2);
+      return fail("the old pack is in use (close the game first): " + why);
+    }
+  }
+  fs::rename(b.out, final_dir, ec);
+  if (ec) {
     std::error_code e2;
-    if (!WriteText(root / "superstars.txt.part", txt)) return err = "the pack is built but superstars.txt could not be written", false;
+    fs::rename(old, final_dir, e2);
+    fs::remove(root / "superstars.txt.part", e2);
+    return fail("could not put the new pack in place: " + ec.message());
+  }
+  {
+    std::error_code e2;
     fs::rename(root / "superstars.txt.part", root / "superstars.txt", e2);
     if (e2) {
       fs::remove(root / "superstars.txt", e2);
@@ -1416,7 +1611,9 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
       if (e2) return err = "the pack is built but superstars.txt could not be written", false;
     }
   }
+  fs::remove_all(old, ec);
   if (!WriteManifest(root, st, b.pack_id, /*needs_build=*/false, err)) return err = "the pack is built but " + err, false;
+  fs::remove(wwe2k14::superstars_fit::StatusFile(U8Path(mods_dir)), ec);  // (Session 101: the game's old verdict is about the old pack)
   for (const std::string& w : b.warnings) b.Log("warning: " + w);
   b.Prog(1.f, "done");
   return true;
@@ -1462,37 +1659,64 @@ std::vector<int> FreeSlots(const launcher::GameFiles& game, const std::string& d
     return {};
   }
 }
-bool PackOutOfDate(const std::string& mods_dir, const std::string& dlc_dir) {
+// Session 101 (lane 199): the game's own rule (pack_fit.h Problem, which src\dlc.h applies at boot) on the packs the game will get.
+std::string PackProblem(const std::string& mods_dir, const std::string& dlc_dir, const std::string& dlc_off) {
   try {
-    if (mods_dir.empty()) return false;
-    const fs::path root = U8Path(mods_dir) / "superstars";
-    std::ifstream f(root / "superstars.txt");
-    if (!f) return false;  // (not built yet: needs_build says so)
-    std::set<int> built_on;
-    for (std::string line; std::getline(f, line);) {
-      std::istringstream in(line);
-      std::string key;
-      in >> key;
-      if (key == "built_on") for (int id; in >> id;) built_on.insert(id);
-    }
-    int top = 0;
-    std::set<int> real;
-    for (const RealPack& p : RealPacks(dlc_dir, root)) {
-      real.insert(p.id);
-      if (p.Has("pac\\ch\\chEtc_dlc" + p.Pp() + ".pac") && p.Has("pac\\string_dlc" + p.Pp() + ".pac")) top = std::max(top, p.id);
-    }
-    for (int id : built_on)
-      if (!real.count(id)) return true;  // built on a pack this game no longer gets
-    return top > (built_on.empty() ? 0 : *built_on.rbegin());
+    if (mods_dir.empty()) return {};
+    return wwe2k14::superstars_fit::ProblemFor(U8Path(mods_dir), dlc_dir.empty() ? fs::path() : U8Path(dlc_dir), dlc_off);
   } catch (...) {
-    return false;
+    return {};
+  }
+}
+bool PackOutOfDate(const std::string& mods_dir, const std::string& dlc_dir, const std::string& dlc_off) {
+  return !PackProblem(mods_dir, dlc_dir, dlc_off).empty();
+}
+
+PlayCheck CheckBeforePlay(const std::string& mods_dir, const std::string& dlc_dir, const std::string& dlc_off) {
+  PlayCheck c;
+  try {
+    PackState st;
+    std::string err;
+    if (mods_dir.empty()) return c;
+    if (!LoadPackImpl(mods_dir, st, err, /*portraits=*/false))  // (review N3: no PNG decodes before every PLAY)
+      return c.why = "Your superstars list could not be read (" + err + "): open the Superstar Importer.", c;
+    c.stars = int(st.stars.size());
+    const fs::path root = U8Path(mods_dir) / "superstars";
+    std::error_code ec;
+    if (!c.stars) {  // (every superstar removed: the old pack, still holding them, comes out with a build)
+      // (review S6) only when pack.json exists and says so: a pack with no list (copied in by hand, or pack.json lost) is never removed
+      if (fs::is_regular_file(root / "pack.json", ec) && fs::is_regular_file(root / "pack6" / "info" / "catalog.dlc", ec))
+        c.build = true, c.why = "You removed every superstar, but the old pack is still in the game.";
+      return c;
+    }
+    if (!fs::is_regular_file(root / "pack6" / "info" / "catalog.dlc", ec) || !fs::is_regular_file(root / "superstars.txt", ec)) {
+      c.build = true, c.why = "Your superstars are not built into the game yet.";
+    } else if (st.needs_build) {
+      c.build = true, c.why = "Your superstars list changed since the pack was last built.";
+    } else if (const std::string p = PackProblem(mods_dir, dlc_dir, dlc_off); !p.empty()) {
+      c.build = true, c.why = "Your superstars pack no longer fits your DLC: " + p + ".";
+    }
+  } catch (const std::exception& e) {
+    c.why = std::string("Your superstars could not be checked: ") + e.what();
+  }
+  return c;
+}
+
+std::string LastGameProblem(const std::string& mods_dir) {
+  try {
+    if (mods_dir.empty()) return {};
+    const std::string s = wwe2k14::superstars_fit::ReadStatus(U8Path(mods_dir));
+    if (s.rfind("out ", 0) != 0) return {};
+    return "In your last game your superstars were left out: " + s.substr(4) + ".";
+  } catch (...) {
+    return {};
   }
 }
 
 bool BuildPack(const std::string& mods_dir, const launcher::GameFiles& game, const std::string& dlc_dir, const PackState& st,
-               std::function<void(float, const char*)> progress, std::string& err) {
+               std::function<void(float, const char*)> progress, std::string& err, const std::string& dlc_off) {
   try {
-    return BuildPackImpl(mods_dir, game, dlc_dir, st, std::move(progress), err);
+    return BuildPackImpl(mods_dir, game, dlc_dir, st, std::move(progress), err, dlc_off);
   } catch (const std::exception& e) {
     std::error_code ec;
     fs::remove_all(U8Path(mods_dir) / "superstars" / "pack6.building", ec);

@@ -1,0 +1,1 @@
+{"owner": "go-anywhere L-1 (lane 102, bus moments: WHEN grammar, index, event track)", "checks": [{"name": "moments_when.selftest", "cmd": ["py", "-I", "tools/goto/when_selftest.py"], "timeout_s": 300, "needs": []}]}

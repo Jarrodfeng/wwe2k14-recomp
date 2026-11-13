@@ -1,0 +1,34 @@
+# Session 101, lane 176 (src/crowd_wide.h, docs/renderer/CROWD_WIDE.md): the stands crowd's screen test follows the displayed aspect.
+# The three hooks run where the game built the test's matrix on its own stack and BEFORE it uses it; they scale the test's copy only (never the camera
+# block, never the picture's matrices) and return at once on a 16:9 display (--wwe2k14_crowd_fill_wide=off also).
+# Addresses: tools/analysis/list_function.py 8250E110 / 8250DC10 (generated/default, 2026-11-12).
+
+# sub_8250E110 (the per-member test): 0x8250E1CC is `bl 0x822505b8` (r1+112 = camera +240 times camera +176, in place); 0x8250E1D0 is the next
+# line. f29 = m00 * K and f28 = m11 * K were loaded at 0x8250E1B8-0x8250E1C8 from the matrix before the multiply (the member radius scales).
+[[midasm_hook]]
+address = 0x8250E1D0
+name = "wwe2k14_crowd_wide_member"
+registers = ["r1", "f28", "f29"]
+
+# sub_8250DC10 (the per-section test, called by sub_8250E400): 0x8250DC90 is `bl 0x82296630` (r1+160 = camera +240 times the copy of camera +176
+# at r1+96); 0x8250DC94 is the next line (`addi r24,r31,592`). `lfs f24,96(r1)` (the radius scale m00) comes later, at 0x8250DCA4.
+[[midasm_hook]]
+address = 0x8250DC94
+name = "wwe2k14_crowd_wide_section"
+registers = ["r1"]
+
+# sub_8250E7E0 (the seated floor people's screen test; called from sub_82519508 at 0x82519578 every draw, it sets bit 31 of [record + 12] for every member and
+# clears it for those inside a +-0.9 box; sub_8276EAA0 skips the set ones): 0x8250E854 is the last stvx128 that copies camera +176 to r1+96..159; 0x8250E858 is
+# `lfs f12,116(r1)`, before the radius scales (f29, f28) are loaded and before `bl 0x822505b8` multiplies the copy by the view in place.
+[[midasm_hook]]
+address = 0x8250E858
+name = "wwe2k14_crowd_wide_floor"
+registers = ["r1"]
+
+# Lane 234 (two frustums: sub_82698A20 on [0x837689DC] and sub_826989D8 on [0x837689D8], both via sub_82769B98, so this one hook widens both): sub_82769B98 (the stage visibility frustum: the arena's per-node six-plane test, sub_82769820 via sub_82699C60 from sub_824E9E10; built each update from
+# sub_826989D8 on the object at 0x837689DC + 16). 0x82769D0C is `bl 0x82280008`; 0x82769D10 (`lis r11,-32231`) is before the 8-corner loop at 0x82769D20 that carries the corners
+# (stored at r31 + 16 j, x y z w, 0x82769C30-0x82769D08) to world space. r31 = the frustum, kept across the call. Scales the corners' x by k and y by t.
+[[midasm_hook]]
+address = 0x82769D10
+name = "wwe2k14_crowd_wide_stage"
+registers = ["r31"]

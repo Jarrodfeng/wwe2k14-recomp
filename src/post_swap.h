@@ -78,6 +78,7 @@ inline bool Register(rex::graphics::CommandProcessor* cp, uint64_t hash, const u
 inline void Install() {
   rex::graphics::CommandProcessor* cp = wwe2k14::half2::Cp();
   if (!cp) {
+    if (wwe2k14::GuestGpuOnly()) return;  // lane 241 (3b): no command processor by design, not a late start
     REXLOG_WARN("[wwe2k14][post_swap] no command processor yet: no replacement shaders registered");
     return;
   }

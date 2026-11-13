@@ -1,0 +1,8 @@
+{
+ "owner": "lane 126 (S101): the 2D draws of entrances and matches are ours (UiOurs first tier + evtgdhd.pac + gm.pac, second tier = the arena bg pacs' lightmaps on demand), docs/renderer/UI_OURS.md section 'In-match and entrance 2D'. fview half only (pictures byte-equal, census, validation, plants wrong_texture / no_deep / no_view_check).",
+ "note": "needs: the Bryan, WM30 and Brock entrance case zips (extracted once under the main out/s101/ui_inmatch/ - the run folders age out of out/ after 24 h: keep the extracted folders), the game files, a GPU (shared: only the frame-ring refusal is retried). A missing input FAILs loudly. The menu / editor / Brock gate (ui_ours) is lane 66's and still runs.",
+ "checks": [
+  {"name": "ui_inmatch.proof", "cmd": ["py", "-I", "tools/ui/ui_inmatch_check.py", "--root", ".", "--no-build"], "timeout_s": 3600,
+   "needs": ["game_data/extracted/pac/gm.pac", "out/s101/ui_inmatch/case_bryan/capture/images.bin", "out/s101/ui_inmatch/case_wm30/capture/images.bin", "out/s101/ui_inmatch/case_brock/capture/images.bin"]}
+ ]
+}

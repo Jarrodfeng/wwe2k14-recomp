@@ -1,0 +1,6 @@
+{"f": 6023, "t": 19.141, "kind": "match", "what": "clock_started", "clock": 1}
+{"f": 12147, "t": 44.064, "kind": "match", "what": "pin", "pinning_slot": 1}
+{"f": 12176, "t": 44.185, "kind": "match", "what": "count", "count": 1}
+{"f": 12234, "t": 44.451, "kind": "match", "what": "count", "count": 2}
+{"f": 12291, "t": 44.712, "kind": "match", "what": "kickout", "at_count": 2}
+{"f": 12293, "t": 44.722, "kind": "match", "what": "finish", "finish_type": 1, "finish_name": "pinfall", "winner_slot": 1, "winner_id": 343, "loser_slot": 0, "loser_id": 324, "clock": 6270}

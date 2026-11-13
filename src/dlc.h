@@ -159,6 +159,8 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
   }
   // Session 98 (Jarrod: the importer must work without any DLC): the superstars pack does not need USE MY DLC or a DLC folder. A
   // pack built on real packs is still left out below when they are not offered.
+  // Session 101 (review N4): until the pack is taken in (PatchGate), the verdict says the game never got that far
+  if (superstars::g_found) superstars::WriteStatus("out the game stopped before it checked your DLC (send a report if this stays)");
   const bool real_dlc = REXCVAR_GET(wwe2k14_dlc);
   if (!real_dlc && !superstars::g_found) return;
   const std::string dir_flag = REXCVAR_GET(wwe2k14_dlc_dir);
@@ -174,6 +176,15 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
   }
   try {
     if (real_dlc && have_dir) g_packs = Scan(g_dir);
+    // Session 101 (lane 199): an id the game's own gate refuses (0x82035E9C: ids 1..5 only) never reaches it - logged and dropped
+    // here, so a copy of the Superstar Importer's pack (id 6) put in the DLC folder cannot shadow the real one as a "duplicate".
+    std::erase_if(g_packs, [](const Pack& p) {
+      if (p.pack_id < 0 || GateAccepts(p.pack_id, p.revision) || (p.status != Status::kReady && p.status != Status::kDuplicate))
+        return false;
+      REXLOG_INFO("[wwe2k14][dlc] pack {} '{}' (revision {}): the game accepts DLC pack ids 1-5 only: skipped (a Superstar Importer "
+                  "pack belongs in the mods folder, not the DLC folder)", p.pack_id, p.folder, p.revision);
+      return true;
+    });
     // Test only (S98 importer run 2): a second folder's packs join the list (sorted by pack id again; a pack id seen
     // in both folders is a duplicate and skipped, as within one folder). Its packs are named "[extra] <folder>".
     if (!extra_flag.empty()) {
@@ -211,29 +222,28 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
     // Session 98: the superstars pack: its id must be the one superstars.txt names, and every pack it was built on must be
     // offered (they have lower ids, so they are decided before it in this pack-id order).
     const bool ours = p.folder.rfind(kSuperstarsFolder, 0) == 0;
-    std::string missing;
-    bool newer_real = false;  // a real pack with its own roster above the one ours copied (the highest pack's roster wins in the game: its
-                              // wrestlers would vanish). A pack built with no DLC has an empty built_on, so any real roster pack is newer.
+    // Session 101 (lane 199): whether the superstars pack fits the real packs the game gets - the ONE rule the importer and the
+    // launchers use too (src\importer\pack_fit.h; they rebuild before PLAY). The real packs have lower ids, so they are decided
+    // before ours in this pack-id order.
+    std::string misfit;
     if (ours && p.status == Status::kReady) {
-      for (int id : superstars::g_built_on) {
-        bool offered = false;
-        for (const Offered& o : g_offered) offered = offered || o.pack->pack_id == id;
-        if (!offered) missing += (missing.empty() ? "" : ",") + std::to_string(id);
-      }
-      int top = 0;
-      for (int id : superstars::g_built_on) top = std::max(top, id);
-      for (const Offered& o : g_offered) newer_real = newer_real || (o.pack->pack_id > top && !o.pack->string_pack.empty());
+      std::vector<const Pack*> real;
+      for (const Offered& o : g_offered)
+        if (o.pack->folder.rfind(kSuperstarsFolder, 0) != 0) real.push_back(o.pack);
+      misfit = superstars_fit::Problem(superstars::g_built, real);
     }
     if (p.status != Status::kReady) {
       what = std::string(StatusName(p.status)) + " (" + p.reason + "): skipped";
+      if (ours) superstars::WriteStatus("out the pack is " + std::string(StatusName(p.status)) + " (" + p.reason + "): build it again");  // (Session 101)
     } else if (ours && p.pack_id != superstars::g_pack_id) {
       what = "pack id is not superstars.txt's " + std::to_string(superstars::g_pack_id) + ": skipped (rebuild it in the importer)";
+      superstars::WriteStatus("out the pack does not match its superstars.txt (build it again in the importer)");
     } else if (ours && p.pack_id < 6) {
       what = "a superstars pack needs an id above the real packs (6..): skipped";
-    } else if (ours && !missing.empty()) {
-      what = "built on pack(s) " + missing + ", which the game does not get now: skipped (switch them on, or rebuild it in the importer)";
-    } else if (ours && newer_real) {
-      what = "your DLC changed since it was built: skipped (rebuild it in the importer)";
+      superstars::WriteStatus("out the pack has a wrong id (build it again in the importer)");
+    } else if (ours && !misfit.empty()) {
+      what = misfit + ": skipped (rebuild it: the launcher does at PLAY, or the importer's BUILD INTO GAME)";
+      superstars::WriteStatus("out " + misfit);
     } else if (switched_off) {
       what = "switched off";
     } else {
@@ -251,6 +261,7 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
       else device = std::make_unique<rex::filesystem::HostPathDevice>(o.device_path, p.root, /*read_only=*/true);
       if (!device->Initialize() || !file_system->RegisterDevice(std::move(device))) {
         what = "could not be mounted: skipped";
+        if (ours) superstars::WriteStatus("out the pack could not be opened: send a report");  // (Session 101)
       } else {
         what = "offered to the game";
         g_offered.push_back(std::move(o));
@@ -258,6 +269,7 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
           superstars::g_active = true;
           g_gate_id = p.pack_id;
           what += " (imported superstars)";
+          // ("in N" only once PatchGate has opened the gate for it: review N4)
         }
       }
     }
@@ -293,7 +305,9 @@ inline void PatchGate() {
   const bool stars_gate = g_gate_id && (!test_id || test_id == g_gate_id);
   superstars::g_active = false;  // (true again below, once the patch succeeds for the superstars pack's id)
   auto refused = [&] {
-    if (g_gate_id) REXLOG_WARN("[wwe2k14][superstars] the pack-id gate stays closed for pack {}: the game refuses it", g_gate_id);
+    if (!g_gate_id) return;
+    REXLOG_WARN("[wwe2k14][superstars] the pack-id gate stays closed for pack {}: the game refuses it", g_gate_id);
+    superstars::WriteStatus("out the game refused the pack (its pack-id gate could not be opened: send a report)");  // (Session 101)
   };
   if (g_gate_id && !stars_gate)
     REXLOG_WARN("[wwe2k14][superstars] --wwe2k14_dlc_gate_extra={} wins over the superstars pack {}: it is refused", test_id, g_gate_id);
@@ -325,7 +339,10 @@ inline void PatchGate() {
   const uint32_t v = (uint32_t(id) << 16) | 1u;
   host[0] = uint8_t(v >> 24), host[1] = uint8_t(v >> 16), host[2] = uint8_t(v >> 8), host[3] = uint8_t(v);
   const bool restored = heap->Protect(kGateTable, 4, old);
-  if (stars_gate) superstars::g_active = true;  // the superstars pack is in the game (its music remap may run)
+  if (stars_gate) {
+    superstars::g_active = true;  // the superstars pack is in the game (its music remap may run)
+    superstars::WriteStatus("in " + std::to_string(superstars::g_music.size()));  // (Session 101, review N4: only now)
+  }
   REXLOG_INFO("[wwe2k14][dlc] gate table {:08X} ({}): {:08X} {:08X} {:08X} {:08X} "
               "{:08X}; word 0 {:08X} -> {:08X} (pack {} accepted from revision 1), protection 0x{:X} {} frame={}",
               kGateTable, why, word(0), word(1), word(2), word(3), word(4), kGateWord0, v, id, old,

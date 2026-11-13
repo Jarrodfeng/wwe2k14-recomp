@@ -1,0 +1,48 @@
+# The sources fview's session.cpp needs beyond src\renderer and src\fview (one path per line, repo-relative). Read by tools\fview\build.ps1 AND
+# tools\post\build_proof.ps1 (which compiles session.cpp too): add a source here, not in one script (S101: post_proof's link broke when lane 35 added
+# the crowd drawer to fview only).
+src\renderer_scene\shader_reload.cpp
+src\renderer_scene\crowd_ours.cpp
+src\renderer_scene\crowd_cards_core.cpp
+src\renderer_scene\crowd_cards.cpp
+src\renderer_scene\record_io.cpp
+src\assets\crowd_body.cpp
+src\renderer_scene\wrestler_ours.cpp
+src\renderer_scene\caw_ours.cpp
+src\assets\wrestler_roster.cpp
+src\assets\arena_game_space.cpp
+src\renderer_scene\arena_ours_core.cpp
+src\renderer_scene\arena_ours.cpp
+src\renderer_scene\ui_ours_core.cpp
+src\renderer_scene\ui_ours.cpp
+src\renderer_scene\ui_quads.cpp
+src\renderer_scene\ui_text_fonts.cpp
+src\renderer_scene\ui_text_ours.cpp
+src\assets\flash_game_space.cpp
+src\renderer_scene\flash_ours.cpp
+src\assets\ring_game_space.cpp
+src\renderer_scene\ring_ours_core.cpp
+src\renderer_scene\ring_ours.cpp
+src\assets\prop_game_space.cpp
+src\renderer_scene\props_ours_core.cpp
+src\renderer_scene\props_ours.cpp
+# S101 lane PO: the post chain's promotion (post_ours.cpp calls PostPass and the plan). tools\post\build_proof.ps1 used to add post_pass.cpp itself: it is in this list now.
+src\renderer_scene\post_pass.cpp
+src\renderer_scene\post_plan.cpp
+src\renderer_scene\post_ours_core.cpp
+src\renderer_scene\post_ours.cpp
+src\assets\screen_game_space.cpp
+src\renderer_scene\screens_ours_core.cpp
+src\renderer_scene\screens_ours.cpp
+src\renderer_scene\movie_ours.cpp
+src\assets\chcommon_proxy.cpp
+src\renderer_scene\shadow_casters_core.cpp
+src\renderer_scene\shadow_casters_ours.cpp
+src\assets\crowd_prop_game_space.cpp
+src\renderer_scene\crowd_props_ours.cpp
+src\renderer_scene\rim_map_ours.cpp
+src\renderer_scene\circle_shadows_ours.cpp
+src\renderer_scene\plane_shadow_ours.cpp
+src\renderer_scene\small_passes_ours.cpp
+# lane 151: the rim light map's reductions and blur (own programs)
+src\renderer_scene\rim_chain_ours.cpp

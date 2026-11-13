@@ -1,0 +1,77 @@
+{
+ "effect": "yShadowMapEdge",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "OffsetTex",
+     "register": 0,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "0570CC6F4C7FF27C"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "5CFE3D25D9BB7118"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [],
+   "constants": [
+    {
+     "field": "OffsetTex",
+     "register": 0,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  },
+  "fragment": {
+   "options": [],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,228 @@
+{
+ "effect": "yShadowMap",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "Trapezoidal",
+     "register": 64,
+     "count": 4
+    },
+    {
+     "field": "ViewDepth",
+     "register": 54,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    }
+   ],
+   "hashes": [
+    "4FCB48D37C22AF54"
+   ]
+  },
+  {
+   "name": "skinned",
+   "defines": [
+    "FX_SKINNED"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "Trapezoidal",
+     "register": 64,
+     "count": 4
+    },
+    {
+     "field": "ViewDepth",
+     "register": 54,
+     "count": 1
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    }
+   ],
+   "hashes": [
+    "9DAC5F03E46CCCA7"
+   ]
+  },
+  {
+   "name": "single_bone",
+   "defines": [
+    "FX_SINGLE_BONE"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "Trapezoidal",
+     "register": 64,
+     "count": 4
+    },
+    {
+     "field": "ViewDepth",
+     "register": 54,
+     "count": 1
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    }
+   ],
+   "hashes": [
+    "F3E5052C00F89844"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "target_16": "unsigned",
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 1
+    }
+   ],
+   "samplers": [],
+   "hashes": [
+    "DA494C9383E18961"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_SINGLE_BONE"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "Trapezoidal",
+     "register": 64,
+     "count": 4
+    },
+    {
+     "field": "ViewDepth",
+     "register": 54,
+     "count": 1
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SINGLE_BONE"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [],
+   "target_16": "unsigned",
+   "constants": [
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 1
+    }
+   ],
+   "samplers": []
+  }
+ }
+}

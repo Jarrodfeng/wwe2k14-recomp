@@ -191,6 +191,7 @@ inline uint32_t Scratch() {
 // The call Begin took, kept for End (the game's memcpy lies between them).
 struct Open {
   bool active = false;
+  bool owner_null = false;  // Session 100: opened by OwnerNullBegin (no record)
   uint32_t device = 0, primitive = 0, count = 0, stride = 0, bytes = 0;
   uint64_t masks[5] = {};  // +0 +8 +16 +24 +32 as the flush reads them
   uint32_t old_stride_dword = 0;
@@ -261,6 +262,61 @@ inline void AddFloatGroups(d3d::InlineDrawRecord& r, const uint8_t* base, uint32
 
 // BeginVertices. true: taken, ctx.r3 = the guest vertex pointer the game fills; false: nothing was touched, the caller runs
 // the original (counted).
+// Session 100 (speed): owner mode (the old path draws nothing, gpu_no_draw): BeginVertices as the device bookkeeping Begin below leaves,
+// without its record: the vertex space (this thread's scratch, returned in r3, named at device +13848 / +13856 where the adapter reader's
+// End reads it), the stride rule and the shader bind's device words, the dirty masks cleared, 0x82CB21F8's flag bytes. End re-marks
+// fetch slot 31 as dirty (as the original). The cases Begin leaves to the original keep it (re-entry, no scratch, the extents wrapper,
+// too big for the scratch, a bind failure, the HiZ pre-pass).
+inline bool OwnerNullBegin(PPCContext& ctx, uint8_t* base) {
+  if (!REXCVAR_GET(wwe2k14_rdr_owner) || !REXCVAR_GET(wwe2k14_d3d_layer_owner_null)) return false;
+  if (t_open.active) return false;
+  const uint32_t scratch = Scratch();
+  if (!scratch) return false;
+  const uint32_t dev = ctx.r3.u32, count = ctx.r5.u32, stride = ctx.r6.u32;
+  if (base[dev + 11068] & 1) return false;
+  const uint64_t bytes = uint64_t(count) * stride;
+  if (bytes > kScratchBytes) return false;
+  const uint32_t stride_dword = (stride >> 2) & 0xFF;
+  uint64_t m_main = Ld64(base, dev + 16);
+  const uint64_t m_misc = Ld64(base, dev + 32);
+  if (stride_dword != base[dev + 12264] && Ld32(base, dev + 13072) != 0) m_main |= 0x80000ull;
+  static thread_local wwe2k14::d3d_bind::BindPlan plan;
+  const bool binds = (m_main & 0x1E0000ull) != 0;
+  if (binds) {
+    if (wwe2k14::d3d_bind::Plan(ctx, base, dev, m_main, stride_dword, plan, true) != wwe2k14::d3d_bind::Fail::kNone) return false;
+    m_main = plan.mask;
+  }
+  if (Ld64(base, dev + 40) & m_main) return false;
+  const bool misc_flush = (m_misc & 0xC000000000000000ull) && (base[dev + 11072] & 0xC0);
+  if (binds) wwe2k14::d3d_bind::Commit(base, dev, plan);
+  St64(base, dev + 0, 0);
+  St64(base, dev + 8, 0);
+  St64(base, dev + 16, 0);
+  St64(base, dev + 24, 0);
+  St64(base, dev + 32, 0);
+  if (misc_flush) {
+    base[dev + 11072] = uint8_t(base[dev + 11072] & 0x3F);
+    base[dev + 11071] = uint8_t(base[dev + 11071] & 0xFC);
+  }
+  St32(base, dev + 13848, scratch);
+  St32(base, dev + 13856, uint32_t(bytes >> 2));
+  Open& o = t_open;
+  o.active = true;
+  o.owner_null = true;
+  o.device = dev;
+  ctx.r3.u64 = scratch;
+  return true;
+}
+inline bool OwnerNullEnd(PPCContext& ctx, uint8_t* base) {
+  (void)ctx;
+  Open& o = t_open;
+  if (!o.active || !o.owner_null) return false;
+  o.active = false;
+  o.owner_null = false;
+  St64(base, o.device + 24, Ld64(base, o.device + 24) | 1ull);  // slot 31 re-emitted by the next draw (listing 0x82CB19B8-0x82CB19C4)
+  return true;
+}
+
 inline bool Begin(PPCContext& ctx, uint8_t* base) {
   if (!REXCVAR_GET(wwe2k14_d3d_layer) || !REXCVAR_GET(wwe2k14_d3d_inline)) return false;
   wwe2k14::d3d_layer::RecScope rec_scope;  // Session 94: [d3d][rec] sample (d3d_layer.h)

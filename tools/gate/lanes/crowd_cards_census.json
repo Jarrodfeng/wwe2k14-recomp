@@ -1,0 +1,19 @@
+{
+ "owner": "lane CC / 107 (S101): the cards census, tools/crowd/cards_census.py + cards_census_selftest.py + cards_expect.json. Python only, 0 game runs. Captures are named relative to the main checkout. Check F = run 20261112_101633 (scene records), s100cards = the S100 capture (version 1, no origins: expect says named false).",
+ "checks": [
+  {"name": "crowd_cards_census.census", "cmd": ["py", "-I", "tools/crowd/cards_census.py",
+    "brock=out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "F=out/s101/runs/20261112_101633_s100_owner_s89_brock/case_20261112_101714_809_0_pc_run_exit.zip",
+    "bryan=out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "wm30=out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip",
+    "s100cards=out/captures/s100cards", "-q"],
+   "timeout_s": 600, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_101633_s100_owner_s89_brock/case_20261112_101714_809_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174707_s100_owner_s90_wm30/case_20261111_174739_724_0_pc_run_exit.zip",
+    "out/captures/s100cards"]},
+  {"name": "crowd_cards_census.selftest", "cmd": ["py", "-I", "tools/crowd/cards_census_selftest.py"], "timeout_s": 900, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip"]}
+ ]
+}

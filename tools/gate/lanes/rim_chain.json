@@ -1,0 +1,8 @@
+{
+ "owner": "lane 151 (S101): the rim light map's two coverage reductions and its blur drawn by our own programs on the stream's draws (RimChainOurs, fate 21): src/renderer_scene/rim_chain_ours.*, shaders rdr_rimchain_*, src/fview/rim_chain_check.cpp, tools/rim/rim_chain_check.py. docs/renderer/RIM_MAP_OURS.md",
+ "note": "proof: fview --rim-chain-check (headless, two sessions in lockstep) over ALL frames of Check B / run 7079 / Bryan: images 222 / 223 / 224 / 225 and the picture byte-equal per frame, census == an oracle read from the capture alone, validation 0; plants reduction_wrong_size / blur_no_input / blur_input_null / rim_reader_stale each fail their exact check. A machine without the captures FAILS (never skips).",
+ "checks": [
+  {"name": "rim_chain.proof", "cmd": ["py", "-I", "tools/rim/rim_chain_check.py", "--root", "."], "timeout_s": 5400,
+   "needs": ["out/lane40/brock/capture", "out/lane85/r7079/capture", "out/lane99/bryan/capture", "game_data/extracted"]}
+ ]
+}

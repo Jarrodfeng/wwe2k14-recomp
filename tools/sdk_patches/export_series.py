@@ -11,6 +11,13 @@ must give exactly the branch head's tree (a temporary git index; no files in the
 
   py tools\\sdk_patches\\export_series.py           export + verify (run after any SDK change you keep)
   py tools\\sdk_patches\\export_series.py --check   verify the committed diffs only
+  py tools\\sdk_patches\\export_series.py --dry-run regenerate everything in memory and compare byte for byte with the
+                                                  committed diffs; writes and deletes nothing (exit 1 on any difference)
+
+The export itself runs the dry run first and refuses (touching nothing) unless every existing diff is reproduced
+exactly; it never deletes a diff that is not renamed. Diffs numbered past the last step (109 / 110 of an unmerged
+branch) and the parked patches (patches\\rexglue-sdk\\parked\\) are left alone. In a git worktree set WWE_SDK_SRC to the
+main checkout's thirdparty\\rexglue-sdk-src.
 """
 import os
 import subprocess
@@ -20,9 +27,12 @@ from pathlib import Path
 
 R = Path(__file__).resolve().parents[2]
 SDK = R / 'thirdparty' / 'rexglue-sdk-src'
+if os.environ.get('WWE_SDK_SRC'):  # a git worktree has no thirdparty\ (gitignored): point at the main checkout's SDK repo
+    SDK = Path(os.environ['WWE_SDK_SRC'])
 OUT = R / 'patches' / 'rexglue-sdk' / 'full'
 BASE = 'f5337cd'          # upstream rexglue/rexglue-sdk commit the fork starts from
 BRANCH = 'wwe2k14-local'
+HEADREF = os.environ.get('WWE_SDK_HEAD', BRANCH)  # check against another ref while a step is on an unmerged SDK branch (lane 288)
 # The last pinned build of each session (tools\sdk_pins.json), in order. Add a line per new session.
 STEPS = [
     ('sessions03-07c', 'd2512163c84bfe1dfdbd6ae62964650b72dd25bc'),
@@ -127,7 +137,26 @@ STEPS = [
     ('session95-default-stack', '38a7edde27b36dbb9ef99d7de4cc7a1816528e42'),  # Session 95: the TRUE NATIVE stack as defaults (vertex input, skin once, draw record, present every frame, nf lean), the diagnostic run, the memory refusal, Android hardening
     ('session95-final', 'b0fa73ecf711f9f2aa721d5abeed5daa658f8939'),  # Session 95: rounds 5-7 (inline merge, read-back quiet, bind memo, planes, half phase), Android hardening, draw slots
     ('session95-phone', '44f9d31305b02a92c9d68ace7db31bb5da5500dc'),  # Session 95: black title (held frames do not teach the dead pass), plain mode covers the speed list
+    # Sessions 98-100 were exported by hand in two other shapes, kept byte for byte: 'plain' = `git diff --binary prev c` with no
+    # header and no --full-index; 'fp' = `git format-patch --stdout prev..c` (all commits in the range). New sessions use the
+    # default (header + tree diff) unless a third field says otherwise.
+    ('session98-held-frames', '153678b86b1dd031257597e49d5fc56ec3736a2e', 'plain'),  # the reason codes for the held-frame check
+    ('session100-present-detached', '9f13a7664717ac970a3bbb2feb456c33c73e6572', 'fp'),  # present_detached, gpu_no_draw (3 commits)
+    ('session100-kernel-object-binds', 'c3b84b22ce2d3bc151bd18b0ab2f3c80a153c82d', 'plain'),  # tier E0: lazy binds of dispatcher headers logged
+    ('session100-android-window-handle', 'f691f401772a728afae09ad0ca3eef10623b9c1e', 'plain'),  # WindowSDL::GetNativeWindowHandle on Android
+    ('session100-app-drawn-overlays', '88e4077b0b2f89179e5e9d77c1cb685113a4bf8c', 'plain'),  # detached presentation asks the app for its immediate drawer
+    ('session101-vpkd3d128-alias', 'b68952176941c2df9002b60b1fa6c8577a033362'),  # vpkd3d128 / vpkuhus / vpkuwus read-after-overwrite (u's sign) + in-place tests
+    ('session101-ppc-test-parser-label', '9b81c0c201c4f987f36c14e34cd70f77380191b6'),  # the PPC test parser kept a label after REGISTER_OUT (15 tests woke)
+    ('session101-wide-window', '26a0b9a6ae1fdd36e7cd657933d53e320291c077'),  # ultrawide window ends at the post chain marker, clip-off draws screen-space, full-view quads left unsqueezed (gpu_wide_no_fullview)
+    ('session101-wide-hud-rects', 'd3a285c0b6c66df49207ff582c77ffa0dd5fa8de'),  # gpu_wide_post_vs default drops the T_Rect shader
+    ('session101-guest-gpu-only', '9126606e5ff02da6cf65f59eb062d8545328bc35'),  # RuntimeConfig::guest_gpu_only (lane 233) + review fixes
+    ('session101-guest-vblank-ours', 'f15def823a0c7176ff394d759c59608d42e2bdfd'),  # RuntimeConfig::guest_vblank_ours, interrupt_callback accessors, plugin ABI 3 (lane 260)
+    ('session101-audio-inject', '59838b80715ef7693004262134f7a549917dcf11'),  # rex::perf::audio::SetInject: the app's stereo music added to FL/FR before the tap, fold and mute (lane 288)
+    ('session101-async-log', '1903e00da44e4416dd8f280cb7329eab15e78af1'),  # rex::AsyncSink: the log file written on a thread, critical drains, DrainLogging / TakeLogWriteStats (lane 302)
 ]
+# Numbers that belong to no step on wwe2k14-local (kept numbering stable): 104 = S99 scaled-readback-rumble, parked
+# (patches\rexglue-sdk\parked\), it was never merged. 109 / 110 (Session 101, lane 46) stay on their own branch until merged.
+RESERVED = {104}
 
 
 def git(*args, env=None, text=True):
@@ -137,49 +166,123 @@ def git(*args, env=None, text=True):
     return r.stdout
 
 
+def plan():
+    """[(file name, label, prev, commit, style)] for every step, numbered with RESERVED numbers skipped."""
+    out, prev, n = [], BASE, 0
+    for step in STEPS:
+        label, c = step[0], step[1]
+        style = step[2] if len(step) > 2 else 'tree'
+        n += 1
+        while n in RESERVED:
+            n += 1
+        out.append((f'{n:03d}-{label}.diff', label, prev, c, style))  # (three digits: the 100th step sorted between 10 and 11)
+        prev = c
+    return out
+
+
+def build(label, prev, c, style):
+    """The bytes of one diff file."""
+    if style == 'plain':
+        return git('diff', '--binary', prev, c, text=False)
+    if style == 'fp':
+        return git('format-patch', '--stdout', f'{prev}..{c}', text=False)
+    diff = git('diff', '--binary', '--full-index', prev, c, text=False)
+    subjects = git('log', '--first-parent', '--format=  %h %s', f'{prev}..{c}').rstrip()
+    header = (f'# ReXGlue SDK changes for WWE 2K14 ({label}): {prev[:12]}..{c[:12]} on {BRANCH}\n'
+              f'# Apply in order on upstream rexglue/rexglue-sdk {BASE} (git apply). Commits (first parent):\n'
+              + ''.join(f'#{line}\n' for line in subjects.splitlines()) + '\n')
+    return header.encode() + diff
+
+
+def check_steps():
+    head = git('rev-parse', HEADREF).strip()
+    if STEPS[-1][1] != head:
+        sys.exit(f'{BRANCH} is at {head[:7]}, the last step is {STEPS[-1][1][:7]}: add a STEPS line for the new SDK state')
+    prev = BASE
+    for step in STEPS:  # each step must build on the one before
+        c = step[1]
+        if subprocess.run(['git', '-C', str(SDK), 'merge-base', '--is-ancestor', prev, c]).returncode:
+            sys.exit(f'{prev[:7]} is not an ancestor of {c[:7]}')
+        prev = c
+
+
 def verify():
-    files = sorted(OUT.glob('*.diff'))
-    head_tree = git('rev-parse', f'{BRANCH}^{{tree}}').strip()
+    """Upstream base + the diffs the STEPS list names, in order = the branch head's tree. Diffs beyond the list (a
+    numbered patch of an unmerged branch, e.g. 109 / 110) are ignored."""
+    names = [p[0] for p in plan()]
+    missing = [n for n in names if not (OUT / n).exists()]
+    if missing:
+        sys.exit(f'FAIL: missing diff files: {", ".join(missing[:5])}{" ..." if len(missing) > 5 else ""}')
+    head_tree = git('rev-parse', f'{HEADREF}^{{tree}}').strip()
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / 'index'))
         git('read-tree', BASE, env=env)
-        for f in files:
+        for name in names:
+            f = OUT / name
             r = subprocess.run(['git', '-C', str(SDK), 'apply', '--cached', '--binary', str(f)], capture_output=True,
                                text=True, env=env)
             if r.returncode:
                 sys.exit(f'FAIL: {f.name} does not apply: {r.stderr.strip()[:300]}')
         tree = git('write-tree', env=env).strip()
     if tree != head_tree:
-        sys.exit(f'FAIL: base + {len(files)} diffs = tree {tree}, but {BRANCH} is {head_tree}')
-    head = git('rev-parse', '--short', BRANCH).strip()
-    print(f'PASS: upstream {BASE} + {len(files)} diffs = {BRANCH} ({head}) exactly (tree {tree[:12]})')
+        sys.exit(f'FAIL: base + {len(names)} diffs = tree {tree}, but {BRANCH} is {head_tree}')
+    head = git('rev-parse', '--short', HEADREF).strip()
+    print(f'PASS: upstream {BASE} + {len(names)} diffs = {BRANCH} ({head}) exactly (tree {tree[:12]})')
+
+
+def dry_run():
+    """Regenerate every diff in memory and compare with the committed file, byte for byte. Writes and deletes nothing.
+    Returns (same, different, new) name lists."""
+    check_steps()
+    same, different, new = [], [], []
+    for name, label, prev, c, style in plan():
+        data = build(label, prev, c, style)
+        path = OUT / name
+        if not path.exists():
+            new.append(name)
+        elif path.read_bytes() == data:
+            same.append(name)
+        else:
+            different.append(name)
+    return same, different, new
+
+
+def report_dry_run():
+    same, different, new = dry_run()
+    known = {p[0] for p in plan()}
+    extra = sorted(f.name for f in OUT.glob('*.diff') if f.name not in known)
+    print(f'dry run: {len(same)} identical, {len(different)} different, {len(new)} new')
+    for n in different:
+        print(f'  DIFFERENT: {n}')
+    for n in new:
+        print(f'  NEW (no file yet): {n}')
+    for n in extra:
+        print(f'  not in STEPS (left alone): {n}')
+    return not different
 
 
 def export():
-    head = git('rev-parse', BRANCH).strip()
-    if STEPS[-1][1] != head:
-        sys.exit(f'{BRANCH} is at {head[:7]}, the last step is {STEPS[-1][1][:7]}: add a STEPS line for the new SDK state')
-    prev = BASE
-    for _, c in STEPS:  # each step must build on the one before
-        if subprocess.run(['git', '-C', str(SDK), 'merge-base', '--is-ancestor', prev, c]).returncode:
-            sys.exit(f'{prev[:7]} is not an ancestor of {c[:7]}')
-        prev = c
+    """Write the diffs. Refuses (touches nothing) unless every existing diff would be reproduced byte for byte; only a
+    file whose number is reused under a different name is removed, and only after the new one is written."""
+    ok = report_dry_run()
+    if not ok:
+        sys.exit('REFUSED: some existing diffs would change (see above); nothing was written. Fix STEPS or delete the file '
+                 'on purpose, then run again.')
     OUT.mkdir(parents=True, exist_ok=True)
-    for old in OUT.glob('*.diff'):
-        old.unlink()
-    prev = BASE
-    for i, (label, c) in enumerate(STEPS, 1):
-        diff = git('diff', '--binary', '--full-index', prev, c, text=False)
-        subjects = git('log', '--first-parent', '--format=  %h %s', f'{prev}..{c}').rstrip()
-        header = (f'# ReXGlue SDK changes for WWE 2K14 ({label}): {prev[:12]}..{c[:12]} on {BRANCH}\n'
-                  f'# Apply in order on upstream rexglue/rexglue-sdk {BASE} (git apply). Commits (first parent):\n'
-                  + ''.join(f'#{line}\n' for line in subjects.splitlines()) + '\n')
-        path = OUT / f'{i:03d}-{label}.diff'  # (Session 95: three digits, the 100th step sorted between 10 and 11 by name)
-        path.write_bytes(header.encode() + diff)
-        print(f'{path.name}: {len(diff) // 1024} KB, {len(subjects.splitlines())} commits')
-        prev = c
+    for name, label, prev, c, style in plan():
+        path = OUT / name
+        if path.exists():
+            continue  # identical, proven by the dry run
+        data = build(label, prev, c, style)
+        path.write_bytes(data)
+        for other in OUT.glob(f'{name[:3]}-*.diff'):  # same number, other name: the step was renamed
+            if other.name != name:
+                other.unlink()
+        print(f'wrote {name}: {len(data) // 1024} KB')
     verify()
 
 
 if __name__ == '__main__':
+    if '--dry-run' in sys.argv:
+        sys.exit(0 if report_dry_run() else 1)
     verify() if '--check' in sys.argv else export()

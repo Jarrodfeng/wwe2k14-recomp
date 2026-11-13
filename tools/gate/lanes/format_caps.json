@@ -1,0 +1,7 @@
+{
+ "owner": "lane 200 (S101): format capabilities, one rule in one place: src/renderer/format_caps.h, Device::FormatFeatures, the choke points in renderer.cpp (texture sets, blits, blend, vertex input, present), --wwe2k14_rdr_format_caps_mask / fview --format-caps-mask, docs/renderer/FORMAT_CAPS.md",
+ "note": "0 game runs. fview replays two kept captures with the test mask: clean at 0; the linear bits held by the fallback; the same bits with the fallback off re-find the illegal linear sampling of GitHub #185 (counted: the validation layer cannot flag it, the PC really can filter).",
+ "checks": [
+  {"name": "format_caps.proof", "cmd": ["py", "-I", "tools/fview/format_caps_check.py", "--root", "."], "timeout_s": 1800, "exes": ["out/renderer/dev/fview.exe"], "needs": ["out/captures/brock_tron", "out/captures/s100_match300"]}
+ ]
+}

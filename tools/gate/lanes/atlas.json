@@ -1,0 +1,1 @@
+{"owner": "lane 4 (drawables atlas)", "checks": [{"name": "atlas.selftest", "cmd": ["py", "-I", "tools/atlas/selftest.py"], "timeout_s": 300, "needs": ["game_data/extracted/pac/bg/bg05.pac"]}, {"name": "atlas.pipelines", "cmd": ["py", "-I", "tools/atlas/pipelines.py", "--check"], "timeout_s": 300, "needs": ["game_data/extracted/pac/bg/bg05.pac"]}]}

@@ -1,0 +1,11 @@
+{
+ "owner": "lane 183 (S101): the resolve-copy census (candidate C of docs/renderer/SKIP_GAME_WORK_MAP.md 13.2, result in section 14): tools/skip/copy_readers.py (which later draws read each copy's destination, with their fates; elidable / blocked / dead / source rewritten) and tools/skip/copy_readers_check.py. Offline, 0 game runs; fview is run headless for the fates (it needs an fview.exe, out/renderer/release or dev, and the main checkout's game files).",
+ "note": "selftest = the verdict logic on synthetic records + 4 record plants. proof = Check B frames 200-203: the 20 crowd bake copies a frame all elidable, the dead yPreLight copies agree with dead_passes.py, no image-0 slot; the null self-test (one planted game-replayed reader on a bake copy flips exactly one elidable copy to blocked); the past-bug re-find on the old capture brock_tron (the S100 nulled-stage fault: draws reading a copy destination through an image-0 slot are counted as BLIND readers and no copy there is judged elidable). Cached fview outputs live under out/s101/copy_readers (temporary: the first run after a tidy takes ~12 min).",
+ "checks": [
+  {"name": "copy_readers.selftest", "cmd": ["py", "-I", "tools/skip/copy_readers.py", "--selftest"], "timeout_s": 120},
+  {"name": "copy_readers.proof", "cmd": ["py", "-I", "tools/skip/copy_readers_check.py"], "timeout_s": 2400, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/captures/brock_tron",
+    "game_data/extracted"]}
+ ]
+}

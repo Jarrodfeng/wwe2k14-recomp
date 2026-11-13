@@ -1,0 +1,32 @@
+{
+ "_about": "Hypotheses, not facts: for an effect constant (the .fx.json field name), which named parameter(s) of the mesh in the model file it is supposed to be copied from. The solver tests every entry against the captured constants and reports FILE only where the capture agrees in every joined draw. Source of each entry: src/assets/jboy.h + asset_model.h (loader names, S97/S98 'value match' notes) and the atlas parameter names; an entry that the capture refutes shows up as RUNTIME with its mismatch count. Components are in register order (x y z w of register 0, then register 1...); null = this component has no file source (not compared). A spec is NAME or NAME[i] (i = component of the parameter's stored value, default 0).",
+ "fields": {
+  "MatAmbCol": ["g_f4MatAmbCol[0]", "g_f4MatAmbCol[1]", "g_f4MatAmbCol[2]", "g_f4MatAmbCol[3]"],
+  "MatDifCol": ["g_f4MatDifCol[0]", "g_f4MatDifCol[1]", "g_f4MatDifCol[2]", "g_f4MatDifCol[3]"],
+  "Param0": ["g_fFairy", "g_fFairyEdge", null, null],
+  "Reflect": ["g_f4Ref_COL[0]", "g_f4Ref_COL[1]", "g_f4Ref_COL[2]", "g_f4Ref_DOT"],
+  "SpecCubPrm1": ["g_fSpecLev", "g_fSpecPow", "g_fSpecLvBase", "g_fSpecPwBase"],
+  "SSS": ["g_f3SSSSinCol[0]", "g_f3SSSSinCol[1]", "g_f3SSSSinCol[2]", null],
+  "SSSSinCol2": ["g_f3SSSSinCol2[0]", "g_f3SSSSinCol2[1]", "g_f3SSSSinCol2[2]", "g_f3SSSSinCol2[3]"],
+  "LightLimit": ["g_fvLightLimit[0]", "g_fvLightLimit[1]", "g_fvLightLimit[2]", "g_fvLightLimit[3]"],
+  "fvLightLimit": ["g_fvLightLimit[0]", "g_fvLightLimit[1]", "g_fvLightLimit[2]", "g_fvLightLimit[3]"],
+  "NoiseTile": [null, "g_f4NoiseTBump", "g_f4NoiseTDiff", "g_f4NoiseTSpec"],
+  "NoiseTileF": [null, "g_f4NoiseTBumpF", "g_f4NoiseTDiffF", "g_f4NoiseTSpecF"],
+  "NoiseLodParam": ["g_fNoiseTNear", "g_fNoiseTFar", null, null],
+  "MuscleUV": ["g_f4MuscleUV_x", "g_f4MuscleUV_y", "g_f4MuscleUV_z", "g_f4MuscleUV_w"],
+  "WrinkUV": ["g_f4WrinkUV_x", "g_f4WrinkUV_y", "g_f4WrinkUV_z", "g_f4WrinkUV_w"],
+  "MuscleParam": ["g_f4MuscleParam[0]", "g_f4MuscleParam[1]", "g_f4MuscleParam[2]", "g_f4MuscleParam[3]"],
+  "IdMapCol": ["g_f4IdMapCol[0]", "g_f4IdMapCol[1]", "g_f4IdMapCol[2]", "g_f4IdMapCol[3]"],
+  "IdMapLvLst": ["g_fIdMapLv0", "g_fIdMapLv1", "g_fIdMapLv2", "g_fIdMapLv3", "g_fIdMapLv4", "g_fIdMapLv5", "g_fIdMapLv6", "g_fIdMapLv7"],
+  "WklLvLst": ["g_fWklLv0", "g_fWklLv1", "g_fWklLv2", "g_fWklLv3", "g_fWklLv4", "g_fWklLv5", null, null],
+  "BSSBldClr": ["g_f4BSSBldClr[0]", "g_f4BSSBldClr[1]", "g_f4BSSBldClr[2]", "g_f4BSSBldClr[3]"],
+  "iSpecularPow": ["g_iSpecularPow", null, null, null],
+  "SpeLodParam": ["g_fSpeLodNear", "g_fSpeLodFar", null, null],
+  "RimLightParam3": ["g_fRimAtnDsMin", "g_fRimAtnDsMax", "g_fRimAtnRtMin", "g_fRimAtnRtMax"],
+  "Sweat": ["g_f4SweatSpeLv", "g_f4SweatSpePw", "g_f4SweatBpCnt", null],
+  "Blood": ["g_f2BloodSpecLv", "g_f2BloodSpecPw", null, null],
+  "Noise": [null, null, "g_fNoiseLvl", null],
+  "NoiseParam": ["g_iNoiseTileX", "g_iNoiseTileY", null, null],
+  "HairSpeParam": ["g_fPrimaryShift", "g_fSecondShift", "g_SpecExp1", "g_SpecExp2"]
+ }
+}

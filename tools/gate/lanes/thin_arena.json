@@ -1,0 +1,7 @@
+{
+ "owner": "lane 122 (S101, KB): the arena's D1 thin draws through the real binder (fview --thin arena, the reader emulated on the capture), docs/renderer/THIN_DRAWS.md",
+ "note": "needs Check B's case zip (held, KEEP), the game files, and out/renderer/dev/fview.exe built by tools/fview/build.ps1 (the script rebuilds it unless --no-build). One fview process per arm, one pass over the 341 frames each (about 11 arms, ~20 minutes). Bars: the picture of all 341 frames byte-equal to the --arena-ours arm; census thin + hook replaced = reference replaced; holes 0; proof mismatches 0; churn arm (handshake workout) holes 0; planted release_without_ack, first_template, wrong_site_template, all_mips, read_stream, no_proof + slot swap each DETECTED. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "thin_arena.proof", "cmd": ["py", "-I", "tools/thin/thin_check.py", "--root", "."], "timeout_s": 5400, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

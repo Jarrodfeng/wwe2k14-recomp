@@ -1,0 +1,22 @@
+{
+ "owner": "lane 45 (W2, S101): the wrestlers replaced in place: src/renderer_scene/wrestler_ours.*, wrestler_core.h (the GPU-free decisions), src/assets/wrestler_roster.*, wrestler_geom.h, the SetWrestlersFactory line in replace_factories.h, fview --wrestlers-ours; docs/renderer/WRESTLER_PROMOTION_MAP.md section 11",
+ "note": "needs Check B's 7051 case zip (held, KEEP file) and the game files; a machine without them SKIPs, the script run directly fails loudly. CPU half = out/tools/wrestler_ours_check.exe over all 341 frames + every plant on / off; picture half = fview arms at frames 200 and 260 (md5 / pixel compare with the stream). The sheet goes to <main checkout>/out/s101/wrestlers_ours/. Needs numpy + Pillow. S101 lane 100: also needs Check I's WM30 case zip (run 7084, held): the body whose part 1 is another attire's piece (CPU arms: clean mismatch 0, plant own_model_only re-finds the live mismatch).",
+ "checks": [
+  {
+   "name": "wrestlers_ours.proof",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/wrestler/wrestler_ours_check.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 3000,
+   "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock",
+    "game_data/extracted",
+    "out/s101/runs/20261112_131029_s100_owner_s90_wm30"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,659 @@
+{
+ "effect": "yRadialBlur",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "088496E2D7848F6D"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "loop_constants": {
+    "31": [
+     16,
+     0,
+     1
+    ],
+    "30": [
+     16,
+     0,
+     1
+    ]
+   },
+   "name": "fixed_taps",
+   "defines": [
+    "FX_FIXED_TAPS"
+   ],
+   "constants": [
+    {
+     "field": "SampleOffsetArray",
+     "register": 0,
+     "count": 9
+    },
+    {
+     "field": "SampleWeightArray",
+     "register": 9,
+     "count": 9
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "931E403E0C8447D4"
+   ]
+  },
+  {
+   "loop_constants": {
+    "31": [
+     16,
+     0,
+     1
+    ],
+    "30": [
+     16,
+     0,
+     1
+    ]
+   },
+   "name": "radial_max",
+   "defines": [
+    "FX_RADIAL_MAX"
+   ],
+   "constants": [
+    {
+     "field": "Width",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "Height",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "BlurCount",
+     "register": 2,
+     "count": 1,
+     "range": [
+      0.0,
+      15.0
+     ]
+    },
+    {
+     "field": "CenterPosX",
+     "register": 3,
+     "count": 1
+    },
+    {
+     "field": "CenterPosY",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "SampleDistanceMin",
+     "register": 6,
+     "count": 1
+    },
+    {
+     "field": "SampleDistanceMax",
+     "register": 7,
+     "count": 1
+    },
+    {
+     "field": "BlurRateMaxLengthX",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 9,
+     "count": 1
+    },
+    {
+     "field": "BlurRateMaxLengthY",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 11,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "F379FA3F0B5D00EA"
+   ]
+  },
+  {
+   "loop_constants": {
+    "31": [
+     16,
+     0,
+     1
+    ],
+    "30": [
+     16,
+     0,
+     1
+    ]
+   },
+   "name": "radial_rate",
+   "defines": [
+    "FX_RADIAL_RATE"
+   ],
+   "constants": [
+    {
+     "field": "Width",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "Height",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "BlurCount",
+     "register": 2,
+     "count": 1,
+     "range": [
+      0.0,
+      15.0
+     ]
+    },
+    {
+     "field": "CenterPosX",
+     "register": 3,
+     "count": 1
+    },
+    {
+     "field": "CenterPosY",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "SampleDistanceMin",
+     "register": 6,
+     "count": 1
+    },
+    {
+     "field": "SampleDistanceMax",
+     "register": 7,
+     "count": 1
+    },
+    {
+     "field": "BlurRateMinLengthX",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "BlurRateMinLengthY",
+     "register": 10,
+     "count": 1
+    },
+    {
+     "field": "BlurRateLength",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 12,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "121399E7B2B6DBFC"
+   ]
+  },
+  {
+   "loop_constants": {
+    "31": [
+     16,
+     0,
+     1
+    ],
+    "30": [
+     16,
+     0,
+     1
+    ]
+   },
+   "name": "radial_max_fan",
+   "defines": [
+    "FX_RADIAL_MAX",
+    "FX_FAN"
+   ],
+   "constants": [
+    {
+     "field": "Width",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "Height",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "BlurCount",
+     "register": 2,
+     "count": 1,
+     "range": [
+      0.0,
+      15.0
+     ]
+    },
+    {
+     "field": "CenterPosX",
+     "register": 3,
+     "count": 1
+    },
+    {
+     "field": "CenterPosY",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "SampleDistanceMin",
+     "register": 6,
+     "count": 1
+    },
+    {
+     "field": "SampleDistanceMax",
+     "register": 7,
+     "count": 1
+    },
+    {
+     "field": "BlurRateMaxLengthX",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 9,
+     "count": 1
+    },
+    {
+     "field": "BlurRateMaxLengthY",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 11,
+     "count": 1
+    },
+    {
+     "field": "BlurOpenDegree",
+     "range": [
+      5.0,
+      90.0
+     ],
+     "register": 13,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "E61CE52D5C5E0CD7"
+   ]
+  },
+  {
+   "loop_constants": {
+    "31": [
+     16,
+     0,
+     1
+    ],
+    "30": [
+     16,
+     0,
+     1
+    ]
+   },
+   "name": "radial_rate_fan",
+   "defines": [
+    "FX_RADIAL_RATE",
+    "FX_FAN"
+   ],
+   "constants": [
+    {
+     "field": "Width",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "Height",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "BlurCount",
+     "register": 2,
+     "count": 1,
+     "range": [
+      0.0,
+      15.0
+     ]
+    },
+    {
+     "field": "CenterPosX",
+     "register": 3,
+     "count": 1
+    },
+    {
+     "field": "CenterPosY",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "SampleDistanceMin",
+     "register": 6,
+     "count": 1
+    },
+    {
+     "field": "SampleDistanceMax",
+     "register": 7,
+     "count": 1
+    },
+    {
+     "field": "BlurRateMinLengthX",
+     "register": 8,
+     "count": 1
+    },
+    {
+     "field": "BlurRateMinLengthY",
+     "register": 10,
+     "count": 1
+    },
+    {
+     "field": "BlurRateLength",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "BlurOpenDegree",
+     "range": [
+      5.0,
+      90.0
+     ],
+     "register": 13,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1BDA76B0B288F249"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_FIXED_TAPS",
+    "FX_RADIAL_MAX",
+    "FX_RADIAL_RATE",
+    "FX_FAN"
+   ],
+   "exclusive": [
+    [
+     "FX_FIXED_TAPS",
+     "FX_RADIAL_MAX",
+     "FX_RADIAL_RATE"
+    ],
+    [
+     "FX_FIXED_TAPS",
+     "FX_FAN"
+    ]
+   ],
+   "loop_constants": {
+    "31": [
+     16,
+     0,
+     1
+    ],
+    "30": [
+     16,
+     0,
+     1
+    ]
+   },
+   "constants": [
+    {
+     "field": "SampleOffsetArray",
+     "register": 0,
+     "count": 9,
+     "when": [
+      "FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "SampleWeightArray",
+     "register": 9,
+     "count": 9,
+     "when": [
+      "FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "Width",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 0,
+     "count": 1,
+     "when": [
+      "!FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "Height",
+     "range": [
+      16.0,
+      4096.0
+     ],
+     "register": 1,
+     "count": 1,
+     "when": [
+      "!FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "BlurCount",
+     "register": 2,
+     "count": 1,
+     "range": [
+      0.0,
+      15.0
+     ],
+     "when": [
+      "!FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "CenterPosX",
+     "register": 3,
+     "count": 1,
+     "when": [
+      "!FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "CenterPosY",
+     "register": 4,
+     "count": 1,
+     "when": [
+      "!FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "SampleDistanceMin",
+     "register": 6,
+     "count": 1,
+     "when": [
+      "!FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "SampleDistanceMax",
+     "register": 7,
+     "count": 1,
+     "when": [
+      "!FX_FIXED_TAPS"
+     ]
+    },
+    {
+     "field": "BlurRateMaxLengthX",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 9,
+     "count": 1,
+     "when": [
+      "FX_RADIAL_MAX"
+     ]
+    },
+    {
+     "field": "BlurRateMaxLengthY",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 11,
+     "count": 1,
+     "when": [
+      "FX_RADIAL_MAX"
+     ]
+    },
+    {
+     "field": "BlurRateMinLengthX",
+     "register": 8,
+     "count": 1,
+     "when": [
+      "FX_RADIAL_RATE"
+     ]
+    },
+    {
+     "field": "BlurRateMinLengthY",
+     "register": 10,
+     "count": 1,
+     "when": [
+      "FX_RADIAL_RATE"
+     ]
+    },
+    {
+     "field": "BlurRateLength",
+     "range": [
+      0.05,
+      2.0
+     ],
+     "register": 12,
+     "count": 1,
+     "when": [
+      "FX_RADIAL_RATE"
+     ]
+    },
+    {
+     "field": "BlurOpenDegree",
+     "range": [
+      5.0,
+      90.0
+     ],
+     "register": 13,
+     "count": 1,
+     "when": [
+      "FX_FAN"
+     ]
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,3 @@
+{"f": 10, "kind": "move", "slot": 0, "id": 343, "waza": 3, "move": 100, "class": "normal"}
+{"f": 11, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 50413, "class": "finisher"}
+{"f": 15, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 50413, "class": "finisher"}

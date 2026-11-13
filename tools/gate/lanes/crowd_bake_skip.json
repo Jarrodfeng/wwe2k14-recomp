@@ -1,0 +1,12 @@
+{
+ "owner": "lane 155 (S101): the crowd card bake's invisible cut: src/scene_live/bake_skip_core.h (decision logic, the unit test's subject), bake_skip_hook.h (the game-side hook on sub_827FD698, syntax-checked by tools/harness/wt_syntax_check.ps1 main.cpp,live.cpp, not by the gate), tools/crowd/bake_skip_test.cpp, bake_skip_counts.py, bake_skip_cut.py, bake_skip_check.py. 0 game runs.",
+ "note": "unit = the shipped logic on a fake guest memory + 12 planted faults, the 15-type match and J1 arms, the register-emulation plants; proof = the policy replayed over Check B and wm30 card counts, the cut EMULATED on the captures (the ops of every cut bake pass removed) and replayed by fview against the uncut replay (wm30 byte-equal on all 668 frames; Check B within 0.5 % of the pixels on the 2 frames where a returning type read an aged picture), plus the cut_read plant (a read bake elided: 341 of 341 frames differ). The proof needs an fview.exe built with --dump-frames (tools/fview/build.ps1); it reads the main checkout's out/renderer/dev/fview.exe when the worktree has none.",
+ "checks": [
+  {"name": "crowd_bake_skip.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/crowd/build_bake_skip_test.ps1"], "timeout_s": 600},
+  {"name": "crowd_bake_skip.unit", "cmd": ["py", "-I", "tools/crowd/bake_skip_selftest.py"], "timeout_s": 300},
+  {"name": "crowd_bake_skip.proof", "cmd": ["py", "-I", "tools/crowd/bake_skip_check.py"], "timeout_s": 2400, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131029_s100_owner_s90_wm30/case_20261112_131111_940_0_pc_run_exit.zip",
+    "out/renderer/dev/fview.exe"]}
+ ]
+}

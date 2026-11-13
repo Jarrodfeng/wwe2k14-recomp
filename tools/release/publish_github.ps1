@@ -48,7 +48,9 @@ $exclude = @('^CLAUDE\.md$', '^PLAYBOOK\.md$', '^MORNING_REPORT\.md$', '^SESSION
              '^STATUS\.md$', '^[^/]+_ARC\.md$',
              # Session 89 (Jarrod: "Exclude map, push"): the knowledge map's hand entries (our notes, like db/; q.py
              # map still answers from the code without them).
-             '^tools/q/map/')
+             '^tools/q/map/',
+             # Lane 310 (S101): release working notes under docs/release/ (drafts, audits) are ours; only the shipped files go public.
+             '^docs/release/(S\d+_[^/]*|[^/]*_draft)\.md$')
 $all = git ls-tree -r --name-only $head
 $drop = @($all | Where-Object { $p = $_; $exclude | Where-Object { $p -match $_ } })
 $keep = @($all | Where-Object { $drop -notcontains $_ })

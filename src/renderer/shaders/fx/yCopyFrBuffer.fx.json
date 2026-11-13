@@ -1,0 +1,39 @@
+{
+ "effect": "yCopyFrBuffer",
+ "vertex": [
+  {
+   "name": "quad",
+   "defines": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "copy",
+   "defines": [],
+   "hashes": [
+    "6E57A6E305D5D69B"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

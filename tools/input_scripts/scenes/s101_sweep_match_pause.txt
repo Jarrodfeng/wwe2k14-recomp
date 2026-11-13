@@ -1,0 +1,56 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_photo_mode=true
+# harness: realtime (menu presses and the worker-thread roster)
+# Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): the PAUSE MENU and PHOTO MODE in OWNER mode inside one Matches run. Check K's O2 does the pause menu
+# on the OLD path (owner off, short\photo_pause_check.txt); nobody has paused in owner mode. The file name keeps the word "match" so the board files the zip under Exhibition matches.
+# What it does (steps copied from short\photo_pause_check.txt, Session 33): the Cena v Lesnar match (slots CPU, entrances skipped, Over the Limit), the roster
+# wait, 600 frames of match, START = pause (8 rows, PHOTO MODE before QUIT MATCH), a shot of the list, UP x2 onto PHOTO MODE (pp_on_row), A = the game resumes and photo mode starts
+# ~40 frames later (the free camera, no HUD), a shot, the photo is saved (photo_save), photo mode off, a shot of the match again, then ~1400 frames (two census windows) of match
+# after the resume so the match census lines are not only the pre-pause ones. Also PAUSE only (no photo) is covered by the first shot.
+# Needs --wwe2k14_photo_dir=<a folder under out\> (the plan's flags give it). The pause rows' text is logged (log_text).
+# UNCONFIRMED in owner mode: that START pauses, that the free camera draws, that the owner HUD restores after photo mode off. A failure stops the run (on_fail quit) with the shots so far.
+# Marks: 1 clock, 2 roster, 3 paused, 4 photo, 5 resumed, 6 end.
+on_fail quit
+log bench: start scene sweep_match_pause
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+wait_state match_clock >0 30000
+log scene=sweep_match_pause
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 600
+mark 2 roster_wait_done
+log sweep_pause: pause
+press START 4 0
+wait_frames 60
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_sweep_pause_list
+screenshot sc_sweep_pause_list
+mark 3 paused
+press UP
+wait_frames 30
+press UP
+wait_frames 30
+cvar wwe2k14_rdr_live_picture sc_sweep_pause_row
+screenshot sc_sweep_pause_row
+log sweep_pause: A on PHOTO MODE
+press A
+wait_frames 120
+cvar wwe2k14_rdr_live_picture sc_sweep_photo
+screenshot sc_sweep_photo
+cvar wwe2k14_photo_save 1
+wait_frames 60
+mark 4 photo
+cvar wwe2k14_photo_mode_on false
+wait_frames 120
+cvar wwe2k14_rdr_live_picture sc_sweep_after_photo
+screenshot sc_sweep_after_photo
+mark 5 resumed
+wait_frames 1400
+cvar wwe2k14_rdr_live_picture sc_sweep_match_end
+screenshot sc_sweep_match_end
+log scene=end
+mark 6 end
+log bench: done
+wait_frames 10
+quit

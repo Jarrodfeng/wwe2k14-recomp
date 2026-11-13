@@ -72,7 +72,29 @@ inline bool AlphaCutsOut(const Texture& t) {
 }
 
 
+// S101 atlas: what the file DECLARES for one mesh record (effect name, every named parameter with its value, the stream strides, the
+// index block), filled for every record the loader meets - also the ones it then skips (loaded = false; the reason is in
+// Model::warnings from warn_begin on). Read by tools\atlas\atlas.cpp only; the loader itself ignores it. Format: docs\formats\drawables_atlas.md.
+struct JboyDeclParam {
+  std::string name;
+  uint32_t kind = 0;       // the type word's high half: 0x0F sampler, 0x0D float4, 0x0A float (others kept as stored)
+  uint32_t size = 0;       // the type word's low half
+  float v[4] = {};         // float4 / float values
+  int32_t tex_index = -1;  // samplers: index into the model's texture-name table (-1 = none)
+  std::string tex_name;    // samplers: that table's name ("" when none / out of range)
+};
+struct JboyDecl {
+  uint32_t mesh_index = 0, vertices = 0, palette = 0;
+  uint32_t stride[4] = {28, 0, 0, 0};  // bytes per vertex of S0..S3 (as the loader derives them from the stream offsets)
+  uint32_t index_count = 0, index_groups = 0;
+  bool tiles = false, s1_skin = false, loaded = false;
+  std::string effect;
+  std::vector<JboyDeclParam> params;
+  size_t warn_begin = 0;  // index in Model::warnings where this record's warnings start
+};
+
 struct JboyOptions {
+  std::vector<JboyDecl>* decl = nullptr;  // S101 atlas: when set, one JboyDecl per mesh record is appended
   bool arena = false;      // arenas: S1 is UV (not skin), S2 lightmap UV, no skeleton
   std::string part;        // "body", "piece 10000", "slot 12"...
   TexSet* tex = nullptr;   // where texture names resolve
@@ -231,6 +253,32 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
   for (uint32_t mi = 0; mi < nmesh; ++mi) {
     const uint32_t rec = mesh_tab + mi * 0xB8;
     const uint32_t N = r.u32(rec);
+    JboyDecl* dc = nullptr;  // S101 atlas: the declaration, recorded before any skip decision
+    if (o.decl) {
+      o.decl->push_back({});
+      dc = &o.decl->back();
+      dc->mesh_index = mi, dc->vertices = N, dc->palette = r.u32(rec + 8), dc->warn_begin = m.warnings.size();
+      dc->effect = CString(r.b + rec + 0x7C, 16);
+      const uint32_t dn = r.u32(rec + 0x94), dl = r.u32(rec + 0x98);
+      if (dn <= 512 && r.ok(dl, uint64_t(dn) * 4))
+        for (uint32_t k = 0; k < dn; ++k) {
+          const uint32_t po = r.u32(dl + 4ull * k);
+          if (!r.ok(po, 24)) continue;
+          JboyDeclParam p;
+          p.name = CString(r.b + po, 16);
+          const uint32_t tw = r.u32(po + 16);
+          p.kind = tw >> 16, p.size = tw & 0xFFFF;
+          if (p.kind == 0x0F) {
+            p.tex_index = int32_t(r.u32(po + 20));
+            if (p.tex_index >= 0 && uint32_t(p.tex_index) < ntex) p.tex_name = CString(r.b + tex_tab + 16ull * uint32_t(p.tex_index), 16);
+          } else if (p.kind == 0x0D && r.ok(po + 20, 16)) {
+            for (int c = 0; c < 4; ++c) p.v[c] = r.f32(po + 20 + 4ull * uint32_t(c));
+          } else if (p.kind == 0x0A && r.ok(po + 20, 4)) {
+            p.v[0] = r.f32(po + 20);
+          }
+          dc->params.push_back(std::move(p));
+        }
+    }
     if (N == 0 || N > 400000) {
       m.warnings.push_back("mesh with zero or absurd vertex count skipped");
       continue;
@@ -250,6 +298,7 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     if (st1 != 8 && st1 != 16 && st1 != 24 && st1 != 32) tiles = false;
     if (st2 != 8) tiles = false;
     if (st3 != 0 && st3 != 12) tiles = false;
+    if (dc) dc->stride[1] = st1, dc->stride[2] = st2, dc->stride[3] = st3, dc->tiles = tiles;  // S101 atlas
     if (!tiles) {
       m.warnings.push_back("mesh streams do not tile exactly: mesh skipped");
       continue;
@@ -290,11 +339,17 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
         groups.push_back({cnt, ptr});
       }
     }
+    if (dc) {  // S101 atlas
+      dc->index_groups = ngroups;
+      for (const Group& g : groups) dc->index_count += g.count;
+    }
     if (!idx_ok) continue;
 
     Mesh mesh;
     mesh.part = o.part;
     mesh.src_kind = o.kind, mesh.src_pac = o.pac, mesh.src_key = o.key;  // Session 98 (step 16)
+    mesh.src_record = int(mi), mesh.index_groups = ngroups;  // S101 lane 40: for the arena join
+    for (const Group& g : groups) mesh.strip_indices += g.count;
     if (nnode > 0) mesh.node = CString(r.b + node_tab, 16);
     for (uint32_t k = 0; k < npal; ++k)
       if (pal[k] >= 1 && pal[k] <= nnode) mesh.palette += (mesh.palette.empty() ? "" : ";") + CString(r.b + node_tab + 80ull * (pal[k] - 1), 16);
@@ -311,6 +366,7 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       const float w0 = BeF(r.b + s1 + 4);
       skin_streams = slot0 < 256 && w0 >= 0.f && w0 <= 1.0001f;
     }
+    if (dc) dc->s1_skin = !o.arena || skin_streams;  // S101 atlas
     // Session 97 (truss): arena meshes whose S1 UV pair is one constant value (0,1) on every vertex while S2 varies keep the real
     // texture UV in S2 (the same layout as the stage movie leaves). Arena 5's truss rings / pillars (slots 162, 208, 211, 216,
     // 217) read one solid texel from S1: the lattice's open cut-out (DXT5 alpha) never showed, they drew as solid bands.
@@ -359,6 +415,8 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       } else {
         for (int k = 0; k < 2; ++k) vx.uv0[k] = BeF(r.b + s2 + 8ull * v + 4 * k), vx.uv1[k] = 0;
         int nb = 0;
+        uint8_t raw_slot[4] = {255, 255, 255, 255};  // S101 lane 49: the file's own S1 pairs (arena skin streams), kept for the arena drawer's bone-id vertex
+        float raw_w[4] = {0, 0, 0, 0};
         uint32_t pnode[4] = {0, 0, 0, 0};
         float sum = 0;
         for (int k = 0; k < 4; ++k) vx.bones[k] = 0, vx.weights[k] = 0;
@@ -367,6 +425,7 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
           uint32_t slot;
           std::memcpy(&slot, q, 4);  // LE
           const float w = BeF(q + 4);
+          if (pr < 4) raw_slot[pr] = slot < 255 ? uint8_t(slot) : uint8_t(255), raw_w[pr] = w;
           if (slot == 255) {
             ++unused_slot;
             continue;
@@ -398,6 +457,10 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
             }
           }
           for (int c = 0; c < 3; ++c) vx.pos[c] = p[c], vx.normal[c] = nn[c], vx.tangent[c] = tg[c];
+        }
+        if (o.arena && skin_streams) {  // S101 lane 49
+          for (int k = 0; k < 4; ++k) mesh.src_skin_slots.push_back(raw_slot[k]), mesh.src_skin_weights.push_back(raw_w[k]);
+          mesh.src_skin_pairs = st1 / 8;
         }
         if (nb == 0 || !(sum > 0.f)) {
           ++zero_w;
@@ -525,6 +588,7 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     }
     m.materials.push_back(mat);
     mesh.material = int(m.materials.size()) - 1;
+    if (dc) dc->loaded = true;  // S101 atlas
     m.meshes.push_back(std::move(mesh));
   }
   return true;

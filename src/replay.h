@@ -21,6 +21,16 @@
 // --wwe2k14_replay_dir=DIR        where .rec files live (default: <repo>\out\replays, i.e. two folders above the exe
 //                                 folder + "replays"; the exe folder's "replays" when the exe is not under out\build).
 //
+// --wwe2k14_replay_until=F       S101 lane31 (moments, docs/systems/goto.md): with replay_play, hand over at guest frame F instead of
+//                                 at the recording's last frame: the same code path as the end (the log line says "stopped
+//                                 (replay_until)" instead of "ended"), the events after F are dropped. 0 = off; F past the
+//                                 recording's last frame = the recording's own end (warned). The game stays in det mode, so the state
+//                                 at F is the recorded run's state at F.
+// --wwe2k14_replay_hold=pause[:MS]|slow:MS   S101 lane31: after a replay_until hand-over, pause the guest thread at the swap of
+//                                 frame F until the file <replay dir>/RESUME exists (or MS ms, default 600000, pass: a hold always
+//                                 ends), or sleep MS ms in every later swap (slow). For a camera, a capture, a look. [U] until the
+//                                 milestone check: a long block in the swap against the det scheduler's vblank timeout.
+//
 // Recording format (text, LF line ends on every platform since Session 77; controller states, a seed and settings, no
 // memory bytes: may be committed and shipped as a diagnostic reference, CLAUDE.md hard rule 1, Jarrod 2026-10-31):
 //   # comments ...
@@ -49,6 +59,7 @@
 #include <rex/types.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -59,11 +70,15 @@
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <thread>
 #include <string>
 #include <tuple>
 #include <vector>
 
 #include "frame_stats.h"
+#include "crowd_wide_core.h"  // lane 176 round 3: RecordValue
+#include "replay_carried.h"  // S101 lane 111: CarriedSetting, HeaderLine, ParseFlagLine
+#include "replay_verbs.h"    // S101 lane 111: live verbs as E events
 #include "xdet_check.h"  // Session 77 (P7): the check profile's pins (Want)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_replay_mode, false, "wwe2k14",
@@ -75,6 +90,12 @@ REXCVAR_DEFINE_STRING(wwe2k14_replay_play, "", "wwe2k14",
                       "Replay mode + play <replay dir>/NAME.rec back (its seed and settings, then its inputs)");
 REXCVAR_DEFINE_STRING(wwe2k14_replay_dir, "", "wwe2k14",
                       "Folder for .rec files (default: <repo>/out/replays next to out/build)");
+REXCVAR_DEFINE_INT32(wwe2k14_replay_until, 0, "wwe2k14",
+                     "S101 lane31: with replay_play, hand over at this guest frame instead of the recording's last frame "
+                     "(0 = off)");
+REXCVAR_DEFINE_STRING(wwe2k14_replay_hold, "", "wwe2k14",
+                      "S101 lane31: after a replay_until hand-over: pause[:MS] (wait for <replay dir>/RESUME, at most MS ms, "
+                      "default 600000) or slow:MS (sleep MS ms in every later swap)");
 REXCVAR_DEFINE_BOOL(wwe2k14_replay_exact_shots, false, "wwe2k14",
                     "Session 82: in replay mode, take a screenshot's capture on the guest thread at the settled frame "
                     "(not on a worker thread that may start after the next swap) and wait for pipelines instead of "
@@ -92,42 +113,7 @@ constexpr uint32_t kXamSuccessCode = 0;
 constexpr uint32_t kXamEmptyCode = 0x10D2;
 constexpr uint32_t kTotalsEvery = 60;
 
-// Settings a recording carries (applied on playback if left at default): what shapes the match and its frames.
-inline bool CarriedSetting(const std::string& n) {
-  static const char* kPrefixes[] = {"wwe2k14_launch", "wwe2k14_runin", "wwe2k14_entrance_60fps", "wwe2k14_crowd_hype",
-                                    "wwe2k14_preset_", "wwe2k14_force_no_msaa", "wwe2k14_fast_loader",
-                                    "wwe2k14_load_turbo", "wwe2k14_skip_boot_screens", "wwe2k14_native_",
-                                    "wwe2k14_fast_guest_reads", "wwe2k14_det_inline_motion",
-                                    "wwe2k14_det_boot_alloc", "det_frames", "det_serial", "wwe2k14_s6_defaults",
-                                    "wwe2k14_s7_defaults", "wwe2k14_quick_",  // Session 27: @quick's type / pace
-                                    "wwe2k14_fix_secondary_motion",  // Session 27.5: can change root motion
-                                    "wwe2k14_replay_time_follows_step",  // Session 27.5: guest time per frame
-                                    "wwe2k14_step_",  // Session 77: the update step (the phone's FRAME RATE 30)
-                                    // Session 77 (cross-device): which code runs and what the game is told
-                                    "wwe2k14_nf_", "occlusion_query_enable", "wwe2k14_phys_alloc_fast_fail",
-                                    "wwe2k14_dynamic_res", "user_language",
-                                    // Session 77 (P7): the crowd pass (it skips the game's own recorder calls) and
-                                    // the tester check's constant clocks / file answers (include/rex/det.h)
-                                    "wwe2k14_scene_crowd", "det_time_constant", "det_fs_constant"};
-  // Session 27.5: the log option, and det_frames_time_hz, which step_rate.h sets every frame (not a recording's).
-  if (n == "wwe2k14_fix_secondary_motion_log" || n == "det_frames_time_hz") return false;
-  // Session 77: the scheduler's trace folder and wall-clock tunables are the host's, not the game's (a PC path carried
-  // into a recording conflicted with the phone's own folder).
-  if (n == "det_serial_trace" || n == "det_serial_stall_ms" || n == "det_serial_vblank_timeout_ms" ||
-      n == "det_frames_timeout_ms" || n == "det_frames_settle_us")
-    return false;
-  for (const char* p : kPrefixes) {
-    if (n.rfind(p, 0) == 0) {
-      // Not the diagnosis options of those families.
-      if (n.find("_verify") != std::string::npos || n.find("_probe") != std::string::npos ||
-          n.find("_corpus") != std::string::npos || n == "wwe2k14_launch_poke" || n == "wwe2k14_runin_now" ||
-          n == "wwe2k14_quick_compare")
-        return false;
-      return true;
-    }
-  }
-  return false;
-}
+// S101 lane 111: CarriedSetting moved to src/replay_carried.h (a unit test compiles it alone) and gained the place cvars.
 
 // <repo>/out/replays (two folders above the exe folder when it is out/build/<preset>), or --wwe2k14_replay_dir.
 inline std::filesystem::path ReplayDir() {
@@ -188,6 +174,8 @@ class Replay {
       if (!Load(play_path_)) {
         notes_.push_back("FAILED to read " + play_path_.string() + ": playback off (replay mode stays on)");
         play_name_.clear();
+      } else {
+        SetupUntil();  // S101 lane31
       }
     }
     // The preset, then the recording's own settings (same rule: only if left at default).
@@ -202,7 +190,11 @@ class Replay {
     if (REXCVAR_GET(wwe2k14_replay_exact_shots) || rex::cvar::GetFlagSource("wwe2k14_replay_exact_shots") ==
                                                        rex::cvar::Source::kDefault)
       wanted.push_back({"async_shader_compilation", "false"});
-    for (auto& kv : file_flags_) wanted.push_back(kv);
+    {
+      auto flags = file_flags_;
+      AddOldRecordingDefaults(flags);  // lane 176 round 3: a recording without the crowd switch ran the 16:9 test
+      for (auto& kv : flags) wanted.push_back(kv);
+    }
     for (auto& [name, value] : wanted) Want(name, value);
     // Seed: the command line's, else the recording's, else one from the host clock (ms of the day, so every value
     // is a distinct time of day: docs/systems/rng.md).
@@ -227,6 +219,10 @@ class Replay {
 
   // From OnPostSetup (logging up): report, open the recording.
   void Init() {
+    // S101 lane31 (review): replay_until / replay_hold only act with replay_play; say so instead of ignoring them silently.
+    if (play_name_.empty() && (REXCVAR_GET(wwe2k14_replay_until) > 0 || !REXCVAR_GET(wwe2k14_replay_hold).empty()))
+      REXLOG_WARN("[wwe2k14][replay] WARNING: replay_until / replay_hold given without replay_play (or the recording failed to "
+                  "load): ignored");
     if (!on_) return;
     std::string set;
     for (auto& s : applied_) set += (set.empty() ? "" : ", ") + s;
@@ -289,11 +285,15 @@ class Replay {
   void OnFrame(uint64_t frame) {
     if (!on_) return;
     OnFrameLocked(frame);
+    // S101 lane 111 (L-3): live verbs queued by the pipe thread / input script become E lines at this frame (nothing is
+    // written when not recording; playback never queues: live_control.h refuses the verbs while a recording plays).
+    for (const std::string& t : verbs::Drain()) RecordEvent(frame, t);
     // Session 17: the recording's events for this frame (outside the lock: a handler may record events itself).
     std::vector<std::string> due;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (playing_ || (!events_.empty() && frame <= events_.rbegin()->first)) {
+      // S101 lane31: with replay_until the events after F are not handed out (frame <= event_limit_)
+      if ((playing_ || (!events_.empty() && frame <= events_.rbegin()->first)) && frame <= event_limit_) {
         auto it = events_.find(frame);
         if (it != events_.end()) due = it->second;
       }
@@ -303,6 +303,15 @@ class Replay {
       for (auto* h : g_event_handlers) h(frame, text);
     }
     if (g_frame_hook) g_frame_hook(frame);
+  }
+
+  // S101 lane31 (review): the hold runs at the END of VdSwapOverride (src/kernel_overrides.h), after FrameHashOnFrame and
+  // VdSwap_entry: frame F is hashed and presented first, the swap-driven camera / live channel / screenshots keep their frame.
+  // [U]: while the guest thread is parked here the det scheduler may still force vblanks (det_serial's vblank timeout) and queue
+  // audio pumps; they land in rows after F (F's hash is already written), so a held game is not byte-comparable with a free-running
+  // one after F. Not tested.
+  void HoldPoint(uint64_t frame) {
+    if (until_active_) HoldAfterUntil(frame);
   }
 
   // Session 17: write an event line ("E F TEXT") when recording. Returns whether it was written.
@@ -315,11 +324,82 @@ class Replay {
     return true;
   }
   bool Recording() const { return record_ != nullptr; }
+  // S101 lane 19 (the case zip's inputs.rec): the .rec file of this run (the one being recorded, flushed first so its newest rows are on disk, or
+  // the one loaded for playback); empty path = no recording in play. Any thread.
+  std::filesystem::path InputsPath() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (record_) {
+      std::fflush(record_);
+      return record_path_;
+    }
+    return play_name_.empty() ? std::filesystem::path{} : play_path_;
+  }
+  // S101 lane31 (review): for the case writer's session.rec (docs/systems/goto.md "way back"): RecordEvent(moment_frame, "case") first (it
+  // writes "E F case" under mutex_ and flushes, so the file ends on a whole line and end_frame >= moment_frame: S/K/C lines are written
+  // on change and flushed only at the T line every 60 frames), then copy this file. Empty when not recording.
+  std::filesystem::path RecorderPath() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return record_ ? record_path_ : std::filesystem::path();
+  }
   // Session 17: events from the recording being played (frame -> texts); read-only after PreSetup.
   const std::map<uint64_t, std::vector<std::string>>& Events() const { return events_; }
   uint64_t EndFrame() const { return end_frame_; }
+  uint64_t StopFrame() const { return stop_frame_; }  // S101 lane31: where playback hands over (EndFrame, or replay_until)
 
  private:
+  // S101 lane31: replay_until / replay_hold, once the recording is loaded (end_frame_ known).
+  void SetupUntil() {
+    stop_frame_ = end_frame_;
+    const int32_t until = REXCVAR_GET(wwe2k14_replay_until);
+    if (until > 0) {
+      if (uint64_t(until) > end_frame_) {
+        notes_.push_back("WARNING: replay_until=" + std::to_string(until) + " is past the recording's last frame " +
+                         std::to_string(end_frame_) + ": playing to the recording's own end");
+      } else {
+        stop_frame_ = uint64_t(until);
+        event_limit_ = stop_frame_;
+        until_active_ = true;
+        notes_.push_back("replay_until: hand over at frame " + std::to_string(stop_frame_) + " (recording ends at " +
+                         std::to_string(end_frame_) + ")");
+      }
+    }
+    const std::string hold = REXCVAR_GET(wwe2k14_replay_hold);
+    if (!hold.empty()) {
+      const size_t colon = hold.find(':');
+      const std::string mode = hold.substr(0, colon);
+      const std::string num = colon == std::string::npos ? "" : hold.substr(colon + 1);
+      const bool digits = !num.empty() && num.size() <= 9 && num.find_first_not_of("0123456789") == std::string::npos;
+      if (!until_active_) {
+        notes_.push_back("WARNING: replay_hold=" + hold + " needs replay_until (inside the recording): ignored");
+      } else if (mode == "pause" && (num.empty() || digits)) {
+        hold_pause_ms_ = num.empty() ? 600000 : std::atoi(num.c_str());
+      } else if (mode == "slow" && digits) {
+        hold_slow_ms_ = std::atoi(num.c_str());
+      } else {
+        notes_.push_back("WARNING: replay_hold=" + hold + " not understood (pause[:MS] or slow:MS): ignored");
+      }
+    }
+  }
+
+  // After the hand-over frame: pause once at it (until <replay dir>/RESUME exists or the time is up), or slow every swap.
+  void HoldAfterUntil(uint64_t frame) {
+    if (frame < stop_frame_) return;
+    if (hold_slow_ms_ > 0) std::this_thread::sleep_for(std::chrono::milliseconds(hold_slow_ms_));
+    if (hold_pause_ms_ > 0 && !hold_paused_) {
+      hold_paused_ = true;
+      const auto resume = dir_ / "RESUME";
+      REXLOG_INFO("[wwe2k14][replay] holding at frame {}: create {} to continue (or {} ms pass)", frame, resume.string(),
+                  hold_pause_ms_);
+      rex::FlushLogging();
+      const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(hold_pause_ms_);
+      std::error_code ec;
+      while (std::chrono::steady_clock::now() < end && !std::filesystem::exists(resume, ec))
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      std::filesystem::remove(resume, ec);
+      REXLOG_INFO("[wwe2k14][replay] hold over at frame {}", frame);
+    }
+  }
+
   void OnFrameLocked(uint64_t frame) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (record_) {
@@ -336,11 +416,11 @@ class Replay {
           REXLOG_WARN("[wwe2k14][replay] SLIP at frame {}: {} controller calls so far, the recording had {}",
                       frame, calls_, it->second);
       }
-      if (frame >= end_frame_) {
+      if (frame >= stop_frame_) {  // S101 lane31: stop_frame_ = end_frame_ unless replay_until clamps it (one hand-over path)
         playing_ = false;
-        REXLOG_INFO("[wwe2k14][replay] recording ended at frame {}: the script / real controller take over. "
+        REXLOG_INFO("[wwe2k14][replay] recording {} at frame {}: the script / real controller take over. "
                     "summary: calls {}, answered {}, misses {}, slips {} (0 / 0 = frame-exact)",
-                    frame, calls_, answered_, misses_, slips_);
+                    until_active_ ? "stopped (replay_until)" : "ended", frame, calls_, answered_, misses_, slips_);
         // Session 77 (cov_long 4938): the comparers need this line, and a route that quits on the recording's last
         // frame hard-exits before the logger writes it (the recording ends one frame past the quit when the quit
         // falls on the last frame of a 60-frame block): flush it now.
@@ -510,17 +590,19 @@ class Replay {
     // Session 77 (phone session): carried settings whose compiled default differs by platform are written even at
     // this platform's default (nf_skin_3bone: "on" on x86-64 = not "modified" there, "off" on ARM; a PC recording
     // played on a phone ran it off). Keep in step with det_cross.py PLATFORM_DEFAULTS.
-    for (const char* n : {"wwe2k14_nf_skin_3bone"}) {
+    for (const char* n : {"wwe2k14_nf_skin_3bone", "wwe2k14_crowd_fill_wide"}) {
       if (rex::cvar::GetFlagInfo(n) && std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
     }
     for (const std::string& name : names) {
-      const std::string value = rex::cvar::GetFlagByName(name);
+      std::string value = rex::cvar::GetFlagByName(name);
+      if (name == kCrowdFillWide)  // lane 176 round 3: the resolved state (the display's factors are not carried)
+        value = wwe2k14::crowd_wide::RecordValue(value, std::strtod(rex::cvar::GetFlagByName("gpu_wide_factor").c_str(), nullptr),
+                                                 std::strtod(rex::cvar::GetFlagByName("gpu_tall_factor").c_str(), nullptr));
       // Session 77: recordings may be shipped (CLAUDE.md rule 1): the comment lines name no host folders (a user's
       // name is in them), only that a path was set.
       const bool host_path = value.find(":\\") != std::string::npos || value.find(":/") != std::string::npos ||
                              (!value.empty() && (value[0] == '/' || value[0] == '\\'));
-      if (CarriedSetting(name)) std::fprintf(record_, "flag %s %s\n", name.c_str(), value.c_str());
-      else std::fprintf(record_, "# modified: %s = %s\n", name.c_str(), host_path ? "<path>" : value.c_str());
+      std::fputs(HeaderLine(name, value, host_path).c_str(), record_);  // S101 lane 111: src/replay_carried.h
     }
     std::fflush(record_);
     REXLOG_INFO("[wwe2k14][replay] recording controller calls to {}", path.string());
@@ -543,11 +625,8 @@ class Replay {
         ss >> file_dlc_;
         has_dlc_line_ = true;
       } else if (tag == "flag") {
-        std::string n, v;
-        ss >> n;
-        std::getline(ss, v);
-        v.erase(0, v.find_first_not_of(' '));
-        file_flags_.emplace_back(n, v);
+        std::pair<std::string, std::string> kv;  // S101 lane 111: src/replay_carried.h ParseFlagLine
+        if (ParseFlagLine(line, kv)) file_flags_.emplace_back(kv);
       } else if (tag == "T") {
         uint64_t f = 0, n = 0;
         ss >> f >> n;
@@ -582,7 +661,8 @@ class Replay {
   }
 
   std::mutex mutex_;
-  bool on_ = false, playing_ = false;
+  bool on_ = false;
+  std::atomic<bool> playing_{false};  // S101 lane 111 (F5): Playing() is read from the live channel's pipe thread
   std::string record_name_, play_name_;
   std::filesystem::path dir_, play_path_, record_path_;
   std::vector<std::string> notes_, applied_;
@@ -598,9 +678,17 @@ class Replay {
   std::map<Key, std::vector<Entry>> play_;
   std::map<uint64_t, uint64_t> totals_;
   std::map<uint64_t, std::vector<std::string>> events_;
+  // S101 lane31: replay_until / replay_hold state (stop_frame_ == end_frame_ and event_limit_ max when off)
+  uint64_t stop_frame_ = 0, event_limit_ = UINT64_MAX;
+  bool until_active_ = false, hold_paused_ = false;
+  int hold_pause_ms_ = 0, hold_slow_ms_ = 0;
   uint64_t end_frame_ = 0, calls_ = 0, answered_ = 0, misses_ = 0, slips_ = 0, lines_ = 0;
 };
 
 inline Replay g_replay;
+// S101 lane 111: live_control.h asks this (through replay_verbs.h) before it accepts a state-writing verb.
+inline const bool g_verbs_registered = (verbs::g_is_playing = []() { return g_replay.Playing(); },
+                                        verbs::g_is_recording = []() { return g_replay.Recording(); },
+                                        verbs::g_record_event = [](unsigned long long f, const std::string& t) { return g_replay.RecordEvent(f, t); }, true);
 
 }  // namespace wwe2k14::replay

@@ -73,12 +73,14 @@ struct Settings {
   int language = 0;        // kLanguages id; 0 = automatic
   bool dlc = true;
   bool superstars = false;  // Session 98: USE MY SUPERSTARS (the Superstar Importer's pack in <files>/mods/superstars; the PC launcher's key)
+  bool music = false;       // Lane 286: USE MY MUSIC (songs and themes in <files>/mods/music; the PC launcher's USE MY VIDEOS switch also carries music)
   std::string dlc_off;     // switched-off pack ids, "3,5"
   // Session 85 (Jarrod: "same work let's get it into android"): as the PC launcher's SHADOWS, CROWD DENSITY and DEPTH OF
   // FIELD (gfx_settings.h): defaults = the normal look; the SDK cvars gpu_dynamic_shadows, gpu_scene_crowd_density (0-100,
   // 10% steps) and gpu_depth_of_field.
   bool shadows = true;
   bool depth_of_field = true;
+  bool film_grain = true;  // Session 100 settings parity S3: the 30 Years mode's old-film filter (--wwe2k14_film_grain; the new renderer)
   int crowd_density = 100;
   // Session 93 (Jarrod: the low-end tier is chosen automatically from the GPU class, with a launcher override): 0 AUTO,
   // 1 LOW, 2 STANDARD (gfx_settings.h ResolveQualityTier). AUTO is LOW on every phone for now (refine later with the
@@ -179,6 +181,7 @@ inline Settings LoadSettings(const fs::path& p) {
     Get(j, "frame_rate", s.frame_rate), Get(j, "texture_filter", s.texture_filter), Get(j, "aspect", s.aspect);
     Get(j, "language", s.language), Get(j, "dlc", s.dlc), Get(j, "dlc_off", s.dlc_off);
     Get(j, "superstars", s.superstars);  // Session 98
+    Get(j, "music", s.music);  // Lane 286
     Get(j, "touch_mode", s.touch_mode), Get(j, "touch_size", s.touch_size);
     Get(j, "touch_opacity", s.touch_opacity), Get(j, "touch_vibrate", s.touch_vibrate);
     Get(j, "check_updates", s.check_updates);
@@ -188,12 +191,13 @@ inline Settings LoadSettings(const fs::path& p) {
     Get(j, "sgsr", s.sgsr), Get(j, "fast_shaders", s.fast_shaders);
     Get(j, "perf_overlay", s.perf_overlay);
     Get(j, "shadows", s.shadows), Get(j, "depth_of_field", s.depth_of_field), Get(j, "crowd_density", s.crowd_density);
+    Get(j, "film_grain", s.film_grain);  // Session 100 (a missing key = on)
     Get(j, "true_native", s.true_native);  // Session 90
     Get(j, "quality_tier", s.quality_tier);  // Session 93
     Get(j, "tier_defaults_applied", s.tier_defaults_applied);
     int version = 0;  // Session 93: files from before it move to TRUE NATIVE once (the next save writes version 1)
     Get(j, "settings_version", version);
-    if (version < 1) s.true_native = true;
+    s.true_native = true;  // S101 (Jarrod 2026-11-13: "hide true native"): always on; the toggle is hidden
   } catch (...) {
   }
   s.crowd_density = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;  // Session 85
@@ -226,6 +230,7 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"aspect", s.aspect},               {"language", s.language},
                             {"dlc", s.dlc},                     {"dlc_off", s.dlc_off},
                             {"superstars", s.superstars},
+                            {"music", s.music},
                             {"touch_mode", s.touch_mode},       {"touch_size", s.touch_size},
                             {"touch_opacity", s.touch_opacity}, {"touch_vibrate", s.touch_vibrate},
                             {"check_updates", s.check_updates}, {"driver", s.driver},
@@ -233,7 +238,7 @@ inline bool SaveSettings(const fs::path& p, const Settings& s) {
                             {"fast_shaders", s.fast_shaders},
                             {"drivers_ok", s.drivers_ok},       {"drivers_bad", s.drivers_bad},
                             {"perf_overlay", s.perf_overlay},   {"shadows", s.shadows},
-                            {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density},
+                            {"depth_of_field", s.depth_of_field}, {"crowd_density", s.crowd_density}, {"film_grain", s.film_grain},
                             {"quality_tier", s.quality_tier},       {"tier_defaults_applied", s.tier_defaults_applied},
                             {"true_native", s.true_native},     {"settings_version", s.settings_version}};
   std::error_code ec;
@@ -268,6 +273,8 @@ struct LaunchContext {
   std::string game_path;  // --game_data_root: a path, or kGameFdToken (the game's activity opens game_uri itself)
   std::string dlc_dir;    // the DLC folder (<files>/dlc); empty = none
   std::string mods_dir;   // Session 98: <files>/mods (the Superstar Importer's pack); empty = none
+  std::string music_dir;  // Lane 286: <files>/mods when USE MY MUSIC has something to play (a song or a theme); empty = none
+  bool music_themes = false;  // Lane 286: at least one wrestler has a theme of his own (--wwe2k14_entrance_music)
   int screen_w = 0, screen_h = 0;  // the screen in landscape (for "fill the screen")
   int wm30 = -1;          // a 30 Years of WrestleMania match to jump into (this launch only)
   std::string driver_trial;  // Session 72: the trial file for a custom driver (the game deletes it once running)
@@ -320,7 +327,11 @@ inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchCont
   if (s.sgsr) f.push_back("--present_effect=sgsr");
   // Session 85: the PC launcher's SHADOWS / CROWD DENSITY / DEPTH OF FIELD (flags only when not the default).
   if (!s.shadows) f.push_back("--gpu_dynamic_shadows=false");
+  // Session 100 (Jarrod 2026-11-11 09:3x: "Half rate absolutely should be turned on by default for phones"): LOW (every phone's AUTO) draws
+  // the dynamic shadow maps every other frame (the new renderer's binder, settings parity S12); STANDARD keeps them every frame.
+  else if (low) f.push_back("--gpu_shadow_half_rate=true");
   if (!s.depth_of_field) f.push_back("--gpu_depth_of_field=false");
+  if (!s.film_grain) f.push_back("--wwe2k14_film_grain=false");  // Session 100 settings parity S3
   int crowd_pct = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;  // (Session 95: the slider as it is; LOW's 70% is written into it, ApplyLowStart)
   if (const int crowd = crowd_pct; crowd < 100)
     f.push_back("--gpu_scene_crowd_density=" + std::to_string(crowd));
@@ -371,7 +382,8 @@ inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchCont
     f.push_back("--wwe2k14_aspect=" + std::to_string(std::max(c.screen_w, c.screen_h)) + ":" +
                 std::to_string(std::min(c.screen_w, c.screen_h)));
   if (s.language > 0) f.push_back("--user_language=" + std::to_string(s.language));
-  if (s.dynamic_res) f.push_back("--wwe2k14_dynamic_res=true");  // Session 73
+  // Session 73's dynamic resolution: removed (Session 100, Jarrod 2026-11-11 08:1x: "I'm honestly not the biggest fan of our dynamic
+  // resolution either, should be removed"); the key is still read from older files and ignored.
   if (s.perf_overlay) f.push_back("--wwe2k14_perf_overlay=" + std::to_string(s.perf_overlay));  // Session 80
   // DLC (launcher_core.h DlcFlags).
   if (s.dlc && !c.dlc_dir.empty()) {
@@ -384,6 +396,15 @@ inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchCont
   if (s.superstars && !c.mods_dir.empty()) {
     f.push_back("--wwe2k14_mods_superstars=true");
     f.push_back("--wwe2k14_mods_dir=" + c.mods_dir);
+  }
+  // Lane 286 (custom music on the phone; the PC launcher's mapping, launcher_core.h): the mods device, the folder (once), and the
+  // theme switch only when a wrestler has a theme of his own. The new songs need only the first two.
+  if (s.music && !c.music_dir.empty()) {
+    f.push_back("--wwe2k14_mods=true");
+    if (!(s.superstars && !c.mods_dir.empty())) f.push_back("--wwe2k14_mods_dir=" + c.music_dir);
+    // Lane 297 (B1): the phone plays custom songs through the lane 288 player (mixed into the game's audio); explicit even when its default flips.
+    f.push_back("--wwe2k14_music_mix_into_game=true");
+    if (c.music_themes) f.push_back("--wwe2k14_entrance_music=true");
   }
   if (c.wm30 >= 0) f.push_back("--wwe2k14_wm30=" + std::to_string(c.wm30));
   // Session 72: a custom Vulkan driver (src\android_driver.h; GameActivity adds the library folder).

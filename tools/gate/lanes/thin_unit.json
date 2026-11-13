@@ -1,0 +1,7 @@
+{
+ "owner": "lane 122 (S101, KR): D1 thin draws, the shipped headers src/renderer_adapter/{thin_draw,reader_thin,thin_store}.h and src/scene_live/span_timer.h, docs/renderer/THIN_DRAWS.md",
+ "note": "builds tools/thin/thin_unit_test.cpp and runs it: two threads (a fake reader at frame rate, a binder 1-3 frames behind, churn, releases), 100k frames, holes 0; the span timer's descriptor reader on fake guest memory. Planted: release_without_ack, stale_generation, descriptor_stride_64 must each FAIL it. No game, no data.",
+ "checks": [
+  {"name": "thin_unit", "cmd": ["py", "-I", "tools/thin/thin_unit_selftest.py"], "timeout_s": 900}
+ ]
+}

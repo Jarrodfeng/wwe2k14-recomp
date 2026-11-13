@@ -62,11 +62,14 @@
 #include <map>
 #endif
 
+#include "guest_gpu_only.h"  // lane 256
 #include "blackbox.h"     // Session 73: the first frame in the start-up black box
 #include "dynamic_res.h"  // Session 73: each frame's length to the dynamic resolution
 #include "perf_overlay.h"  // Session 80: each frame's length to the performance overlay
+#include "renderer/overlay.h"  // lane 269: rdr::g_gpu_* (the new renderer's GPU timestamps)
 #include "android_lifecycle.h"  // Session 95: a frame out of front is not a hitch
 #include "hang_guard.h"  // Session 95: --wwe2k14_hang_guard and its test switch
+#include "perf_mem.h"    // lane 249: [perf][mem] lines
 
 #if defined(__ANDROID__)
 #include "android_perf_hint.h"  // Session 64: each frame's length to the phone's CPU governor
@@ -165,6 +168,7 @@ class FrameStats {
     const auto now = clock::now();
     const uint64_t frame = ++g_guest_frame;
     if (frame == 1) blackbox::Step("first frame: the game is running");  // Session 73
+    if (frame == 1) perf_mem::Start(&g_guest_frame);  // lane 249: the memory line thread + the boot line
     if (frame == 600) blackbox::Step("600 frames in");
 #ifdef _WIN32
     const uint32_t thread_id = GetCurrentThreadId();
@@ -208,6 +212,15 @@ class FrameStats {
       last_gpu_frames_done_ = done;
       gpu_ms = events.gpu_frame_us.load(std::memory_order_relaxed) / 1000.0;
       last_gpu_ms_ = gpu_ms;
+    }
+    // Lane 269: in owner mode the SDK measures nothing; the new renderer's own timestamps (renderer.cpp CollectGpuTime, read a few frames late, no stall)
+    // fill the CSV gpu_ms and the slow-frame GPU field: the GPU time of the frames it submitted since the last guest frame (a decoupled 120's halfway
+    // pictures included). NOT fed to dynamic resolution or the perf hint (last_gpu_ms_ stays the SDK's): their behaviour is unchanged.
+    double shown_gpu_ms = gpu_ms;
+    if (const uint64_t owner_frames = rdr::g_gpu_frames.load(std::memory_order_relaxed); owner_frames != last_owner_gpu_frames_) {
+      const uint64_t owner_ns = rdr::g_gpu_ns_total.load(std::memory_order_relaxed);
+      if (gpu_ms < 0 && last_owner_gpu_frames_ != 0) shown_gpu_ms = double(owner_ns - last_owner_gpu_ns_) / 1e6;
+      last_owner_gpu_frames_ = owner_frames, last_owner_gpu_ns_ = owner_ns;
     }
     // Session 73 (moved below the GPU read in Session 95): dynamic resolution judges on the GPU time too.
     if (!g_frame_time_ignore_next.load(std::memory_order_relaxed)) dynres::g_controller.OnFrame(ms, last_gpu_ms_, game_cpu_ms);
@@ -253,7 +266,7 @@ class FrameStats {
     if (csv_) {
       for (char& c : scene) c = (c == ',' || c == '\n') ? ';' : c;
       char gpu_text[24] = "", game_text[24] = "", gthread_text[24] = "";
-      if (gpu_ms >= 0) std::snprintf(gpu_text, sizeof(gpu_text), "%.3f", gpu_ms);
+      if (shown_gpu_ms >= 0) std::snprintf(gpu_text, sizeof(gpu_text), "%.3f", shown_gpu_ms);
       if (game_cpu_ms >= 0) std::snprintf(game_text, sizeof(game_text), "%.3f", game_cpu_ms);
       if (gpu_thread_ms >= 0) std::snprintf(gthread_text, sizeof(gthread_text), "%.3f", gpu_thread_ms);
       char mhz_text[16] = "";
@@ -269,7 +282,7 @@ class FrameStats {
     const int32_t slow_ms = REXCVAR_GET(wwe2k14_slow_frame_ms);
     if (slow_ms > 0 && ms >= slow_ms && slow_logged_ < kMaxSlowLines) {
       ++slow_logged_;
-      std::string gpu_part = gpu_ms >= 0 ? fmt::format("GPU {:.1f} ms", gpu_ms) : std::string("GPU -");
+      std::string gpu_part = shown_gpu_ms >= 0 ? fmt::format("GPU {:.1f} ms", shown_gpu_ms) : std::string("GPU -");
       if (gpu_mhz > 0) gpu_part += fmt::format(" at {} MHz", gpu_mhz);
       REXLOG_INFO("[wwe2k14][frames] slow frame {}: {:.0f} ms (t={:.1f} s): game CPU {}, GPU thread {}, {}; made: "
                   "{} pipelines, {} images, {} shaders, {} texture loads ({:.1f} MB); {} files opened, {} memory "
@@ -337,6 +350,7 @@ class FrameStats {
     return 0;
 #else
     if (gpu_thread_fd_ < 0) {
+      if (GuestGpuOnly()) return 0;  // lane 256: no 'GPU Commands' thread exists (no /proc scan every 300 frames for good)
       if (g_guest_frame.load(std::memory_order_relaxed) < gpu_thread_retry_frame_) return 0;
       gpu_thread_retry_frame_ = g_guest_frame.load(std::memory_order_relaxed) + 300;
       std::error_code ec;
@@ -420,7 +434,8 @@ class FrameStats {
     }
     {
       const auto now = std::chrono::steady_clock::now();
-      const uint64_t busy = rex::perf::frame_events::Get().gpu_busy_us_total.load(std::memory_order_relaxed);
+      const uint64_t sdk_busy = rex::perf::frame_events::Get().gpu_busy_us_total.load(std::memory_order_relaxed);
+      const uint64_t busy = sdk_busy ? sdk_busy : rdr::g_gpu_ns_total.load(std::memory_order_relaxed) / 1000;  // lane 269: owner mode has no SDK timestamps
       if (thermal_busy_time_ != std::chrono::steady_clock::time_point{}) {
         const double wall_us = std::chrono::duration<double, std::micro>(now - thermal_busy_time_).count();
         if (wall_us > 0) {
@@ -610,7 +625,7 @@ class FrameStats {
   uint32_t hitches_logged_ = 0;
   bool other_swapper_logged_ = false;
   // Session 73
-  uint64_t last_cpu_ns_ = 0, last_gpu_thread_ns_ = 0, last_gpu_frames_done_ = 0, last_gpu_wait_us_ = 0;
+  uint64_t last_cpu_ns_ = 0, last_gpu_thread_ns_ = 0, last_gpu_frames_done_ = 0, last_gpu_wait_us_ = 0, last_owner_gpu_frames_ = 0, last_owner_gpu_ns_ = 0;  // lane 269
   uint32_t last_pipelines_ = 0, last_images_ = 0, last_shaders_ = 0, last_files_ = 0, last_probes_ = 0;
   uint32_t slow_logged_ = 0;
   std::string last_scene_;

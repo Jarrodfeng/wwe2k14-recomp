@@ -51,6 +51,12 @@
 #include <rex/system/xmemory.h>
 #include <rex/system/xthread.h>
 
+#include "scene_live/wrestler_hook.h"  // S101 lane29
+#include "scene_live/model_hooks.h"   // S101 lane43
+#include "scene_live/light_state_glue.h"  // S101 lane 109: the per-draw light state (LS1), read at the model call
+#include "scene_live/arena_world_glue.h"  // lane 130: the arena's evaluated object worlds, read at the model call
+#include "scene_live/ring_rows_glue.h"  // lane 194: the ring's per-call node rows (Ring D3 R1), read at the model call (read only, default off)
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -772,6 +778,7 @@ inline void SkelWriteRecordLocked(SkelLog& s, uint32_t kind, uint64_t frame, uin
 // sub_82BD30E8 at 0x82BD31C8 (bone loop start): r3 = parent table, r27 = second argument, r28 = bone count,
 // r31 = this. Log only.
 void wwe2k14_skel_in(PPCRegister& r3, PPCRegister& r27, PPCRegister& r28, PPCRegister& r31, PPCFPSCRRegister& fpscr) {
+  wwe2k14::wrestlers::OnSkelIn(r31.u32, r28.u32);  // S101 lane29: the live scene's wrestler class (src/scene_live/wrestler_hook.h); read only
   if (!REXCVAR_GET(wwe2k14_skel_probe)) return;
   using namespace wwe2k14::fpprobe;
   SkelCall& c = t_skel;
@@ -845,6 +852,7 @@ void wwe2k14_skel_off(PPCRegister& r1) {
 
 // 0x82BD35A4 (exit; also reached by the early returns, which never passed the loop-start hook). Log only.
 void wwe2k14_skel_exit(PPCRegister& r31, PPCFPSCRRegister& fpscr) {
+  wwe2k14::wrestlers::OnSkelExit(r31.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));// S101 lane29: before the probe's own early return; read only
   if (!REXCVAR_GET(wwe2k14_skel_probe)) return;
   using namespace wwe2k14::fpprobe;
   SkelCall& c = t_skel;
@@ -883,8 +891,66 @@ void wwe2k14_skel_exit(PPCRegister& r31, PPCFPSCRRegister& fpscr) {
   }
 }
 
+// S101 lane43: sub_82C04DF0 at 0x82C04E1C (after the prologue, before `mr r23,r3`): r3 = model object (= the skeleton), r5 = [model+200], the array the
+// draw's c76 rows are cut from. Read only (src/scene_live/model_hooks.h).
+// lane 245: the wrestler half of the model-entry readers (the palette copy and its first-hit log), shared by the mid-asm hook below and by the D3 wrestler scope's skip path (g_wentry, which must run it itself because a skipped
+// call never reaches the mid-asm hook). `frame` = the frame the caller decided in. Read only.
+inline void WrestlerModelEntryRead(uint32_t model, uint32_t palette, uint32_t r13, uint64_t frame) {
+  if (!rdr_scene::live::WrestlersRegistered()) return;
+  {  // R1 section 5: which thread runs sub_82C04DF0 is [U]; log it once at the first hit (guest thread id and the recording-list key [[r13]+1048]+32,
+     // the chain sub_82BB10C0 reads at 0x82BB10C4-0x82BB1108: r13 -> thread block -> +1048 -> list block -> +32)
+    static std::atomic<bool> logged{false};
+    if (!logged.load(std::memory_order_relaxed) && !logged.exchange(true)) {
+      uint32_t tls = 0, blk = 0, key = 0;
+      const bool ok = wwe2k14::wrestlers::ReadWord(r13, tls) && tls && wwe2k14::wrestlers::ReadWord(tls + 1048, blk) && blk &&
+                      wwe2k14::wrestlers::ReadWord(blk + 32, key);
+      REXLOG_INFO("[wwe2k14][wrestlers] sub_82C04DF0 first hit: guest thread {} recording key {:08X}{} (model {:08X}, frame {})",
+                  wwe2k14::fpprobe::GuestThreadId(), key, ok ? "" : " (unreadable)", model,
+                  (unsigned long long)frame);
+    }
+  }
+  if (!rdr_scene::live::Enabled()) return;
+  wwe2k14::wrestlers::ModelEntry(
+      rdr_scene::live::Wrestlers(), model, palette, frame,
+      [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
+      [](uint32_t a, uint32_t n, std::vector<rdr_scene::Mat4>& out) { return wwe2k14::wrestlers::ReadMatrices(a, n, out); },
+      wwe2k14::wrestlers::t_palette);
+}
+void wwe2k14_model_entry(PPCRegister& r3, PPCRegister& r5, PPCRegister& r13) {
+  if (rdr_scene::live::lights::LightStatesRegistered()) wwe2k14::lights::ModelEntryHook(r3.u32, r13.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));  // S101 lane 109: R at the model call (read only; registered only with --wwe2k14_scene_records)
+  if (rdr_scene::live::arenaworld::ArenaWorldsRegistered()) wwe2k14::arenaworld::ModelEntryHook(r3.u32, r5.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));  // lane 130: the object's evaluated world (read only)
+  if (rdr_scene::live::ringrows::RingRowsRegistered()) wwe2k14::ringrows::ModelEntryHook(r3.u32, r5.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));  // lane 194: the ring's node rows at the call (read only)
+  WrestlerModelEntryRead(r3.u32, r5.u32, r13.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));
+}
+
+// lane 138 (D3): when the hook on sub_82C04DF0 skips a call, the mid-asm hook above does not run (it sits inside the function), so the D3 glue calls the same two read-only readers itself.
+inline const bool g_d3_entry_installed = (wwe2k14::d3hook::g_entry = [](uint32_t model, uint32_t palette, uint32_t r13, uint64_t frame) {   // lane 152 (S4): the frame the decision was made in, not a re-read of the counter
+  if (rdr_scene::live::lights::LightStatesRegistered()) wwe2k14::lights::ModelEntryHook(model, r13, frame);
+  if (rdr_scene::live::arenaworld::ArenaWorldsRegistered()) wwe2k14::arenaworld::ModelEntryHook(model, palette, frame);
+  if (rdr_scene::live::ringrows::RingRowsRegistered()) wwe2k14::ringrows::ModelEntryHook(model, palette, frame);   // lane 194
+}, true);
+// lane 245: the same readers for a skipped WRESTLER colour call, plus the wrestler palette copy (the wrestler chain's bones come from it; the arena's skip does not need it).
+inline const bool g_d3_wentry_installed = (wwe2k14::d3hook::g_wentry = [](uint32_t model, uint32_t palette, uint32_t r13, uint64_t frame) {
+  if (rdr_scene::live::lights::LightStatesRegistered()) wwe2k14::lights::ModelEntryHook(model, r13, frame);
+  if (rdr_scene::live::arenaworld::ArenaWorldsRegistered()) wwe2k14::arenaworld::ModelEntryHook(model, palette, frame);
+  if (rdr_scene::live::ringrows::RingRowsRegistered()) wwe2k14::ringrows::ModelEntryHook(model, palette, frame);
+  WrestlerModelEntryRead(model, palette, r13, frame);
+}, true);
+// lane 152 (D3-F item 16): the pre-read of the call's light state, asked before the decision
+inline const bool g_d3_probe_installed = (wwe2k14::d3hook::g_state_probe = [](uint32_t model, uint32_t r13, uint64_t frame, uint32_t& table_states, uint32_t& ordinal) { return wwe2k14::lights::ModelEntryProbe(model, r13, frame, table_states, ordinal); }, true);
+
+// S101 lane43: sub_82720658 (the char model reader) at 0x827207F0, just before it clears reader+100 / +96: r31 = the reader. Read only.
+void wwe2k14_model_link(PPCRegister& r31) {
+  // Gated on registration only, NOT on a sink being attached: models are built at match load, before a capture starts, and this is rare (a handful of
+  // calls per load), so it costs nothing; the link must already be known when the first record is written.
+  if (!rdr_scene::live::WrestlersRegistered()) return;
+  wwe2k14::wrestlers::ModelLinkRead(rdr_scene::live::Wrestlers(), r31.u32,
+                                    [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); });
+}
+
 // sub_82BD3620 at 0x82BD362C (after its prologue, before `lfs f0,0(r4)`): r3 = this, r4 = the delta vector. Log only.
 void wwe2k14_skel_shift(PPCRegister& r3, PPCRegister& r4) {
+  wwe2k14::wrestlers::OnSkelShift(r3.u32, r4.u32);  // S101 lane29: the delta the game adds to +192 / +200 after the update; read only
   if (!REXCVAR_GET(wwe2k14_skel_probe)) return;
   using namespace wwe2k14::fpprobe;
   const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);

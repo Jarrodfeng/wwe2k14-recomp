@@ -9,11 +9,14 @@
 //   msgbox     the game's message box state changed ([0x839294BC]+16: 2 = waiting for an answer, 5 idle)
 //   match      the match clock started (0x836F3928 0 -> running); Session 91 step 8 (out/harness/atlas/readers/
 //              match_events.md): pin (the referee's pin count started), count 1..3, kickout (the count stopped below
-//              3 with no finish), dq_count / count_out_count, eliminated (slot, id, over the top), finish (type + name:
+//              3 with no finish; the kickout line also has stopped_f = the frame the count stopped, emitted late: S101 lane 102),
+//              dq_count / count_out_count, eliminated (slot, id, over the top), finish (type + name:
 //              1 pinfall, 2 count-out, 3 DQ, 6 submission, 7 last one left, 9 time limit, 10 Inferno; winner / loser
 //              slot and character id; emitted once the triple held 2 reads, again when it changes)
 //   state      on request (--wwe2k14_match_state_dump N): the match snapshot (clock, referee, finish, wrestlers)
 //   entrance   an entrance step changed for a slot ([0x836F38D0 + 4 * slot] + 28 > +2: 0 intro, 5 his segment)
+//   render     lane 147: the renderer announced something; what = roster_ready (pacs, models, seconds: the wrestler roster is built) or
+//              roster_failed. Queued by the render thread (src/render_signal.h), emitted on the guest frame
 //   load       an archive opened (a *.PAC path; GAME:/D: paths only, deduplicated per frame)
 // Each event is one log line `[wwe2k14][event] {json}` and one line in logs/events_NNN.jsonl (NNN = this run's log
 // number): {"f": guest frame, "t": seconds since start, "kind": ..., fields}. tools/live/events.py follows the file;
@@ -32,6 +35,9 @@
 #include <mutex>
 #include <string>
 
+#include "event_bus_rumble.h"  // S101 lane 120
+#include "render_signal.h"  // lane 147
+
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/memory/utils.h>
@@ -45,6 +51,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_events, false, "wwe2k14",
 REXCVAR_DEFINE_INT64(wwe2k14_match_state_dump, 0, "wwe2k14",
                      "Session 91: set to a new value for one 'state' event: the match snapshot (clock, referee mode / "
                      "count, finish, every wrestler's id, team, role, state, health); needs --wwe2k14_events");
+
+// S101 lane 113 / lane 120: "" = the move event emits signature / finisher moves only; "all" adds the normal moves.
+REXCVAR_DEFINE_STRING(wwe2k14_events_moves, "", "wwe2k14",
+                      "S101 lane 113: --wwe2k14_events_moves=all also emits normal moves as 'move' bus lines (default: signature "
+                      "and finisher only); needs --wwe2k14_events");
 
 namespace wwe2k14::events {
 
@@ -105,6 +116,16 @@ inline uint32_t R32(uint32_t a) {
   return rex::memory::load_and_swap<uint32_t>(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(a));
 }
 inline uint8_t R8(uint32_t a) { return *REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(a); }
+// S101 lane 113: a big-endian halfword
+inline uint16_t R16(uint32_t a) {
+  return rex::memory::load_and_swap<uint16_t>(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(a));
+}
+// S101 lane 120: the guest memory as src/event_bus_rumble.h reads it
+struct GuestMem {
+  uint8_t r8(uint32_t a) const { return R8(a); }
+  uint16_t r16(uint32_t a) const { return R16(a); }
+  uint32_t r32(uint32_t a) const { return R32(a); }
+};
 // [[base]+o1]+o2...: -1 when a pointer on the way is null / out of range
 inline int64_t Chain(uint32_t base, std::initializer_list<uint32_t> offs, bool byte = false) {
   uint32_t a = base;
@@ -131,6 +152,8 @@ struct Last {
   std::array<int64_t, 6> part{-2, -2, -2, -2, -2, -2};  // char+1020 per slot: 0 active, 1 apron, 4 out, 5 over the top
 };
 inline Last g_last;
+inline rumble::State g_rumble;          // S101 lane 120
+inline rumble::MoveState g_moves;       // S101 lane 113
 
 // Match state words (match_events.md): the referee ("judge") [0x83767B6C]: +72 mode (0 watch, 1 pin count, 3 5-count
 // to a DQ, 4 a count over all slots, 5 10-count count-out), +80 count, +92 the pinning slot (inferred); the finish
@@ -141,6 +164,7 @@ inline Last g_last;
 constexpr uint32_t kJudge = 0x83767B6C, kFinish = 0x8376ACCC, kWinner = 0x8376E3EC, kLoser = 0x8376E3ED;
 constexpr uint32_t kSlots = 0x836F38D0, kClock = 0x836F3928, kMatchDesc = 0x836F2D88;
 
+constexpr int64_t kSceneFinishType = 15;  // lane 150: see the emit below
 inline const char* FinishName(int64_t t) {
   switch (t) {
     case 1: return "pinfall";
@@ -220,7 +244,9 @@ inline void MatchTick(uint64_t frame) {
     if (R32(kFinish) != 0) {
       g_kickout = {};  // it was the three-count
     } else if (frame >= g_kickout.frame + kKickoutHold) {
-      Emit(frame, "match", fmt::format("\"what\": \"kickout\", \"at_count\": {}", g_kickout.count));
+      // S101 lane 102: stopped_f = the frame the count stopped (this line is emitted kKickoutHold frames later); the moment grammar
+      // (tools/goto/when.py @kickout~late) measures how late in the count interval the near-fall ended from it.
+      Emit(frame, "match", fmt::format("\"what\": \"kickout\", \"at_count\": {}, \"stopped_f\": {}", g_kickout.count, g_kickout.frame));
       g_kickout = {};
     }
   }
@@ -245,15 +271,26 @@ inline void MatchTick(uint64_t frame) {
   }
   g_last.ref_count = count;
   // eliminations: char+1020 becomes 4 (eliminated) or 5 (over the top)
+  // S101 lane 120: a Rumble (G byte 0 in 20..23) is driven by the counter 0x836F3924 (src/event_bus_rumble.h); the per-slot path below
+  // serves the other types, and no longer emits for id 255 (the non-wrestler seats start at state 4: the 3 false lines about 460
+  // frames before clock_started in every match). No clock gate: elimination tag / chamber eliminations must still emit (review item 8).
+  GuestMem mem;
+  const bool is_rumble = rumble::Tick(g_rumble, mem, frame, g_last.clock_running == 1, [&](const std::string& f) { Emit(frame, "match", f); });
   for (uint32_t s = 0; s < 6; ++s) {
     const uint32_t c = Char(s);
     const int64_t st = c ? int64_t(R8(c + 1020)) : -1;
     const int64_t prev = g_last.part[s];
     g_last.part[s] = st;
-    if (prev >= 0 && st != prev && (st == 4 || st == 5))
-      Emit(frame, "match", fmt::format("\"what\": \"eliminated\", \"slot\": {}, \"id\": {}, \"over_the_top\": {}", s,
-                                       c ? CharacterId(c) : -1, st == 5 ? "true" : "false"));
+    if (prev >= 0 && st != prev && (st == 4 || st == 5) && !is_rumble) {  // S101 lane 120
+      const int64_t id = c ? CharacterId(c) : -1;
+      if (id == 255) continue;
+      Emit(frame, "match", fmt::format("\"what\": \"eliminated\", \"slot\": {}, \"id\": {}, \"over_the_top\": {}", s, id,
+                                       st == 5 ? "true" : "false"));
+    }
   }
+  // S101 lane 113: the move log (waza slot char+2486, move id char+2488), emitted on change
+  rumble::MoveTick(g_moves, mem, REXCVAR_GET(wwe2k14_events_moves) == "all",
+                   [&](const std::string& f) { Emit(frame, "move", f); });
 }
 
 
@@ -261,6 +298,9 @@ inline void MatchTick(uint64_t frame) {
 inline void Tick(uint64_t frame) {
   if (!On() || frame == g_last.frame) return;
   g_last.frame = frame;
+  render_signal::Drain([&](const std::string& what, const std::string& fields) {   // lane 147: the render side's ready signals, queued by its thread, emitted here on the guest frame
+    Emit(frame, "render", fmt::format("\"what\": \"{}\"{}{}", what, fields.empty() ? "" : ", ", fields));
+  });
   auto changed = [&](int64_t& last, int64_t now) {
     const bool c = last != -2 && now != last;
     const bool first = last == -2;
@@ -300,13 +340,21 @@ inline void Tick(uint64_t frame) {
       const uint32_t c = slot >= 0 && slot < 9 ? Char(uint32_t(slot)) : 0;
       return c ? CharacterId(c) : -1;
     };
+    if (finish == kSceneFinishType) {  // lane 150: G+472 = 15 is the value a playing 30 Years scene leaves there (run 7092), not a match end: never a `finish`
+      Emit(frame, "match", fmt::format("\"what\": \"scene\", \"g472\": {}, \"clock\": {}", finish, clock));
+    } else
     Emit(frame, "match", fmt::format("\"what\": \"finish\", \"finish_type\": {}, \"finish_name\": \"{}\", \"winner_slot\": "
                                      "{}, \"winner_id\": {}, \"loser_slot\": {}, \"loser_id\": {}, \"clock\": {}",
                                      finish, FinishName(finish), win, who(win), lose, who(lose), clock));
   } else if (key == 0) {
     g_last.fin_emitted_key = -1;  // reset (a new fall / match): the next finish is emitted again
   }
-  if (seq == 9) MatchTick(frame);
+  if (seq == 9) {
+    MatchTick(frame);
+  } else {  // S101 lane 120: leaving the match ends the Rumble / move tracking
+    g_rumble.Reset();
+    g_moves = {};
+  }
   if (const int64_t ask = REXCVAR_GET(wwe2k14_match_state_dump); ask != g_state_dump_seen) {
     g_state_dump_seen = ask;
     Emit(frame, "state", seq == 9 ? SnapshotJson() : "\"in_match\": false");

@@ -28,6 +28,7 @@
 
 #include "decode_probe.h"  // GuestPtr
 #include "frame_stats.h"
+#include "wm30_fire_watch.h"  // S101 lane 108: the `!wm30 fire` proof lines ride on these two hooks
 
 REXCVAR_DEFINE_BOOL(wwe2k14_flow_probe, false, "wwe2k14",
                     "Log the in-game flow's state changes (sub_827A9AE0) and the entrance states' next-state choice "
@@ -53,11 +54,17 @@ REX_HOOK_RAW(sub_827A9AE0) {
     REXLOG_INFO("[wwe2k14][flow] set flow={:08X} vt={:08X} old={:08X} (id {}) -> id {} lr={:08X} frame={}", flow,
                 W(base, flow), old, old ? int32_t(W(base, old + 4)) : -1, int32_t(id), uint32_t(ctx.lr), Frame());
   }
+  if (wwe2k14::wm30_fire::g_watch.load(std::memory_order_relaxed)) {  // S101 lane 108: log only
+    using namespace wwe2k14::flow_probe;
+    const uint32_t old = W(base, ctx.r3.u32 + 4);
+    wwe2k14::wm30_fire::LogFlowSet(old ? int32_t(W(base, old + 4)) : -1, int32_t(ctx.r4.u32), Frame());
+  }
   __imp__sub_827A9AE0(ctx, base);
 }
 
 REX_HOOK_RAW(sub_827BDA68) {
-  if (!REXCVAR_GET(wwe2k14_flow_probe)) {
+  const bool fire_watch = wwe2k14::wm30_fire::g_watch.load(std::memory_order_relaxed);  // S101 lane 108: log only
+  if (!REXCVAR_GET(wwe2k14_flow_probe) && !fire_watch) {
     __imp__sub_827BDA68(ctx, base);
     return;
   }
@@ -72,10 +79,13 @@ REX_HOOK_RAW(sub_827BDA68) {
   const uint32_t g18576 = W(base, kG + 18576);
   const uint32_t e9644 = ent ? W(base, ent + 9644) : 0xFFFFFFFFu;
   __imp__sub_827BDA68(ctx, base);
-  REXLOG_INFO("[wwe2k14][flow] entrance_next id={} -> {} G+18576={} G+468={} ent={:08X} ent+9644={} "
-              "[0x839295F0]={:08X} >+8={:08X} >+176={} frame={}",
-              int32_t(id), int32_t(ctx.r3.u32), int32_t(g18576), g468, ent, int32_t(e9644), c0, c1, int32_t(c2),
-              Frame());
+  if (REXCVAR_GET(wwe2k14_flow_probe)) {
+    REXLOG_INFO("[wwe2k14][flow] entrance_next id={} -> {} G+18576={} G+468={} ent={:08X} ent+9644={} "
+                "[0x839295F0]={:08X} >+8={:08X} >+176={} frame={}",
+                int32_t(id), int32_t(ctx.r3.u32), int32_t(g18576), g468, ent, int32_t(e9644), c0, c1, int32_t(c2),
+                Frame());
+  }
+  if (fire_watch) wwe2k14::wm30_fire::LogFlowNext(int32_t(id), int32_t(ctx.r3.u32), int32_t(e9644), g468, g18576, Frame());
 }
 
 // Session 14 (S1, entrance-transition stall): name the HavokBackThread's host thread so the sampling profiler can

@@ -1,0 +1,8 @@
+{
+ "owner": "lane 89 (S101, UT = P2b): the game's text drawn by us through the REAL replace seam (fview --ui-text-ours), docs/renderer/UI_TEXT_OURS.md. Unit half (out/tools/ui_text_test.exe: the shipped UiTextOurs on the font files and the zips' frames; the 4 plants as written and as unchecked_NAME; the no-run-string twin) + fview half (pictures, census, validation, plants).",
+ "note": "needs: the menu / editor case zips that carry the run strings (names.h section 69; extracted once under the main out/s101/ui_text/ - the run folders age out of out/ after 24 h, extract and keep), lane 66's older menu zip (the no-run-string twin), the game files, a GPU for the fview half (shared: only the frame-ring refusal is retried). Builds both exes itself. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "ui_text_ours.proof", "cmd": ["py", "-I", "tools/ui/ui_text_check.py", "--root", "."], "timeout_s": 3600,
+   "needs": ["game_data/extracted/pac/menu", "out/s101/ui_text/case_menu/capture/images.bin", "out/s101/ui_text/case_editor/capture/images.bin", "out/s101/ui_ours/case_menu/capture/images.bin"]}
+ ]
+}

@@ -1,0 +1,15 @@
+{
+ "owner": "lane 171 + lane 177 + lane 186 (S101; 186: HUD-phase rectangles, tools/renderer/hudrect_gate.py, plant rplay --wide-post-rect; 177: full-view fades / flashes, tools/renderer/fullview_gate.py): the screen-shape (ultrawide / taller screen) squeeze rule, src/renderer_adapter/wide_rule.h; rplay --wide / --tall / --wide-legacy, docs/renderer/WIDE_OURS.md",
+ "note": "needs: out/renderer/release/rplay.exe built from the tree under test (tools/renderer/build.ps1 -Release), the kept captures under the main checkout's out/ (Bryan's entrance case, brock_s15, s100_wm30_300, s100_match300, s100cards), pillow + numpy, a GPU (shared). Pass --base-rplay <a rplay built from the base commit> for the 16:9 byte-parity lines. The S5 rule (--wide-legacy) is the plant: the Bryan lines fail without the fix. A missing capture FAILs loudly. wide.hudrect (and wide.proof / wide.fullview) skip their 16:9 byte-parity lines in the gate: the lane cmd is fixed and the gate has no registry for a baseline rplay built from the base commit; run the gate scripts by hand with --base-rplay <absolute path of that exe> for parity (lane 186 did: PASS).",
+ "checks": [
+  {"name": "wide.proof", "cmd": ["py", "-I", "tools/renderer/wide_gate.py"], "timeout_s": 3000,
+   "needs": ["out/renderer/release/rplay.exe", "out/cases/case_20261111_174607_799_0_pc_run_exit/capture/images.bin", "out/captures/brock_s15/images.bin", "out/captures/s100_wm30_300/images.bin", "out/captures/s100_match300/images.bin"]},
+  {"name": "wide.fullview", "cmd": ["py", "-I", "tools/renderer/fullview_gate.py"], "timeout_s": 1800,
+   "needs": ["out/renderer/release/rplay.exe", "out/captures/brock_s15_300/images.bin"]},
+  {"name": "wide.hudrect", "cmd": ["py", "-I", "tools/renderer/hudrect_gate.py"], "timeout_s": 1800,
+   "needs": ["out/renderer/release/rplay.exe", "out/captures/s100_heenan_build/images.bin", "out/cases/fview_unpack_20261112-185530/capture/images.bin", "out/captures/s100_wm30_300/images.bin", "out/captures/s100cards/images.bin"]},
+  {"name": "wide.jitter", "cmd": ["py", "-I", "tools/renderer/jitter_gate.py"], "timeout_s": 1800,
+   "note": "lane 185: the DLSS jitter window (src/renderer_adapter/jitter_rule.h); pass --base-rplay for the no-jitter byte-parity lines. The legacy window (--jitter-legacy) is the plant for the shift lines, --jitter-marker-late for the HUD line.",
+   "needs": ["out/renderer/release/rplay.exe", "out/cases/case_20261111_174607_799_0_pc_run_exit/capture/images.bin", "out/captures/brock_s15_300/images.bin", "out/captures/s100_s89k_a/images.bin"]}
+ ]
+}

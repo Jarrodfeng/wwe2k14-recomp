@@ -46,6 +46,7 @@
 #include <thread>
 
 #include "android_lifecycle.h"
+#include "guest_gpu_only.h"  // lane 241 (3b)
 #include "blackbox.h"
 
 #if defined(_WIN32)
@@ -292,7 +293,7 @@ class Guard {
     if (s.fence > 0 && fence_ticks_ < kFreshTicks && guest_ticks_ >= kStoppedTicks) return "fence wait";
     if (in_paint && paint_ticks_ >= kStoppedTicks) return "paint thread";
     if (s.guest > 0 && guest_ticks_ < kStoppedTicks) return "paint thread";
-    if (command_ticks_ >= kStoppedTicks) return "command thread";
+    if (command_ticks_ >= kStoppedTicks && !wwe2k14::GuestGpuOnly()) return "command thread";  // lane 241 (3b): an absent thread is not a stopped one
     return "guest frame";
   }
 

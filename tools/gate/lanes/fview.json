@@ -1,0 +1,8 @@
+{
+ "owner": "lane 2: fview (the frame viewer)",
+ "checks": [
+  {"name": "fview.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 1200},
+  {"name": "fview.stage_view", "cmd": ["py", "-I", "tools/fview/stage_view_check.py"], "timeout_s": 1800, "needs": ["out/lane59/case_stage_run7066.zip", "out/lane59/case_match_nonstage.zip", "out/captures/s100cards"]},
+  {"name": "fview.selftest", "cmd": ["py", "-I", "tools/fview/selftest.py"], "timeout_s": 1800, "needs": ["out/captures/s100cards", "out/captures/s100_wm30_300", "out/captures/s100_heenan_build"]}
+ ]
+}

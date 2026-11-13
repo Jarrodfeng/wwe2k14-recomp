@@ -1,0 +1,9 @@
+{
+ "owner": "lane 67 (S101): particle runs drawn as one draw each, rplay --particles-ours (PARTICLES_PROMOTION_MAP.md section 6), tools/particles/runs_check.py + runs_test.cpp",
+ "note": "needs Check B's and Bryan's case zips; builds rplay (tools/renderer/build.ps1) and runs_test.cpp, replays 341 + 91 frames off and on (about 2 minutes), then 7 plants on 4 frames. A missing input FAILs loudly. Picture bar: max channel difference <= 1 level on every frame.",
+ "checks": [
+  {"name": "particles_ours.proof", "cmd": ["py", "-I", "tools/particles/runs_check.py", "--root", "."], "timeout_s": 3000, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip"]}
+ ]
+}

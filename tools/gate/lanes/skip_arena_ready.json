@@ -1,0 +1,12 @@
+{
+ "owner": "lane 128 (S101): the arena D3 readiness tool, tools/skip/arena_ready.py (SKIP_GAME_WORK_MAP.md 'D3 arena: ready list and contract'). Python only, 0 game runs.",
+ "note": "needs lane 92's unpacked case of run 7079 (game data, local only); a machine without it SKIPs, the script run directly fails loudly. Positive: placed family ~16 draws a frame, mirror rule, family sum. Planted twins: placed_off, no_mirror_rule, missing_input.",
+ "checks": [
+  {
+   "name": "skip_arena_ready.selftest",
+   "cmd": ["py", "-I", "tools/skip/arena_ready_selftest.py"],
+   "timeout_s": 900,
+   "needs": ["out/s101/lane92/case_20261112_122658_040_0_pc_run_exit/manifest.json"]
+  }
+ ]
+}

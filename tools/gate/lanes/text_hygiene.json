@@ -1,0 +1,7 @@
+{
+ "owner": "S101 main session (2026-11-12): tracked text files must not hold control bytes from escape-processed Windows paths (lane 151's review found doc paths turned into CR / FF; 32 files had them)",
+ "checks": [
+  {"name": "text_hygiene.selftest", "cmd": ["py", "-I", "tools/harness/text_hygiene.py", "--selftest"], "timeout_s": 60},
+  {"name": "text_hygiene.scan", "cmd": ["py", "-I", "tools/harness/text_hygiene.py"], "timeout_s": 120}
+ ]
+}

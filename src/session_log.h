@@ -31,6 +31,7 @@
 #include "input_script.h"  // g_session_frame_hook, SaveSnapshot
 #include "load_probe.h"    // CurrentSequence, SafeRead32
 #include "scenario.h"      // kMatchDescPtr
+#include "renderer_adapter/announce.h"  // S101 lane 271: g_announced_arena
 
 REXCVAR_DEFINE_BOOL(wwe2k14_session_log, true, "wwe2k14",
                     "Session 58: [scene] lines for every sequence / scene change and [match] card lines (who, where, "
@@ -140,7 +141,17 @@ inline void OnFrame(uint64_t frame) {
   const uint32_t seq = load_probe::CurrentSequence();
   if (seq != 0 && seq != s.seq) {
     Change(fmt::format("sequence {} -> {} ({})", s.seq, seq, SequenceName(seq)), frame);
-    if (seq == 9) LogMatchCard("in-game sequence started", frame);
+    if (seq == 9) {
+      LogMatchCard("in-game sequence started", frame);
+      // S101 lane 271: the live renderer's per-arena loads start now, not at the first record that draws the arena (renderer_adapter/announce.h)
+      const uint32_t m = Read(scenario::kMatchDescPtr);
+      int people = 0;   // a card with fewer than two participants is not a match yet (a stale or half-built description): no early load
+      for (uint32_t i = 0; m && i < 43; ++i) people += Read(m + 724 + 3580 * i + 56) < 500;
+      const int arena = m && people >= 2 ? int32_t(Read(m + 532)) : -1;
+      g_announced_arena.store(arena >= 0 && arena < 200 ? arena : -1, std::memory_order_relaxed);
+    } else {
+      g_announced_arena.store(-1, std::memory_order_relaxed);
+    }
     s.seq = seq;
     s.scene = 0, s.clock_running = false;
   }

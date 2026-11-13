@@ -1,0 +1,5 @@
+[2026-11-11 21:58:01.083] [info] [core] [t16764] [wwe2k14][event] {"f": 11975, "t": 44.298, "kind": "match", "what": "clock_started", "clock": 1}
+[2026-11-11 21:58:18.997] [info] [core] [t16764] [wwe2k14][event] {"f": 16710, "t": 62.213, "kind": "match", "what": "finish", "finish_type": 1, "finish_name": "pinfall", "winner_slot": 1, "winner_id": 343, "loser_slot": 0, "loser_id": 324, "clock": 4705}
+[2026-11-11 21:58:24.400] [info] [core] [t4628] [wwe2k14][event] {"f": 18176, "t": 67.616, "kind": "load", "file": "D:\\PAC\\EVT\\WINNING00.PAC"}
+[2026-11-11 21:58:24.549] [info] [core] [t4628] [wwe2k14][event] {"f": 18226, "t": 67.764, "kind": "load", "file": "D:\\PAC\\EVT\\WINNING00.PAC"}
+[2026-11-11 21:58:34.828] [info] [core] [t32660] [wwe2k14][scene][director] victory: armed scene 6343 layout 4

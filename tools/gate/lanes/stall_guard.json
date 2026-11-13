@@ -1,0 +1,6 @@
+{
+ "owner": "lane 145 (S101): the stall watchdog, tools/live/stall_guard.py. Python only, 0 game runs. The J3 replay is built from the committed fixture (counts only); the real run-7091 log is cross-checked when present.",
+ "checks": [
+  {"name": "stall_guard.selftest", "cmd": ["py", "-I", "tools/live/stall_selftest.py"], "timeout_s": 120}
+ ]
+}

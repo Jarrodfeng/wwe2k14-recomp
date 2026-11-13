@@ -1,0 +1,37 @@
+{
+ "effect": "yAudienceCard",
+ "vertex": [
+  {
+   "name": "cards",
+   "defines": [],
+   "hashes": [],
+   "constants": [
+    {"field": "ViewProj", "register": 56, "count": 4},
+    {"field": "WorldMatrix", "register": 76, "count": 3},
+    {"field": "LightMapParam", "register": 184, "count": 1}
+   ],
+   "attributes": [
+    {"fetch": 0, "location": 0},
+    {"fetch": 1, "location": 2}
+   ]
+  },
+  {
+   "name": "cards_lm_vertex",
+   "defines": ["FX_LM_VERTEX"],
+   "hashes": [],
+   "constants": [
+    {"field": "ViewProj", "register": 56, "count": 4},
+    {"field": "WorldMatrix", "register": 76, "count": 3},
+    {"field": "LightMapParam", "register": 184, "count": 1}
+   ],
+   "attributes": [
+    {"fetch": 0, "location": 0},
+    {"fetch": 1, "location": 2}
+   ],
+   "samplers": [
+    {"slot": 16, "kind": "2d"}
+   ]
+  }
+ ],
+ "fragment": []
+}

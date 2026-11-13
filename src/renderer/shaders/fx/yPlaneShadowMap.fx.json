@@ -1,0 +1,481 @@
+{
+ "effect": "yPlaneShadowMap",
+ "vertex": [
+  {
+   "name": "skinned",
+   "defines": [
+    "FX_SKINNED"
+   ],
+   "constants": [
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "PlanePos",
+     "register": 7,
+     "count": 1
+    },
+    {
+     "field": "ShadowDistance",
+     "register": 0,
+     "count": 1,
+     "range": [
+      0.5,
+      1000.0
+     ]
+    },
+    {
+     "field": "ShadowRevision",
+     "register": 1,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowMiddleRev",
+     "register": 2,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowLeastRev",
+     "register": 3,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowDeep",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "ShadowMiddleDeep",
+     "register": 5,
+     "count": 1
+    },
+    {
+     "field": "ShadowLeastDeep",
+     "register": 6,
+     "count": 1
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "CameraViewProj",
+     "register": 13,
+     "count": 4
+    },
+    {
+     "field": "PlaneInv",
+     "register": 9,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "range": [
+      0.0,
+      1.0
+     ]
+    }
+   ],
+   "hashes": [
+    "92A1C1481460F2A2"
+   ]
+  },
+  {
+   "name": "rigid",
+   "defines": [
+    "FX_RIGID"
+   ],
+   "constants": [
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "PlanePos",
+     "register": 7,
+     "count": 1
+    },
+    {
+     "field": "ShadowDistance",
+     "register": 0,
+     "count": 1,
+     "range": [
+      0.5,
+      1000.0
+     ]
+    },
+    {
+     "field": "ShadowRevision",
+     "register": 1,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowMiddleRev",
+     "register": 2,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowLeastRev",
+     "register": 3,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ShadowDeep",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "ShadowMiddleDeep",
+     "register": 5,
+     "count": 1
+    },
+    {
+     "field": "ShadowLeastDeep",
+     "register": 6,
+     "count": 1
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "CameraViewProj",
+     "register": 13,
+     "count": 4
+    },
+    {
+     "field": "PlaneInv",
+     "register": 9,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    }
+   ],
+   "hashes": [
+    "37781A9041C43111"
+   ]
+  },
+  {
+   "name": "flat",
+   "defines": [
+    "FX_FLAT"
+   ],
+   "constants": [
+    {
+     "field": "TraMovPos",
+     "register": 17,
+     "count": 1
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "CameraViewProj",
+     "register": 13,
+     "count": 4
+    },
+    {
+     "field": "PlaneInv",
+     "register": 9,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    }
+   ],
+   "hashes": [
+    "55539C6BD3509BE5"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [],
+   "hashes": [
+    "A4A965C189287B99"
+   ]
+  },
+  {
+   "name": "readback",
+   "defines": [
+    "FX_READBACK"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 12,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "DC1E6525B4DF5F2E"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_RIGID",
+    "FX_FLAT"
+   ],
+   "constants": [
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1,
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "PlanePos",
+     "register": 7,
+     "count": 1,
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "ShadowDistance",
+     "register": 0,
+     "count": 1,
+     "when": [
+      "!FX_FLAT"
+     ],
+     "range": [
+      0.5,
+      1000.0
+     ]
+    },
+    {
+     "field": "ShadowRevision",
+     "register": 1,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ],
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "ShadowMiddleRev",
+     "register": 2,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ],
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "ShadowLeastRev",
+     "register": 3,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ],
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "ShadowDeep",
+     "register": 4,
+     "count": 1,
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "ShadowMiddleDeep",
+     "register": 5,
+     "count": 1,
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "ShadowLeastDeep",
+     "register": 6,
+     "count": 1,
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63,
+     "when": [
+      "!FX_FLAT"
+     ]
+    },
+    {
+     "field": "TraMovPos",
+     "register": 17,
+     "count": 1,
+     "when": [
+      "FX_FLAT"
+     ]
+    },
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4,
+     "when": [
+      "FX_FLAT"
+     ]
+    },
+    {
+     "field": "CameraViewProj",
+     "register": 13,
+     "count": 4
+    },
+    {
+     "field": "PlaneInv",
+     "register": 9,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "range": [
+      0.0,
+      1.0
+     ],
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_RIGID"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_READBACK"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 12,
+     "kind": "2d",
+     "when": [
+      "FX_READBACK"
+     ]
+    }
+   ]
+  }
+ }
+}

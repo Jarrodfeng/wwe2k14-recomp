@@ -1,0 +1,72 @@
+{
+ "effect": "yAntialiasing",
+ "vertex": [
+  {
+   "name": "quad",
+   "defines": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "fixed",
+   "defines": [
+    "FX_FIXED_THRESHOLD"
+   ],
+   "hashes": [
+    "8A19C838AE85AD92"
+   ],
+   "constants": [
+    {
+     "field": "g_f2SampleOffsets",
+     "register": 0,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "name": "uniform",
+   "defines": [],
+   "hashes": [
+    "6C61102D34DEE81F"
+   ],
+   "constants": [
+    {
+     "field": "g_f2SampleOffsets",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "g_AntiThreshold",
+     "register": 1,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

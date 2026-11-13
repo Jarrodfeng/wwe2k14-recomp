@@ -36,6 +36,7 @@
 #include "freecam.h"
 #include "json_lite.h"
 #include "light_cmds.h"
+#include "lightmatch_plant.h"  // S101 lane33 (test-only fault switch of the light-match gate)
 #include "loader_seam.h"
 #include "pick.h"
 #include "pipe_server.h"
@@ -52,6 +53,9 @@
 #include "../char_mods.h"
 #include "tron_video.h"
 #include "platform.h"
+#ifdef WWE_VIEWER_RECORD
+#include "scene_record_out.h"  // S101 lane 14: the `record` command
+#endif
 #ifdef WWE_VIEWER_VK
 #include "renderer_vk.h"  // Session 98 phone port (stage C): SurfaceGone / SurfaceBack (Android background / foreground)
 #endif
@@ -555,6 +559,8 @@ struct Viewer : InputSink {
     if (!add && kind == "arena") {  // the arena's own light sets as loaded: what an entrance's lights revert to
       if (auto* l = r.MutableLights(0)) arena_orig = *l;
       else arena_orig.clear();
+      lt.post_eval = [this](assets::LightSet& e) { FollowRotate(e); };  // S101 lane33
+      arena_cam_sig[0] = -1e30f;  // S101 lane33: the new arena's flagged lights are turned to the camera at the next camera / frame call
       // Session 98 (match look): the load put up the match page (asset_load.h); forget what was shown before, then apply the A/B
       pools_shown = assets::stage_pools::TheCache().match.empty() ? 2 : 0;
       if (!match_lm_on) ApplyStagePools(false);
@@ -1284,7 +1290,7 @@ struct Viewer : InputSink {
     reply.pop_back();
     return "{\"ok\":true," + reply.substr(1) + ",\"note\":\"" + jl::Esc(s.note) + "\"" + (merr.empty() ? "" : ",\"motion_error\":\"" + jl::Esc(merr) + "\"") + "}";
   }
-  // Session 98 (custom characters, srcssets\char_mods.h): the CHARACTERS part of the mods folder.
+  // Session 98 (custom characters, src\assets\char_mods.h): the CHARACTERS part of the mods folder.
   //   {"cmd":"char_import","path":"x.pac"|"x.zip"}  copy into <mods>\characters\<safe name>.pac (a zip: only its .pac members)
   //   {"cmd":"char_list"}                           the imported characters (+ attires, bytes); {"cmd":"char_remove","name":..,"confirm":true} = Recycle Bin
   std::string DoChars(const std::string& c, const jl::Value& cmd) {
@@ -2041,7 +2047,9 @@ struct Viewer : InputSink {
           if (entrant && mag > 1e-3f)
             for (int a = 0; a < 4; ++a)
               if (std::fabs(k.dir[a][0]) + std::fabs(k.dir[a][1]) + std::fabs(k.dir[a][2]) < 1e-6f) k.dir[a][0] = 0.f, k.dir[a][1] = 0.f, k.dir[a][2] = -1.f;
+          const assets::LightSet k_keyed = k;  // S101 lane33: (the gate's planted fault needs the keyed set, lightmatch_plant.h)
           if (mag > 1e-3f && RotateDirs(k, cp, 0)) {
+            if (lmplant::Mode()) k = lmplant::Apply(k_keyed, k);  // S101 lane33: test-only, off unless WWE_LM_PLANT is set
             std::memcpy(out.dir, k.dir, sizeof out.dir);
             if (entrant) std::memcpy(out.hl_dir, k.hl_dir, sizeof out.hl_dir);
           }
@@ -2135,7 +2143,55 @@ struct Viewer : InputSink {
   }
   // Session 98 (shadow / match light): the match-lit actors' set 10 turned to the current camera (Install's comment has the evidence).
   float match_cam_sig[16] = {0};
+  // S101 lane33: the ARENA's own light sets in the match / free look: a light flagged camera-attached in its record (LightSet::follow, the
+  // u32 at +0x120 + 4 i of the 784 kind) is evaluated as view space, world = V^T d, the unflagged ones stay as keyed [C: captures wm30 (arena
+  // 29) and the Triple H / Brock match (arena 15), every flagged light 0.00 deg, docs\renderer\LIGHT_MATCH.md; the game's reader of the flag is
+  // not traced: U]. The 896 kind probably holds it at +0x184 + 4 i (set 10 (1,1,1,1) there; 15 / 16 / 135 / 200 / 201 (1,1,1,1); 50 / 100 / 124 /
+  // 500 none) [U: not wired; the wrestlers' set 10 is already rotated by MatchLightsFollowCamera]. Arenas 78 / 80 store set 10 as a 784 record
+  // with (0,1,1,1) while MatchLightsFollowCamera turns all four lights of match_base: conflict, [U] which is right. The entrance rig owns the
+  // arena's lights while it plays (it rotates every keyed light itself; with NO rig for the wrestler the arena keeps its stored directions
+  // for the whole entrance: the game's behaviour is [U]). {"cmd":"look","arena_follow":false} = the old world-fixed reading (A/B).
+  bool arena_follow_on = true;
+  float arena_cam_sig[16] = {0};
+  // The flagged lights of `s` (a set of the loaded arena, by id) turned to the current camera; `s` keeps its other lights.
+  void FollowRotate(assets::LightSet& s) {
+    if (!arena_follow_on) return;
+    const assets::LightSet* o = nullptr;
+    for (const assets::LightSet& x : arena_orig) if (x.id == s.id) { o = &x; break; }
+    if (!o) return;
+    bool f = false;
+    for (int l = 0; l < 4; ++l) f = f || o->follow[l];
+    if (!f) return;
+    assets::LightSet rot = s;
+    if (!assets::entrance::RotateDirs(rot, ViewAxes(), 0)) return;
+    if (lmplant::Mode()) rot = lmplant::Apply(s, rot);
+    for (int l = 0; l < 4; ++l)
+      if (o->follow[l])
+        for (int c = 0; c < 3; ++c) s.dir[l][c] = rot.dir[l][c];
+  }
+  void ArenaLightsFollowCamera(bool force) {
+    if (ent.active && ent.show && ent.lights_on) { arena_cam_sig[0] = -1e30f; return; }  // (the rig owns them; turned again when it stops)
+    if (arena_orig.empty()) return;
+    bool any = false;
+    for (const assets::LightSet& s : arena_orig)
+      for (int l = 0; l < 4; ++l) any = any || s.follow[l];
+    if (!any) return;
+    auto* ls = r.MutableLights(0);
+    if (!ls || ls->size() != arena_orig.size()) return;
+    float s[16] = {cam.use_vp ? 1.f : 0.f, cam.free ? 1.f : 0.f, cam.vp[0], cam.vp[1], cam.vp[3], cam.vp[4], cam.vp[5], cam.vp[7],
+                   cam.fyaw, cam.fpitch, cam.froll, cam.yaw, cam.pitch, cam.target[0], cam.target[1], cam.target[2]};
+    if (!force && std::memcmp(s, arena_cam_sig, sizeof s) == 0) return;
+    std::memcpy(arena_cam_sig, s, sizeof s);
+    for (size_t i = 0; i < arena_orig.size(); ++i) {
+      assets::LightSet out = arena_orig[i];
+      FollowRotate(out);
+      (*ls)[i] = out;
+    }
+    if (!lt.post_eval) lt.post_eval = [this](assets::LightSet& e) { FollowRotate(e); };
+    if (!ent.active) lt.Apply(r, stage_wrestler >= 0);  // (lighting-editor edits replace a whole set: their flagged lights turn too, light_cmds.h Apply)
+  }
   void MatchLightsFollowCamera() {
+    ArenaLightsFollowCamera(match_cam_sig[0] < -1e29f);  // S101 lane33
     bool any = false;
     for (auto& a : actors) any = any || (a->match_light && !a->entrance);
     if (!any) return;
@@ -3476,6 +3532,16 @@ struct Viewer : InputSink {
       if (mode == "orbit") LeaveFree(cam, fc);
       return "{\"ok\":true," + pose + "}";
     }
+#ifdef WWE_VIEWER_RECORD
+    // S101 lane 14: {"cmd":"record","path":"scene\frame_000000.rsc"[,"w":..,"h":..,"preset":"ring"]} writes the scene as a scene record file
+    if (c == "record") {
+      Camera saved = cam;
+      if (cmd.has("preset")) { bool ok = false; Preset(cmd.str("preset"), &ok); if (!ok) { cam = saved; return Err("unknown preset"); } }
+      const std::string res = RecordScene(r, cam, IntArg(cmd.num("w", w)), IntArg(cmd.num("h", h)), cmd.str("path"), 0);
+      if (cmd.has("preset")) cam = saved;
+      return res;
+    }
+#endif
     if (c == "shot") {
       std::string path = cmd.str("path");
       if (path.empty()) return Err("missing path");
@@ -3542,6 +3608,7 @@ struct Viewer : InputSink {
       return "{\"ok\":true,\"meshes\":" + std::to_string(r.ReplayCount()) + ",\"slots\":" + std::to_string(slots) + "}";
     }
     if (c == "bank_dump") {  // Session 98 (replay S0, read-only): {"cmd":"bank_dump","path":"x.json"[,"w":..,"h":..]}: every mesh's draw constants as the viewer feeds them (tools/assets/bank_diff.py)
+      MatchLightsFollowCamera();  // S101 lane33: (shot does; the dump must show what a shot would draw)
       const std::string path = cmd.str("path");
       const std::string js = r.BankDump(cam, IntArg(cmd.num("w", w)), IntArg(cmd.num("h", h)));
       if (path.empty()) return js;
@@ -3564,6 +3631,7 @@ struct Viewer : InputSink {
     if (c == "look") {  // Session 97: {"cmd":"look","mode":"lit"|"plain","exposure":1.2}
       bool lit = r.LookLit();
       float ex = r.Exposure();
+      if (const jl::Value* hz = cmd.get("haze")) r.SetHaze(hz->t == jl::Value::Bool ? hz->b : hz->n != 0);  // S101 lane 34: {"cmd":"look","haze":false} (= the "lights" command's key; the rdr post pass runs for haze alone)
       if (cmd.has("mode")) {
         std::string md = cmd.str("mode");
         if (md == "plain") lit = false;
@@ -3613,6 +3681,11 @@ struct Viewer : InputSink {
       }
       if (const jl::Value* cf = cmd.get("cube_falloff"))  // Session 98 (match oracle): the ambient cube's per-light falloff (A/B: false = 0)
         r.SetCubeFall(cf->t == jl::Value::Bool ? cf->b : cf->n != 0);
+      if (const jl::Value* af = cmd.get("arena_follow")) {  // S101 lane33: per-light camera attach of the arena sets (A/B: false = world-fixed)
+        arena_follow_on = af->t == jl::Value::Bool ? af->b : af->n != 0;
+        arena_cam_sig[0] = -1e30f;
+        MatchLightsFollowCamera();
+      }
       if (const jl::Value* fv = cmd.get("follow_spot")) {  // Session 98 (spot / beard pass): the follow spot under the entrant (A/B)
         follow_on = fv->t == jl::Value::Bool ? fv->b : fv->n != 0;
         if (ent.active && ent.show && ent.lights_on) ApplyEntranceLights(ent.show->cues[std::min(ent.cue, ent.show->cues.size() - 1)]);
@@ -4140,6 +4213,14 @@ int main(int argc_in, char** argv_in) {
     else if (a == "--importer-edit") v.imp.edit_slot = atoi(next().c_str());
     else if (a == "--importer-bulk") v.imp.bulk_at_start = true;
     else if (a == "--backend") next();  // (read above)
+    else if (a == "--shader_dir" || a == "--shader_src" || a == "--shader_root" || a == "--shader_watch") {  // S101 lane24: live shader reload (rdr backend, dev only; src\renderer_scene\shader_reload.h)
+      const std::string value = next();
+#ifdef _WIN32
+      _putenv_s(a == "--shader_dir" ? "WWE_SHADER_DIR" : a == "--shader_src" ? "WWE_SHADER_SRC" : a == "--shader_root" ? "WWE_SHADER_ROOT" : "WWE_SHADER_WATCH", value.c_str());
+#else
+      setenv(a == "--shader_dir" ? "WWE_SHADER_DIR" : a == "--shader_src" ? "WWE_SHADER_SRC" : a == "--shader_root" ? "WWE_SHADER_ROOT" : "WWE_SHADER_WATCH", value.c_str(), 1);
+#endif
+    }
     else if (a == "--size") {
       std::string s = next();
       int ww = 0, hh = 0;
@@ -4166,6 +4247,7 @@ int main(int argc_in, char** argv_in) {
     // Session 98 (Superstar Importer): the pack lives in the player's mods folder (the core writes <mods>\superstars); the viewer's own
     // mods lookups point at a private preview folder instead (the shown pac is copied there, one at a time; nothing of the player's).
     v.imp.mods_dir = mods_arg, v.imp.dlc_dir = dlc_on ? dlc_dir : std::string(), v.imp.game = v.game;
+    v.imp.dlc_off = dlc_on ? dlc_off : std::string();  // (Session 101: the switched-off packs; the builder ignored them before)
 #ifdef __ANDROID__
     v.imp.phone = true;
     {

@@ -1,0 +1,53 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time; entrances play in this route, a fast-forward would also drop presses)
+# Session 101 lane 158: the ROSTER-WIDE wrestler route, leg 2 of 3. A FATAL 4-WAY built by the game's own MATCH BUILDER (src\scenario.h FireBuild: the menus' own
+# path, the type's defaults, the seats, finalize; docs\systems\game_atlas.md "The match builder"), fired at the idle main menu with `cvar wwe2k14_match` +
+# `cvar wwe2k14_match_go` exactly as tools\goto\resolve.py (`match:SPEC@bell`) and tools\atlas\match.py send it. NOT the scenario launcher: the builder runs finalize,
+# which builds the wrestler list, so the ENTRANCES PLAY (the builder has no entrance switch yet, game_atlas.md "Not in the builder yet") and the REFEREE is in the ring.
+#   spec: type=14 (PLAY > FATAL 4-WAY > NORMAL, atlas setup:14); p=139:-1,119:-1,100:-1,144:-1 (all CPU); arena=4 (Over the Limit); pace=1 (quick)
+#   `py tools\atlas\match.py "John Cena, Andre the Giant, The Rock, Mick Foley; type=fatal 4-way > normal; arena=over the limit; pace=quick; players=0" --dry` prints it.
+# Picks (default attire, read OFFLINE from the drawables atlas, tools\census\roster_materials.py):
+#   139 John Cena      27-part body, 17 attires in ONE pac (418 meshes: the roster index's biggest family; "parts from another attire of the pac" is Cena's case), no hair piece
+#   119 Andre the Giant 14-part body, a giant: the model-scale path (the hook measures one scale per object); skin 11 + gear 2 + Aniso_trans hair piece
+#   100 The Rock       27-part body (skin_flex 13) + TWO extra gear pieces 26 and 27 (the only default attire with them besides the Retro Rock)
+#   144 Mick Foley     16-part body + a 5-mesh Aniso_trans piece + an extra gear piece 28 (the Santino family)
+#   255 the REFEREE    10-part gear model with TWO extra alpha pieces 21010 / 21011 (the sleeve / patch pieces of lane 134): a referee-heavy match type, he is in the ring all match
+# Steps: boot to the main menu; wait for the menu to be idle; the builder; wait for sequence 9 (in game); the entrances play (up to 10 min of frames, see below); the bell;
+# wait_event render roster_ready; 60 frames; shot 1; 25 s; shot 2; 15 s; quit (RunExit = the case zip). Match time at the exit ~ 45 s.
+# RUN LENGTH (estimate, unconfirmed: nobody timed 4 builder entrances): boot 12 s + load 20 s + 4 entrances 40-60 s each + 45 s match = 5-7 min. Run it with
+#   py -I tools\run\run.py tools\input_scripts\scenes\s101_roster_fatal4.txt --timeout 1200
+# PROOF (offline, after the run): py -I tools\census\roster_proof.py <case zip> --frames 60,150,240,300 --arm both --picks 139,119,100,144,255  (docs\renderer\WRESTLER_PROMOTION_MAP.md "roster-wide check")
+# Marks: 1 builder_fired, 2 seq9, 3 match_clock, 4 roster_wait_done, 5 shot1, 6 shot2, 7 end. on_fail quit.
+on_fail quit
+log bench: start scene roster_fatal4
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 120
+log bench: main menu idle, firing the builder
+cvar wwe2k14_match_dry false
+cvar wwe2k14_match_compare ""
+cvar wwe2k14_match type=14;p=139:-1,119:-1,100:-1,144:-1;arena=4;pace=1
+cvar wwe2k14_match_go 158
+mark 1 builder_fired
+wait_state seq 9 3600 2
+mark 2 seq9
+log scene=roster_fatal4_entrances
+wait_state match_clock >0 36000
+log scene=roster_fatal4
+mark 3 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 4 roster_wait_done
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_roster4_1
+screenshot sc_roster4_1
+mark 5 shot1
+wait_frames 1500
+cvar wwe2k14_rdr_live_picture sc_roster4_2
+screenshot sc_roster4_2
+mark 6 shot2
+wait_frames 900
+log scene=end (match clock +2460)
+mark 7 end
+log bench: done
+quit

@@ -1,0 +1,7 @@
+{
+ "owner": "lane 162 (S101): why --thin X differs from --X-ours on Check J1 (run 7086): J1 is a thin-recorded capture, its frames carry the live reader's lite draws, which an ours arm cannot draw. docs/renderer/THIN_DRAWS.md 'Lane 162'",
+ "note": "needs the J1 capture (out/s101/lane92/case_20261112_172341*/capture, KEEP), the game files and out/renderer/dev/fview.exe (built by tools/fview/build.ps1; the script rebuilds unless --no-build). The lite-free 12:26 Brock capture is optional (SKIP when tidied). About 20 fview arms of 343 frames. Bars: census, the old comparison differs (control), accounting (bound surplus = template-drawn draws) for arena / ring / wrestlers, drop (thin == ours with the capture's lite draws dropped in both arms), emulation adds nothing, lite-free equality, planted wrong_layout.",
+ "checks": [
+  {"name": "thin_j1.proof", "cmd": ["py", "-I", "tools/thin/thin_j1_check.py", "--root", ".", "--no-build"], "timeout_s": 5400, "needs": ["game_data/extracted"]}
+ ]
+}

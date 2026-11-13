@@ -1,0 +1,353 @@
+diff --git a/src/graphics/vulkan/native/owned_copy.cpp b/src/graphics/vulkan/native/owned_copy.cpp
+index 08e2e6b..5f25e79 100644
+--- a/src/graphics/vulkan/native/owned_copy.cpp
++++ b/src/graphics/vulkan/native/owned_copy.cpp
+@@ -26,6 +26,8 @@
+ #include <rex/logging.h>
+ #include <rex/ui/vulkan/util.h>
+ 
++extern int16_t g_dres_wb_colour_image;  // (Session 99: owned_steps.cpp)
++
+ REXCVAR_DEFINE_INT32(gpu_native_owned_writeback_verify, 0, "GPU/Native",
+                      "Session 90 (Q, diagnosis): 1 = the 8888 write-back forces alpha 255 (is the garbled attire an alpha difference?)");
+ 
+@@ -214,9 +216,18 @@ bool NativeRenderer::OwnedWbPlan(const draw_util::ResolveInfo& info, uint32_t sx
+   };
+   if (!p.valid || p.image < 0 || size_t(p.image) >= owned_images_.size() || !owned_images_[p.image].width) return no("no source image");
+   if (REXCVAR_GET(gpu_native_owned_writeback_verify) == 2) return no("verify mode 2: the old replay");
+-  const OwnedImage& o = owned_images_[p.image];
++  // Session 99 (GitHub #173): a scaled scene pass (gpu_native_owned_draw_ratio / the resolution rows) is written from the full-size image its colour
++  // was just blitted up into (owned_steps.cpp, g_dres_wb_colour_image) - the pass itself stays scaled. A post-chain half pass is still refused.
++  int16_t source = p.image;
++  if (p.half) {
++    if (!p.dres) return no("half-size pass");
++    if (g_dres_wb_colour_image < 0 || size_t(g_dres_wb_colour_image) >= owned_images_.size() || !owned_images_[g_dres_wb_colour_image].width) {
++      return no("scaled scene pass: no full-size image blitted up");
++    }
++    source = g_dres_wb_colour_image;
++  }
++  const OwnedImage& o = owned_images_[source];
+   if (o.kind != p.kind || (p.kind != 1 && p.kind != 2)) return no("source class");
+-  if (p.half) return no("half-size pass");
+   if (uint32_t(info.copy_dest_coordinate_info.copy_sample_select) != 0) return no("sample select");
+   uint32_t scale_x = 1, scale_y = 1;
+   command_processor_.NativeResolutionScale(scale_x, scale_y);
+@@ -256,7 +267,7 @@ bool NativeRenderer::OwnedWbPlan(const draw_util::ResolveInfo& info, uint32_t sx
+   owned_wb_ = OwnedWriteBack();
+   owned_wb_.path = path;
+   owned_wb_.mode = mode;
+-  owned_wb_.image = p.image;
++  owned_wb_.image = source;
+   owned_wb_.sx = sx;
+   owned_wb_.sy = sy;
+   owned_wb_.w = w;
+diff --git a/src/graphics/vulkan/native/owned_scene.cpp b/src/graphics/vulkan/native/owned_scene.cpp
+index 759e3f6..0cb2d70 100644
+--- a/src/graphics/vulkan/native/owned_scene.cpp
++++ b/src/graphics/vulkan/native/owned_scene.cpp
+@@ -29,6 +29,7 @@ REXCVAR_DEFINE_BOOL(gpu_native_owned_depth_direct, true, "GPU/Native",
+                     "other case keep the conversion");
+ 
+ extern uint32_t g_dres_depth_blits;  // (Session 94: owned_steps.cpp)
++extern int16_t g_dres_depth_src;     // (Session 99: owned_steps.cpp)
+ 
+ namespace rex::graphics::vulkan::native {
+ 
+@@ -283,6 +284,7 @@ bool NativeRenderer::OwnedDepthCopy(const draw_util::ResolveInfo& info, uint32_t
+     if (!OwnedBlitUpDepth(p, src)) return no("scaled scene pass: the depth blit");
+     p.dres_depth_used = true;
+     ++g_dres_depth_blits;
++    g_dres_depth_src = src;  // (Session 99, #173: the depth write-back's source when this copy is read back)
+   }
+   if (direct) {
+     OwnedNoteDepthRead(src, "direct depth copy (page shares the depth)");  // (Session 93, gpu_owned_tiler_passes: the depth is shared with a page)
+diff --git a/src/graphics/vulkan/native/owned_steps.cpp b/src/graphics/vulkan/native/owned_steps.cpp
+index c2f2a7f..44fd77b 100644
+--- a/src/graphics/vulkan/native/owned_steps.cpp
++++ b/src/graphics/vulkan/native/owned_steps.cpp
+@@ -80,10 +80,26 @@ struct DresState {
+   uint64_t frames_hist = 0, last_summary = 0;
+   std::vector<std::pair<uint32_t, uint32_t>> sizes;  // newest last
+   int depth_blit_ok = -1;  // BLIT_SRC | BLIT_DST on the depth format (queried once)
++  // Session 99 (GitHub #173): the scaled draw is no longer switched off for a whole frame inside a read-back window, and the budget answer is made
++  // once per (ratio, size) instead of every frame. Counted since the start (never reset): scaled passes drawn inside a window, read-back copies of a
++  // scaled pass written from its blitted-up full-size image (colour / depth), budget decisions, and passes a decided-scaled size still had to draw
++  // whole (a real allocation failure - the only flip left).
++  uint64_t window_scaled = 0, wb_colour = 0, wb_depth = 0, budget_forced = 0;
++  double budget_ratio = 0.0;
++  uint32_t budget_w = 0, budget_h = 0;
++  int budget_state = 0;  // 0 undecided, 1 scaled, -1 whole size (the budget never had room)
++  uint32_t budget_tries = 0;
+ };
+ DresState g_dres;
++// (Session 99: frames an undecided (ratio, size) keeps asking the budget before it settles on the whole size - about 2 s at 60 fps, 6 s at 20.)
++constexpr uint32_t kDresBudgetTries = 120;
+ }  // namespace
+ uint32_t g_dres_depth_blits = 0;  // (read by owned_scene.cpp's depth copy)
++// Session 99 (GitHub #173): for the copy in progress (OwnedTakeResolve resets it), the full-size image a scaled scene pass's colour was blitted up into
++// for its read-back write-back (owned_copy.cpp's OwnedWbPlan reads it; the whole-copy serve below reuses it rather than blitting twice), and the
++// full-size image OwnedDepthCopy (owned_scene.cpp) blitted a scaled pass's depth up into, the depth write-back's source.
++int16_t g_dres_wb_colour_image = -1;
++int16_t g_dres_depth_src = -1;
+ 
+ REXCVAR_DEFINE_STRING(gpu_native_own_steps, "", "GPU/Native",
+                       "Session 80 (OWN_RENDERER_PLAN.md \"The shadows\"): guest pixel shaders (hex hashes) or vertex "
+@@ -3957,6 +3973,12 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+         // (Session 95: the counts since the ratio last changed - a row or a step that reads "refused" here is not saving anything.)
+         REXGPU_INFO("[native] owned draw ratio histogram (frames at each ratio, 600 frames):{}; resident scaled sizes {}; scaled passes {}, colour blits {}, depth copies up {}, refused {}", h,
+                     g_dres.sizes.size(), g_dres.scaled, g_dres.blits, g_dres_depth_blits, g_dres.refused);
++        // (Session 99, #173: a line of its own, so the one above keeps its shape.)
++        REXGPU_INFO("[native][owned-dres] since start: scaled passes inside read-back windows {}, read-back write-backs from the blitted-up image colour {} depth {}; "
++                    "budget {} at {}x{} (asked {} frames), decided-scaled passes drawn whole for want of an image {}",
++                    g_dres.window_scaled, g_dres.wb_colour, g_dres.wb_depth,
++                    g_dres.budget_state > 0 ? "decided scaled" : g_dres.budget_state < 0 ? "decided whole" : "undecided", g_dres.budget_w, g_dres.budget_h,
++                    g_dres.budget_tries, g_dres.budget_forced);
+         std::memset(g_dres.hist, 0, sizeof(g_dres.hist));
+       }
+     }
+@@ -3982,14 +4004,53 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+           REXGPU_WARN("[native][owned-dres] the depth format cannot be blitted and the fragment pass is not available: no scaling - resolution rows and dynamic resolution draw the whole size");
+         }
+       }
+-      // (A read-back window needs the pass's image written to guest memory: refused for a scaled pass - no scaling then. Item: the scaled images AND the
+-      // full-size one (colour + depth each) must fit the budget together.)
+-      if (dres && (!g_dres.depth_blit_ok || command_processor_.NativeReadbackActive() ||
+-                   !OwnedImageAvailable(width, height, draw.truth_class, true) ||
+-                   !OwnedImageAvailable(dres_w, dres_h, draw.truth_class, keep_depth))) {
+-        dres = false;  // (this pass at the full size, counted)
+-        ++g_dres.refused;
+-        dres_w = width, dres_h = height;
++      // Session 99 (GitHub #173): a read-back window no longer refuses the scaled pass. Before, the whole frame drew at the full size while
++      // NativeReadbackActive() (any window: a character file, a load, the attire latch) - on a phone at 360P the picture went sharp for the window and
++      // blurry after it. What a window reads back is a COPY (IssueCopy's per-copy read-back decision, NativeCopyReadsBack): the attire builds (2048
++      // wide) and the create-mode pictures are other passes, never this shape; the scene pass's own copies recur every frame and are skipped by the
++      // recurring rule. Should one be read back anyway (a window's first frames, a new destination), its write-back is served from the pass's
++      // blitted-up full-size image (OwnedWbPlan / OwnedWbPlanDepth), so the scaled draw stays.
++      // The budget: the scaled images AND the full-size one (colour + depth each) must fit together. Decided once per (ratio, size): asked each frame
++      // until it has room (then scaled for good) or for kDresBudgetTries frames (then the whole size for good) - never flipping frame to frame.
++      if (dres) {
++        if (g_dres.budget_ratio != g_dres.ratio || g_dres.budget_w != dres_w || g_dres.budget_h != dres_h) {
++          g_dres.budget_ratio = g_dres.ratio;
++          g_dres.budget_w = dres_w;
++          g_dres.budget_h = dres_h;
++          g_dres.budget_state = 0;
++          g_dres.budget_tries = 0;
++        }
++        bool refuse = !g_dres.depth_blit_ok || g_dres.budget_state < 0;
++        if (!refuse) {
++          const bool room = OwnedImageAvailable(width, height, draw.truth_class, true) &&
++                            OwnedImageAvailable(dres_w, dres_h, draw.truth_class, keep_depth);
++          if (g_dres.budget_state == 0) {
++            if (room) {
++              g_dres.budget_state = 1;
++              REXGPU_INFO("[native][owned-dres] frame {}: budget decided: the scene pass is drawn at {}x{} (ratio {:.3f}) for good, read-back windows included ({} frames asked)",
++                          frame_, dres_w, dres_h, g_dres.ratio, g_dres.budget_tries + 1);
++            } else if (++g_dres.budget_tries >= kDresBudgetTries) {
++              g_dres.budget_state = -1;
++              REXGPU_WARN("[native][owned-dres] frame {}: budget decided: no room for the scaled {}x{} and the whole {}x{} images together in {} frames - the scene pass "
++                          "is drawn at the whole size at ratio {:.3f} (raise gpu_native_owned_frame_budget_mb)", frame_, dres_w, dres_h, width, height, kDresBudgetTries, g_dres.ratio);
++            }
++            refuse = !room;
++          } else if (!room) {
++            // (Decided scaled, but this frame has no room - an allocation the pool cannot make now. The only flip left: counted and logged loudly.)
++            refuse = true;
++            ++g_dres.budget_forced;
++            static uint32_t forced_logged = 0;
++            if (forced_logged < 8) {
++              ++forced_logged;
++              REXGPU_WARN("[native][owned-dres] frame {}: decided scaled, but no image within the budget this frame: drawn whole ({} so far)", frame_, g_dres.budget_forced);
++            }
++          }
++        }
++        if (refuse) {
++          dres = false;  // (this pass at the full size, counted)
++          ++g_dres.refused;
++          dres_w = width, dres_h = height;
++        }
+       }
+     }
+   }
+@@ -4033,6 +4094,11 @@ bool NativeRenderer::OwnedTakeDrawImpl(const Draw& draw) {
+     const std::pair<uint32_t, uint32_t> sz{dres_w, dres_h};
+     if (std::find(g_dres.sizes.begin(), g_dres.sizes.end(), sz) == g_dres.sizes.end()) g_dres.sizes.push_back(sz);
+     ++g_dres.scaled;
++    if (command_processor_.NativeReadbackActive()) {  // (Session 99, #173: scaled inside a read-back window - 0 before this change)
++      if (g_dres.window_scaled++ == 0) {
++        REXGPU_INFO("[native][owned-dres] frame {}: first scaled scene pass inside a read-back window ({}x{} of {}x{})", frame_, dres_w, dres_h, width, height);
++      }
++    }
+   }
+   p.valid = true;
+   p.half = post_half || dres;
+@@ -4934,6 +5000,8 @@ bool NativeRenderer::OwnedTakeResolve(const draw_util::ResolveInfo& info, bool c
+   g_drop_note.clear();  // (Session 92, M2c)
+   owned_wb_planned_ = false;
+   owned_replay_reason_ = 0;
++  g_dres_wb_colour_image = -1;  // (Session 99, #173: per copy)
++  g_dres_depth_src = -1;
+   const bool taken = OwnedTakeResolveInner(info, copy_known);
+   owned_replay_reason_ = 0;
+   if (taken && owned_frame_on_) {
+@@ -5413,6 +5481,17 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+     if (OwnedDepthCopy(info, page, texture_page, depth_why)) {
+       p.draws_since_depth = 0;  // (Session 82, P2, review: the restore skip's proof)
+       p.copy_depth_page = texture_page;
++      if (wb_depth && p.dres) {
++        // (Session 99, #173: a scaled scene pass's depth was blitted up into a full-size image by the copy just made - that image, not the
++        // pass's smaller one, is what the write-back reads.)
++        if (g_dres_depth_src >= 0) {
++          owned_wb_.image = g_dres_depth_src;
++          ++g_dres.wb_depth;
++        } else {
++          wb_depth = false;  // (not expected: the depth copy of a scaled pass always names its full-size image)
++          OwnedWbRefused("depth: scaled scene pass without its full-size depth");
++        }
++      }
+       owned_wb_planned_ = wb_depth;
+       note(1);
+       return true;
+@@ -5548,9 +5627,21 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+     command_processor_.NativeResolutionScale(plan_scale_x, plan_scale_y);
+     const uint32_t plan_gap = info.color_edram_info.fill_half_pixel_offset ? (plan_scale_x / 2) | ((plan_scale_y / 2) << 8) : 0u;
+     std::string plan_why;
++    // Session 99 (GitHub #173): a scaled scene pass's read-back copy - its colour brought up to the full size first (the same linear blit its
++    // served copies get), and the write-back reads that image. The pass stays scaled; only the copy the CPU reads goes through the full size.
++    if (p.dres && g_dres_wb_colour_image < 0) {
++      g_dres_wb_colour_image = OwnedBlitUp(p);
++      if (g_dres_wb_colour_image >= 0) ++g_dres.blits;
++    }
+     if (OwnedWbPlan(info, sx, sy, w, h, plan_gap, front, plan_why)) {
+       owned_wb_planned_ = true;
+       ++owned_frame_stats_.wb_planned;
++      if (p.dres) {
++        if (g_dres.wb_colour++ == 0) {
++          REXGPU_INFO("[native][owned-dres] frame {}: first read-back copy of a scaled scene pass ({}x{} into page 0x{:05X}) written from its blitted-up full-size image {}",
++                      frame_, w, h, (info.copy_dest_base >> 12) & 0x1FFFF, g_dres_wb_colour_image);
++        }
++      }
+       {
+         // (Session 90, Q diagnosis: the state of the pass a write-back is planned from - the garbled Heenan attire.)
+         static uint32_t plan_logged = 0;
+@@ -5900,7 +5991,8 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+     return true;
+   }
+   if (p.dres && !whole) {  // (Session 94: a rectangle of a scaled scene pass - not served from a smaller image)
+-    ++g_dres.refused;
++    // (Session 99: with a write-back planned the rectangle's bytes are written from the blitted-up image - from_truth counts it as written, not a refusal.)
++    if (!owned_wb_planned_) ++g_dres.refused;
+     static uint32_t dres_rect_logged = 0;
+     if (dres_rect_logged < 8) {
+       ++dres_rect_logged;
+@@ -5919,8 +6011,12 @@ bool NativeRenderer::OwnedTakeResolveInner(const draw_util::ResolveInfo& info, b
+     if (p.half && (front || p.dres)) {
+       // (look lever: the presenter reads real texels - the half-size image brought up to the full size, linear. Session 94: every whole copy of a scaled scene pass; the page is that
+       // full-size image, a snapshot already, so a pass that goes on drawing needs no other, and the 1440p half-pixel gap is not filled.)
+-      image = OwnedBlitUp(p);
+-      if (p.dres && image >= 0) ++g_dres.blits;
++      if (p.dres && g_dres_wb_colour_image >= 0) {
++        image = g_dres_wb_colour_image;  // (Session 99: blitted up already for this copy's write-back - one blit, the page and the write-back share it)
++      } else {
++        image = OwnedBlitUp(p);
++        if (p.dres && image >= 0) ++g_dres.blits;
++      }
+       if (image < 0) return stale();
+     } else if (gap || (OwnedContinues(p, p.copy_count) && !OwnedLeanAlias(p))) {
+       if (!gap) {  // (Session 95: a predicted snapshot - counted, and whether the pass goes on after it)
+diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
+index 20da99e..e3db429 100644
+--- a/src/input/sdl/sdl_input_driver.cpp
++++ b/src/input/sdl/sdl_input_driver.cpp
+@@ -11,7 +11,10 @@
+ 
+ #include <array>
+ #include <atomic>
++#include <chrono>
+ #include <filesystem>
++#include <mutex>
++#include <unordered_map>
+ 
+ #include <rex/assert.h>
+ #include <rex/chrono/clock.h>
+@@ -228,9 +231,51 @@ X_RESULT SDLInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+   return X_ERROR_SUCCESS;
+ }
+ 
++// wwe2k14 patch (Session 99, GitHub #180, UNCONFIRMED hypothesis): the pin-escape meter (hold A) fills slowly with an external controller on
++// Android, fine with the touch pad (which has no motor and never reaches here). Every guest XamInputSetState came here and, on the guest thread,
++// queued a UI-thread event pump, took the controllers lock (draining the event queue) and called SDL_RumbleGamepad - on Android a JNI / HID
++// write per call. The guest repeats the same motor values; XInput holds them until they change, and SDL's effect armed below lasts
++// kRumbleDurationMs. So an unchanged (left, right) pair for the same device while its effect still has well over kRumbleRearmMs left returns
++// success at once: no pump, no lock, no SDL call. A change (to 0 too) goes through immediately, and the same values are re-armed before the
++// effect runs out. File-scope (no header change): DeviceIds are never reused (AllocateDeviceId counts up), so a device that goes away and comes
++// back starts fresh. One difference: an unchanged repeat for a device removed since its last arm returns success, not DEVICE_NOT_CONNECTED,
++// until the next change or re-arm (GetDeviceState reports the removal as before).
++namespace {
++constexpr int64_t kRumbleRearmMs = 50000;  // (re-arm 15 s before SDL's 65.5 s effect would run out)
++struct RumbleMemo {
++  uint16_t left = 0, right = 0;
++  int64_t armed_ms = 0;
++};
++std::mutex g_rumble_mutex;
++std::unordered_map<uint32_t, RumbleMemo> g_rumble_memo;
++std::atomic<uint64_t> g_rumble_calls{0}, g_rumble_skipped{0}, g_rumble_sent{0};
++std::atomic<int64_t> g_rumble_max_us{0};
++int64_t RumbleNowMs() {
++  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
++}
++}  // namespace
++
+ X_RESULT SDLInputDriver::SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibration) {
+   assert(sdl_events_initialized_ && SDL_Gamepad_initialized_);
+ 
++  const uint64_t calls = g_rumble_calls.fetch_add(1, std::memory_order_relaxed) + 1;
++  const uint32_t key = static_cast<uint32_t>(id);
++  const uint16_t left = vibration->left_motor_speed, right = vibration->right_motor_speed;
++  const int64_t now_ms = RumbleNowMs();
++  {
++    std::lock_guard<std::mutex> memo_guard(g_rumble_mutex);
++    auto it = g_rumble_memo.find(key);
++    if (it != g_rumble_memo.end() && it->second.left == left && it->second.right == right &&
++        now_ms - it->second.armed_ms < kRumbleRearmMs) {
++      const uint64_t skipped = g_rumble_skipped.fetch_add(1, std::memory_order_relaxed) + 1;
++      if ((skipped & (skipped - 1)) == 0) {  // (1, 2, 4, 8 ...: how often the guest repeats itself)
++        REXLOG_INFO("[s99][rumble] unchanged vibration not re-sent: {} skipped, {} sent to SDL of {} calls (slowest SDL call {} us)", skipped,
++                    g_rumble_sent.load(std::memory_order_relaxed), calls, g_rumble_max_us.load(std::memory_order_relaxed));
++      }
++      return X_ERROR_SUCCESS;
++    }
++  }
++
+   QueueControllerUpdate();
+ 
+   auto guard = DrainAndLock();
+@@ -243,10 +288,26 @@ X_RESULT SDLInputDriver::SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibr
+   // XInput vibration holds until the guest changes it, but SDL rumble expires,
+   // and a zero duration expires on the next SDL_UpdateJoysticks. Arm it for
+   // SDL's maximum instead; each call cancels the previous effect anyway.
+-  return SDL_RumbleGamepad(controller->sdl, vibration->left_motor_speed,
+-                           vibration->right_motor_speed, kRumbleDurationMs)
+-             ? X_ERROR_SUCCESS
+-             : X_ERROR_FUNCTION_FAILED;
++  const auto t0 = std::chrono::steady_clock::now();
++  const bool ok = SDL_RumbleGamepad(controller->sdl, left, right, kRumbleDurationMs);
++  const int64_t us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
++  int64_t max_us = g_rumble_max_us.load(std::memory_order_relaxed);
++  while (us > max_us && !g_rumble_max_us.compare_exchange_weak(max_us, us, std::memory_order_relaxed)) {
++  }
++  const uint64_t sent = g_rumble_sent.fetch_add(1, std::memory_order_relaxed) + 1;
++  if ((sent & (sent - 1)) == 0) {
++    REXLOG_INFO("[s99][rumble] vibration sent to SDL: {} sent, {} skipped of {} calls; this one {} us (left {} right {}, ok {})", sent,
++                g_rumble_skipped.load(std::memory_order_relaxed), calls, us, left, right, ok);
++  }
++  {
++    std::lock_guard<std::mutex> memo_guard(g_rumble_mutex);
++    if (ok) {
++      g_rumble_memo[key] = RumbleMemo{left, right, now_ms};
++    } else {
++      g_rumble_memo.erase(key);  // (a failed arm is retried by the next call, as before)
++    }
++  }
++  return ok ? X_ERROR_SUCCESS : X_ERROR_FUNCTION_FAILED;
+ }
+ 
+ X_RESULT SDLInputDriver::GetDeviceKeystroke(DeviceId id, uint32_t flags,

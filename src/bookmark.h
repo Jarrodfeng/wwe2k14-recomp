@@ -44,9 +44,21 @@
 #include <thread>
 #include <vector>
 
+#define WWE2K14_CASE_CVARS  // S101 lane 5: the case ring's cvars are defined here (this header is included once)
+#include "case/case_hook.h"
+#include "case/case_jni.h"  // the phone's corner button (Android only)
+#include "build_stamp.h"    // S101 lane 19: git hash / dirty / SDK pin / APK number of this build, for the case zip's manifest
+#include "scene_forced.h"   // S101 lane32: where.forced in the case zip manifest
+#include "case/case_where.h"  // S101 lane32: where.address / match / scene from the live state
+#include "case/case_scene.h"  // S101 lane 26: the ring keeps the live scene writer's records for the zip
 #include "frame_stats.h"
 #include "game_state.h"
 #include "input_script.h"  // SaveScreenshot, check::ShowToast
+
+#include <atomic>
+#include <string_view>
+REXCVAR_DECLARE(bool, wwe2k14_scene_records);  // S101 lane 26 (renderer_adapter/reader.h): the live scene writer's records go to the capture folder and the case ring
+REXCVAR_DECLARE(bool, wwe2k14_rdr_owner);  // S101 lane 11 (renderer_adapter/reader.h): a PC +dev build in owner mode turns the case ring on
 
 REXCVAR_DEFINE_INT32(wwe2k14_bookmark_auto_ms, 0, "wwe2k14",
                      "Session 29: automatic bookmark when a frame takes >= N ms during steady play (0 = off; harness "
@@ -64,6 +76,8 @@ constexpr size_t kRing = 4096;  // guest frames kept (68 s at 60 fps; ~13 s fast
 inline std::atomic<uint64_t> g_last_file_open_frame{0};
 inline void NoteFileOpen(uint64_t frame) { g_last_file_open_frame.store(frame, std::memory_order_relaxed); }
 inline void TakeAuto(double ms, uint64_t frame);  // below
+inline void TakeCase(rdr_case::Trigger trigger, const std::string& note, const std::string& picture_label);  // below (S101 lane 5)
+inline int Take();  // below (S101 lane 11: OnFrame's phone tap calls it)
 inline bool g_installed = false;
 inline bool g_player = false;  // Session 58: installed for a player (no harness): the note says where it goes
 
@@ -92,6 +106,11 @@ inline void OnFrame(uint64_t frame) {
   static int autos = 0;
   if (i == 0) return;
   const double ms = double(now - r.ns[(i - 1) % kRing]) / 1e6;
+  case_hook::OnTiming(frame - 1, ms, NAN, NAN, NAN);  // S101 lane 19 review: the interval just measured produced the content of frame-1 (OnPresent runs before VdSwap's ++), the label the render thread uses; S101 lane 5: the case zip's timing.csv (step here; render + present come from the render thread, live.cpp OnRenderTiming; shown is not measured anywhere: its cells stay empty)
+  if (case_hook::TapPending()) {  // S101 lane 5: the phone's corner button (case_jni.h) asked; TakeCase names the trigger "tap"
+    if (case_hook::Enabled()) Take();
+    else case_hook::ConsumeTap();  // ring off: the flag is cleared, nothing runs
+  }
   const bool ignore = g_frame_time_ignore_next.exchange(false, std::memory_order_relaxed);
   const int limit = REXCVAR_GET(wwe2k14_bookmark_auto_ms);
   if (limit > 0 && g_installed && !ignore && ms >= limit && steady >= 60 && autos < 20 &&
@@ -295,6 +314,7 @@ inline std::string StateValue(const std::string& name) {
 
 // Warning / error lines of this run's log from the last `window_s` seconds (by their timestamps), repeats counted.
 inline std::vector<std::string> RecentWarnings(double window_s, size_t max_lines = 30) {
+  rex::DrainLogging(500);  // lane 302: the log file is written by a thread; read it after the queue is on disk
   const auto path =
       std::filesystem::current_path() / "logs" / fmt::format("wwe2k14_{:03}.log", std::max(CurrentLogNumber(), 0));
   std::ifstream in(path, std::ios::binary);
@@ -386,6 +406,7 @@ inline int TakeImpl(const std::string& reason) {
   check::ShowToast(!reason.empty() ? fmt::format("Auto-bookmark {} ({})", k, reason)
                    : g_player      ? fmt::format("Marked ({}): it goes into Report a problem", k)
                                    : fmt::format("Bookmark {} saved (frame {})", k, frame));
+  TakeCase(reason.empty() ? rdr_case::Trigger::Key : rdr_case::Trigger::AutoHitch, reason, label);  // S101 lane 5
   const std::string text_now = screen_text::Joined(2000);  // Session 30: the text on screen at the key
   // Session 30 (#5): every known struct whose base is a readable, non-null pointer, read now (structs.toml).
   std::string structs_now;
@@ -455,6 +476,173 @@ inline int TakeImpl(const std::string& reason) {
   return k;
 }
 
+// S101 lane 5/11: where case zips go. A +dev build: out\cases under the working folder (the repo root in runs; the folder is gitignored and kept).
+// Everything else (a release exe, the phone, whose working folder is the app's files folder): cases\ there. --wwe2k14_case_dir overrides.
+inline std::filesystem::path CaseDefaultDir() {
+  const auto cwd = std::filesystem::current_path();
+#if defined(WWE2K14_VERSION) && !defined(__ANDROID__)
+  if (std::string_view(WWE2K14_VERSION).find("+dev") != std::string_view::npos) return cwd / "out" / "cases";
+#endif
+  return cwd / "cases";
+}
+
+// S101 lane 19: the manifest's settings and way-back blocks from the cvar system (nothing is guessed: a value the run does not have stays unset and
+// rdr_case::info::Complete() gives its reason). Host paths and secrets never go into a zip a tester sends.
+inline std::string CaseSettingValue(const std::string& name, const std::string& value) {
+  if (name.find("password") != std::string::npos || name.find("passwd") != std::string::npos || name.find("token") != std::string::npos ||
+      name.find("secret") != std::string::npos || name.find("webdav") != std::string::npos)
+    return "<hidden>";
+  const bool host_path = value.find(":\\") != std::string::npos || value.find(":/") != std::string::npos ||
+                         (!value.empty() && (value[0] == '/' || value[0] == '\\'));
+  return host_path ? "<path>" : value;
+}
+inline void FillCaseManifest(rdr_case::Manifest& m) {
+  wwe2k14::build_stamp::Fill(m.build);
+  {  // S101 lane32: a state reached by forcing a scene says so (src/scene_forced.h)
+    const char* verb = nullptr;
+    int32_t id = 0;
+    uint64_t frame = 0;
+    if (wwe2k14::scene_forced::Get(verb, id, frame)) m.where.forced = rdr_case::Manifest::Where::Forced{verb, uint32_t(id), frame};
+  }
+  // S101 lane 19: the resolution multiple as in effect now, and the route the run contract's door started the game with (run_list passes it as
+  // wwe2k14_input_script; its file name only, never the folder)
+  if (rex::cvar::GetFlagInfo("resolution_scale")) m.device.resolution_scale = std::atoi(rex::cvar::GetFlagByName("resolution_scale").c_str());
+  if (rex::cvar::GetFlagInfo("wwe2k14_input_script")) {
+    const std::string route = rex::cvar::GetFlagByName("wwe2k14_input_script");
+    if (!route.empty()) m.where.route = std::filesystem::path(route).filename().string();
+  }
+  std::string builder;
+  for (const std::string& name : rex::cvar::ListModifiedFlags()) {
+    const std::string value = CaseSettingValue(name, rex::cvar::GetFlagByName(name));
+    m.settings.effective.emplace_back(name, value);
+    m.settings.non_default.push_back(name);
+    if (name.rfind("wwe2k14_launch", 0) == 0 || name.rfind("wwe2k14_wm30", 0) == 0)  // the builder spec / the 30 Years jump (goto: match:SPEC, wm30)
+      builder += (builder.empty() ? "" : "; ") + name + "=" + value;
+  }
+  if (!builder.empty()) m.way_back.builder = builder;
+  // The launcher settings file in effect: only its file name (the folder has the player's name in it).
+  if (rex::cvar::GetFlagInfo("wwe2k14_use_launcher_settings") && rex::cvar::GetFlagByName("wwe2k14_use_launcher_settings") == "true") {
+    std::string file = rex::cvar::GetFlagInfo("wwe2k14_settings_file") ? rex::cvar::GetFlagByName("wwe2k14_settings_file") : std::string();
+    m.settings.launcher_file = file.empty() ? std::string("settings.json (the launcher's own)") : std::filesystem::path(file).filename().string();
+  }
+  if (rex::cvar::GetFlagInfo("wwe2k14_fixed_seed") && rex::cvar::GetFlagSource("wwe2k14_fixed_seed") != rex::cvar::Source::kDefault) {
+    const std::string seed = rex::cvar::GetFlagByName("wwe2k14_fixed_seed");
+    if (!seed.empty() && seed.find_first_not_of("0123456789") == std::string::npos) m.way_back.seed = std::strtoull(seed.c_str(), nullptr, 10);
+  }
+  m.way_back.replay_mode = REXCVAR_GET(wwe2k14_replay_mode) || !REXCVAR_GET(wwe2k14_replay_record).empty() || !REXCVAR_GET(wwe2k14_replay_play).empty();
+}
+// The recorder's rows for the window (the run's .rec file cut to first..last), read on the case worker. Empty = no recording in play.
+inline std::string CaseInputsWindow(uint64_t first, uint64_t last) {
+  const std::filesystem::path path = wwe2k14::replay::g_replay.InputsPath();
+  if (path.empty()) return {};
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return {};
+  std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  return rdr_case::info::InputsWindow(text, first, last);
+}
+
+// S101 lane32: the manifest's `where` block from the live game state, with no new hook: the states.toml words (seq, scene_word, menu, match_clock,
+// entrance_step_N), the cvars that say how the run got here, the match description M and the scene ring through checked guest reads, and the scene
+// director's marker. The address rules and their exact / best-effort labels are src/case/case_where.h (docs/renderer/CASE_ZIP.md "where").
+inline std::string WhereCvar(const char* name) {
+  return rex::cvar::GetFlagInfo(name) ? rex::cvar::GetFlagByName(name) : std::string();
+}
+inline void FillCaseWhere(rdr_case::Manifest& m, uint64_t guest_frame) {
+  rdr_case::where::Inputs in;
+  // The states once: StateLines() is "name = N (0xH)" per state (the zip's states.txt); "unreadable" lines are skipped.
+  std::map<std::string, int64_t> st;
+  for (const std::string& line : StateLines()) {
+    const size_t eq = line.find(" = ");
+    if (eq == std::string::npos) continue;
+    char* end = nullptr;
+    const long long n = std::strtoll(line.c_str() + eq + 3, &end, 10);
+    if (end != line.c_str() + eq + 3) st[line.substr(0, eq)] = n;
+  }
+  auto state = [&](const std::string& name) { const auto it = st.find(name); return it == st.end() ? int64_t(-1) : it->second; };
+  in.seq = state("seq"), in.scene_word = state("scene_word"), in.menu = state("menu"), in.match_clock = state("match_clock");
+  for (int i = 0; i < 6; ++i) in.entrance_steps.push_back(state("entrance_step_" + std::to_string(i)));
+  in.match_spec = WhereCvar("wwe2k14_match");
+  const std::string go = WhereCvar("wwe2k14_match_go");
+  if (!go.empty() && go.find_first_not_of("-0123456789") == std::string::npos) in.match_go = std::atoll(go.c_str());
+  in.match_dry = WhereCvar("wwe2k14_match_dry") == "true";
+  const std::string wm = WhereCvar("wwe2k14_wm30");
+  if (!wm.empty() && wm.find_first_not_of("-0123456789") == std::string::npos) in.wm30 = std::atoll(wm.c_str());
+  in.replay_play = WhereCvar("wwe2k14_replay_play");
+  in.guest_frame = guest_frame;
+  const char* verb = nullptr;
+  int32_t fid = 0;
+  uint64_t fframe = 0;
+  if (wwe2k14::scene_forced::Get(verb, fid, fframe)) in.forced_verb = verb, in.forced_id = fid;
+  auto rd = [](uint32_t a, uint32_t& v) { return ReadGuestBytes(a, 4, &v); };
+  uint32_t md = 0, v = 0;
+  if (rd(0x836F2D88, md) && md) {  // M: type +8, pace +528, arena +532, participant ids at +724 + 3580 * i + 56 (session_log.h's card)
+    auto& l = in.live;
+    uint32_t type = 0, pace = 0, arena = 0;
+    if (rd(md + 8, type) && rd(md + 528, pace) && rd(md + 532, arena)) {
+      l.have = true, l.type = int32_t(type), l.pace = int32_t(pace), l.arena = int32_t(arena);
+      for (uint32_t i = 0; i < 43; ++i)
+        if (rd(md + 724 + 3580 * i + 56, v) && v < 500) l.ids.push_back(v);
+    }
+  }
+  // The scene ring (S-1: R at 0x836F2E58, ring = R + 16, read index ring + 4, ctx(i) = ring + 12 + 332 i): the read context's CURRENT slot k
+  // (ctx + 12; the bank id is at ctx + 140 + 24 k, k < 8); a type-0 context is the end of the list, not a scene. Best-effort: never run.
+  uint32_t r = 0, idx = 0, ctype = 0, slot = 0, bank = 0;
+  if (rd(0x836F2E58, r) && r && rd(r + 20, idx) && idx < 10) {
+    const uint32_t ctx = r + 16 + 12 + 332 * idx;
+    if (rd(ctx + 8, ctype) && ctype != 0 && rd(ctx + 12, slot) && slot < 8 && rd(ctx + 140 + 24 * slot, bank) && bank > 0 && bank < 65536) {
+      in.ring_bank = int64_t(bank), in.ring_type = int64_t(ctype);
+    }
+  }
+  rdr_case::where::Fill(m, in);
+}
+
+// S101 lane 5/11: the bug button. Same trigger as the F11 bookmark (key; the chord / auto-hitch / run triggers call this with their own
+// Trigger). `picture_label` names the screenshot TakeImpl just asked for (captures\NNN_<label>.png; a dev harness build only).
+// Ring off: returns before reading or copying anything. The log is read on the case worker, not here.
+inline void TakeCase(rdr_case::Trigger trigger, const std::string& note, const std::string& picture_label) {
+  const bool tap = case_hook::ConsumeTap();  // the phone's corner button raised the flag (case_jni.h)
+  if (!case_hook::Enabled()) return;
+  if (tap) trigger = rdr_case::Trigger::Tap;
+  if (trigger == rdr_case::Trigger::AutoHitch && !case_hook::AutoHitchEnabled()) return;  // --wwe2k14_case_auto (default off)
+  case_hook::FlushForExit(trigger);  // S101 lane 216: the final census lines go into the log before the zip reads it
+  case_hook::Context ctx;
+  FillCaseManifest(ctx.manifest);  // S101 lane 19: build stamp, settings off their defaults, builder / seed / replay flag
+  ctx.inputs_for_window = &CaseInputsWindow;
+#ifdef __ANDROID__
+  ctx.manifest.device.platform = "android";
+  ctx.device_tag = "phone";
+#else
+  ctx.manifest.device.platform = "windows";
+  ctx.device_tag = "pc";
+#endif
+  ctx.manifest.where.guest_frame = g_guest_frame.load();
+  FillCaseWhere(ctx.manifest, ctx.manifest.where.guest_frame);  // S101 lane32
+  for (const std::string& line : StateLines()) ctx.states_text += line + "\n";
+  ctx.log_path = std::filesystem::current_path() / "logs" / fmt::format("wwe2k14_{:03}.log", std::max(CurrentLogNumber(), 0));
+  ctx.log_window_s = REXCVAR_GET(wwe2k14_case_window_s) + 5.0;
+  // The picture is PNG always: the owner renderer's own picture of the next shown frame (the ring only runs in owner mode, which has no SDK
+  // screenshot). A harness build without it falls back to the screenshot TakeImpl just asked for (PNG); a player build has no PNG screenshot.
+  if (case_hook::HasPictureSaver()) {
+    static std::atomic<unsigned> n{0};
+    const auto path = case_hook::Dir() / fmt::format(".case_picture_{}.png", n.fetch_add(1));
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (case_hook::SavePictureFor(trigger, path)) {  // S101 lane 19: a run exit uses the last presented frame
+      ctx.picture_path = path;
+      ctx.picture_temp = true;
+    }
+  } else if (!g_player) {
+    ctx.picture_path = std::filesystem::current_path() / "captures" / fmt::format("{:03}_{}.png", std::max(CurrentLogNumber(), 0), picture_label);
+  }
+  case_hook::Trigger(trigger, note, std::move(ctx));
+}
+
+// lane 301: a D3 chain latched off (renderer_adapter\d3_latch_hook.h): the case ring takes the moment (ring off: nothing). A "key" trigger, so --wwe2k14_case_auto is not needed; the note carries the latch line.
+inline void TakeD3Latch(const char* line) {
+  if (!g_installed || !case_hook::Enabled()) return;
+  TakeCase(rdr_case::Trigger::Key, std::string("d3 latched off: ") + (line ? line : ""), "d3_latch");
+}
+
 inline int Take() { return TakeImpl(""); }
 inline void TakeAuto(double ms, uint64_t frame) {
   (void)frame;
@@ -466,6 +654,27 @@ inline void TakeAuto(double ms, uint64_t frame) {
 inline void Install(bool harness) {
   g_installed = true;
   g_player = !harness;
+  {
+    // S101 lane 11: the ring is OFF by default (a player and a phone pay nothing). On: --wwe2k14_case=true (the phone launcher's report button
+    // setting passes it), or a PC +dev build in owner mode.
+    bool by_build = false;
+#if defined(WWE2K14_VERSION) && !defined(__ANDROID__)
+    by_build = REXCVAR_GET(wwe2k14_rdr_owner) && std::string_view(WWE2K14_VERSION).find("+dev") != std::string_view::npos;
+#endif
+    case_hook::Config cfg = case_hook::ConfigFromCvars(CaseDefaultDir(), by_build);
+    cfg.log = [](const std::string& line) { REXLOG_INFO("{}", line); };
+    case_hook::Configure(cfg);
+    if (cfg.enabled && REXCVAR_GET(wwe2k14_scene_records)) rdr_case::AttachSceneSink();  // S101 lane 26: scene records join the zip (nothing is built until a class registers a contributor)
+    // S101: a route's quit takes the black box (case_script_hook.h), then waits for the zip so the exit does not cut it.
+    if (cfg.enabled)
+      case_script::g_take.store(+[](bool failure, const char* note) {
+        TakeCase(failure ? rdr_case::Trigger::RunFailure : rdr_case::Trigger::RunExit, note ? note : "", "");
+        case_hook::Shutdown();
+      });
+    if (cfg.enabled)
+      REXLOG_INFO("[wwe2k14][case] the bug button's ring is on: {:.1f} s window, {} MB cap, zips to {}{}", cfg.window_s, cfg.cap_mb, cfg.dir.string(),
+                  cfg.on_auto_hitch ? ", also on an auto hitch" : "");
+  }
   StartClipRing();  // no-op unless --wwe2k14_bookmark_clip_fps
   rex::ui::RegisterBind("bind_wwe2k14_bookmark", "F11",
                         harness ? "Harness: bookmark this moment (screenshot, states, recent frame times and warnings)"

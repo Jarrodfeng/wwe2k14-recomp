@@ -47,9 +47,12 @@
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "audio_import/audio_import.h"  // lane 283
 #include "guest_read.h"
 #include "mods.h"
 
@@ -68,7 +71,6 @@ constexpr int kLastId = 9000;                // the game writes music ids with f
 constexpr uint32_t kTextBase = 0x7C010000u;  // name text ids = kTextBase + (id - 6000); gfx_menu's are 0x7C0000xx
 constexpr uint32_t kMusicList = 2;           // list index in /ENEX/LSD
 constexpr uint32_t kOffRecords = 128, kOffCount = 208;
-constexpr const char* kExts[] = {".mp3", ".m4a", ".wav", ".flac", ".wma", ".aac"};
 
 struct Slot {
   int id = 0;
@@ -85,15 +87,81 @@ inline std::map<std::string, uint32_t> g_guest_names;      // shown name -> gues
 inline std::map<std::string, uint32_t> g_guest_arrays;     // record bytes -> guest copy (reused while unchanged)
 inline bool g_warned_layout = false;
 
+// The lane 288 player (--wwe2k14_music_mix_into_game) by name: this header cannot include music_player_app.h (it includes us).
+inline bool MixOn() {
+  // Lane 297b: the flag is fixed for the process and this runs a few times a frame (the sub_82ACFDE0 hook): looked up once.
+  static const bool on = [] {
+    const std::string v = rex::cvar::GetFlagByName("wwe2k14_music_mix_into_game");
+    return v == "true" || v == "1";
+  }();
+  return on;
+}
+
 inline bool Active() {
-#if !defined(_WIN32)
-  return false;  // no player there (ANDROID_PLAN F9): no slot would make a sound
-#else
+#if defined(_WIN32)
   return REXCVAR_GET(wwe2k14_music_slots) && mods::g_on;
+#elif defined(__ANDROID__)
+  // Lane 297 (B1): the phone plays custom songs through the lane 288 player only (the launcher passes the mix flag with USE MY MUSIC)
+  return REXCVAR_GET(wwe2k14_music_slots) && mods::g_on && MixOn();
+#else
+  return false;  // no player there: no slot would make a sound
 #endif
 }
 
 inline std::filesystem::path Dir() { return mods::g_dir / "music" / "new"; }
+// Lane 283: the cache of loudness-normalised copies (audio_import): what the player plays; the player's own files are never touched.
+inline std::filesystem::path CacheDir() { return mods::g_dir / "music" / ".cache"; }
+
+// The path to play for a song. The GAME never converts (Jarrod S101: the launcher converts when a song is added, with a progress bar):
+// this is a stat and a lookup in the cache index (audio_import::PlayableNow, lookup.cpp is all the game links). The cached,
+// loudness-normalised copy; the song itself when it has not been converted yet (logged once: it plays as it is); an empty path for a
+// file that cannot be turned into audio (the game's own theme stays).
+inline std::filesystem::path PlayableUncached(const std::filesystem::path& src) {
+#if !defined(_WIN32) && !defined(__ANDROID__)
+  return src;
+#else
+  audio_import::Imported info;
+  const std::filesystem::path p = audio_import::PlayableNow(src, CacheDir(), audio_import::kTargetLufs, &info);
+  if (!info.ok && info.err.empty() && !audio_import::GamePlayerCanOpen(src)) {
+    // not converted yet and the game's player cannot open this format as it is (.opus / .ogg): silence would be worse than the
+    // game's own theme, so nothing is returned and the stock theme plays
+    static std::mutex m2;
+    static std::set<std::string> warned2;
+    const std::string name = mods::U8(src);
+    std::lock_guard lock(m2);
+    if (warned2.insert(name).second)
+      REXLOG_WARN("[wwe2k14][music_slots] {} is not converted yet - open the launcher to convert it (the game's own theme plays meanwhile)", name);
+    return {};
+  }
+  if (!info.ok) {  // refused (err set) or not converted yet (err empty): said once per song
+    static std::mutex m;
+    static std::set<std::string> warned;
+    const std::string name = mods::U8(src);
+    std::lock_guard lock(m);
+    if (warned.insert(name).second) {
+      if (!info.err.empty()) REXLOG_WARN("[wwe2k14][music_slots] {} cannot be played: {}", name, info.err);
+      else REXLOG_WARN("[wwe2k14][music_slots] {} is not converted yet - open the launcher to convert it (it plays as it is)", name);
+    }
+  }
+  return p;
+#endif
+}
+// The same, remembered per song for 2 s (FileFor is asked often: the slot songs bypass FindMusic's own 2-second cache).
+inline std::filesystem::path Playable(const std::filesystem::path& src) {
+  static std::mutex m;
+  static std::map<std::string, std::pair<std::chrono::steady_clock::time_point, std::filesystem::path>> memo;
+  const std::string key = mods::U8(src);
+  const auto now = std::chrono::steady_clock::now();
+  {
+    std::lock_guard lock(m);
+    auto it = memo.find(key);
+    if (it != memo.end() && now - it->second.first < std::chrono::seconds(2)) return it->second.second;
+  }
+  std::filesystem::path p = PlayableUncached(src);
+  std::lock_guard lock(m);
+  memo[key] = {now, p};
+  return p;
+}
 
 inline std::string Lower(std::string s) {
   for (auto& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
@@ -101,8 +169,7 @@ inline std::string Lower(std::string s) {
 }
 
 inline bool IsSong(const std::filesystem::path& p) {
-  const std::string ext = Lower(p.extension().string());
-  return std::any_of(std::begin(kExts), std::end(kExts), [&](const char* e) { return ext == e; });
+  return audio_import::IsSupportedExt(p);  // lane 283: mp3, wav, ogg, opus, flac, m4a, aac, wma
 }
 
 // "Kingdom_remix" -> "KINGDOM REMIX": capitals like the stock names, printable ASCII only (the menu font), at most
@@ -119,7 +186,7 @@ inline std::string CleanName(const std::string& text) {
   if (out.size() > 40) out.resize(40);
   return out.empty() ? "NEW SONG" : out;
 }
-inline std::string ShownName(const std::string& file) { return CleanName(std::filesystem::path(file).stem().string()); }
+inline std::string ShownName(const std::string& file) { return CleanName(mods::U8(mods::FromU8(file).stem())); }  // file = UTF-8
 
 inline std::string Trim(std::string s) {
   while (!s.empty() && (s.back() == '\r' || s.back() == ' ' || s.back() == '\t')) s.pop_back();
@@ -163,8 +230,14 @@ inline void ScanLocked() {
     }
   }
   std::vector<std::string> files;
-  for (const auto& e : fs::directory_iterator(dir, ec)) {
-    if (e.is_regular_file(ec) && IsSong(e.path())) files.push_back(e.path().filename().string());
+  for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+    std::error_code e2;
+    if (!it->is_regular_file(e2) || !IsSong(it->path())) continue;
+    try {
+      files.push_back(mods::U8(it->path().filename()));  // slots.txt holds UTF-8 (the launcher writes it so)
+    } catch (...) {  // nothing here may throw: a name that cannot be read is skipped
+      REXLOG_WARN("[wwe2k14][music_slots] a song file name could not be read; skipped");
+    }
   }
   std::sort(files.begin(), files.end(), [](const std::string& a, const std::string& b) { return Lower(a) < Lower(b); });
   bool added = false;
@@ -194,12 +267,12 @@ inline void ScanLocked() {
       if (s.name != ShownName(s.file)) out << '\t' << s.name;
       out << '\n';
     }
-    if (!out) REXLOG_WARN("[wwe2k14][music_slots] could not write {}", (dir / "slots.txt").string());
+    if (!out) REXLOG_WARN("[wwe2k14][music_slots] could not write {}", mods::U8(dir / "slots.txt"));
   }
   size_t present = 0;
   for (const auto& [id, s] : slots) present += s.present;
   if (!g_scanned || slots.size() != g_slots.size() || added) {
-    REXLOG_INFO("[wwe2k14][music_slots] {} song(s) in {} ({} id(s) in slots.txt)", present, dir.string(),
+    REXLOG_INFO("[wwe2k14][music_slots] {} song(s) in {} ({} id(s) in slots.txt)", present, mods::U8(dir),
                 slots.size());
   }
   g_slots = std::move(slots);
@@ -220,10 +293,14 @@ inline bool IsSlotId(int id) { return id >= kFirstId && id <= kLastId; }
 inline std::filesystem::path FileFor(int id) {
   if (!Active() || !IsSlotId(id)) return {};
   Scan();
-  std::lock_guard lock(g_mutex);
-  auto it = g_slots.find(id);
-  if (it == g_slots.end() || !it->second.present) return {};
-  return Dir() / it->second.file;
+  std::filesystem::path src;
+  {
+    std::lock_guard lock(g_mutex);
+    auto it = g_slots.find(id);
+    if (it == g_slots.end() || !it->second.present) return {};
+    src = Dir() / mods::FromU8(it->second.file);
+  }
+  return Playable(src);  // lane 283: the normalised copy
 }
 
 inline uint32_t AllocGuestBytes(const void* data, uint32_t size) {

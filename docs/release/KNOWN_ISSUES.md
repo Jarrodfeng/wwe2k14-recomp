@@ -1,44 +1,23 @@
+- Weak graphics (laptops with integrated graphics such as an Intel UHD 620): on my Surface Pro 6 a match now shows about 47 to 53 pictures a second, where v0.2.19 showed 60 on the same laptop. The new renderer's own drawing work is the limit there, not the graphics chip; the cuts that skip the game's drawing work for the ring, the shadows and the crowd are built and checked, but on that laptop they cost more than they saved, so they are off in this release. Making the new renderer faster on weak hardware is my next big piece of work. If matches feel choppy on yours, please send a report with the speed shown (launcher: Report a problem).
+- Custom music: for now the song you pick in the Custom Playlist picker applies to every superstar who uses USER PLAYLIST, not one song per superstar, because I have not found what identifies the entering superstar yet. Choosing USER PLAYLIST sets it straight away, so closing the picker without picking still leaves the superstar on USER PLAYLIST. In the entrance editor's preview your songs sound a little quieter than the game's own (at entrances they match). A song shorter than the entrance stops when it ends; it does not loop. Songs over 20 minutes and silent or unreadable files are refused. I have not tested how the game's music volume option affects custom songs.
+- Custom music on phones: the launcher converts songs on the phone and the game plays them; I have tried it on my own phone (OPPO Find X8 Ultra) only, so a first run on another phone is a real test. If a song is silent or the game stutters when it starts, please send a report (launcher: Report a problem).
+- Selection screens: the superstar's picture on the character select and in Create an Entrance's superstar list can show blank or as coloured blocks, most often when moving quickly through the menus or after a match. Moving the cursor to another superstar and back fixes it. Seen on my phone; I am still finding the cause.
 - The Superstar Importer (new in v0.3.1) was tested in the game with one character, in his first attire, on my PC and my phone. The pack is built for up to 103 characters, but a full pack has not been played. If an imported superstar goes wrong, switch USE MY SUPERSTARS off and send a report (launcher: Report a problem).
 - The game now uses a memory feature of Windows 10 1803 or newer, tested by me only on Windows 11 build 26100. If your Windows cannot
   do it, the game shows a clear message and stops: please send a report with your Windows version.
-- TRUE NATIVE (the default since v0.2.19) was taken through the arenas, the roster with the DLC wrestlers, all 62 match
-  types and the modes on my PC (NVIDIA RTX 4090). AMD and Intel graphics are untested with it. If something looks wrong
-  or freezes, switch it off in Settings -> Advanced and send a report (launcher: Report a problem).
-- The whole-frame NATIVE drawing (new in v0.2.16) was checked on my PC (NVIDIA RTX 4090) at 720p and 1440p and
-  measured on my Intel laptop at 720p, with Lesnar vs Bryan (both entrances and the match). Other arenas, match types
-  (Royal Rumble, six-man), 4K and AMD graphics have not been looked at with it yet. Anything it can't draw falls back
-  to v0.2.15's way by itself. If something looks wrong (a missing or oddly coloured part, flicker, wrong shadows), the
-  extra flag `--gpu_native_owned_frame=false` (Settings -> Advanced) brings back v0.2.15's NATIVE; please send a report
-  too (launcher: Report a problem).
-- The reworked NATIVE (new in v0.2.15) was checked on my PC (NVIDIA RTX 4090) at 720p, 1440p and 4K, and measured on my
-  Intel laptop at 720p: Lesnar vs Bryan (both entrances and the match), Undertaker's WrestleMania entrance, the menus and
-  the logo editor. In those checks the picture matched v0.2.14's to within rounding. Not every arena and match type has
-  been looked at yet. If something looks wrong (a missing or oddly coloured part of the arena, the crowd or a
-  superstar, flicker), the extra flag `--wwe2k14_native_frame=false` (Settings -> Advanced) brings back v0.2.14's
-  NATIVE; please send a report too (launcher: Report a problem).
+- The new renderer is on for everyone (PC and phone). It was tested on my PC (NVIDIA RTX 4090) and on one phone (OPPO Find X8 Ultra, Adreno 830). AMD and Intel graphics, other phones, 4K and the LOW preset with it are untested. If your graphics card shows problems (a missing or oddly coloured part, flicker, wrong shadows, a freeze), start with the extra flag `--wwe2k14_s101_promotions=false` (Settings -> Advanced -> extra flags) to get the previous way of drawing, and send a report (launcher: Report a problem, or the bug-button zip).
 - The keyboard as its own player (new in v0.2.14) was tested with a simulated second controller, not by two people
   yet. With four controllers the keyboard shares player 1 again. Not tried yet: a controller switching off in the
   middle of a match (with no controller left, the keyboard becomes player 1 until the controller is back).
 - The black-eyes fix for Intel graphics (new in v0.2.14) has not been tried on Intel hardware by me, and how much it
   slows Intel laptops is not measured. Please tell me whether the eyes look right now (launcher: Report a problem).
-- New songs (new in v0.2.13) are silent in the entrance editor's PREVIEW: they play in matches only. They are also
-  silent in replays and re-shoots, as theme replacements are. A superstar given a new song walks out in silence if the
+- New songs (new in v0.2.13) are silent in replays and re-shoots, as theme replacements are. A superstar given a new song walks out in silence if the
   song's file is gone or USE MY MUSIC is off (the editor then shows USER PLAYLIST for him); nothing breaks.
 - I saw one crash while entering the entrance editor (CREATIONS > ENTRANCE) in my tests, and it did not come back in
   72 more tries. If it happens to you, please send a report (launcher: Report a problem).
 - The 16:10 / 4:3 fill and the ultrawide red-patch fix (new in v0.2.13) were checked on my PC with a test window of
   that shape and with a phone's screen shape, not on such monitors. The ultrawide mouse fix was worked out from the
   code, not tried on an ultrawide monitor yet.
-- The entrance savings (new in v0.2.12) were checked on my NVIDIA card at 720p and 1440p. If an entrance looks wrong
-  after the update (a missing or frozen background, wrong colours behind the wrestler), the extra flags
-  `--gpu_native_truth_skip_restores=false --gpu_native_truth_skip_repeat_resolves=false` (Settings -> Advanced) bring
-  back the old behaviour; please send a report too (launcher: Report a problem).
-- POST EFFECTS does nothing yet with DLSS, DLAA or FSR on (the game's own post effects run there; the option is greyed
-  out).
-- POST EFFECTS (new in v0.2.11) was checked on my NVIDIA card at 720p and 1440p on two entrances and a match. If the
-  picture looks wrong after the update (a blurry or blocky background, missing glare), the extra flag
-  `--gpu_native_shader_swap=false` (Settings -> Advanced) brings back the game's own shader; please send a report too
-  (launcher: Report a problem).
 - CineCam's timeline is keyboard and mouse only for now (the controller still flies the camera in photo mode). There
   is no undo: K at a key's time replaces that key. Clicking the timeline moves the camera to the shot's pose at that
   time, so choose the time first, then fly.

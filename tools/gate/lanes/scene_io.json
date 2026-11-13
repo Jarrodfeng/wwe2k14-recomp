@@ -1,0 +1,8 @@
+{
+ "owner": "lane 14: scene records as files (record_io, the viewer's record command, rsc_dump, rsc_draw)",
+ "checks": [
+  {"name": "scene_io.viewer_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1", "-Backend", "rdr"], "timeout_s": 1800},
+  {"name": "scene_io.rsc_tools_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "scene_io.selftest", "cmd": ["py", "-I", "tools/scene/rsc_selftest.py"], "timeout_s": 1200, "needs": ["game_data/extracted"]}
+ ]
+}

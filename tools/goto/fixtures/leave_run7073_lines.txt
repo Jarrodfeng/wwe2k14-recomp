@@ -1,0 +1,12 @@
+[2026-11-12 11:46:47.909] [info] [core] [t17352] [wwe2k14][scene][director] leave: requested (Q A4CAFAA0 exit 3, P A4B79820 P+8 0, M A4B79850); Q+16 now 4, frame=16883
+[2026-11-12 11:46:47.910] [info] [core] [t17352] [wwe2k14][scene][director] leave +0 Q+16=4 P+4=1 M+20=2 M+24=0 H=A4B79AA0 L=A4BF8F30 M=A4B79850 listener=A4B79820 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16883
+[2026-11-12 11:46:47.915] [info] [core] [t17352] [wwe2k14][scene][director] leave +1 Q+16=5 P+4=2 M+20=2 M+24=0 H=A4B79AA0 L=A4BF8F30 M=A4B79850 listener=A4B79820 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16884
+[2026-11-12 11:46:47.920] [info] [core] [t17352] [wwe2k14][scene][director] leave +2 Q+16=5 P+4=3 M+20=3 M+24=0 H=A4B79AA0 L=A4BF8F30 M=A4B79850 listener=A4B79820 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16885
+[2026-11-12 11:46:47.925] [info] [core] [t17352] [wwe2k14][scene][director] leave +3 Q+16=5 P+4=3 M+20=3 M+24=1 H=A4B79AA0 L=A4BF8F30 M=A4B79850 listener=A4B79820 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16886
+[2026-11-12 11:46:47.940] [info] [core] [t17352] [wwe2k14][scene][director] leave +6 Q+16=5 P+4=3 M+20=3 M+24=3 H=A4B79AA0 L=A4BF8F30 M=A4B79850 listener=A4B79820 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16889
+[2026-11-12 11:46:47.946] [info] [core] [t17352] [wwe2k14][scene][director] leave +7 Q+16=5 P+4=3 M+20=3 M+24=4 H=A4B79AA0 L=A4BF8F30 M=A4B79850 listener=A4B79820 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16890
+[2026-11-12 11:46:47.957] [info] [core] [t17352] [wwe2k14][scene][director] leave +9 Q+16=5 P+4=3 M+20=3 M+24=4 H=A4B79AA0 L=00000000 M=A4B79850 listener=A4B79820 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16892
+[2026-11-12 11:46:47.972] [info] [core] [t17352] [wwe2k14][scene][director] leave +12 Q+16=5 P+4=3 M+20=3 M+24=5 H=A4B79AA0 L=00000000 M=A4B79850 listener=A4B79820 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16895
+[2026-11-12 11:46:47.977] [info] [core] [t17352] [wwe2k14][scene][director] leave +13 Q+16=0 P+4=0 M+20=0 M+24=0 H=00000000 L=00000000 M=00000000 listener=00000000 R+9640=0 PG+88=2 G+18576=4 seq=9, frame=16896
+[2026-11-12 11:46:48.101] [info] [core] [t17352] [wwe2k14][scene][director] leave +67 Q+16=0 P+4=0 M+20=0 M+24=0 H=00000000 L=00000000 M=00000000 listener=00000000 R+9640=0 PG+88=2 G+18576=0 seq=75, frame=16950
+[2026-11-12 11:46:48.101] [info] [core] [t17352] [wwe2k14][scene][director] leave: back at the main menu (the last sequence-9 listener/H/L/M were all 0: the orderly end), PG+88=2, frame=16950 (+67)

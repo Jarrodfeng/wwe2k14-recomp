@@ -1,0 +1,7 @@
+{
+ "owner": "lane 40 (S101): our arena drawn in place through the REAL replace seam (fview --arena-ours), docs/renderer/ARENA_OURS.md",
+ "note": "needs: Check B's case zip (held, KEEP), the game files, and out/renderer/dev/fview.exe built by tools/fview/build.ps1 (the script rebuilds it unless --no-build). One fview process per frame and arm: the default step 1 runs ~25 minutes; the gate runs step 8. The bars (CLEAN_PX, FAULT_PX) are in the script; a missing input FAILs loudly.",
+ "checks": [
+  {"name": "arena_ours.proof", "cmd": ["py", "-I", "tools/arena/arena_ours_check.py", "--root", ".", "--step", "8"], "timeout_s": 3600, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

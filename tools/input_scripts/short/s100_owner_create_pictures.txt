@@ -1,0 +1,17 @@
+# Session 100: the create modes' pictures in owner mode (the new renderer owns the window): a new custom superstar saved (its render is
+# made at "Creating Custom Superstar") and custom arena 1 re-saved with a new MENU SCREENSHOT. Both are GPU pictures the game reads with
+# the CPU (Session 57); the reader reads them back when the CPU locks them (OnTextureLock). Run with --wwe2k14_rdr_owner=true and
+# --wwe2k14_rdr_debug_readback_png=true: every picture read back for a lock is also written to <captures>\live\readback_*.png, and the
+# `[rdr][readback] lock` lines name each one. Writes only the per-run copy of the frozen save (run_list). Normal speed only (the nav
+# pieces count frames: no --vsync=false).
+on_fail quit
+log bench: start s100_owner_create_pictures
+include boot_to_menu
+include menu_to_creations
+log bench: new custom superstar
+include creations_to_new_caw
+include menu_to_creations
+log bench: custom arena screenshot
+include creations_to_arena_shot
+log bench: done
+quit

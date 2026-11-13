@@ -1,0 +1,9 @@
+{
+ "owner": "lane 137 (S101): the wm30-only draws still the game's (WHATS_LEFT N9): the rope shadow proxy at the T_Lambert site (RingCore, entry 956) and the cage / commentary desk / monitors (PropsOurs group scene). tools/ring/wm30_n9_check.py; the unit level is ring_ours_selftest.py (wm30b + proxy_wrong) and props_ours_selftest.py (wm30r7084 + scene_wrong), run by their own lanes.",
+ "note": "proof: fview --ring-ours --props-ours on run 7084 (arena 29, scene records from frame 131) at frames 132 / 200 / 300 / 450 / 600 / 667: pictures byte-equal to the stream, census mismatch 0 / unjoined 0 / variant 0, the 24 T_Lambert draws ring_ours and the 14 cage + desk + monitors + k_color draws props_ours with none of the N9 objects left as stream, 8-frame validation replay errors 0, and the planted proxy_wrong (ring) / scene_wrong (props) twins each lose replaced draws and gain mismatch. Builds fview first. A missing case zip or fview FAILs loudly.",
+ "checks": [
+  {"name": "wm30_n9.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 2400},
+  {"name": "wm30_n9.proof", "cmd": ["py", "-I", "tools/ring/wm30_n9_check.py", "--root", "."], "timeout_s": 5400,
+   "needs": ["out/s101/runs/20261112_131029_s100_owner_s90_wm30", "game_data/extracted"]}
+ ]
+}

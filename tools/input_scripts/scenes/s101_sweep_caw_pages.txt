@@ -1,0 +1,71 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true
+# harness: realtime (menu presses; fast-forwarded menus drop presses, LESSONS)
+# Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): OTHER CREATE-MODE EDITOR PAGES. Check K's K5w walks only CREATE A SUPERSTAR (s101_checkB_caw_walk).
+# This route visits, one after another, the CREATIONS list's other editors that are READ-ONLY to enter (nothing is saved; the run uses the per-run copy of the frozen save anyway):
+#   CREATIONS cursor: 0 SUPERSTAR (14), 1 SUPERSTAR THREADS (1504), 2 ENTRANCE (1523), 3 MOVE-SET (1524), 4 SPECIAL MOVE (15), 5 STORY (16), 6 ARENA (17), 7 CHAMPIONSHIP (1506), 8 LOGO (1522)
+#   (docs\systems\menus.md; atlas nodes mode:threads seq 77, mode:entrance seq 25, mode:moves seq 20, mode:logo seq 78 in tools\atlas\screens.json). Skipped on purpose: STORY (a black
+#   screen that 10 B presses did not leave, atlas mode:story dead_end), ARENA (creations_to_arena_shot writes a save; its own nav snippet exists), SPECIAL MOVE (needs a NEW and a pick).
+# Each page: cursor to the item, A, wait for the page's sequence, ~400 frames, a shot, then B until sequence 75 (the atlas back edges are B x6 / x4 / x8 to the main menu, every B
+# waits for its state), wait for the main menu, CREATIONS again. The last page (LOGO) uses the Session 30 snippets (creations_to_logo_grid, the logo grid ready) and stays ~1500 frames
+# (two census windows) so the Create row gets full windows. The file name keeps "caw" so the board files the zip under Create modes. The board's Create cells are UI pictures / text /
+# sprites + rects, Wrestlers, Post chain; these pages add UI draws and the entrance / move-set previews (a wrestler model is drawn in ENTRANCE and MOVE-SET: the Wrestlers cell).
+# UNCONFIRMED (never driven by a route): the sequence numbers are the atlas's (crawl runs 5892 / 5893); a page that does not reach its sequence in 1200 frames stops the run
+# (on_fail quit) with a run_failure zip and the shots so far; B may raise a "quit without saving?" box in the editors (docs\systems\menus.md "The game's message box": B does nothing on a YES / NO box, A answers);
+# the route does NOT answer one (the atlas back edges are plain B presses, and these pages are entered without a change), so a box would stop it at the seq 75 wait: a finding.
+# Marks: 1 menu, 2 threads, 3 entrance, 4 move-set, 5 logo grid, 6 end.
+on_fail quit
+log bench: start scene sweep_caw_pages
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 menu
+include menu_to_creations
+press_until_state DOWN cursor >=1 12 30 5 if_needed
+press_until_state UP cursor 1 12 30 5 if_needed
+press_until_state A seq 77 8 120 5
+log scene=caw_threads
+wait_frames 400
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_sweep_caw_threads
+screenshot sc_sweep_caw_threads
+mark 2 threads
+press_until_state B seq 75 40 120 5
+wait_state menu 1 3600 10
+include menu_to_creations
+press_until_state DOWN cursor >=2 12 30 5 if_needed
+press_until_state UP cursor 2 12 30 5 if_needed
+press_until_state A seq 25 8 120 5
+log scene=caw_entrance
+wait_frames 600
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_sweep_caw_entrance
+screenshot sc_sweep_caw_entrance
+mark 3 entrance
+press_until_state B seq 75 40 120 5
+wait_state menu 1 3600 10
+include menu_to_creations
+press_until_state DOWN cursor >=3 12 30 5 if_needed
+press_until_state UP cursor 3 12 30 5 if_needed
+press_until_state A seq 20 8 120 5
+log scene=caw_moveset
+wait_frames 600
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_sweep_caw_moveset
+screenshot sc_sweep_caw_moveset
+mark 4 moveset
+press_until_state B seq 75 40 120 5
+wait_state menu 1 3600 10
+include menu_to_creations
+include creations_to_logo_grid
+log scene=caw_logo_grid
+wait_frames 700
+cvar wwe2k14_rdr_live_picture sc_sweep_caw_logo_1
+screenshot sc_sweep_caw_logo_1
+wait_frames 800
+cvar wwe2k14_rdr_live_picture sc_sweep_caw_logo_2
+screenshot sc_sweep_caw_logo_2
+mark 5 logo_grid
+log scene=end
+mark 6 end
+log bench: done
+wait_frames 10
+quit

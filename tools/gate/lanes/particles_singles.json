@@ -1,0 +1,11 @@
+{
+ "owner": "lane 132 (S101): every particle draw ours, runs of one and the soft variant (N5), rplay --particles-ours, tools/particles/singles_check.py (PARTICLES_PROMOTION_MAP.md section 11)",
+ "note": "needs the menu, CAW, Check B and Bryan case zips; builds rplay, replays menu 3,329 + CAW 300 + Check B 341 + Bryan 91 frames off and on (every frame, picture max difference <= 1 level), census kept 0, then 3 plants (soft_as_hard, single_dropped, first_texture). The existing particles_ours gate is separate. A missing input FAILs loudly.",
+ "checks": [
+  {"name": "particles_singles.proof", "cmd": ["py", "-I", "tools/particles/singles_check.py", "--root", "."], "timeout_s": 3000, "needs": [
+    "out/s101/runs/20261112_122344_s100_owner_boot_menu_quit/case_20261112_122351_841_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_122353_s101_checkB_caw_walk/case_20261112_122500_157_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance/case_20261111_174607_799_0_pc_run_exit.zip"]}
+ ]
+}

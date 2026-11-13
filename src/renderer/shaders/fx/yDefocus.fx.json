@@ -1,0 +1,107 @@
+{
+ "effect": "yDefocus",
+ "vertex": [
+  {
+   "name": "quad",
+   "defines": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "hue",
+   "defines": [],
+   "hashes": [
+    "EE0287AA23C7AD80"
+   ],
+   "constants": [
+    {
+     "field": "g_f1DefocusRate",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "g_f4AdjustHue_YCbCr",
+     "register": 1,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "name": "debug",
+   "defines": [
+    "FX_DEBUG"
+   ],
+   "hashes": [
+    "66195E924264EC9A"
+   ],
+   "constants": [
+    {
+     "field": "g_f1DefocusRate",
+     "register": 0,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "g_f4AdjustHue_YCbCr",
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "g_DEBUG_fOverlayRate",
+     "register": 10,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "field": "g_DEBUG_fDodgeRate",
+     "register": 11,
+     "count": 1,
+     "range": [
+      0.0,
+      1.0
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,439 @@
+{
+ "effect": "yLiquidMap",
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "ScreenScale",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "WorldParam",
+     "register": 206,
+     "count": 1
+    },
+    {
+     "field": "ScreenSize",
+     "register": 202,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "1C56621AC8D37104"
+   ]
+  },
+  {
+   "name": "local_area",
+   "defines": [
+    "FX_LOCAL_AREA"
+   ],
+   "constants": [
+    {
+     "field": "ScreenScale",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "WorldParam",
+     "register": 206,
+     "count": 1
+    },
+    {
+     "field": "ScreenSize",
+     "register": 202,
+     "count": 1
+    },
+    {
+     "field": "LocalArea",
+     "register": 205,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "394C71AB0CD8EFC1"
+   ]
+  },
+  {
+   "name": "plain",
+   "defines": [
+    "FX_PLAIN"
+   ],
+   "constants": [
+    {
+     "field": "ScreenScale",
+     "register": 201,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "9E3A3B4455E2945F"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "sweat",
+   "defines": [
+    "FX_SWEAT"
+   ],
+   "constants": [
+    {
+     "field": "SrcChan",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "DstChan",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "022F374B74F15579"
+   ]
+  },
+  {
+   "name": "paste",
+   "defines": [
+    "FX_PASTE"
+   ],
+   "constants": [
+    {
+     "field": "SrcChan",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "DstChan",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "2EC3FB7F435E17C8"
+   ]
+  },
+  {
+   "name": "copy_prev",
+   "defines": [
+    "FX_COPY_PREV"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "F235532B75570EAF"
+   ]
+  },
+  {
+   "name": "tint",
+   "defines": [
+    "FX_TINT"
+   ],
+   "constants": [
+    {
+     "field": "SrcChan",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "DstChan",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7938B89327CE73CC"
+   ]
+  },
+  {
+   "name": "lod",
+   "defines": [
+    "FX_LOD"
+   ],
+   "constants": [
+    {
+     "field": "TexParam",
+     "register": 207,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "02AD24C4B0655F6C"
+   ]
+  },
+  {
+   "name": "sweat_dim",
+   "defines": [
+    "FX_SWEAT",
+    "FX_DIM"
+   ],
+   "constants": [
+    {
+     "field": "SrcChan",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "DstChan",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "70536445F5E727EB"
+   ]
+  },
+  {
+   "name": "copy_prev_dim",
+   "defines": [
+    "FX_COPY_PREV",
+    "FX_DIM"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "12677749EE8DD8E4"
+   ]
+  },
+  {
+   "name": "tint_dim",
+   "defines": [
+    "FX_TINT",
+    "FX_DIM"
+   ],
+   "constants": [
+    {
+     "field": "SrcChan",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "DstChan",
+     "register": 204,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "279985C7794437A6"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_LOCAL_AREA",
+    "FX_PLAIN"
+   ],
+   "constants": [
+    {
+     "field": "ScreenScale",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "WorldParam",
+     "register": 206,
+     "count": 1,
+     "when": [
+      "!FX_PLAIN"
+     ]
+    },
+    {
+     "field": "ScreenSize",
+     "register": 202,
+     "count": 1,
+     "when": [
+      "!FX_PLAIN"
+     ]
+    },
+    {
+     "field": "LocalArea",
+     "register": 205,
+     "count": 1,
+     "when": [
+      "FX_LOCAL_AREA"
+     ]
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_SWEAT",
+    "FX_PASTE",
+    "FX_COPY_PREV",
+    "FX_TINT",
+    "FX_LOD",
+    "FX_DIM"
+   ],
+   "constants": [
+    {
+     "field": "SrcChan",
+     "register": 203,
+     "count": 1
+    },
+    {
+     "field": "DstChan",
+     "register": 204,
+     "count": 1
+    },
+    {
+     "field": "TexParam",
+     "register": 207,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d",
+     "when": [
+      "FX_SWEAT"
+     ]
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_SWEAT"
+     ]
+    },
+    {
+     "slot": 0,
+     "kind": "2d",
+     "when": [
+      "FX_PASTE"
+     ]
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_PASTE"
+     ]
+    },
+    {
+     "slot": 0,
+     "kind": "2d",
+     "when": [
+      "FX_COPY_PREV"
+     ]
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_TINT"
+     ]
+    },
+    {
+     "slot": 1,
+     "kind": "2d",
+     "when": [
+      "FX_LOD"
+     ]
+    }
+   ]
+  }
+ }
+}

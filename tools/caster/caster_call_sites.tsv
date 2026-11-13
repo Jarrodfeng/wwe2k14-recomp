@@ -1,0 +1,30 @@
+# The caster passes' entry sites as the LISTINGS give them (Session 101, lane 202; the oracle of tools\caster\caster_rows_test.cpp reads this table, NOT the stream's values).
+# Sources: docs\renderer\SKIP_GAME_WORK_MAP.md 17.1 / 17.2 (pass sites, the three methods, r3 / r4 / r5), the generated listings (py tools\analysis\list_function.py ADDR; the selftest re-reads each cited line).
+# Marks: C = read in a listing (cited), T = a TEST PARAMETER (a number the listings do not give; the test chooses it so every rule of the reader is exercised).
+# Columns (tab separated): row_kind, key1, key2, key3, cite, marks
+#   pass      name   function     r4_store_listing_address   r4_store_regex   marks        -- the entry's first instructions after the prologue that store r4 (map, rim) or none
+#   twin      name   function     twin_call_address          twin_function    marks        -- the cached-command-list twin the method asks first (17.2 item 1)
+#   collapse  slot_rule table_address  listing_address       regex            marks        -- sub_82BA7808: the collapse flag of a slot is the word at table + 4 * slot (slot from [[r13]+1048]+32, 0 when null)
+#   shape     name   entries_per_object objects             detail           marks        -- the test world's frame script: objects per pass and entries per object (T except where cited)
+pass	map	0x82C01FE0	0x82C01FF4	stw r4,6044\(r1\)	C(r3 model, r4 key stored, r5 kept in r30 at 0x82C02008)
+pass	rim	0x82BF9878	0x82BF988C	stw r4,5980\(r1\)	C(r3 model, r4 key stored)
+pass	plane	0x82BF22C8	0x00000000	none	C(only r3 used until the twin returns: 0x82BF22E4 mr r26,r3) U(whether the body reads r4 / r5)
+twin	map	0x82C01FE0	0x82C0200C	0x82BD8680	C(bl 0x82bd8680 with r4 = &local)
+twin	rim	0x82BF9878	0x82BF98A0	0x82BD8A60	C(bl 0x82bd8a60)
+twin	plane	0x82BF22C8	0x82BF22EC	0x82BD8958	C(bl 0x82bd8958)
+collapse	slot	0x83929A50	0x82BA780C	li r9,1048	C(lwz r11,0(r13); li r9,1048; lwzx r11,r9,r11; lwz r10,32(r11); lis r11,-31853; rlwinm r10,r10,2,0,29; addi r9,r11,-26032 = 0x83929A50; lwzx r3,r10,r9)
+# lane 221 (SKIP_GAME_WORK_MAP.md 17.10): the instructions the CasterExtra reads cite (the selftest re-reads each in the generated code)
+#   cite      name   function     listing_address   regex   marks
+cite	product_rim_twin	0x82BD8A60	0x82BD8C08	bl 0x82ba7718	C(the rim twin reads the thread slot's current-camera product, transposes it into the block at +32: 0x82BD8C24-0x82BD8C64)
+cite	product_body	0x82BE6350	0x82BE6378	bl 0x82ba7718	C(the body path's matrix setup reads the same product; called from sub_82BEEEF8 at 0x82BEEF74 in the rim pass)
+cite	product_table	0x82BA7718	0x82BA773C	addi r10,r10,-26176	C(lis -31853 + -26176 = 0x839299C0; + 64 * slot, slot from [[r13]+1048]+32)
+cite	depth_far	0x82BD8A60	0x82BD8B74	lfs f13,304(r11)	C(G+304; r11 = [0x8392DDA4])
+cite	depth_near	0x82BD8A60	0x82BD8B78	lfs f12,300(r11)	C(G+300)
+cite	pose_index	0x82C01FE0	0x82C03D94	lwz r9,408(r24)	C(the collapse branch: [model+408] = the pose entry)
+cite	pose_array	0x82C01FE0	0x82C03D98	lwz r11,192(r24)	C([model+192] = the pose array)
+cite	pose_row3	0x82C01FE0	0x82C03DDC	ld r7,48(r9)	C(row 3 of the pose matrix copied over the scale-0 matrix's translation row: ld 48(r9) / ld 56(r9))
+cite	plain_palette	0x82C01FE0	0x82C03EC4	lvx128 v46,r0,r11	C(the plain path: the palette matrix of bone b at r15 + 64 b - 64, transposed)
+shape	map_wrestler	2	4	A (ordinal 0, collapse 1) then B (ordinal 1, collapse 0) while fewer than 3 participate; B only otherwise	T(objects, split) C(ordinal 0 = map A and the props objects, 17.1)
+shape	map_props	1	2	one entry each, no palette (WantCount 0)	T
+shape	plane	1	1	one proxy object, no palette	T
+shape	rim	1	4	one entry per wrestler, r5 = 0 (the colour pass's convention)	T

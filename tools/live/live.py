@@ -12,6 +12,8 @@ wait_state, log_state, cvar, screenshot, check, ...) and prints the answer when 
         `check` brings it forward and flashes its taskbar button; Jarrod clicks it (or its taskbar button) to play.
   py tools/live/live.py run "press A" "wait_frames 30" "log_state menu" [--shot] [--timeout S] [--log ours|files|all|none]
   py tools/live/live.py run -f FILE        (or '-' for stdin)
+  py tools/live/live.py run --guard ...   S101 lane 145: the stall watchdog (stall_guard.py) watches the batch: a safe on-screen message
+        (OK / Press A / Continue) gets one press, anything else stops with a bookmark
   py tools/live/live.py goto NAME          Session 30: a navigation snippet (tools/input_scripts/nav/NAME.txt, e.g.
         menu_to_options; its header says where it starts and ends) = a batch with `include NAME`
   py tools/live/live.py shot [LABEL] [--width 1280]      screenshot + a small JPEG copy under out/live/ to look at
@@ -238,6 +240,10 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
     if '--wwe2k14_settings_file=' not in extra:
         # CLAUDE.md: test runs that can reach the GRAPHICS menu never touch Jarrod's launcher settings.
         flags += ' --wwe2k14_settings_file=%s' % os.path.join(OUT, 'settings_%s.json' % name)
+    if '--wwe2k14_stage_view=' not in extra:  # S101 lane 59: the game's default is off; a live test game shows a `!scene play` scene (stage_view.h; no effect otherwise)
+        flags += ' --wwe2k14_stage_view=true'
+    if '--wwe2k14_case_dir=' not in extra:  # S101 lane 59 (Check E): an absolute case dir per live name; a relative default landed the zips under the exe's folder
+        flags += ' --wwe2k14_case_dir=%s' % os.path.join(OUT, name, 'cases')
     if coverage:  # Session 30 (#6): the coverage build, recording which functions run per window (`window LABEL`)
         exe = 'coverage'
         if '--wwe2k14_coverage=' not in extra:
@@ -412,6 +418,7 @@ def main():
     ap.add_argument('--drop-inspect', action='store_true')
     ap.add_argument('--keep-failed', action='store_true')
     ap.add_argument('--force', action='store_true')
+    ap.add_argument('--guard', action='store_true', help='run: watch the batch for a stall (tools/live/stall_guard.py; S101 lane 145)')
     a = ap.parse_args()
     if a.cmd == 'diffcov':  # Session 30 (#6)
         try:
@@ -472,7 +479,15 @@ def main():
             lines = src.read().splitlines()
         else:
             lines = a.args
-        fields, log, pairs = run_batch(a.name, lines, a.timeout, a.shot, a.width)
+        if a.guard:   # S101 lane 145
+            import stall_guard
+            try:
+                fields, log, pairs = stall_guard.run_guarded(a.name, lines, a.timeout, a.shot, a.width)
+            except stall_guard.Stalled as x:
+                print(x)
+                return 1
+        else:
+            fields, log, pairs = run_batch(a.name, lines, a.timeout, a.shot, a.width)
         print(describe(fields, log, pairs, a.log))
         return 0 if fields.get('status') == 'ok' else 1
     except NoGame as e:

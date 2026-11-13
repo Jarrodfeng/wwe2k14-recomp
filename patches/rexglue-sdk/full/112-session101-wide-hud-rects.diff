@@ -1,0 +1,24 @@
+# ReXGlue SDK changes for WWE 2K14 (session101-wide-hud-rects): 26a0b9a..d3a285c0b6c6 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  d3a285c Session 101 lanes 182 / 186: gpu_wide_post_vs default drops the T_Rect shader (partial HUD rects squeezed with the sprites at wide aspects; full-view rects stay by shape)
+
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 506bc6fa27c3640c6ed963830abe95d90db18637..057bc5dfeaa0f57f247f82e4f060c341518f7c07 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -427,10 +427,13 @@ REXCVAR_DEFINE_DOUBLE(gpu_tall_factor, 1.0, "GPU",
+                       "Screens taller than 16:9 (anamorphic Vert+): the same draws as gpu_wide_factor get clip-space "
+                       "y / this factor (the scene shows this much more vertically, the HUD is squeezed by as much, the "
+                       "presenter's stretch brings both back). (16/9) / window aspect; 1 = off");
+-REXCVAR_DEFINE_STRING(gpu_wide_post_vs, "1456901233B6564C,032E8FAC979E01DA", "GPU",
++REXCVAR_DEFINE_STRING(gpu_wide_post_vs, "1456901233B6564C", "GPU",
+                       "Session 83: vertex shader hashes (comma-separated) of full-screen passes drawn after the post "
+                       "chain's last pass (gpu_dlss_hud_after_vs) that gpu_wide_factor / gpu_tall_factor leave alone "
+-                      "(2K14: the 30 Years of WrestleMania old-footage filter); empty = every such draw squeezed as HUD");
++                      "(2K14: the 30 Years of WrestleMania old-footage filter's copy pass); empty = every such draw squeezed "
++                      "as HUD. Session 101 (lanes 182 / 186): the T_Rect shader 032E8FAC979E01DA left the default, so partial "
++                      "HUD rects are squeezed with the sprites (full-view ones stay full width by shape, patch 111); add it "
++                      "back for the old behaviour");
+ REXCVAR_DEFINE_INT32(gpu_wide_min_width, 1200, "GPU",
+                      "Session 73: gpu_wide_factor / gpu_tall_factor squeeze scene draws at least this many guest pixels "
+                      "wide (the screen's passes; the game's 1040-wide skin texture passes stay as they are). Was "

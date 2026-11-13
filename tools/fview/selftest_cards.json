@@ -1,0 +1,2 @@
+{"frame": 1, "surface": 1206, "x": 1265, "y": 292, "through_op": 2932,
+ "note": "s100cards frame 1: the scene colour surface 1206, a far-crowd card pixel; op 2933 clears the surface for the post passes, so the history is taken as of op 2932. Found Session 101 by differencing the surface after ops 1102 and 1300."}

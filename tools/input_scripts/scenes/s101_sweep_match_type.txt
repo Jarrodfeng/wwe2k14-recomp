@@ -1,0 +1,36 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=4 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
+# Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): ONE ROUTE FOR MANY MATCH TYPES. The board's "Exhibition matches (every type)" column is read from
+# the cell states only (tools\board\coverage.py prints "match types seen: N" from the manifest, no cell depends on it), but the item is "every type": a type changes what is drawn
+# (cage walls, a hell-in-a-cell structure, ladders, tables, four wrestlers, a battle royal's crowd of wrestlers, the inferno's fire). The type is NOT in this file: it comes from the
+# command line, exactly as short\quick_type_check.txt (Session 30 / 31: the 48 PLAY types all launched as Quick Matches, runs 2357-2404, db\ids\match_types.json):
+#     --wwe2k14_quick_type=T --wwe2k14_launch_participants=A,B[,C,D...]      (ids db\ids\characters.json; no PAD = CPU)
+# (the launcher replaces the participants; sides per type: db\ids\match_types.json "sides"). Same shape as s101_owner_match_long.txt: the bell by state, the roster by event, two shots
+# 1200 frames apart (two census windows of 600), 300 frames more, quit (run_exit case zip). The file name keeps the word "match" so the board files the zip under Exhibition matches.
+# UNCONFIRMED: that every type runs under the owner renderer (never run owned except 0 NORMAL and 14 FATAL 4-WAY); a type whose match never starts fails at the match_clock wait
+# (on_fail quit; the run_failure zip names the stop). Marks: 1 match_clock, 2 roster_wait_done, 3 shot1, 4 shot2, 5 end.
+on_fail quit
+log bench: start scene sweep_match_type
+include boot_to_menu
+wait_file INGAMELUA.PAC 3600
+wait_state seq 9 3600 30
+wait_state match_clock >0 36000
+log scene=sweep_match_type
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_sweep_type_1
+screenshot sc_sweep_type_1
+mark 3 shot1
+wait_frames 1200
+cvar wwe2k14_rdr_live_picture sc_sweep_type_2
+screenshot sc_sweep_type_2
+mark 4 shot2
+wait_frames 300
+log scene=end (match clock +2400)
+mark 5 end
+log bench: done
+wait_frames 10
+quit

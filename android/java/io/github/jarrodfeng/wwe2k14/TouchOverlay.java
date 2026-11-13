@@ -38,6 +38,27 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
     // Session 95 (LADDER): real pads the game's input driver opened (-1 = not known yet).
     static native int nativeRealPads();
     static native void nativeUpdate(int buttons, float lx, float ly, float rx, float ry, float lt, float rt);
+    // Lane 292 (the music picker, src/music_picker_ui.cpp): true while the game's own list is on the screen. The on-screen buttons hide
+    // then so the touches reach the picker (rows, play buttons, CANCEL, drag to scroll); they come back when it closes.
+    static native boolean nativePickerOpen();
+    // Lane 297b: true only when the game was started with custom music on (the picker can exist at all); one flag lookup per pass.
+    static native boolean nativePickerPossible();
+
+    private static boolean pickerPossible() {
+        try {
+            return nativePickerPossible();
+        } catch (UnsatisfiedLinkError e) {
+            return false;
+        }
+    }
+
+    private static boolean pickerOpen() {
+        try {
+            return nativePickerOpen();
+        } catch (UnsatisfiedLinkError e) {
+            return false;  // a library without the picker (and the standalone editor): never hides
+        }
+    }
 
     /** Told when the edit mode ends (saved = DONE, else CANCEL / Back). */
     public interface EditListener { void onEditEnded(boolean saved); }
@@ -47,7 +68,7 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
     private final boolean vibrate, standalone;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final CanvasPainter painter = new CanvasPainter();
-    private boolean shown, active;
+    private boolean shown, active, hold;  // hold: hidden only for the music picker, the virtual pad stays attached (neutral)
     private EditListener editListener;
 
     public TouchOverlay(Context context, int mode, int size, int opacity, boolean vibrate) {
@@ -183,30 +204,47 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
     private void updateShown() {
         // (Kept on the screen while editing, even if a controller connects meanwhile.)
         boolean want = standalone || pad.editing() || mode == MODE_ALWAYS || (mode == MODE_AUTO && !(controllerConnected() && padOpened()));
-        if (!standalone && mode == MODE_AUTO) {  // the native count changes without any Android event: look again in a second
+        // Lane 292: the music picker takes the touches. Lane 297b: the virtual pad stays attached meanwhile (on a touch-only phone it is the
+        // only pad: detaching it reads as "controller disconnected"); the picker's PadGate zeroes what the guest sees, we send neutral.
+        final boolean possible = !standalone && pickerPossible();
+        boolean pickerHide = false;
+        if (possible && want && !pad.editing() && pickerOpen()) {
+            want = false;
+            pickerHide = true;
+        }
+        if (!standalone && mode != MODE_OFF && (possible || mode == MODE_AUTO)) {
+            // Automatic mode: the native pad count changes without any Android event, look again in a second. Lane 297b: the picker opens /
+            // closes without one, so the quick 250 ms look only while the game has custom music on.
             handler.removeCallbacks(recheck);
-            handler.postDelayed(recheck, 1000);
+            handler.postDelayed(recheck, possible ? 250 : 1000);
         }
         if (want != shown) {
             shown = want;
             setVisibility(shown ? VISIBLE : GONE);
             Log.i(TAG, "touch controls " + (shown ? "shown" : "hidden") + " (mode " + mode + ")");
             if (!shown) pad.cancel();
+            updateExclusion();  // Session 100: Back from the edges whenever the controls are not on the screen
+        }
+        if (pickerHide != hold) {
+            hold = pickerHide;
+            if (hold) pad.cancel();
         }
         syncActive();
+        if (hold) sendPad();  // a neutral state
     }
 
     // Attach / remove the game's virtual pad to match; retried every second until the game's input is up.
     private final Runnable retry = this::syncActive;
     private void syncActive() {
         handler.removeCallbacks(retry);
-        if (standalone || shown == active) return;
+        final boolean target = shown || hold;
+        if (standalone || target == active) return;
         try {
-            if (nativeSetActive(shown) || !shown) active = shown;
+            if (nativeSetActive(target) || !target) active = target;
         } catch (UnsatisfiedLinkError e) {
             Log.w(TAG, "touch controls: the game library is not loaded yet");
         }
-        if (shown != active) handler.postDelayed(retry, 1000);
+        if (target != active) handler.postDelayed(retry, 1000);
     }
 
     @Override public void onInputDeviceAdded(int id) { updateShown(); }
@@ -218,17 +256,27 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
     private boolean portrait;
 
     // Session 95 (LADDER, plan item 13): the edge swipe that means Back (gesture navigation) must not fire from a thumb on the left or
-    // right controls. Android honours at most 200 dp of height per edge; the strips are asked for in full and the system trims them.
+    // right controls. Session 100 (Jarrod, 2026-11-11: "something we lost in the 0.3.0 version: the ability to escape back to the
+    // launcher with a back input, aka swiping the left side of the screen"): the full-height strips took Back away from the whole edge,
+    // controls shown or not. Now only while the controls are on the screen, and only the lower part of each edge where the stick and the
+    // buttons sit: the upper part of either edge is Back again.
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
         super.onLayout(changed, l, t, r, b);
-        if (android.os.Build.VERSION.SDK_INT >= 29 && changed) {
+        if (changed) updateExclusion();
+    }
+
+    private void updateExclusion() {
+        if (android.os.Build.VERSION.SDK_INT < 29) return;
+        java.util.ArrayList<android.graphics.Rect> rects = new java.util.ArrayList<>();
+        int w = getWidth(), h = getHeight();
+        if (shown && !portrait && w > 0 && h > 0) {
             int edge = Math.round(48 * getResources().getDisplayMetrics().density);
-            java.util.ArrayList<android.graphics.Rect> rects = new java.util.ArrayList<>();
-            rects.add(new android.graphics.Rect(0, 0, edge, b - t));
-            rects.add(new android.graphics.Rect(r - l - edge, 0, r - l, b - t));
-            setSystemGestureExclusionRects(rects);
+            int top = h - Math.round(h * 0.4f);
+            rects.add(new android.graphics.Rect(0, top, edge, h));
+            rects.add(new android.graphics.Rect(w - edge, top, w, h));
         }
+        setSystemGestureExclusionRects(rects);
     }
 
     @Override
@@ -236,6 +284,7 @@ public class TouchOverlay extends View implements InputManager.InputDeviceListen
         portrait = h > w;
         if (portrait) pad.cancel();
         else pad.layout(w, h, size, opacity);
+        updateExclusion();
     }
 
     @Override

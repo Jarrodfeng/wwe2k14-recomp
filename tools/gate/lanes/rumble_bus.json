@@ -1,0 +1,1 @@
+{"owner": "S101 lane 120 (Rumble + move lines of the event bus: src/event_bus_rumble.h)", "checks": [{"name": "rumble_bus.selftest", "cmd": ["py", "-I", "tools/bus/rumble_selftest.py"], "timeout_s": 900, "needs": ["thirdparty/rexglue-sdk-vulkan/include"]}]}

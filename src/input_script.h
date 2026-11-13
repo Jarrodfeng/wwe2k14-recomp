@@ -42,6 +42,19 @@
 //                                 accepted" signal, where no state is mapped (the storage notices and save prompts).
 //                                 Session 98: `press_until_text T N I H optional TEXT` warns and goes on instead of
 //                                 failing when TEXT never shows
+//   label NAME / jump_if_preview_not ID NAME  (lane 303) the one branch: jump forward to `label NAME` when the last SetSong id is not ID
+//   press_until_preview TARGETS WHAT TRIES INTERVAL HOLD [tab=KEY] [optional] [if_needed]
+//                                 (lane 303) navigate the Create-an-Entrance MUSIC list by the editor's SetSong calls (src/music_preview_seen.h):
+//                                 press TARGETS until the last SetSong id is WHAT (a music id, `custom` = a new song 6001..6999, 9998 USER
+//                                 PLAYLIST, 9999 NONE, `any` = any SetSong). A press that changed the row but not to WHAT is followed by the next at once; no SetSong
+//                                 within INTERVAL frames = wait and press again. tab=KEY presses KEY (e.g. RB) when no SetSong has come at all in
+//                                 this step (the music pane is not the active one). TRIES up to 400
+//                                 step=N: MOVE pressed N times per row (a coarse walk; a clamp at the list's ends or a wrap just lands the next row elsewhere)
+//                                 exit=KEY [dwell=N]: X starts a FULL-ENTRANCE preview that covers the menu (Jarrod, run 7211); after every row that is not the
+//                                 wanted one, dwell N frames (30), press KEY (START) and wait 75 frames for the menu; the WANTED row's preview is left running
+//                                 keys=A,B,C (walk mode): TARGETS is only the MOVE; each row is MOVE, a short settle, then a PREVIEW button press, and the SetSong
+//                                 that makes is the position oracle (run 7208: a cursor move alone calls no SetSong). The candidates are tried in turn until one
+//                                 produces a SetSong; that one is kept for the rest of the script; tab=KEY is pressed after a full cycle without any answer
 //   set BUTTONS LT RT LX LY RX RY set the full pad state until the next set/press (what recordings use);
 //                                 settings are changed with `cvar`, not `set`
 //   screenshot LABEL              save the current guest output to captures/NNN_LABEL.png
@@ -114,6 +127,10 @@
 //                                 frames even when the value is already there (HOLD 1: no frames), so later
 //                                 inputs move by that much. Logs the first value, every change in whether it
 //                                 matches, and other value changes at most every 30 frames
+//   wait_event render WHAT [TIMEOUT] [optional]   (lane 147) wait until the renderer posted WHAT (roster_ready: the wrestler roster is
+//                                 built; roster_failed), up to TIMEOUT frames (default 1800), then a script failure (on_fail), or with
+//                                 'optional' a warning; roster_ready also fails at once when the roster build failed. src/render_signal.h;
+//                                 the event bus (when on) also logs it as kind render
 //   assert_state NAME VALUE       check NAME against VALUE now (one read, no frames); a mismatch or an unreadable
 //                                 state is a script failure (on_fail) with the same screenshot as wait_state
 //   log_state NAME                log NAME's current value (never fails)
@@ -138,6 +155,9 @@
 
 #pragma once
 
+#include "pending_work.h"  // Session 100: the new renderer's named pictures in flight
+#include "music_picker_ui.h"  // lane 292: PickerIsOpen (the keystroke gate below), light: no ImGui / SDK types
+#include "music_preview_seen.h"  // lane 303: press_until_preview (two atomics, no includes)
 #include <rex/cvar.h>
 #include <rex/det.h>
 #include <rex/hook.h>
@@ -187,6 +207,7 @@
 #include "frame_stats.h"
 #include "guest_watch.h"
 #include "game_state.h"
+#include "render_signal.h"  // lane 147: wait_event render
 #include "screen_text.h"  // Session 30: log_text / wait_text / assert_text
 #include "structs.h"      // Session 30: dump_struct  // Session 8 task 9a: wait_state / assert_state / log_state
 #include "coverage.h"  // Session 8 task 6: no-op macros unless built with the coverage preset
@@ -195,7 +216,9 @@
 #include "replay.h"  // Session 16 item 1: --wwe2k14_replay_mode / _record / _play (default off)
 #include "check_prompt.h"  // Session 29: `check TEXT` (on-screen question, F1 / F2 / F5)
 #include "mem_scan.h"      // Session 29: scan_* (live memory scanner)
+#include "situation_director_core.h"  // S101 lane 161: passive / momentum / stock / passive_cpu script lines (pure; the game side is src/situation_director.h)
 #include "diag.h"          // Session 95: diag_stage / diag_scene / diag_ab / diag_restore (the diagnostic run)
+#include "case/case_script_hook.h"  // S101: a route's quit takes the black box (filled by bookmark.h)
 
 namespace rex::kernel::xam {
 // ReXGlue's implementations (exported by rexruntime.dll, not declared in public headers).
@@ -498,12 +521,14 @@ class InputScript {
     // A quit waiting for in-game clips (Finish) uses the same path; g_clips_in_flight is always 0 with clips off.
     if (fail_quit_pending_) {
       const uint64_t waited = frame_ - fail_quit_frame_;
-      if ((waited >= kFailQuitMinFrames && g_screenshots_in_flight.load() == 0 && g_clips_in_flight.load() == 0) ||
+      if ((waited >= kFailQuitMinFrames && g_screenshots_in_flight.load() == 0 && g_clips_in_flight.load() == 0 &&
+           g_live_pictures_in_flight.load() == 0) ||
           waited >= fail_quit_max_) {
         fail_quit_pending_ = false;
         REXLOG_INFO("[wwe2k14][input] quitting after the failure or quit ({} frames later; screenshots in flight: "
                     "{}, clips in flight: {})",
                     waited, g_screenshots_in_flight.load(), g_clips_in_flight.load());
+        case_script::TakeAndWait(failed_, failed_ ? "route failed" : "route quit");  // S101: the black box (ring on only)
         if (g_request_quit) g_request_quit();
       }
     }
@@ -770,6 +795,7 @@ class InputScript {
     kWaitFrames, kWaitFile, kSet, kScreenshot, kLog, kOnFail, kQuit, kWatchZero,
     kCvar, kMark, kFailIfFile, kClearFailIf, kPressUntilFile, kPressUntilState,
     kWaitState, kAssertState, kLogState,
+    kWaitRender,            // lane 147: wait_event render WHAT [TIMEOUT] [optional] (text = WHAT, frames = timeout, src/render_signal.h)
     kWatchCmd,  // watch / unwatch / snap / unsnap (text = command, value = its arguments; src/guest_watch.h)
     kClipStart, kClipStop,  // src/clip_capture.h (text = NAME; value = "FPS SCALE")
     kScreenshotEvery,       // Session 10: frames = interval (0 = stop), text = label
@@ -781,7 +807,10 @@ class InputScript {
     kDumpMem,                          // Session 69: frames = physical address, hold = length, text = output file
     kRenderDoc,                        // Session 76: RenderDoc captures the next frame
     kPressUntilText,                   // Session 77: text = TEXT (src/screen_text.h)
-    kDiagStage, kDiagScene, kDiagAb, kDiagRestore, kDiagCapture  // Session 95: the diagnostic run (src/diag.h)
+    kLabel, kJumpPreview,              // lane 303: `label NAME` (no-op) and `jump_if_preview_not ID NAME` (text = NAME, want = ID)
+    kPressUntilPreview,                // lane 303: value = WHAT (id or "custom"), pad = TARGETS, pad2 = tab key (src/music_preview_seen.h)
+    kDiagStage, kDiagScene, kDiagAb, kDiagRestore, kDiagCapture,  // Session 95: the diagnostic run (src/diag.h)
+    kDirector                          // S101 lane 161: passive / momentum / stock / passive_cpu (text = the verb's full text; src/situation_director_core.h)
   };
   struct Step {
     Op op;
@@ -801,6 +830,14 @@ class InputScript {
     bool if_needed = false;      // Session 30: press_until_state ... if_needed (no press when already met)
     int sub_line = 0;        // Session 30: a step from an `include`d file: its line there (`line` = the include line)
     std::string origin;      // ... and "file.txt:N" (nested: "a.txt:3 > b.txt:7"); empty for the script's own lines
+    PadState pad2;       // lane 303: press_until_preview ... tab=KEY
+    bool has_tab = false;
+    PadState pad_exit;           // lane 303: press_until_preview ... exit=KEY (leaves the full-entrance preview X starts: START)
+    bool has_exit = false;
+    uint32_t moves = 1;          // ... step=N: MOVE pressed N times per row (a coarse walk)
+    uint32_t dwell = 30;         // ... dwell=N frames in the preview before exit
+    std::vector<PadState> keys;  // lane 303: press_until_preview ... keys=A,B,C: candidate PREVIEW buttons (walk mode)
+    int64_t want = 0;    // lane 303: press_until_preview: the music id wanted, or -1 = any new song slot (6001..6999)
   };
 
   // Session 30: a step's line for messages ("5", or "5 (boot_to_menu.txt:12)" for an included step) and for file
@@ -879,6 +916,8 @@ class InputScript {
       return false;
     }
     rex::perf::timeline::Record("cvar", Fnv1a32(step.text), uint32_t(step.frames), uint32_t(frame));
+    // S101 lane 111 (L-3): a cvar step (live batches too) is a recorded `E F cvar NAME VALUE`: the director's replay handler re-applies it.
+    if (!replay::verbs::Playing()) replay::verbs::QueueCvar(step.text, step.value);  // host-only / runin_now skipped, queued only while recording
     if (needs_restart) {
       REXLOG_WARN("[wwe2k14][input] cvar {} = {} (frame {}) -> ok, but this setting only takes effect after a "
                   "restart", step.text, shown, frame);
@@ -1078,6 +1117,23 @@ class InputScript {
       if (cmd == "wait_frames") {
         ok = OptionalNumber(words, n, -1) && n >= 0;
         step.frames = uint64_t(n);
+      } else if (cmd == "wait_event") {   // lane 147: wait_event render WHAT [TIMEOUT] [optional]
+        step.op = Op::kWaitRender;
+        std::string kind;
+        ok = bool(words >> kind) && bool(words >> step.text) && OptionalNumber(words, n, 1800) && n > 0;
+        step.frames = uint64_t(n);
+        if (ok && kind != "render") {
+          ok = false;
+          why = "wait_event only knows the kind 'render' (render_signal.h), got '" + kind + "'";
+        } else if (ok && !wwe2k14::render_signal::Known(step.text)) {
+          ok = false;
+          why = "unknown render event '" + step.text + "' (roster_ready, roster_failed)";
+        }
+        if (std::string extra; ok && (words >> extra)) {
+          ok = extra == "optional";
+          step.optional = ok;
+          if (!ok) why = "expected 'optional' after the timeout, got '" + extra + "'";
+        }
       } else if (cmd == "wait_file") {
         step.op = Op::kWaitFile;
         ok = bool(words >> step.text) && OptionalNumber(words, n, 1800) && n > 0;
@@ -1126,6 +1182,48 @@ class InputScript {
         }
         ok = ok && !step.text.empty();
         step.op = Op::kPressUntilText;
+        step.frames = uint64_t(interval);
+        step.tries = uint32_t(tries);
+        step.hold = uint32_t(hold);
+      } else if (cmd == "press_until_preview") {
+        // lane 303: press_until_preview TARGETS WHAT TRIES INTERVAL HOLD [tab=KEY] [optional] [if_needed]
+        // Navigates the Create-an-Entrance music list by what the editor asks its preview object for (SetSong, src/music_preview_seen.h):
+        // presses TARGETS until the last SetSong id is WHAT (a music id, or `custom` = a new song slot 6001..6999; 9998 USER PLAYLIST,
+        // 9999 NONE). After a press whose SetSong came but did not match, the next press follows at once; with no SetSong within INTERVAL
+        // frames it waits and presses again (a script failure after TRIES presses, or a warning with `optional`). tab=KEY (e.g. RB): when NO
+        // SetSong has been seen in this step at all (the music pane is not the active one), KEY is pressed before the next TARGETS press.
+        // if_needed: no press when the last SetSong id already is WHAT. The editor's list cursor is not the SmartMenu `cursor` state (run 7207).
+        std::string buttons, what;
+        int64_t tries = 0, interval = 0, hold = 0;
+        ok = bool(words >> buttons) && ParsePress(buttons, step.pad) && bool(words >> what) && bool(words >> tries) &&
+             bool(words >> interval) && bool(words >> hold) && tries > 0 && tries <= 400 && hold > 0 && interval > hold;
+        if (ok) {
+          if (what == "custom") step.want = -1;
+          else if (what == "any") step.want = -2;
+          else {
+            char* end = nullptr;
+            step.want = std::strtoll(what.c_str(), &end, 10);
+            ok = end && *end == 0 && step.want >= 0;
+          }
+        }
+        for (std::string extra; ok && (words >> extra);) {
+          if (extra == "optional") step.optional = true;
+          else if (extra == "if_needed") step.if_needed = true;
+          else if (extra.rfind("tab=", 0) == 0) step.has_tab = ParsePress(extra.substr(4), step.pad2);
+          else if (extra.rfind("exit=", 0) == 0) step.has_exit = ParsePress(extra.substr(5), step.pad_exit);
+          else if (extra.rfind("step=", 0) == 0) step.moves = std::max<uint32_t>(1, uint32_t(std::strtoul(extra.c_str() + 5, nullptr, 10)));
+          else if (extra.rfind("dwell=", 0) == 0) step.dwell = uint32_t(std::strtoul(extra.c_str() + 6, nullptr, 10));
+          else if (extra.rfind("keys=", 0) == 0) {
+            std::stringstream ks(extra.substr(5));
+            for (std::string k; ok && std::getline(ks, k, ',');) {
+              PadState kp;
+              ok = ParsePress(k, kp);
+              if (ok) step.keys.push_back(kp);
+            }
+          }
+          else ok = false;
+        }
+        step.op = Op::kPressUntilPreview;
         step.frames = uint64_t(interval);
         step.tries = uint32_t(tries);
         step.hold = uint32_t(hold);
@@ -1209,6 +1307,13 @@ class InputScript {
         ok = bool(words >> step.text) && (step.text == "quit" || step.text == "continue");
       } else if (cmd == "quit") {
         step.op = Op::kQuit;
+      } else if (situation::IsVerb(cmd)) {  // S101 lane 161: `passive 1 on`, `passive all off`, `momentum 2 100`, `stock 0 3`, `passive_cpu on` (the text is checked here, served by the owner tick)
+        step.op = Op::kDirector;
+        step.text = cmd + " " + RestOfLine(words);
+        situation::Cmd checked;
+        const std::string error = situation::Parse(step.text, checked);
+        ok = error.empty();
+        if (!ok) why = error;
       } else if (cmd == "watch_zero") {
         step.op = Op::kWatchZero;
         std::string address;
@@ -1242,6 +1347,15 @@ class InputScript {
         if (step.value == "\"\"") step.value.clear();
       } else if (cmd == "diag_restore") {
         step.op = Op::kDiagRestore;
+      } else if (cmd == "label") {
+        step.op = Op::kLabel;
+        step.text = RestOfLine(words);
+        ok = !step.text.empty();
+      } else if (cmd == "jump_if_preview_not") {
+        // lane 303: jump_if_preview_not ID LABEL: when the last SetSong id (src/music_preview_seen.h) is not ID (or none was seen), continue at the next
+        // `label LABEL` further down. The only branch the script language has: forward only, no loops.
+        step.op = Op::kJumpPreview;
+        ok = bool(words >> step.want) && bool(words >> step.text) && step.want >= 0;
       } else if (cmd == "mark") {
         step.op = Op::kMark;
         ok = OptionalNumber(words, n, -1) && n >= 0 && n <= int64_t{0xFFFFFFFF};
@@ -1528,6 +1642,10 @@ class InputScript {
         FlightOnScriptStep(step.line, int(step.op), step.text);  // no-op unless --wwe2k14_flight_recorder
         step_start_frame_ = frame_;
         press_attempt_ = 0;
+        preview_step_calls_ = music_seen::calls.load(std::memory_order_relaxed);
+        preview_seen_ = false;
+        tab_phase_ = 0;
+        preview_phase_ = 0, preview_cycles_ = 0, preview_cand_ = 0;
         state_hold_ = 0;
         state_frame_valid_ = false;
         if (step.op == Op::kWaitFile) {
@@ -1649,6 +1767,186 @@ class InputScript {
                       frame_ - press_t0_, press_attempt_, found);
           sync_mark_ = frame_;
           break;
+        }
+        case Op::kPressUntilPreview: {
+          // lane 303: press, then look at what SetSong was last asked for (src/music_preview_seen.h).
+          const auto matches = [&](int32_t id) { return step.want == -2 ? true : step.want < 0 ? (id >= 6001 && id <= 6999) : id == step.want; };
+          auto start_press = [&] {
+            ++press_attempt_;
+            press_t0_ = frame_;
+            press_released_ = false;
+            preview_press_calls_ = music_seen::calls.load(std::memory_order_relaxed);
+            pad_ = step.pad;
+            ++packet_;
+            sync_mark_ = frame_;
+          };
+          if (!step.keys.empty()) {
+            // Walk mode: each row = MOVE press, settle, PREVIEW key press; the SetSong the preview makes says which row we are on. The editor does
+            // NOT call SetSong on a cursor move (run 7208), only when the preview button is pressed; which button is unknown, so the candidates in
+            // keys= are tried in turn until one produces a SetSong (kept in preview_key_ for the rest of the script).
+            const uint32_t calls = music_seen::calls.load(std::memory_order_relaxed);
+            const int32_t id = music_seen::last_id.load(std::memory_order_relaxed);
+            auto press = [&](const PadState& p) { pad_ = p; ++packet_; sync_mark_ = frame_; preview_t_ = frame_; };
+            auto release = [&] { pad_ = {}; ++packet_; preview_t_ = frame_; };
+            const size_t key = preview_key_ >= 0 ? size_t(preview_key_) : preview_cand_ % step.keys.size();
+            if (preview_phase_ == 0) {
+              if (press_attempt_ >= step.tries) {
+                if (step.optional) {
+                  REXLOG_WARN("[wwe2k14][input] line {}: SetSong id {} not reached after {} rows (optional: going on; last id {})", L(step), step.want, press_attempt_, id);
+                  sync_mark_ = frame_;
+                  break;
+                }
+                REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: SetSong id {} not reached after {} rows (last id {})", L(step), step.want, press_attempt_, id);
+                FailWithScreenshot(fmt::format("preview_fail_l{}", Tag(step)));
+                return;
+              }
+              ++press_attempt_;
+              preview_moves_done_ = 1;
+              press(step.pad);
+              preview_phase_ = 1;
+            } else if (preview_phase_ == 1) {
+              if (frame_ - preview_t_ >= step.hold) release(), preview_phase_ = preview_moves_done_ < step.moves ? 10 : 2;
+            } else if (preview_phase_ == 10) {  // more moves for this row (step=N)
+              if (frame_ - preview_t_ >= 8) {
+                ++preview_moves_done_;
+                press(step.pad);
+                preview_phase_ = 1;
+              }
+            } else if (preview_phase_ == 2) {
+              if (frame_ - preview_t_ >= 12) {
+                preview_press_calls_ = calls;
+                press(step.keys[key]);
+                preview_phase_ = 3;
+              }
+            } else if (preview_phase_ == 3) {
+              if (frame_ - preview_t_ >= step.hold) release(), preview_phase_ = 4;
+            } else if (preview_phase_ == 4) {
+              if (calls != preview_press_calls_) {
+                if (preview_key_ < 0) {
+                  preview_key_ = int(key);
+                  REXLOG_INFO("[wwe2k14][input] line {}: the PREVIEW key is candidate {} (0-based) of keys= (SetSong {} came {} frames after it, row {})", L(step), key, id, frame_ - preview_t_, press_attempt_);
+                }
+                preview_seen_ = true;
+                if (matches(id)) {
+                  REXLOG_INFO("[wwe2k14][input] line {}: SetSong id {} reached after {} row(s)", L(step), id, press_attempt_);
+                  sync_mark_ = frame_;
+                  break;
+                }
+                if (step.has_exit) {
+                  preview_t_ = frame_;
+                  preview_phase_ = 7;  // X started a full-entrance preview that covers the menu: dwell, then leave it
+                } else {
+                  preview_phase_ = 0;
+                }
+              } else if (frame_ - preview_t_ >= step.frames) {
+                if (preview_key_ >= 0) {  // the key is known: the row did not change or the press was lost: move on
+                  preview_phase_ = 0;
+                } else {
+                  REXLOG_WARN("[wwe2k14][input] line {}: no SetSong after candidate key {} (frame {})", L(step), key, frame_);
+                  preview_cand_ = (preview_cand_ + 1) % step.keys.size();
+                  if (preview_cand_ == 0) ++preview_cycles_;
+                  if (preview_cand_ == 0 && step.has_tab && preview_cycles_ % 2 == 1) {  // nothing answered: switch pane
+                    press(step.pad2);
+                    preview_phase_ = 5;
+                  } else if (preview_cycles_ >= 4 && step.optional) {
+                    REXLOG_WARN("[wwe2k14][input] line {}: no SetSong from any PREVIEW key candidate (optional: going on; last id {})", L(step), id);
+                    sync_mark_ = frame_;
+                    break;
+                  } else if (preview_cycles_ >= 4) {
+                    REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: none of the {} PREVIEW key candidates produced a SetSong ({} call(s) in this step, last id {})", L(step),
+                                 step.keys.size(), calls - preview_step_calls_, id);
+                    FailWithScreenshot(fmt::format("preview_fail_l{}", Tag(step)));
+                    return;
+                  } else {
+                    preview_phase_ = 2;
+                  }
+                }
+              }
+            } else if (preview_phase_ == 5) {
+              if (frame_ - preview_t_ >= step.hold) release(), preview_phase_ = 6;
+            } else if (preview_phase_ == 6) {
+              if (frame_ - preview_t_ >= 30) preview_phase_ = 2;
+            } else if (preview_phase_ == 7) {
+              if (frame_ - preview_t_ >= step.dwell) press(step.pad_exit), preview_phase_ = 8;
+            } else if (preview_phase_ == 8) {
+              if (frame_ - preview_t_ >= step.hold) release(), preview_phase_ = 9;
+            } else if (preview_phase_ == 9) {
+              if (frame_ - preview_t_ >= 75) preview_phase_ = 0;  // the menu is back
+            }
+            if (!preview_seen_ && calls != preview_step_calls_) preview_seen_ = true;
+            return;
+          }
+          if (tab_phase_ == 1) {  // the tab key is down
+            if (frame_ < tab_until_) return;
+            pad_ = {};
+            ++packet_;
+            tab_phase_ = 2;
+            tab_until_ = frame_ + 30;  // the pane switches and builds
+            return;
+          }
+          if (tab_phase_ == 2) {
+            if (frame_ < tab_until_) return;
+            tab_phase_ = 0;
+            start_press();
+            return;
+          }
+          if (press_attempt_ == 0) {
+            if (step.if_needed && music_seen::calls.load(std::memory_order_relaxed) != 0 &&
+                matches(music_seen::last_id.load(std::memory_order_relaxed))) {
+              REXLOG_INFO("[wwe2k14][input] line {}: preview id {} already the last SetSong, no press", L(step),
+                          music_seen::last_id.load());
+              sync_mark_ = frame_;
+              break;
+            }
+            start_press();
+            return;
+          }
+          if (!press_released_) {
+            if (frame_ - press_t0_ < step.hold) return;
+            pad_ = {};
+            ++packet_;
+            press_released_ = true;
+          }
+          const uint32_t calls = music_seen::calls.load(std::memory_order_relaxed);
+          const int32_t id = music_seen::last_id.load(std::memory_order_relaxed);
+          const bool called = calls != preview_press_calls_;
+          if (calls != preview_step_calls_) preview_seen_ = true;
+          if (called && matches(id)) {
+            REXLOG_INFO("[wwe2k14][input] line {}: SetSong id {} reached {} frames after press {} ({} SetSong call(s) in this step)", L(step), id,
+                        frame_ - press_t0_, press_attempt_, calls - preview_step_calls_);
+            sync_mark_ = frame_;
+            break;
+          }
+          // the row changed but is not the wanted one: the next press at once (a few frames for the menu to settle); no SetSong at all: wait INTERVAL
+          const uint64_t wait = called ? uint64_t(step.hold) + 3 : step.frames;
+          if (frame_ - press_t0_ < wait) return;
+          if (press_attempt_ < step.tries) {
+            if (!called && press_attempt_ % 10 == 0) {
+              REXLOG_WARN("[wwe2k14][input] line {}: no SetSong after press {} ({} call(s) this step, last id {}); pressing again (frame {})", L(step),
+                          press_attempt_, calls - preview_step_calls_, id, frame_);
+            }
+            if (step.has_tab && !preview_seen_ && !called) {  // the music pane is not active: switch pane first
+              REXLOG_INFO("[wwe2k14][input] line {}: no SetSong yet: pressing the tab key (press {}, frame {})", L(step), press_attempt_, frame_);
+              pad_ = step.pad2;
+              ++packet_;
+              tab_phase_ = 1;
+              tab_until_ = frame_ + 6;
+              sync_mark_ = frame_;
+              return;
+            }
+            start_press();
+            return;
+          }
+          if (step.optional) {
+            REXLOG_WARN("[wwe2k14][input] line {}: SetSong id {} not reached after {} presses (optional: going on; {} call(s), last id {}, frame {})", L(step),
+                        step.want, press_attempt_, calls - preview_step_calls_, id, frame_);
+            sync_mark_ = frame_;
+            break;
+          }
+          REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: SetSong id {} not reached after {} presses ({} call(s) this step, last id {})", L(step),
+                       step.want, press_attempt_, calls - preview_step_calls_, id);
+          FailWithScreenshot(fmt::format("preview_fail_l{}", Tag(step)));
+          return;
         }
         case Op::kPressUntilState: {
           // Session 15 extension (E3): press, then after the release read the state once per frame.
@@ -1808,6 +2106,10 @@ class InputScript {
             return;
           }
           break;
+        case Op::kDirector:  // S101 lane 161: queued for the owner tick (the answer and the read-back are `[director]` log lines)
+          REXLOG_INFO("[wwe2k14][input] line {}: director {} (frame {})", L(step), step.text, frame_);
+          situation::Submit(step.text);
+          break;
         case Op::kWatchCmd:
           REXLOG_INFO("[wwe2k14][input] line {}: {} {} (frame {})", L(step), step.text, step.value, frame_);
           if (!RunGuestWatchCommand(step.text, step.value)) {  // watch / snap refused at run time
@@ -1847,6 +2149,25 @@ class InputScript {
         case Op::kDiagRestore:
           diag::Restore();
           break;
+        case Op::kLabel:
+          break;
+        case Op::kJumpPreview: {
+          const int32_t id = music_seen::last_id.load(std::memory_order_relaxed);
+          const bool stay = !(music_seen::calls.load(std::memory_order_relaxed) != 0 && id != step.want);  // jump only when a SetSong was seen and it is another id
+          REXLOG_INFO("[wwe2k14][input] line {}: last SetSong id {} {} {}: {}", L(step), id, stay ? "==" : "!=", step.want,
+                      stay ? "no jump" : "jump to label " + step.text);
+          if (!stay) {
+            size_t at = index_ + 1;
+            while (at < steps_.size() && !(steps_[at].op == Op::kLabel && steps_[at].text == step.text)) ++at;
+            if (at >= steps_.size()) {
+              REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: no label '{}' further down", L(step), step.text);
+              FailAndFinish();
+              return;
+            }
+            index_ = at;  // the loop's ++index_ then steps past the label
+          }
+          break;
+        }
         case Op::kMark:
           REXLOG_INFO("[wwe2k14][input] mark {}{}{} (frame {})", step.frames, step.text.empty() ? "" : " ",
                       step.text, frame_);
@@ -1895,6 +2216,25 @@ class InputScript {
                       L(step), state.name, step.compare.text, frame_ - step_start_frame_,
                       DescribeState(state, true, raw), step.hold);
           break;
+        }
+        case Op::kWaitRender: {   // lane 147: the renderer's ready signal (src/render_signal.h), read directly (no event bus needed)
+          const bool failed = step.text == "roster_ready" && wwe2k14::render_signal::Count("roster_failed") > 0;
+          if (!failed && wwe2k14::render_signal::Count(step.text) > 0) {
+            REXLOG_INFO("[wwe2k14][input] line {}: render {} after {} frames (frame {})", L(step), step.text,
+                        frame_ - step_start_frame_, frame_);
+            break;
+          }
+          if (!failed && frame_ - step_start_frame_ < step.frames) return;
+          if (step.optional && !failed) {
+            REXLOG_WARN("[wwe2k14][input] line {}: wait_event render {} not seen within {} frames (optional: going on, frame {})",
+                        L(step), step.text, step.frames, frame_);
+            break;
+          }
+          REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: wait_event render {} {}", L(step), step.text,
+                       failed ? std::string("- the roster build failed (roster_failed)")
+                              : fmt::format("not seen within {} frames", step.frames));
+          FailWithScreenshot(fmt::format("render_fail_l{}", Tag(step)));
+          return;
         }
         case Op::kLogText: {  // Session 30
           REXLOG_INFO("[wwe2k14][input] line {}: screen text: {} (frame {})", L(step), screen_text::Joined(2000),
@@ -2124,7 +2464,7 @@ class InputScript {
     // Session 18: also for screenshots still being written (PNG encoding is slower than BMP; fast-forwarded runs
     // reach the quit a few ms after the last screenshot: run 1387 left two .png.part files). At most
     // kFailQuitMaxFrames; none in flight = quit at once, as before.
-    if (quit && g_screenshots_in_flight.load() > 0) {
+    if (quit && (g_screenshots_in_flight.load() > 0 || g_live_pictures_in_flight.load() > 0)) {  // (S100: and the new renderer's named pictures)
       REXLOG_INFO("[wwe2k14][input] quit waits for {} screenshot(s) to be written (frame {})",
                   g_screenshots_in_flight.load(), frame_);
       fail_quit_pending_ = true;
@@ -2132,6 +2472,7 @@ class InputScript {
       fail_quit_max_ = kFailQuitMaxFrames;
       return;
     }
+    if (quit) case_script::TakeAndWait(failed_, "route quit");  // S101: every game run saves its black box (a case zip; ring on only)
     if (quit && g_request_quit) g_request_quit();
   }
 
@@ -2191,6 +2532,15 @@ class InputScript {
   PadState keystroke_view_;                                // pad state as last reported via keystrokes
   std::vector<std::pair<uint64_t, std::string>> opens_;    // (frame, lowercase path) while a script runs
   uint64_t sync_mark_ = 0;  // wait_file counts opens from here: the last input or the last wait_file
+  uint32_t preview_step_calls_ = 0, preview_press_calls_ = 0;  // lane 303 press_until_preview: SetSong call counts at the step / press start
+  bool preview_seen_ = false;                                   // ... a SetSong came during this step (the music pane is active)
+  int preview_phase_ = 0, preview_cycles_ = 0;                 // ... walk mode: 0 press MOVE, 1 MOVE held, 2 settle, 3 key held, 4 wait for SetSong, 5 tab held, 6 after tab
+  size_t preview_cand_ = 0;
+  int preview_key_ = -1;                                        // ... the candidate key that produced a SetSong (kept across steps)
+  uint64_t preview_t_ = 0;
+  uint32_t preview_moves_done_ = 0;
+  int tab_phase_ = 0;                                           // ... 0 none, 1 tab key held, 2 waiting after it
+  uint64_t tab_until_ = 0;
   uint32_t press_attempt_ = 0;   // press_until_file: presses made so far in the current step
   uint64_t press_t0_ = 0;        // press_until_file: frame of the current press
   bool press_released_ = false;  // press_until_file: the current press's HOLD has ended
@@ -2248,6 +2598,11 @@ inline std::atomic<int> g_mouse_user{0};
 // Session 76 (src\keyboard_player.h): every player's reads on the title screen (who pressed Start becomes player 1).
 // Null = nothing.
 inline void (*g_title_pad_filter)(uint32_t user, rex::input::X_INPUT_STATE* state) = nullptr;
+// Lane 291 (src/music_picker.h): while the USER PLAYLIST song picker is open it takes player 1's pad (the game gets an idle one). Runs
+// after every filter above. Null = nothing.
+inline void (*g_picker_pad_filter)(rex::input::X_INPUT_STATE* state) = nullptr;
+// Lane 291: true while the game's text 50303 (the Dashboard hint of USER PLAYLIST) should be answered with our words (gfx_menu.h text hook).
+inline bool (*g_music_hint_on)() = nullptr;
 // Session 67 (src\mouse_menu.h): each text id the game's text manager looks up, with the caller (GetString hook in
 // src\gfx_menu.h): the button legend's icons. Null = nothing.
 inline void (*g_text_fetch_observer)(uint32_t id, uint32_t lr) = nullptr;
@@ -2282,6 +2637,9 @@ inline void ApplyPadFilters(uint32_t user_index, uint32_t flags, ppc_ptr_t<rex::
       ((user_index & 0xFF) == mouse_user || (mouse_user == 0 && (user_index & 0xFF) == 0xFF)) &&
       (!(flags & 0xFF) || (flags & 0x01)))
     g_mouse_pad_filter(&*state);
+  if (g_picker_pad_filter && result == 0 && state && ((user_index & 0xFF) == 0 || (user_index & 0xFF) == 0xFF) &&
+      (!(flags & 0xFF) || (flags & 0x01)))
+    g_picker_pad_filter(&*state);
 }
 
 inline uint32_t XamInputGetStateOverride(uint32_t user_index, uint32_t flags,
@@ -2307,8 +2665,24 @@ inline uint32_t XamInputGetCapabilitiesOverride(uint32_t user_index, uint32_t fl
 
 inline uint32_t XamInputGetKeystrokeExOverride(mapped_u32 user_index_ptr, uint32_t flags,
                                                ppc_ptr_t<rex::input::X_INPUT_KEYSTROKE> keystroke) {
-  return replay::g_replay.Keystroke(user_index_ptr, flags, keystroke,
-                                    [&] { return g_input_script.GetKeystroke(user_index_ptr, flags, keystroke); });
+  const uint32_t result = replay::g_replay.Keystroke(user_index_ptr, flags, keystroke,
+                                                     [&] { return g_input_script.GetKeystroke(user_index_ptr, flags, keystroke); });
+  // Lane 291 / 292 (review S2): while the USER PLAYLIST picker is open the game reads the pad through keystrokes too (its menus step on
+  // them): the SDK's call ran (its key state stays current), and the game is told there is nothing, so the picker's A / B / D-pad do not
+  // also move the menu underneath. Counted, the number is in the picker's close line.
+  if (user_index_ptr) {
+    const uint32_t user = uint32_t(*user_index_ptr) & 0xFF;
+    if (user == 0 || user == 0xFF) {
+      if (music_picker::PickerIsOpen()) {
+        music_picker::g_keystrokes_while_open.fetch_add(1, std::memory_order_relaxed);
+        return kXamEmpty;
+      }
+      // Just closed (SF2): the A / B that closed it is still down; the game would read its KEYDOWN / REPEAT keystrokes (a re-open loop, or
+      // backing out of the editor). The latch is cleared by XamInputGetState seeing the buttons released.
+      if (result == 0 && keystroke && music_picker::LatchBlocksKeystroke(uint16_t(keystroke->flags), uint16_t(keystroke->virtual_key))) return kXamEmpty;
+    }
+  }
+  return result;
 }
 
 }  // namespace wwe2k14

@@ -91,6 +91,15 @@ struct Mesh {
   int src_kind = 0;     // 1 arena (stage slot, ring set, stage screen), 2 wrestler piece, 3 crowd body, 4 prop (bgEtc leaf)
   std::string src_pac;  // "bg05.pac" / "ch107.pac" / "bgEtc.pac"
   int src_key = 0;      // the pac entry: slot / key; wrestler entry id (0 body, 10000+ hair ...); 20000+N crowd body; prop key
+  // S101 lane 40 (our arena): the file's own record for this mesh, for the join with a stream draw. src_record = the mesh record's index in its JBOY (the game's draw part; a
+  // record the loader skipped leaves a gap), strip_indices = the sum of the index groups' counts as stored (triangle strips), index_groups = how many groups.
+  int src_record = -1;
+  uint32_t strip_indices = 0, index_groups = 0;
+  // S101 lane 49 (the arena's bone-id props): arena meshes read with skin streams (S1 = pairs of LE u32 palette slot + BE f32 weight) keep the file's raw pairs, 4 per vertex (slot 255 =
+  // none), and how many pairs the stream stores per vertex. Empty for every other mesh.
+  std::vector<uint8_t> src_skin_slots;
+  std::vector<float> src_skin_weights;
+  uint32_t src_skin_pairs = 0;
 };
 
 // Session 97: one arena light set (pac entry 30002/N): four directions TO the light, four colours, sky / ground ambient.
@@ -120,6 +129,13 @@ struct LightSet {
   // cube (capture match_a) fits the PreLight of set 10 with it to rms 0.010 (ratio 0.992) vs 0.045 (ratio 0.955) without]. The entrance rig's
   // cubes are built with 0 [C: every entrance prelight draw of runs 6816 / 6824 / 071], so an evaluated rig set clears it.
   float fall[4] = {};
+  // S101 lane33: the per-light "camera-attached" flag of the 784-byte kind (u32 BE at +0x120 + 4 i): the game evaluates a flagged light's
+  // stored / keyed direction as view space (world = V^T d) in the MATCH too, the others stay world-fixed [C: captures wm30 (arena 29,
+  // sets 30 / 31 / 32) and the Triple H / Brock match (arena 15): per light the game's c8..c11 = V^T d for the flagged lights (0.0 deg) and
+  // = d for the others, set 31 flags (1, 0, 0, 1), set 32 (1, 0, 0, 0), set 30 none; docs\renderer\LIGHT_MATCH.md]. The 896 kind: [U] the flag
+  // is probably at +0x184 + 4 i (set 10 (1,1,1,1) there, matching 'all five lights camera-attached'; sets 15 / 16 / 135 / 200 / 201 (1,1,1,1); 50 / 100 /
+  // 124 / 500 none; not wired, false here). Arenas 78 / 80 store set 10 as a 784 record with (0,1,1,1): conflicts with the wrestler rule [U].
+  bool follow[4] = {};
 };
 // Our default rig for models with no light set of their own (the wrestlers): the numbers of arena 5 set 121 (the
 // commonest set of the arenas), read with out/runtime/s97/lightset_dump.py. Numbers only.

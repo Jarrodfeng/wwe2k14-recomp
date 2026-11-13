@@ -1,0 +1,28 @@
+{
+ "owner": "lane 5: the bug button, the case zip and case intake",
+ "checks": [
+  {
+   "name": "case.rplay_build",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/renderer/build.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "case.selftest",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/case/selftest.py"
+   ],
+   "timeout_s": 1200,
+   "needs": [
+    "out/captures/s100cards",
+    "out/captures/s100_heenan_build"
+   ]
+  }
+ ]
+}

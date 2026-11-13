@@ -1,0 +1,7 @@
+{
+ "owner": "lane 281 (2026-11-13): custom songs in the Create-an-Entrance MUSIC preview: src/music_preview_core.h (decisions), src/music_preview.h (hooks on sub_8334C138 / C1E0 / C1F8 / C0C8), docs/systems/music.md 'Preview'",
+ "note": "unit level only: the preview's start / switch / stop logic against a model of our player and the game's own preview, with five planted faults. The hooks themselves are not proven offline (the live check reads the '[wwe2k14][music] preview:' log lines).",
+ "checks": [
+  {"name": "music_preview.unit", "cmd": ["py", "-I", "tools/audio/music_preview_selftest.py", "--root", "."], "timeout_s": 900}
+ ]
+}

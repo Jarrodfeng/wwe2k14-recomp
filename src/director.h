@@ -195,6 +195,7 @@ inline void Execute(uint64_t frame, const std::string& action) {
     std::string k, v;
     ss >> k;
     std::getline(ss, v);
+    if (Trim(v) == "<path>") return;  // S101 lane 111: a path value is recorded as <path> (no host folders in a shipped recording): nothing to apply
     if (!rex::cvar::SetFlagByName(k, Trim(v)))
       REXLOG_WARN("[wwe2k14][director] frame {}: unknown setting {}", frame, k);
   } else if (verb == "log") {

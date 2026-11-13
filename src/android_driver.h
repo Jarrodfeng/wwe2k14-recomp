@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,13 @@
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
+
+#include "guest_gpu_only.h"  // lane 256
+
+// Lane 256: our own renderer's loader hook (src\renderer\vk_api.cpp), declared here so this header needs no renderer include.
+namespace rdr::vk {
+void SetLoaderOpener(void* (*open_library)());
+}
 
 // From the SDK's rex/ui/vulkan/instance.h (Session 72 patch), declared here: that header pulls in RenderDoc's, which the
 // Android SDK install does not carry.
@@ -61,7 +69,8 @@ REXCVAR_DEFINE_STRING(wwe2k14_boot_trial, "", "wwe2k14",
 namespace wwe2k14::android_driver {
 
 inline constexpr uint32_t kTrialFrames = 600;  // ~10 s at 60 fps: past the boot logos, with real draws behind it
-inline std::string g_driver_used;              // empty = the phone's driver
+inline std::string g_driver_used;              // empty = the phone's driver; guarded by g_driver_mu (lane 256: written on the opener's thread, read on the guest thread)
+inline std::mutex g_driver_mu;
 inline uint32_t g_frames = 0;
 
 // Instance + at least one GPU through this libvulkan handle; logs the GPU and driver it reports.
@@ -108,7 +117,7 @@ inline bool TestStart(void* handle, const std::string& name) {
 }
 
 // SetVulkanLoaderOverride callback: the custom driver's libvulkan, or nullptr (the phone's driver).
-inline void* OpenDriver() {
+inline void* OpenDriverOnce() {
   const std::string name = REXCVAR_GET(wwe2k14_android_driver);
   const std::string lib_dir = REXCVAR_GET(wwe2k14_android_lib_dir);
   if (name.empty()) return nullptr;
@@ -133,12 +142,24 @@ inline void* OpenDriver() {
     return nullptr;  // the handle stays open: unloading a half-started driver is not safe
   }
   REXLOG_INFO("[driver] using {} (custom driver)", name);
-  g_driver_used = name;
+  { std::lock_guard<std::mutex> lock(g_driver_mu); g_driver_used = name; }
+  return handle;
+}
+
+// Lane 256: the SDK's instance and (under guest_gpu_only) our renderer both ask; the driver is opened and test-started once (a magic static: thread-safe).
+// (N2: the cached handle assumes no second SDK VulkanInstance after the first is destroyed - DynamicLibrary::Adopt closes the handle then.)
+inline void* OpenDriver() {
+  static void* const handle = OpenDriverOnce();
   return handle;
 }
 
 // OnPreSetup, before anything starts Vulkan.
-inline void Install() { rex::ui::vulkan::SetVulkanLoaderOverride(&OpenDriver); }
+inline void Install() {
+  rex::ui::vulkan::SetVulkanLoaderOverride(&OpenDriver);
+  // Lane 256 (LEAVE_THE_COMMAND_STREAM.md section 9, row 3): with no SDK Vulkan instance (guest_gpu_only) nothing else would open the chosen driver, and our
+  // renderer has never asked for it. Plain owner mode keeps its old shape (the SDK's device on the custom driver, ours on the phone's).
+  if (wwe2k14::GuestGpuOnly()) rdr::vk::SetLoaderOpener(&OpenDriver);
+}
 
 // Once per guest frame (frame_stats.h): the trial file goes once the game has drawn kTrialFrames frames.
 inline void OnFrame() {
@@ -149,7 +170,7 @@ inline void OnFrame() {
     const std::string trial = REXCVAR_GET(wwe2k14_android_driver_trial);
     if (!trial.empty() && unlink(trial.c_str()) == 0)
       REXLOG_INFO("[driver] {} frames drawn with {}: trial file removed", kTrialFrames,
-                  g_driver_used.empty() ? std::string("the phone's driver") : g_driver_used);
+                  [] { std::lock_guard<std::mutex> lock(g_driver_mu); return g_driver_used.empty() ? std::string("the phone's driver") : g_driver_used; }());
   }
 }
 

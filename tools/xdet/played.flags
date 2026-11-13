@@ -28,3 +28,6 @@
 --wwe2k14_native_skin=true
 --wwe2k14_nf_skin_3bone=on
 --wwe2k14_scene_crowd=1
+# Lane 176: the crowd's screen tests follow the display (auto); the phone adds --wwe2k14_aspect with FILL THE SCREEN, so a played-mode comparison pins
+# them off (they change member flags / LOD words, the section bytes, the floor records' bit 31 and the facing byte, and the draw-recorder calls).
+--wwe2k14_crowd_fill_wide=off

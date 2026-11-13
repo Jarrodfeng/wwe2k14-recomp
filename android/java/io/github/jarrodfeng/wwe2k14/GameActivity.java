@@ -89,6 +89,8 @@ public class GameActivity extends SDLActivity {
     // marker file (<files>/precompile_return.txt: the state, or "cancelled"); the launcher then starts the real game.
     // The game itself does not quit in this mode on Android (precompile.h): an app shutdown is the old exit crash.
     private String precompileFile;
+    private static final String CASE_ARG = "--wwe2k14_case=true";  // S101 lane 11: off by default; the launcher passes it when the player turns the report button on
+    private boolean caseButton;
     private static final String BOOT_TRIAL_ARG = "--wwe2k14_boot_trial=";  // Session 95 (LADDER)
     private String bootTrial;
     private TextView precompileText;
@@ -141,6 +143,26 @@ public class GameActivity extends SDLActivity {
         // window manager (SDLActivity COMMAND_CHANGE_WINDOW_STYLE: no setAttributes).
         WindowManager.LayoutParams lp = getWindow().getAttributes();
         lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        // Session 100 (the phone's 120 mode, runs s100ph5 / s100ph6): OPPO's refresh-rate service filled our window's empty display-mode
+        // request with its own (rate id 2 = 60 Hz, "appReqFirst=false") and held the screen at 60 over the player's 120 settings, for
+        // either renderer. In the 120 mode the window now asks for the screen's fastest mode at its current size itself
+        // (preferredDisplayModeId, Android's own request), the way an app that wants a high refresh says so.
+        if (wantsHighRefresh()) {
+            try {
+                android.view.Display display = getWindowManager().getDefaultDisplay();
+                android.view.Display.Mode now = display.getMode(), best = now;
+                for (android.view.Display.Mode m : display.getSupportedModes()) {
+                    if (m.getPhysicalWidth() == now.getPhysicalWidth() && m.getPhysicalHeight() == now.getPhysicalHeight()
+                            && m.getRefreshRate() > best.getRefreshRate() + 0.5f) best = m;
+                }
+                lp.preferredDisplayModeId = best.getModeId();
+                panelPeakHz = best.getRefreshRate();  // lane 168: the native pump rate decision (--wwe2k14_panel_peak_hz, see addDriverDirs)
+                Log.i(TAG, "120 mode: asked for display mode " + best.getModeId() + " (" + best.getRefreshRate() + " Hz; now "
+                        + now.getModeId() + ", " + now.getRefreshRate() + " Hz)");
+            } catch (Exception e) {
+                Log.w(TAG, "120 mode: display mode request failed", e);
+            }
+        }
         getWindow().setAttributes(lp);
 
         // Touch controls (the launcher's choices; test runs started with args.txt get none).
@@ -159,6 +181,7 @@ public class GameActivity extends SDLActivity {
             if (launched != null)
                 for (String a : launched)
                     if (a.startsWith(PRECOMPILE_ARG)) precompileFile = a.substring(PRECOMPILE_ARG.length());
+                    else if (a.equals(CASE_ARG)) caseButton = true;  // S101 lane 11: the player turned the report button on (the native ring gets the same argument)
                     else if (a.startsWith(BOOT_TRIAL_ARG)) bootTrial = a.substring(BOOT_TRIAL_ARG.length());
                     else if (a.startsWith(DIAG_ARG)) diagRun = a.substring(DIAG_ARG.length());
                     else if (a.startsWith(DIAG_ARM_ARG)) diagArm = a.substring(DIAG_ARM_ARG.length());
@@ -170,13 +193,10 @@ public class GameActivity extends SDLActivity {
         if (precompileFile != null && mLayout != null) startPrecompileWatch();
         if (tronExport && mLayout != null) showTronExportNote();
         if (tronExport) {
-            TronExportService.start(this, tronDir);
-            // Android 13+: the notification needs the player's yes (asked once; the export runs either way)
-            if (Build.VERSION.SDK_INT >= 33
-                    && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
-                requestPermissions(new String[] {android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFY);
+            TronExportService.start(this, tronDir);  // S101: no notification permission is asked for (AndroidManifest.xml)
         }
         if (diagRun != null && diagArm != null && mLayout != null) startDiagWatch();
+        if (mLayout != null && !fromArgsFile && caseButton) CaseButton.attach(this, mLayout, filesDir());  // S101 lane 5: the bug button (a small corner button)
         exitHandler = new Handler(Looper.getMainLooper());
         exitHandler.postDelayed(this::pollExitRequest, EXIT_POLL_MS);
 
@@ -413,7 +433,7 @@ public class GameActivity extends SDLActivity {
             tronBar.setIndeterminate(false);
             tronBar.setProgress(p.permille());
             String what = p.phase.isEmpty() ? p.item : p.phase + ": " + p.item;
-            tronLine.setText(what + "\n" + p.detail() + "\nYou can leave the app now: a notification shows the progress, and the launcher comes back by itself.");
+            tronLine.setText(what + "\n" + p.detail() + "\nYou can leave the app now: it keeps going, and the launcher comes back by itself.");
         } else if (p != null && p.finished()) {
             tronTitle.setText(p.state.equals("done") ? "Tron previews ready" : "Tron previews failed");
             tronBar.setIndeterminate(false);
@@ -508,6 +528,34 @@ public class GameActivity extends SDLActivity {
         return new String[] {"c++_shared", "rexruntime", "main"};
     }
 
+    // Session 100: true when this run's arguments (args.txt, not consumed here, or the launcher's) set the game's step above 60 (the 120
+    // mode: --wwe2k14_step_hz=120; the new renderer decouples it and draws 120 pictures a second).
+    private volatile float panelPeakHz = 0f;  // lane 168: 0 = not read (not the 120 mode, or the read failed): the native side keeps the request
+
+    private boolean wantsHighRefresh() {
+        List<String> found = new ArrayList<>();
+        File args = new File(filesDir(), "args.txt");
+        if (args.isFile()) {
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(new FileInputStream(args), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) found.add(line.trim());
+            } catch (Exception e) {
+                Log.w(TAG, "wantsHighRefresh: reading " + args, e);
+            }
+        } else {
+            String[] given = getIntent().getStringArrayExtra(EXTRA_ARGS);
+            if (given != null) for (String a : given) found.add(a);
+        }
+        for (String a : found) {
+            if (!a.startsWith("--wwe2k14_step_hz=")) continue;
+            try {
+                if (Integer.parseInt(a.substring("--wwe2k14_step_hz=".length()).trim()) > 60) return true;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return false;
+    }
+
     // A test run's arguments: <files>/args.txt, one argument per line (tools/android/run.ps1 writes it). Read once and
     // deleted, so a normal start afterwards does not reuse test arguments. Empty lines and lines starting with # skip.
     // Otherwise the launcher's (EXTRA_ARGS), with its game-file placeholder replaced by the file this process opens.
@@ -592,6 +640,9 @@ public class GameActivity extends SDLActivity {
     // Session 72 (Android drivers, src/android_driver.h): where libadrenotools' hooks and the bundled custom drivers are
     // (the app's native library folder) and a writable folder it needs on Android 9. Unused unless a driver is chosen.
     private void addDriverDirs(List<String> list) {
+        // lane 168: the fastest refresh this panel offers at its current size (found in onCreate in the 120 mode), for src/renderer_adapter/
+        // display_rate.h: SDL lists no modes on Android and its current-mode read can say 60 on the OPPO, so the native side uses only this.
+        if (panelPeakHz > 0) list.add("--wwe2k14_panel_peak_hz=" + Math.round(panelPeakHz));
         list.add("--wwe2k14_android_lib_dir=" + getApplicationInfo().nativeLibraryDir + "/");
         list.add("--wwe2k14_android_tmp_dir=" + getCacheDir().getAbsolutePath() + "/");
     }

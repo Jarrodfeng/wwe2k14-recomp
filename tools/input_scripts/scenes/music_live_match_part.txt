@@ -1,0 +1,33 @@
+# l303 part 2 (include-able; no boot, no quit): the match whose entrance uses the custom song, and the loudness windows.
+# Start: main menu (menu 1), any cursor. Needs NO --wwe2k14_launch on the command line: the route arms the launcher itself (`cvar`), so the launcher
+# fires when the main menu is idle AFTER part 1 (a command-line launch would fire at the first main menu, before the editor).
+# The lesnar_bryan launch with participants 324,343 = Daniel Bryan (stock theme, the CONTROL) comes out first, then Brock Lesnar (343: his theme is
+# the custom song music\343.wav, replaced + converted by the fixtures). Same pair as scenes\bryan_entrance.txt / brock_entrance.txt (BG04, Quick pace).
+# Marks: 20 Bryan's tron, 21 Bryan's own segment (stock theme running), 22 Brock's own segment (custom theme running), 24 end of the loudness
+# window, 25 the match scene after the START skip (the theme stops at the match start). The checker cuts the capture at the theme's `Play_MUS_...` frame
+# (--wwe2k14_music_probe), not at these marks; the marks are for reading the log.
+log l303: match part begin
+press_until_state UP cursor 0 24 30 5 if_needed
+wait_frames 30
+cvar wwe2k14_launch_participants 324,343
+cvar wwe2k14_launch lesnar_bryan
+wait_file INGAMELUA.PAC 3600
+log l303: match launched
+wait_file BG04.PAC 3600
+wait_file 324.bik2 3600
+log scene=tron_324
+mark 20 tron_324
+wait_state entrance_step_0 >=5 7200 2
+log l303: Bryan's own segment (the stock theme plays)
+mark 21 bryan_segment
+wait_frames 1500
+wait_state entrance_step_1 >=5 21600 2
+log l303: Brock's own segment (the custom theme should play)
+mark 22 brock_segment
+wait_frames 1500
+mark 24 loudness_window_end
+log l303: START until the match scene (the custom theme stops)
+press_until_file START m3.pac 30 300
+mark 25 match_scene
+wait_frames 300
+log l303: match part end

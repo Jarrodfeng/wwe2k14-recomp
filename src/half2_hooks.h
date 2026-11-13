@@ -15,6 +15,9 @@
 
 #include <atomic>
 #include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
+
+#include "guest_view.h"  // S100 strip-360 tier C: the 0xE0000000 view rule, one place
+#include "guest_gpu_only.h"  // lane 241 (3b): no command processor under guest_gpu_only
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -116,6 +119,7 @@ inline void RecordShadowFlush(uint64_t mask, uint32_t first_register) {
 }
 
 inline rex::graphics::CommandProcessor* Cp() {
+  if (wwe2k14::GuestGpuOnly()) return nullptr;  // lane 241 (3b): the SDK built no command processor; no lookup per call on the draw path
   static std::atomic<rex::graphics::CommandProcessor*> cached{nullptr};
   rex::graphics::CommandProcessor* cp = cached.load(std::memory_order_relaxed);
   if (!cp) {
@@ -171,7 +175,7 @@ inline void FillInlineFetch(const uint8_t* base, uint32_t device, rex::graphics:
     const rex::graphics::Half2Run run = d.runs[r];
     if (run.first_register == 0x4800 && run.count >= 0xC0) {
       const uint32_t data = Load32(base, device + 13848), dwords = Load32(base, device + 13856);
-      const uint32_t gpu = (((data >> 20) + 512) & 0x1000) + (data & 0x1FFFFFFF);
+      const uint32_t gpu = wwe2k14::guest_view::ToPhysical(data);
       uint32_t& d0 = d.values[v + 0xBE];
       uint32_t& d1 = d.values[v + 0xBF];
       d0 = (gpu & ~3u) | 3u;                             // listing 0x82CB1838: ori 3 (vertex fetch)
@@ -256,6 +260,8 @@ inline void AroundWriter(uint32_t kind, PPCContext& ctx, uint8_t* base) {
 #include "d3d_layer_inline.h"  // F3: the inline-vertex draw pair (Begin / End below)
 #include "d3d_noring.h"        // Session 87 stage 2 (2a / 2b): no ring for the scene (hooks 0x82CB3300, 0x82CB6510, 0x82CB63D0, 0x82CB5EF0)
 #include "d3d_textures.h"      // Session 87 stage 4: texture objects (registry hooks; the draw writers above call d3d_tex::OnDraw), glued last
+#include "renderer_adapter/reader.h"  // Session 100: the adapter reader (the one guarded call in each hook below)
+#include "owner_timing.h"            // Session 100 (strip-360 B4/B5): owner mode answers fences, interrupts and flips itself
 
 REX_EXTERN(__imp__sub_82CB19E0);
 REX_EXTERN(__imp__sub_82CBD7C0);
@@ -278,6 +284,8 @@ REX_HOOK_RAW(sub_82CBE210) {
 }
 // The float constants' sources (FloatSources): recorded only while Half 2 is on; the writers always run.
 REX_HOOK_RAW(sub_82CBD7C0) {
+  // Session 100 (speed): the constant blocks this flush uploads, for the adapter reader's bank compare (reader.h OnFloatFlush).
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnFloatFlush(ctx.r4.u64, ctx.r5.u32);
   if (auto* cp = wwe2k14::half2::Cp(); cp && cp->half2_full()) {  // (Session 50: the compare mode only)
     wwe2k14::half2::SyncGeneration(cp);
     wwe2k14::half2::RecordShadowFlush(ctx.r4.u64, ctx.r5.u32);
@@ -306,6 +314,9 @@ inline void LayeredWriterNoted(PPCContext& ctx, uint8_t* base) {
 REX_HOOK_RAW(sub_82CB19E0) {
   // Session 87: the D3D layer's writer (its own state flush into a token, then the original writer for the draw packets;
   // the original untouched when the switch is off or on a counted fallback), inside the half2 wrapper as before.
+  if (REXCVAR_GET(wwe2k14_rdr_capture) && wwe2k14::rdr_reader::OnDrawIndexed(ctx, base)) return;   // lane 152 (S2): a D3 marker is ours only: it never reaches the D3D writer
+  wwe2k14::rdr_reader::ScopedNs old_timer(wwe2k14::rdr_reader::g_times.old_draws);  // S100 speed: the old path's share of the game's thread
+  if (wwe2k14::d3d_layer::OwnerNullDraw(ctx, base)) return;  // S100 speed: owner mode, the device bookkeeping only (d3d_layer.h)
   if (REXCVAR_GET(wwe2k14_d3d_layer)) {
     wwe2k14::half2::AroundWriter<LayeredWriterNoted>(1, ctx, base);
     return;
@@ -315,17 +326,36 @@ REX_HOOK_RAW(sub_82CB19E0) {
 REX_EXTERN(__imp__sub_82CB1510);
 REX_HOOK_RAW(sub_82CB1520) {
   // Session 87 (F3): the layer's BeginVertices (the draw is then ours end to end: no library packets, no half2 entry).
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnBeginVertices(ctx, base);
+  wwe2k14::rdr_reader::ScopedNs old_timer(wwe2k14::rdr_reader::g_times.old_draws);
+  if (wwe2k14::d3d_inline::OwnerNullBegin(ctx, base)) return;  // S100 speed: owner mode, the device bookkeeping only
   if (wwe2k14::d3d_inline::Begin(ctx, base)) return;
   wwe2k14::half2::AroundWriter<__imp__sub_82CB1520>(2, ctx, base);
 }
 REX_HOOK_RAW(sub_82CB1510) {
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnEndVertices(ctx, base);
+  wwe2k14::rdr_reader::ScopedNs old_timer(wwe2k14::rdr_reader::g_times.old_draws);
+  if (wwe2k14::d3d_inline::OwnerNullEnd(ctx, base)) return;  // S100 speed: (before End: both use the open-draw record)
   if (wwe2k14::d3d_inline::End(ctx, base)) return;
   __imp__sub_82CB1510(ctx, base);
 }
 // The library's clear (0x82CB4B00, db d3d_clear_impl) and resolve core (0x82CAEA30): attributed as kinds 3 / 4 (r3 =
 // the device in both, listings).
-REX_HOOK_RAW(sub_82CB4B00) { wwe2k14::half2::AroundWriter<__imp__sub_82CB4B00>(3, ctx, base); }
-REX_HOOK_RAW(sub_82CAEA30) { wwe2k14::half2::AroundWriter<__imp__sub_82CAEA30>(4, ctx, base); }
+REX_HOOK_RAW(sub_82CB4B00) {
+  wwe2k14::rdr_reader::ScopedNs old_timer(wwe2k14::rdr_reader::g_times.old_copies);  // S100 speed: includes the reader's own clear hooks inside
+  wwe2k14::half2::AroundWriter<__imp__sub_82CB4B00>(3, ctx, base);
+}
+// Session 100: the library's display lookup emitter (the game's gamma table to the GPU's display LUT): the adapter reader keeps a copy for
+// the new renderer's present (reader.h OnGammaRamp). Only reads guest memory; then the original as before.
+REX_EXTERN(__imp__sub_82CBABB0);
+REX_HOOK_RAW(sub_82CBABB0) {
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnGammaRamp(ctx, base);
+  __imp__sub_82CBABB0(ctx, base);
+}
+REX_HOOK_RAW(sub_82CAEA30) {
+  wwe2k14::rdr_reader::ScopedNs old_timer(wwe2k14::rdr_reader::g_times.old_copies);  // S100 speed: includes the reader's own resolve hooks inside
+  wwe2k14::half2::AroundWriter<__imp__sub_82CAEA30>(4, ctx, base);
+}
 
 // Session 51 (STATE LOG, gpu_native_half2 3; docs\native\STATE_LOG.md): two more library calls for the SDK's state log.
 // - The present 0x82CB37C0 (db gpu_sync.json d3d_swap_present: the swap packets, VdSwap, the segment kick; r3 = the
@@ -370,6 +400,8 @@ inline uint8_t* NoGpuByte(uint8_t* base, uint32_t device) {
 }  // namespace wwe2k14::half2
 REX_HOOK_RAW(sub_82CB37C0) {
   using namespace wwe2k14::half2;
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnPresent(ctx, base);
+  if (REXCVAR_GET(wwe2k14_rdr_capture) && REXCVAR_GET(wwe2k14_rdr_readback_defer)) wwe2k14::thumb_defer::OnPresent(ctx, base);  // lane 232: deferred replay-thumbnail jobs whose picture landed
   rex::graphics::CommandProcessor* cp = Cp();
   if (!cp || !cp->half2_logging()) {
     const uint32_t device = ctx.r3.u32;

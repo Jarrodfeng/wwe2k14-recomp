@@ -1,0 +1,100 @@
+{
+ "effect": "yPostBase",
+ "vertex": [
+  {
+   "name": "pos_only",
+   "defines": [],
+   "hashes": [
+    "3776D0314F313B44"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    }
+   ]
+  },
+  {
+   "name": "uv",
+   "defines": [
+    "FX_UV"
+   ],
+   "hashes": [
+    "1B1DE457CA90EE5F"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "fill",
+   "defines": [
+    "FILL"
+   ],
+   "hashes": [
+    "C03F370CBB762AD1"
+   ],
+   "constants": [
+    {
+     "field": "g_f4FillColor",
+     "register": 5,
+     "count": 1
+    }
+   ],
+   "samplers": []
+  },
+  {
+   "name": "fill_depth",
+   "defines": [
+    "FILL_DEPTH"
+   ],
+   "hashes": [
+    "0FBBEC7B1C0EBE54"
+   ],
+   "constants": [
+    {
+     "field": "g_f4FillColor",
+     "register": 5,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "name": "copy_depth",
+   "defines": [
+    "COPY_DEPTH"
+   ],
+   "hashes": [
+    "9A836B68E3F8F0B0"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

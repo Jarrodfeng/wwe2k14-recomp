@@ -1,0 +1,164 @@
+{
+ "effect": "yDebugPrimitive",
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_TEXCOORD",
+    "FX_SHADED"
+   ],
+   "constants": [
+    {
+     "field": "mWVP",
+     "register": 220,
+     "count": 4
+    },
+    {
+     "field": "Color",
+     "register": 224,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SHADED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "when": [
+      "FX_TEXCOORD"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_TEXTURE"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d",
+     "when": [
+      "FX_TEXTURE"
+     ]
+    }
+   ]
+  }
+ },
+ "vertex": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [
+    {
+     "field": "mWVP",
+     "register": 220,
+     "count": 4
+    },
+    {
+     "field": "Color",
+     "register": 224,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    }
+   ],
+   "hashes": [
+    "79B71DB0FB662628"
+   ]
+  },
+  {
+   "name": "texcoord",
+   "defines": [
+    "FX_TEXCOORD"
+   ],
+   "constants": [
+    {
+     "field": "mWVP",
+     "register": 220,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2
+    }
+   ],
+   "hashes": [
+    "CFC4687F28061AEA"
+   ]
+  },
+  {
+   "name": "shaded",
+   "defines": [
+    "FX_SHADED"
+   ],
+   "constants": [
+    {
+     "field": "mWVP",
+     "register": 220,
+     "count": 4
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": [
+    "638E6F1FE847CA02"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "base",
+   "defines": [],
+   "constants": [],
+   "samplers": [],
+   "hashes": [
+    "A4A965C189287B99"
+   ]
+  },
+  {
+   "name": "texture",
+   "defines": [
+    "FX_TEXTURE"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "6E57A6E305D5D69B"
+   ]
+  }
+ ]
+}

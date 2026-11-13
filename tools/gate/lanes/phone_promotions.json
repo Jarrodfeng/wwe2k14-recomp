@@ -1,0 +1,8 @@
+{"owner": "lane 127 (S101): the phone build carries every renderer promotion and its switch (docs/renderer/PHONE_PROMOTIONS.md). Text only, 0 game runs. Each plant removes one thing in memory and passes only when the check then fails.",
+ "checks": [
+  {"name": "phone_promotions.check", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py"], "timeout_s": 60},
+  {"name": "phone_promotions.plant_source", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py", "--plant", "drop-source"], "timeout_s": 60},
+  {"name": "phone_promotions.plant_switch", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py", "--plant", "drop-switch"], "timeout_s": 60},
+  {"name": "phone_promotions.plant_devflags", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py", "--plant", "drop-devflags"], "timeout_s": 60}
+ ]
+}

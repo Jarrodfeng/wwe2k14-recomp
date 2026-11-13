@@ -1,5 +1,5 @@
 #pragma once
-// Session 95: generated from ../wrestler_skin_decal.frag by tools\postuild_shaders.ps1 with -DLEAN (exact early-outs, wrestler_lean.glsl;
+// Session 95: generated from ../wrestler_skin_decal.frag by tools\post\build_shaders.ps1 with -DLEAN (exact early-outs, wrestler_lean.glsl;
 // selected by gpu_native_wrestler_lean). Do not edit: edit the .frag and run the script.
 #include <cstdint>
 

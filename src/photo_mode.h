@@ -39,6 +39,7 @@
 // NEXT MOMENT, PHOTO MODE, QUIT MATCH.
 #pragma once
 
+#include <functional>
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/system/kernel_state.h>
@@ -189,11 +190,30 @@ inline std::filesystem::path PhotoDir() {
   return dir / L"WWE 2K14";
 }
 
+// Session 100 (settings parity): with the new renderer owning the window there is no SDK presenter; the app sets this to the live sink's
+// SavePicture (the next shown picture to that path). False: not taken.
+inline std::function<bool(const std::filesystem::path&)> g_owner_save;
+
 inline void SavePhoto() {
   std::thread([] {
     auto* runtime = REX_KERNEL_STATE()->emulator();
     auto* graphics = runtime ? runtime->graphics_system() : nullptr;
     auto* presenter = graphics ? graphics->presenter() : nullptr;
+    if (g_owner_save) {  // the new renderer (owner mode; the SDK keeps an idle presenter object): its next shown picture, written by its render thread
+      const auto dir = PhotoDir();
+      std::error_code ec;
+      std::filesystem::create_directories(dir, ec);
+      const std::time_t t = std::time(nullptr);
+      std::tm tm{};
+      localtime_s(&tm, &t);
+      char name[64];
+      std::strftime(name, sizeof(name), "WWE2K14_%Y-%m-%d_%H-%M-%S", &tm);
+      auto path = dir / (std::string(name) + ".png");
+      for (int i = 2; std::filesystem::exists(path, ec) && i < 100; ++i) path = dir / (std::string(name) + "_" + std::to_string(i) + ".png");
+      if (g_owner_save(path)) REXLOG_INFO("[wwe2k14][photo] saving {} (the new renderer; its [rdr][live][photo] / picture: lines say whether it was written)", Utf8(path));
+      else REXLOG_WARN("[wwe2k14][photo] no picture to save (the new renderer is not running)");
+      return;
+    }
     rex::ui::RawImage image;
     if (!presenter || !presenter->CaptureGuestOutput(image) || !image.width || !image.height) {
       REXLOG_WARN("[wwe2k14][photo] no picture to save");

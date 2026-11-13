@@ -1,0 +1,26 @@
+{
+ "about": "S101 lane PN: the post-draw names a version-2 capture must carry, per capture shape (docs/renderer/POST_PROMOTION_MAP.md section 9: shapes entrance 17 draws, two_layer 21, film 4, match 3, editor 16, cards 18). Our annotations only (function addresses and effect names). The effect-function addresses come from docs/research/s101/A0-3.md F; the pairing of a chain pixel shader with its queuing function is [L] until the live check (tools/names/post_names_check.py) reads it: 'exact' pairs must hold on every draw, 'any_of' pairs name the allowed functions (the check prints what it saw).",
+ "ps_to_fn": {
+  "copy_depth": {"exact": "0x82C1F728"},
+  "dof": {"exact": "0x82C2B8A8"},
+  "hole_fill": {"any_of": ["0x82C2B258", "0x82C2B8A8"]},
+  "box4_down": {"any_of": ["0x82C1CC30", "0x82C1CE08"]},
+  "t2": {"any_of": ["0x82C1CE08", "0x82C2B258"]},
+  "t1_t2": {"any_of": ["0x82C1CE08", "0x82C2B258"]},
+  "t1": {"any_of": ["0x82C1D280"]},
+  "m1_m2": {"any_of": ["0x82C1D280"]},
+  "combine": {"exact": "0x82C1D9C0"},
+  "monotone": {"exact": "0x82C2A6E0"}
+ },
+ "shapes": {
+  "match":     {"draws": 3,  "functions": ["0x82C2B8A8", "0x82C1D9C0"], "note": "dof, hole_fill, combine (match300)"},
+  "film":      {"draws": 4,  "functions": ["0x82C2B8A8", "0x82C1D9C0", "0x82C2A6E0"], "note": "wm30: dof, hole_fill, combine, monotone"},
+  "entrance":  {"draws": 17, "functions": ["0x82C1F728", "0x82C2B8A8", "0x82C1CE08", "0x82C1D280", "0x82C1D9C0"], "note": "Check B, s89k_a, brock_tron, brock_s15_300"},
+  "two_layer": {"draws": 21, "functions": ["0x82C1F728", "0x82C2B8A8", "0x82C1CE08", "0x82C1D280", "0x82C1D9C0"], "note": "Bryan: 3 restores, 2 dof layers; restore count 3"},
+  "editor":    {"draws": 16, "functions": ["0x82C2B8A8", "0x82C1CE08", "0x82C1D280", "0x82C1D9C0"], "note": "heenan: no restore"},
+  "cards":     {"draws": 18, "functions": ["0x82C1F728", "0x82C2B8A8", "0x82C1CE08", "0x82C1D280", "0x82C1D9C0"], "note": "s100cards: 2 restores"}
+ },
+ "generic_queue_range": ["0x82C1F420", "0x82C1F728"],
+ "effect_functions": ["0x82C1CA70", "0x82C1CC30", "0x82C1CE08", "0x82C1D280", "0x82C1D9C0", "0x82C1DC70", "0x82C28A70", "0x82C28F68", "0x82C29478", "0x82C29818", "0x82C2A6E0", "0x82C2B258", "0x82C2B8A8", "0x82C2BF00"],
+ "queue_sites_1F5E8": 22
+}

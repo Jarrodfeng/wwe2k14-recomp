@@ -1,0 +1,140 @@
+# ReXGlue SDK changes for WWE 2K14 (session101-audio-inject): f15def823a0c..59838b80715e on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  59838b80 Session 101 lane 288: SetInject registration comment (review note)
+#  7f6ddb90 Session 101 lane 288: rex::perf::audio::SetInject, the app's stereo music is added to the guest's FL/FR before the tap, fold and mute
+
+diff --git a/include/rex/perf/audio_inject.h b/include/rex/perf/audio_inject.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..08455e7e9dbd67605abf9d5333a3cff94718180b
+--- /dev/null
++++ b/include/rex/perf/audio_inject.h
+@@ -0,0 +1,32 @@
++/**
++ * @file        perf/audio_inject.h
++ * @brief       Add the app's own stereo audio to the guest's mix (wwe2k14 patch, Session 101 lane 288)
++ *
++ * The SDL audio driver calls Inject from SubmitFrame (the guest's audio thread), on the host copy of the frame the
++ * guest submitted, BEFORE the tap (perf/audio_tap.h), the stereo fold, the output gain and `audio_mute`. So the app's
++ * music is part of the game's mix: it is captured by the tap, silenced by `audio_mute`, and it stops while the audio
++ * system is paused (no guest frames are submitted then, so the callback is not called).
++ *
++ * The callback is given two zeroed host-endian float blocks (L, R), `samples` long (256 on the 360 path), at
++ * `frequency` Hz, and ADDS what it has into them. It returns true when it wrote anything. The SDK then adds the blocks
++ * into the frame's FL and FR planes (big-endian floats), unclamped (the fold clamps). The callback runs on the
++ * audio thread: it must not allocate, lock or block (a lock-free ring read is the intended use). With no callback
++ * registered Inject costs one atomic load. Exported from rexruntime, like perf/audio_tap.h.
++ */
++#pragma once
++
++#include <cstdint>
++
++namespace rex::perf::audio {
++
++using InjectFn = bool (*)(void* user, float* left, float* right, uint32_t samples, uint32_t frequency);
++
++// Register the (single) injector. nullptr unregisters, only if `user` matches the registered one. The first registration
++// is safe at any time; unregister / re-register only while the guest is not mixing (the audio thread reads the function
++// and its user pointer without a lock).
++void SetInject(InjectFn fn, void* user);
++
++// `frame_be`: `channels` planes of `samples` big-endian floats, FL then FR first. Returns true if anything was added.
++bool Inject(void* frame_be, uint32_t samples, uint32_t channels, uint32_t frequency);
++
++}  // namespace rex::perf::audio
+\ No newline at end of file
+diff --git a/src/audio/sdl/sdl_audio_driver.cpp b/src/audio/sdl/sdl_audio_driver.cpp
+index 26a81f2d0fd3e1a2d295e6808896a21ddf59c5f0..71bd737f3899aa10685417933e003b3e734d745c 100644
+--- a/src/audio/sdl/sdl_audio_driver.cpp
++++ b/src/audio/sdl/sdl_audio_driver.cpp
+@@ -16,6 +16,7 @@
+ #include <rex/assert.h>
+ #include <rex/audio/conversion.h>
+ #include <rex/audio/downmix.h>
++#include <rex/perf/audio_inject.h>  // wwe2k14 patch (Session 101 lane 288): the app's music joins the mix
+ #include <rex/perf/audio_tap.h>  // wwe2k14 patch (Session 18): sound for re-shoots
+ #include <rex/audio/flags.h>
+ #include <rex/audio/sdl/sdl_audio_driver.h>
+@@ -124,7 +125,10 @@ void SDLAudioDriver::SubmitFrame(uint32_t frame_ptr) {
+   }
+ 
+   std::memcpy(output_frame, input_frame, frame_samples_ * sizeof(float));
+-  perf::audio::Tap(input_frame, channel_samples_, frame_channels_, frame_frequency_);  // wwe2k14 patch (Session 18)
++  // wwe2k14 patch (Session 101 lane 288): the app's own stereo audio is added to FL / FR of the host copy first, so the
++  // tap, the fold, the gain and audio_mute all see it (the guest's own buffer is left as written).
++  perf::audio::Inject(output_frame, channel_samples_, frame_channels_, frame_frequency_);
++  perf::audio::Tap(output_frame, channel_samples_, frame_channels_, frame_frequency_);  // wwe2k14 patch (Session 18)
+ 
+   static uint32_t sdl_submit_count = 0;
+   if (sdl_submit_count < 10) {
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 5c77a3b18382e288ef0c4470fedd185f63376ce5..511b71a15ced686419b56b544443e4745a44feeb 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -24,6 +24,7 @@ add_library(rexcore OBJECT
+     perf/flight.cpp
+     perf/dlaa.cpp
+     perf/audio_tap.cpp
++    perf/audio_inject.cpp
+     ring_buffer.cpp
+     string_buffer.cpp
+     threading.cpp
+diff --git a/src/core/perf/audio_inject.cpp b/src/core/perf/audio_inject.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..8282e2614f7a2dfad0e0f7a654279cee23b4703c
+--- /dev/null
++++ b/src/core/perf/audio_inject.cpp
+@@ -0,0 +1,53 @@
++/**
++ * @file        perf/audio_inject.cpp
++ * @brief       Audio injection registry (wwe2k14 patch, Session 101 lane 288). See perf/audio_inject.h.
++ */
++#include <rex/perf/audio_inject.h>
++
++#include <atomic>
++#include <cstring>
++
++namespace rex::perf::audio {
++
++namespace {
++constexpr uint32_t kMaxSamples = 2048;  // stack scratch per plane; longer frames are left alone
++std::atomic<InjectFn> g_fn{nullptr};
++std::atomic<void*> g_user{nullptr};
++
++inline float SwapF(float v) {
++  uint32_t u;
++  std::memcpy(&u, &v, 4);
++  u = __builtin_bswap32(u);
++  std::memcpy(&v, &u, 4);
++  return v;
++}
++}  // namespace
++
++void SetInject(InjectFn fn, void* user) {
++  if (fn) {
++    g_user.store(user, std::memory_order_release);
++    g_fn.store(fn, std::memory_order_release);
++  } else if (g_user.load() == user) {
++    g_fn.store(nullptr, std::memory_order_release);
++    g_user.store(nullptr, std::memory_order_release);
++  }
++}
++
++bool Inject(void* frame_be, uint32_t samples, uint32_t channels, uint32_t frequency) {
++  InjectFn fn = g_fn.load(std::memory_order_acquire);
++  if (!fn || channels < 2 || samples == 0 || samples > kMaxSamples) return false;
++  float left[kMaxSamples];
++  float right[kMaxSamples];
++  std::memset(left, 0, samples * sizeof(float));
++  std::memset(right, 0, samples * sizeof(float));
++  if (!fn(g_user.load(std::memory_order_acquire), left, right, samples, frequency)) return false;
++  float* fl = static_cast<float*>(frame_be);
++  float* fr = fl + samples;
++  for (uint32_t i = 0; i < samples; ++i) {
++    fl[i] = SwapF(SwapF(fl[i]) + left[i]);
++    fr[i] = SwapF(SwapF(fr[i]) + right[i]);
++  }
++  return true;
++}
++
++}  // namespace rex::perf::audio
+\ No newline at end of file

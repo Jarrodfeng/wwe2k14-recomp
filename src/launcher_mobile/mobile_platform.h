@@ -37,6 +37,8 @@ struct Event {
     kUpdateProgress, // Session 81: a = "done total" bytes of the update's download
     kUpdateDownloaded, // Session 81: ok = downloaded and checked; else a = why not
     kTronZipPicked,    // Session 98 (IMPORT TRON PREVIEWS): a = the picked zip's address (content:// or a path), b = its name
+    kSongsAdded,       // Lane 286 (MUSIC): a = what happened (shown), b = the theme stem ("" = new songs); ok = false: nothing / not all added
+    kTextEntered,      // Lane 286: a = the text typed in PromptText, b = its tag; ok = false: cancelled
   } kind = kMessage;
   bool ok = true;
   std::string a, b;
@@ -82,6 +84,11 @@ void ImportSaves(const fs::path& save_dir);
 void PickTronZip();
 std::string OpenPickedZip(const std::string& address);
 void ClosePickedZip();
+// Lane 286 (custom music on the phone, MODS > MUSIC): the system file picker for songs (answers kSongsAdded). stem "" = several files
+// copied into `dir` under their own names (NEW SONGS); a stem such as "343" = one file copied as 343.<its extension> (a wrestler's
+// theme). PromptText: a one-line text box (renaming a song), answers kTextEntered with the same tag.
+void PickAudio(const fs::path& dir, const std::string& stem);
+void PromptText(const std::string& title, const std::string& initial, const std::string& tag);
 void CheckForUpdate(const std::string& version);
 // Session 81: the launcher installs its own updates. DownloadUpdate fetches the release's APK (GitHub release downloads only)
 // and checks its SHA-256 (kUpdateProgress ..., then kUpdateDownloaded); InstallUpdate hands the file to Android's installer

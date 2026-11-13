@@ -1,0 +1,35 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_d3d_owned=true --wwe2k14_rdr_capture=true
+# Session 100: the new renderer's first capture. Brock's entrance (brock_entrance.txt) with three 16-frame recordings: tron + 300, step 15, step 15 + 300.
+# The adapter only observes, so the old TRUE NATIVE renderer keeps drawing: each screenshot sits inside its recording and is the reference for that frame.
+# Captures: out\captures\brock_tron, brock_s15, brock_s15_300 (local only, rule 1). Run with: & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\scenes\s100_capture_brock.txt')
+on_fail quit
+log bench: start scene s100_capture_brock
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 20000
+log scene=tron_343
+mark 1 tron_343
+wait_frames 292
+cvar wwe2k14_rdr_capture_label brock_tron
+cvar wwe2k14_rdr_capture_frames 16
+wait_frames 8
+screenshot rdr_brock_tron
+wait_frames 12
+wait_state entrance_step_0 >=15 20000 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+cvar wwe2k14_rdr_capture_label brock_s15
+cvar wwe2k14_rdr_capture_frames 16
+wait_frames 8
+screenshot rdr_brock_s15
+wait_frames 280
+cvar wwe2k14_rdr_capture_label brock_s15_300
+cvar wwe2k14_rdr_capture_frames 16
+wait_frames 8
+screenshot rdr_brock_s15_300
+wait_frames 12
+log bench: done
+mark 3 end
+quit

@@ -1,0 +1,53 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time)
+# Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): the VICTORY SCENES row of the coverage board (23 PC cells, all "none": no zip is assigned to
+# Victory). The board assigns a zip to an item by the ROUTE NAME first (tools\board\coverage.py ITEM_RULES, order victory / universe / wm30 / create / entrances / matches / menus),
+# so this file name keeps the word "victory": the zip of this run is the Victory row whatever the manifest words say at the exit. Check K's K4 (s101_checkK_finish_logo) plays the
+# same finish but ends at the menu, so the board files it under Menus.
+# Mechanism copied from K4 (lane 173): slot 1 passive after the bell, slot 0 has full momentum + stock, the CPU pins the idle wrestler (bus 'finish' = G+472 = 0x8376ACCC != 0).
+# Then the victory scene (the game's own chooser; PWC particles / pyro) is held for ~1500 frames = two 600-frame census windows INSIDE the victory scene, and the run quits there
+# (run_exit zip, no walk back to the menu: the census lines at the exit are those of the scene itself). The census counters are cumulative over the run (the board reads the last
+# line), so the match before the finish contributes too: this is the tool's rule, not mine (see the plan's gap list).
+# UNCONFIRMED: how long the victory scene lasts before the game moves on (the 1500 frames are a ceiling: the route logs seq / menu at each shot so a scene that ended early shows).
+# Marks: 1 clock, 2 roster, 3 shot1, 4 finish, 5 victory +300, 6 victory +900, 7 end. Needs --timeout 1800 (the finish takes up to 20 min of match; run 7092 ended by itself).
+on_fail quit
+log bench: start scene sweep_victory
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=sweep_victory
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+cvar wwe2k14_rdr_live_picture sc_sweep_vic_1
+screenshot sc_sweep_vic_1
+mark 3 shot1
+momentum 0 100
+stock 0 1
+passive 1 on
+wait_frames 120
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+log_state match_clock
+mark 4 finish
+log scene=victory_begins
+wait_frames 300
+log_state seq
+log_state menu
+cvar wwe2k14_rdr_live_picture sc_sweep_vic_2
+screenshot sc_sweep_vic_2
+mark 5 victory_300
+wait_frames 600
+log_state seq
+log_state menu
+cvar wwe2k14_rdr_live_picture sc_sweep_vic_3
+screenshot sc_sweep_vic_3
+mark 6 victory_900
+wait_frames 600
+log scene=end
+mark 7 end
+log bench: done
+wait_frames 10
+quit

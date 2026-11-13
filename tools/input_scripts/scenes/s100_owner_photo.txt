@@ -1,0 +1,47 @@
+# Session 100 (settings parity, photo mode): s100_owner_s90_wm30.txt, then photo mode on in the match (HUD hidden), one photo saved
+# (with --wwe2k14_photo_mode=true --wwe2k14_photo_dir=<a folder under out\>), the picture of the hidden-HUD frame as live_s100_photo_hud.
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 100: owner-mode twin of s90_wm30.txt (tools\renderer\owner_route.py): the new renderer writes live_<name>.png of
+# every screenshot the reference build takes. Run with --wwe2k14_rdr_owner=true.
+# Session 90 step 3 (TRUE NATIVE outside the bench): a 30 Years of WrestleMania match (match 1, WrestleMania 2; the era
+# presentation and its post effects), menus driven as tools\input_scripts\short\s58_wm30_full.txt (the A presses skip the
+# entrances). Shots at match clock +300 / +540 with the owned-frame per-pass census at the first; the owned frame is
+# flipped off / on at +250 and off at the end so its summary covers those match frames. ON arms only
+# (--wwe2k14_d3d_owned=true): the flip turns the owned frame on. Untimed, fast-forwarded. on_fail quit.
+on_fail quit
+log bench: start scene s90_wm30
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log bench: wm30 match picked
+press_until_state A match_clock !=0 60 600 5
+log scene=match
+mark 1 match_clock
+wait_frames 250
+# (owner twin) left out: cvar gpu_native_owned_frame false
+wait_frames 2
+# (owner twin) left out: cvar gpu_native_owned_frame true
+wait_frames 46
+cvar gpu_native_owned_frame_log 2
+wait_frames 2
+cvar wwe2k14_rdr_live_picture s90_wm30_300
+screenshot s90_wm30_300
+wait_frames 240
+cvar wwe2k14_rdr_live_picture s90_wm30_540
+screenshot s90_wm30_540
+wait_frames 3
+# (owner twin) left out: cvar gpu_native_owned_frame false
+wait_frames 30
+cvar wwe2k14_photo_mode_on true
+wait_frames 20
+cvar wwe2k14_rdr_live_picture s100_photo_hud
+wait_frames 10
+cvar wwe2k14_photo_save 1
+wait_frames 30
+cvar wwe2k14_photo_mode_on false
+wait_frames 10
+log bench: done
+# (owner twin) time for the last live picture
+wait_frames 10
+quit

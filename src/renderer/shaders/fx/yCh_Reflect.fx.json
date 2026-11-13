@@ -1,0 +1,5141 @@
+{
+ "effect": "yCh_Reflect",
+ "vertex": [
+  {
+   "name": "view_normal",
+   "defines": [
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "C3B9D628507CFEB5",
+    "F3D1B514684AF28C"
+   ]
+  },
+  {
+   "name": "skinned_view_normal",
+   "defines": [
+    "FX_SKINNED",
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "41DC23DE8F10A583",
+    "78FE42B6205E05F9",
+    "B63BBAEA36092CBC",
+    "EE8D54D5A0245814"
+   ]
+  },
+  {
+   "name": "shadow_view_normal",
+   "defines": [
+    "FX_SHADOW",
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "TexProjLightXY",
+     "register": 68,
+     "count": 2
+    },
+    {
+     "field": "TexProjLightW",
+     "register": 71,
+     "count": 1
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "5C57E29B93BE887D",
+    "77CC922E85AB12AA",
+    "A549ED381EF6CA66",
+    "F904678F52EA3E12"
+   ]
+  },
+  {
+   "name": "screen_convert_view_normal",
+   "defines": [
+    "FX_SCREEN_CONVERT",
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "B65E2CE9A9931FC5"
+   ]
+  },
+  {
+   "name": "skinned_shadow_view_normal",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SHADOW",
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "TexProjLightXY",
+     "register": 68,
+     "count": 2
+    },
+    {
+     "field": "TexProjLightW",
+     "register": 71,
+     "count": 1
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "51F52FFB61577398",
+    "D0DCE6B085DB8CDF",
+    "D81D56D52528B353",
+    "E438CABD3245C70B"
+   ]
+  },
+  {
+   "name": "skinned_screen_convert_view_normal",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SCREEN_CONVERT",
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "0B47F37FC1D0D00A"
+   ]
+  },
+  {
+   "name": "shadow_screen_convert_view_normal",
+   "defines": [
+    "FX_SHADOW",
+    "FX_SCREEN_CONVERT",
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "TexProjLightXY",
+     "register": 68,
+     "count": 2
+    },
+    {
+     "field": "TexProjLightW",
+     "register": 71,
+     "count": 1
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 2,
+     "location": 3
+    },
+    {
+     "fetch": 3,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "F4191768C8AC9A2F"
+   ]
+  },
+  {
+   "name": "skinned_shadow_screen_convert_view_normal",
+   "defines": [
+    "FX_SKINNED",
+    "FX_SHADOW",
+    "FX_SCREEN_CONVERT",
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "TexProjLightXY",
+     "register": 68,
+     "count": 2
+    },
+    {
+     "field": "TexProjLightW",
+     "register": 71,
+     "count": 1
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true
+    },
+    {
+     "fetch": 3,
+     "location": 3
+    },
+    {
+     "fetch": 4,
+     "location": 4
+    }
+   ],
+   "hashes": [
+    "4F3EF2561AEC7AFB"
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "env_light",
+   "defines": [
+    "FX_ENV_LIGHT"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "75C7629E1C86EC0A"
+   ]
+  },
+  {
+   "name": "cube_specular_env_light",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_ENV_LIGHT"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "08CDCBA71A3D2787"
+   ]
+  },
+  {
+   "name": "shadow_env_light",
+   "defines": [
+    "FX_SHADOW",
+    "FX_ENV_LIGHT"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "BBB2E028DCF36E8D"
+   ]
+  },
+  {
+   "name": "env_light_logo",
+   "defines": [
+    "FX_ENV_LIGHT",
+    "FX_LOGO"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "13884C8A0ACD431F"
+   ]
+  },
+  {
+   "name": "env_light_camo",
+   "defines": [
+    "FX_ENV_LIGHT",
+    "FX_CAMO"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "25F5B9F3CA5B0D16",
+    "6ECCE463B4A8321B",
+    "F13AE4F86315B715"
+   ]
+  },
+  {
+   "name": "cube_specular_shadow_env_light",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_SHADOW",
+    "FX_ENV_LIGHT"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "3C06B3329BE81996"
+   ]
+  },
+  {
+   "name": "cube_specular_env_light_logo",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_ENV_LIGHT",
+    "FX_LOGO"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "CF8320B1149DF86B"
+   ]
+  },
+  {
+   "name": "cube_specular_env_light_camo",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_ENV_LIGHT",
+    "FX_CAMO"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "05CE10BCFB4BEDE8",
+    "23BCFF421790AD41",
+    "92FFD643EB6DA1BC"
+   ]
+  },
+  {
+   "name": "shadow_env_light_logo",
+   "defines": [
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_LOGO"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "27B33D1677A0C040"
+   ]
+  },
+  {
+   "name": "shadow_env_light_camo",
+   "defines": [
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_CAMO"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1AB05AF099DF75B5",
+    "1B32E3B4C4B30AFA",
+    "885142B3675349E2",
+    "A112D4A9B28CB9C7",
+    "D87480632BBDDBE9"
+   ]
+  },
+  {
+   "name": "env_light_logo_debug",
+   "defines": [
+    "FX_ENV_LIGHT",
+    "FX_LOGO",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "B1F8EB78A29EB5EF"
+   ]
+  },
+  {
+   "name": "env_light_camo_debug",
+   "defines": [
+    "FX_ENV_LIGHT",
+    "FX_CAMO",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "0B0CC2A7A2C4A92F"
+   ]
+  },
+  {
+   "name": "cube_specular_shadow_env_light_logo",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_LOGO"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "D995189ABE6401D2"
+   ]
+  },
+  {
+   "name": "cube_specular_shadow_env_light_camo",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_CAMO"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "1BC6FE996CCB0A1F",
+    "756ACAEC237C4526",
+    "82CD24E451CD3B6F"
+   ]
+  },
+  {
+   "name": "cube_specular_env_light_logo_debug",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_ENV_LIGHT",
+    "FX_LOGO",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "FA1039C35AB32574"
+   ]
+  },
+  {
+   "name": "cube_specular_env_light_camo_debug",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_ENV_LIGHT",
+    "FX_CAMO",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7A87FC0F4AF55475"
+   ]
+  },
+  {
+   "name": "shadow_env_light_logo_debug",
+   "defines": [
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_LOGO",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "F621CFEC719DA51C"
+   ]
+  },
+  {
+   "name": "shadow_env_light_camo_debug",
+   "defines": [
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_CAMO",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "14BECA4C325A363A"
+   ]
+  },
+  {
+   "name": "cube_specular_shadow_env_light_logo_debug",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_LOGO",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "D6E69A41BC7492EB"
+   ]
+  },
+  {
+   "name": "cube_specular_shadow_env_light_camo_debug",
+   "defines": [
+    "FX_CUBE_SPECULAR",
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_CAMO",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d"
+    },
+    {
+     "slot": 4,
+     "kind": "2d"
+    },
+    {
+     "slot": 6,
+     "kind": "2d"
+    },
+    {
+     "slot": 7,
+     "kind": "2d"
+    },
+    {
+     "slot": 10,
+     "kind": "cube"
+    },
+    {
+     "slot": 11,
+     "kind": "cube"
+    },
+    {
+     "slot": 12,
+     "kind": "2d"
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d"
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ],
+   "hashes": [
+    "7473E900CD799FEB"
+   ]
+  }
+ ],
+ "solve": {
+  "vertex": {
+   "options": [
+    "FX_SKINNED",
+    "FX_SHADOW",
+    "FX_SCREEN_CONVERT",
+    "FX_VIEW_NORMAL"
+   ],
+   "constants": [
+    {
+     "field": "ViewProj",
+     "register": 56,
+     "count": 4
+    },
+    {
+     "field": "WorldMatrixArray",
+     "register": 76,
+     "count": 63
+    },
+    {
+     "field": "EyePos",
+     "register": 72,
+     "count": 1
+    },
+    {
+     "field": "FogDistance",
+     "register": 196,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam3",
+     "register": 174,
+     "count": 1
+    },
+    {
+     "field": "MdlAlpha",
+     "register": 185,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "TexProjLightXY",
+     "register": 68,
+     "count": 2
+    },
+    {
+     "field": "TexProjLightW",
+     "register": 71,
+     "count": 1
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "ConvScreen",
+     "register": 215,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3,
+     "when": [
+      "FX_VIEW_NORMAL"
+     ]
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 3,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 4,
+     "location": 4,
+     "when": [
+      "FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 1,
+     "location": 2,
+     "range": [
+      0,
+      20
+     ],
+     "integer": true,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 2,
+     "location": 3,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    },
+    {
+     "fetch": 3,
+     "location": 4,
+     "when": [
+      "!FX_SKINNED"
+     ]
+    }
+   ]
+  },
+  "fragment": {
+   "options": [
+    "FX_CUBE_SPECULAR",
+    "FX_SHADOW",
+    "FX_ENV_LIGHT",
+    "FX_LOGO",
+    "FX_CAMO",
+    "FX_NOISE",
+    "FX_DEBUG"
+   ],
+   "constants": [
+    {
+     "field": "SkyDir",
+     "register": 180,
+     "count": 1
+    },
+    {
+     "field": "SkyCol",
+     "register": 181,
+     "count": 1
+    },
+    {
+     "field": "GroundCol",
+     "register": 182,
+     "count": 1
+    },
+    {
+     "field": "DifLghMax",
+     "register": 197,
+     "count": 1
+    },
+    {
+     "field": "LightLimit",
+     "register": 187,
+     "count": 1
+    },
+    {
+     "field": "FogColor",
+     "register": 195,
+     "count": 1
+    },
+    {
+     "field": "Level",
+     "register": 201,
+     "count": 1
+    },
+    {
+     "field": "MatAmbCol",
+     "register": 189,
+     "count": 1
+    },
+    {
+     "field": "MatDifCol",
+     "register": 190,
+     "count": 1
+    },
+    {
+     "field": "NormalFlip",
+     "register": 218,
+     "count": 1
+    },
+    {
+     "field": "Param0",
+     "register": 205,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "Reflect",
+     "register": 204,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "RimLightDepth",
+     "register": 162,
+     "count": 1
+    },
+    {
+     "field": "RimLightParam",
+     "register": 161,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm1",
+     "register": 142,
+     "count": 1,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "SpecCubPrm3",
+     "register": 144,
+     "count": 1
+    },
+    {
+     "field": "KeyLightColor",
+     "register": 4,
+     "count": 1
+    },
+    {
+     "field": "KeyLightVec",
+     "register": 12,
+     "count": 1
+    },
+    {
+     "field": "View",
+     "register": 52,
+     "count": 3
+    },
+    {
+     "field": "ShadowPrm",
+     "register": 168,
+     "count": 3,
+     "range": [
+      0.0,
+      4.0
+     ]
+    },
+    {
+     "field": "ViewLightDepth",
+     "register": 166,
+     "count": 1
+    },
+    {
+     "field": "DifLghCol",
+     "register": 0,
+     "count": 4
+    },
+    {
+     "field": "DifLghVec",
+     "register": 8,
+     "count": 4
+    },
+    {
+     "field": "ChangeColor",
+     "register": 16,
+     "count": 16
+    },
+    {
+     "field": "NoiseTile",
+     "register": 206,
+     "count": 1
+    },
+    {
+     "field": "Param1",
+     "register": 247,
+     "count": 1
+    },
+    {
+     "field": "DebugPS0",
+     "register": 217,
+     "count": 1,
+     "when": [
+      "FX_DEBUG"
+     ]
+    },
+    {
+     "field": "DebugPS1",
+     "register": 196,
+     "count": 1,
+     "when": [
+      "FX_DEBUG"
+     ]
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    },
+    {
+     "slot": 1,
+     "kind": "2d"
+    },
+    {
+     "slot": 2,
+     "kind": "2d",
+     "when": [
+      "FX_CAMO"
+     ]
+    },
+    {
+     "slot": 3,
+     "kind": "2d",
+     "when": [
+      "FX_NOISE"
+     ]
+    },
+    {
+     "slot": 4,
+     "kind": "2d",
+     "when": [
+      "FX_CAMO"
+     ]
+    },
+    {
+     "slot": 4,
+     "kind": "2d",
+     "when": [
+      "FX_LOGO"
+     ]
+    },
+    {
+     "slot": 6,
+     "kind": "2d",
+     "when": [
+      "FX_ENV_LIGHT"
+     ]
+    },
+    {
+     "slot": 6,
+     "kind": "2d",
+     "when": [
+      "FX_NOISE",
+      "!FX_ENV_LIGHT"
+     ]
+    },
+    {
+     "slot": 7,
+     "kind": "2d",
+     "when": [
+      "FX_CAMO"
+     ]
+    },
+    {
+     "slot": 7,
+     "kind": "2d",
+     "when": [
+      "FX_LOGO"
+     ]
+    },
+    {
+     "slot": 10,
+     "kind": "cube",
+     "when": [
+      "FX_ENV_LIGHT"
+     ]
+    },
+    {
+     "slot": 11,
+     "kind": "cube",
+     "when": [
+      "FX_CUBE_SPECULAR"
+     ]
+    },
+    {
+     "slot": 12,
+     "kind": "2d",
+     "when": [
+      "FX_SHADOW"
+     ]
+    },
+    {
+     "slot": 13,
+     "kind": "cube"
+    },
+    {
+     "slot": 14,
+     "kind": "2d",
+     "when": [
+      "FX_CAMO"
+     ]
+    },
+    {
+     "slot": 15,
+     "kind": "2d"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,18 @@
+{
+ "owner": "lane 109 (S101): the per-draw light state, LS0-LS3 (docs/renderer/PER_DRAW_LIGHTS.md): record sections kScLightStates / kScLightRefs, the model-call hook's tracker, the ledger's derived / light_state columns, the rows builder. 0 game runs.",
+ "note": "build = tools/light/build_light_states.ps1 (clang only, ~10 s). selftest = tools/light/light_states_selftest.py: the C++ test (round trip, hook against a fake guest, hand-checked TexProjLight), the rows builder against the stream's banks of Check B and run 7079 (needs their case zips, unpacked once under <main>/out/s101/lane92: a machine without them SKIPs, the script run directly fails loudly), the Python port vs the C++ rows bit for bit, the ledger light_state column on a perfect state of a real draw, dormant / loud behaviour without tables. Planted twins: slot0_always, no_compare, stale_state, state_prev_object (hook), w_dropped, negate_dirs (rows + ledger); pre_attach is reported SKIP (no capture carries the second direction copy).",
+ "checks": [
+  {
+   "name": "light_states.build",
+   "cmd": ["pwsh", "-NoProfile", "-File", "tools/light/build_light_states.ps1"],
+   "timeout_s": 600
+  },
+  {
+   "name": "light_states.selftest",
+   "cmd": ["py", "-I", "tools/light/light_states_selftest.py", "--no-build"],
+   "timeout_s": 900,
+   "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+             "out/s101/runs/20261112_122623_s100_owner_s89_brock/case_20261112_122658_040_0_pc_run_exit.zip"]
+  }
+ ]
+}

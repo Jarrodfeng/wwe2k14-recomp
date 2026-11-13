@@ -1,0 +1,19 @@
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+index 652d5fa..dbd7417 100644
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -411,9 +411,13 @@ bool ReXApp::SetupPresentation() {
+       }
+     }
+     window_->SetPresenter(presenter);
+-  } else if (!graphics_system) {
++  } else if (!graphics_system || config_.present_detached) {
+     // Detached mode: the app brings its own renderer and drives its own paint
+     // loop. ReXApp owns the returned drawer via immediate_drawer_.
++    // wwe2k14 patch (Session 100, settings parity S11): also with the graphics
++    // system kept but its presentation detached (present_detached: the game's
++    // own renderer owns the window), so the app's dialogs (performance overlay,
++    // CineCam panel, prompts) are drawn by the app's renderer.
+     immediate_drawer_ = OnCreateImmediateDrawer();
+     if (immediate_drawer_) {
+       SetupOverlays(/*presenter=*/nullptr, immediate_drawer_.get());

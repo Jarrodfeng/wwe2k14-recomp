@@ -1,0 +1,44 @@
+# harness: flags --wwe2k14_launch=sixpack --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=4 --wwe2k14_launch_participants=343,324,342,107,364,335 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
+# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
+# Session 101 lane 158: the ROSTER-WIDE wrestler route, leg 1 of 3 (Jarrod: "prove the roster-wide wrestler path live, not just the test scenes' people").
+# Six DIFFERENT roster wrestlers in ONE match, all six in the ring at once: the 6-Pack Challenge (match type 37, the `sixpack` scenario of Session 27), launched the
+# way scenes\s101_owner_match_long.txt launches Bryan v Lesnar: the launcher replaces the captured participants (ids, db\ids\characters.json), all CPU (no PAD) so
+# they move and fight with no input from us, entrances skipped, fixed seed 1, arena 4 (Over the Limit; --wwe2k14_launch_arena, the arena every earlier owner check used).
+# The picks differ in the materials of their DEFAULT attire (the one the launcher seats), read OFFLINE from the drawables atlas (tools\census\roster_materials.py;
+# docs\renderer\WRESTLER_PROMOTION_MAP.md "roster-wide check"):
+#   343 Brock Lesnar   26-part body: yCh_skin + yCh_skin_flex + Reflect + gear, one alpha piece (20002)   -- CONTROL: proven ours in Check F / J1
+#   324 Daniel Bryan   14-part body, NO skin_flex, hair/beard piece 10000 = yCh_Aniso_trans (2)          -- CONTROL: proven ours in 7083
+#   342 Sin Cara       10-part masked full-body model, skin 3 + gear 7, no Reflect, no hair, no alpha piece -- the smallest and most different model in the roster
+#   107 Kane           19-part body + a 5-mesh yCh_Aniso_trans piece (the mask / hair), gear-heavy (10), no skin_flex
+#   364 Ric Flair      23-part body with skin_flex 11 + Aniso_trans 4 + an EXTRA alpha piece 21020 (the robe / piece family)
+#   335 Diesel         17-part body, extra pieces 20000 (gear) and 20001 (Reflect), Aniso_trans 2
+# No referee in a 6-Pack (the Session 27 note: "no referee / commentator archives loaded"): the referee is leg 2 (s101_roster_fatal4.txt).
+# Steps: 1. wait_state match_clock >0 (the bell, by state), 2. wait_event render roster_ready (lane 147; timeout 2400 frames; a failed build fails the route), 3. 60 frames more,
+# 4. shot 1, 5. 1500 frames (25 s), 6. shot 2, 7. 700 frames, quit (RunExit leaves the case zip: the last 300 frames hold the wrestlers the proof reads).
+# Match time at the exit ~ 55-60 s after the bell. Marks: 1 match_clock, 2 roster_wait_done, 3 shot1, 4 shot2, 5 end. Shots sc_roster6_* are local only.
+# PROOF (offline, 0 runs, after the run):  py -I tools\census\roster_proof.py <case zip> --frames 60,150,240,300 --arm both --picks 343,324,342,107,364,335
+# Expected wall time ~3 min (boot 12 s + load + 60 s match); door --timeout 720 is plenty. on_fail quit.
+on_fail quit
+log bench: start scene roster6
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=roster6
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+log_text 8
+cvar wwe2k14_rdr_live_picture sc_roster6_1
+screenshot sc_roster6_1
+mark 3 shot1
+wait_frames 1500
+cvar wwe2k14_rdr_live_picture sc_roster6_2
+screenshot sc_roster6_2
+mark 4 shot2
+wait_frames 700
+log scene=end (match clock +2300)
+mark 5 end
+log bench: done
+quit

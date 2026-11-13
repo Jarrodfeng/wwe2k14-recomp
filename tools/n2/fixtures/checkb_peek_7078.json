@@ -1,0 +1,11 @@
+{
+ "run": 7078,
+ "route": "tools/input_scripts/scenes/s101_checkB_caw_walk.txt",
+ "source": "SESSION101_SUMMARY.md, Check B run 2 findings, item (4): 'seq+64 / +96 / page pointer did not move while walking the editor (tabs, items)'; docs/research/s101/N2_EDITOR_DRIVER.md section 3. Counts only, no memory bytes. [L: read from the summary, not re-measured by lane 118]",
+ "walk": "the route's editor walk (tabs RB / LB, items DOWN); the two kept case zips hold its last 300 frames",
+ "words": [
+  {"name": "seq+64", "meaning": "outer state (sub_8339B380)", "distinct_values": 1},
+  {"name": "seq+96", "meaning": "nested state (sub_83399588)", "distinct_values": 1},
+  {"name": "seq+34924", "meaning": "current page object pointer", "distinct_values": 1}
+ ]
+}

@@ -114,6 +114,10 @@ inline void OnSwap(uint64_t frame) {
   // (Without the native renderer there is nothing to make after the boot's own: done once the game draws. With it -
   // gpu_native not 0, the SDK's own rule - the SDK's status decides, also when the renderer turned itself off.)
   if (rex::cvar::GetFlagByName("gpu_native") == "0" && frame >= 120) done = true, have = true;
+  // Session 100: in owner mode the new renderer draws and the old one gets no work (strip-360 B6 skips its submits), so the old path's
+  // stored pipelines never progress: the precompile never ended (Jarrod's phone test, 2026-11-11: "shader pipeline build forever,
+  // requiring you to manually quit"). Nothing of the old path to make: done once the game draws, as without the native renderer.
+  if (rex::cvar::GetFlagByName("wwe2k14_rdr_owner") == "true" && frame >= 120) done = true, have = true;
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
   const bool timeout = secs > REXCVAR_GET(wwe2k14_precompile_timeout_s);
   if (!done && !timeout) {

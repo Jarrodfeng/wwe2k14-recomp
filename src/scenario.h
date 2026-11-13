@@ -77,6 +77,10 @@ REXCVAR_DEFINE_STRING(wwe2k14_scenario_dir, "../../scenarios", "wwe2k14",
 
 namespace wwe2k14::scenario {
 
+// S101 lane 32: the scene director's per-frame tick (src/scene_director.h fills this at start-up; null when that header is not built in).
+// Called from the owner update hook at the end of this file, on the game thread.
+inline void (*g_director_tick)(PPCContext&, uint8_t*) = nullptr;
+
 constexpr uint32_t kMatchDescPtr = 0x836F2D88;  // word: M
 constexpr uint32_t kSettings = 0x8376AAF4;      // G (static)
 constexpr uint32_t kGameDataPtr = 0x8376AAF0;   // word: P
@@ -1708,6 +1712,7 @@ REX_HOOK_RAW(sub_82C302A0) {
   wwe2k14::scenario::SnapshotTick();
   wwe2k14::scenario::LaunchTick(ctx, base);
   wwe2k14::scenario::BuildTick(ctx, base);  // Session 91: the match builder (--wwe2k14_match / _go)
+  if (wwe2k14::scenario::g_director_tick) wwe2k14::scenario::g_director_tick(ctx, base);  // S101 lane 32: the scene director (!scene)
   wwe2k14::events::Tick(wwe2k14::scenario::Frame());  // Session 91 step 7: the event bus (--wwe2k14_events)
   wwe2k14::freeze::RunnerEnter(ctx, base);  // Session 36: the true freeze (step fields, single tasks)
   __imp__sub_82C302A0(ctx, base);

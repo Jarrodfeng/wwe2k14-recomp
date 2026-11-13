@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <cmath>
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -24,6 +26,8 @@
 #include <rex/cvar.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
+
+#include "renderer/overlay.h"  // Session 100: rdr::g_presented
 
 #include <imgui.h>
 
@@ -80,17 +84,36 @@ class Overlay final : public rex::ui::ImGuiDialog {
     }
     const double fps = second > 0.0 ? 1000.0 * in_second / second : 0.0;
     const double frame_ms = in_recent ? recent / in_recent : 0.0;
-    char line[64];
+    // Session 100 (Jarrod's phone test of the decoupled 120): with the new renderer the pictures that reach the screen each second too
+    // (the in-betweens included); the FPS and the graph stay the game's own frames.
+    static uint64_t last_presented = 0;
+    static auto last_at = std::chrono::steady_clock::now();
+    static double shown = 0.0;
+    const uint64_t presented = rdr::g_presented.load(std::memory_order_relaxed);
+    const auto now = std::chrono::steady_clock::now();
+    const double span = std::chrono::duration<double>(now - last_at).count();
+    if (span >= 0.5) {
+      shown = double(presented - last_presented) / span;
+      last_presented = presented;
+      last_at = now;
+    }
+    // Compact (Jarrod: "(N shown)" felt lengthy): "60 FPS" when the two agree, game / shown ("60/120 FPS") when they do not.
+    char rate[32];
+    if (presented && std::abs(shown - fps) > 3.0)
+      std::snprintf(rate, sizeof(rate), "%.0f/%.0f FPS", fps, shown);
+    else
+      std::snprintf(rate, sizeof(rate), "%.0f FPS", fps);
+    char line[80];
     const int tenths = d.battery_tenths.load(std::memory_order_relaxed);
 #if defined(__ANDROID__)
     if (tenths != INT_MIN) {
-      std::snprintf(line, sizeof(line), "%.0f FPS  %.1f ms  %.1f C", fps, frame_ms, tenths / 10.0);
+      std::snprintf(line, sizeof(line), "%s  %.1f ms  %.1f C", rate, frame_ms, tenths / 10.0);
     } else {
-      std::snprintf(line, sizeof(line), "%.0f FPS  %.1f ms  --.- C", fps, frame_ms);
+      std::snprintf(line, sizeof(line), "%s  %.1f ms  --.- C", rate, frame_ms);
     }
 #else
     (void)tenths;
-    std::snprintf(line, sizeof(line), "%.0f FPS  %.1f ms", fps, frame_ms);
+    std::snprintf(line, sizeof(line), "%s  %.1f ms", rate, frame_ms);
 #endif
     // Sized to the screen: the phone's 1440-row screen gets text as large as a 720p window's at its size.
     const float scale = std::max(1.0f, io.DisplaySize.y / 720.0f);

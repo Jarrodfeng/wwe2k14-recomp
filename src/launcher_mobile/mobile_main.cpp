@@ -25,6 +25,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>  // Session 101: the superstars build before PLAY
 #include <string>
 #include <vector>
 
@@ -57,12 +58,18 @@
 #include "../tron_zip.h"  // Session 98: IMPORT TRON PREVIEWS (ZIP), the PC launcher's EXPORT FOR PHONE
 #include "../importer/importer_core.h"  // Session 98: the SUPERSTARS list (LoadPack / SavePack)
 #include "../assets/id_names.h"
+#include "../music_core.h"  // Lane 286: what the phone's music player can play (shared with the game)
+#include "music_mods.h"      // Lane 286: the MUSIC group's file rules (the PC launcher's, Windows-free)
+#include "music_library.h"   // Lane 297: the song LIBRARY model (import worker, choices.txt, preview rule)
+#include "../music_sdl_player.h"  // Lane 286: the SDL audio player; the launcher's preview plays through it (lane 297)
 #include <atomic>
 #include <thread>
 
 namespace mlauncher {
 
 namespace theme = launcher::theme;
+namespace music_core = wwe2k14::music_core;
+namespace music_sdl = wwe2k14::music_sdl;
 
 #ifdef WWE2K14_VERSION
 constexpr const char* kVersion = WWE2K14_VERSION;  // android\VERSION
@@ -122,6 +129,8 @@ void SetPixels(SDL_Renderer* r, Texture& t, const std::vector<uint8_t>& rgba, in
 struct TestSteps {
   int page = -1, frames = 4, select = -1;
   bool drawer = false;  // --drawer: the sidebar open
+  bool music_busy = false;  // --music-busy: the shot does not wait for the conversion (a picture of the progress card)
+  int music_play = -1;  // --music-play N: the MUSIC library's song N drawn as playing (no sound), for the picture sheets (lane 297)
   float scroll = 0;
   std::string shot;
   float tap_x = -1, tap_y = -1;  // --tap X,Y: a touch tap there (position, down, up in one batch) at the 3rd frame
@@ -190,6 +199,8 @@ class App {
     SyncSuperstarsKey();  // Session 98 (importer review): the importer's switch, the same key
     TronsPoll();  // Session 98: a tron export running behind the launcher
     PollTronZipImport();  // Session 98 (IMPORT TRON PREVIEWS)
+    PollStars();  // Session 101: the superstars pack built before a PLAY
+    PollMusic();  // Lane 297: the song library's worker, the preview player
     // Session 93 (M6 step 2): the shader precompile has just ended and brought us back: the PLAY it was for goes on (after a
     // few frames, so the launcher is up and the platform is ready for the activity switch).
     if (resume_play_ && ++resume_frames_ > 3) {
@@ -219,8 +230,9 @@ class App {
     else SectionPage(size);
     Toast(size);
     ImGui::End();
+    MusicProgressCard(size);  // lane 297
     Drawer(size);
-    if (page_ == kHome || disk_card_) DrawCard(size);  // Session 95 (LADDER)
+    if (page_ == kHome || disk_card_ || stars_card_) DrawCard(size);  // Session 95 (LADDER); Session 101: the superstars build
     return true;
   }
 
@@ -244,6 +256,8 @@ class App {
   bool Busy() const {
     if (!test_.drawer && drawer_t_ != (drawer_open_ ? 1.f : 0.f)) return true;
     if (tronzip_ && !tronzip_->done) return true;  // Session 98: the import's progress bar moves
+    if (MusicBusy()) return true;  // Lane 297: a preview's bars move, a song converts
+    if (stars_job_) return true;  // Session 101 (review B1): the superstars build's bar moves, and its end starts the game / shows the card
     if (ImGui::GetCurrentContext()->InputEventsQueue.Size > 0) return true;
     for (int k = ImGuiKey_GamepadStart; k <= ImGuiKey_GamepadRStickDown; ++k)
       if (ImGui::IsKeyDown(ImGuiKey(k))) return true;
@@ -272,6 +286,8 @@ class App {
   void DeviceReset() {
     bg_.Reset(), logo_.Reset(), gfont_tex_.Reset();
     for (Band& b : bands_) b.tex.Reset(), b.made = false;
+    for (auto& kv : thumbs_) kv.second.Reset();
+    thumbs_.clear();
     font_tried_ = logo_tried_ = false;
   }
 
@@ -1093,7 +1109,6 @@ class App {
         [&] {
           GroupTitle("UPSCALING");
           if (Toggle("SGSR Upscaling", s_.sgsr)) Save();
-          if (Toggle("Dynamic resolution", s_.dynamic_res)) Save();
         });
     Pair(
         [&] {
@@ -1107,6 +1122,7 @@ class App {
           GroupTitle("EFFECTS");
           if (Toggle("Shadows", s_.shadows)) Save();
           if (Toggle("Depth of field", s_.depth_of_field)) Save();
+          if (Toggle("Film grain (30 Years)", s_.film_grain)) Save();  // Session 100 settings parity S3
           if (Slider("Crowd density", s_.crowd_density, 0, 100, "%d%%")) {
             s_.crowd_density = (std::clamp(s_.crowd_density, 0, 100) + 5) / 10 * 10;
             Save();
@@ -1120,9 +1136,8 @@ class App {
             if (Choice(l.name, s_.language == l.id)) s_.language = l.id, Save();
         },
         [&] {
-          // Session 90 (Jarrod): the PC launcher's Advanced TRUE NATIVE, on the phone too.
-          GroupTitle("EXPERIMENTAL");
-          if (Toggle("TRUE NATIVE", s_.true_native, "On by default. Turn it off if anything looks wrong.")) Save();
+          // Session 90 (Jarrod): the PC launcher's Advanced TRUE NATIVE, on the phone too. S101 (Jarrod, 2026-11-13: "yes hide true
+          // native"): hidden; owner mode draws everything, the setting stays on (mobile_settings.h forces it on load).
           GroupTitle("TEXTURE FILTERING");
           static constexpr const char* kFilters[] = {"STANDARD", "8X", "16X"};
           ImGui::PushID("tf");
@@ -1250,6 +1265,7 @@ class App {
     if (Button("ARENA VIEWER", game_ok_ && !TronZipRunning())) StartViewer();
     if (!game_ok_) Note("Choose your game files first.");
     SuperstarsGroup();  // Session 98 (Superstar Importer)
+    MusicGroup();  // Lane 286 (custom music on the phone)
     // Session 98 (first phone test: the viewer's VIDEOS panel said "No tron export found"): the PC launcher's Build previews, for the
     // phone. The game runs once in its tron export mode (src\tron_export.h: pictures + MP4 videos) and comes back by itself.
     GroupTitle("TRON PREVIEWS");
@@ -1424,6 +1440,7 @@ class App {
 
   void StartTronExport() {
     if (TronsBlock("BUILD TRON PREVIEWS")) return;
+    StopPreview();
     if (!game_ok_) {
       GoPage(kGameFiles);
       ShowToast("Choose your game files first");
@@ -1606,6 +1623,86 @@ class App {
   bool stars_confirm_ = false;
   std::string ModsDir() const { return U8(files_ / "mods"); }
   std::string stars_sig_;
+  // ---- Session 101 (lane 199, Jarrod: "as simple as possible to add characters"): the imported superstars before PLAY, the PC
+  // launcher's rule (launcher_main.cpp StarsBeforeStart): with USE MY SUPERSTARS on, the pack is checked against the DLC this PLAY gives
+  // the game (MakeContext / GameArgs: USE MY DLC + <files>/dlc + the switched-off packs) by the game's own rule (src\importer\
+  // pack_fit.h); when the list changed, was never built or no longer fits, it is rebuilt here first, then the game starts.
+  importer::PlayCheck stars_fit_;
+  std::string stars_fit_key_, stars_last_;
+  std::chrono::steady_clock::time_point stars_fit_at_{};
+  struct StarsJob {
+    std::atomic<int> state{1};  // 1 building, 2 done, 3 failed
+    std::atomic<float> frac{0};
+    std::mutex m;
+    std::string phase, err;
+    std::vector<std::string> moves;  // (review S5b) slot moves, said to the player
+  };
+  std::shared_ptr<StarsJob> stars_job_;
+  int stars_wm30_ = -1;
+  std::string stars_why_, stars_fail_;
+  bool stars_card_ = false, stars_skip_once_ = false, stars_without_once_ = false;
+  std::string StarsDlcDir() const {  // (MakeContext + GameArgs: the folder only when USE MY DLC is on and it exists)
+    std::error_code ec;
+    return s_.dlc && fs::is_directory(DlcDir(), ec) ? U8(DlcDir()) : std::string();
+  }
+  std::string StarsDlcOff() const { return JoinIds(ParseIds(s_.dlc_off)); }
+  // true = this PLAY waits for the build (PollStars plays when it is done)
+  bool StarsBeforePlay(int wm30) {
+    std::error_code ec;
+    if (!s_.superstars || !fs::is_directory(files_ / "mods" / "superstars", ec)) return false;  // (MakeContext: no folder = no flag)
+    const importer::PlayCheck c = importer::CheckBeforePlay(ModsDir(), StarsDlcDir(), StarsDlcOff());
+    if (!c.build) return false;
+    importer::PackState st;
+    std::string err;
+    if (!importer::LoadPack(ModsDir(), st, err)) return false;
+    Log("superstars: %s Building the pack before PLAY (%zu superstar(s))", c.why.c_str(), st.stars.size());
+    stars_wm30_ = wm30, stars_why_ = c.why, stars_fail_.clear(), stars_card_ = true;
+    auto j = stars_job_ = std::make_shared<StarsJob>();
+    const std::string mods = ModsDir(), root = read_path_, dlc = StarsDlcDir(), off = StarsDlcOff();
+    std::thread([j, st, mods, root, dlc, off] {
+      launcher::GameFiles g;
+      g.SetRoot(fs::u8path(root));
+      std::string e;
+      bool ok = false;
+      try {
+        ok = importer::BuildPack(mods, g, dlc, st, [j](float f, const char* phase) {
+          j->frac = f;
+          std::lock_guard<std::mutex> lk(j->m);
+          j->phase = phase ? phase : "";
+        }, e, off);
+      } catch (const std::exception& x) {
+        e = x.what();
+      }
+      std::vector<std::string> moves = ok ? importer::LastBuildMoves() : std::vector<std::string>();
+      std::lock_guard<std::mutex> lk(j->m);
+      j->err = e, j->moves = std::move(moves);
+      j->state = ok ? 2 : 3;
+    }).detach();  // (Busy() keeps the loop awake while it runs: review B1)
+    return true;
+  }
+  void PollStars() {  // once per frame
+    if (!stars_job_ || stars_job_->state == 1) return;
+    std::string err, moved;
+    {
+      std::lock_guard<std::mutex> lk(stars_job_->m);
+      err = stars_job_->err;
+      for (const std::string& m : stars_job_->moves) moved += (moved.empty() ? "" : " ") + m;
+    }
+    const bool ok = stars_job_->state == 2;
+    stars_job_.reset();
+    stars_sig_.clear(), stars_fit_key_.clear();
+    if (ok && !moved.empty()) Log("superstars: %s", moved.c_str()), ShowToast(moved, 10000);  // (review S5b)  // (the SUPERSTARS list and its sentence are read again)
+    if (!ok) {
+      stars_fail_ = err.empty() ? std::string("the build stopped") : err;
+      Log("superstars: the build failed: %s", stars_fail_.c_str());
+      return;  // (the card says so: PLAY WITHOUT THEM / CANCEL)
+    }
+    Log("superstars: the pack is built; PLAY goes on");
+    stars_card_ = false;
+    stars_skip_once_ = true;  // (never a second build for the same PLAY: the game's own verdict file reports anything left)
+    Play(stars_wm30_);
+    stars_skip_once_ = false;
+  }
   std::string StarsSig() const {  // <mods>/superstars: file names, sizes, times (the PC launcher's rule)
     std::string sig;
     std::error_code ec;
@@ -1632,12 +1729,25 @@ class App {
     GroupTitle("SUPERSTARS");
     Note("Community characters (.pac, or a .zip that holds them) added to the roster as new superstars (DOWNLOADED SUPERSTARS).");
     if (Toggle("USE MY SUPERSTARS", s_.superstars, s_.superstars ? "On: your pack is in the game" : "Off: the game's own roster only")) Save(false);
-    if (Button("SUPERSTAR IMPORTER", game_ok_ && !TronZipRunning())) StartViewer({"--importer"});
-    if (Button("IMPORT MANY", game_ok_ && !TronZipRunning())) StartViewer({"--importer", "--importer-bulk"});
+    const bool stars_free = !stars_job_;  // Session 101 (review S3): nothing edits the pack while a PLAY builds it
+    if (Button("IMPORT MANY", game_ok_ && !TronZipRunning() && stars_free)) StartViewer({"--importer", "--importer-bulk"});
     char head[96];
-    std::snprintf(head, sizeof head, "%zu of up to %d superstars%s", stars_.stars.size(), importer::kMaxStars,
-                  stars_.needs_build ? "  -  changed: open the importer and BUILD INTO GAME" : "");
+    std::snprintf(head, sizeof head, "%zu of up to %d superstars", stars_.stars.size(), importer::kMaxStars);
     Note(head);
+    // Session 101 (lane 199): whether they are in the game, and the one thing to do when not (the PC launcher's sentences)
+    if (now - stars_fit_at_ > std::chrono::seconds(2)) {
+      stars_fit_at_ = now;
+      const std::string key = stars_sig_ + "|" + StarsDlcDir() + "|" + StarsDlcOff();
+      if (key != stars_fit_key_) {
+        stars_fit_key_ = key;
+        stars_fit_ = importer::CheckBeforePlay(ModsDir(), StarsDlcDir(), StarsDlcOff());
+        stars_last_ = stars_fit_.build ? std::string() : importer::LastGameProblem(ModsDir());
+      }
+    }
+    if (!stars_.stars.empty() && !s_.superstars) Note("USE MY SUPERSTARS is off: switch it on to put them in the game.");
+    else if (!stars_.stars.empty() && stars_fit_.build) Note((stars_fit_.why + " PLAY builds them into the game first.").c_str());
+    else if (!stars_.stars.empty() && !stars_last_.empty()) Note((stars_last_ + " Share a report if it happens again.").c_str());
+    else if (!stars_fit_.why.empty()) Note((stars_fit_.why + (stars_fit_.build && s_.superstars ? " PLAY takes it out first." : "")).c_str());
     for (int i = 0; i < int(stars_.stars.size()); ++i) {
       const importer::Superstar& x = stars_.stars[size_t(i)];
       char label[160], note[160];
@@ -1647,12 +1757,12 @@ class App {
       if (Choice(label, stars_sel_ == i, note)) stars_sel_ = stars_sel_ == i ? -1 : i;
       ImGui::PopID();
       if (stars_sel_ == i) {
-        if (Button("EDIT IN THE IMPORTER", game_ok_)) StartViewer({"--importer", "--importer-edit", std::to_string(x.slot)});
+        if (Button("EDIT IN THE IMPORTER", game_ok_ && stars_free)) StartViewer({"--importer", "--importer-edit", std::to_string(x.slot)});
         if (!stars_confirm_) {
-          if (Button("REMOVE FROM THE PACK")) stars_confirm_ = true;
+          if (Button("REMOVE FROM THE PACK", stars_free)) stars_confirm_ = true;
         } else {
           Note("Remove him from the pack? Build the pack again in the importer to take him out of the game.");
-          if (Button("YES, REMOVE")) {
+          if (Button("YES, REMOVE", stars_free)) {
             importer::PackState st;
             std::string err;
             // (importer review: by slot, read fresh - the importer may have changed the list since)
@@ -1673,8 +1783,544 @@ class App {
     }
     if (!stars_err_.empty()) Note(stars_err_.c_str());
   }
+  // ------------------------------------------------------------ Lane 286 (Jarrod, 2026-11-13: "custom music should come to Android as
+  // well"): the PC launcher's MUSIC tab for the phone. USE MY MUSIC; NEW SONGS (extra entries at the end of the game's MUSIC list in
+  // Create-an-Entrance: ADD SONGS through Android's file picker, RENAME in a text box, REMOVE); WRESTLERS' THEMES (replace one wrestler's
+  // own theme with a NEW SONG or a picked file). The files and rules are the PC's (music_mods.h).
+  //
+  // Lane 297 (Jarrod: "clean and functional", the PC launcher's look): the LIBRARY, <mods>/music/library/, the same folder and
+  // choices.txt as the in-game picker. A row per song: the album art (or a record drawn in code) with a PLAY button over it, title /
+  // artist / duration, loudness and the gain the importer applied. Every song goes through src\audio_import (decode, normalise to the
+  // game's loudness, tags + art): a file it refuses is refused with its sentence and nothing is added. The work runs on the model's
+  // worker thread (music_library.h); a row says "converting..." until it has answered. The preview plays the normalised copy through
+  // the SDL player of lane 286 (src\music_sdl_player.h) and starts ONLY from the play button, never on hover / focus.
+  fs::path MusicMods() const { return files_ / "mods"; }
+  std::vector<music::NewSong> songs_;
+  std::vector<char> songs_work_;  // 1 = not converted yet (queued once)
+  std::vector<char> songs_ready_;  // 1 = the importer has converted it (the game plays the cache copy)
+  std::chrono::steady_clock::time_point songs_checked_{};
+  int song_sel_ = -1;  // a NEW SONG's id
+  bool song_confirm_ = false, themes_open_ = false;
+  int theme_sel_ = -1;  // a character id
+  // lane 297
+  std::unique_ptr<musiclib::Library> mlib_;
+  musiclib::PreviewState preview_;
+  // (heap, never deleted: its worker thread is detached and holds 	his; a destructor could run under it at exit)
+  music_sdl::Player* preview_player_ = new music_sdl::Player([] { return 0.85f; });
+  int preview_seq_ = 0;  // the id of the preview that was last started (the player says which id it plays)
+  bool preview_seen_ = false;
+  uint64_t preview_started_ms_ = 0;
+  std::string lib_sel_;
+  bool lib_confirm_ = false;
+  std::map<std::string, Texture> thumbs_;  // album art by thumbnail path (a null texture = unreadable, not retried)
+  int thumb_loads_ = 0;
+  bool test_played_ = false;
+  int last_pending_ = 0;
+  bool lib_started_ = false;  // the launcher-start conversion of songs with no current cache copy has been queued
+  std::set<std::string> check_queued_;
+  std::chrono::steady_clock::time_point lib_checked_{};
+
+  musiclib::Library& Lib() {
+    if (!mlib_) mlib_ = std::make_unique<musiclib::Library>(MusicMods());
+    return *mlib_;
+  }
+  bool MusicHasContent() const {
+    std::error_code ec;
+    for (const fs::path& dir : {music::NewSongsDir(MusicMods()), musiclib::LibraryDir(MusicMods())})
+      for (const auto& e : fs::directory_iterator(dir, ec))
+        if (e.is_regular_file(ec) && music::IsSongFile(e.path())) return true;
+    return music::HasAnyTheme(MusicMods());
+  }
+  void RefreshSongs(bool force = false) {
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && songs_checked_.time_since_epoch().count() != 0 && now - songs_checked_ < std::chrono::seconds(2)) return;
+    songs_checked_ = now;
+    songs_ = music::ReadNewSongs(MusicMods());
+    songs_ready_.assign(songs_.size(), 0);
+    songs_work_.assign(songs_.size(), 0);
+    for (size_t i = 0; i < songs_.size(); ++i)
+      if (songs_[i].present)
+      {
+        const audio_import::Imported l = audio_import::Lookup(music::NewSongsDir(MusicMods()) / fs::u8path(songs_[i].file), musiclib::CacheDir(MusicMods()));
+        songs_ready_[i] = l.ok;
+        songs_work_[i] = !l.ok && l.err.empty();  // refused songs are not work: the importer has said no
+      }
+    // a new song with no current cache copy (cache version bump, dropped in by hand) converts NOW with the progress card, not in the game
+    {
+      std::vector<fs::path> todo;
+      for (size_t i = 0; i < songs_.size(); ++i)
+        if (songs_[i].present && songs_work_[i] && check_queued_.insert(songs_[i].file).second)
+          todo.push_back(music::NewSongsDir(MusicMods()) / fs::u8path(songs_[i].file));
+      if (!todo.empty()) Lib().Check(std::move(todo));
+    }
+    if (song_sel_ >= 0 && std::none_of(songs_.begin(), songs_.end(), [&](const music::NewSong& s) { return s.present && s.id == song_sel_; }))
+      song_sel_ = -1, song_confirm_ = false;
+  }
+  void RefreshLibrary(bool force = false) {
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && lib_checked_.time_since_epoch().count() != 0 && now - lib_checked_ < std::chrono::milliseconds(700)) return;
+    lib_checked_ = now;
+    Lib().Refresh();
+  }
+
+  // ---- every frame: what the worker has to say, the preview's state, the album-art budget
+  void PollMusic() {
+    thumb_loads_ = 0;
+    if (thumbs_.size() > 300) {  // before anything is drawn this frame: a texture is never destroyed under the draw list
+      for (auto& kv : thumbs_) kv.second.Reset();
+      thumbs_.clear();
+    }
+    if (!lib_started_ && !files_.empty() && s_.music && test_.page < 0) {  // launcher start: convert what has no current cache copy, before PLAY
+      lib_started_ = true;
+      RefreshLibrary(true);
+      RefreshSongs(true);
+    }
+    if (mlib_) {
+      const int pend = mlib_->Pending();  // a song finished: list it again at once
+      if (pend != last_pending_) last_pending_ = pend, lib_checked_ = {};
+      for (const musiclib::Message& m : mlib_->TakeMessages()) {
+        Log("music: %s", m.text.c_str());
+        ShowToast(m.text, 6000);
+        if (m.ok && !s_.music) s_.music = true, Save(false), ShowToast(m.text + ". USE MY MUSIC is now on.", 6000);
+        lib_checked_ = {}, songs_checked_ = {};
+      }
+    }
+    if (test_.music_play >= 0) {  // the PC picture sheets: song N drawn as playing, no sound
+      if (!test_played_ && mlib_ && mlib_->Pending() == 0) {
+        const auto v = mlib_->Entries();
+        if (size_t(test_.music_play) < v.size() && v[size_t(test_.music_play)].state == musiclib::State::kReady)
+          preview_.OnPlayButton(v[size_t(test_.music_play)].file), test_played_ = true;
+      }
+      return;
+    }
+    if (!preview_.playing().empty()) {
+      const int now_playing = preview_player_->Playing();
+      if (now_playing == preview_seq_) preview_seen_ = true;
+      else if (preview_seen_) preview_.OnEnded(), preview_seen_ = false;  // the song finished
+      else if (SDL_GetTicks() - preview_started_ms_ > 3000) {              // it never started
+        const std::string why = preview_player_->LastError();
+        preview_.OnEnded();
+        ShowToast(why.empty() ? "That song could not be played" : why, 5000);
+      }
+    }
+    if (page_ != kMods && !preview_.playing().empty()) StopPreview();  // (the sidebar and the other pages are silent)
+  }
+  // The PC test's shot waits until the library has answered (the worker thread is slower than the shot's few frames).
+ public:
+  void OnBackground() { StopPreview(); }  // the app went to the background (lane 297)
+  bool TestHold() const { return !test_.music_busy && mlib_ && mlib_->Pending() > 0; }
+  bool MusicBusy() const { return !preview_.playing().empty() || (mlib_ && mlib_->Pending() > 0); }
+ private:
+  // The conversion card: "Converting songs: song 2 of 5", the song's name, a bar, CANCEL. On every page while the worker has work, so
+  // ADD A SONG / PICK A FILE / GIVE HIM and the launcher-start conversion all show the same thing (and PLAY waits for it).
+  void MusicProgressCard(ImVec2 size) {
+    if (!mlib_) return;
+    musiclib::Library::Progress pr = mlib_->Snapshot();
+    if (test_.music_busy) {  // the PC picture sheet: a made-up state (song 3 of 5, 40 %), the conversion itself is too quick to catch
+      pr.active = true, pr.done = 2, pr.total = 5, pr.name = "Kingdom (Entrance Remix).m4a", pr.stage = "normalising", pr.frac = 0.4f;
+    }
+    if (!pr.active) return;
+    const float w = std::min(size.x - D(32), D(540));
+    ImGui::SetNextWindowPos(ImVec2(size.x / 2, safe_max_.y - D(16)), ImGuiCond_Always, ImVec2(0.5f, 1.f));
+    ImGui::SetNextWindowSize(ImVec2(w, 0));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.04f, 0.05f, 0.97f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.84f, 0.09f, 0.12f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, D(1.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, D(6));
+    ImGui::Begin("##musicprog", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+    char head[96];
+    std::snprintf(head, sizeof head, "Converting songs: song %d of %d", std::min(pr.done + 1, std::max(pr.total, 1)), std::max(pr.total, 1));
+    ImGui::TextUnformatted(head);
+    ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+    ImGui::TextUnformatted(pr.name.empty() ? "..." : pr.name.c_str());
+    ImGui::PopStyleColor();
+    const ImVec2 b0 = ImGui::GetCursorScreenPos();
+    const float bw = ImGui::GetContentRegionAvail().x, bh = D(10);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(b0, ImVec2(b0.x + bw, b0.y + bh), IM_COL32(48, 49, 56, 255), D(5));
+    const float seg = pr.total > 0 ? bw / float(pr.total) : bw;
+    dl->AddRectFilled(b0, ImVec2(b0.x + seg * float(pr.done), b0.y + bh), kMenuRed, D(5));
+    // the song in progress: its fraction when the importer reports one, else a pulse (it has not said how far it is)
+    const float cur = pr.frac >= 0 ? pr.frac : 1.f;
+    const int pulse = pr.frac >= 0 ? 255 : int(150 + 90 * std::sin(double(SDL_GetTicks()) / 220.0));
+    dl->AddRectFilled(ImVec2(b0.x + seg * float(pr.done), b0.y), ImVec2(b0.x + seg * (float(pr.done) + cur), b0.y + bh), IM_COL32(235, 70, 70, pulse), D(5));
+    ImGui::Dummy(ImVec2(0, bh + D(4)));
+    if (!pr.stage.empty()) {
+      ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+      ImGui::Text("%s%s", pr.stage.c_str(), pr.frac >= 0 ? (" " + std::to_string(int(pr.frac * 100)) + "%").c_str() : "...");
+      ImGui::PopStyleColor();
+    }
+    if (ImGui::Button("CANCEL", ImVec2(D(130), D(44))) && !drag_cancelled_) mlib_->Cancel();
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+  }
+  bool MusicBlocked() const { return test_.music_busy || (mlib_ && mlib_->Busy()); }
+
+  void StopPreview() {
+    ApplyPreview(preview_.OnLeave(), nullptr);
+  }
+  void ApplyPreview(const musiclib::PreviewState::Act& a, const musiclib::Entry* e) {
+    using Do = musiclib::PreviewState::Do;
+    if (a.what == Do::kStart && e && e->state == musiclib::State::kReady) {
+      preview_player_->Post(++preview_seq_, e->meta.audio);
+      preview_seen_ = false, preview_started_ms_ = SDL_GetTicks();
+      Log("music: preview %s", e->file.c_str());
+    } else if (a.what == Do::kStop) {
+      preview_player_->Post(-1, {});
+      preview_seen_ = false;
+    }
+  }
+
+  // ---- album art: the importer's 256x256 PNG as a texture (two a frame, so a long list opens smoothly)
+  const Texture* Thumb(const fs::path& png) {
+    const std::string key = U8(png);
+    auto it = thumbs_.find(key);
+    if (it != thumbs_.end()) return it->second.tex ? &it->second : nullptr;
+    if (thumb_loads_ >= 2) return nullptr;
+    ++thumb_loads_;
+    Texture t;
+    std::ifstream in(png, std::ios::binary);
+    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    int w = 0, h = 0, n = 0;
+    if (!bytes.empty())
+      if (unsigned char* px = stbi_load_from_memory(bytes.data(), int(bytes.size()), &w, &h, &n, 4)) {
+        t = MakeTexture(renderer_, std::vector<uint8_t>(px, px + size_t(w) * size_t(h) * 4), w, h);
+        stbi_image_free(px);
+      }
+    Texture& slot = thumbs_[key];
+    slot = t;
+    return slot.tex ? &slot : nullptr;
+  }
+  // No art: a generic record drawn in code (black disc, grooves, a red label), the PC launcher's.
+  void DrawRecord(ImDrawList* dl, ImVec2 a, float size, bool dim) {
+    const ImVec2 c(a.x + size / 2, a.y + size / 2);
+    const float r = size / 2;
+    const int al = dim ? 150 : 255;
+    dl->AddRectFilled(a, ImVec2(a.x + size, a.y + size), IM_COL32(36, 36, 44, 255), D(4));
+    dl->AddCircleFilled(c, r * 0.9f, IM_COL32(14, 14, 18, 255), 40);
+    for (float g = 0.45f; g < 0.88f; g += 0.12f) dl->AddCircle(c, r * g, IM_COL32(48, 48, 58, 255), 40, 1.0f);
+    dl->AddCircleFilled(c, r * 0.30f, IM_COL32(176, 52, 52, al), 24);
+    dl->AddCircleFilled(c, r * 0.06f, IM_COL32(20, 20, 24, 255), 12);
+  }
+  // The play button over a thumbnail: a dark disc with a white triangle; red with a white square while it plays.
+  void DrawPlayButton(ImDrawList* dl, ImVec2 c, float r, bool playing, bool held) {
+    dl->AddCircleFilled(c, r, playing ? kMenuRed : IM_COL32(0, 0, 0, held ? 235 : 170), 28);
+    dl->AddCircle(c, r, IM_COL32(255, 255, 255, 200), 28, D(1.5f));
+    if (playing) {
+      const float s = r * 0.42f;
+      dl->AddRectFilled(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), IM_COL32_WHITE, D(1.5f));
+    } else {
+      const float s = r * 0.46f;
+      dl->AddTriangleFilled(ImVec2(c.x - s * 0.7f, c.y - s * 1.05f), ImVec2(c.x - s * 0.7f, c.y + s * 1.05f), ImVec2(c.x + s * 1.15f, c.y),
+                            IM_COL32_WHITE);
+    }
+  }
+  void DrawEqualiser(ImDrawList* dl, ImVec2 a, float w, float h) {
+    const double t = double(SDL_GetTicks()) / 1000.0;
+    const float bw = w / 5.f;
+    for (int i = 0; i < 3; ++i) {
+      const float k = 0.3f + 0.7f * float(0.5 + 0.5 * std::sin(t * (5.0 + 2.3 * i) + i * 1.7));
+      dl->AddRectFilled(ImVec2(a.x + i * 2 * bw, a.y + h * (1 - k)), ImVec2(a.x + i * 2 * bw + bw, a.y + h), kMenuRed);
+    }
+  }
+  static std::string Dots(uint64_t ms) { return std::string(size_t(1 + (ms / 350) % 3), '.'); }
+
+  // One library song. Tap the picture: play / stop its preview. Tap the rest of the row: its actions (USE THIS SONG, REMOVE).
+  void LibraryRow(const musiclib::Entry& e) {
+    using musiclib::State;
+    ImGui::PushID(e.file.c_str());
+    const float h = D(88), thumb = D(68), zone = D(88);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const bool ready = e.state == State::kReady, sel = lib_sel_ == e.file, playing = preview_.playing() == e.file;
+    ImGui::SetCursorScreenPos(p);
+    const bool can_play = e.previewable();
+    const bool play_tap = ImGui::InvisibleButton("##play", ImVec2(zone, h)) && !drag_cancelled_ && can_play;
+    const bool play_held = ImGui::IsItemActive() && !dragging_ && can_play;
+    ImGui::SetCursorScreenPos(ImVec2(p.x + zone, p.y));
+    const bool body_tap = ImGui::InvisibleButton("##body", ImVec2(std::max(D(40), w - zone), h)) && !drag_cancelled_;
+    const bool body_held = ImGui::IsItemActive() && !dragging_;
+    const bool body_focus = ImGui::IsItemFocused();
+    // The rule: hovering or focusing a row (pointer, keyboard, pad) NEVER plays anything; only the play button does.
+    if (ImGui::IsItemHovered() || body_focus) ApplyPreview(preview_.OnRowFocus(e.file), &e);
+    if (play_tap) ApplyPreview(preview_.OnPlayButton(e.file), &e);
+    if (body_tap) lib_sel_ = sel ? std::string() : e.file, lib_confirm_ = false;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 bg = body_held ? IM_COL32(120, 16, 22, 255) : sel ? IM_COL32(32, 8, 10, 235) : IM_COL32(30, 31, 37, 215);
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), bg, D(3));
+    if (e.current && ready) dl->AddRectFilled(p, ImVec2(p.x + D(5), p.y + h), kMenuRed, D(3), ImDrawFlags_RoundCornersLeft);
+    if (body_focus) dl->AddRect(p, ImVec2(p.x + w, p.y + h), IM_COL32(255, 255, 255, 160), D(3), 0, D(1.5f));
+    // picture
+    const ImVec2 ta(p.x + D(12), p.y + (h - thumb) / 2);
+    const Texture* art = e.has_art() ? Thumb(e.meta.thumb) : nullptr;
+    if (art) {
+      dl->AddImage(art->Ref(), ta, ImVec2(ta.x + thumb, ta.y + thumb));
+      if (!ready) dl->AddRectFilled(ta, ImVec2(ta.x + thumb, ta.y + thumb), IM_COL32(0, 0, 0, 130));
+    } else DrawRecord(dl, ta, thumb, !ready);
+    const ImVec2 tc(ta.x + thumb / 2, ta.y + thumb / 2);
+    if (can_play) DrawPlayButton(dl, tc, D(19), playing, play_held);
+    else if (e.state == State::kRefused) {  // a red cross: this song cannot be played
+      const float s = D(11);
+      dl->AddCircleFilled(tc, D(19), IM_COL32(0, 0, 0, 190), 28);
+      dl->AddLine(ImVec2(tc.x - s * .6f, tc.y - s * .6f), ImVec2(tc.x + s * .6f, tc.y + s * .6f), IM_COL32(255, 110, 90, 255), D(2.5f));
+      dl->AddLine(ImVec2(tc.x - s * .6f, tc.y + s * .6f), ImVec2(tc.x + s * .6f, tc.y - s * .6f), IM_COL32(255, 110, 90, 255), D(2.5f));
+    } else {  // converting: a turning arc
+      const float a0 = float(SDL_GetTicks() % 1200) / 1200.f * 6.2832f;
+      dl->PathArcTo(tc, D(13), a0, a0 + 4.2f, 20);
+      dl->PathStroke(IM_COL32(255, 255, 255, 230), 0, D(3));
+    }
+    // text
+    const float tx = p.x + zone + D(12), tw = std::max(D(40), w - zone - D(12) - D(12));
+    dl->PushClipRect(ImVec2(tx, p.y), ImVec2(tx + tw, p.y + h), true);
+    const float line = ImGui::GetTextLineHeight();
+    const ImU32 dim = ImGui::GetColorU32(kDim);
+    ImFont* font = ImGui::GetFont();
+    const float fs1 = ImGui::GetFontSize();
+    float y = p.y + D(11);
+    dl->AddText(font, fs1, ImVec2(tx, y), IM_COL32_WHITE, e.title().c_str());
+    y += line + D(2);
+    if (ready) {
+      std::string by = musiclib::ByLine(e.meta);
+      by += (by.empty() ? "" : "   ") + musiclib::FormatTime(e.meta.seconds);
+      dl->AddText(font, fs1 * 0.86f, ImVec2(tx, y), dim, by.c_str());
+      y += line * 0.86f + D(5);
+      float x = tx;
+      if (e.current && ready) {
+        const char* tag = "CURRENT";
+        const ImVec2 ts = font->CalcTextSizeA(fs1 * 0.66f, FLT_MAX, 0, tag);
+        dl->AddRectFilled(ImVec2(x, y - D(1)), ImVec2(x + ts.x + D(12), y + ts.y + D(3)), kMenuRed, D(8));
+        dl->AddText(font, fs1 * 0.66f, ImVec2(x + D(6), y + D(1)), IM_COL32_WHITE, tag);
+        x += ts.x + D(20);
+      }
+      const std::string num = musiclib::LoudnessText(e.meta) + "  " + musiclib::GainText(e.meta);
+      dl->AddText(font, fs1 * 0.72f, ImVec2(x, y + D(1)), dim, (can_play ? num : std::string("plays as it is (no preview)")).c_str());
+    } else if (e.state == State::kConverting) {
+      dl->AddText(font, fs1 * 0.86f, ImVec2(tx, y), dim, ("converting" + Dots(SDL_GetTicks())).c_str());
+    } else {
+      dl->PopClipRect();  // (a refusal can be a sentence: it wraps instead of being cut)
+      dl->PushClipRect(ImVec2(tx, p.y), ImVec2(tx + tw, p.y + h), true);
+      dl->AddText(font, fs1 * 0.78f, ImVec2(tx, y), IM_COL32(255, 140, 115, 255), e.meta.err.c_str(), nullptr, tw);
+    }
+    dl->PopClipRect();
+    if (playing) DrawEqualiser(dl, ImVec2(p.x + w - D(30), p.y + h - D(34)), D(18), D(22));
+    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
+    ImGui::Dummy(ImVec2(0, D(4)));
+    ImGui::PopID();
+    if (!sel) return;
+    // the row's actions (their own ID scope: the NEW SONGS rows have buttons of the same names)
+    ImGui::PushID(e.file.c_str());
+    ImGui::PushID("actions");
+    const std::string shown = e.title();
+    if (ready && Button("USE THIS SONG AT MY ENTRANCES", !e.current)) {
+      const std::string err = Lib().SetCurrent(e.file);
+      Log("music: current song '%s': %s", e.file.c_str(), err.empty() ? "ok" : err.c_str());
+      ShowToast(err.empty() ? "Entrances now play: " + shown : "Not changed: " + err);
+      lib_checked_ = {};
+      if (err.empty() && !s_.music) s_.music = true, Save(false);
+    }
+    if (!lib_confirm_) {
+      if (Button("REMOVE FROM THE LIBRARY")) lib_confirm_ = true;
+    } else {
+      Note("Remove it? Your copy is deleted; the original file stays where it was.");
+      if (Button("YES, REMOVE")) {
+        ApplyPreview(preview_.OnRemoved(e.file), &e);
+        const std::string err = Lib().Remove(e.file);
+        Log("music: remove '%s': %s", e.file.c_str(), err.empty() ? "ok" : err.c_str());
+        ShowToast(err.empty() ? "Removed: " + shown : "Not removed: " + err);
+        lib_sel_.clear(), lib_confirm_ = false, lib_checked_ = {};
+        RefreshLibrary(true);
+      }
+      if (Button("CANCEL")) lib_confirm_ = false;
+    }
+    ImGui::PopID();
+    ImGui::PopID();
+  }
+
+  // GIVE HIM: the copy of the song to <mods>/music/<id>.<ext> runs on the worker (a song is megabytes), then the theme file is
+  // converted with the card (a cache hit for a song that is already converted).
+  void GiveTheme(int id, const std::string& who, const fs::path& src, const std::string& what) {
+    const fs::path mods = MusicMods();
+    std::string ext = U8(src.extension());
+    for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+    Lib().Task(
+        [mods, id, who, src, what] {
+          const std::string err = music::AssignTheme(mods, id, src);
+          if (!err.empty()) return musiclib::Message{false, "Not given: " + err};
+          return musiclib::Message{true, who + " now enters to " + what};
+        },
+        music::MusicDir(mods) / fs::u8path(std::to_string(id) + ext));  // converted afterwards (AssignTheme names the copy <id><ext>)
+  }
+  void MusicEvent(const platform::Event& e) {
+    using E = platform::Event;
+    if (e.kind == E::kSongsAdded) {
+      // e.b = what the picker was for: "@library" / "@new" (several files, the staging folder), or a character id (one theme file, in place)
+      Log("music: file(s) picked (%s): %s", e.b.c_str(), e.a.c_str());
+      if (!e.ok) {  // nothing was copied: the reason is the message (full phone, not a song file ...)
+        ShowToast(e.a.empty() ? "No song was added" : e.a, 6000);
+        return;
+      }
+      musiclib::Library& lib = Lib();
+      if (!e.b.empty() && e.b[0] != '@') {  // a wrestler's own theme: the picker put <id>.<ext> in place; the importer checks it
+        // lane 297b: the pick waits in the theme staging folder; the library installs it (and drops the earlier theme) only after it converts
+        std::error_code sec;
+        for (const auto& f : fs::directory_iterator(musiclib::StagingDir(MusicMods(), "theme"), sec))
+          if (f.is_regular_file(sec) && musiclib::U8(f.path().stem()) == e.b && audio_import::IsSupportedExt(f.path())) {
+            lib.InstallTheme(f.path(), e.b);
+            break;
+          }
+      } else if (e.b == "@new") {
+        lib.ImportIncoming(music::NewSongsDir(MusicMods()));
+      } else {
+        lib.ImportIncoming();
+      }
+      ShowToast(e.a, 4000);  // "2 song(s) added, 1 not a song file"; the card shows the conversion
+      lib_checked_ = {}, songs_checked_ = {};
+    } else if (e.kind == E::kTextEntered && e.ok && e.b.rfind("rename:", 0) == 0) {
+      const int id = std::atoi(e.b.c_str() + 7);
+      const std::string err = music::RenameNewSong(MusicMods(), id, e.a);
+      Log("music: rename %d -> '%s': %s", id, e.a.c_str(), err.empty() ? "ok" : err.c_str());
+      if (!err.empty()) ShowToast("Not renamed: " + err, 5000);
+      RefreshSongs(true);
+    }
+  }
+
+  void MusicGroup() {
+    RefreshSongs();
+    RefreshLibrary();
+    musiclib::Library& lib = Lib();
+    const fs::path mods = MusicMods();
+    GroupTitle("MUSIC");
+    Note("Your own songs at the entrances. Keep them in the LIBRARY below; every song is converted to the loudness of the game's own "
+         "music. Or give a song to one wrestler further down to replace his own theme.");
+    if (Toggle("USE MY MUSIC", s_.music, s_.music ? "On: your songs are in the game" : "Off: the game's own music only")) Save(false);
+    // ---- LIBRARY
+    GroupTitle("LIBRARY");
+    Note("Tap the picture of a song to hear it. Tap the rest of a row to use it at the entrances or remove it. The red-edged song is "
+         "the one the game plays.");
+    if (Button("ADD A SONG", !TronZipRunning() && !MusicBlocked())) {
+      platform::PickAudio(musiclib::StagingDir(mods, "library"), "@library");
+    }
+    Note("MP3, M4A, OGG, OPUS, FLAC, WAV, AAC or WMA. Your copy goes into the app's folder; the original stays where it was. A file that "
+         "is not playable audio is turned away with the reason.");
+    const std::vector<musiclib::Entry> songs = lib.Entries();
+    if (lib.Importing() > 0) {
+      char b[96];
+      std::snprintf(b, sizeof b, "Adding %d song(s)%s", lib.Importing(), Dots(SDL_GetTicks()).c_str());
+      ImGui::TextColored(kBad, "%s", b);
+    }
+    for (const musiclib::Entry& e : songs) {
+      // (rows far outside the screen are only space: no texture is read for them)
+      const float row_h = D(92);
+      const ImVec2 cp = ImGui::GetCursorScreenPos();
+      if (!ImGui::IsRectVisible(cp, ImVec2(cp.x + 10, cp.y + row_h))) {
+        ImGui::Dummy(ImVec2(1, row_h));
+        continue;
+      }
+      LibraryRow(e);
+    }
+    {
+      int ready = 0, bad = 0;
+      for (const musiclib::Entry& e : songs) ready += e.state == musiclib::State::kReady, bad += e.state == musiclib::State::kRefused;
+      char head[160];
+      if (songs.empty()) std::snprintf(head, sizeof head, "No songs yet: ADD A SONG.");
+      else std::snprintf(head, sizeof head, "%d song(s) in the library%s.", int(songs.size()), bad ? ", some cannot be played (remove them)" : "");
+      (void)ready;
+      Note(head);
+    }
+    // ---- NEW SONGS (the game's MUSIC list)
+    GroupTitle("NEW SONGS IN THE MUSIC LIST");
+    Note("Extra entries at the end of Create-an-Entrance's MUSIC list (the game's own menu is the picker). A wrestler keeps the one you "
+         "gave him.");
+    if (Button("ADD SONGS", !TronZipRunning() && !MusicBlocked())) {
+      platform::PickAudio(musiclib::StagingDir(mods, "new"), "@new");
+    }
+    // ---- NEW SONGS
+    int shown = 0, waiting = 0;
+    for (size_t i = 0; i < songs_.size(); ++i) {
+      const music::NewSong& sg = songs_[i];
+      if (!sg.present) continue;
+      ++shown;
+      const bool ready = songs_ready_[i] != 0;
+      waiting += ready ? 0 : 1;
+      char note[160];
+      std::snprintf(note, sizeof note, "%s  -  id %d  -  %s", sg.file.c_str(), sg.id, ready ? "ready" : "waiting to be converted");
+      ImGui::PushID(sg.id);
+      if (Choice(sg.name.c_str(), song_sel_ == sg.id, note)) song_sel_ = song_sel_ == sg.id ? -1 : sg.id, song_confirm_ = false;
+      ImGui::PopID();
+      if (song_sel_ == sg.id) {
+        ImGui::PushID(sg.id);
+        ImGui::PushID("newsong");
+        if (Button("RENAME")) platform::PromptText("Name in the game's MUSIC list", sg.name, "rename:" + std::to_string(sg.id));
+        if (!song_confirm_) {
+          if (Button("REMOVE THIS SONG")) song_confirm_ = true;
+        } else {
+          Note("Remove it? A wrestler who has it will have no entrance music until you pick another.");
+          if (Button("YES, REMOVE")) {
+            const std::string err = music::RemoveNewSong(mods, sg.file);
+            Log("music: remove '%s': %s", sg.file.c_str(), err.empty() ? "ok" : err.c_str());
+            ShowToast(err.empty() ? "Removed: " + sg.file : "Not removed: " + err);
+            song_sel_ = -1, song_confirm_ = false;
+            RefreshSongs(true);
+            ImGui::PopID();
+            ImGui::PopID();
+            break;  // (the list changed under the loop)
+          }
+          if (Button("CANCEL")) song_confirm_ = false;
+        }
+        ImGui::PopID();
+        ImGui::PopID();
+      }
+    }
+    char head[128];
+    std::snprintf(head, sizeof head, shown ? "%d new song(s)." : "No new songs yet: ADD SONGS.", shown);
+    Note(head);
+    if (waiting) Note("A song marked \"waiting to be converted\" is converted by this launcher (the bar at the bottom); the game never converts.");
+    // ---- WRESTLERS' THEMES
+    GroupTitle("WRESTLERS' THEMES");
+    Note("Replace one wrestler's own theme: yours plays at his entrance instead. Needs USE MY MUSIC on. Not heard in replays.");
+    if (Button(themes_open_ ? "HIDE THE WRESTLERS" : "SHOW THE WRESTLERS")) themes_open_ = !themes_open_;
+    if (!themes_open_) return;
+    for (const assets::IdName& c : assets::kCharacterNames) {
+      if (!*c.name) continue;
+      const fs::path th = music::ThemeFor(mods, c.id);
+      const std::string note = th.empty() ? std::string("original theme") : "yours: " + U8(th.filename());
+      ImGui::PushID(c.id);
+      if (Choice(c.name, theme_sel_ == c.id, note.c_str())) theme_sel_ = theme_sel_ == c.id ? -1 : c.id;
+      ImGui::PopID();
+      if (theme_sel_ != c.id) continue;
+      // a song from the LIBRARY, else one of the NEW SONGS
+      for (const musiclib::Entry& e : songs) {
+        if (e.state != musiclib::State::kReady) continue;
+        ImGui::PushID(e.file.c_str());
+        if (Choice(("GIVE HIM  " + e.title()).c_str(), false)) {
+          GiveTheme(c.id, c.name, e.path, e.title());
+        }
+        ImGui::PopID();
+      }
+      for (const music::NewSong& sg : songs_) {
+        if (!sg.present) continue;
+        ImGui::PushID(sg.id);
+        if (Choice(("GIVE HIM  " + sg.name).c_str(), false)) {
+          GiveTheme(c.id, c.name, music::NewSongsDir(mods) / fs::u8path(sg.file), sg.name);
+        }
+        ImGui::PopID();
+      }
+      if (Button("PICK A FILE...", !MusicBlocked())) {
+        platform::PickAudio(musiclib::StagingDir(mods, "theme"), std::to_string(c.id));
+      }
+      if (Button("ORIGINAL MUSIC", !th.empty())) {
+        music::RevertTheme(mods, c.id);
+        Log("music: theme of %d back to the original", c.id);
+        ShowToast(std::string(c.name) + ": the original theme");
+      }
+    }
+  }
   void StartViewer(const std::vector<std::string>& more = {}) {
     if (TronsBlock(more.empty() ? "The Arena Viewer" : "The Superstar Importer")) return;  // Session 98
+    StopPreview();  // lane 297: a song heard in the library does not play on into the viewer
     std::vector<std::string> args = {"--game", address_.rfind("content://", 0) == 0 ? std::string(kGameFdToken) : read_path_};
     for (const std::string& m : more) args.push_back(m);
     if (!more.empty()) {  // Session 98 (Superstar Importer): its pack in <files>/mods, its switch in this launcher's settings file
@@ -2134,6 +2780,7 @@ class App {
     std::error_code ec;
     if (fs::is_directory(DlcDir(), ec)) c.dlc_dir = U8(DlcDir());
     if (fs::is_directory(files_ / "mods" / "superstars", ec)) c.mods_dir = U8(files_ / "mods");  // Session 98 (Superstar Importer)
+    if (s_.music && MusicHasContent()) c.music_dir = U8(files_ / "mods"), c.music_themes = music::HasAnyTheme(files_ / "mods");  // Lane 286
     platform::ScreenSize(c.screen_w, c.screen_h);
     c.wm30 = wm30;
     c.rung = rung_.rung;  // Session 95 (LADDER)
@@ -2506,6 +3153,11 @@ class App {
   uint32_t diag_next_at_ = 0;
 
   void Play(int wm30 = -1) {
+    if (mlib_ && mlib_->Busy()) {  // lane 297: the game never converts; PLAY waits for the bar
+      ShowToast("Your songs are still being converted: PLAY when the bar is done", 5000);
+      return;
+    }
+    StopPreview();  // Lane 297: a song heard in the library does not play into the game
     if (TronsBlock("PLAY")) return;  // Session 98
     if (!game_ok_) {
       GoPage(kGameFiles);
@@ -2539,12 +3191,15 @@ class App {
       }
       disk_ok_once_ = false;
     }
+    if (stars_job_) return ShowToast("Your superstars are being built into the game: PLAY goes on when that is done");  // Session 101
+    if (!stars_skip_once_ && StarsBeforePlay(wm30)) return;  // Session 101 (lane 199): the superstars pack brought up to date first
     if (!skip_precompile && NeedPrecompile()) {  // Session 93: the shader precompile first (no second one with the same key)
       Save();
       StartPrecompile(wm30);
       return;
     }
     LaunchContext c = MakeContext(wm30);
+    if (stars_without_once_) c.mods_dir.clear();  // Session 101 (review S1): PLAY WITHOUT THEM = no --wwe2k14_mods_superstars this time
     std::error_code ec;
     if (!s_.driver.empty()) {  // Session 72: the game removes it once it has drawn a few hundred frames
       std::ofstream(DriverTrialPath(), std::ios::trunc) << s_.driver << "\n";
@@ -2615,6 +3270,8 @@ class App {
         if (e.ok) ShowToast("The update is ready: see Logs and updates");
         break;
       case E::kBack: Back(); break;
+      case E::kSongsAdded:  // Lane 286 (custom music)
+      case E::kTextEntered: MusicEvent(e); break;
       case E::kTronZipPicked:  // Session 98 (IMPORT TRON PREVIEWS)
         if (e.ok) StartTronZipImport(e.a, e.b);
         break;
@@ -2738,8 +3395,9 @@ class App {
     }
   }
 
-  enum class Card { kNone, kDisk, kSafe, kEarly, kMemory, kFps };
+  enum class Card { kNone, kDisk, kSafe, kEarly, kMemory, kFps, kStars };
   Card CurrentCard() const {
+    if (stars_card_) return Card::kStars;  // Session 101
     if (disk_card_) return Card::kDisk;
     if (advice_.safe_next > 0 && !safe_dismissed_) return Card::kSafe;
     if (!advice_.early_key.empty() && !early_dismissed_) return Card::kEarly;
@@ -2760,6 +3418,28 @@ class App {
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
     char text[512];
     switch (card) {
+      case Card::kStars:  // Session 101 (lane 199)
+        GroupTitle("YOUR SUPERSTARS");
+        if (stars_job_) {
+          Note((stars_why_ + " Building them into the game from your own files...").c_str());
+          std::string ph;
+          {
+            std::lock_guard<std::mutex> lk(stars_job_->m);
+            ph = stars_job_->phase;
+          }
+          ImGui::ProgressBar(stars_job_->frac.load(), ImVec2(-1, 0), ph.empty() ? "Starting..." : ph.c_str());
+        } else {
+          Note(("Your superstars could not be built into the game: " + stars_fail_ + ". Open the SUPERSTAR IMPORTER (MODS) to fix it, "
+                "or play without them this time.").c_str());
+          if (Button("PLAY WITHOUT THEM")) {
+            stars_card_ = false, stars_fail_.clear();
+            stars_skip_once_ = stars_without_once_ = true;  // (review S1: the old pack must not load either)
+            Play(stars_wm30_);
+            stars_skip_once_ = stars_without_once_ = false;
+          }
+          if (Button("CANCEL")) stars_card_ = false, stars_fail_.clear();
+        }
+        break;
       case Card::kDisk:
         GroupTitle("LOW STORAGE");
         std::snprintf(text, sizeof(text), "Only %.0f MB is free on this phone. The game needs room for its saves and shader cache; it may fail to save or to start.", disk_free_mb_);
@@ -2940,6 +3620,8 @@ TestSteps ParseTest(int argc, char** argv, int& win_w, int& win_h, float& scale)
     else if (a == "--scroll") t.scroll = float(std::atof(argv[++i]));
     else if (a == "--select") t.select = std::atoi(argv[++i]);
     else if (a == "--drawer") t.drawer = std::atoi(argv[++i]) != 0;
+    else if (a == "--music-play") t.music_play = std::atoi(argv[++i]);
+    else if (a == "--music-busy") t.music_busy = true;
     else if (a == "--window") std::sscanf(argv[++i], "%dx%d", &win_w, &win_h);
     else if (a == "--scale") scale = float(std::atof(argv[++i]));
     else if (a == "--tap") std::sscanf(argv[++i], "%f,%f", &t.tap_x, &t.tap_y);
@@ -3074,6 +3756,7 @@ int main(int argc, char** argv) {
         ImGui_ImplSDL3_ProcessEvent(&e);
         if (e.type == SDL_EVENT_QUIT) running = false;
         else if (e.type == SDL_EVENT_KEY_DOWN && (e.key.key == SDLK_AC_BACK || e.key.key == SDLK_ESCAPE)) app.Back();
+        else if (e.type == SDL_EVENT_WILL_ENTER_BACKGROUND) app.OnBackground();  // lane 297: a preview does not play on in the background
         else if (e.type == SDL_EVENT_RENDER_DEVICE_RESET) {
           ImGui_ImplSDLRenderer3_DestroyDeviceObjects();
           app.DeviceReset();
@@ -3089,7 +3772,7 @@ int main(int argc, char** argv) {
     SDL_SetRenderDrawColor(renderer, 17, 18, 21, 255);
     SDL_RenderClear(renderer);
     ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
-    if (!test.shot.empty() && ++frame >= test.frames) {
+    if (!test.shot.empty() && ++frame >= test.frames && !app.TestHold()) {
       const bool ok = SaveShot(renderer, test.shot);
       app.Log("shot %s: %s", test.shot.c_str(), ok ? "saved" : SDL_GetError());
       running = false;

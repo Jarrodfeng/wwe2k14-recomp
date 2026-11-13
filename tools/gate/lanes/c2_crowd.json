@@ -1,0 +1,7 @@
+{
+ "owner": "lane 27: the crowd as a live contributor (class C2): src\\scene_live\\crowd_contrib.*, crowd_hooks.h, tools\\scene\\crowd_make.cpp",
+ "checks": [
+  {"name": "c2_crowd.tools_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "c2_crowd.selftest", "cmd": ["py", "-I", "tools/scene/crowd_selftest.py"], "timeout_s": 900, "needs": ["game_data/extracted"]}
+ ]
+}

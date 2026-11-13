@@ -1,0 +1,130 @@
+# l303 part 1 (include-able; boot_to_menu first, no quit): the Create-an-Entrance MUSIC list, custom-song preview (lane 281), the USER PLAYLIST
+# picker (lanes 282 / 291 / 292), and back to the main menu with the cursor on PLAY. Read docs\systems\music.md "Combined live check (lane 303)".
+# Start: main menu (menu 1), any cursor. End: main menu (menu 1), cursor 0, ready for the launcher (music_live_match_part.txt).
+# Menu path = s75_cae_loop.txt (run 050 / 046 / 7207 proven up to "CUSTOM ENTRANCE").
+# The editor is a vertical MENU (runs 7207 / 7209), not a song list; its cursor is NOT the SmartMenu `cursor` state (unreadable there), so the
+# music list is navigated by what the editor asks its preview object for (SetSong(id), src\music_preview_seen.h; press_until_preview in walk mode).
+# Everything after "editor open" is [U]: the menu's cursor stops and UP wrap (three attempts below), that the song list's X calls SetSong at once, the pad keys in the
+# picker, and what B does after the song was changed (a SAVE prompt would show in the logged screen text). After the picker closes the MUSIC row's value
+# should read the choice (log_text at the close shows it).
+# Marks: 10 preview scan begin, 11 end, 12 on the USER PLAYLIST row, 13 picker closed, 14 back at the main menu.
+log l303: cae part begin
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+wait_frames 60
+press A
+wait_text SELECT SUPERSTAR 900
+wait_frames 90
+press A
+wait_frames 45
+press A
+wait_text CUSTOM ENTRANCE 1800
+wait_frames 120
+log l303: editor open (the tabbed Custom Entrance screen)
+log_text 80
+screenshot l303_cae_editor
+# --- Run 7209 (screenshot 7209_l303_cae_editor.png): the screen is a vertical MENU, cursor on MOTION: MOTION, CHAMPION MOTION, MULTI-TITLE MOTION,
+# MINI-TRON, STAGE MOVIE DISPLAY (sub-rows HEADER / WALL / ELECTRONIC BILLBOARD / MINI-TRON, each ON), MOVIE, MUSIC (value AJ LEE), ACCEPT. Hint bar:
+# A SELECT, B BACK, X PREVIEW. A on a row opens ITS list; in any of them X previews the highlighted entry (SetSong).
+# Run 7210: UP, UP does NOT wrap (the cursor stayed on MOTION); A opened the MOTION list (112 wrestlers) and the old oracle "id is not 298" was fooled
+# (X there previews each wrestler's entrance: ids 230, 343 (Brock, our custom theme) ...), so the walk went round that list. The song list is proven only by
+# reaching 9998 USER PLAYLIST, which no other list has. AJ LEE (298) sits near the TOP of the song list (alphabetical after USER PLAYLIST / NONE), so the proof
+# is cheap: UP + X for up to 25 rows must say 9998; in a wrong list that costs ~12 s. Attempts (cursor starts on MOTION, a wrong list is closed with B, which
+# keeps the cursor):  1. DOWN x9 (MUSIC if the four ON rows are cursor stops and the STAGE MOVIE DISPLAY heading is not)  2. one more DOWN (the heading is a stop)
+# 3. DOWN x3 more (guess: the ON rows are stops AND MOVIE / MUSIC order differs).  All failing ends in `assert_text` with a failure screenshot.
+# B on the menu itself would leave the editor, so only a screen where A really opened a list is closed with B: a failed attempt whose A hit a toggle / ACCEPT
+# is the risk (music.md lane 303, unknowns).
+mark 10 preview_scan_begin
+screenshot l303_editor_open
+log l303: attempt 1 (DOWN x9)
+repeat 9
+press DOWN 4 10
+end_repeat
+wait_frames 30
+press A
+wait_frames 90
+press_until_preview UP 9998 25 120 4 keys=X exit=START dwell=40 optional
+jump_if_preview_not 9998 FAIL1
+jump_if_preview_not 99999 INLIST
+label FAIL1
+log l303: attempt 1 did not open the song list (last SetSong id is not 9998): B, attempt 2 (one more DOWN)
+screenshot l303_attempt1_failed
+press B
+wait_frames 60
+press DOWN
+wait_frames 30
+press A
+wait_frames 90
+press_until_preview UP 9998 25 120 4 keys=X exit=START dwell=40 optional
+jump_if_preview_not 9998 FAIL2
+jump_if_preview_not 99999 INLIST
+label FAIL2
+log l303: attempt 2 did not open the song list: B, attempt 3 (DOWN x3)
+screenshot l303_attempt2_failed
+press B
+wait_frames 60
+repeat 3
+press DOWN 4 10
+end_repeat
+wait_frames 30
+press A
+wait_frames 90
+press_until_preview UP 9998 25 120 4 keys=X exit=START dwell=40 optional
+jump_if_preview_not 9998 FAIL3
+jump_if_preview_not 99999 INLIST
+label FAIL3
+log l303: no attempt opened the song list: the failure screenshot shows where the cursor is
+assert_text L303-SONG-LIST-NOT-REACHED
+label INLIST
+log l303: in the song list (USER PLAYLIST 9998 reached by UP + X)
+screenshot l303_song_list_first_preview
+log_text 24
+log l303: START leaves the full-entrance preview X started (Jarrod, run 7211: it covers the menu)
+press START
+wait_frames 90
+# --- walk the songs: each row = DOWN (step=6 rows at a time: ~125 rows to the end), X, the SetSong id says which row; a row that is not wanted is
+# previewed ~20 frames and left with START (75 frames for the menu to return). `custom` = 6001 or 6002 (the new songs are the last two rows; a clamp at the
+# end lands on 6002, a wrap just goes round again). The WANTED row's preview is left running: dwell, then START.
+press_until_preview DOWN custom 300 120 4 keys=X exit=START dwell=20 step=6
+log l303: on a custom song (its preview is playing)
+screenshot l303_on_custom_song
+wait_frames 240
+press START
+wait_frames 90
+mark 11 preview_scan_end
+log l303: dwelt on the custom song, preview left
+# --- up to USER PLAYLIST (9998): each stock row is previewed on the way (muted); the editor's preview of 9998 calls Play (lane 282, open question a).
+press_until_preview UP 9998 300 120 4 keys=X exit=START dwell=20 step=6
+wait_frames 120
+log l303: on 9998 (its preview is running): START, then A
+press START
+wait_frames 90
+mark 12 on_user_playlist_row
+log l303: A on USER PLAYLIST (opens our picker; the game goes on as for any row and shows MUSIC: USER PLAYLIST)
+press A
+wait_frames 150
+log l303: picker should be open (log: music_picker opened)
+# --- the picker owns the pad: X = PLAY/STOP on the cursor row (preview by path), D-pad moves, A chooses, B cancels (music_picker_layout.h).
+press X
+wait_frames 240
+press DOWN
+wait_frames 40
+press X
+wait_frames 200
+log l303: A chooses the cursor row
+press A
+wait_frames 150
+mark 13 picker_closed
+log l303: picker closed
+log_text 24
+# --- leave: the first B after the close proves the pad latch was released (the log line "on screen N frames after press 1" = latch ok).
+log l303: picker exit begin
+press_until_text B 6 90 6 optional CREATE-AN-ENTRANCE
+log_text 24
+include back_to_menu
+press_until_state UP cursor 0 24 30 5 if_needed
+wait_frames 60
+mark 14 back_at_main_menu
+log l303: cae part end

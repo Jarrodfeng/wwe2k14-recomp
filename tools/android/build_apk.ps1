@@ -14,9 +14,28 @@
 # tools\android\signing_fingerprint.txt holds the key's SHA-256: an APK signed with another key cannot update an installed game,
 # and a player's only way out is to uninstall, which deletes the saves. With a fingerprint on file a missing key is never remade.
 # The finished APK goes through tools\android\check_apk.py.
-param([switch]$Install, [switch]$NoDebuggable)
+#   -Release (lane 280): a release APK. Implies -NoDebuggable and refuses (exit 2) unless the Android SDK install (outndroid\sdk-install-arm64\sdk_commit.txt,
+#   stamped by build_sdk_android.ps1) was built from the SDK commit of the PC pin (tools\sdk_pins.json, last entry) with no tracked edits.
+param([switch]$Install, [switch]$NoDebuggable, [switch]$BundleDrivers, [switch]$Release)
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Stop'
+if ($Release) {
+    $NoDebuggable = [switch]$true
+    $pins = (Get-Content "$PSScriptRoot\..\sdk_pins.json" -Raw | ConvertFrom-Json).pins
+    $pinCommit = $pins[-1].sdk_commit
+    $stampFile = "$($AndroidDirs.SdkInstall)\sdk_commit.txt"
+    if (-not (Test-Path $stampFile)) {
+        "build_apk.ps1 -Release: no $stampFile (the Android SDK install predates the stamp). Rebuild: pwsh -File toolsndroiduild_sdk_android.ps1 -Run NAME [-AllowBranch wwe2k14-local]; the PC pin is $($pins[-1].id) = $pinCommit"; exit 2
+    }
+    $stamp = @{}; Get-Content $stampFile | ForEach-Object { if ($_ -match '^(\w+)=(.*)$') { $stamp[$Matches[1]] = $Matches[2] } }
+    if ($stamp['commit'] -ne $pinCommit) {
+        "build_apk.ps1 -Release: the Android SDK install was built from $($stamp['commit']), the PC pin $($pins[-1].id) is $pinCommit. Rebuild the Android SDK from the pinned commit (build_sdk_android.ps1) and the game library (build_all.ps1)."; exit 2
+    }
+    if ([int]$stamp['dirty_tracked_files'] -ne 0) {
+        "build_apk.ps1 -Release: the Android SDK install was built with $($stamp['dirty_tracked_files']) uncommitted tracked edits in the SDK checkout; rebuild from a clean tree."; exit 2
+    }
+    "release pin check: Android SDK install = $pinCommit (pin $($pins[-1].id)), clean"
+}
 . "$ProjectRoot\tools\runlock.ps1"
 
 # Session 98 (phone port stage C): in a git worktree (.claude\worktrees\<name>: no thirdparty folder, no SDK / game build) the inputs
@@ -54,7 +73,10 @@ $libs = [ordered]@{
 }
 foreach ($k in $libs.Keys) { if (-not (Test-Path $libs[$k])) { "build_apk.ps1: missing $k ($($libs[$k]))"; exit 2 } }
 # Session 72: the custom Vulkan drivers built from source (tools\android\drivers\build_drivers.ps1); optional.
-foreach ($d in @(Get-ChildItem (In "$AndroidOut\drivers") -Filter 'libvulkan_*.so' -ErrorAction SilentlyContinue)) {
+# S101 (Jarrod, 2026-11-13: "packaging the drivers doesn't seem to fix things really"): NOT packaged unless -BundleDrivers.
+# The phone's own driver is the default; a player can still import their own (launcher, src\android_driver.h), and the
+# libadrenotools hook libraries above stay for that. A saved setting naming a bundled driver falls back to the phone's.
+foreach ($d in @(if ($BundleDrivers) { Get-ChildItem (In "$AndroidOut\drivers") -Filter 'libvulkan_*.so' -ErrorAction SilentlyContinue })) {
     $libs[$d.Name] = $d.FullName
 }
 
@@ -82,9 +104,11 @@ Copy-Item "$ProjectRoot\assets\launcher\wwe2k14_logo.png" "$obj\assets\"  # the 
 # Session 72: the notices, with the licence texts of the bundled drivers and their loader. Flat in assets/: aapt2 on
 # Windows keeps a subfolder's backslash in the entry name.
 Copy-Item "$ProjectRoot\docs\release\THIRD_PARTY_NOTICES.md" "$obj\assets\"
-foreach ($l in @(@{ n = 'LICENSE_mesa.txt'; p = "$deps\thirdparty\mesa\docs\license.rst" },
-                 @{ n = 'LICENSE_mali-panvk.txt'; p = "$deps\thirdparty\mali-panvk\LICENSE" },
-                 @{ n = 'LICENSE_libadrenotools.txt'; p = "$deps\thirdparty\libadrenotools\LICENSE" })) {
+$licences = @(@{ n = 'LICENSE_libadrenotools.txt'; p = "$deps\thirdparty\libadrenotools\LICENSE" })
+if ($BundleDrivers) { $licences += @(@{ n = 'LICENSE_mesa.txt'; p = "$deps\thirdparty\mesa\docs\license.rst" }, @{ n = 'LICENSE_mali-panvk.txt'; p = "$deps\thirdparty\mali-panvk\LICENSE" }) }
+# L310: the drivers' notices travel only with the drivers (THIRD_PARTY_NOTICES.md says so in its Android section).
+if ($BundleDrivers) { Copy-Item "$ProjectRoot\docs\release\THIRD_PARTY_NOTICES_DRIVERS.md" "$obj\assets\" }
+foreach ($l in $licences) {
     if (Test-Path $l.p) { Copy-Item $l.p "$obj\assets\$($l.n)" }
 }
 # The launcher icon in Android's five densities, from game_logo.png (512 x 512).

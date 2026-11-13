@@ -1,0 +1,9 @@
+{
+ "owner": "lane 140 (S101): post chain COVERAGE. The frames Check J (7086 / 7087 / 7088) refused and the older runs' captures that hold the same shapes are drawn by our pass: the dof depth sampler follows the stream's own (POINT with no restore), a restore in front of the one layer is not a new shape, and the 'blur by one yBlur_t2' frames (sequence t2 combine [monotone]) are recorded by our pass. Picture bar as the post gate's (scale 1: <= 1 level). Planted twins filter_forced_point and shape_misclassified. Needs rplay.exe + out/tools/post_ours_core_test.exe of this tree (tools/renderer/build.ps1, tools/post/build_post_ours_test.ps1). See docs/renderer/POST_OURS.md 'Coverage (lane 140)'.",
+ "checks": [
+  {"name": "post_cover.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/post/build_post_ours_test.ps1"], "timeout_s": 1800},
+  {"name": "post_cover.proof", "cmd": ["py", "-I", "tools/post/post_ours_cover_check.py", "--root", "."], "timeout_s": 5400, "needs": [
+    "out/s101/runs/20261112_172304_s100_owner_s89_brock", "out/s101/runs/20261112_172456_s100_owner_match", "out/s101/runs/20261112_172550_s100_owner_s90_wm30",
+    "out/s101/runs/20261111_174957_s100_owner_s89_brock", "out/s101/runs/20261112_131029_s100_owner_s90_wm30", "out/s101/runs/checkB_director", "out/s101/runs/checkC_director"]}
+ ]
+}

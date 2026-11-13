@@ -1,0 +1,139 @@
+# ReXGlue SDK changes for WWE 2K14 (session101-wide-window): 9b81c0c201c4..26a0b9a6ae1f on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  26a0b9a Session 101 lane 178: ultrawide window ends at the post chain marker, clip-off draws screen-space, full-view quads (non-indexed, base vertex 0) left unsqueezed; cvar gpu_wide_no_fullview
+
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0ea821b07521dcb9185a31f614d5f88f7cebfeb3..506bc6fa27c3640c6ed963830abe95d90db18637 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <atomic>
+ #include <algorithm>
++#include <cmath>
+ #include <array>
+ #include <bit>
+ #include <chrono>
+@@ -434,6 +435,10 @@ REXCVAR_DEFINE_INT32(gpu_wide_min_width, 1200, "GPU",
+                      "Session 73: gpu_wide_factor / gpu_tall_factor squeeze scene draws at least this many guest pixels "
+                      "wide (the screen's passes; the game's 1040-wide skin texture passes stay as they are). Was "
+                      "gpu_dlaa_jitter_min_width (1000)");
++// wwe2k14 patch (Session 101, lane 178): diagnosis switch, the lane 177 full-view rule off (a flash / fade / tint is squeezed like any scene draw).
++REXCVAR_DEFINE_BOOL(gpu_wide_no_fullview, false, "GPU",
++                    "With gpu_wide_factor or gpu_tall_factor: do not leave full-view rectangles (a fade / flash / tint whose corners reach the "
++                    "view's four edges) unsqueezed; diagnosis only");
+ REXCVAR_DEFINE_BOOL(gpu_wide_all, false, "GPU",
+                     "With gpu_wide_factor or gpu_tall_factor: squeeze every draw (menus and other 2D screens: a centred 16:9); the app "
+                     "sets it outside matches");
+@@ -5817,6 +5822,32 @@ static void FsrEvaluateCallback(VkCommandBuffer command_buffer, const void* data
+ // wwe2k14 patch (Session 61): after a draw is recorded - the DLSS pre-HUD snapshot (Session 24) and the hide-HUD /
+ // wide detection (Session 33) of the post chain's last pass. IssueDraw and (Session 61: truth frames take that pass
+ // through it) IssueDrawLean both call it.
++// wwe2k14 patch (Session 101, lane 178; renderer_adapter/wide_rule.h FullViewQuad, lane 177): does this flat pixel-placed rectangle (the game's
++// T_Rect: four (x, y, z) vertices, PosScale c0.xy = (2 / view width, 2 / view height), fUseProjMatrix c28.x = 0; clip = ((x, y) - 0.5) * PosScale - 1)
++// cover the whole view, all four edges within 1 guest pixel? Axis-aligned, a real area; a line, a point or a rotated quad do not.
++static bool WideFullViewRect(const float* x, const float* y, float pos_x, float pos_y, float use_proj) {
++  if (!(pos_x > 0) || !(pos_y > 0) || use_proj != 0) return false;
++  const float w = 2.0f / pos_x, h = 2.0f / pos_y;
++  if (!(w >= 320.0f && w <= 16384.0f && h >= 180.0f && h <= 16384.0f)) return false;
++  float x0 = x[0], x1 = x[0], y0 = y[0], y1 = y[0];
++  for (int i = 0; i < 4; ++i) {
++    if (!std::isfinite(x[i]) || !std::isfinite(y[i])) return false;
++    x0 = x[i] < x0 ? x[i] : x0, x1 = x[i] > x1 ? x[i] : x1;
++    y0 = y[i] < y0 ? y[i] : y0, y1 = y[i] > y1 ? y[i] : y1;
++  }
++  if (!(x1 - x0 > 0.5f * w) || !(y1 - y0 > 0.5f * h)) return false;
++  bool corner[4] = {false, false, false, false};
++  for (int i = 0; i < 4; ++i) {
++    const bool lx = std::fabs(x[i] - x0) < 0.01f, hx = std::fabs(x[i] - x1) < 0.01f;
++    const bool ly = std::fabs(y[i] - y0) < 0.01f, hy = std::fabs(y[i] - y1) < 0.01f;
++    if (!(lx || hx) || !(ly || hy)) return false;
++    corner[(hx ? 1 : 0) + (hy ? 2 : 0)] = true;
++  }
++  if (!(corner[0] && corner[1] && corner[2] && corner[3])) return false;
++  const float slack = 1.0f;
++  return x0 <= 0.5f + slack && x1 >= w + 0.5f - slack && y0 <= 0.5f + slack && y1 >= h + 0.5f - slack;
++}
++
+ // wwe2k14 patch (Session 83, WIDE): one of gpu_wide_post_vs (parsed again only when the setting changes).
+ bool VulkanCommandProcessor::IsWidePostVs(uint64_t vs_hash) {
+   const std::string text = REXCVAR_GET(gpu_wide_post_vs);
+@@ -11723,13 +11754,20 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     // (gpu_wide_min_width 1200 of the game's 1280). With the jitter's 1000 the characters' 1040-wide skin / damage
+     // texture passes were squeezed too, and their blood landed in the wrong places: red rectangles on Brock's arm and
+     // chest (run 4747, phone settings, 20:9).
+-    const bool scene = !dlaa_scene_done_ && viewport_info.xy_extent[0] &&
+-                       viewport_info.xy_extent[0] >=
+-                           uint32_t(std::max(0, REXCVAR_GET(gpu_wide_min_width))) * draw_resolution_scale_x;
++    // Session 101 (lane 171 / 178, Jarrod: "the Undertaker's blocks"): the scene's window stays open until the post chain's last pass is met
++    // (hide_hud_after_pass_, the marker that also starts the HUD), not until the first scene-sized depth copy (dlaa_scene_done_, the DLAA jitter's
++    // window): a draw between the two (the entrance's second layer, drawn after the depth copy) was left at full width beside its squeezed
++    // neighbours, and its blur showed as blocks. Only inside this block (factor > 1.001), so 16:9 is untouched.
++    const bool wide_viewport = viewport_info.xy_extent[0] &&
++                               viewport_info.xy_extent[0] >=
++                                   uint32_t(std::max(0, REXCVAR_GET(gpu_wide_min_width))) * draw_resolution_scale_x;
++    const bool scene = !hide_hud_after_pass_ && wide_viewport;
+     // Screen-space draws (rectangle lists: full-screen passes; no viewport transform: vertices already in pixels)
+     // are left alone (attempt 2, run 2527: squeezing them left the sides stale).
+     const auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
+-    const bool screen_space = prim_type == xenos::PrimitiveType::kRectangleList || !vte.vport_x_scale_ena;
++    // Session 101 (lane 171): a clip-disabled draw is pixel-placed too (the offline replay and the new path's reader say so).
++    const bool screen_space = prim_type == xenos::PrimitiveType::kRectangleList || !vte.vport_x_scale_ena ||
++                              regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable;
+     // Session 83 (GitHub #69 / #98): full-screen passes the game draws after the post chain's marker (the 30 Years
+     // old-footage filter: a screen copy read back by 33B6564C, then the 979E01DA quad) are not HUD: squeezed, they
+     // left the sides unfiltered and drew a second, offset copy of the picture.
+@@ -11737,13 +11775,47 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     // A frame after one without a scene depth resolve is a menu (2D only): all of it is squeezed (a centred 16:9).
+     if ((scene && !screen_space) || (hide_hud_after_pass_ && !post_after_marker) || wide_menu_frame_ ||
+         REXCVAR_GET(gpu_wide_all)) {
+-      if (wide > 1.001f && wide < 8.0f) {
+-        viewport_info.ndc_scale[0] /= wide;
+-        viewport_info.ndc_offset[0] /= wide;
++      // Session 101 (lane 177 / 178): a full-view rectangle (a fade / flash / tint: a quad list of four inline vertices of one 12-byte position
++      // element, pixel-placed, corners at all four view edges, in a frame-sized viewport) is not squeezed, so it covers the whole displayed width.
++      bool full_view = false;
++      // Non-indexed with base vertex 0 only (lane 178 review): the four corners read are then the four drawn; the owned
++      // twin (LiveFullViewQuad) likewise accepts only inline vertices.
++      if (wide_viewport && prim_type == xenos::PrimitiveType::kQuadList && index_count == 4 && vertex_shader &&
++          !index_buffer_info && regs.Get<reg::VGT_INDX_OFFSET>().indx_offset == 0 &&
++          !REXCVAR_GET(gpu_wide_no_fullview)) {
++        const auto& vbs = vertex_shader->vertex_bindings();
++        if (vbs.size() == 1 && vbs[0].stride_words == 3 && vbs[0].attributes.size() == 1) {
++          const xenos::xe_gpu_vertex_fetch_t vf = regs.GetVertexFetch(vbs[0].fetch_constant);
++          const uint32_t addr = (uint32_t(vf.address) << 2) & 0x1FFFFFFFu;
++          if (vf.type == xenos::FetchConstantType::kVertex && vf.size >= 12 && uint64_t(addr) + 48 <= 0x20000000u) {
++            const uint32_t* mem = memory_->TranslatePhysical<const uint32_t*>(addr);
++            auto fl = [&](uint32_t word) {
++              const uint32_t v = xenos::GpuSwap(word, vf.endian);
++              float f;
++              std::memcpy(&f, &v, 4);
++              return f;
++            };
++            float qx[4], qy[4];
++            for (uint32_t i = 0; i < 4; ++i) qx[i] = fl(mem[3 * i]), qy[i] = fl(mem[3 * i + 1]);
++            // c0 / c28 of the vertex stage, indexed as this file's own constant upload does (no SQ_VS_CONST base).
++            auto cf = [&](uint32_t reg_index, uint32_t comp) {
++              float f;
++              std::memcpy(&f, &regs.values[XE_GPU_REG_SHADER_CONSTANT_000_X + 4 * reg_index + comp], 4);
++              return f;
++            };
++            full_view = WideFullViewRect(qx, qy, cf(0, 0), cf(0, 1), cf(28, 0));
++          }
++        }
+       }
+-      if (tall > 1.001f && tall < 8.0f) {
+-        viewport_info.ndc_scale[1] /= tall;
+-        viewport_info.ndc_offset[1] /= tall;
++      if (!full_view) {
++        if (wide > 1.001f && wide < 8.0f) {
++          viewport_info.ndc_scale[0] /= wide;
++          viewport_info.ndc_offset[0] /= wide;
++        }
++        if (tall > 1.001f && tall < 8.0f) {
++          viewport_info.ndc_scale[1] /= tall;
++          viewport_info.ndc_offset[1] /= tall;
++        }
+       }
+     }
+   }

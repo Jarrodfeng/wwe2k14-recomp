@@ -1,0 +1,10 @@
+{
+ "owner": "lane 238 (S101): the post chain shapes that were still the game's. The victory scene's 'copy_depth t2 box4_down t2 t1_t2x2 t1x8 m1_m2 combine' (the DoF blur is one t2, the HDR chain reads it, separate blur / bloom t2 tables), the film pass after a full chain / two layers / restores (the 30 Years entrance), 'combine monotone' and the combine alone with restores, and the m1_m2 filter gap (run 7131: slot 3 bound POINT: the pass follows the stream per slot, and draws our pass does not record are not compared). The CAW editor's base combine permutation stays the stream's (its picture differs: named). Needs rplay.exe + out/tools/post_ours_core_test.exe of this tree (tools/renderer/build.ps1, tools/post/build_post_ours_test.ps1). Lane 277 adds t2film.*: the 30 Years cutscene's 't2 + HDR + combine(fog_bloom) + film' on SYNTHETIC captures (tools/post/synth_t2_film.py; needs the cutscene case zip for the film template). See docs/renderer/POST_OURS.md 'Lane 238' and 'Lane 277'.",
+ "checks": [
+  {"name": "post_shapes.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/post/build_post_ours_test.ps1"], "timeout_s": 1800},
+  {"name": "post_shapes.proof", "cmd": ["py", "-I", "tools/post/post_shapes_check.py", "--root", "."], "timeout_s": 5400, "needs": [
+    "out/s101/runs/20261113_063415_s101_sweep_victory", "out/s101/runs/20261113_035240_s90_heenan_entrance", "out/s101/runs/20261113_064130_s101_sweep_wm30_long",
+    "out/s101/runs/20261111_174549_s100_owner_bryan_entrance", "out/s101/runs/20261113_035959_s101_checkB_caw_walk",
+    "out/s101/runs/20261113_140507_s101_sweep_cutscene_wm30"]}
+ ]
+}

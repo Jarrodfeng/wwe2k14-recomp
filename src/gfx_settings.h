@@ -74,6 +74,9 @@ struct Choice {
   bool shadows = true;         // false: no dynamic shadows (gpu_dynamic_shadows)
   bool depth_of_field = true;  // false: no depth-of-field blur (gpu_depth_of_field)
   int crowd_density = 100;     // 0..100 in steps of 10 (gpu_scene_crowd_density)
+  // Settings parity (Session 100, Jarrod 2026-11-11 08:1x; launcher only; the new renderer reads them, reader.h):
+  bool film_grain = true;      // S3: false = the 30 Years mode's old-film pass drawn clean (--wwe2k14_film_grain=false)
+  bool vsync = true;           // S13: V-SYNC, how pictures reach the screen (--wwe2k14_vsync=false); never the game's pace
   // Session 93 (Jarrod: the low-end tier is chosen automatically from the GPU class, with a launcher override):
   // quality_tier is the player's setting (0 AUTO, 1 LOW, 2 STANDARD; the launcher's QUALITY row); `low` is the RESOLVED
   // tier for this start (ResolveQualityTier, set by whoever builds the flags: the launcher with the card the game will
@@ -234,6 +237,8 @@ inline Present Parse(const std::string& json, Choice& c) {
   GetBool(json, "display_720p", c.display_720p);  // Session 95
   GetBool(json, "depth_of_field", c.depth_of_field);
   GetInt(json, "crowd_density", c.crowd_density);
+  GetBool(json, "film_grain", c.film_grain);  // Session 100 settings parity S3 (a missing key = on, the game's look)
+  GetBool(json, "vsync", c.vsync);            // S13 (a missing key = on)
   c.crowd_density = RoundCrowdDensity(c.crowd_density);
   GetInt(json, "quality_tier", c.quality_tier);  // Session 93: a missing key = 0 AUTO (no settings_version bump)
   c.quality_tier = std::clamp(c.quality_tier, 0, 2);
@@ -797,8 +802,8 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
   if (c.renderer == 1) f.push_back({"wwe2k14_light_renderer", "true"});  // Session 37
   if (c.renderer == 2)
     for (const auto& [name, value] : NativeRendererFlags()) f.push_back({name, value});
-  // Session 72: Enhanced post effects (the default, original, is our copy of the game's pass: no flag).
-  if (c.renderer == 2 && c.post_effects == 1) f.push_back({"wwe2k14_post_enhanced", "true"});
+  // Session 72's Enhanced post effects: removed (Session 100, Jarrod 2026-11-11 08:1x: "we should simply remove those"); post_effects is
+  // still read from older files and ignored.
   // Session 85 (Jarrod): shadows / depth of field / crowd density, NATIVE only, flags only when not the default.
   if (c.renderer == 2) {
     if (!c.shadows) f.push_back({"gpu_dynamic_shadows", "false"});
@@ -806,6 +811,10 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
     const int crowd = RoundCrowdDensity(c.crowd_density);
     if (crowd < 100) f.push_back({"gpu_scene_crowd_density", std::to_string(crowd)});
   }
+  // Session 100 settings parity (the new renderer reads them; flags only when not the default): S3 FILM GRAIN (30 YEARS), S13 V-SYNC
+  // (present only: the old renderer keeps its own present modes, tearing allowed at 60, mailbox at 120).
+  if (!c.film_grain) f.push_back({"wwe2k14_film_grain", "false"});
+  if (!c.vsync) f.push_back({"wwe2k14_vsync", "false"});
   // Session 93: LOW shows the picture through SGSR (the phone's setting too), whatever size it is drawn at.
   // (Session 95: the presenter only uses SGSR when the frontbuffer is smaller than the window, so this is a no-op at 1440p / 4K.)
   if (low_scaled) f.push_back({"present_effect", "sgsr"});

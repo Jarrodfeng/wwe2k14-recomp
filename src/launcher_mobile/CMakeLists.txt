@@ -25,12 +25,14 @@ set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
 set(SDL_GPU OFF CACHE BOOL "" FORCE)
-set(SDL_AUDIO OFF CACHE BOOL "" FORCE)
+set(SDL_AUDIO ON CACHE BOOL "" FORCE)  # lane 297: the MUSIC library's preview player (src\music_sdl_player.h)
 add_subdirectory("${TP}/sdl3" sdl3 EXCLUDE_FROM_ALL)
 
 set(IMGUI "${TP}/imgui")
+# Lane 297: the song importer (src\audio_import: decoders, loudness normaliser, tags + cover art) for the MUSIC library. libopus is C.
+include("${REPO}/third_party/audio/opus/opus_sources.cmake")
 set(SOURCES
-    mobile_main.cpp platform_common.cpp "${REPO}/src/importer/importer_core.cpp"
+    mobile_main.cpp platform_common.cpp "${REPO}/src/importer/importer_core.cpp" "${REPO}/src/audio_import/audio_import.cpp" "${REPO}/src/audio_import/lookup.cpp"
     ${IMGUI}/imgui.cpp ${IMGUI}/imgui_draw.cpp ${IMGUI}/imgui_tables.cpp ${IMGUI}/imgui_widgets.cpp
     ${IMGUI}/backends/imgui_impl_sdl3.cpp ${IMGUI}/backends/imgui_impl_sdlrenderer3.cpp)
 
@@ -43,7 +45,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${REPO}/android/
 if(ANDROID)
     add_library(launcher SHARED ${SOURCES} platform_android.cpp)
     # SDL's JNI entry points (JNI_OnLoad, nativeSetupJNI, ...) are referenced by nothing native: keep them all.
-    target_link_libraries(launcher PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,SDL3::SDL3-static>" android log)
+    target_link_libraries(launcher PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,SDL3::SDL3-static>" android log mediandk)  # mediandk: audio_import's MediaCodec decoder (m4a / aac / wma)
     target_link_options(launcher PRIVATE "-Wl,-z,max-page-size=16384")
     set(TARGET launcher)
 else()
@@ -58,7 +60,8 @@ else()
 endif()
 target_include_directories(${TARGET} PRIVATE ${IMGUI} ${IMGUI}/backends "${TP}/stb" "${TP}/inja/third_party/include"
                            "${TP}/vulkan-headers/include")  # Session 73: phone_check.h
-target_compile_definitions(${TARGET} PRIVATE "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"")
+target_compile_definitions(${TARGET} PRIVATE "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"" WWE_MUSIC_SDL_PLAYER _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING)
+wwe2k14_add_opus(${TARGET})  # lane 297
 
 # Session 98 (Arena Viewer phone port, stage C): libviewer.so = the Arena Viewer (src\assets\view) for ViewerActivity, its own process
 # (":viewer"): SDL_main, the Vulkan renderer in an SDL3 window, touch. The portable sources of tools\assets\build_viewer.ps1 (no

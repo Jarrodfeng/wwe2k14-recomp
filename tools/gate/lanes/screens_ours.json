@@ -1,0 +1,11 @@
+{
+ "owner": "lane 115 (S101): the stage screens (keys 801-807 of the arena pac: the wall behind the stage, the mini-tron, the ribbon band; pass site 0x82C0F4BC) drawn in place through the replace seam, geometry only: src/assets/screen_game_space.*, src/renderer_scene/screens_ours*.{h,cpp}, tools/screens/*. docs/renderer/SCREENS_OURS.md",
+ "note": "unit: builds out/tools/screens_ours_test.exe (also compile-checks the GPU side screens_ours.cpp), then the arena files (pairs 801/802, 803/804, 806/807 differ in uv: told apart by content), the clean runs on Check F / Check B / run 7074 (signed u) / run 7079, frame 200 = 4 draws, a live-style run, the planted faults (pair_swap, wrong_arena, uv_sign, colour_order, uv_halves_swapped and their no_verify twins; each fails its exact check) and the loud failures. proof: fview --screens-ours on Check F and run 7079 (byte-equal pictures, census 0x82C0F4BC stream draws 4 -> 0 at frame 200, mismatch 0, validation 0, plants moving the picture or census). Needs the case zips (held), the game files and out/renderer/dev/fview.exe built from the tree under test; a missing input FAILs loudly.",
+ "checks": [
+  {"name": "screens_ours_unit.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/screens/build_screens_ours_test.ps1"], "timeout_s": 1800},
+  {"name": "screens_ours_unit.proof", "cmd": ["py", "-I", "tools/screens/screens_ours_selftest.py"], "timeout_s": 3600,
+   "needs": ["out/s101/runs/20261112_101633_s100_owner_s89_brock", "out/s101/runs/20261111_215201_s100_owner_s89_brock", "out/s101/runs/20261112_121740_s100_owner_s89_brock", "out/s101/runs/20261112_122623_s100_owner_s89_brock", "game_data/extracted"]},
+  {"name": "screens_ours.proof", "cmd": ["py", "-I", "tools/screens/screens_ours_check.py", "--root", ".", "--no-build"], "timeout_s": 5400,
+   "needs": ["out/s101/runs/20261112_101633_s100_owner_s89_brock", "out/s101/runs/20261112_122623_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

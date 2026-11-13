@@ -1,0 +1,8 @@
+{
+ "owner": "lane 49 (S101): the skinned prop host vertex writer src/assets/prop_host_vertex.h (the arena's slots 390-397; the ring reuses it), unit level against Check B's vertex bytes",
+ "note": "builds out/tools/prop_vertex_check.exe first, then runs it on Check B's capture (case zip held, KEEP) and the game files: clean run + 4 planted writer faults each failing its own exact check + loud failures. A machine without the zip / game data SKIPs.",
+ "checks": [
+  {"name": "prop_vertex.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/ring/build_prop_vertex_check.ps1"], "timeout_s": 1800},
+  {"name": "prop_vertex.proof", "cmd": ["py", "-I", "tools/ring/prop_vertex_selftest.py"], "timeout_s": 1800, "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock", "game_data/extracted"]}
+ ]
+}

@@ -28,6 +28,7 @@
 #include <rex/logging.h>
 
 #include "blackbox.h"
+#include "renderer/surface_lifecycle.h"
 
 REXCVAR_DEFINE_BOOL(wwe2k14_android_frame_rate, true, "wwe2k14",
                     "Session 73 (Android): tell the phone the game is a fixed 60 fps source, so a 90 / 120 Hz screen "
@@ -53,7 +54,9 @@ class FrameRate {
         SDL_GetWindowProperties(sdl_window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
     const auto now = std::chrono::steady_clock::now();
     const float want_hz = WantedHz();
-    if (window && (window != set_for_ || want_hz != declared_hz_)) {
+    const uint32_t surface_epoch = rdr::WindowEvents().epoch();  // lane 235: a new window at the old address
+    if (window && (window != set_for_ || want_hz != declared_hz_ || surface_epoch != set_epoch_)) {
+      set_epoch_ = surface_epoch;
       set_for_ = window;
       declared_hz_ = want_hz;
       const float before = ScreenHz(sdl_window);
@@ -81,6 +84,7 @@ class FrameRate {
       return v.empty() ? 0 : std::atoi(v.c_str());
     };
     if (flag_int("wwe2k14_step_hz") == 120) return 120.0f;
+    if (flag_int("wwe2k14_rdr_display_hz") == 120) return 120.0f;  // S100: the new renderer's decoupled 120 (the game's step stays 60)
     if ((flag_int("gpu_d3d_decouple") & 8) && flag_int("gpu_d3d_decouple_word") == 0) return 120.0f;
     return 60.0f;
   }
@@ -118,6 +122,7 @@ class FrameRate {
   WithStrategyFn with_strategy_ = nullptr;
   PlainFn plain_ = nullptr;
   ANativeWindow* set_for_ = nullptr;
+  uint32_t set_epoch_ = 0;
   float declared_hz_ = 0.0f;
   std::chrono::steady_clock::time_point check_at_{};
 };

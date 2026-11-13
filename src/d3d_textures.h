@@ -39,6 +39,9 @@
 #include <rex/logging.h>
 
 #include "d3d_noring.h"  // d3d_layer helpers, the no-ring queue (Push / PublishPiece / Level), g_guest_frame
+#include "guest_view.h"  // S100 strip-360 tier C: the 0xE0000000 view rule, one place
+#include "renderer_adapter/reader.h"  // Session 100: the adapter reader (the one guarded call in each hook below)
+#include "thumb_defer.h"  // lane 232: the replay-thumbnail job hook (sub_8274FA70) and the present-time delivery
 
 REXCVAR_DEFINE_INT32(wwe2k14_d3d_textures, 0, "wwe2k14",
                      "Session 87 (D3D layer stage 4, textures): 0 = off; 1 = registry + trace logging only; 2 = the cut: texture "
@@ -179,7 +182,7 @@ inline bool Sending() {
 }
 
 // The GPU form of an address, as the library's SetTexture puts it into record words 1 and 5.
-inline uint32_t GpuForm(uint32_t a) { return ((((a >> 20) & 0xFFFu) + 512u) & 0x1000u) + (a & 0x1FFFFFFFu); }
+inline uint32_t GpuForm(uint32_t a) { return wwe2k14::guest_view::ToPhysical(a); }
 
 // The six header dwords as SetTexture would put them into a fresh slot record, for the words that describe the image: word 1 =
 // GpuForm(header word 1) (the old record's bit 11 is kept by the merge, so the identity is bits 12-31 and 0-10), word 5 =
@@ -190,7 +193,7 @@ inline void ConvertWords(const uint32_t in[6], uint32_t out[6]) {
   out[2] = in[2];
   out[3] = in[3];
   out[4] = in[4];
-  out[5] = (in[5] & 0x1FFFFE00u) + (((((in[5] >> 20) & 0xFFFu) + 512u) & 0x1000u));  // (trace run 001: >> 12 here was wrong, the region bit is the address's top 12 bits)
+  out[5] = (in[5] & 0x1FFFFE00u) + wwe2k14::guest_view::ViewOffset(in[5]);  // (trace run 001: >> 12 here was wrong, the region bit is the address's top 12 bits)
 }
 
 // Which bits of the converted header word k describe the image (the slot's record keeps the old record's value for the rest).
@@ -565,24 +568,35 @@ inline void LogCensusIfDue(bool force) {
 REX_HOOK_RAW(sub_82CA87C0) {
   if (!Mode()) {
     __imp__sub_82CA87C0(ctx, base);
+    if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnTextureCreated(ctx, base);
     return;
   }
   const uint32_t lr = uint32_t(ctx.lr);
   const uint32_t args[8] = {ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32};
   __imp__sub_82CA87C0(ctx, base);
   OnCreate(base, ctx.r3.u32, lr, args);
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnTextureCreated(ctx, base);
 }
 
 // 0x82CAD760 destroy resource (r3 = the resource; every kind goes through it, only registered textures are acted on): the id is retired
 // before the library waits for the GPU and frees the blocks.
 REX_HOOK_RAW(sub_82CAD760) {
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnResourceReleased(ctx, base);
   if (Mode()) OnDestroy(base, ctx.r3.u32);
   __imp__sub_82CAD760(ctx, base);
+}
+
+// 0x82CA7EB8 the library's texture lock (Session 100; reached by branch from LockRect 0x82CA8628 and the surface lock 0x82CA8AB0): r3 the
+// texture, r5 face / slice, r6 level. Owner mode: a picture our renderer made is read back into memory before the CPU reads it.
+REX_HOOK_RAW(sub_82CA7EB8) {
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnTextureLock(ctx, base);
+  __imp__sub_82CA7EB8(ctx, base);
 }
 
 // 0x82CA6BE0 the unlock flush (r3 = the object; tail-called by the engine wrapper's unmap 0x82BD47F0): the engine says the object's
 // memory was written. Trace: which objects, when relative to the first bind. Cut: a Changed item for a defined object.
 REX_HOOK_RAW(sub_82CA6BE0) {
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnUnlockFlush(ctx, base);
   const int mode = Mode();
   if (!mode) {
     __imp__sub_82CA6BE0(ctx, base);
@@ -675,6 +689,7 @@ inline void PlaneFlushChanged(uint8_t* base, uint32_t set) {
 // 0x827FB540 the video display set's plane flush (once a frame on the display set; texset_flush_planes): counted; with the cut, the planes of
 // the flush are marked changed (above).
 REX_HOOK_RAW(sub_827FB540) {
+  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnPlaneFlush(ctx, base);
   if (Mode()) g_reg.c.plane_flushes.fetch_add(1, std::memory_order_relaxed);
   const uint32_t set = ctx.r3.u32;
   __imp__sub_827FB540(ctx, base);

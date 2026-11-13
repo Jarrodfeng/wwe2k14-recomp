@@ -1,0 +1,474 @@
+# ReXGlue SDK changes for WWE 2K14 (session101-guest-gpu-only): d3a285c..f0bfdbb on wwe2k14-local (branch s101-lane233)
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  f0bfdbb Session 101 lane 233 review fixes: Runtime::Setup skips presentation for guest_gpu_only (B1), noring warning (N1), comments (N2/N4); test sets an app context
+#  c4a1277 Session 101 lane 233: RuntimeConfig::guest_gpu_only - MMIO + VSync only, no graphics provider, no command processor (null-guarded); unit test guest_gpu_only_test
+
+diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
+index 2efa3cc..c40126f 100644
+--- a/include/rex/graphics/graphics_system.h
++++ b/include/rex/graphics/graphics_system.h
+@@ -64,6 +64,12 @@ class GraphicsSystem : public system::IGraphicsSystem {
+   bool has_presentation() const override { return presenter_ != nullptr; }
+   void Shutdown() override;
+ 
++  // wwe2k14 patch (Session 101, lane 233): RuntimeConfig::guest_gpu_only. Set before SetupGuestGpu. SetupGuestGpu then registers the MMIO
++  // range and starts the VSync thread only: provider(), presenter() and command_processor() stay null for the system's whole life, provided SetupPresentation was not called before this flag
++  // was set (Runtime::Setup sets it first, and skips SetupPresentation when it is on).
++  void SetGuestGpuOnly(bool guest_gpu_only) override { guest_gpu_only_ = guest_gpu_only; }
++  bool guest_gpu_only() const { return guest_gpu_only_; }
++
+   // May be called from any thread any number of times, even during recovery
+   // from a device loss.
+   void OnHostGpuLossFromAnyThread(bool is_responsible);
+@@ -117,6 +123,7 @@ class GraphicsSystem : public system::IGraphicsSystem {
+   ::rex::ui::WindowedAppContext* app_context_ = nullptr;
+   std::unique_ptr<::rex::ui::GraphicsProvider> provider_;
+   bool provider_supports_presentation_ = false;
++  bool guest_gpu_only_ = false;  // wwe2k14 patch (Session 101, lane 233)
+ 
+   // wwe2k14 patch (Session 95, RACE R3): written by a guest thread, read by the vsync and command threads. Data first, callback
+   // published with release (graphics_system.cpp). atomic<uint32_t> keeps the size and alignment of uint32_t.
+diff --git a/include/rex/runtime.h b/include/rex/runtime.h
+index 67b9cca..e9c0629 100644
+--- a/include/rex/runtime.h
++++ b/include/rex/runtime.h
+@@ -76,6 +76,14 @@ struct RuntimeConfig {
+   // game's fences and interrupts) but never set up its presentation, so the window has no presenter and the app's own renderer owns it.
+   // The graphics system then builds its no-presentation provider in SetupGuestGpu.
+   bool present_detached = false;
++  // wwe2k14 patch (Session 101, lane 233, docs/renderer/LEAVE_THE_COMMAND_STREAM.md 3b): the graphics system keeps only what the guest
++  // still needs from it: the GPU MMIO range (0x7FC80000, ReadRegister answers) and the VSync thread (its vblank runs the game's interrupt
++  // handler). NO graphics provider (no second VkDevice), NO command processor (no "GPU Commands" thread, no shared memory / EDRAM /
++  // caches), no shader storage, no presenter at all (present_detached alone still builds an idle presenter in Runtime::Setup; guest_gpu_only
++  // does not: Runtime::Setup skips SetupPresentation). Implies present_detached. WARNING: with gpu_d3d_noring (the no-ring queue) the command
++  // processor is the queue's only consumer: the exe must not set this unless it answers fences / flips itself (the VSync thread warns once). The caller must answer the game's ring submit itself (the Vd ring calls are
++  // accepted and ignored). Default false = the unchanged SDK behaviour.
++  bool guest_gpu_only = false;
+ };
+ 
+ /// Helper macros for populating RuntimeConfig with concrete backends.
+diff --git a/include/rex/system/gpu_plugin.h b/include/rex/system/gpu_plugin.h
+index 453c210..417f005 100644
+--- a/include/rex/system/gpu_plugin.h
++++ b/include/rex/system/gpu_plugin.h
+@@ -29,7 +29,7 @@
+ namespace rex::system {
+ 
+ // Bump on any change to GpuCreateInfo or to the IGraphicsSystem interface.
+-inline constexpr uint32_t kGpuPluginAbiVersion = 1;
++inline constexpr uint32_t kGpuPluginAbiVersion = 2;  // wwe2k14 (S101 lane 233): 2 = IGraphicsSystem::SetGuestGpuOnly
+ 
+ inline constexpr const char* kGpuCreateSymbol = "rex_gpu_create";
+ inline constexpr const char* kGpuAbiVersionSymbol = "rex_gpu_abi_version";
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index d54df86..44af892 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -92,6 +92,10 @@ class IGraphicsSystem {
+   }
+ 
+   virtual void Shutdown() = 0;
++
++  // wwe2k14 patch (Session 101, lane 233): RuntimeConfig::guest_gpu_only, set by the Runtime before Setup. Appended last so the
++  // other vtable slots keep their places (the plugin ABI is bumped all the same).
++  virtual void SetGuestGpuOnly(bool guest_gpu_only) { (void)guest_gpu_only; }
+ };
+ 
+ }  // namespace rex::system
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index dd5b310..758d12c 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -26,6 +26,7 @@
+ #include <rex/graphics/command_processor.h>
+ #include <rex/graphics/d3d_noring.h>  // (Session 92, M5b) D3dNoringVblankSignal
+ #include <rex/graphics/flags.h>
++REXCVAR_DECLARE(uint64_t, gpu_d3d_noring_shared);  // wwe2k14 patch (Session 101, lane 233): d3d_noring.cpp
+ #include <rex/graphics/free_counters.h>
+ #include <rex/kernel/xboxkrnl/video.h>
+ #include <rex/logging.h>
+@@ -471,6 +472,12 @@ X_STATUS GraphicsSystem::SetupPresentation(ui::WindowedAppContext* app_context)
+     return X_STATUS_SUCCESS;
+   }
+ 
++  if (guest_gpu_only_) {
++    // wwe2k14 patch (Session 101, lane 233): a guest-GPU-only system builds no provider, so it has nothing to present with.
++    REXGPU_ERROR("SetupPresentation refused: guest_gpu_only (no graphics provider)");
++    return X_STATUS_UNSUCCESSFUL;
++  }
++
+   if (!provider_) {
+     CreateProvider(true);
+     if (!provider_) {
+@@ -511,6 +518,11 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+   function_dispatcher_ = function_dispatcher;
+   kernel_state_ = kernel_state;
+ 
++  if (guest_gpu_only_) {
++    // wwe2k14 patch (Session 101, lane 233, LEAVE_THE_COMMAND_STREAM.md 3b): no provider, no command processor. Only the MMIO range and
++    // the VSync thread below; every command_processor_ use in this file is null-guarded.
++    REXGPU_INFO("[gpu] guest_gpu_only: no graphics provider, no command processor (MMIO + VSync only)");
++  } else {
+   // Headless path: no one set up presentation, so build a no-presentation
+   // provider just for the command processor.
+   if (!provider_) {
+@@ -526,6 +538,7 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+     return X_STATUS_UNSUCCESSFUL;
+   }
+   command_processor_->SetDesiredSwapPostEffect(ParseSwapPostEffect(REXCVAR_GET(swap_post_effect)));
++  }
+ 
+   // Register GPU MMIO handlers
+   // GPU registers are at 0x7FC80000-0x7FCFFFFF
+@@ -562,6 +575,7 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+         uint32_t core_keeper_vblanks = 0;
+ #endif
+         uint64_t det_timeouts = 0;
++        bool noring_warned = false;  // wwe2k14 patch (Session 101, lane 233)
+         while (vsync_worker_running_) {
+           // wwe2k14 patch (Session 15): det_frames: the next vblank only once the guest is quiescent (all guest
+           // threads blocked, the CP idle or waiting); with vsync on, also not before the 60 Hz deadline.
+@@ -670,6 +684,11 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+             core_keeper.Look(kernel_state_);
+           }
+ #endif
++          if (guest_gpu_only_ && !noring_warned && REXCVAR_GET(gpu_d3d_noring_shared) != 0) {
++            // wwe2k14 patch (Session 101, lane 233): the no-ring queue's only consumer is the command processor.
++            noring_warned = true;
++            REXGPU_WARN("[gpu] guest_gpu_only with gpu_d3d_noring_shared set: nothing consumes the queue; fences / flips are never written unless the app answers them");
++          }
+           if (stats_vblanks >= 1800) {
+             REXGPU_INFO(
+                 "[s6][O1] precise vblank timer, last {} vblanks: late mean {} us, max {} us, {} at "
+@@ -806,7 +825,9 @@ void GraphicsSystem::WriteRegister(uint32_t addr, uint32_t value) {
+ 
+   switch (r) {
+     case 0x01C5:  // CP_RB_WPTR
+-      command_processor_->UpdateWritePointer(value);
++      if (command_processor_) {  // wwe2k14 patch (Session 101, lane 233): none when guest_gpu_only
++        command_processor_->UpdateWritePointer(value);
++      }
+       break;
+     case 0x1844:  // AVIVO_D1GRPH_PRIMARY_SURFACE_ADDRESS
+       break;
+@@ -820,10 +841,12 @@ void GraphicsSystem::WriteRegister(uint32_t addr, uint32_t value) {
+ }
+ 
+ void GraphicsSystem::InitializeRingBuffer(uint32_t ptr, uint32_t size_log2) {
++  if (!command_processor_) return;  // wwe2k14 patch (Session 101, lane 233): guest_gpu_only
+   command_processor_->InitializeRingBuffer(ptr, size_log2);
+ }
+ 
+ void GraphicsSystem::EnableReadPointerWriteBack(uint32_t ptr, uint32_t block_size_log2) {
++  if (!command_processor_) return;  // wwe2k14 patch (Session 101, lane 233): guest_gpu_only
+   command_processor_->EnableReadPointerWriteBack(ptr, block_size_log2);
+ }
+ 
+@@ -878,10 +901,12 @@ void GraphicsSystem::MarkVblank(uint32_t late_us, uint32_t precise_timer, uint32
+ }
+ 
+ void GraphicsSystem::ClearCaches() {
++  if (!command_processor_) return;  // wwe2k14 patch (Session 101, lane 233): guest_gpu_only
+   command_processor_->CallInThread([&]() { command_processor_->ClearCaches(); });
+ }
+ 
+ void GraphicsSystem::InvalidateGpuMemory() {
++  if (!command_processor_) return;  // wwe2k14 patch (Session 101, lane 233): guest_gpu_only
+   command_processor_->CallInThread([&]() { command_processor_->InvalidateGpuMemory(); });
+ }
+ 
+@@ -890,6 +915,7 @@ void GraphicsSystem::InitializeShaderStorage(const std::filesystem::path& cache_
+   if (!REXCVAR_GET(store_shaders)) {
+     return;
+   }
++  if (!command_processor_) return;  // wwe2k14 patch (Session 101, lane 233): guest_gpu_only (no shader storage without a backend)
+   if (blocking) {
+     if (command_processor_->is_paused()) {
+       // Safe to run on any thread while the command processor is paused, no
+@@ -912,25 +938,25 @@ void GraphicsSystem::InitializeShaderStorage(const std::filesystem::path& cache_
+ 
+ void GraphicsSystem::Pause() {
+   paused_ = true;
+-  command_processor_->Pause();
++  if (command_processor_) command_processor_->Pause();  // wwe2k14 patch (Session 101, lane 233): none when guest_gpu_only
+ }
+ 
+ void GraphicsSystem::Resume() {
+   paused_ = false;
+-  command_processor_->Resume();
++  if (command_processor_) command_processor_->Resume();  // wwe2k14 patch (Session 101, lane 233): none when guest_gpu_only
+ }
+ 
+ bool GraphicsSystem::Save(::rex::stream::ByteStream* stream) {
+   stream->Write<uint32_t>(interrupt_callback_.load(std::memory_order_relaxed));
+   stream->Write<uint32_t>(interrupt_callback_data_.load(std::memory_order_relaxed));
+-  return command_processor_->Save(stream);
++  return command_processor_ ? command_processor_->Save(stream) : true;  // wwe2k14 patch (Session 101, lane 233)
+ }
+ 
+ bool GraphicsSystem::Restore(::rex::stream::ByteStream* stream) {
+   const uint32_t interrupt_callback = stream->Read<uint32_t>();
+   interrupt_callback_data_.store(stream->Read<uint32_t>(), std::memory_order_relaxed);
+   interrupt_callback_.store(interrupt_callback, std::memory_order_release);
+-  return command_processor_->Restore(stream);
++  return command_processor_ ? command_processor_->Restore(stream) : true;  // wwe2k14 patch (Session 101, lane 233)
+ }
+ 
+ }  // namespace rex::graphics
+diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
+index bd91d26..18e4434 100644
+--- a/src/system/runtime.cpp
++++ b/src/system/runtime.cpp
+@@ -102,6 +102,9 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
+   // called Vulkan on a destroyed device (0xC0000005). The graphics system is adopted first so a failure before the
+   // GPU step can't destroy it with `config` either.
+   graphics_system_ = std::move(config.graphics);
++  if (graphics_system_ && config.guest_gpu_only) {
++    graphics_system_->SetGuestGpuOnly(true);  // wwe2k14 patch (Session 101, lane 233): before Setup builds anything
++  }
+   auto fail = [](X_STATUS status, std::string_view reason) {
+     REXSYS_ERROR("Runtime::Setup failed: {}", reason);
+     return status;
+@@ -186,7 +189,8 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
+ 
+   // Initialize GPU from injected config (adopted at the top)
+   if (graphics_system_) {
+-    bool with_presentation = (app_context_ != nullptr);
++    // wwe2k14 patch (Session 101, lane 233): ReXApp always sets the app context; a guest-GPU-only system has no provider to present with.
++    bool with_presentation = (app_context_ != nullptr) && !config.guest_gpu_only;
+     X_STATUS gpu_status = graphics_system_->Setup(function_dispatcher_.get(), kernel_state_.get(),
+                                                   app_context_, with_presentation);
+     if (XFAILED(gpu_status)) {
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+index dbd7417..30c49ef 100644
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -351,6 +351,9 @@ bool ReXApp::SetupPresentation() {
+   config_.kernel_init = rex::kernel::InitializeKernel;
+ 
+   OnPreSetup(config_);
++  if (config_.guest_gpu_only && !config_.present_detached) {
++    config_.present_detached = true;  // wwe2k14 patch (Session 101, lane 233): a guest-GPU-only system has no provider to present with
++  }
+ 
+   if (!config_.graphics && !config_.gpu_plugin.empty()) {
+     config_.graphics = rex::system::LoadGpuPlugin(config_.gpu_plugin);
+diff --git a/tests/unit/CMakeLists.txt b/tests/unit/CMakeLists.txt
+index 7bd264b..e412e44 100644
+--- a/tests/unit/CMakeLists.txt
++++ b/tests/unit/CMakeLists.txt
+@@ -75,3 +75,27 @@ catch_discover_tests(unit_tests
+         LABELS "unit"
+         TIMEOUT 60
+ )
++
++# wwe2k14 patch (Session 101, lane 233): RuntimeConfig::guest_gpu_only. Its own executable: it builds a full Runtime (its own guest
++# Memory), and it loads the real rexgpu-xenos plugin from the exe folder (RUNTIME_OUTPUT_DIRECTORY is shared, so the DLL is there).
++add_executable(guest_gpu_only_test
++    system/guest_gpu_only_test.cpp
++)
++target_include_directories(guest_gpu_only_test PRIVATE
++    ${PROJECT_SOURCE_DIR}/include
++    ${PROJECT_SOURCE_DIR}/src
++)
++target_link_libraries(guest_gpu_only_test PRIVATE
++    rexruntime
++    Catch2::Catch2WithMain
++)
++add_dependencies(guest_gpu_only_test rexgpu-xenos)
++target_compile_options(guest_gpu_only_test PRIVATE
++    -UTRACY_ENABLE -UREXGLUE_ENABLE_PROFILING
++    -UREXGLUE_ENABLE_PERF_COUNTERS -UREXGLUE_PROFILE_GUEST_FUNCTIONS
++)
++set_target_properties(guest_gpu_only_test PROPERTIES
++    RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:rexruntime>
++)
++add_test(NAME unit.guest_gpu_only COMMAND guest_gpu_only_test)
++set_tests_properties(unit.guest_gpu_only PROPERTIES LABELS "unit" TIMEOUT 60)
+diff --git a/tests/unit/system/guest_gpu_only_test.cpp b/tests/unit/system/guest_gpu_only_test.cpp
+new file mode 100644
+index 0000000..e7fe0e2
+--- /dev/null
++++ b/tests/unit/system/guest_gpu_only_test.cpp
+@@ -0,0 +1,181 @@
++/**
++ * @file        tests/unit/system/guest_gpu_only_test.cpp
++ * @brief       RuntimeConfig::guest_gpu_only: the graphics system brought up with no provider and no command processor
++ *
++ * wwe2k14 patch (Session 101, lane 233, docs/renderer/LEAVE_THE_COMMAND_STREAM.md 3b). Own executable (guest_gpu_only_test):
++ * it builds a full Runtime, and the guest Memory cannot be shared with the unit_tests binary's.
++ *
++ * What it proves, offline, with no graphics device on the machine needed (nothing in guest-only mode creates one):
++ *   - Runtime::Setup with the real rexgpu-xenos plugin and guest_gpu_only succeeds, provider() / presenter() /
++ *     command_processor() stay null, SetupPresentation is refused;
++ *   - GPU MMIO reads / writes (the vblank status, the V counter, the viewport size, CP_RB_WPTR) are answered;
++ *   - the Vd ring calls, shader storage, ClearCaches, InvalidateGpuMemory, and Shutdown (Pause / Resume are not virtual and not exported from the plugin: audited by reading) do not touch a null
++ *     command processor;
++ *   - the VSync thread ticks and runs the guest interrupt callback (a host thunk counts the vblanks);
++ *   - VdSwap forms its swap packet in guest memory without any graphics object.
++ */
++
++#include <atomic>
++#include <chrono>
++#include <thread>
++
++#include <catch2/catch_test_macros.hpp>
++
++#include <rex/graphics/graphics_system.h>
++#include <rex/graphics/register_file.h>
++#include <rex/graphics/xenos.h>
++#include <rex/logging.h>
++#include <rex/memory/utils.h>
++#include <rex/ppc/context.h>
++#include <rex/runtime.h>
++#include <rex/system/function_dispatcher.h>
++#include <rex/system/gpu_plugin.h>
++#include <rex/system/interfaces/graphics.h>
++#include <rex/system/mmio_handler.h>
++#include <rex/system/xmemory.h>
++
++namespace rex::ui {
++class WindowedAppContext;
++}
++
++namespace rex::kernel::xboxkrnl {
++void VdSwap_entry(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped_void unk2, mapped_void unk3, mapped_void unk4,
++                  mapped_u32 frontbuffer_ptr, mapped_u32 texture_format_ptr, mapped_u32 color_space_ptr,
++                  mapped_u32 width, mapped_u32 height);
++}
++
++using rex::X_STATUS;
++
++namespace {
++
++std::atomic<uint32_t> g_vblanks{0};
++std::atomic<uint32_t> g_last_source{0xFFFFFFFF};
++std::atomic<uint32_t> g_last_data{0};
++
++void VblankHandler(PPCContext& ctx, uint8_t*) {
++  g_last_source = uint32_t(ctx.r3.u64);
++  g_last_data = uint32_t(ctx.r4.u64);
++  ++g_vblanks;
++}
++
++uint32_t MmioLoad(uint32_t addr) {
++  auto* mmio = rex::runtime::MMIOHandler::global_handler();
++  REQUIRE(mmio != nullptr);
++  uint32_t value = 0xDEADBEEF;
++  REQUIRE(mmio->CheckLoad(addr, &value));
++  return value;
++}
++
++}  // namespace
++
++TEST_CASE("guest_gpu_only: MMIO, VSync, Vd calls and VdSwap with no provider / command processor", "[gpu][guest_gpu_only]") {
++  rex::RuntimeConfig config;
++  config.graphics = rex::system::LoadGpuPlugin("xenos", "vulkan");
++  REQUIRE(config.graphics != nullptr);
++  config.guest_gpu_only = true;
++
++  rex::Runtime runtime{std::filesystem::path{}};
++  // The ReXApp path: ConstructRuntime always sets an app context, so Runtime::Setup would ask for presentation. The pointer is only
++  // stored (guest-only mode never presents), so a dummy stands in for the window system.
++  runtime.set_app_context(reinterpret_cast<rex::ui::WindowedAppContext*>(uintptr_t(0x10)));
++  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
++
++  rex::system::IGraphicsSystem* igs = runtime.graphics_system();
++  REQUIRE(igs != nullptr);
++  auto* gs = static_cast<rex::graphics::GraphicsSystem*>(igs);  // the plugin's system is the SDK's GraphicsSystem
++
++  {  // nothing is built
++    CHECK(gs->guest_gpu_only());
++    CHECK(igs->provider() == nullptr);
++    CHECK(igs->presenter() == nullptr);
++    CHECK_FALSE(igs->has_presentation());
++    CHECK(gs->command_processor() == nullptr);
++    CHECK(igs->SetupPresentation(nullptr) != X_STATUS_SUCCESS);  // refused, and still nothing built
++    CHECK(igs->provider() == nullptr);
++  }
++
++  {  // MMIO answers
++    CHECK(MmioLoad(0x7FC80000 + 0x1951 * 4) == 1u);  // interrupt status: vblank
++    const uint32_t vcounter = MmioLoad(0x7FC80000 + 0x194C * 4);
++    CHECK(vcounter > 0u);
++    CHECK(vcounter <= 0xFFFu);
++    const uint32_t viewport = MmioLoad(0x7FC80000 + 0x1961 * 4);
++    CHECK((viewport >> 16) > 0u);
++    CHECK((viewport & 0xFFFF) > 0u);
++    CHECK(MmioLoad(0x7FC80000 + 0x0F00 * 4) == 0x08100748u);  // RB_EDRAM_TIMING
++    // Writes: CP_RB_WPTR used to go to the command processor; unknown registers only log.
++    auto* mmio = rex::runtime::MMIOHandler::global_handler();
++    CHECK(mmio->CheckStore(0x7FC80000 + 0x01C5 * 4, 0x40));
++    CHECK(mmio->CheckStore(0x7FC80000 + 0x1844 * 4, 0));
++    CHECK(mmio->CheckStore(0x7FC80000 + 0x0400 * 4, 1));
++    // A register the guest wrote reads back from the file.
++    CHECK(MmioLoad(0x7FC80000 + 0x0400 * 4) == 1u);
++  }
++
++  {  // IGraphicsSystem calls that used to reach the command processor
++    igs->InitializeRingBuffer(0x1000, 16);
++    igs->EnableReadPointerWriteBack(0x2000, 6);
++    igs->InitializeShaderStorage(std::filesystem::path{"guest_gpu_only_test_cache"}, 0x545408B2, true);
++    igs->InitializeShaderStorage(std::filesystem::path{"guest_gpu_only_test_cache"}, 0x545408B2, false);
++    gs->ClearCaches();
++    gs->InvalidateGpuMemory();
++    CHECK_FALSE(std::filesystem::exists("guest_gpu_only_test_cache"));  // no shader storage was made
++  }
++
++  {  // VSync thread ticks and runs the guest callback
++    auto* dispatcher = runtime.function_dispatcher();
++    constexpr uint32_t kImage = 0x82000000u;
++    REQUIRE(dispatcher->InitializeFunctionTable(kImage, 0x10000u, kImage, 0x100000u));
++    const uint32_t thunk = dispatcher->AllocateThunk(&VblankHandler, kImage + 0x100);
++    REQUIRE(thunk != 0);
++    g_vblanks = 0;
++    igs->SetInterruptCallback(thunk, 0x12345678);
++    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
++    while (g_vblanks.load() < 5 && std::chrono::steady_clock::now() < deadline) {
++      std::this_thread::sleep_for(std::chrono::milliseconds(5));
++    }
++    CHECK(g_vblanks.load() >= 5u);
++    CHECK(g_last_source.load() == 0u);  // MarkVblank dispatches source 0
++    CHECK(g_last_data.load() == 0x12345678u);
++  }
++
++  {  // VdSwap forms its swap packet with no graphics object
++    auto* memory = runtime.memory();
++    // A front buffer in physical memory, a swap command area, a fetch constant and the parameter words.
++    const uint32_t front = memory->SystemHeapAlloc(0x1000, 0x1000, rex::memory::kSystemHeapPhysical);
++    const uint32_t area = memory->SystemHeapAlloc(256, 64, rex::memory::kSystemHeapPhysical);
++    const uint32_t fetch = memory->SystemHeapAlloc(32, 32, rex::memory::kSystemHeapPhysical);
++    const uint32_t params = memory->SystemHeapAlloc(64, 16, rex::memory::kSystemHeapPhysical);
++    REQUIRE(front != 0);
++    REQUIRE(area != 0);
++    REQUIRE(fetch != 0);
++    REQUIRE(params != 0);
++    namespace xenos = rex::graphics::xenos;
++    xenos::xe_gpu_texture_fetch_t constant{};
++    constant.base_address = front >> 12;
++    constant.size_2d.width = 1279;
++    constant.size_2d.height = 719;
++    uint32_t* fetch_host = reinterpret_cast<uint32_t*>(memory->TranslateVirtual(fetch));
++    rex::memory::copy_and_swap_32_unaligned(fetch_host, reinterpret_cast<const uint32_t*>(&constant), 6);
++    uint32_t* p = reinterpret_cast<uint32_t*>(memory->TranslateVirtual(params));
++    rex::memory::store_and_swap<uint32_t>(&p[0], front);
++    rex::memory::store_and_swap<uint32_t>(&p[1], uint32_t(xenos::TextureFormat::k_8_8_8_8));
++    rex::memory::store_and_swap<uint32_t>(&p[2], 0);
++    rex::memory::store_and_swap<uint32_t>(&p[3], 1280);
++    rex::memory::store_and_swap<uint32_t>(&p[4], 720);
++    auto mv = [&](uint32_t a) { return mapped_void(memory->TranslateVirtual(a), a); };
++    auto mu = [&](uint32_t a) { return mapped_u32(reinterpret_cast<be_u32*>(memory->TranslateVirtual(a)), a); };
++    rex::kernel::xboxkrnl::VdSwap_entry(mv(area), mv(fetch), mv(0), mv(0), mv(0), mu(params), mu(params + 4), mu(params + 8),
++                                        mu(params + 12), mu(params + 16));
++    // The packet: type-0 write of 6 fetch registers, then PM4_XE_SWAP carrying kSwapSignature.
++    const uint32_t* dwords = reinterpret_cast<const uint32_t*>(memory->TranslateVirtual(area));
++    CHECK(rex::memory::load_and_swap<uint32_t>(&dwords[0]) ==
++          xenos::MakePacketType0(rex::graphics::XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0, 6));
++    CHECK(rex::memory::load_and_swap<uint32_t>(&dwords[7]) == xenos::MakePacketType3(xenos::PM4_XE_SWAP, 4));
++    CHECK(rex::memory::load_and_swap<uint32_t>(&dwords[8]) == xenos::kSwapSignature);
++    CHECK(rex::memory::load_and_swap<uint32_t>(&dwords[11]) == 720u);
++  }
++
++  runtime.Shutdown();  // the command-processor-less system shuts down (VSync thread joined, nothing else to stop)
++  CHECK(runtime.graphics_system() == nullptr);
++}

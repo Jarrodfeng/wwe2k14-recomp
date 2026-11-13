@@ -1,0 +1,121 @@
+{
+ "effect": "yComposition",
+ "vertex": [
+  {
+   "name": "quad",
+   "defines": [],
+   "hashes": [
+    "088496E2D7848F6D"
+   ],
+   "constants": [],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ]
+  }
+ ],
+ "fragment": [
+  {
+   "name": "copy_rgb",
+   "defines": [
+    "RGB"
+   ],
+   "hashes": [
+    "18E44E66A612DC1A"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "name": "alpha_grey",
+   "defines": [
+    "ALPHA"
+   ],
+   "hashes": [
+    "3508B5D5D058AE6D"
+   ],
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "name": "offset_copy",
+   "defines": [
+    "OFFSET"
+   ],
+   "hashes": [
+    "332E0202C55693D7"
+   ],
+   "constants": [
+    {
+     "field": "g_Offset",
+     "register": 4,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  },
+  {
+   "name": "channel_split",
+   "defines": [
+    "SPLIT"
+   ],
+   "hashes": [
+    "FB40689827987460"
+   ],
+   "constants": [
+    {
+     "field": "g_CompR",
+     "register": 0,
+     "count": 1
+    },
+    {
+     "field": "g_CompG",
+     "register": 1,
+     "count": 1
+    },
+    {
+     "field": "g_CompB",
+     "register": 2,
+     "count": 1
+    },
+    {
+     "field": "g_CompA",
+     "register": 3,
+     "count": 1
+    },
+    {
+     "field": "g_Offset",
+     "register": 4,
+     "count": 1
+    }
+   ],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
+  }
+ ]
+}

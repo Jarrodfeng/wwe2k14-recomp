@@ -1,0 +1,7 @@
+{
+ "owner": "lane 103 (S101 R1): the 30 Years Lua 5.1 lister and scene table, tools/wm30/. Python only, 0 game runs; reads game_data/extracted read-only.",
+ "checks": [
+  {"name": "r1.lua51_selftest", "cmd": ["py", "-I", "tools/wm30/lua51_list.py", "--selftest"], "timeout_s": 120, "needs": []},
+  {"name": "r1.scene_table", "cmd": ["py", "-I", "tools/wm30/scene_table.py", "--check"], "timeout_s": 600, "needs": ["game_data/extracted/pac/evtdsc/evtdsc0.pac", "game_data/extracted/pac/evt/Season00.pac", "out/tools/xctd_unpack.exe"]}
+ ]
+}

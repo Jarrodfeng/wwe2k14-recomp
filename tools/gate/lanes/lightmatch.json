@@ -1,0 +1,8 @@
+{
+ "owner": "lane 33: light match (the game's light constants from captures vs the Arena Viewer's evaluation; planted-fault twins in the viewer's own code)",
+ "checks": [
+  {"name": "lightmatch.viewer_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1"], "timeout_s": 1800},
+  {"name": "lightmatch.viewer_rdr_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1", "-Backend", "rdr"], "timeout_s": 1800},
+  {"name": "lightmatch.selftest", "cmd": ["py", "-I", "tools/lightmatch/selftest.py"], "timeout_s": 1500, "needs": ["out/s101/runs", "game_data/extracted"]}
+ ]
+}

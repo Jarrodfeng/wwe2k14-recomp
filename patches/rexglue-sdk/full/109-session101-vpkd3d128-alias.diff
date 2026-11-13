@@ -1,0 +1,289 @@
+# ReXGlue SDK changes for WWE 2K14 (session101-vpkd3d128-alias): 88e4077b0b2f..b68952176941 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  b689521 Session 101 lane 46: blank line before each in-place test label (the parser consumed a label right after REGISTER_OUT), hazard comments
+#  8547467 Session 101 lane 46: vpkd3d128 / vpkuhus / vpkuwus code generator read-after-overwrite when vD aliases a source (u's sign lost in the game's UV packers); in-place PPC tests
+
+diff --git a/src/codegen/builders/vector.cpp b/src/codegen/builders/vector.cpp
+index df589ce9c3a77a0eb291d2c5fa2a830c9ae941fc..08bf45430415455ba370f4035f7a4febbe094272 100644
+--- a/src/codegen/builders/vector.cpp
++++ b/src/codegen/builders/vector.cpp
+@@ -14,6 +14,7 @@
+ 
+ #include <cmath>
+ 
++#include <fmt/format.h>
+ #include <simde/x86/sse.h>
+ 
+ #include <rex/logging.h>
+@@ -1102,14 +1103,21 @@ bool build_vpkuhus(BuilderContext& ctx) {
+   // NOTE(tomc): _mm_packus_epi16 treats inputs as signed, so we need custom saturation for
+   // unsigned. Unsigned halfwords >= 0x8000 would be interpreted as negative and clamped to 0
+   // instead of 0xFF.
++  // wwe2k14 patch (Session 101, lane 46): the loop writes vD byte by byte while reading vA / vB
++  // halfwords; when vD aliases a source, the reads hit bytes already overwritten (vD == vB: from i = 0,
++  // the first store covers the byte the second read needs; vD == vA: from i = 4). Build
++  // the result in v_temp and copy it over, exactly when vD is one of the sources.
++  const bool alias = ctx.insn.operands[0] == ctx.insn.operands[1] ||
++                     ctx.insn.operands[0] == ctx.insn.operands[2];
++  const std::string dst = alias ? std::string(ctx.v_temp()) : ctx.v(ctx.insn.operands[0]);
+   for (size_t i = 0; i < 8; i++) {
+-    ctx.println("\t{}.u8[{}] = {}.u16[{}] > 0xFF ? 0xFF : (uint8_t){}.u16[{}];",
+-                ctx.v(ctx.insn.operands[0]), 15 - i, ctx.v(ctx.insn.operands[1]), 7 - i,
+-                ctx.v(ctx.insn.operands[1]), 7 - i);
+-    ctx.println("\t{}.u8[{}] = {}.u16[{}] > 0xFF ? 0xFF : (uint8_t){}.u16[{}];",
+-                ctx.v(ctx.insn.operands[0]), 7 - i, ctx.v(ctx.insn.operands[2]), 7 - i,
+-                ctx.v(ctx.insn.operands[2]), 7 - i);
++    ctx.println("\t{}.u8[{}] = {}.u16[{}] > 0xFF ? 0xFF : (uint8_t){}.u16[{}];", dst, 15 - i,
++                ctx.v(ctx.insn.operands[1]), 7 - i, ctx.v(ctx.insn.operands[1]), 7 - i);
++    ctx.println("\t{}.u8[{}] = {}.u16[{}] > 0xFF ? 0xFF : (uint8_t){}.u16[{}];", dst, 7 - i,
++                ctx.v(ctx.insn.operands[2]), 7 - i, ctx.v(ctx.insn.operands[2]), 7 - i);
+   }
++  if (alias)
++    ctx.println("\t{} = {};", ctx.v(ctx.insn.operands[0]), dst);
+   return true;
+ }
+ 
+@@ -1130,14 +1138,19 @@ bool build_vpkuwus(BuilderContext& ctx) {
+ 
+   // NOTE(tomc): _mm_packus_epi32 treats inputs as signed, so we need custom saturation for unsigned
+   // Saturate each u32 to [0, 0xFFFF], then pack to u16
++  // wwe2k14 patch (Session 101, lane 46): same in-place hazard as vpkuhus (vD == vB: from i = 0; vD == vA: the
++  // reads for i >= 2 hit halfwords already written); build in v_temp and copy over when vD is one of the sources.
++  const bool alias = ctx.insn.operands[0] == ctx.insn.operands[1] ||
++                     ctx.insn.operands[0] == ctx.insn.operands[2];
++  const std::string dst = alias ? std::string(ctx.v_temp()) : ctx.v(ctx.insn.operands[0]);
+   for (size_t i = 0; i < 4; i++) {
+-    ctx.println("\t{}.u16[{}] = {}.u32[{}] > 0xFFFF ? 0xFFFF : (uint16_t){}.u32[{}];",
+-                ctx.v(ctx.insn.operands[0]), 7 - i, ctx.v(ctx.insn.operands[1]), 3 - i,
+-                ctx.v(ctx.insn.operands[1]), 3 - i);
+-    ctx.println("\t{}.u16[{}] = {}.u32[{}] > 0xFFFF ? 0xFFFF : (uint16_t){}.u32[{}];",
+-                ctx.v(ctx.insn.operands[0]), 3 - i, ctx.v(ctx.insn.operands[2]), 3 - i,
+-                ctx.v(ctx.insn.operands[2]), 3 - i);
++    ctx.println("\t{}.u16[{}] = {}.u32[{}] > 0xFFFF ? 0xFFFF : (uint16_t){}.u32[{}];", dst, 7 - i,
++                ctx.v(ctx.insn.operands[1]), 3 - i, ctx.v(ctx.insn.operands[1]), 3 - i);
++    ctx.println("\t{}.u16[{}] = {}.u32[{}] > 0xFFFF ? 0xFFFF : (uint16_t){}.u32[{}];", dst, 3 - i,
++                ctx.v(ctx.insn.operands[2]), 3 - i, ctx.v(ctx.insn.operands[2]), 3 - i);
+   }
++  if (alias)
++    ctx.println("\t{} = {};", ctx.v(ctx.insn.operands[0]), dst);
+   return true;
+ }
+ 
+@@ -1171,6 +1184,30 @@ bool build_vpkswus(BuilderContext& ctx) {
+   return true;
+ }
+ 
++// wwe2k14 patch (Session 101, lane 46): vpkd3d128 types 3 / 4 / 5 write vD lane by lane (u16 stores) and read
++// the source words (u32 loads, the sign bit AFTER the store) lane by lane. When vD == vB the stores overwrite
++// words that later reads need (the game's four UV packers are `vpkd3d128 v63,v63,5,2,2`: u's sign was lost).
++// Snapshot the four source words first, in a scope of their own, and read only the snapshot. Not aliased: the
++// generated code is unchanged.
++static bool vpkd3d128_aliased(BuilderContext& ctx) {
++  return ctx.insn.operands[0] == ctx.insn.operands[1];
++}
++static void vpkd3d128_open_snapshot(BuilderContext& ctx) {
++  if (!vpkd3d128_aliased(ctx)) return;
++  const auto vB = ctx.v(ctx.insn.operands[1]);
++  ctx.println("\t{{");
++  ctx.println("\tuint32_t vpk_src[4] = {{ {0}.u32[0], {0}.u32[1], {0}.u32[2], {0}.u32[3] }};", vB);
++}
++static void vpkd3d128_close_snapshot(BuilderContext& ctx) {
++  if (!vpkd3d128_aliased(ctx)) return;
++  ctx.println("\t}}");
++}
++// The expression for source word `idx`: the snapshot when aliased, else the register itself.
++static std::string vpkd3d128_src(BuilderContext& ctx, size_t idx) {
++  if (vpkd3d128_aliased(ctx)) return fmt::format("vpk_src[{}]", idx);
++  return fmt::format("{}.u32[{}]", ctx.v(ctx.insn.operands[1]), idx);
++}
++
+ bool build_vpkd3d128(BuilderContext& ctx) {
+   // TODO(tomc): vectorize
+   // NOTE: handling vector reversal here too
+@@ -1285,26 +1322,28 @@ bool build_vpkd3d128(BuilderContext& ctx) {
+       // Pack 2 elements into 32 bits (1 word)
+       // Guest element 0 goes to high 16 bits, element 1 to low 16 bits
+       // Output u16 index = (1-i) + 2*shift for element i
++      vpkd3d128_open_snapshot(ctx);
+       for (size_t i = 0; i < 2; i++) {
+         size_t srcIdx = 3 - i;  // Guest element i is at host array index 3-i
+         size_t dstIdx =
+             (1 - i) + (2 * ctx.insn.operands[4]);  // Output reversed: elem 0 to high, elem 1 to low
+-        ctx.println("\t{}.u32 = ({}.u32[{}]&0x7FFFFFFF);", ctx.temp(), ctx.v(ctx.insn.operands[1]),
+-                    srcIdx);
++        const std::string src = vpkd3d128_src(ctx, srcIdx);
++        ctx.println("\t{}.u32 = ({}&0x7FFFFFFF);", ctx.temp(), src);
+         ctx.println(
+             "\t{0}.u8[0] = ({1}.f32 != {1}.f32) || ({1}.f32 > 65504.0f) ? 0xFF : "
+-            "(({2}.u32[{3}]&0x7f800000)>>23);",
+-            ctx.v_temp(), ctx.temp(), ctx.v(ctx.insn.operands[1]), srcIdx);
+-        ctx.println("\t{}.u16 = {}.u8[0] != 0xFF ? (({}.u32[{}]&0x7FE000)>>13) : 0x0;", ctx.temp(),
+-                    ctx.v_temp(), ctx.v(ctx.insn.operands[1]), srcIdx);
++            "(({2}&0x7f800000)>>23);",
++            ctx.v_temp(), ctx.temp(), src);
++        ctx.println("\t{}.u16 = {}.u8[0] != 0xFF ? (({}&0x7FE000)>>13) : 0x0;", ctx.temp(),
++                    ctx.v_temp(), src);
+         ctx.println(
+             "\t{0}.u16[{1}] = {2}.u8[0] != 0xFF ? ({2}.u8[0] > 0x70 ? "
+             "((({2}.u8[0]-0x70)<<10)+{3}.u16) : (0x71-{2}.u8[0] > 31 ? 0x0 : "
+             "((0x400+{3}.u16)>>(0x71-{2}.u8[0])))) : 0x7FFF;",
+             ctx.v(ctx.insn.operands[0]), dstIdx, ctx.v_temp(), ctx.temp());
+-        ctx.println("\t{}.u16[{}] |= (({}.u32[{}]&0x80000000)>>16);", ctx.v(ctx.insn.operands[0]),
+-                    dstIdx, ctx.v(ctx.insn.operands[1]), srcIdx);
++        ctx.println("\t{}.u16[{}] |= (({}&0x80000000)>>16);", ctx.v(ctx.insn.operands[0]),
++                    dstIdx, src);
+       }
++      vpkd3d128_close_snapshot(ctx);
+       break;
+     }
+ 
+@@ -1313,17 +1352,19 @@ bool build_vpkd3d128(BuilderContext& ctx) {
+       // Pack 4 elements into 64 bits (2 words)
+       // Guest element 0 goes to highest 16-bit position, element 3 to lowest
+       // Output u16 index = (3-i) + 2*shift for element i
++      vpkd3d128_open_snapshot(ctx);
+       for (size_t i = 0; i < 4; i++) {
+         size_t srcIdx = 3 - i;  // Guest element i is at host array index 3-i
+         size_t dstIdx = (3 - i) + (2 * ctx.insn.operands[4]);  // Output also reversed
+         // wwe2k14 patch (Session 73): wrapping subtraction (signed overflow is undefined; ARM saturated the other way).
+-        ctx.println("\t{}.s32 = int32_t({}.u32[{}] - 0x40400000u);", ctx.temp(), ctx.v(ctx.insn.operands[1]),
+-                    srcIdx);
++        ctx.println("\t{}.s32 = int32_t({} - 0x40400000u);", ctx.temp(),
++                    vpkd3d128_src(ctx, srcIdx));
+         ctx.println("\t{}.s32 = {}.s32 > 32767 ? 32767 : ({}.s32 < -32767 ? -32767 : {}.s32);",
+                     ctx.temp(), ctx.temp(), ctx.temp(), ctx.temp());
+         ctx.println("\t{}.u16[{}] = uint16_t({}.s32);", ctx.v(ctx.insn.operands[0]), dstIdx,
+                     ctx.temp());
+       }
++      vpkd3d128_close_snapshot(ctx);
+       break;
+     }
+ 
+@@ -1335,25 +1376,27 @@ bool build_vpkd3d128(BuilderContext& ctx) {
+       if (ctx.insn.operands[3] != 2 || ctx.insn.operands[4] > 2)
+         REXCODEGEN_WARN("Unexpected float16_4 pack instruction at {:X}", ctx.base);
+ 
++      vpkd3d128_open_snapshot(ctx);
+       for (size_t i = 0; i < 4; i++) {
+         size_t srcIdx = 3 - i;  // Guest element i is at host array index 3-i
+         size_t dstIdx = (3 - i) + (2 * ctx.insn.operands[4]);  // Output also reversed
+-        ctx.println("\t{}.u32 = ({}.u32[{}]&0x7FFFFFFF);", ctx.temp(), ctx.v(ctx.insn.operands[1]),
+-                    srcIdx);
++        const std::string src = vpkd3d128_src(ctx, srcIdx);
++        ctx.println("\t{}.u32 = ({}&0x7FFFFFFF);", ctx.temp(), src);
+         ctx.println(
+             "\t{0}.u8[0] = ({1}.f32 != {1}.f32) || ({1}.f32 > 65504.0f) ? 0xFF : "
+-            "(({2}.u32[{3}]&0x7f800000)>>23);",
+-            ctx.v_temp(), ctx.temp(), ctx.v(ctx.insn.operands[1]), srcIdx);
+-        ctx.println("\t{}.u16 = {}.u8[0] != 0xFF ? (({}.u32[{}]&0x7FE000)>>13) : 0x0;", ctx.temp(),
+-                    ctx.v_temp(), ctx.v(ctx.insn.operands[1]), srcIdx);
++            "(({2}&0x7f800000)>>23);",
++            ctx.v_temp(), ctx.temp(), src);
++        ctx.println("\t{}.u16 = {}.u8[0] != 0xFF ? (({}&0x7FE000)>>13) : 0x0;", ctx.temp(),
++                    ctx.v_temp(), src);
+         ctx.println(
+             "\t{0}.u16[{1}] = {2}.u8[0] != 0xFF ? ({2}.u8[0] > 0x70 ? "
+             "((({2}.u8[0]-0x70)<<10)+{3}.u16) : (0x71-{2}.u8[0] > 31 ? 0x0 : "
+             "((0x400+{3}.u16)>>(0x71-{2}.u8[0])))) : 0x7FFF;",
+             ctx.v(ctx.insn.operands[0]), dstIdx, ctx.v_temp(), ctx.temp());
+-        ctx.println("\t{}.u16[{}] |= (({}.u32[{}]&0x80000000)>>16);", ctx.v(ctx.insn.operands[0]),
+-                    dstIdx, ctx.v(ctx.insn.operands[1]), srcIdx);
++        ctx.println("\t{}.u16[{}] |= (({}&0x80000000)>>16);", ctx.v(ctx.insn.operands[0]),
++                    dstIdx, src);
+       }
++      vpkd3d128_close_snapshot(ctx);
+       break;
+     }
+ 
+diff --git a/tests/ppc/asm/instr_vpkd3d128.s b/tests/ppc/asm/instr_vpkd3d128.s
+index e4acd59f23500d2d5b91c36ca15f39ae6e977c7c..01fd036b7e9c51a004a8ed349b07ab15ffbe3773 100644
+--- a/tests/ppc/asm/instr_vpkd3d128.s
++++ b/tests/ppc/asm/instr_vpkd3d128.s
+@@ -256,3 +256,37 @@ test_vpkd3d128_float16_4_0:
+   blr
+   #_ REGISTER_OUT v3 [3F000000, BF000000, 3F800000, BF800000]
+   #_ REGISTER_OUT v4 [CDCDCDCD, CDCDCDCD, 3800B800, 3C00BC00]
++
++# --- wwe2k14 patch (Session 101, lane 46): in place (vD == vB). The stores into vD overwrite source words the
++# --- generator still reads (the sign bit is read AFTER the half is stored). Every expectation below equals the
++# --- result of the same pack into a separate register. Encodings are the vD != vB ones above with the VD field
++# --- (bits 21-25, little-endian numbering) changed 4 -> 3, and the shift in bits 6-7.
++# The game's four UV packers: `vpkd3d128 v63,v63,5,2,2` (FLOAT16_4, shift 2). u's sign was lost.
++
++test_vpkd3d128_float16_4_inplace_shift2_0:
++  #_ REGISTER_IN v3 [BFC00000, 3F800000, 3FC00000, BFC00000]
++  # vpkd3d128 v3, v3, 5, 2, 2
++  .long 0x18761E90
++  blr
++  #_ REGISTER_OUT v3 [BE003C00, 3E00BE00, 3FC00000, BFC00000]
++
++test_vpkd3d128_float16_4_inplace_shift0_0:
++  #_ REGISTER_IN v3 [3F000000, BF000000, 3F800000, BF800000]
++  # vpkd3d128 v3, v3, 5, 2, 0
++  .long 0x18761E10
++  blr
++  #_ REGISTER_OUT v3 [3F000000, BF000000, 3800B800, 3C00BC00]
++
++test_vpkd3d128_float16_2_inplace_shift3_0:
++  #_ REGISTER_IN v3 [BFC00000, 3F800000, 00000000, 00000000]
++  # vpkd3d128 v3, v3, 3, 1, 3
++  .long 0x186D1ED0
++  blr
++  #_ REGISTER_OUT v3 [BE003C00, 3F800000, 00000000, 00000000]
++
++test_vpkd3d128_short_4_inplace_shift0_0:
++  #_ REGISTER_IN v3 [40400001, 40400002, 40400003, 40400004]
++  # vpkd3d128 v3, v3, 4, 2, 0
++  .long 0x18721E10
++  blr
++  #_ REGISTER_OUT v3 [40400001, 40400002, 00010002, 00030004]
+diff --git a/tests/ppc/asm/instr_vpkuhus.s b/tests/ppc/asm/instr_vpkuhus.s
+index 7b4c2a3b782330697e0eef9cb80b6beade6d4da5..e2e50632b7f2f3b03e3ce65fa624d92aaf0f87a9 100644
+--- a/tests/ppc/asm/instr_vpkuhus.s
++++ b/tests/ppc/asm/instr_vpkuhus.s
+@@ -9,3 +9,20 @@ test_vpkuhus_1:
+   #_ REGISTER_OUT v4 [00040104, 00050105, 00060106, 00070107]
+   # {0, 255, 1, 255, 2, 255, 3, 255, 4, 255, 5, 255, 6, 255, 7, 255}
+   #_ REGISTER_OUT v5 [00FF01FF, 02FF03FF, 04FF05FF, 06FF07FF]
++
++# --- wwe2k14 patch (Session 101, lane 46): in place. The result equals test_vpkuhus_1's v5.
++test_vpkuhus_inplace_a:
++  #_ REGISTER_IN v3 [00000100, 00010101, 00020102, 00030103]
++  #_ REGISTER_IN v4 [00040104, 00050105, 00060106, 00070107]
++  vpkuhus v3, v3, v4
++  blr
++  #_ REGISTER_OUT v3 [00FF01FF, 02FF03FF, 04FF05FF, 06FF07FF]
++  #_ REGISTER_OUT v4 [00040104, 00050105, 00060106, 00070107]
++
++test_vpkuhus_inplace_b:
++  #_ REGISTER_IN v3 [00000100, 00010101, 00020102, 00030103]
++  #_ REGISTER_IN v4 [00040104, 00050105, 00060106, 00070107]
++  vpkuhus v4, v3, v4
++  blr
++  #_ REGISTER_OUT v3 [00000100, 00010101, 00020102, 00030103]
++  #_ REGISTER_OUT v4 [00FF01FF, 02FF03FF, 04FF05FF, 06FF07FF]
+diff --git a/tests/ppc/asm/instr_vpkuwus.s b/tests/ppc/asm/instr_vpkuwus.s
+index 7f117c1eb37ddce9205f65ad1ac2f8460377e0ad..45a9b26547bc7718bba685d975b10575eeb0d2c1 100644
+--- a/tests/ppc/asm/instr_vpkuwus.s
++++ b/tests/ppc/asm/instr_vpkuwus.s
+@@ -21,3 +21,20 @@ test_vpkuwus_2:
+   #_ REGISTER_OUT v4 [FFFFFFFF, 00010002, FFFFFFFE, 00000010]
+   # {65535, 65535, 2, 3, 65535, 65535, 65535, 16}
+   #_ REGISTER_OUT v5 [FFFFFFFF, 00020003, FFFFFFFF, FFFF0010]
++
++# --- wwe2k14 patch (Session 101, lane 46): in place. The result equals test_vpkuwus_1's v5.
++test_vpkuwus_inplace_a:
++  #_ REGISTER_IN v3 [00000000, 00010000, 00000001, 00010001]
++  #_ REGISTER_IN v4 [00000002, 00010002, 00000003, 00010003]
++  vpkuwus v3, v3, v4
++  blr
++  #_ REGISTER_OUT v3 [0000FFFF, 0001FFFF, 0002FFFF, 0003FFFF]
++  #_ REGISTER_OUT v4 [00000002, 00010002, 00000003, 00010003]
++
++test_vpkuwus_inplace_b:
++  #_ REGISTER_IN v3 [00000000, 00010000, 00000001, 00010001]
++  #_ REGISTER_IN v4 [00000002, 00010002, 00000003, 00010003]
++  vpkuwus v4, v3, v4
++  blr
++  #_ REGISTER_OUT v3 [00000000, 00010000, 00000001, 00010001]
++  #_ REGISTER_OUT v4 [0000FFFF, 0001FFFF, 0002FFFF, 0003FFFF]

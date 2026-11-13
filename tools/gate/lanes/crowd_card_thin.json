@@ -1,0 +1,15 @@
+{
+ "owner": "lane 175 (S101): the far cards' thin record (an invisible cut): src/scene_live/card_thin_core.h (decision logic + gate, the unit test's subject), card_thin_hook.h (the game-side glue, syntax-checked by tools/harness/wt_syntax_check.ps1 main.cpp,live.cpp, not by the gate), the thin branch of src/renderer_scene/crowd_cards_core.cpp, CrowdOursOptions::cards_thin, binder.h's gate report, fview --crowd-cards-thin, tools/crowd/card_thin_test.cpp, card_thin_cut.py, card_thin_check.py, tools/skip/dead_passes.py and pass_structure.py (the census behind the ranking). 0 game runs.",
+ "note": "unit = the shipped gate / decider on a fake binder + 8 planted faults; proof = the cut EMULATED on Check B, Check F, run 7079, Bryan and wm30 (the op-15 of every card but the first of each type removed in every thin frame, the op-21s kept) and replayed by fview with --crowd-cards-thin against the full replay (byte-equal on every frame), plus 6 plants (drop_first, swap_kept, the record of the wrong frame, first-of-type shifted, type missing, wrong picture) and a control. Needs an fview.exe from this tree (tools/fview/build.ps1) and the main checkout's game files.",
+ "checks": [
+  {"name": "crowd_card_thin.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/crowd/build_card_thin_test.ps1"], "timeout_s": 600},
+  {"name": "crowd_card_thin.unit", "cmd": ["py", "-I", "tools/crowd/card_thin_selftest.py"], "timeout_s": 300},
+  {"name": "crowd_card_thin.proof", "cmd": ["py", "-I", "tools/crowd/card_thin_check.py", "--root", "."], "timeout_s": 3000, "needs": [
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_101633_s100_owner_s89_brock/case_20261112_101714_809_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_122623_s100_owner_s89_brock/case_20261112_122658_040_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131029_s100_owner_s90_wm30/case_20261112_131111_940_0_pc_run_exit.zip",
+    "game_data/extracted"]}
+ ]
+}

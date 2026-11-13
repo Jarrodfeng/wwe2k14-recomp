@@ -1,0 +1,9 @@
+{
+ "owner": "lane 242 (S101): H3, the wrestlers' sphere occluders (VS c168-c171), INERT (docs/renderer/SKIP_GAME_WORK_MAP.md 18.8): the settled formula (tools/skip/sphere_check.py) and the recorder (record section 27 SphereOcc, REX_HOOK_RAW on sub_826DF8E0 in draw_origin.h, src/scene_live/sphere_*.h). 0 game runs.",
+ "note": "sphere_occ.build = tools/sphere/build_sphere_rows.ps1 (clang only, atomic exe build). sphere_occ.unit = the C++ unit test against a fake guest built from the sub_826DF8E0 listing's offsets. sphere_occ.selftest = tools/sphere/sphere_selftest.py: the unit test, six planted twins each failing its named check, the Python record reader, and (--captures, SKIP when the kept 7149 capture is absent) sphere_check.py honest plus plants lag0 / skin / strength_a / swap. The game-side hook is syntax-checked by tools/harness/wt_syntax_check.ps1 (main.cpp), not by the gate.",
+ "checks": [
+  {"name": "sphere_occ.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/sphere/build_sphere_rows.ps1"], "timeout_s": 900},
+  {"name": "sphere_occ.unit", "cmd": ["out/sphere/sphere_rows_test.exe"], "timeout_s": 300},
+  {"name": "sphere_occ.selftest", "cmd": ["py", "-I", "tools/sphere/sphere_selftest.py", "--no-build", "--captures"], "timeout_s": 900}
+ ]
+}

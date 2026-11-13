@@ -1,0 +1,60 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 100: owner-mode twin of s90_caw_editor.txt (tools\renderer\owner_route.py): the new renderer writes live_<name>.png of
+# every screenshot the reference build takes. Run with --wwe2k14_rdr_owner=true.
+# harness: realtime (plain frame-counted menu presses from a recording; fast-forwarded menus drop presses, LESSONS)
+# Session 90 step 3 (TRUE NATIVE outside the bench): the Create-a-Superstar editor (CREATIONS -> SUPERSTAR -> NEW), the
+# create mode's own render path (CREATEMODE.PAC / ED02.PAC, the readback-heavy editor copies). Menu presses and timings
+# from tools\input_scripts\short\caw_logo_attire_check.txt (Jarrod's recording, run 1748). Shots of the editor (the
+# superstar model) after the owned frame is flipped off / on, the per-pass census at the first, a RB page change, and the
+# owned-frame summary at the end. Never answers a save prompt (the frozen user data is mirrored per run anyway).
+# ON arms only (--wwe2k14_d3d_owned=true): the flip turns the owned frame on. Untimed. on_fail quit.
+on_fail quit
+log bench: start scene s90_caw_editor
+# (owner twin) wait x4: wait_file SaveData.Dat 3600
+wait_file SaveData.Dat 14400
+wait_frames 170
+press START
+wait_frames 70
+press A
+# (owner twin) wait x4: wait_file MNUIHD.PAC 1800
+wait_file MNUIHD.PAC 7200
+wait_frames 150
+press DOWN
+press DOWN
+press DOWN
+wait_frames 40
+press A
+wait_frames 90
+press A
+wait_frames 90
+press A
+# (owner twin) wait x4: wait_file CREATEMODE.PAC 900
+wait_file CREATEMODE.PAC 3600
+wait_frames 1400
+press A
+# (owner twin) wait x4: wait_file ED02.PAC 600
+wait_file ED02.PAC 2400
+log scene=caw_editor
+mark 1 editor
+wait_frames 400
+# (owner twin) left out: cvar gpu_native_owned_frame false
+wait_frames 2
+# (owner twin) left out: cvar gpu_native_owned_frame true
+wait_frames 46
+cvar gpu_native_owned_frame_log 2
+wait_frames 2
+cvar wwe2k14_rdr_live_picture s90_caw_parts
+screenshot s90_caw_parts
+press RB
+wait_frames 40
+press RB
+wait_frames 120
+cvar wwe2k14_rdr_live_picture s90_caw_clothing
+screenshot s90_caw_clothing
+wait_frames 3
+# (owner twin) left out: cvar gpu_native_owned_frame false
+wait_frames 30
+log bench: done
+# (owner twin) time for the last live picture
+wait_frames 10
+quit
