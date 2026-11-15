@@ -45,6 +45,8 @@ class ArenaOurs final : public rdr_adapter::DrawReplaceHook {
   const ArenaCore& core() const { return core_; }
   std::string Report() const;
   int arena() const { return arena_; }
+  std::shared_ptr<const SceneTables> arena_rec_;   // S102 R21-A: the record whose arena arena_of_rec_ is (render thread only)
+  int arena_of_rec_ = -1;
   bool ready() const { return uploaded_; }
   uint32_t AssetEpoch() const override { return epoch_; }  // lane 122 (thin draws): counts DropAll, which destroys the buffers and images a thin template names
   uint32_t JoinDropSeq() const override { return core_.DropSeq(); }  // lane 122 (review 2)

@@ -38,7 +38,7 @@ import capread  # noqa: E402
 PLANTS = ('names_stripped', 'combine_dropped', 'layer_merged')
 SITE_QUEUE, SITE_COMBINE = 0x82C1F48C, 0x82C1F674
 K_POST = pcap.K_POST
-ROLE_NAMES = ['unnamed', 'scene_color', 'scene_depth', 'shadow_map', 'post_step', 'feedback_map', 'atlas_target', 'menu_picture', 'tron_picture', 'ui', 'present', 'other']
+ROLE_NAMES = ['unnamed', 'scene_color', 'scene_depth', 'shadow_map', 'post_step', 'feedback_map', 'atlas_target', 'menu_picture', 'tron_picture', 'ui', 'present', 'other', 'rim_map', 'frame_buffer', 'copy_dest', 'light_strip']
 FMT_NAMES = {1: 'RGBA8', 16: 'RGBA16F'}
 IMG_DT = np.dtype([('id', '<u4'), ('w', '<u2'), ('h', '<u2'), ('d', '<u2'), ('mips', 'u1'), ('layers', 'u1'), ('format', 'u1'), ('kind', 'u1'), ('usage', 'u1'), ('source', 'u1'),
                    ('flags', 'u1'), ('gf', 'u1'), ('role', 'u1'), ('role_flags', 'u1'), ('pad', 'u1'), ('pad2', 'u1', (3,))])

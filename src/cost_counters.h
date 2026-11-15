@@ -317,8 +317,19 @@ class CrowdSpan {
 inline thread_local int t_replay_depth = 0;
 class ReplaySpan {
  public:
+  // S102 SW1 (R20 5c): with the counters off (every player) the constructor and destructor are one relaxed load and a never-taken branch, inline at the call site; the counting
+  // work is in the out-of-line cold members below. (The old bodies were big enough that the compiler left them out of line: two calls a record, 0.25-0.40 ms of the swap thread's replay.)
   explicit ReplaySpan(uint32_t op) : on_(On()) {
-    if (!on_) return;
+    if (on_) [[unlikely]] Begin(op);
+  }
+  ~ReplaySpan() {
+    if (on_) [[unlikely]] End();
+  }
+  ReplaySpan(const ReplaySpan&) = delete;
+  ReplaySpan& operator=(const ReplaySpan&) = delete;
+
+ private:
+  [[gnu::noinline]] void Begin(uint32_t op) {
     outer_ = t_replay_depth++ == 0;
     if (!outer_) return;
     slot_ = OpIndex(op);
@@ -337,8 +348,7 @@ class ReplaySpan {
       t0_ = Ticks();
     }
   }
-  ~ReplaySpan() {
-    if (!on_) return;
+  [[gnu::noinline]] void End() {
     --t_replay_depth;
     if (!outer_) return;
     ReplayTls& t = t_replay;
@@ -348,10 +358,6 @@ class ReplaySpan {
     }
     if (t.pending >= kFlushEvery) FlushReplayTls();
   }
-  ReplaySpan(const ReplaySpan&) = delete;
-  ReplaySpan& operator=(const ReplaySpan&) = delete;
-
- private:
   bool on_, outer_ = false, sampled_ = false;
   int slot_ = 0;
   uint64_t t0_ = 0;

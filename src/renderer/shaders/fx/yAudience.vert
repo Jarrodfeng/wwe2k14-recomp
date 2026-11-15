@@ -3,6 +3,8 @@
 // Options: FX_LIT (vertex lighting from the four lights and the sky/ground ambient), FX_FRAME (outputs the normal and a tangent frame for a normal map),
 //          FX_EYE (frame variants: also outputs the vector to the eye), FX_LM_VERTEX (reads the baked light map here, in the vertex stage),
 //          FX_LM_UV (outputs the light map coordinate for the pixel stage to read).
+//          FX_INST (S102 T6: INSTANCED members: the three WorldMatrix rows arrive per instance at locations 4-6 instead of from the constant block, so one draw places every member of a
+//          body class with the same material; the block keeps the plain variant's exact layout so the first member's packed block is pushed as it is, the block's WorldMatrix is not read).
 #extension GL_GOOGLE_include_directive : require
 #include "fx_common.glsl"
 
@@ -34,6 +36,18 @@ layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 #endif
 layout(location = 2) in vec2 inUv;
+#ifdef FX_INST
+layout(location = 4) in vec4 inWorld0;
+layout(location = 5) in vec4 inWorld1;
+layout(location = 6) in vec4 inWorld2;
+#define WORLD0 inWorld0
+#define WORLD1 inWorld1
+#define WORLD2 inWorld2
+#else
+#define WORLD0 vc.WorldMatrix[0]
+#define WORLD1 vc.WorldMatrix[1]
+#define WORLD2 vc.WorldMatrix[2]
+#endif
 
 layout(location = 0) out vec4 outUv;
 layout(location = 1) out vec4 outShade;
@@ -58,7 +72,7 @@ vec3 audience_lighting(vec3 n) {
 
 void main() {
   vec4 local = vec4(inPosition, 1.0);
-  vec3 world = vec3(dot(vc.WorldMatrix[0], local), dot(vc.WorldMatrix[1], local), dot(vc.WorldMatrix[2], local));
+  vec3 world = vec3(dot(WORLD0, local), dot(WORLD1, local), dot(WORLD2, local));
   vec4 world4 = vec4(world, 1.0);
   gl_Position = vec4(dot(vc.ViewProj[0], world4), dot(vc.ViewProj[1], world4), dot(vc.ViewProj[2], world4), dot(vc.ViewProj[3], world4));
 
@@ -77,7 +91,7 @@ void main() {
 
 #if defined(FX_LIT) || defined(FX_FRAME)
   // The world normal comes out negated, and is not renormalised.
-  vec3 n = -vec3(dot(inNormal, vc.WorldMatrix[0].xyz), dot(inNormal, vc.WorldMatrix[1].xyz), dot(inNormal, vc.WorldMatrix[2].xyz));
+  vec3 n = -vec3(dot(inNormal, WORLD0.xyz), dot(inNormal, WORLD1.xyz), dot(inNormal, WORLD2.xyz));
 #endif
 
 #ifdef FX_FRAME

@@ -115,6 +115,8 @@ class Record:
         magic, ver, sc, src = struct.unpack_from('<IIIB', b, 0)
         if magic != 0x4E435352:
             raise ValueError('not a scene record: %s' % path)
+        if ver != 1:   # S102 T19 F1: a version 2 record (crowd run markers) holds its crowd members as markers this reader would drop silently; files on disk are version 1
+            raise ValueError('scene record version %d (this reader reads version 1; expand the crowd run markers first): %s' % (ver, path))
         self.guest_frame = struct.unpack_from('<Q', b, 16)[0]
         self.S = {}
         for s in range(sc):

@@ -1,10 +1,16 @@
 // Builds a Frame from calls. State tables are de-duplicated as they are filled. All storage is reused from frame to frame.
 #pragma once
+#include <algorithm>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
 
 #include "api.h"
+#include "colour_cuts.h"  // S102 G10
+#include "arena_fragments.h"  // S102 R18-B3
+#include "frame_switches.h"
+#include "group_stamps.h"  // S102 R24-F
+#include "output_switches.h"  // S102 G2  // S102 T4 / T5
 
 namespace rdr {
 
@@ -13,16 +19,32 @@ class FrameBuilder {
   void Begin(uint64_t tick) {
     tick_ = tick;
     dlss_ = DlssInputs{};  // S10b
+    const bool fast = g_fb_fast.load(std::memory_order_relaxed);  // S102 T4: read every frame, latched for this one
+    const bool plant = fast && g_fb_fast_plant.load(std::memory_order_relaxed);  // TEST ONLY
+    if (fast) g_fb_fast_frames.fetch_add(1, std::memory_order_relaxed);
+    out_cap_h_ = g_out_cap_h.load(std::memory_order_relaxed);        // S102 G2: tools (rplay / fview) set the atomics; the game's live.cpp overrides with SetOutput
+    out_bilinear_ = g_out_bilinear.load(std::memory_order_relaxed);
+    present_fetch_ = g_present_fetch.load(std::memory_order_relaxed);  // S102 R24-A: tools set the atomic; the game's live.cpp overrides with SetPresentFetch
+    colour_cuts_ = colour_cuts::g_colour_cuts.load(std::memory_order_relaxed);  // S102 G10: tools set the atomic; the game's live.cpp overrides with SetColourCuts
+    arena_overdraw_ = colour_cuts::g_arena_overdraw.load(std::memory_order_relaxed);  // S102 C4 (same: SetArenaOverdraw)
+    half_transparents_ = colour_cuts::g_half_transparents.load(std::memory_order_relaxed);  // S102 C4 (SetHalfTransparents)
+    arena_fragments_ = arena_fragments::g_mask.load(std::memory_order_relaxed);  // S102 R18-B3 (SetArenaFragments)
+    pack_once_ = g_pack_once.load(std::memory_order_relaxed);     // S102 T5
+    group_min_run_ = uint8_t(std::clamp(g_gpu_group_stamps.load(std::memory_order_relaxed), 0, 255));   // S102 R24-F: tools set the atomic; the game's live.cpp overrides with SetGroupStamps
+    group_cur_ = kGrpOther;
+    draw_groups_.clear();
+    if (pack_once_) g_pack_once_frames.fetch_add(1, std::memory_order_relaxed);
     ops_.clear();
     targets_.clear();
     clears_.clear();
     draws_.clear();
     copies_.clear();
     presents_.clear();
-    states_.Clear();
-    dynamics_.Clear();
-    samplers_.Clear();
-    texture_sets_.Clear();
+    dispatches_.clear();   // S102 L1b
+    states_.Clear(fast, plant);
+    dynamics_.Clear(fast, plant);
+    samplers_.Clear(fast, plant);
+    texture_sets_.Clear(fast, plant);
     blend_ranges_.clear();
     constants_.clear();
     geometry_.clear();
@@ -30,7 +52,14 @@ class FrameBuilder {
 
   void SetTargets(const TargetsOp& op) { Push(OpKind::Targets, targets_, op); }
   void Clear(const ClearOp& op) { Push(OpKind::Clear, clears_, op); }
-  void Draw(const DrawOp& op) { Push(OpKind::Draw, draws_, op); }
+  void Draw(const DrawOp& op) {
+    Push(OpKind::Draw, draws_, op);
+    if (group_min_run_) draw_groups_.push_back(group_cur_);   // S102 R24-F: the draw's group = the one set last (the binder sets it per source op, and per draw in BindDraw)
+  }
+  // S102 R24-F: the group the NEXT Draw is tagged with (group_stamps.h); a no-op cost when the switch is off (one compare in Draw).
+  bool GroupsOn() const { return group_min_run_ != 0; }
+  void SetGroup(uint8_t group) { group_cur_ = group; }
+  void SetGroupStamps(uint32_t min_run) { group_min_run_ = uint8_t(std::min<uint32_t>(min_run, 255)); }
   // S9b fix (Jarrod's phone test of the decoupled 120: blocky, wrongly turned smoke): the index the next Draw gets, and a draw made
   // never-interpolated afterwards (its key ambiguous in the frame).
   uint32_t DrawCount() const { return uint32_t(draws_.size()); }
@@ -39,6 +68,7 @@ class FrameBuilder {
   }
   void Copy(const CopyOp& op) { Push(OpKind::Copy, copies_, op); }
   void Present(const PresentOp& op) { Push(OpKind::Present, presents_, op); }
+  void Dispatch(const DispatchOp& op) { Push(OpKind::Dispatch, dispatches_, op); }   // S102 L1b
 
   uint32_t State(const DrawState& value) { return states_.Add(value); }
   uint32_t Dynamic(const DynamicState& value) { return dynamics_.Add(value); }
@@ -47,6 +77,15 @@ class FrameBuilder {
 
   // Returns the byte offset to put in a DrawOp.
   uint32_t PushConstants(const void* data, uint32_t bytes) { return Append(constants_, data, bytes, kConstantAlign); }
+  // S102 T5: reserve `bytes` of the constants block, aligned like PushConstants and zeroed, and return a pointer to pack straight into (valid until the
+  // next Push / Reserve). The same bytes in the same place PushConstants gives, without the stack block and its copy.
+  uint8_t* ReserveConstants(uint32_t bytes, uint32_t& offset) {
+    const size_t at = (constants_.size() + kConstantAlign - 1) & ~size_t(kConstantAlign - 1);
+    constants_.resize(at + bytes);  // new bytes (the alignment gap too) are value-initialised: zero
+    offset = uint32_t(at);
+    return constants_.data() + at;
+  }
+  bool PackOnce() const { return pack_once_; }  // T5: latched in Begin, the same for the whole frame
   uint32_t PushGeometry(const void* data, uint32_t bytes, uint32_t align = 4) { return Append(geometry_, data, bytes, align); }
   // Returns the index for DrawOp::blend_first.
   uint32_t PushBlendRanges(const BlendRange* ranges, uint32_t count) {
@@ -57,6 +96,16 @@ class FrameBuilder {
 
   // Settings parity S10b: this frame's DLSS inputs (binder.h, at the present).
   void SetDlss(const DlssInputs& dlss) { dlss_ = dlss; }
+  // S102 G2: the output levers for this frame (live.cpp, read from the S0-4 table at record time).
+  void SetOutput(uint32_t cap_h, bool bilinear) { out_cap_h_ = cap_h, out_bilinear_ = bilinear; }
+  void SetPresentFetch(bool on) { present_fetch_ = on; }  // S102 R24-A
+  void SetColourCuts(uint32_t cuts) { colour_cuts_ = cuts; }  // S102 G10
+  void SetArenaOverdraw(bool on) { arena_overdraw_ = on; }  // S102 C4
+  bool ArenaOverdraw() const { return arena_overdraw_; }  // S102 C4: the binder proves texture alpha only when on
+  void SetHalfTransparents(bool on) { half_transparents_ = on; }  // S102 C4
+  void SetArenaFragments(uint32_t mask) { arena_fragments_ = mask; }  // S102 R18-B3
+  uint32_t ArenaFragments() const { return arena_fragments_; }  // S102 R18-B3: the binder proves exact alpha only when a bit is on
+  uint32_t ColourCuts() const { return colour_cuts_; }  // S102 G10 (review F2): the binder proves alpha only when the cut is on
 
   Frame Finish() const {
     Frame frame;
@@ -67,6 +116,7 @@ class FrameBuilder {
     frame.draws = MakeSpan(draws_);
     frame.copies = MakeSpan(copies_);
     frame.presents = MakeSpan(presents_);
+    frame.dispatches = MakeSpan(dispatches_);   // S102 L1b
     frame.states = MakeSpan(states_.items);
     frame.dynamics = MakeSpan(dynamics_.items);
     frame.samplers = MakeSpan(samplers_.items);
@@ -75,20 +125,91 @@ class FrameBuilder {
     frame.constants = MakeSpan(constants_);
     frame.geometry = MakeSpan(geometry_);
     frame.dlss = dlss_;  // S10b
+    frame.out_cap_h = out_cap_h_, frame.out_bilinear = out_bilinear_;  // S102 G2
+    frame.present_fetch = present_fetch_;  // S102 R24-A
+    frame.colour_cuts = colour_cuts_;  // S102 G10
+    frame.arena_overdraw = arena_overdraw_, frame.half_transparents = half_transparents_;  // S102 C4
+    frame.arena_fragments = arena_fragments_;  // S102 R18-B3
+    frame.group_min_run = group_min_run_;      // S102 R24-F: only a frame whose draws all carry a group (an equal count) is cut into segments
+    if (group_min_run_ && draw_groups_.size() == draws_.size()) frame.draw_groups = MakeSpan(draw_groups_);
     return frame;
   }
 
  private:
   DlssInputs dlss_;  // S10b
+  uint32_t out_cap_h_ = 0;      // S102 G2
+  uint32_t colour_cuts_ = 0;    // S102 G10
+  bool arena_overdraw_ = false, half_transparents_ = false;  // S102 C4
+  uint32_t arena_fragments_ = 0;  // S102 R18-B3
+  bool out_bilinear_ = false;
+  bool present_fetch_ = false;  // S102 R24-A
+  uint8_t group_min_run_ = 0, group_cur_ = kGrpOther;   // S102 R24-F
+  std::vector<uint8_t> draw_groups_;
+  // S102 T4: two ways to de-duplicate, chosen per frame in Begin (g_fb_fast). Ids are insertion order and equality is an exact memcmp in both, so
+  // the output is the same either way; only the cost differs. Legacy: byte-wise FNV into a node-based multimap freed every frame. Fast: a
+  // word-wise hash into an open-addressing table whose storage stays across frames (Clear bumps a generation).
   template <class T>
   struct Dedup {
     std::vector<T> items;
-    std::unordered_multimap<uint64_t, uint32_t> index;
-    void Clear() {
+    std::unordered_multimap<uint64_t, uint32_t> index;  // legacy
+    struct Slot {
+      uint64_t key;
+      uint32_t id;
+      uint32_t gen;
+    };
+    std::vector<Slot> slots;     // fast: power of two, a slot is live when gen == gen_
+    std::vector<uint64_t> keys;  // fast: keys[id], for a rehash
+    uint32_t gen_ = 1;
+    bool fast_ = false;
+    bool plant_ = false;  // TEST ONLY (g_fb_fast_plant)
+    void Clear(bool fast, bool plant) {
+      fast_ = fast;
+      plant_ = plant;
       items.clear();
-      index.clear();
+      keys.clear();
+      if (fast) {
+        if (!index.empty()) std::unordered_multimap<uint64_t, uint32_t>().swap(index);
+        if (++gen_ == 0) {  // wrapped: really clear
+          for (Slot& s : slots) s.gen = 0;
+          gen_ = 1;
+        }
+      } else {
+        index.clear();
+      }
     }
-    uint32_t Add(const T& value) {
+    uint32_t Add(const T& value) { return fast_ ? AddFast(value) : AddLegacy(value); }
+    uint32_t AddFast(const T& value) {
+      if (slots.empty() || (items.size() + 1) * 2 > slots.size()) Grow();
+      const uint64_t key = plant_ ? HashWords(&value, sizeof(T) / 2) : HashWords(&value, sizeof(T));  // plant: ignores the whole second half (the last words, and with them real differences)
+      const size_t mask = slots.size() - 1;
+      for (size_t i = size_t(key) & mask;; i = (i + 1) & mask) {
+        Slot& s = slots[i];
+        if (s.gen != gen_) {
+          const uint32_t id = uint32_t(items.size());
+          items.push_back(value);
+          keys.push_back(key);
+          s = Slot{key, id, gen_};
+          return id;
+        }
+#ifdef RDR_FB_PLANT_NOCMP  // TEST ONLY: the key alone decides equality (with RDR_FB_PLANT_LASTWORD it merges states that differ in the last word)
+        if (s.key == key) return s.id;
+#else
+        if (s.key == key && (plant_ || std::memcmp(&items[s.id], &value, sizeof(T)) == 0)) return s.id;  // plant: the key alone decides
+#endif
+      }
+    }
+    void Grow() {
+      const size_t cap = slots.empty() ? 256 : slots.size() * 2;
+      std::vector<Slot> next(cap, Slot{0, 0, 0});
+      const size_t mask = cap - 1;
+      for (uint32_t id = 0; id < keys.size(); ++id) {
+        size_t i = size_t(keys[id]) & mask;
+        while (next[i].gen == gen_) i = (i + 1) & mask;
+        next[i] = Slot{keys[id], id, gen_};
+      }
+      slots.swap(next);
+    }
+    uint32_t AddLegacy(const T& value) {
       const uint64_t key = Hash(&value, sizeof(T));
       auto range = index.equal_range(key);
       for (auto it = range.first; it != range.second; ++it) {
@@ -100,6 +221,45 @@ class FrameBuilder {
       return id;
     }
   };
+
+  // S102 T4: a hash over 8-byte words, two independent lanes and a final avalanche; every byte is read (a short tail is zero-padded into a word).
+  // The offline test (tools/fb/fb_test.cpp) measures its distribution against the byte-wise one. Defined here, declared private beside Hash.
+  static uint64_t HashWords(const void* data, size_t bytes) {
+    const auto* p = static_cast<const uint8_t*>(data);
+    constexpr uint64_t K1 = 0x9E3779B97F4A7C15ull, K2 = 0xC2B2AE3D27D4EB4Full;
+#if defined(RDR_FB_PLANT_LASTWORD) || defined(RDR_FB_PLANT_NOCMP)
+#ifndef RDR_FB_UNIT_TEST_BUILD
+#error RDR_FB_PLANT_* macros belong to tools/fb/fb_test.cpp only
+#endif
+#endif
+#ifdef RDR_FB_PLANT_LASTWORD  // TEST ONLY (tools/fb/fb_test.cpp): the planted twin, a hash that ignores the last word
+    if (bytes >= 8) bytes -= 8;
+#endif
+    uint64_t a = 0x243F6A8885A308D3ull ^ bytes, b = 0x13198A2E03707344ull;
+    size_t i = 0;
+    for (; i + 16 <= bytes; i += 16) {
+      uint64_t w0, w1;
+      std::memcpy(&w0, p + i, 8);
+      std::memcpy(&w1, p + i + 8, 8);
+      a = (a ^ w0) * K1;
+      a ^= a >> 32;
+      b = (b ^ w1) * K2;
+      b ^= b >> 32;
+    }
+    for (; i < bytes; i += 8) {
+      uint64_t w = 0;
+      std::memcpy(&w, p + i, bytes - i < 8 ? bytes - i : 8);
+      a = (a ^ w) * K1;
+      a ^= a >> 32;
+    }
+    uint64_t h = a ^ (b * K2);
+    h ^= h >> 33;
+    h *= 0xFF51AFD7ED558CCDull;
+    h ^= h >> 33;
+    h *= 0xC4CEB9FE1A85EC53ull;
+    h ^= h >> 33;
+    return h;
+  }
 
   static uint64_t Hash(const void* data, size_t bytes) {
     const auto* p = static_cast<const uint8_t*>(data);
@@ -129,6 +289,7 @@ class FrameBuilder {
     return uint32_t(offset);
   }
 
+  bool pack_once_ = false;  // S102 T5: this frame's mode (Begin)
   uint64_t tick_ = 0;
   std::vector<Op> ops_;
   std::vector<TargetsOp> targets_;
@@ -136,6 +297,7 @@ class FrameBuilder {
   std::vector<DrawOp> draws_;
   std::vector<CopyOp> copies_;
   std::vector<PresentOp> presents_;
+  std::vector<DispatchOp> dispatches_;   // S102 L1b
   Dedup<DrawState> states_;
   Dedup<DynamicState> dynamics_;
   Dedup<SamplerDesc> samplers_;

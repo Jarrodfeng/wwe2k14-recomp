@@ -10,13 +10,14 @@ never follows a junction or link.
     expires at LIVE_KEEP_H (6 h); output made before it (last night's) and everything when no session is live expires at
     EXPIRE_H (24 h). Sheets made for Jarrod overnight need a hold.
   - RUN FOLDERS out\\sNN\\runs\\YYYYMMDD_HHMMSS_<route> (lane 294): the newest of each route, and any within RUN_PAIR_MIN (30 min) of it
-    (a run's case and record folders, A/B pairs), keep the old rule (whole live session + 24 h); every other run folder goes after
+    (a run's case and record folders, A/B pairs), keep 24 h (S102 K1: a live session's start no longer widens it); every other run folder goes after
     RUN_H (2 h). A run named in a state doc / --hold / gate lane, or holding a valid KEEP, stays. An unpacked capture copy
     (images.bin / manifest.json / case_*.zip) outside a run goes at CAPTURE_COPY_H (6 h). A file that cannot be removed stops its
     folder (capture markers go first); never half a capture.
   - KEEP FILES EXPIRE (lane 294, Jarrod 2026-11-13): a KEEP holds only while it has a reason AND (1) a future "until YYYY-MM-DD"
-    in it, or (2) a gate lane / a check, selftest, oracle or gate script in tools\\ names the folder's own out path, or its reason
-    cites an existing such script or a tools\\gate\\lanes json. A bare KEEP is a 7-day hold from its mtime, then no hold. --plan
+    in it, or (2) a gate lane / a check, selftest, oracle or gate script in tools\\ names the folder's own out path (the folder ITSELF: a
+    longer path under it does not count; comments, docstrings and `# tidy: output` lines are not read), or its reason cites an existing such
+    script or lane json that names the folder. A bare KEEP is a 7-day hold from its mtime, then no hold. --plan
     lists every KEEP folder with its size and state.
   - KEEP_TREES (current builds, tools, indexes) stay, minus the throwaway run files inside them (THROW).
   - NO_TOUCH (bench data, replays, scenarios, recordings, ...) is never touched.
@@ -33,14 +34,20 @@ never follows a junction or link.
     (24 h: unmerged, or edits not committed) - a reviewer may still be using it. Over SCRATCH_REPORT_GB (10) it is reported as LOUD
     on every pass; while C: has under 100 GB free, such an out\\ is cleared per top-level folder, WHOLE, only when that folder's
     newest file is older than 15 min, even if the agent is live (a live agent's build trees - CMakeCache.txt / build.ninja /
-    .ninja_log - and anything holding a junction stay). Same refusals as any other delete: a --hold, a KEEP, an owner process.
+    .ninja_log, or any folder holding .exe / .obj / .pdb / .dll / .lib - and anything holding a junction stay). Same refusals as any
+    other delete: a --hold, a KEEP, an owner process. S102 K1: a FINISHED agent over its quota (4 GB; a file .tidy_quota in the worktree
+    raises it) also loses its biggest top-level folders idle 15 min, whatever C: shows; a running agent is never touched by the quota.
+  - CLAUDE SCRATCHPADS (S102 K1): Temp\\claude\\<hash>\\<session>\\scratchpad is measured and reported on every pass (LOUD over 15 GB).
+    The delete pass (children of a session that is not live, idle 12 h, no junction, no KEEP) exists but is OFF (SCRATCHPAD_PASS /
+    --scratchpads) until Jarrod says yes.
 
 NEVER REMOVED, on every trigger: anything younger than the rolling limit above, anything under a folder with an ACTIVE KEEP (above),
 anything on the carry-over list (--hold), any path named in STATUS.md, PLAYBOOK.md, CLAUDE.md or the newest session plan / summary
 (a session root or an out\\sNN\\runs namespace named there protects nothing), any out path (depth 2 and deeper) a gate lane names
 (tools\\gate\\lanes\\*.json: needs and commands; a glob cut at * is a prefix) and every capture / run folder a check script names
 (whatever its age); other folders a check / selftest / oracle / gate script names while they were touched within TOOL_STALE_DAYS
-(7). A game or build holding the run lock = the tidy skips this time. Every pass except --now prints the project's size against the
+(7). A game or build holding the run lock = the tidy skips this time (--scratch and the watch only skip for an EXCLUSIVE hold or a
+game process: S102 K1). Free space is logged every watch run (out\\tidy\\free.csv, the [disk] line; --reserve-ok exits 1 under 40 GB free). Every pass except --now prints the project's size against the
 ~75 GB budget and the top 5 folders, and MISSING GATE INPUT for gate-named paths that do not exist.
 
   py tools\\harness\\tidy.py --plan [--ahead H]       dry run: writes out\\tidy\\plan_<time>.json/.txt, prints the summary
@@ -94,6 +101,9 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tidy_disk      # S102 K1: strip_py, free log, duplicate captures
+
 # TIDY_REPO: run this copy of the script against another checkout (lane 154: planning the real tree from a worktree).
 REPO = (os.environ.get('TIDY_TEST_ROOT') or os.environ.get('TIDY_REPO')
         or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -138,6 +148,11 @@ SCRATCH_REPORT_GB = 10      # lane 294: an agent worktree's out\ over this is re
 SCRATCH_PRESSURE_GB = 100   # and cleared (even if its agent is live) while C: has less than this free
 SCRATCH_RECENT_MIN = 15     # under pressure only files modified in the last 15 min stay
 BUDGET_GB = 75              # CLAUDE.md: the project stays ~75 GB
+RESERVE_GB = 40             # S102 K1: below this much free on C: `tidy.py --reserve-ok` returns 1 (lanes that write captures are not started)
+SCRATCH_QUOTA_GB = 4        # S102 K1: an agent worktree's out\ quota (a worktree file .tidy_quota holding a number raises it); LOUD at half
+SCRATCHPAD_PASS = True       # S102 K1: the scratchpad DELETE pass; ON since Jarrod's yes (2026-11-14 01:0x, CLAUDE.md Safety / DECISIONS)
+SCRATCHPAD_CHILD_H = 12     # S102 K1: a scratchpad child of a session that is not live goes when its newest file is older than this
+SCRATCHPAD_LOUD_GB = 15     # a live session's scratchpad over this is reported loudly
 
 NO_TOUCH = {'bench', 'replays', 'scenarios', 'recordings', 'harness/screenshots', 'backup', 'tidy'}
 KEEP_TREES = {
@@ -206,10 +221,10 @@ def make_ages(now, live, own_since=None, low=False):
     start = min([s[1] for s in live]) if live else None
     if low:
         cut = now - (LOW_LIVE_KEEP_H if live else 1) * HOUR
-        return Age(cut), Age(min([now - HOUR] + ([start] if live else [])))
+        return Age(cut), Age(now - HOUR)      # S102 K1: the START of a live session no longer widens the strict cutoff
     c24 = now - EXPIRE_H * HOUR
     if live:
-        return (Age(c24, own_since, (start, now - LIVE_KEEP_H * HOUR)), Age(min(c24, start), own_since))
+        return (Age(c24, own_since, (start, now - LIVE_KEEP_H * HOUR)), Age(c24, own_since))      # S102 K1: strict = 24 h like everything else (was min(24 h, session START) = up to 72 h)
     a = Age(c24, own_since)
     return a, a
 
@@ -270,6 +285,8 @@ def pid_alive(pid):
 
 
 def free_gb():
+    if TEST and os.environ.get('TIDY_TEST_FREE'):      # S102 K1 selftest
+        return float(os.environ['TIDY_TEST_FREE'])
     return shutil.disk_usage(os.path.splitdrive(REPO)[0] + '\\').free / GB
 
 
@@ -384,7 +401,7 @@ FIXED_WHY = re.compile(r'jarrod|until\s+\d{4}-\d\d-\d\d', re.I)
 
 
 GATE_RE = re.compile(r'(?<![A-Za-z0-9_])(out[\\/]+[^\s`\'"<>|*?(),;:\[\]{}]+)')
-JOIN_RE = re.compile(r"""['"]out['"]((?:\s*[,/]\s*['"][^'"\\/\n]+['"])+)""")
+JOIN_RE = re.compile(r"""['"]out['"]((?:\s*[,/]\s*['"][^'"\\/\n]+['"](?!\s*:))+)""")      # S102 K1: a literal followed by ':' is a dict key, not a path part
 LIT_RE = re.compile(r"""['"]([^'"\\/\n]+)['"]""")
 TOOLS_PY_MAX = 2 * 1024 * 1024
 TOOL_STALE_DAYS = 7
@@ -492,7 +509,7 @@ def gate_input_split():
                 text = open(fp, encoding='utf-8', errors='replace').read()
             except OSError:
                 continue
-            _scan_text(text, py, os.path.relpath(fp, REPO).replace('\\', '/'))
+            _scan_text(tidy_disk.strip_py(text), py, os.path.relpath(fp, REPO).replace('\\', '/'))      # S102 K1: no comments, docstrings or `# tidy: output` lines
     return found, py
 
 
@@ -510,6 +527,25 @@ def gate_inputs():
 MISSING_IGNORE_SOURCES = {'tools/renderer/scene_start_check.py'}      # names out/s101/runs/run/case_* as a placeholder, not an input
 
 
+def regenerable_recipe(k):
+    """S102 K1: the recipe file (tools/gate/regenerable.json) that rebuilds exactly this key (not a path under it), when that file exists."""
+    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))      # this copy's own checkout (a worktree before its merge)
+    tab = None
+    for base in (REPO, here):
+        try:
+            with open(os.path.join(base, 'tools', 'gate', 'regenerable.json'), encoding='utf-8') as f:
+                tab = json.load(f)
+            break
+        except (OSError, ValueError):
+            continue
+    if tab is None:
+        return ''
+    for root, recipe in tab.items():
+        if not root.startswith('_') and k == root and os.path.isfile(os.path.join(REPO, recipe.replace('/', os.sep))):
+            return recipe
+    return ''
+
+
 def missing_gate_inputs():
     """Lane 294: [(path, source)] of gate-named inputs that do not exist now: every path a lane json names, and every required_input()
     a check script names (a glob prefix counts: some scripts name case_<stamp>*). Outputs a lane writes can show here before they ran."""
@@ -524,6 +560,8 @@ def missing_gate_inputs():
             present = bool(glob.glob(glob.escape(base) + '*'))
         else:
             present = os.path.exists(base) or bool(glob.glob(glob.escape(base) + '*'))
+        if not present and regenerable_recipe(k):
+            continue      # S102 K1: a build output / cache / lazy unpack with a recipe on disk: not a lost input
         if not present:
             if not k.endswith(('.exe', '.dll')) and not any(k.startswith(m[0] + '/') for m in out):     # one line per missing root
                 out.append((k, v))
@@ -690,20 +728,22 @@ def carry_expire(now, released_before=None):
     return gone
 
 
-def lock_busy():
-    """Why the tidy should skip now, or ''."""
-    if TEST:
+def lock_busy(shared_ok=False):
+    """Why the tidy should skip now, or ''. S102 K1 (R12 change 7): shared_ok = the pass runs under its own SHARED slot, so other shared / build
+    holders do not stop it; only an EXCLUSIVE hold (a timed run) or a game process does."""
+    fake = os.environ.get('TIDY_TEST_LOCKSTATUS')      # S102 K1 selftest: a run-lock status text to parse
+    if TEST and fake is None:
         return ''
     try:
-        o = subprocess.run(['pwsh', '-NoProfile', '-File', os.path.join(REPO, 'tools', 'runlock.ps1'), 'status'],
-                           capture_output=True, text=True, errors='replace', timeout=60, creationflags=NO_WINDOW).stdout
+        o = fake if fake is not None else subprocess.run(['pwsh', '-NoProfile', '-File', os.path.join(REPO, 'tools', 'runlock.ps1'), 'status'],
+                                                         capture_output=True, text=True, errors='replace', timeout=60, creationflags=NO_WINDOW).stdout
     except (OSError, subprocess.TimeoutExpired) as e:
         return 'run lock unreadable (%s)' % e
     for line in o.splitlines():
         s = line.strip()
-        if s.startswith('mode:') and s != 'mode: free':
+        if s.startswith('mode:') and s != 'mode: free' and (not shared_ok or 'EXCLUSIVE' in s.upper()):
             return s
-        if re.match(r'(slot|build)\d: ', s) and not s.endswith(': free') and 'STALE' not in s.upper():
+        if not shared_ok and re.match(r'(slot|build)\d: ', s) and not s.endswith(': free') and 'STALE' not in s.upper():
             return s
         if s.startswith('game processes:') and s != 'game processes: none':
             return s
@@ -737,12 +777,29 @@ def reader_corpus():
                 fp = os.path.join(dp, n)
                 try:
                     if os.path.getsize(fp) <= TOOLS_PY_MAX:
-                        parts.append(open(fp, encoding='utf-8', errors='replace').read())
+                        parts.append(tidy_disk.strip_py(open(fp, encoding='utf-8', errors='replace').read()))      # S102 K1
                 except OSError:
                     pass
     text = re.sub(r'[\\/]+', '/', '\n'.join(parts)).lower()
     _corpus_cache.append((text, lanes))
     return _corpus_cache[0]
+
+
+def keep_name_re(key):
+    return re.compile(r'(?<![\w./-])' + re.escape(key) + r'(?![\w/-]|\.\w)')
+
+
+def _tool_names(t, key):
+    fp = os.path.join(REPO, t.rstrip('./').replace('/', os.sep))
+    if not key or not os.path.isfile(fp) or not (TOOL_READERS.search(os.path.basename(t)) or t.startswith('tools/gate/lanes/')):
+        return False
+    try:
+        text = open(fp, encoding='utf-8', errors='replace').read()
+    except OSError:
+        return False
+    if fp.endswith('.py'):
+        text = tidy_disk.strip_py(text)
+    return bool(keep_name_re(key).search(re.sub(r'[\\/]+', '/', text).lower()))
 
 
 def keep_info(d):
@@ -782,9 +839,10 @@ def keep_info(d):
         except ValueError:
             key = ''
         low = re.sub(r'[\\/]+', '/', reason).lower()
-        named = bool(key) and bool(re.search(r'(?<![\w./-])' + re.escape(key) + r'(?![\w-])', corpus))     # a reader names the folder's own path
-        named = named or any(os.path.isfile(os.path.join(REPO, t.rstrip('./').replace('/', os.sep))) and
-                             (TOOL_READERS.search(os.path.basename(t)) or t.startswith('tools/gate/lanes/')) for t in TOOL_REF_RE.findall(low))
+        # S102 K1 (R12 change 1): the reader names the folder ITSELF (a longer path under it does not count: out/s100 was held for 39.8 GB because a
+        # lane named out/s100/attires; that child is protected by its own name), and a tool the reason points at must name the folder too.
+        named = bool(key) and bool(keep_name_re(key).search(corpus))
+        named = named or any(_tool_names(t, key) for t in TOOL_REF_RE.findall(low))
         if named:
             info.update(valid=True, kind='named by a gate lane / tool')
     if not info['valid'] and not info['kind'].startswith('expired'):
@@ -1369,7 +1427,7 @@ class Deleter:
             pass        # not empty: a guarded or locked file stayed
 
     def safe(self, p):
-        if not (is_allowed(p) or wt_allowed(p) or in_agent_out(p)) or self.protected_zone(p):
+        if not (is_allowed(p) or wt_allowed(p) or in_agent_out(p) or in_scratchpad(p)) or self.protected_zone(p):      # S102 K1: in_scratchpad
             self.err(p, 'refused: outside the allowed folders or on the never-touch list')
             return False
         if self.link_on_path(p):
@@ -1484,6 +1542,99 @@ class Deleter:
 
 
 # ---------------------------------------------------------------- agent worktree out\ scratch (lane 294)
+# ---------------------------------------------------------------- Claude scratchpads (S102 K1, R12 changes 4 and 5)
+def project_session_ids():
+    """Ids of every session transcript of this project (live or not)."""
+    ids = set()
+    if TEST and not os.environ.get('TIDY_TEST_PROJECTS'):
+        return {x[0] for x in json.loads(os.environ.get('TIDY_TEST_LIVE', '[]'))} | set(os.environ.get('TIDY_TEST_IDS', '').split(','))
+    try:
+        for d in os.scandir(PROJECTS):
+            if d.name.startswith(PROJECT_PREFIX) and d.is_dir():
+                ids.update(e.name[:-6] for e in os.scandir(d.path) if e.name.endswith('.jsonl'))
+    except OSError:
+        pass
+    return ids
+
+
+def scratchpad_sessions():
+    """[(session id, Temp\\claude\\<hash>\\<id> folder)] for this project's sessions, live or not. Never another project's folder."""
+    root = os.environ.get('TIDY_TEST_SCRATCHPADS')
+    if root:
+        return [(e.name, e.path) for e in os.scandir(root) if e.is_dir()] if os.path.isdir(root) else []
+    if TEST:
+        return []
+    if not os.environ.get('LOCALAPPDATA'):      # S102 K1: never glob a relative 'Temp\\claude'
+        return []
+    base = os.path.join(os.environ['LOCALAPPDATA'], 'Temp', 'claude')
+    ids = project_session_ids()
+    return [(os.path.basename(g), g) for g in glob.glob(os.path.join(glob.escape(base), '*', '*')) if os.path.basename(g) in ids and os.path.isdir(g)]
+
+
+def in_scratchpad(p):
+    """p is below <session folder>\\scratchpad of one of this project's sessions (a path the tidy may delete under, through scratchpad_pass only)."""
+    ap = os.path.normcase(os.path.abspath(p))
+    return any(ap.startswith(os.path.normcase(os.path.abspath(os.path.join(g, 'scratchpad'))) + os.sep) for _, g in scratchpad_sessions())
+
+
+def scratchpad_pass(now, dry=False):
+    """R12 change 5: a scratchpad child of a session that is NOT live goes whole when its newest file is older than SCRATCHPAD_CHILD_H
+    (never a junction, never a folder with an active KEEP). Live sessions only get a LOUD line when over SCRATCHPAD_LOUD_GB. The session
+    folder's own tasks / images are left. -> (bytes freed or that would be, lines)."""
+    live_ids = {s_[0] for s_ in sessions(now)}
+    d = Deleter(now)
+    total, lines = 0, []
+    try:
+        for sid, g in scratchpad_sessions():
+            sp = os.path.join(g, 'scratchpad')
+            if not os.path.isdir(sp):
+                continue
+            if d.link_on_path(sp) or keep_active(sp) or keep_above(sp):      # S102 K1: a junction at or above it, or an active KEEP: left alone
+                continue
+            if sid in live_ids:
+                b = walk_tree(sp)[0]
+                if b > SCRATCHPAD_LOUD_GB * GB:
+                    lines.append('LOUD: live session %s scratchpad is %s (limit %d GB)' % (sid[:8], human(b), SCRATCHPAD_LOUD_GB))
+                continue
+            got = 0
+            guard = now - SCRATCHPAD_CHILD_H * HOUR
+            for e in sorted(os.scandir(lp(sp)), key=lambda e: e.name.lower()):
+                child = os.path.join(sp, e.name)
+                try:
+                    st = e.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if st.st_file_attributes & REPARSE:
+                    continue
+                if e.is_dir(follow_symlinks=False):
+                    if keep_active(child):
+                        continue
+                    b, newest, links, build, keeps = child_info(child)
+                    if links or keeps or newest >= guard:
+                        continue
+                    if dry:
+                        got += b
+                    else:
+                        b0 = d.bytes
+                        d.folders([child])
+                        got += d.bytes - b0
+                elif born(st) < guard and d.safe(child):      # S102 K1: loose files go through the same refusals
+                    if dry:
+                        got += st.st_size
+                    else:
+                        b0 = d.bytes
+                        d.unlink(child, st.st_size)
+                        got += d.bytes - b0
+            total += got
+            if got > 0.05 * GB:
+                lines.append('%s scratchpad of idle session %s: %s (children idle %d h)' % ('would clear' if dry else 'cleared', sid[:8], human(got), SCRATCHPAD_CHILD_H))
+    finally:
+        d.pool.shutdown()
+    if total and not dry:
+        history('scratchpad: cleared %s from idle sessions' % human(total))
+    return total, lines
+
+
 def scratch_dirs():
     """[(agent worktree row, its out\\ folder)] for registered agent worktrees whose out is a real folder (never a junction)."""
     rows = []
@@ -1505,6 +1656,7 @@ def tracked_under_out(wt):
 
 
 BUILD_MARKERS = {'cmakecache.txt', 'build.ninja', '.ninja_log'}
+BUILD_EXT = {'.exe', '.obj', '.pdb', '.dll', '.lib'}      # S102 K1: a folder holding compiled output is a builder's tree (CLAUDE.md: build trees excepted)
 
 
 def child_info(path):
@@ -1533,7 +1685,7 @@ def child_info(path):
                 b += st.st_size
                 n = max(n, born(st))
                 nm = e.name.lower()
-                build = build or nm in BUILD_MARKERS
+                build = build or nm in BUILD_MARKERS or os.path.splitext(nm)[1] in BUILD_EXT
                 keeps += nm == 'keep' and keep_active(cur)
     return b, n, links, build, keeps
 
@@ -1558,7 +1710,7 @@ def scratch_skip_reason(w, o, d):
     return ''
 
 
-def clear_scratch(o, wt, guard_t, d, dry, skip_build):
+def clear_scratch(o, wt, guard_t, d, dry, skip_build, only=None):
     """Lane 294 B3: works per top-level child of the worktree's out\\. A folder goes WHOLE and only when its newest file is older than
     guard_t (through Deleter.folders: capture markers first, stops on the first file that cannot go), never a half capture; skip_build
     leaves any folder holding CMakeCache.txt / build.ninja / .ninja_log (a live agent's build). Tracked files, junctions and active KEEP
@@ -1578,6 +1730,8 @@ def clear_scratch(o, wt, guard_t, d, dry, skip_build):
         except OSError:
             continue
         crel = 'out/' + e.name.lower()
+        if only is not None and e.name not in only:      # S102 K1: the quota clears only the biggest children
+            continue
         if st.st_file_attributes & REPARSE or any(t == crel or t.startswith(crel + '/') for t in tracked):
             continue
         if e.is_dir(follow_symlinks=False):
@@ -1602,12 +1756,53 @@ def clear_scratch(o, wt, guard_t, d, dry, skip_build):
     return freed, ([] if dry else list(d.errors))
 
 
+PRESSURE_FORCE = False      # S102 K1: the watch sets this when free space falls fast (reserve in under 2 h): scratch_pass treats C: as under pressure
+
+
+def wt_quota_gb(wt):
+    """An agent worktree's out\\ quota in GB: SCRATCH_QUOTA_GB, or the number in <worktree>\\.tidy_quota (a brief may raise it)."""
+    try:
+        v = float(open(os.path.join(wt, '.tidy_quota'), encoding='utf-8').read().split()[0])
+        return v if v > 0 else SCRATCH_QUOTA_GB
+    except (OSError, ValueError, IndexError):
+        return SCRATCH_QUOTA_GB
+
+
+def quota_pick(o, quota_b, guard_t):
+    """Names of the biggest top-level children of out\\ (idle since guard_t, no links, no build files, no active KEEP) whose removal
+    brings it under quota_b. -> (names, total bytes of the folder)."""
+    rows, total = [], 0
+    try:
+        for e in os.scandir(lp(o)):
+            if e.is_dir(follow_symlinks=False):
+                b, newest, links, build, keeps = child_info(os.path.join(o, e.name))
+                total += b
+                if not (links or keeps or build or newest >= guard_t or keep_active(os.path.join(o, e.name))):
+                    rows.append((b, e.name))
+            else:
+                try:
+                    total += e.stat(follow_symlinks=False).st_size
+                except OSError:
+                    pass
+    except OSError:
+        return [], 0
+    names = []
+    for b, n in sorted(rows, reverse=True):
+        if total <= quota_b:
+            break
+        names.append(n)
+        total -= b
+    return names, total
+
+
 def scratch_pass(now, dry=False, free=None, skip=()):
     """Rule 3. -> (bytes freed or that would be, lines). Finished agent (meta flag, no later transcript): its out\\ goes once its newest
     file is older than NOW_IDLE_H (merged branch) or AGENT_UNMERGED_H (unmerged: a review may still need it) - S3. Any agent: out\\ over
     SCRATCH_REPORT_GB is reported loudly, and while C: has under SCRATCH_PRESSURE_GB free every top-level folder whose newest file is older
     than SCRATCH_RECENT_MIN goes (pressure overrides the waits), a live agent's build folders excepted. Same refusals as any delete (B2)."""
     free = free_gb() if free is None else free
+    if PRESSURE_FORCE:
+        free = 0.0
     skip = {os.path.normcase(x) for x in skip}
     rows = [(w, o) for w, o in scratch_dirs() if os.path.normcase(w['path']) not in skip]
     if not rows:
@@ -1622,9 +1817,13 @@ def scratch_pass(now, dry=False, free=None, skip=()):
     try:
         for (w, o), b in zip(rows, sizes):
             name = os.path.basename(w['path'])
+            only = None
             over = b > SCRATCH_REPORT_GB * GB
+            quota = wt_quota_gb(w['path'])
             if over:
                 lines.append('LOUD: %s out\\ scratch is %s (limit %d GB)' % (name, human(b), SCRATCH_REPORT_GB))
+            elif b > quota * GB / 2:      # report only: the quota deletes nothing of a running agent
+                lines.append('LOUD: %s out\\ scratch is %s (quota %.0f GB%s)' % (name, human(b), quota, ', over' if b > quota * GB else ''))
             last, running, mine = agent_state(infos, live_ids, w['path'], now, AGENT_LIVE_H)
             resumed = any(i['tr'] > i['meta_t'] + 60 and i['tr'] >= now - AGENT_LIVE_H * HOUR for i in mine)
             finished = bool(mine) and not running and not resumed and all(i['finished'] is True for i in mine)
@@ -1638,14 +1837,21 @@ def scratch_pass(now, dry=False, free=None, skip=()):
                 idle = NOW_IDLE_H if (clean and is_merged(REPO, w.get('head'), branch)) else AGENT_UNMERGED_H
                 guard, why = now - idle * HOUR, 'agent finished'
                 if walk_tree(o)[2] >= guard:        # S3: a reviewer or the main session may be using it
-                    continue
+                    # S102 K1 (R12 change 6): a FINISHED agent over its quota still loses its biggest idle (15 min) folders; a running agent
+                    # is only ever touched under pressure (CLAUDE.md), never by the quota
+                    if b <= quota * GB:
+                        continue
+                    guard, why = now - SCRATCH_RECENT_MIN * 60, 'finished agent over its %.0f GB quota' % quota
+                    only, _left = quota_pick(o, int(quota * GB), guard)
+                    if not only:
+                        continue
             else:
                 continue
             r = scratch_skip_reason(w, o, d)
             if r:
                 lines.append('skipped %s out\\ scratch: %s' % (name, r))
                 continue
-            got, e = clear_scratch(o, w['path'], guard, d, dry, skip_build=not finished)
+            got, e = clear_scratch(o, w['path'], guard, d, dry, skip_build=not finished, only=only)
             total += got
             errs += e
             if got > 0.05 * GB:
@@ -1666,16 +1872,26 @@ def scratch_pass(now, dry=False, free=None, skip=()):
 
 def safe_scratch(now, dry=False, free=None, skip=()):
     """scratch_pass that can never stop the pass around it (a git timeout, a vanished folder)."""
+    t, L = 0, []
     try:
-        return scratch_pass(now, dry, free, skip)
+        t, L = scratch_pass(now, dry, free, skip)
     except Exception as e:
         history('scratch pass FAILED: %r' % (e,))
-        return 0, ['scratch pass failed: %s' % repr(e)[:100]]
+        L = ['scratch pass failed: %s' % repr(e)[:100]]
+    try:
+        t2, L2 = scratchpad_pass(now, dry) if SCRATCHPAD_PASS else (0, [])      # S102 K1: OFF by default
+        t, L = t + t2, L + L2
+    except Exception as e:
+        history('scratchpad pass FAILED: %r' % (e,))
+        L = L + ['scratchpad pass failed: %s' % repr(e)[:100]]
+    return t, L
 
 
 def has_agent_out():
     """Cheap: does any agent worktree folder have an out\\ at all (no git, no walk)?"""
     try:
+        if SCRATCHPAD_PASS and any(os.path.isdir(os.path.join(g, 'scratchpad')) for _, g in scratchpad_sessions()):      # S102 K1
+            return True
         return any(e.name.startswith('agent-') and os.path.isdir(os.path.join(e.path, 'out')) for e in os.scandir(AGENT_WT))
     except OSError:
         return False
@@ -1709,12 +1925,9 @@ def top_level_sizes():
     sp = os.environ.get('TIDY_TEST_SCRATCH')
     if sp:
         kids(sp, 'scratchpad\\')
-    elif not TEST:      # only this project's scratchpads: Temp\claude\<project>\<live session id>
-        base = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Temp', 'claude')
-        ids = {s_[0] for s_ in sessions(time.time())}
-        for g in glob.glob(os.path.join(glob.escape(base), '*', '*')):
-            if os.path.basename(g) in ids and os.path.isdir(g):
-                cands.append(('scratchpad\\' + os.path.basename(g)[:8], g, True))
+    else:      # S102 K1: EVERY session of this project, live or not (an idle session's 57 GB used to leave the budget line)
+        for sid, g in scratchpad_sessions():
+            cands.append(('scratchpad\\' + sid[:8], g, True))
 
     def size(c):
         if c[2]:
@@ -1741,6 +1954,13 @@ def budget_lines():
     L = ['size budget: %s of ~%d GB (%s)%s' % (human(total), BUDGET_GB, ', '.join('%s %s' % (k, human(v)) for k, v in grp.most_common()),
                                                ' - OVER by %.0f GB' % over if over > 0 else ' - within budget')]
     L.append('  top 5: ' + ', '.join('%s %s' % (k, human(b)) for k, b in sorted(rows, key=lambda r: -r[1])[:5]))
+    sp = [(k, b) for k, b in rows if k.startswith('scratchpad')]
+    if sp:      # S102 K1: the Claude scratchpads are measured and reported on every pass; deleting in them needs Jarrod's OK (SCRATCHPAD_PASS)
+        L.append('  scratchpads: %s over %d sessions; delete pass %s' % (human(sum(b for _, b in sp)), len(sp),
+                                                                       'ON' if SCRATCHPAD_PASS else 'OFF (reported only)'))
+        for k, b in sp:
+            if b > SCRATCHPAD_LOUD_GB * GB:
+                L.append('  LOUD: %s is %s (limit %d GB)' % (k, human(b), SCRATCHPAD_LOUD_GB))
     return L
 
 
@@ -1799,7 +2019,7 @@ def report_lines(scan, items, wts, age, live, named):
     cutoff = age.cutoff
     area, types = summarize(items, wts)
     total = sum(types.values())
-    L = ['tidy plan %s. Temporary output expires when older than %s (%d h)%s. Capture folders and out\\s*\\runs keep the whole live session + 24 h.' % (
+    L = ['tidy plan %s. Temporary output expires when older than %s (%d h)%s. Capture folders and out\\s*\\runs keep 24 h (a live session\'s start no longer widens it).' % (
         stamp(), stamp(cutoff), EXPIRE_H,
         ' or made since %s and older than %s (%d h, rolling)' % (stamp(age.rolling[0]), stamp(age.rolling[1]), LIVE_KEEP_H) if age.rolling else ''),
          'live sessions: ' + (', '.join('%s (since %s)' % (s[0][:8], stamp(s[1])) for s in live) or 'none'),
@@ -1854,6 +2074,43 @@ def protect_keys():
     return set(named) | carried_keys(), named
 
 
+def disk_status(log=False):
+    """-> (the [disk] line, hours until the reserve or None). log=True appends the free-space row first (the watch does)."""
+    now, f = time.time(), free_gb()
+    if log:
+        tidy_disk.log_free(TIDY, f, now)
+    return tidy_disk.disk_line(f, tidy_disk.read_free(TIDY), now, RESERVE_GB)
+
+
+def gate_named_fn():
+    keys = [k[4:].rstrip('*') for k in gate_inputs()]
+    return lambda path: any(repo_key(path) == 'out/' + k or repo_key(path).startswith('out/' + k + '/') for k in keys)
+
+
+def cmd_dupes():
+    """R12 change 5, report only: byte-identical capture folders under out\\ (a folder holding images.bin / manifest.json), each set once; the
+    copy a gate lane or check names is the one to keep. Nothing is deleted, linked or moved."""
+    t0 = time.time()
+    cand = []
+    for dp, dn, fn in os.walk(OUT):
+        rel = out_rel(dp)
+        if any(rel == n or rel.startswith(n + '/') for n in NO_TOUCH):
+            dn[:] = []
+            continue
+        if CAPTURE_MARKERS & {x.lower() for x in fn}:
+            cand.append(dp)
+            dn[:] = []
+    groups = tidy_disk.find_dupes(cand)
+    L, saved = tidy_disk.dupe_lines(groups, gate_named_fn(), human)
+    L.insert(0, 'duplicate captures: %d capture folders, %d identical sets, %s could be stored once (report only; scan took %.0f s)' % (
+        len(cand), len(groups), human(saved), time.time() - t0))
+    os.makedirs(TIDY, exist_ok=True)
+    with open(os.path.join(TIDY, 'dupes.txt'), 'w', encoding='utf-8') as f:
+        f.write('\n'.join(L) + '\n')
+    print('\n'.join(L))
+    return 0
+
+
 def cmd_plan(ahead=0.0):
     """ahead > 0: a read-only forecast, the same plan as if it were that many hours later (what the next hours would delete)."""
     real_now = time.time()
@@ -1866,7 +2123,7 @@ def cmd_plan(ahead=0.0):
     scan, items = scan_out(age, protect, wts, strict, now)
     L, total = report_lines(scan, items, wts, age, live, named)
     sc_total, sc_lines = safe_scratch(real_now, True)
-    L[3:3] = missing_lines() + budget_lines() + (['agent worktree out\\ scratch (would clear now: %s):' % human(sc_total)] + ['  ' + x for x in sc_lines] if sc_lines else [])
+    L[3:3] = [disk_status()[0]] + missing_lines() + budget_lines() + (['agent worktree out\\ scratch (would clear now: %s):' % human(sc_total)] + ['  ' + x for x in sc_lines] if sc_lines else [])
     os.makedirs(TIDY, exist_ok=True)
     name = 'plan_' + time.strftime('%Y%m%d_%H%M') + ('_ahead%g' % ahead if ahead else '')
     if ahead:
@@ -2207,6 +2464,13 @@ def cmd_release(path, everything=False):
     return 0
 
 
+def lock_shared_ok(a):
+    """S102 K1 (R12 change 7): only --scratch and the watch run when other SHARED / build holders are about (R12 assessed those two: they touch
+    only expired agent scratch). The hourly pass and --now keep the strict check. NOTE: the watch's scratch escalation now really deletes while
+    a shared slot is held; before this it was skipped whenever any slot was busy."""
+    return a.auto == 'watch' or bool(getattr(a, 'scratch', False))
+
+
 def wants_lock(a):
     """Every command that deletes goes through the busy check and the shared run-lock hold: --apply, --auto (watch too), --now."""
     return bool(a.apply) or (a.auto in ('start', 'end', 'hourly', 'watch') and not a.dry) or (bool(a.now) and not a.dry) or (getattr(a, 'scratch', False) and not a.dry)
@@ -2222,6 +2486,10 @@ def main():
     ap.add_argument('--target', type=float, help='with --now: stop at this much free space (GB, default 100)')
     ap.add_argument('--now', action='store_true', help='free space at once (finished agent worktrees idle 30 min, then throwaways) up to 100 GB')
     ap.add_argument('--scratch', action='store_true', help='clear agent worktree out\\ scratch only (finished agents; over 10 GB under pressure); with --dry only report')
+    ap.add_argument('--reserve-ok', action='store_true', help='S102 K1: print the [disk] line; exit 1 when C: has less than the reserve free (do not start lanes that write captures)')
+    ap.add_argument('--disk', action='store_true', help='S102 K1: print the [disk] line (free space and its rate of fall)')
+    ap.add_argument('--scratchpads', action='store_true', help='S102 K1: also run the Claude scratchpad delete pass (OFF by default until Jarrod says yes)')
+    ap.add_argument('--dupes', action='store_true', help='S102 K1: report byte-identical capture folders (reads only)')
     ap.add_argument('--missing', action='store_true', help='list gate-named inputs that do not exist')
     ap.add_argument('--guard', nargs='+', metavar='PATH', help='exit 1 and name every PATH a delete must refuse (a gate input, inside one, or holding one)')
     ap.add_argument('--dry', action='store_true')
@@ -2239,7 +2507,7 @@ def main():
     if (a.until or a.days is not None) and not a.hold:
         print('tidy: --until / --days only go with --hold PATH WHY')
         return 2
-    if os.environ.get('TIDY_REPO') and not os.environ.get('TIDY_TEST_ROOT') and not (a.plan or a.missing or a.guard or (a.dry and (a.now or a.scratch))):
+    if os.environ.get('TIDY_REPO') and not os.environ.get('TIDY_TEST_ROOT') and not (a.plan or a.missing or a.guard or a.disk or a.reserve_ok or a.dupes or (a.dry and (a.now or a.scratch))):
         print('tidy: TIDY_REPO (run against another checkout) is for --plan only (or --now --dry)')      # N7
         return 2
 
@@ -2251,6 +2519,12 @@ def main():
             env = dict(os.environ, TIDY_REPO=mc)
             argv = ['--guard'] + a.guard if a.guard else ['--missing']
             return subprocess.run([sys.executable, os.path.abspath(__file__)] + argv, env=env).returncode
+    if a.reserve_ok or a.disk:
+        line, _h = disk_status()
+        print(line)
+        return 1 if (a.reserve_ok and free_gb() < RESERVE_GB) else 0
+    if a.dupes:
+        return cmd_dupes()
     if a.missing:
         ml = missing_gate_inputs()
         print('\n'.join('MISSING GATE INPUT: %s  (named by %s)' % m for m in ml) or 'no gate input is missing')
@@ -2281,16 +2555,29 @@ def main():
     if a.target is not None and a.target <= 0:
         print('tidy: --target wants a number above 0 (GB)')
         return 2
-    global LOCKED
+    global LOCKED, SCRATCHPAD_PASS
     LOCKED = a.locked
+    if a.scratchpads:
+        SCRATCHPAD_PASS = True
     if a.auto == 'watch':       # lane 187: free space only, no scan, no lock: exits at once while there is room
+        global PRESSURE_FORCE
+        if not (a.dry or TEST):      # S102 K1 (R12 change 8): every watch run logs free space, enabled or not
+            line, hours = disk_status(log=True)
+            if hours is not None and hours < 3:
+                st_ = load_json('state.json', {})
+                if time.time() - st_.get('alert', {}).get('time', 0) > ALERT_EVERY_H * HOUR:
+                    alert(st_, line, time.time())
+                    save_json('state.json', st_)
+            if hours is not None and hours < 2:
+                PRESSURE_FORCE = True       # the quota / pressure rules act before the 50 GB floor
+                history(line)
         if not (os.path.exists(os.path.join(TIDY, 'enabled')) or a.dry):
             return 0
         if free_gb() >= LOW_GB:
             # lane 294 S6: with agent worktrees around the watch looks at their out\ scratch, WITHOUT the run lock; only if something would
             # go does it escalate (and take the lock). Cheap when nothing is clearable.
             try:
-                if not has_agent_out() or (not TEST and lock_busy()):       # nothing to look at, or a timed run holds the lock: no disk walk now
+                if not has_agent_out() or (not TEST and lock_busy(True)):       # nothing to look at, or a timed run holds the lock: no disk walk now
                     return 0
                 if not safe_scratch(time.time(), True)[0]:
                     return 0
@@ -2302,7 +2589,7 @@ def main():
     deletes = wants_lock(a)
     if deletes and not a.locked and not TEST:
         # Checked here, before taking a slot: under our own hold the status would always read busy.
-        busy = lock_busy()
+        busy = lock_busy(shared_ok=lock_shared_ok(a))      # S102 K1: shared holds do not stop --scratch and the watch only
         if busy:
             os.makedirs(TIDY, exist_ok=True)
             if a.auto != 'watch':       # the 10-minute watch would log this all day

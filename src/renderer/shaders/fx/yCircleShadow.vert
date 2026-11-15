@@ -18,8 +18,8 @@ layout(location = 0) out vec4 outDisc;
 layout(location = 1) out vec4 outAlpha;
 
 void main() {
-  int first = int(inPointIds.x);
-  int second = int(inPointIds.y);
+  int first = clamp(int(inPointIds.x), 0, vc.WorldPosArray.length() - 1);    // S102 V1: inside the declared array
+  int second = clamp(int(inPointIds.y), 0, vc.WorldPosArray.length() - 1);
   vec3 world = inPosition + inBlend * vc.WorldPosArray[first].xyz + (1.0 - inBlend) * vc.WorldPosArray[second].xyz;
   vec4 p = vec4(world, 1.0);
   vec4 clip = vec4(dot(vc.ViewProj[0], p), dot(vc.ViewProj[1], p), dot(vc.ViewProj[2], p), dot(vc.ViewProj[3], p));

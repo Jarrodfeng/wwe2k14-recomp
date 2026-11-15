@@ -1,0 +1,94 @@
+{
+ "owner": "lane G11 (S102): the `frame` GPU class (the frame buffer, images 8 / 9). src/renderer_adapter/frame_cuts.h (the rules and the write versions), frame_cuts_test.cpp (the unit test with six planted faults), the marked lines in binder.h (FrameCutsBegin / FrameCutsOp / FrameCutsNoteCopy / FrameCutsDraw, last_copy_issued_), reader.h (2 cvars), rdr_switches.h (2 PerFrame rows), src/fview/main.cpp + session.* and src/renderer/player/rplay.cpp (flags + the census line), the offline instrument src/renderer/renderer.cpp / overlay.h / device.cpp / vk_api.h (rplay --frame-trace: one json line per frame-class pass, draw and clear, the pass GPU ms, a precise occlusion query per draw), tools/renderer/frame_class_census.py (the ranking tool), tools/renderer/frame_cuts_check.py (the proof). docs/renderer/FRAME_CLASS.md. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [
+    0.3,
+    0.6
+   ],
+   "switch": "wwe2k14_rdr_frame_selfblit",
+   "basis": "ESTIMATE, not measured on the Surface: the self blit (0.92 Mpx, one texture read, no depth) is removed outright; the frame class is 4.07 ms at 4.24 Mpx a frame (0.96 ms per Mpx): 0.3 ms by texture-fetch weight, 0.9 ms by pixel weight, 0.3 to 0.6 claimed. The 4090 cannot show it (the frame class is 0.05 ms there): the counts are exact (frame-class passes 5.1 -> 4.1, 0.92 Mpx less a frame)."
+  },
+  {
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [
+    0.0,
+    0.2
+   ],
+   "switch": "wwe2k14_rdr_frame_restore",
+   "basis": "ESTIMATE, not measured on the Surface: the 3 restores a frame become image copies of the SAME bytes, so the bandwidth stays; what goes is the shader depth export (expected to switch off early / hierarchical Z on Intel: unconfirmed), 2 passes in the frame class and the restore shader's ALU: 0 to 0.2 claimed. Together with the self blit 0.3 to 0.8 ms. On the 4090 the frame class does not get faster (0.052 -> 0.058 ms, noise-limited): the Surface row decides whether this one stays."
+  }
+ ],
+ "note": "needs this checkout's out/renderer/dev/fview.exe and rplay.exe and the captures out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture (the gate's Bryan), out/lane86/<bryan|brock>/capture and out/lane86/wm30/capture. proof (frame_cuts_check.py): the unit test and its six planted faults; fview off / selfblit / restore / both on four captures: picture hashes byte-equal on every frame, validation errors 0 AND exit code 0, bound draws fall by exactly the draws taken, the entrance takes 1 self blit and 3 restores a frame; the same under the default bundle, with G8's alias, at --scale 1.5 and 0.75, and on persist-only binds (rplay --persist-only-every 2: exactly those frames declined, counted); twins blit_always, restore_swap, restore_other_source (a legal copy: exit 0, pictures differ) and restore_no_depth (sweep hashes of the colour and depth targets) are caught; 12 unit plants; rplay: the shader-written pixels and the frame class's passes fall as claimed, the 4090's GPU ms is reported with its spread (too noisy to claim a time).",
+ "checks": [
+  {
+   "name": "s102_g11.build_rplay",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/renderer/build.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s102_g11.build_fview",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/fview/build.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s102_g11.lint_helpers",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/shadow/own_pass_helpers_lint.py"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_g11.lint_device",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/renderer/device_features_lint.py"
+   ],
+   "timeout_s": 120
+  },
+  {
+   "name": "s102_g11.lint_seen",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/lint_seen.py"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_g11.proof",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/renderer/frame_cuts_check.py"
+   ],
+   "timeout_s": 3400,
+   "needs": [
+    "out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture",
+    "out/lane86/bryan/capture",
+    "out/lane86/brock/capture",
+    "out/lane86/wm30/capture"
+   ],
+   "exes": [
+    "out/renderer/dev/fview.exe",
+    "out/renderer/dev/rplay.exe"
+   ]
+  }
+ ]
+}

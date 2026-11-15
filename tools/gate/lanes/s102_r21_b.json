@@ -1,0 +1,16 @@
+{
+ "owner": "S102 lane R21-B (the two-stage render thread, wwe2k14_rdr_stage_split, PerFrame, default off; docs/renderer/STAGE_SPLIT.md): src/renderer_adapter/stage_split.h (the record stage rdr_record), src/renderer/stable_table.h, src/renderer/stage_plants.h, renderer.cpp (sealed upload batches, deferred image classes, tables_mutex, atomic serial, producer thread, the dead-copy guard), live.cpp (the per-frame split / fallback), rplay (--stage-split, --stage-selftest, --frame-hashes, spins). 0 game runs, 0 Surface runs.",
+ "exes": ["out/renderer/dev/rplay.exe"],
+ "claim": {"scene": "bryan", "side": "render", "ms": [3.5, 5.0], "switch": "wwe2k14_rdr_stage_split", "note": "the render thread's critical path per drawn frame (RenderFrame moved to rdr_record); needs a free hyperthread on the Surface (M6: 0.55-1.0 logical CPU idle, profiled): unconfirmed; the frame-time gain is capped by the GPU (~1.8 ms in the base arm) until the GPU lanes land"},
+ "checks": [
+  {"name": "s102_r21_b.unit_lint", "cmd": ["py", "-I", "tools/renderer/stage_split_check.py", "--root", ".", "--only", "unit,lint"], "timeout_s": 600,
+   "affects": ["src/renderer_adapter/stage_split.h", "src/renderer/stable_table.h", "src/renderer/renderer.cpp", "src/renderer_adapter/live.cpp", "tools/renderer/stage_split_*"]},
+  {"name": "s102_r21_b.selftest", "cmd": ["py", "-I", "tools/renderer/stage_split_check.py", "--root", ".", "--only", "selftest"], "timeout_s": 1200,
+   "affects": ["src/renderer_adapter/stage_split.h", "src/renderer/stable_table.h", "src/renderer/stage_plants.h", "src/renderer/renderer.cpp", "src/renderer/renderer.h", "src/renderer/api.h", "src/renderer/player/stage_selftest.h", "src/renderer/player/rplay.cpp", "tools/renderer/stage_split_check.py"]},
+  {"name": "s102_r21_b.equal_speed_u1", "cmd": ["py", "-I", "tools/renderer/stage_split_check.py", "--root", ".", "--only", "equal,speed,u1"], "timeout_s": 5400,
+   "needs": ["out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture", "out/lane86/brock/capture", "out/captures/s100_match300", "game_data/extracted"],
+   "affects": ["src/renderer_adapter/*.h", "src/renderer/*.h", "src/renderer/renderer.cpp", "src/renderer/player/rplay.cpp", "src/renderer_scene/*", "tools/renderer/stage_split_check.py"]},
+  {"name": "s102_r21_b.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/renderer_adapter/live.cpp", "src/renderer_adapter/stage_split.h", "src/renderer_adapter/reader.h", "src/renderer_adapter/rdr_switches.h", "src/renderer/*.h"]}
+ ]
+}

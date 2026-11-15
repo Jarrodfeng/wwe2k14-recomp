@@ -1,0 +1,54 @@
+#version 450
+// S102 lane L1b review F7 (docs/renderer/PRELIGHT_DIRECT.md section 9): the direction table of the light cubes. One invocation = one texel of one face; it writes the unit direction the strip's raster would
+// have interpolated for that texel (the old per-texel direction of rdr_light_cubes.comp, now run ONCE, and again only when the texel -> grid mapping K[15] changes). Our own code.
+//
+// THE DIRECTION, as the strip pass made it [C, tools/l1b/l1b_mesh.py on Bryan's and Check B's captures]: the owned pre-light mesh is six 10 x 10 grids of cells (11 x 11 vertices a face), each vertex the
+// NORMALISED point of the face's grid (tl + c du + r dv: the four corners of a cube face are a parallelogram), each cell two triangles split along the top-left / bottom-right diagonal. The clip transform
+// puts the SAMPLE of texel (X, Y) at grid coordinate (X, Y) / 6.4 in cells: the planner computes that mapping from the draw's own constants and hands it over in K[15] (x scale, x offset, y scale, y
+// offset). The rasteriser interpolates the vertices' normalised directions linearly over the triangle and the pixel stage normalises the result: exactly what is done below.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std140) uniform LightCubeConstants { vec4 K[90]; } lc;   // five cubes' PreLightK blocks; only cube 0's [15] is read (the planner proves all cubes share it)
+layout(set = 0, binding = 6, rgba32f) uniform writeonly image2DArray dirs;
+
+vec3 fx_normalize(vec3 v) {
+  float lengthSq = dot(v, v);
+  return lengthSq > 0.0 ? v * inversesqrt(lengthSq) : vec3(0.0);
+}
+
+// Each face of the strip, in the strip's tile order: the grid's top-left corner vector, then one grid step along a row (to the right) and one down a column.
+const vec3 kBasis[18] = vec3[18](
+    vec3(1, 1, 1), vec3(0, 0, -0.2), vec3(0, -0.2, 0),
+    vec3(-1, 1, -1), vec3(0, 0, 0.2), vec3(0, -0.2, 0),
+    vec3(-1, 1, -1), vec3(0.2, 0, 0), vec3(0, 0, 0.2),
+    vec3(-1, -1, 1), vec3(0.2, 0, 0), vec3(0, 0, -0.2),
+    vec3(-1, 1, 1), vec3(0.2, 0, 0), vec3(0, -0.2, 0),
+    vec3(1, 1, -1), vec3(-0.2, 0, 0), vec3(0, -0.2, 0));
+
+vec3 vertex_dir(uint face, int r, int c) {
+  return fx_normalize(kBasis[face * 3u] + float(c) * kBasis[face * 3u + 1u] + float(r) * kBasis[face * 3u + 2u]);
+}
+
+void main() {
+  const uint layer = gl_WorkGroupID.z;
+  uint face = layer;
+#ifdef FACE_SWAP
+  face = 5u - face;   // the planted twin (l1b_check): the cube's layer f is given face 5 - f's directions
+#endif
+  const ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+  const vec4 map = lc.K[15];
+  const vec2 g = max(vec2(float(texel.x) * map.x + map.y, float(texel.y) * map.z + map.w), vec2(0.0));   // grid coordinate in cells (the planner keeps it in [0, 10))
+  const ivec2 cell = ivec2(min(floor(g), vec2(9.0)));
+  const vec2 f = g - vec2(cell);
+  const vec3 d00 = vertex_dir(face, cell.y, cell.x);
+  const vec3 d11 = vertex_dir(face, cell.y + 1, cell.x + 1);
+  vec3 dir;
+  if (f.y >= f.x) {   // the triangle (r, c) (r + 1, c) (r + 1, c + 1)
+    const vec3 d10 = vertex_dir(face, cell.y + 1, cell.x);
+    dir = (1.0 - f.y) * d00 + (f.y - f.x) * d10 + f.x * d11;
+  } else {            // the triangle (r, c) (r, c + 1) (r + 1, c + 1)
+    const vec3 d01 = vertex_dir(face, cell.y, cell.x + 1);
+    dir = (1.0 - f.x) * d00 + (f.x - f.y) * d01 + f.y * d11;
+  }
+  imageStore(dirs, ivec3(texel, int(layer)), vec4(fx_normalize(dir), 0.0));
+}

@@ -65,6 +65,7 @@ struct PostParams {
   rdr::ImageId far_blur = rdr::kNoImage;  // the combine's slot 6 when an earlier DoF layer made it (Bryan's entrance): that image, not this layer's blur
   // S101 lane PO: the pass's own images (quarter / eighth size, the film's) follow the render scale (kUsageScaled), as the game's 16:9 post_step targets do in the owner renderer.
   // Default false: the viewer's shots and post_proof are unscaled. The planted fault unscaled_steps turns it off at a render scale above 1.
+  bool depth_clamped = false;   // S102 R24-E: the depth image bound to the combine holds values in [0, 1] (a depth buffer / UNORM image; the hook sets it from the capture's image format); false = wwe2k14_rdr_gpu_small declines
   bool scaled_images = false;
   // S101 lane PO: the dof depth slot's address mode. false (default): clamp to edge. true: REPEAT, as the stream's sampler is in the 30 Years frames and the match (the taps one game texel off the
   // edge then wrap); at a render scale of 2 the wrapped texel is a real, different texel (a scale artefact of the 360's sampler, rule 6), so the shipped choice is clamp. The planted option
@@ -100,7 +101,7 @@ class PostPass {
   // Live shader reload (FrontEnd::ReloadPrograms): forgets the programs that use one of the changed registry variants (made again at the next Record).
   void Reload(const std::vector<int>& changed_variants);
   // S101 lane PO: the combine's registry variant name for these parameters (one function for the pass and for the hook's presence check).
-  static std::string CombineVariantName(const PostParams& p);
+  static std::string CombineVariantName(const PostParams& p, bool drop_bloom = false);   // S102 R18-B2: drop_bloom = the permutation without the bloom (its images are black)
   uint32_t passes_recorded() const { return passes_; }  // draws recorded by the last Record (the proof prints it)
   bool combined() const { return combined_; }           // S101 lane PO: the last Record drew the combine (the check behind the planted fault no_combine)
   // The pass's own intermediate pictures after Record has rendered (the proof compares each with the game's: a per-pass breakdown).

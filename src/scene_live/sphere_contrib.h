@@ -9,16 +9,18 @@
 
 #include "../renderer_scene/live_scene.h"
 #include "sphere_hook.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::spheres {
 
 class SphereContributor : public Contributor {
  public:
   const char* Name() const override { return "spheres"; }
+  bool Latch(const FrameInfo& fi) override { return latch_.Take(tracker, fi); }   // S102 U1 (tail_latch.h)
   void Emit(const FrameInfo& fi, SceneTables& t, Counters& c) override {
-    tracker.CloseBefore(fi.guest_frame);
+    latch_.Begin(tracker, fi, Name());   // lane 152 (B1) CloseBefore; S102 U1: or the frames the latch took
     bool any = false;
-    while (tracker.TakeNext(scratch_)) {
+    while (latch_.Next(tracker, scratch_)) {
       any = true;
       t.sphere_occ.insert(t.sphere_occ.end(), scratch_.rows.begin(), scratch_.rows.end());
       c.objects += uint32_t(scratch_.rows.size());
@@ -38,8 +40,10 @@ class SphereContributor : public Contributor {
            std::to_string(frames_emitted_) + "]";
   }
   Tracker tracker;
+  const TrackerLatch<FrameBuffer, kRing>& Latched() const { return latch_; }   // S102 U1 (tests)
 
  private:
+  TrackerLatch<FrameBuffer, kRing> latch_;   // S102 U1 (at most the tracker's ring of unconsumed frames)
   FrameBuffer scratch_;
   uint64_t last_refused_ = 0, frames_emitted_ = 0;
 };

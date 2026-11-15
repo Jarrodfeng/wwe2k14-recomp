@@ -54,7 +54,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, HERE)
 import check_effect_ucode as uc
 
-H = os.path.join(REPO, 'out', 's100', 'harness')
+H = os.path.join(REPO, 'out', 's100', 'harness')      # tidy: output  (S102 K1: a scratch workspace, 39 GB of built harness, not a gate input)
 BIN = os.path.join(H, 'bin')
 TRANSLATE = os.path.join(BIN, 'check_effect_translate.exe')
 RUNNER = os.path.join(BIN, 'check_effect_run.exe')

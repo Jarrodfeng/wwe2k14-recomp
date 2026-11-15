@@ -9,16 +9,18 @@
 
 #include "../renderer_scene/live_scene.h"
 #include "ring_rows_hook.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::ringrows {
 
 class RingRowsContributor : public Contributor {
  public:
   const char* Name() const override { return "ring_rows"; }
+  bool Latch(const FrameInfo& fi) override { return latch_.Take(tracker, fi); }   // S102 U1 (tail_latch.h)
   void Emit(const FrameInfo& fi, SceneTables& t, Counters& c) override {
-    tracker.CloseBefore(fi.guest_frame);   // lane 152 (B1)
+    latch_.Begin(tracker, fi, Name());   // lane 152 (B1) CloseBefore; S102 U1: or the frames the latch took
     bool any = false;
-    while (tracker.TakeNext(scratch_)) {
+    while (latch_.Next(tracker, scratch_)) {
       any = true;
       const uint32_t base = uint32_t(t.ring_nodes.size());
       const size_t first = t.ring_rows.size();
@@ -50,9 +52,11 @@ class RingRowsContributor : public Contributor {
     out += "]";
   }
   Tracker tracker;
+  const TrackerLatch<FrameBuffer, kRing>& Latched() const { return latch_; }   // S102 U1 (tests)
   RefCross Cross() const { return cross_; }
 
  private:
+  TrackerLatch<FrameBuffer, kRing> latch_;   // S102 U1 (at most the tracker's ring of unconsumed frames)
   FrameBuffer scratch_;
   uint64_t last_refused_ = 0, covered_calls_ = 0, frames_emitted_ = 0;
   RefCross cross_;

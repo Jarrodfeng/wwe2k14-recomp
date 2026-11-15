@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
@@ -150,7 +151,7 @@ inline void OnFrame() {
     s.last = now;
     g_load_window_done = &OnLoadWindow;  // load_turbo.h reports its in-game windows from now on
 #ifdef _WIN32
-    s.sampler = std::thread(SamplerMain);
+    s.sampler = std::thread([] { wwe2k14::NameThread(L"perf_sampler"); SamplerMain(); });
     s.sampler.detach();
 #endif
     return;

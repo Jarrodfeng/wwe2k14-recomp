@@ -1,0 +1,31 @@
+{
+ "owner": "S102 lane R24-C (R24 row 7, reworked: stencil liveness; the D32-without-stencil format route was built and dropped, see docs/renderer/DEPTH_NOSTENCIL.md): src/renderer/depth_nostencil.h (switch, counters, planted faults, the stencil census), renderer.cpp (Compile: absorbed stencil clear, in-pass clear is not a use, depth copy aspects; RecordPass: the clear command's aspect; GeometryOf / RegionOf), switch wwe2k14_rdr_stencil_dead (PerFrame, default off) and its table / cvar / stage_split / live.cpp wiring, fview / rplay --stencil-dead / --stencil-dead-plant / --depth-census, tools/r24c/*. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {
+   "switch": "wwe2k14_rdr_stencil_dead",
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [0.1, 0.4],
+   "note": "ESTIMATE [E], unconfirmed: Gen9 stencil clear cost. Bryan clears depth + stencil together in every depth pass (6399 stencil clears in 1000 frames, none ever read: census) and carries the stencil half of 3 full-size depth copies. Bytes: a 1280x720 stencil plane is 0.92 MB (1 B a texel [U]); the stencil half of the depth copies is 0.92 MB read + 0.92 MB written each (3 copies x (0.92 read + 0.92 written) = 5.5 MB a frame at 20-30 GB/s = 0.18-0.28 ms) plus the stencil clears of ~6 depth passes a frame (a stencil plane clear writes 0.92 MB for the frame-sized ones, 64x64 and 512x512 ones are small; fast clears may make them nearly free: that is the unknown). PerFrame: the in-run flip measures it"
+  }
+ ],
+ "note": "unit = the census's stencil rule + 4 planted weakenings that must each fail it; wiring = every link of the PerFrame switch and of the three cuts, each removed in a text copy must fail the lint; bryan / brock / match / wm30 = fview headless, off vs on, presented-surface hashes equal on every frame, validation 0 AND exit code 0, the lever took (counters > 0), the stencil census per capture (wm30 is the stencil capture: stencil volumes); plants (wm30) = a stencil clear wrongly dropped before a stencil test must change the picture (1), an in-pass clear stripped though a later pass reads it (3), every depth copy depth-only (2, reported); valid3 = --validation 3 clean. The proof needs an fview.exe from this tree (tools/fview/build.ps1) and the main checkout's game files.",
+ "checks": [
+  {"name": "s102_r24c.unit", "cmd": ["py", "-I", "tools/r24c/r24c_check.py", "--root", ".", "--only", "unit"], "timeout_s": 900},
+  {"name": "s102_r24c.wiring", "cmd": ["py", "-I", "tools/r24c/r24c_check.py", "--root", ".", "--only", "wiring"], "timeout_s": 300},
+  {"name": "s102_r24c.bryan", "cmd": ["py", "-I", "tools/r24c/r24c_check.py", "--root", ".", "--only", "bryan"], "timeout_s": 3400, "exes": ["out/renderer/dev/fview.exe"],
+   "needs": ["out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip", "game_data/extracted"]},
+  {"name": "s102_r24c.brock", "cmd": ["py", "-I", "tools/r24c/r24c_check.py", "--root", ".", "--only", "brock"], "timeout_s": 3400, "exes": ["out/renderer/dev/fview.exe"],
+   "needs": ["out/s101/runs/20261112_122623_s100_owner_s89_brock/case_20261112_122658_040_0_pc_run_exit.zip", "game_data/extracted"]},
+  {"name": "s102_r24c.match", "cmd": ["py", "-I", "tools/r24c/r24c_check.py", "--root", ".", "--only", "match"], "timeout_s": 3400, "exes": ["out/renderer/dev/fview.exe"],
+   "needs": ["out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip", "game_data/extracted"]},
+  {"name": "s102_r24c.wm30", "cmd": ["py", "-I", "tools/r24c/r24c_check.py", "--root", ".", "--only", "wm30"], "timeout_s": 3400, "exes": ["out/renderer/dev/fview.exe"],
+   "needs": ["out/s101/runs/20261112_131029_s100_owner_s90_wm30/case_20261112_131111_940_0_pc_run_exit.zip", "game_data/extracted"]},
+  {"name": "s102_r24c.plants", "cmd": ["py", "-I", "tools/r24c/r24c_check.py", "--root", ".", "--only", "plants,valid3"], "timeout_s": 3400, "exes": ["out/renderer/dev/fview.exe"],
+   "needs": ["out/s101/runs/20261112_131029_s100_owner_s90_wm30/case_20261112_131111_940_0_pc_run_exit.zip", "game_data/extracted"]},
+  {"name": "s102_r24c.selftest", "cmd": ["py", "-I", "tools/r24c/r24c_check.py", "--root", ".", "--only", "selftest,arms"], "timeout_s": 1800, "exes": ["out/renderer/dev/rplay.exe"],
+   "needs": ["out/captures/brock_s15", "game_data/extracted"]},
+  {"name": "s102_r24c.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/main.cpp", "src/renderer_adapter/*.h", "src/renderer/*.h", "src/*.h", "tools/gate/game_syntax.py"]}
+ ]
+}

@@ -41,7 +41,7 @@ layout(location = 5) out vec4 outLightDepth;
 layout(location = 6) out vec4 outColor;
 
 void main() {
-  int b = fx_bool(vc.Bools, 0) ? 3 * int(inBoneId) : 0;
+  int b = fx_bool(vc.Bools, 0) ? clamp(3 * int(inBoneId), 0, vc.WorldMatrixArray.length() - 3) : 0;   // S102 V1: inside the declared palette
   vec3 world = vec3(dot(vc.WorldMatrixArray[b], inPosition), dot(vc.WorldMatrixArray[b + 1], inPosition), dot(vc.WorldMatrixArray[b + 2], inPosition));
   vec3 normal = vec3(dot(vc.WorldMatrixArray[b].xyz, inNormal), dot(vc.WorldMatrixArray[b + 1].xyz, inNormal), dot(vc.WorldMatrixArray[b + 2].xyz, inNormal));
   vec4 w4 = vec4(world, 1.0);

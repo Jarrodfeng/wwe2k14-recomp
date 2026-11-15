@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "scene_record.h"
+#include "../renderer/render_lean.h"   // S102 RT1: the switch globals only (plain C++, no Vulkan)
 
 namespace rdr_scene::plane {
 
@@ -37,6 +38,7 @@ struct Faults {
   bool join_double = false;       // R join_double (lane 255): the binder offers a casters-joined mask draw to this hook twice (claimed too many, the ordinals run ahead)
   bool join_drop = false;         // R join_drop (lane 255): the binder never asks this hook for every 7th casters-joined mask draw (claimed too few)
   bool no_verify = false;         // the safety check against the stream's own constants is skipped (so the planted faults reach the picture)
+  bool palette_prev = false;      // S102 P3 R palette_prev: a mask draw takes the PREVIOUS mask draw's bone palette (c76..) instead of its own: the wrong proxy's palette. The palette is not owned by the record (it is the stream's), so the verify cannot refuse it
   static bool Parse(const std::string& list, Faults& f, std::string& error) {
     size_t at = 0;
     while (at <= list.size()) {
@@ -57,8 +59,9 @@ struct Faults {
       else if (w == "join_double") f.join_double = true;
       else if (w == "join_drop") f.join_drop = true;
       else if (w == "no_verify") f.no_verify = true;
+      else if (w == "palette_prev") f.palette_prev = true;
       else {
-        error = "unknown plane fault '" + w + "' (inv_identity, camera_stale, plane_pos_shift, duplicate_record, late_record, blur_radius, nth_shift, stamp_lock, blur_nan_lane, join_double, join_drop, no_verify)";
+        error = "unknown plane fault '" + w + "' (inv_identity, camera_stale, plane_pos_shift, duplicate_record, late_record, blur_radius, nth_shift, stamp_lock, blur_nan_lane, join_double, join_drop, no_verify, palette_prev)";
         return false;
       }
     }
@@ -169,8 +172,21 @@ class Board {
         if (have.kind == d.kind && (by_part_ ? (have.object == d.object && have.part == d.part) : have.ordinal == d.ordinal)) have = d, found = true;
       if (!found) v.push_back(d);
     }
+    const auto by_ordinal = [](const PlaneDraw& a, const PlaneDraw& b) { return a.ordinal < b.ordinal; };
+    if (rdr::g_lean_hooks.load(std::memory_order_relaxed) & rdr::kLeanHandoff) {   // S102 RT1 (render_lean bit 4, Q9): every Add sorted every kept frame's list; only the frames this call touched can be out of order (the rest were sorted by an earlier call), and a list already in order is left alone
+      std::vector<uint32_t> touched;
+      for (const PlaneDraw& d : draws)
+        if (std::find(touched.begin(), touched.end(), d.frame) == touched.end()) touched.push_back(d.frame);
+      for (const uint32_t f : touched) {
+        auto it = draws_.find(f);
+        if (it == draws_.end() || rdr::g_lean_plant.load(std::memory_order_relaxed) == 4) continue;   // (plant 4: a touched list is not sorted, tools only)
+        if (std::is_sorted(it->second.begin(), it->second.end(), by_ordinal)) rdr::LeanAdd(rdr::kLcSortSkip);
+        else rdr::LeanAdd(rdr::kLcSortRun), std::stable_sort(it->second.begin(), it->second.end(), by_ordinal);
+      }
+    } else {
     for (auto& kv : draws_)
-      std::stable_sort(kv.second.begin(), kv.second.end(), [](const PlaneDraw& a, const PlaneDraw& b) { return a.ordinal < b.ordinal; });
+      std::stable_sort(kv.second.begin(), kv.second.end(), by_ordinal);
+    }
     while (draws_.size() > kKeep) draws_.erase(draws_.begin());
     while (frames_.size() > kKeep) frames_.erase(frames_.begin());
   }

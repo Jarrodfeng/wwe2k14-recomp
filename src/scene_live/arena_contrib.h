@@ -102,6 +102,12 @@ Contributor* Instance();                                              // the "ar
 // only Publish do not need the writer linked.
 inline void RegisterArena() { Register(Instance()); }
 
+#ifdef RDR_CROWD_IDS_PLANTS
+// S102 T11b, test only (tools\crowd\crowd_ids_test.cpp): a planted fault in the arena's pool fields. 0 none; 1 the pac string's field is kept without the arena id (stale after an arena change);
+// 2 the mirror twin's id (":r") answers with the slot's own id field (the suffix lost); 3 the "slot N" entry's field is kept without N.
+inline int g_arena_strings_plant = 0;
+#endif
+
 // The census the arena keeps for its own tests (total over all Emit calls).
 struct Totals {
   uint64_t emits = 0, objects = 0, unknown = 0, stale = 0, sets = 0, twins = 0, screens = 0;

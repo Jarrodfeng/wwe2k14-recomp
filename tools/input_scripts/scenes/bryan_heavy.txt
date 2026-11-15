@@ -1,0 +1,31 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=324,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# S102 lane M6 scene route: Daniel Bryan's entrance, measured over the HEAVY stretch only (bench step frames_bryan_heavy).
+# Same launch as bryan_entrance.txt (lesnar_bryan, participants 324,343, fixed seed 1, boot pipelines skipped). The marks differ:
+#   scene=tron_324  (frame T)        the tron video file opens (the frames after it are the entrance)
+#   scene=heavy     (frame T + 760)  the window starts
+#   scene=end       (frame T + 1330) the window ends; the route quits at once (570 frames, about 15 s at the Surface's 27 ms)
+# Why this window (S102 M6, out\s102\ab8, 30 Surface runs, present gaps from the frames csvs; tools\surface\m6_window_check.py redoes it):
+# the slow frames (gap >= 33.3 ms) are NOT spread out: 78 % of them sit in T+760..T+1330 (T+800 16.8 %, T+1000 12.5 %, T+1100 29.9 %,
+# T+1200 11.7 % of all slow frames, in 100-frame bins). bryan_entrance.txt's window (step15 .. +300 = T+1227..T+1527) holds only 7 % of them:
+# pooled mean 24.2 ms, p99 35.7 ms, 2.2 % slow frames, against the whole entrance's 25.3 / 41.3 / 6.2 %. This window: 27.5 / 43.5 / 12.9 %
+# slow, so its 1 % low is the entrance's tail; it has about twice the presents (538 against 278) and ends 197 guest frames (about 5 s) sooner.
+# The game cannot skip ahead to the heavy stretch (the entrance runs in real time, a Surface frame is render-limited), so the run-up
+# (boot, load, T + 760 frames) is the floor of the run length: see PLAYBOOK Quick start, Surface.
+# Read: py -I tools\surface\bench_line.py RUN_DIR (a frames_bryan_heavy folder: window heavy .. end, printed as bryan_heavy).
+on_fail quit
+log bench: start scene bryan_heavy
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 324.bik2 1800
+log scene=tron_324
+mark 1 tron_324
+wait_frames 760
+log scene=heavy (tron + 760 frames)
+mark 2 heavy
+wait_frames 570
+log scene=end (heavy + 570 frames)
+mark 3 end
+log bench: done
+quit

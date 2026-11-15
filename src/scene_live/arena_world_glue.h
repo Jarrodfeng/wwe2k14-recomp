@@ -24,7 +24,7 @@ inline void ModelEntryHook(uint32_t model, uint32_t palette_ptr, uint64_t frame)
         if (!wwe2k14::wrestlers::ReadMatrices(a, 1, one)) return false;
         std::memcpy(m, one[0].m, sizeof(float) * 16);
         return true;
-      });
+      }, wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry));   // S102 U2: the per-frame (object, palette) memo
 }
 
 // CStage::MotionSetup exit (arena_hooks.h): the stage was set up in this guest frame. `self` = the call's r3 (the stage object). The function also runs in CAW, match setup

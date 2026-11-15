@@ -94,12 +94,16 @@ enum class SurfaceRole : uint8_t {
   Present,          // what goes to the screen
   Other,
   RimMap,           // S101 lane 86: the rim light map (T_RimLightMap, 512x256) and its chain; NOT a shadow map (it was tagged shadow_map before)
+  FrameBuffer,      // S102 G6: the screen-size pair the post chain, the HUD, text, particles and the movie draw into and the present copies from (colour + depth); sizes follow the scene target
+  CopyDest,         // S102 G6: a texture the game fills by resolve copies (ImageFlags kImageCopyDest): the copies' destinations, 97 a frame in Bryan; derived from the flag, not declared by a creator
+  LightStrip,       // S102 G6: the light-cube strips (yprelight, 384x64 targets, then copied into 64x64 textures)
   Count
 };
 
 inline const char* SurfaceRoleName(SurfaceRole r) {
   static const char* const k[] = {"unnamed", "scene_color", "scene_depth", "shadow_map", "post_step", "feedback_map", "atlas_target",
-                                  "menu_picture", "tron_picture", "ui", "present", "other", "rim_map"};
+                                  "menu_picture", "tron_picture", "ui", "present", "other", "rim_map", "frame_buffer", "copy_dest", "light_strip"};
+  static_assert(sizeof(k) / sizeof(k[0]) == size_t(SurfaceRole::Count), "SurfaceRoleName: one name per SurfaceRole");  // S102 G6
   return uint8_t(r) < uint8_t(SurfaceRole::Count) ? k[uint8_t(r)] : "?";
 }
 

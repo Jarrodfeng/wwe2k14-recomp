@@ -257,7 +257,10 @@ inline PageMap& Map() {
 // ---- when provenance is recorded (S101 lane17 review: players pay nothing for diagnostics) --------------------------------------------------
 // The writer hook is installed at app start (OnPreSetup, so frame-0 reads are caught) only when provenance is asked for: the cvar, the bug
 // button's case ring, a +dev PC owner-mode build (the ring's own rule), or a capture armed at start. Everything else installs nothing.
-inline bool WantedAtStart(bool cvar, bool case_ring, bool dev_owner_build, bool capture_frames_at_start) {
+// S102 U2 (R22 cut 1): `explicit_off` = the player / bench said --wwe2k14_rdr_provenance=false on the command line: that wins over the by-build enables (the +dev owner rule, the case ring),
+// not over a capture armed at start (it installs the hook for itself).
+inline bool WantedAtStart(bool cvar, bool case_ring, bool dev_owner_build, bool capture_frames_at_start, bool explicit_off = false) {
+  if (explicit_off) return capture_frames_at_start;
   return cvar || case_ring || dev_owner_build || capture_frames_at_start;
 }
 // The hook's own guard: record while provenance is on, or while a capture / the live mirror runs and the hook happens to be installed.

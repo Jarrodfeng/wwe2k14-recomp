@@ -10,6 +10,7 @@
 #include <shellapi.h>
 #endif
 
+#include "../../thread_name.h"  // S102 H1
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -4284,7 +4285,7 @@ int main(int argc_in, char** argv_in) {
 #ifdef _WIN32
   if (parent_pid) {  // exit when the process that started us ends (a crashed census must not leave a viewer on the pipe)
     HANDLE ph = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)parent_pid);
-    if (ph) std::thread([ph] { WaitForSingleObject(ph, INFINITE); ExitProcess(0); }).detach();
+    if (ph) std::thread([ph] { wwe2k14::NameThread(L"view_parent_wait"); WaitForSingleObject(ph, INFINITE); ExitProcess(0); }).detach();
   }
 #else
   (void)parent_pid;

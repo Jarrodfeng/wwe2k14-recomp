@@ -10,6 +10,9 @@
 
 #include "../renderer/shaders/spv/fx_registry.h"
 #include "fx_tables.h"
+#include "record_ids.h"   // S102 R21-A
+#include "../renderer/frame_facts.h"   // S102 R21-A
+#include "../renderer/render_lean.h"   // S102 RT1
 
 namespace rdr_scene {
 namespace {
@@ -192,22 +195,85 @@ void ArenaCore::SetArena(std::shared_ptr<const assets::arena_gs::StageArena> are
   }
 }
 
+static std::atomic<int> g_arena_last_ArenaCore{-3};   // S102 RT1 (plant 2 only)
+#define g_arena_last g_arena_last_ArenaCore
 int ArenaCore::ArenaOfRecord(const SceneTables& t) {
+  const bool lean = (rdr::g_lean_hooks.load(std::memory_order_relaxed) & rdr::kLeanFacts) != 0;   // S102 RT1 (render_lean bit 2)
+  const int plant = lean ? rdr::g_lean_plant.load(std::memory_order_relaxed) : 0;
+  if (lean) {
+    if (plant == 2) {   // PLANT 2 (tools only): the last answer of ANY record (a key that misses a changed record)
+      const int last = g_arena_last.load(std::memory_order_relaxed);
+      if (last != -3) return rdr::LeanAdd(rdr::kLcShadowSkip), last;
+    } else if (const int m = t.arena_memo.v.load(std::memory_order_relaxed); m != -2) {
+      return rdr::LeanAdd(rdr::kLcShadowSkip), m;
+    }
+    rdr::LeanAdd(rdr::kLcShadowRun);
+  }
+  int found = -1;
   for (const AssetRef& a : t.assets) {
     const std::string pac(t.Str(a.pac));
     const size_t p = pac.rfind("bg");
     int n = 0;
-    if (p != std::string::npos && std::sscanf(pac.c_str() + p, "bg%d", &n) == 1) return n;
+    if (p != std::string::npos && std::sscanf(pac.c_str() + p, "bg%d", &n) == 1) { found = n; break; }
   }
-  return -1;
+  if (lean) t.arena_memo.v.store(found, std::memory_order_relaxed), g_arena_last.store(found, std::memory_order_relaxed);
+  return found;
 }
+#undef g_arena_last
 
 void ArenaCore::SetRecord(std::shared_ptr<const SceneTables> record) {
+  if (record && record == record_ && rdr::FrameFactsOn() && !rdr::g_ff_verify.load(std::memory_order_relaxed) && rdr::g_frame_facts_plant.load(std::memory_order_relaxed) == 0) {   // S102 R21-A: the same immutable record as last frame (no new one arrived): its sets are already built from it (record_ is only ever assigned here)
+    rdr::g_ff_same.fetch_add(1, std::memory_order_relaxed);
+    return;
+  }
   record_ = std::move(record);
   rec_slots_.clear();
   rec_twins_.clear();
   rec_world_.clear();
   if (!record_) return;
+  if (rdr::FrameFactsOn()) {   // S102 R21-A: the same classification by a byte test, no std::string, no sscanf (record_ids.h; the unit test compares it with the old code on every record of two captures)
+    const int plant = rdr::g_frame_facts_plant.load(std::memory_order_relaxed);
+    uint64_t arena = 0;
+    for (const Object& o : record_->objects) {
+      const ArenaId a = ParseArenaId(record_->Str(o.id), plant == 1);
+      if (a.n < 1) continue;
+      ++arena;
+      const int k = a.k;
+      if (a.n == 1) {
+        rec_slots_.insert(k);
+        std::array<float, 12> w{};
+        for (int r = 0; r < 3; ++r)
+          for (int c = 0; c < 4; ++c) w[size_t(r * 4 + c)] = o.world.m[c * 4 + r];  // (as below)
+        rec_world_[k] = w;
+      } else if (a.tail[0] == ':' && a.tail[1] == 'r' && plant != 2) {
+        rec_twins_.insert(k);
+      }
+    }
+    if (rdr::g_ff_verify.load(std::memory_order_relaxed)) {   // tool only (fview / rplay --frame-facts-verify): the old classification beside the new one, compared as sets and worlds
+      std::unordered_set<int> slots, twins;
+      std::unordered_map<int, std::array<float, 12>> world;
+      for (const Object& o : record_->objects) {
+        int k = 0;
+        char tail[8] = {};
+        const std::string id(record_->Str(o.id));
+        const int n = std::sscanf(id.c_str(), "arena:slot:%d%7s", &k, tail);
+        if (n < 1 || id.rfind("arena:slot:", 0) != 0) continue;
+        if (n == 1) {
+          slots.insert(k);
+          std::array<float, 12> w{};
+          for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 4; ++c) w[size_t(r * 4 + c)] = o.world.m[c * 4 + r];
+          world[k] = w;
+        } else if (tail[0] == ':' && tail[1] == 'r') {
+          twins.insert(k);
+        }
+      }
+      rdr::g_ff_verified.fetch_add(1, std::memory_order_relaxed);
+      if (slots != rec_slots_ || twins != rec_twins_ || world != rec_world_) rdr::g_ff_verify_bad.fetch_add(1, std::memory_order_relaxed);
+    }
+    rdr::g_ff_records.fetch_add(1, std::memory_order_relaxed), rdr::g_ff_objects.fetch_add(record_->objects.size(), std::memory_order_relaxed), rdr::g_ff_arena.fetch_add(arena, std::memory_order_relaxed);
+    return;
+  }
   for (const Object& o : record_->objects) {
     int k = 0;
     char tail[8] = {};

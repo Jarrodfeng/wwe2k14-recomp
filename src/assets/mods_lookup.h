@@ -22,6 +22,7 @@
 // Threading: the decode runs on a worker (StartDecode); the registries are mutex-guarded.
 #pragma once
 
+#include "../thread_name.h"  // S102 H1
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -468,7 +469,7 @@ inline void StartDecode(int id) {
     std::lock_guard<std::mutex> lk(m);
     if (!busy.insert(id).second) return;
   }
-  std::thread([id] {
+  std::thread([id] { wwe2k14::NameThread(L"mods_lookup");
     std::string e;
     try { EnsureFrames(id, e); } catch (...) {}
     {

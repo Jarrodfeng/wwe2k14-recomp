@@ -2,6 +2,7 @@
 #include "ring_ours_core.h"
 #include "proof_frames.h"
 #include "ring_hash.h"
+#include "../renderer/render_lean.h"   // S102 RT1
 
 #include <algorithm>
 #include <array>
@@ -129,15 +130,31 @@ void RingCore::SetArena(std::shared_ptr<const assets::ring_gs::RingArena> arena,
   for (size_t i = 0; i < arena_->meshes.size(); ++i) mesh_by_key_[uint32_t(arena_->meshes[i].entry) << 16 | uint32_t(arena_->meshes[i].part)] = int(i);
 }
 
+static std::atomic<int> g_arena_last_RingCore{-3};   // S102 RT1 (plant 2 only)
+#define g_arena_last g_arena_last_RingCore
 int RingCore::ArenaOfRecord(const SceneTables& t) {
+  const bool lean = (rdr::g_lean_hooks.load(std::memory_order_relaxed) & rdr::kLeanFacts) != 0;   // S102 RT1 (render_lean bit 2)
+  const int plant = lean ? rdr::g_lean_plant.load(std::memory_order_relaxed) : 0;
+  if (lean) {
+    if (plant == 2) {   // PLANT 2 (tools only): the last answer of ANY record (a key that misses a changed record)
+      const int last = g_arena_last.load(std::memory_order_relaxed);
+      if (last != -3) return rdr::LeanAdd(rdr::kLcShadowSkip), last;
+    } else if (const int m = t.arena_memo.v.load(std::memory_order_relaxed); m != -2) {
+      return rdr::LeanAdd(rdr::kLcShadowSkip), m;
+    }
+    rdr::LeanAdd(rdr::kLcShadowRun);
+  }
+  int found = -1;
   for (const AssetRef& a : t.assets) {
     const std::string pac(t.Str(a.pac));
     const size_t p = pac.rfind("bg");
     int n = 0;
-    if (p != std::string::npos && std::sscanf(pac.c_str() + p, "bg%d", &n) == 1) return n;
+    if (p != std::string::npos && std::sscanf(pac.c_str() + p, "bg%d", &n) == 1) { found = n; break; }
   }
-  return -1;
+  if (lean) t.arena_memo.v.store(found, std::memory_order_relaxed), g_arena_last.store(found, std::memory_order_relaxed);
+  return found;
 }
+#undef g_arena_last
 
 bool RingCore::Claims(const rdr_adapter::DrawOrigin& o) const {
   if (o.klass != rdr_adapter::DrawClass::ModelPart || !RingSite(o.pass_site)) return false;   // lane 137: + the Lambert site

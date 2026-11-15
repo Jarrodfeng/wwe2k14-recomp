@@ -7,6 +7,7 @@
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <vector>
 
 #include "../renderer/player/png.h"
 #include "app.h"
@@ -340,14 +341,33 @@ std::string SaveCase(Session& session, const EffectIndex* effects, const fs::pat
   return dir.string();
 }
 
+// S102 main (08:05): every fview run unpacked its case zip into out\cases\fview_unpack_<time>\ and never removed it; ~20 lanes running
+// gates filled C: (308 folders, 0 bytes free). The folder is now removed when fview exits normally (read-only files made writable first);
+// FVIEW_KEEP_UNPACK=1 keeps it. A crash still leaves it: the tidy clears those.
+namespace {
+std::vector<fs::path>& UnpackedDirs() { static std::vector<fs::path> dirs; return dirs; }
+void RemoveUnpacked() {
+  const char* keep = std::getenv("FVIEW_KEEP_UNPACK");
+  if (keep && *keep == '1') return;
+  for (const fs::path& dir : UnpackedDirs()) {
+    std::error_code ec;
+    for (auto it = fs::recursive_directory_iterator(dir, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+      fs::permissions(it->path(), fs::perms::owner_write, fs::perm_options::add, ec);
+    fs::remove_all(dir, ec);
+  }
+}
+}  // namespace
+
 std::string UnpackCase(const std::string& zip, const fs::path& root, std::string& error) {
   std::error_code ec;
   if (!fs::exists(zip, ec)) {
     error = "case zip not found: " + zip;
     return {};
   }
-  const fs::path dir = root / "out" / "cases" / ("fview_unpack_" + Timestamp());
+  const fs::path dir = root / "out" / "cases" / ("fview_unpack_" + Timestamp() + "_" + std::to_string(_getpid()));   // (pid: parallel gate arms in one second)
   fs::create_directories(dir, ec);
+  if (UnpackedDirs().empty()) std::atexit(RemoveUnpacked);
+  UnpackedDirs().push_back(dir);
   std::string output;
   // Windows ships bsdtar as tar.exe; it reads zip files.
   // S101 lane 59: Windows' own bsdtar by path (a GNU tar earlier on PATH, from Git Bash, reads "C:" as a host name and fails).

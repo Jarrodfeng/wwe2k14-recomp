@@ -32,6 +32,7 @@
 #include <string>
 
 #include "perf_file_write.h"
+#include "perf_heat.h"  // S102 S0-2: perf_pct / perf_limit / limit_flags / pkg_w
 
 #if defined(_WIN32)
 #include "platform/compat.h"  // <windows.h>
@@ -65,6 +66,7 @@ struct Sample {
   double log_write_ms = -1, log_call_ms = -1;
   long long log_dropped = -1;
   double file_write_ms = -1;
+  perf_heat::Heat heat;  // S102 S0-2: probed=false off Windows (no heat fields at all)
 };
 
 #if defined(_WIN32)
@@ -218,6 +220,20 @@ inline std::string Format(const Sample& s, double t, bool exit_line) {
   f2("log_call_ms", s.log_call_ms);
   if (s.log_dropped >= 0) out += " log_dropped=" + std::to_string(s.log_dropped);
   f2("file_write_ms", s.file_write_ms);
+  if (s.heat.probed) {  // S102 S0-2: a counter the machine lacks says n/a, never 0
+    const auto h = [&](const char* name, double v, const char* fmt) {
+      if (v >= 0) {
+        std::snprintf(buf, sizeof(buf), fmt, name, v);
+        out += buf;
+      } else {
+        out += std::string(" ") + name + "=" + perf_heat::Na();
+      }
+    };
+    h("perf_pct", s.heat.perf_pct, " %s=%.0f");
+    h("perf_limit", s.heat.perf_limit, " %s=%.0f");
+    h("limit_flags", s.heat.limit_flags, " %s=%.0f");
+    h("pkg_w", s.heat.pkg_w, " %s=%.1f");
+  }
   return out;
 }
 
@@ -235,9 +251,11 @@ inline bool Take(Sample& out, uint64_t log_write_us, uint64_t log_call_us, uint6
   Raw& last = Last();
   const bool primed = last.ok;
   const uint64_t file_us = FileWriteWorstUs().exchange(0, std::memory_order_relaxed);
+  const perf_heat::Heat heat = perf_heat::Collect();  // S102 S0-2: also on the priming call, so the PDH query is primed with the first window
   if (primed) {
     out = Derive(last, now, double(log_write_us) / 1000.0, double(log_call_us) / 1000.0, (long long)(log_dropped_total - dropped_before),
                  double(file_us) / 1000.0);
+    out.heat = heat;
   }
   dropped_before = log_dropped_total;
   last = now;

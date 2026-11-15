@@ -24,6 +24,7 @@
 //
 // Cost: one sample per 10 s on a thread of its own (a few ms); the game thread only starts it. --wwe2k14_perf_mem=false turns it off.
 // Time sources are wall time: a fast-forwarded run has the same t but more frames, so compare by t and read frame= beside it.
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
@@ -54,6 +55,8 @@
 REXCVAR_DEFINE_BOOL(wwe2k14_perf_mem, true, "wwe2k14",
                     "Lane 249: a [perf][mem] log line every wwe2k14_perf_mem_seconds and one at exit (working set, private bytes, GPU "
                     "memory of this process, threads, GPU threads), plus a [perf][boot] line (src/perf_mem.h)");
+REXCVAR_DEFINE_BOOL(wwe2k14_perf_heat, true, "wwe2k14",
+                    "S102 S0-2: the [perf][sys] line carries perf_pct / perf_limit / limit_flags / pkg_w (Windows PDH counters, one read per window); off = no PDH call");
 REXCVAR_DEFINE_INT32(wwe2k14_perf_mem_seconds, 10, "wwe2k14", "Lane 249: seconds between [perf][mem] lines")
     .range(1, 600);
 
@@ -61,6 +64,7 @@ namespace wwe2k14::perf_mem {
 
 struct Sample {
   double ws_mb = -1, private_mb = -1, peak_ws_mb = -1, gpu_local_mb = -1, gpu_nonlocal_mb = -1;
+  double gpu_local_budget_mb = -1, gpu_nonlocal_budget_mb = -1;  // S102 D1: DXGI's budget for this process (a use near it can make the driver evict or fail)
   int threads = -1, gpu_threads = -1;
   std::string gpu_thread_names;
 };
@@ -125,7 +129,7 @@ inline void* FindAdapter3(std::string& name) {
 }
 
 // Process GPU memory (local = VRAM, non-local = system memory the GPU uses) from DXGI; false when not readable.
-inline bool QueryVideoMemory(double& local_mb, double& nonlocal_mb) {
+inline bool QueryVideoMemory(double& local_mb, double& nonlocal_mb, double* local_budget_mb = nullptr, double* nonlocal_budget_mb = nullptr) {
   VideoMemory& v = Video();
   if (!v.tried) {
     v.tried = true;
@@ -145,7 +149,11 @@ inline bool QueryVideoMemory(double& local_mb, double& nonlocal_mb) {
   const auto query = reinterpret_cast<QueryFn>(vt[14]);
   if (FAILED(query(v.adapter3, 0, 0 /* DXGI_MEMORY_SEGMENT_GROUP_LOCAL */, &local))) return false;
   local_mb = double(local.CurrentUsage) / (1024.0 * 1024.0);
-  if (SUCCEEDED(query(v.adapter3, 0, 1 /* NON_LOCAL */, &nonlocal))) nonlocal_mb = double(nonlocal.CurrentUsage) / (1024.0 * 1024.0);
+  if (local_budget_mb) *local_budget_mb = double(local.Budget) / (1024.0 * 1024.0);  // S102 D1
+  if (SUCCEEDED(query(v.adapter3, 0, 1 /* NON_LOCAL */, &nonlocal))) {
+    nonlocal_mb = double(nonlocal.CurrentUsage) / (1024.0 * 1024.0);
+    if (nonlocal_budget_mb) *nonlocal_budget_mb = double(nonlocal.Budget) / (1024.0 * 1024.0);  // S102 D1
+  }
   return true;
 }
 
@@ -178,7 +186,8 @@ inline Sample Take() {
     s.peak_ws_mb = double(pmc.PeakWorkingSetSize) / mb;
   }
   double local = 0, nonlocal = -1;
-  if (QueryVideoMemory(local, nonlocal)) s.gpu_local_mb = local, s.gpu_nonlocal_mb = nonlocal;
+  double local_budget = -1, nonlocal_budget = -1;  // S102 D1
+  if (QueryVideoMemory(local, nonlocal, &local_budget, &nonlocal_budget)) s.gpu_local_mb = local, s.gpu_nonlocal_mb = nonlocal, s.gpu_local_budget_mb = local_budget, s.gpu_nonlocal_budget_mb = nonlocal_budget;
   if (HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0); snap != INVALID_HANDLE_VALUE) {
     THREADENTRY32 e = {};
     e.dwSize = sizeof(e);
@@ -254,6 +263,8 @@ inline std::string Format(const Sample& s, double t, uint64_t frame, bool exit_l
   field("peak_ws_mb", s.peak_ws_mb);
   field("gpu_local_mb", s.gpu_local_mb);
   field("gpu_nonlocal_mb", s.gpu_nonlocal_mb);
+  field("gpu_local_budget_mb", s.gpu_local_budget_mb);  // S102 D1 (DEVICE_LOST.md: residency / video memory exhaustion)
+  field("gpu_nonlocal_budget_mb", s.gpu_nonlocal_budget_mb);
   if (s.threads >= 0) out += fmt::format(" threads={}", s.threads);
   if (s.gpu_threads >= 0) out += fmt::format(" gpu_threads={}", s.gpu_threads);
   return out;
@@ -281,6 +292,7 @@ inline void Emit(bool exit_line) {
   }
   REXLOG_INFO("{}", Format(s, Now(), st.frame ? st.frame->load(std::memory_order_relaxed) : 0, exit_line));
   {  // lane 302: [perf][sys], the machine's side of the same window (no line on the very first call: a window needs two readings)
+    perf_heat::Enabled().store(REXCVAR_GET(wwe2k14_perf_heat), std::memory_order_relaxed);  // S102 S0-2: per window
     const rex::LogWriteStats ls = rex::TakeLogWriteStats();
     perf_sys::Sample sys;
     const bool have_log = ls.lines_queued > 0;
@@ -299,7 +311,7 @@ inline void Start(std::atomic<uint64_t>* frame) {
   st.frame = frame;
   REXLOG_INFO("[wwe2k14][perf][boot] first guest frame (frame 1) at t={:.2f} s since process start", Now());
   rex::RegisterQuitFlush(&st.quit_req, &st.quit_ack);
-  std::thread([] {
+  std::thread([] { wwe2k14::NameThread(L"perf_mem");
     State& st = S();
     const auto step = std::chrono::milliseconds(15);  // the quit flag is seen within 15 ms
     auto next = std::chrono::steady_clock::now();  // the first sample at once: the boot's own numbers

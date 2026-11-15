@@ -13,6 +13,7 @@
 #include <sstream>
 
 #include "app.h"
+#include "../renderer_adapter/plane_pass.h"   // S102 P3: g_own_plane
 #include "../renderer_scene/replace_factories.h"
 
 namespace fview {
@@ -88,18 +89,40 @@ int RunPlaneCheck(const Options& o, const std::filesystem::path& root) {
   Acc picture;
   uint64_t compared = 0, no_dest = 0, differing_frames = 0;
   std::vector<uint8_t> ia, ib, pa, pb;
+  // S102 P3 (--own-plane): arm A is the stream, arm B the plane chain as one group (binder PlanePlan / PlaneRun). SH2 stays OFF (the group is not made for the shadow redirect, PLANE_OURS_WHOLE.md section 5) and the
+  // images compared are the chain's copy destinations by id (--own-plane-images, default 220 the mask, 221 the blur result), not SH2's classification.
+  const bool own_plane = rdr_adapter::g_own_plane;
+  std::vector<uint32_t> own_images;
+  for (size_t at = 0; own_plane && at < o.own_plane_images.size();) {
+    size_t comma = o.own_plane_images.find(',', at);
+    if (comma == std::string::npos) comma = o.own_plane_images.size();
+    if (comma > at) own_images.push_back(uint32_t(std::atoi(o.own_plane_images.substr(at, comma - at).c_str())));
+    at = comma + 1;
+  }
   for (uint32_t f = 0; f < count; ++f) {
-    rdr_adapter::g_shadows_ours = true, rdr_adapter::g_shadow_map_size = o.shadow_map_size;
+    rdr_adapter::g_shadows_ours = !own_plane, rdr_adapter::g_shadow_map_size = o.shadow_map_size;
     rdr_adapter::shadows_ours::g_fault = rdr_adapter::shadows_ours::Fault::None;
+    if (own_plane) rdr_adapter::g_own_plane = false;
     if (!a.StepFrame(f, error)) return std::fprintf(stderr, "[fview] A frame %u: %s\n", f, error.c_str()), 2;
     rdr_adapter::shadows_ours::g_fault = sh2_fault;
+    if (own_plane) rdr_adapter::g_own_plane = true;
     if (!b.StepFrame(f, error)) return std::fprintf(stderr, "[fview] B frame %u: %s\n", f, error.c_str()), 2;
     if (f < 2 || f % o.check_every) continue;   // frames 0-1: the stream's partial copies leave texels no frame has written yet
     ++compared;
     const rdr_adapter::shadows_ours::Plan& plan = b.ShadowsPlan();
     const rdr_adapter::LoadedFrame& fr = b.frame();
     std::set<uint32_t> done;
+    for (const uint32_t dest : own_images) {   // S102 P3: the chain's pictures by id
+      uint32_t aw = 0, ah = 0, bw = 0, bh = 0;
+      if (!a.ReadSurface(dest, ia, aw, ah) || !b.ReadSurface(dest, ib, bw, bh)) {
+        ++no_dest;
+        continue;
+      }
+      images[dest].chain = 2;
+      Compare(images[dest], ia, aw, ah, ib, bw, bh);
+    }
     for (const rdr_adapter::Op& op : fr.ops) {
+      if (own_plane) break;
       if (op.kind != rdr_adapter::OpKind::Copy) continue;
       const rdr::CopyOp& c = fr.copies[op.index];
       if (plan.Of(c.source.image) == rdr_adapter::shadows_ours::kNone) continue;   // the readers' images of both chains (the plane chain is this lane's; the maps are SH2's, which must stay equal)
@@ -124,6 +147,11 @@ int RunPlaneCheck(const Options& o, const std::filesystem::path& root) {
   rdr_adapter::g_shadows_ours = false;
   std::string report = b.ReplaceReport("plane_shadow");
   std::printf("%s\n", report.c_str());
+  if (own_plane) {   // S102 P3: the binder's census of the group (arm B's binder only: arm A ran with the switch off)
+    const std::string census = b.PlaneCensus();
+    std::printf("%s\n", census.c_str());
+    report += " || OWN PLANE: " + census;
+  }
   if (o.shadow_casters_ours) {   // where the mask draws went: the casters' census beside this hook's
     const std::string casters = b.ReplaceReport("shadow_casters");
     std::printf("%s\n", casters.c_str());

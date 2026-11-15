@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/ui/keybinds.h>
@@ -141,7 +142,7 @@ inline void StartClipRing() {
   const int fps = REXCVAR_GET(wwe2k14_bookmark_clip_fps);
   if (fps <= 0 || CR().running) return;
   CR().running = true;
-  std::thread([fps] {
+  std::thread([fps] { wwe2k14::NameThread(L"bookmark_fps");
     const size_t keep = size_t(std::clamp(REXCVAR_GET(wwe2k14_bookmark_clip_s), 1, 60)) * size_t(fps);
     const auto period = std::chrono::microseconds(1'000'000 / std::clamp(fps, 1, 60));
     auto next = std::chrono::steady_clock::now();
@@ -426,7 +427,7 @@ inline int TakeImpl(const std::string& reason) {
     }
     if (structs_now.empty()) structs_now = "(none readable)\n";
   }
-  std::thread([k, frame, label, reason, text_now, structs_now] {
+  std::thread([k, frame, label, reason, text_now, structs_now] { wwe2k14::NameThread(L"bookmark_save");
     const std::time_t now_t = std::time(nullptr);
     std::tm now_tm{};
     localtime_s(&now_tm, &now_t);
@@ -661,6 +662,9 @@ inline void Install(bool harness) {
 #if defined(WWE2K14_VERSION) && !defined(__ANDROID__)
     by_build = REXCVAR_GET(wwe2k14_rdr_owner) && std::string_view(WWE2K14_VERSION).find("+dev") != std::string_view::npos;
 #endif
+    // S102 T8 review F1: an explicit --wwe2k14_case=false wins over the by-build enable (the PC checks and the Surface kit need the ring off to measure
+    // anything that skips the frame's bytes); no flag given = unchanged.
+    if (by_build && rex::cvar::GetFlagSource("wwe2k14_case") != rex::cvar::Source::kDefault && !REXCVAR_GET(wwe2k14_case)) by_build = false;
     case_hook::Config cfg = case_hook::ConfigFromCvars(CaseDefaultDir(), by_build);
     cfg.log = [](const std::string& line) { REXLOG_INFO("{}", line); };
     case_hook::Configure(cfg);

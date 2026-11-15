@@ -242,6 +242,9 @@ def compile_text(text, defines, stage):
     return struct.unpack(f'<{len(data) // 4}I', data)
 
 
+STALE = []   # S102 R18-B2: --check mode: the headers that would change (nothing is written)
+
+
 def write_if_changed(path, text):
     # S101: write a generated header only when its content changed (line endings aside: git checks them out CRLF). Rewriting all of them
     # on every run dirtied the tree and made two runs at once collide on the files (gate flake, 'Invalid argument', twice on 2026-11-11).
@@ -251,6 +254,9 @@ def write_if_changed(path, text):
                 return False
     except OSError:
         pass
+    if '--check' in sys.argv:   # S102 R18-B2: the headers are current when a compile changes none of them
+        STALE.append(os.path.basename(path))
+        return True
     with open(path, 'w', newline='\n') as f:
         f.write(text)
     return True
@@ -261,10 +267,73 @@ def array_text(name, words):
     return f'inline constexpr uint32_t {name}[] = {{\n' + ',\n'.join(lines) + '\n};\n'
 
 
-def compile_plain(path):
-    name = os.path.basename(path).replace('.', '_')
-    words = compile_words(path, [])
+def compile_plain(path, defines=(), suffix=''):
+    name = os.path.basename(path).replace('.', '_') + suffix
+    words = compile_words(path, list(defines))
     write_if_changed(os.path.join(OUT, name + '.h'), f'// Generated from {os.path.basename(path)} by tools\\renderer\\compile_shaders.py. Our own shader.\n#pragma once\n#include <cstdint>\n' + array_text(f'kSpv_{name}', words))
+
+
+# S102 lane L1 (docs\renderer\PRELIGHT_DIRECT.md section 8): the character effects whose pixel stage samples the pre-light cube at slot 13. Each such fragment variant gets a TWIN
+# `<name>_pl` (FX_PRELIGHT_ANALYTIC: the four lights evaluated per pixel, fx_prelight.glsl): no hashes (only the binder picks it, by name), the cube sampler of slot 13 removed, and the
+# block member PreLightK (18 vec4) added as a constant range from register ANALYTIC_REGISTER (a register no game shader of these effects uses: the binder overwrites the range with the
+# bake's own constants; what the bank holds there is never read).
+ANALYTIC_EFFECTS = ('yCh_skin', 'yCh_skin_flex', 'yCh_gear', 'yCh_gear_flex', 'yCh_trans', 'yCh_Aniso_trans', 'yCh_TransTiling', 'yCh_cloth_trans', 'yCh_Anisotropic', 'yCh_Reflect', 'yCh_cloth', 'yCh_cloth_flex')
+ANALYTIC_REGISTER = 232
+ANALYTIC_COUNT = 18
+
+
+def analytic_twins(variants):
+    twins = []
+    for v in variants:
+        if not any(s.get('slot') == 13 and s.get('kind') == 'cube' for s in v.get('samplers', [])):
+            continue
+        twins.append({**v, 'name': v['name'] + '_pl', 'defines': list(v.get('defines', [])) + ['FX_PRELIGHT_ANALYTIC'], 'hashes': [],
+                      'constants': list(v.get('constants', [])) + [{'field': 'PreLightK', 'register': ANALYTIC_REGISTER, 'count': ANALYTIC_COUNT}],
+                      'samplers': [s for s in v.get('samplers', []) if s.get('slot') != 13]})
+    return twins
+
+
+# S102 lane R18-B2 (docs/renderer/COMBINE_LITE.md): the owned combine's lite twins, `<name>_lite1` (FX_LITE: the exact early-outs) and `<name>_lite2` (+ FX_LITE_FXAA: the flat-pixel exit, a LOOK
+# lever), for every combine permutation but the luminance pass (FX_ADAPT; `base` has nothing for level 1 to skip). No hashes (only the post pass picks them, by name). The planted twins
+# and the tool-only mark twin exist for the permutations the captures use (tools/r18/r18_b2_check.py): litep1 = the DoF blur never fetched, litep2 = the bloom never fetched, litep3 = the flat
+# threshold 10x, litem = the pixels the flat exit takes drawn magenta (an instrument: the share of flat pixels). The existing variants are untouched.
+LITE_EFFECT = 'yGlareEtc'
+LITE_PLANT_SET = ('dof', 'dof_fog', 'dof_bloom', 'dof_fog_bloom', 'bloom', 'fog_bloom')
+
+
+def lite_twins(variants):
+    twins = []
+    for v in variants:
+        d = list(v.get('defines', []))
+        if 'FX_ADAPT' in d:
+            continue
+        base = {**v, 'hashes': [], 'alpha_test': False}
+
+        def add(suffix, extra):
+            twins.append({**base, 'name': v['name'] + suffix, 'defines': d + extra})
+        if 'FX_DOF' in d or 'FX_BLOOM' in d:   # review F6: level 1 changes only the DoF / bloom fetches; any other permutation's _lite1 would be word-for-word its base and counted as "taken"
+            add('_lite1', ['FX_LITE'])
+        add('_lite2', ['FX_LITE', 'FX_LITE_FXAA'])
+        add('_litem', ['FX_LITE', 'FX_LITE_FXAA', 'FX_LITE_MARK'])   # the mark instrument exists for EVERY permutation (wm30's flat share read 0 with the first, smaller set)
+        if v['name'] in LITE_PLANT_SET:
+            if 'FX_DOF' in d:
+                add('_litep1', ['FX_LITE', 'FX_PLANT_DOF'])
+            if 'FX_BLOOM' in d:
+                add('_litep2', ['FX_LITE', 'FX_PLANT_BLOOM'])
+            add('_litep3', ['FX_LITE', 'FX_LITE_FXAA', 'FX_PLANT_WIDE'])
+    return twins
+
+
+def spirv_samples(words):
+    """Static count of the image sample instructions (OpImageSampleImplicitLod 87, ExplicitLod 88, OpImageFetch 95) in a SPIR-V word list."""
+    n, i = 0, 5
+    while i < len(words):
+        op, count = words[i] & 0xFFFF, words[i] >> 16
+        if count == 0:
+            break
+        n += op in (87, 88, 95)
+        i += count
+    return n
 
 
 def compile_effect(json_path):
@@ -288,12 +357,20 @@ def compile_effect(json_path):
         text.append(array_text(symbol, compile_text(wrapped_source(vert, 'vert', False, None, integer_locations, defines=defines), defines, 'vert')))
         offsets, size = block_layout(vert, defines, 'VertexConstants')
         rows['vertex'].append({**variant, 'symbol': symbol, 'offsets': offsets, 'block_bytes': size})
-    for variant in spec.get('fragment', []):
+    fragment_variants = list(spec.get('fragment', []))
+    if effect in ANALYTIC_EFFECTS:   # S102 L1: the analytic pre-light twins (fx_prelight.glsl), one per variant that samples the light cube at slot 13
+        fragment_variants += analytic_twins(fragment_variants)
+    if effect == LITE_EFFECT:   # S102 R18-B2
+        fragment_variants += lite_twins(fragment_variants)
+    for variant in fragment_variants:
         frag = source_of(variant, '.frag')
         symbol = f'kFx_{effect}_{variant["name"]}_frag'
         defines = variant.get('defines', [])
         target_16 = variant.get('target_16')
-        text.append(array_text(symbol, compile_text(wrapped_source(frag, 'frag', False, target_16, defines=defines), defines, 'frag')))
+        words = compile_text(wrapped_source(frag, 'frag', False, target_16, defines=defines), defines, 'frag')
+        text.append(array_text(symbol, words))
+        if effect == LITE_EFFECT:   # S102 R18-B2: the static sample count per variant, printed (read by tools/r18/r18_b2_check.py)
+            print(f'[fetches] {effect}_{variant["name"]}: {spirv_samples(words)} image samples (static)')
         offsets, size = block_layout(frag, defines, 'FragmentConstants')
         row = {**variant, 'symbol': symbol, 'symbol_alpha': None, 'offsets': offsets, 'block_bytes': size}
         if variant.get('alpha_test', True):
@@ -304,6 +381,56 @@ def compile_effect(json_path):
     return rows
 
 
+# S102 G10 (review F2): the OUTPUT-ALPHA SOURCE of a variant, emitted into the registry so the binder can prove a draw opaque. out_alpha = 1 when the colour output's alpha is
+# MdlAlpha.x * MatAmbCol.w * MatDifCol.w (vertex constants 185 / 189 / 190) times the vertex colour's alpha and nothing else: no texture alpha (FX_ALPHA_OUT, FX_OVERLAY, FX_SCROLL,
+# FX_CAA), no edge or spec fade (FX_EDGE_FADE, FX_SPEC_FADE). Read from src\renderer\shaders\fx\fx_bg.glsl (vertex: `alpha = vc.MdlAlpha.x * vc.MatAmbCol.w * vc.MatDifCol.w`, outColor.w =
+# alpha * inColor.w; fragment: outColor.w = inColor.w, or diffuse.w * inColor.w under FX_ALPHA_OUT). Only the effects whose alpha lines were read are listed. vc_fetch = the fetch feeding
+# the vertex colour (`layout(location = 2) in vec4 inColor`), 255 = none.
+ALPHA_EFFECTS = ('yBG_DefaultLM', 'yBG_Default', 'yBG_UVScrollLM', 'yBG_UVScroll', 'yBG_BumpMapLM', 'yBG_BumpMap')
+ALPHA_BREAKS = {'vertex': {'FX_EDGE_FADE', 'FX_SPEC_FADE'}, 'fragment': {'FX_ALPHA_OUT', 'FX_OVERLAY', 'FX_SCROLL', 'FX_CAA'}}
+
+
+def source_defines(effect, v, stage):
+    """S102 C4 (review F8): the macros the variant's own source file #defines (and its #include "...glsl" files, one level): FX_SCROLL is defined INSIDE the UVScroll fragments, not in the variant's define list."""
+    import re
+    path = os.path.join(FX, v.get('source', effect) + ('.frag' if stage == 'fragment' else '.vert'))
+    found = set()
+    try:
+        text = open(path, encoding='utf-8').read()
+    except OSError:
+        return {'<unreadable source>'}
+    for m in re.finditer(r'^\s*#\s*define\s+(\w+)', text, re.M):
+        found.add(m.group(1))
+    for inc in re.findall(r'^\s*#\s*include\s+"([^"]+)"', text, re.M):
+        try:
+            for m in re.finditer(r'^\s*#\s*define\s+(\w+)', open(os.path.join(FX, inc), encoding='utf-8').read(), re.M):
+                found.add(m.group(1))
+        except OSError:
+            pass
+    return found
+
+
+def alpha_meta(effect, stage, v):
+    if effect not in ALPHA_EFFECTS or (set(v.get('defines', [])) | source_defines(effect, v, stage)) & ALPHA_BREAKS[stage]:
+        return 0, 255
+    if stage == 'fragment':
+        # fx_bg.glsl bg_fragment_main (yBG_Default*; the yBG_UVScroll* fragments define FX_SCROLL inside their own source and are in the break list, review F8): outColor.w = inColor.w under FX_ALPHA_SPEC, else diffuse.w * inColor.w (the TEXTURE's alpha: out_alpha 2 below);
+        # the BumpMap pixel stage: inColor.w, or diffuse.w * inColor.w under FX_ALPHA_OUT (already in ALPHA_BREAKS).
+        if effect.startswith('yBG_BumpMap'):
+            return 1, 255
+        # S102 C4: out_alpha 2 = the plain light-mapped / default fragments: outColor.w = diffuse.w * inColor.w, diffuse = textures[0] (fx_bg.glsl line ~620-640): provable when the draw's slot-0 texture has no alpha
+        # (binder.h AlphaOpaque: the slot's swizzle / format / content scan). The break list (FX_ALPHA_OUT, FX_OVERLAY, FX_SCROLL, FX_CAA) already left the variants that blend a second texture's alpha in.
+        if 'FX_ALPHA_SPEC' in (set(v.get('defines', [])) | source_defines(effect, v, stage)):
+            return 1, 255
+        assert not ((set(v.get('defines', [])) | source_defines(effect, v, stage)) & ALPHA_BREAKS[stage]), 'out_alpha 2 variant with a break-list define: ' + v.get('name', '?')  # review F8 self-check
+        return 2, 255
+    regs = {c['register'] for c in v.get('constants', []) if c['field'] in v['offsets']}
+    fetch = [a['fetch'] for a in v.get('attributes', []) if a['location'] == 2]
+    if not {185, 189, 190} <= regs or not fetch:
+        return 0, 255
+    return 1, fetch[0]
+
+
 def write_registry(all_rows):
     """A table of every variant: game hash -> spirv, constant ranges, attributes, samplers."""
     out = ['// Generated by tools\\renderer\\compile_shaders.py. Hashes and our own shaders only.', '#pragma once', '#include <cstdint>', '#include <cstddef>']
@@ -311,7 +438,7 @@ def write_registry(all_rows):
         out.append(f'#include "fx_{rows["effect"]}.h"')
     out += ['', 'namespace rdr::fx {', 'struct ConstantRange { uint16_t reg, count, offset; uint8_t blend; };', 'struct Attribute { uint8_t fetch, location, integer; };',
             'struct Sampler { uint8_t slot, kind; };',
-            'struct Variant { const char* name; const uint32_t* spirv; size_t bytes; const uint32_t* spirv_alpha; size_t bytes_alpha; const ConstantRange* constants; uint16_t constant_count; uint16_t block_bytes; uint16_t bools_offset; const Attribute* attributes; uint16_t attribute_count; const Sampler* samplers; uint16_t sampler_count; };',
+            'struct Variant { const char* name; const uint32_t* spirv; size_t bytes; const uint32_t* spirv_alpha; size_t bytes_alpha; const ConstantRange* constants; uint16_t constant_count; uint16_t block_bytes; uint16_t bools_offset; const Attribute* attributes; uint16_t attribute_count; const Sampler* samplers; uint16_t sampler_count; uint8_t out_alpha; uint8_t vc_fetch; };',
             'struct HashEntry { uint64_t hash; uint32_t variant; };', '']
     variants, hashes = [], []
     for rows in all_rows:
@@ -335,10 +462,11 @@ def write_registry(all_rows):
                 if attrs:
                     out.append(f'inline constexpr Attribute kA_{ident}[] = {{{", ".join(attrs)}}};')
                 alpha = v.get('symbol_alpha')
-                variants.append('{"%s", %s, sizeof(%s), %s, %s, %s, %d, %d, %d, %s, %d, %s, %d}' % (
+                out_alpha, vc_fetch = alpha_meta(rows['effect'], stage, v)
+                variants.append('{"%s", %s, sizeof(%s), %s, %s, %s, %d, %d, %d, %s, %d, %s, %d, %d, %d}' % (
                     ident, v['symbol'], v['symbol'], alpha or 'nullptr', f'sizeof({alpha})' if alpha else '0',
                     f'kC_{ident}' if ranges else 'nullptr', len(ranges), v['block_bytes'], bools, f'kA_{ident}' if attrs else 'nullptr', len(attrs),
-                    f'kS_{ident}' if samplers else 'nullptr', len(samplers)))
+                    f'kS_{ident}' if samplers else 'nullptr', len(samplers), out_alpha, vc_fetch))
                 for h in v['hashes']:
                     hashes.append((int(h, 16), index))
     hashes.sort()
@@ -352,7 +480,7 @@ def write_registry(all_rows):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    force = '--force' in sys.argv
+    force = '--force' in sys.argv or '--check' in sys.argv   # S102 R18-B2 review F5: --check recompiles everything (a header newer than its source hid a stale one)
     newest_include = max([os.path.getmtime(p) for p in glob.glob(os.path.join(FX, '*.glsl')) + glob.glob(os.path.join(SOURCE, '*.glsl'))], default=0)
 
     plain = sorted(glob.glob(os.path.join(SOURCE, '*.vert')) + glob.glob(os.path.join(SOURCE, '*.frag')))
@@ -362,11 +490,17 @@ def main():
         if force or not os.path.exists(header) or os.path.getmtime(header) < max(os.path.getmtime(path), newest_include):
             plain_todo.append(path)
 
+    # S102 lane L1b (docs\renderer\PRELIGHT_DIRECT.md section 9): the light-cube compute shader (rdr_skin_once.comp is built by tools\shaders\build_skin_once.py, not here) and its planted twin (the faces swapped)
+    for comp, defines, suffix in (('rdr_light_cubes.comp', (), ''), ('rdr_light_dirs.comp', (), ''), ('rdr_light_dirs.comp', ('FACE_SWAP',), '_swap')):
+        path = os.path.join(SOURCE, comp)
+        header = os.path.join(OUT, comp.replace('.', '_') + suffix + '.h')
+        if force or not os.path.exists(header) or os.path.getmtime(header) < max(os.path.getmtime(path), newest_include):
+            plain_todo.append((path, defines, suffix))
     effects = sorted(glob.glob(os.path.join(FX, '*.fx.json')))
     failed = 0
     all_rows = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
-        for path, future in [(p, pool.submit(compile_plain, p)) for p in plain_todo]:
+        for path, future in [((p[0] if isinstance(p, tuple) else p), pool.submit(compile_plain, *(p if isinstance(p, tuple) else (p,)))) for p in plain_todo]:
             try:
                 future.result()
             except RuntimeError as error:
@@ -380,6 +514,9 @@ def main():
                 print(f'FAILED {os.path.basename(path)}\n{error}')
     write_registry(sorted(all_rows, key=lambda r: r['effect']))
     print(f'shaders: {len(plain)} plain, {len(plain_todo)} rebuilt; {len(effects)} effects compiled; {failed} failed')
+    if '--check' in sys.argv:   # S102 R18-B2
+        print('compile_shaders --check: ' + ('headers are current' if not STALE else 'STALE headers: ' + ', '.join(STALE)))
+        return 1 if (failed or STALE) else 0
     return 1 if failed else 0
 
 

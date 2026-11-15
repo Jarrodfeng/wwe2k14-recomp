@@ -1,0 +1,112 @@
+{
+ "owner": "S102 lane G12 (the GPU copies that remain): copy_batch (src/renderer/copy_batch.h + the step loop in renderer.cpp, switch wwe2k14_rdr_copy_batch), alias_small (SmallTakes in src/renderer_adapter/copy_alias.h, switch wwe2k14_rdr_alias_small), their table / cvar / live.cpp / fview / rplay wiring, tools/g12/*, docs/renderer/COPIES_LEFT.md. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {
+   "switch": "wwe2k14_rdr_copy_batch",
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [
+    0.6,
+    1.4
+   ],
+   "note": "ESTIMATE from counts and the offline census: 25 of Bryan's copy steps a frame go (30 light-strip copies -> 5 commands), -25 copies and -25 barrier flushes MEASURED (rplay --counts, 125.96 -> 100.96 copies, 150.82 -> 125.82 barriers a frame). Offline 4090 census: about 14 us a copy step both ways (other class 34 steps 0.49 ms -> 9 steps 0.12 ms). The Surface averaged 57 us a copy step (G6: 5.5 ms / 97), these are the smallest copies: 25 x 25-55 us. A Surface row decides"
+  },
+  {
+   "switch": "wwe2k14_rdr_alias_small",
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [
+    0.3,
+    1.1
+   ],
+   "note": "ESTIMATE, STANDARD tier only (LOW already has level 1's cuts through --copy-alias 2 classes 11): level 1 drops the crowd card bake's 20 copies a frame (+2 shadow, measured -22 copies / -22 barriers a frame), level 2 adds 4 tiny 'other' copies (-26). Offline 4090 census: the bake's 21 copies cost 0.44 ms (21 us each). A Surface row decides"
+  }
+ ],
+ "note": "unit = the batch rule (copy_batch.h Compatible) with 4 planted weakenings that must each fail it; wiring = every link of both switches (table PerFrame default 0, cvar, live.cpp per-frame read, the renderer / binder read) with each link removed in a text copy must fail the lint; bryan / match = fview headless: hashes equal on every frame with the switches on, validation 0 AND exit code 0, the default bundle and the --copy-alias 2 (LOW) arm, planted twins (copy-batch plant 1 by the picture, plant 2 by validation only, alias small + src_dirty, a planted CPU read-back + ignore_readback); counts = rplay copies and barriers a frame before / after against the census.",
+ "checks": [
+  {
+   "name": "s102_g12.unit",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g12/g12_check.py",
+    "--root",
+    ".",
+    "--only",
+    "unit"
+   ],
+   "timeout_s": 900
+  },
+  {
+   "name": "s102_g12.wiring",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g12/g12_check.py",
+    "--root",
+    ".",
+    "--only",
+    "wiring"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_g12.bryan",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g12/g12_check.py",
+    "--root",
+    ".",
+    "--only",
+    "bryan"
+   ],
+   "timeout_s": 3400,
+   "exes": [
+    "out/renderer/dev/rplay.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_g12.match",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g12/g12_check.py",
+    "--root",
+    ".",
+    "--only",
+    "match"
+   ],
+   "timeout_s": 2400,
+   "needs": [
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_g12.counts",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g12/g12_check.py",
+    "--root",
+    ".",
+    "--only",
+    "counts"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/rplay.exe"
+   ],
+   "needs": [
+    "out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin",
+    "game_data/extracted"
+   ]
+  }
+ ]
+}

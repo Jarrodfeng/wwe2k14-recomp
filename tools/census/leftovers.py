@@ -117,7 +117,11 @@ def records_hold_floor(cap: Path) -> bool:
     recs = sorted((cap / 'scene').glob('frame_*.rsc')) if (cap / 'scene').is_dir() else []
     for r in [recs[i * (len(recs) - 1) // 5] for i in range(6)] if len(recs) > 1 else recs:
         try:
-            if b'crowd:floor:' in r.read_bytes():
+            raw = r.read_bytes()
+            ver = int.from_bytes(raw[4:8], 'little')
+            if ver != 1:   # S102 T19 F1: a version 2 record names its crowd members as markers, so "no floor string" would be a silent False; files on disk are version 1
+                raise ValueError('%s: scene record version %d (this reader reads version 1)' % (r, ver))
+            if b'crowd:floor:' in raw:
                 return True
         except OSError:
             pass
@@ -229,7 +233,8 @@ def aggregate(draws, pixel_owners):
     total = len(draws)
     out = {'draws': total, 'by_fate': dict(collections.Counter(d['fate'] for d in draws))}
     out['stream_draws'] = sum(1 for d in draws if d['fate'] == 'stream')
-    out['promoted_draws'] = total - out['stream_draws']
+    out['cut_draws'] = sum(1 for d in draws if d['fate'] == 'dead_work')   # S102 lane G4: a draw nobody reads, not recorded: neither the stream's nor ours
+    out['promoted_draws'] = total - out['stream_draws'] - out['cut_draws']
     out['prims_total'] = sum(d['prims'] for d in draws)
     out['prims_stream'] = sum(d['prims'] for d in draws if d['fate'] == 'stream')
     samples = len(pixel_owners) if pixel_owners else 0
@@ -247,7 +252,7 @@ def aggregate(draws, pixel_owners):
     out['samples'] = samples
     out['post_copy_only'] = post_only
     out['samples_owned_by_stream'] = sum(n for op, n in own_by_op.items() if op in by_op and by_op[op]['fate'] == 'stream')
-    out['samples_owned_by_ours'] = sum(n for op, n in own_by_op.items() if op in by_op and by_op[op]['fate'] != 'stream')
+    out['samples_owned_by_ours'] = sum(n for op, n in own_by_op.items() if op in by_op and by_op[op]['fate'] not in ('stream', 'dead_work'))
     out['samples_owned_unknown'] = sum(n for op, n in own_by_op.items() if op not in by_op)
 
     def table(level):
@@ -265,6 +270,8 @@ def aggregate(draws, pixel_owners):
             if d['fate'] == 'stream':
                 r['stream'] += 1
                 r['prims_stream'] += d['prims']
+            elif d['fate'] == 'dead_work':
+                r['cut'] = r.get('cut', 0) + 1   # S102 lane G4: its own bucket, not ours
             else:
                 r['ours'] += 1
             r['own'] += own_by_op.get(d['op'], 0)

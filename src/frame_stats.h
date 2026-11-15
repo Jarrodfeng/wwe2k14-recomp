@@ -67,9 +67,15 @@
 #include "dynamic_res.h"  // Session 73: each frame's length to the dynamic resolution
 #include "perf_overlay.h"  // Session 80: each frame's length to the performance overlay
 #include "renderer/overlay.h"  // lane 269: rdr::g_gpu_* (the new renderer's GPU timestamps)
+#include "renderer/breadcrumbs.h"  // S102 D1: rdr::DeviceLost (the device_lost column, the player's message)
+#include <thread>
 #include "android_lifecycle.h"  // Session 95: a frame out of front is not a hitch
 #include "hang_guard.h"  // Session 95: --wwe2k14_hang_guard and its test switch
 #include "perf_mem.h"    // lane 249: [perf][mem] lines
+#include "renderer_adapter/skips_auto.h"  // S102 K3: the D3 skips' frame-boundary latch (no game types)
+#include "renderer_adapter/rdr_switches_cvar.h"  // S102 S0-4: the per-frame switch table (no game types)
+#include "ab_flip.h"  // S102 M7: --wwe2k14_ab_flip, the in-run A/B flip schedule
+#include "frame_split.h"  // S102 H3: --wwe2k14_frame_split (the swap thread's per-frame split, columns at the end of the csv)
 
 #if defined(__ANDROID__)
 #include "android_perf_hint.h"  // Session 64: each frame's length to the phone's CPU governor
@@ -93,6 +99,10 @@ REXCVAR_DEFINE_BOOL(wwe2k14_frame_gpu_time, true, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_gpu_keep_warm, false, "wwe2k14",
                     "Session 73: GPU busy work in light in-game frames (loads), so a phone's GPU clock stays up for "
                     "the next scene (src/frame_stats.h; the phone launcher turns it on)");
+REXCVAR_DEFINE_BOOL(wwe2k14_frame_split, false, "wwe2k14",
+                    "S102 H3: seven more columns at the END of frames_NNN.csv (fs_*_ms): where the game's swap thread spends each guest frame (our reader's draws and "
+                    "present, the scene-live EndFrame, the replay dispatch, the GPU-fence wait, the update-thread barrier wait, the rest; src/frame_split_math.h). "
+                    "Read when the csv opens (frame 1). The Surface bench turns it on");
 REXCVAR_DEFINE_INT32(wwe2k14_gpu_keep_warm_mb, 768, "wwe2k14",
                      "Session 73: the most keep-warm work per 1/60 s, MB of GPU buffer fill")
     .range(16, 1024);
@@ -166,7 +176,11 @@ class FrameStats {
     using clock = std::chrono::steady_clock;
     std::lock_guard<std::mutex> lock(mutex_);
     const auto now = clock::now();
-    const uint64_t frame = ++g_guest_frame;
+    const uint64_t frame = g_guest_frame.load(std::memory_order_relaxed) + 1;   // S102 K3 review F6: the number is published AFTER the switch refresh and the skips' latch below, so a recording thread that reads frame N reads N's latch
+    ab_flip::AtFrame(frame);  // S102 M7: --wwe2k14_ab_flip (default off): the in-run A/B flips its switches here, so the refresh below logs them at this frame
+    rdr_sw::RefreshFromCvars(frame);  // S102 S0-4: the lane switches, read once per guest frame (a change logs "[switch] frame N NAME=VALUE" once)
+    skips_auto::AtGuestFrame(rdr_sw::Bool(rdr_sw::kSkipsAuto), frame);  // S102 K3: the D3 skips' on / off is latched here, once per guest frame, from the render thread's decision (skips_auto.h)
+    g_guest_frame.store(frame, std::memory_order_release);
     if (frame == 1) blackbox::Step("first frame: the game is running");  // Session 73
     if (frame == 1) perf_mem::Start(&g_guest_frame);  // lane 249: the memory line thread + the boot line
     if (frame == 600) blackbox::Step("600 frames in");
@@ -202,6 +216,12 @@ class FrameStats {
     const uint64_t cpu_ns = ThreadCpuNs();
     const double game_cpu_ms = cpu_ns && last_cpu_ns_ ? double(cpu_ns - last_cpu_ns_) / 1e6 : -1.0;
     last_cpu_ns_ = cpu_ns;
+    // S102 H3: this thread's split since the last row (only when the csv was opened with the columns; the counters are cumulative, Splitter diffs them).
+    const frame_split::Row split_row = split_csv_ ? split_.Take(frame_split::Gather(), game_cpu_ms) : frame_split::Row{};
+    if (split_csv_ && split_.backwards() && !split_backwards_logged_) {  // F2: a counter that went backwards (the row counted 0 for it): said once
+      split_backwards_logged_ = true;
+      REXLOG_WARN("[wwe2k14][frame_split] a split counter went backwards at frame {} (counted 0 for that part; {} so far)", frame, split_.backwards());
+    }
     const uint64_t gpu_thread_ns = GpuThreadCpuNs();
     const double gpu_thread_ms =
         gpu_thread_ns && last_gpu_thread_ns_ ? double(gpu_thread_ns - last_gpu_thread_ns_) / 1e6 : -1.0;
@@ -221,6 +241,32 @@ class FrameStats {
       const uint64_t owner_ns = rdr::g_gpu_ns_total.load(std::memory_order_relaxed);
       if (gpu_ms < 0 && last_owner_gpu_frames_ != 0) shown_gpu_ms = double(owner_ns - last_owner_gpu_ns_) / 1e6;
       last_owner_gpu_frames_ = owner_frames, last_owner_gpu_ns_ = owner_ns;
+    }
+    // S102 S0-3: what ran since the last guest frame. rdr_submit_ms = time inside Renderer::Render (fence wait and acquire left out); gpu_work_ms = the stamped GPU work (the start gap
+    // left out); render_thread_ms = the live render THREAD's CPU time (bind + parse + Render, live.cpp's loop; thread CPU, so waits and the Present's blocking are not in it);
+    // acquire_ms / present_call_ms = time in vkAcquireNextImage / the Present call. Empty = nothing counted yet.
+    double rdr_submit_ms = -1.0, gpu_work_ms = -1.0, render_thread_ms = -1.0, acquire_ms = -1.0, present_call_ms = -1.0;
+    double record_thread_ms = -1.0;  // S102 R21-B (review F2): rdr_record's CPU since the last guest frame (the two-stage render thread); empty until that stage has run
+    {
+      const auto take = [](const std::atomic<uint64_t>& total, uint64_t& last, double& out_ms) {
+        const uint64_t v = total.load(std::memory_order_relaxed);  // (one load)
+        if (last != 0 || v != 0) out_ms = double(v - last) / 1e6;
+        last = v;
+      };
+      const uint64_t submit_calls = rdr::g_submit_busy_calls.load(std::memory_order_relaxed);
+      if (submit_calls != last_submit_calls_ && last_submit_calls_ != 0) take(rdr::g_submit_busy_ns_total, last_submit_ns_, rdr_submit_ms);
+      else last_submit_ns_ = rdr::g_submit_busy_ns_total.load(std::memory_order_relaxed);
+      last_submit_calls_ = submit_calls;
+      const uint64_t work_ns = rdr::g_gpu_work_ns_total.load(std::memory_order_relaxed);
+      if (work_ns != last_gpu_work_ns_ && last_gpu_work_ns_ != 0) gpu_work_ms = double(work_ns - last_gpu_work_ns_) / 1e6;
+      last_gpu_work_ns_ = work_ns;
+      const uint64_t passes = rdr::g_render_thread_passes.load(std::memory_order_relaxed);
+      if (passes != 0) take(rdr::g_render_thread_ns_total, last_render_thread_ns_, render_thread_ms);
+      if (rdr::g_record_thread_ns_total.load(std::memory_order_relaxed) != 0) take(rdr::g_record_thread_ns_total, last_record_thread_ns_, record_thread_ms);  // S102 R21-B
+      if (submit_calls != 0) {
+        take(rdr::g_acquire_ns_total, last_acquire_ns_, acquire_ms);
+        take(rdr::g_present_call_ns_total, last_present_call_ns_, present_call_ms);
+      }
     }
     // Session 73 (moved below the GPU read in Session 95): dynamic resolution judges on the GPU time too.
     if (!g_frame_time_ignore_next.load(std::memory_order_relaxed)) dynres::g_controller.OnFrame(ms, last_gpu_ms_, game_cpu_ms);
@@ -259,6 +305,15 @@ class FrameStats {
     if (!scene.empty()) last_scene_ = scene, last_scene_t_ = t;
     const int rows = dynres::g_controller.Rows();
     // Session 95: frames that reached a present since the last row (a swap is a frame drawn, not a frame shown).
+    // S102 D1: the renderer lost its Vulkan device (rdr::g_device_lost): every row from here says so (frames_*.csv device_lost = 1), one line here
+    // names the guest frame, and the player's message shows once when --wwe2k14_rdr_device_lost_message is on (PC only; the game keeps running behind it).
+    const bool lost_now = rdr::DeviceLost();
+    if (lost_now && !device_lost_seen_) {
+      device_lost_seen_ = true;
+      REXLOG_ERROR("[wwe2k14][frames] DEVICE LOST at guest frame {} (t={:.1f} s): the GPU stopped drawing; frames from here are not presented (frames csv device_lost = 1)", frame, t);
+      REXLOG_ERROR("{} (at the device loss: video memory use against DXGI's budget)", wwe2k14::perf_mem::Format(wwe2k14::perf_mem::Take(), t, frame, false));  // S102 D1 review: the residency hypothesis
+      if (rdr::crumbs::g_message.load(std::memory_order_relaxed)) ShowDeviceLostMessage();
+    }
     const uint64_t presents = events.presents.load(std::memory_order_acquire);
     const uint32_t presented = uint32_t(presents - last_presents_);
     last_presents_ = presents;
@@ -271,13 +326,31 @@ class FrameStats {
       if (gpu_thread_ms >= 0) std::snprintf(gthread_text, sizeof(gthread_text), "%.3f", gpu_thread_ms);
       char mhz_text[16] = "";
       if (gpu_mhz > 0) std::snprintf(mhz_text, sizeof(mhz_text), "%d", gpu_mhz);
-      char gap_text[24] = "";
+      char gap_text[24] = "", gapmax_text[24] = "";
+      const uint32_t gap_max_us = rdr::g_present_gap_max_us.exchange(0, std::memory_order_relaxed);   // S102 R25-C2: take and clear every row (also a 0-present row, so a stale gap never leaks into the next)
+      if (presented && gap_max_us) std::snprintf(gapmax_text, sizeof(gapmax_text), "%.3f", gap_max_us / 1000.0);
       if (presented) std::snprintf(gap_text, sizeof(gap_text), "%.3f", events.present_gap_us.load(std::memory_order_relaxed) / 1000.0);
-      std::fprintf(csv_, "%llu,%.3f,%.3f,%s,%s,%s,%d,%s,%u,%.1f,%.0f,%.2f,%s,%s,%u,%s\n",
+      char submit_text[24] = "", work_text[24] = "", rthread_text[24] = "", acquire_text[24] = "", presentcall_text[24] = "";  // S102 S0-3
+      if (rdr_submit_ms >= 0) std::snprintf(submit_text, sizeof(submit_text), "%.3f", rdr_submit_ms);
+      if (gpu_work_ms >= 0) std::snprintf(work_text, sizeof(work_text), "%.3f", gpu_work_ms);
+      if (render_thread_ms >= 0) std::snprintf(rthread_text, sizeof(rthread_text), "%.3f", render_thread_ms);
+      if (acquire_ms >= 0) std::snprintf(acquire_text, sizeof(acquire_text), "%.3f", acquire_ms);
+      if (present_call_ms >= 0) std::snprintf(presentcall_text, sizeof(presentcall_text), "%.3f", present_call_ms);
+      char record_text[24] = "";  // S102 R21-B
+      if (record_thread_ms >= 0) std::snprintf(record_text, sizeof(record_text), "%.3f", record_thread_ms);
+      char split_text[frame_split::kColumns * 16 + 8] = "";  // S102 H3: ",a,b,..." (empty cells on the first row) or nothing when the switch is off
+      if (split_csv_) {
+        size_t at = 0;
+        for (int i = 0; i < frame_split::kColumns && at + 16 < sizeof(split_text); ++i) {
+          if (split_row.valid && !std::isnan(split_row.ms[i])) at += size_t(std::snprintf(split_text + at, sizeof(split_text) - at, ",%.3f", split_row.ms[i]));  // (NaN = unknown: an empty cell)
+          else split_text[at++] = ',', split_text[at] = 0;
+        }
+      }
+      std::fprintf(csv_, "%llu,%.3f,%.3f,%s,%s,%s,%d,%s,%u,%.1f,%.0f,%.2f,%s,%s,%u,%s,%s,%s,%s,%s,%s,%s,%d,%s%s\n",  // S102 D1: device_lost after record_thread_ms (the fs_ split columns stay last)
                    static_cast<unsigned long long>(frame), t, ms, game_text, gthread_text, gpu_text, rows, mhz_text,
                    textures - last_textures_, double(texture_kb - last_texture_kb_) / 1024.0,
                    double(warm_kb - last_warm_kb_) / 1024.0, wait_ms,
-                   wait_ms > 0.05 ? rex::perf::frame_events::kWaitSiteNames[wait_main] : "", scene.c_str(), presented, gap_text);
+                   wait_ms > 0.05 ? rex::perf::frame_events::kWaitSiteNames[wait_main] : "", scene.c_str(), presented, gap_text, submit_text, work_text, rthread_text, acquire_text, presentcall_text, record_text, lost_now ? 1 : 0, gapmax_text, split_text);
     }
     const int32_t slow_ms = REXCVAR_GET(wwe2k14_slow_frame_ms);
     if (slow_ms > 0 && ms >= slow_ms && slow_logged_ < kMaxSlowLines) {
@@ -611,12 +684,34 @@ class FrameStats {
     csv_ = std::fopen(csv_path_.c_str(), "w");
 #endif
     if (csv_) {
+      split_csv_ = REXCVAR_GET(wwe2k14_frame_split);  // S102 H3: the columns are decided here, once, so every row has as many cells as the header
+      frame_split::g_on.store(split_csv_, std::memory_order_relaxed);  // F6: the hooks' switch is set here and nowhere else: a mid-run cvar flip changes neither
       std::fputs("frame,t_seconds,frame_ms,game_cpu_ms,gpu_thread_cpu_ms,gpu_ms,draw_rows,gpu_mhz,textures,texture_mb,"
-                 "warm_mb,gpu_wait_ms,gpu_wait_main,scene,presented,present_gap_ms\n",
+                 "warm_mb,gpu_wait_ms,gpu_wait_main,scene,presented,present_gap_ms,rdr_submit_ms,gpu_work_ms,render_thread_ms,acquire_ms,present_call_ms,record_thread_ms,"
+                 "device_lost,present_gap_max_ms",  // S102 R25-C2: present_gap_max_ms after device_lost (the largest present gap among the row's presents). S102 D1: 1 from the first frame the renderer saw its Vulkan device lost (before the fs_ split columns, which must stay last)
+                 // S102 R21-B: record_thread_ms before the fs_ columns (they stay last)
                  csv_);
+      if (split_csv_) {  // S102 H3: appended AFTER every existing column (the parsers read by name and refuse a split column in front)
+        for (int i = 0; i < frame_split::kColumns; ++i) std::fprintf(csv_, ",%s", frame_split::kColumnNames[i]);
+        REXLOG_INFO("[wwe2k14][frame_split] on: {} columns after present_call_ms (src/frame_split_math.h)", frame_split::kColumns);
+      }
+      std::fputc('\n', csv_);
     }
   }
 
+  bool split_backwards_logged_ = false;
+  bool device_lost_seen_ = false;  // S102 D1
+  // S102 D1: the player's message on a lost device. A box on its own thread (the game's threads keep running: sound, the log); nothing on a phone (the log line).
+  static void ShowDeviceLostMessage() {
+#if defined(_WIN32)
+    std::thread([] {
+      MessageBoxW(nullptr,
+                  L"The graphics driver stopped the game's GPU work (Vulkan device lost).\n\nThe picture will not change any more. Please close the game and start it again.\n\n"
+                  L"If this keeps happening, send the game's log (logs folder) with your report.",
+                  L"WWE 2K14", MB_ICONERROR | MB_OK | MB_TOPMOST | MB_SETFOREGROUND);
+    }).detach();
+#endif
+  }
   std::mutex mutex_;
   std::chrono::steady_clock::time_point start_, last_, window_start_;
   uint64_t window_first_frame_ = 0;
@@ -648,6 +743,9 @@ class FrameStats {
   bool gpu_files_looked_ = false;
   int gpu_clock_fd_ = -1, gpu_busy_fd_ = -1;
   std::string gpu_clock_path_;
+  frame_split::Splitter split_;  // S102 H3
+  bool split_csv_ = false;
+  uint64_t last_submit_calls_ = 0, last_submit_ns_ = 0, last_gpu_work_ns_ = 0, last_render_thread_ns_ = 0, last_acquire_ns_ = 0, last_present_call_ns_ = 0, last_record_thread_ns_ = 0;  // S102 S0-3; R21-B: last_record_thread_ns_
   std::FILE* csv_ = nullptr;
   std::string csv_path_;
 };

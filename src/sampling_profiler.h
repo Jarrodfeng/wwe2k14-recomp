@@ -41,6 +41,7 @@
 
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
@@ -135,7 +136,7 @@ class SamplingProfiler {
       }
       REXLOG_INFO("[wwe2k14][prof] call stacks -> {}", stacks_file_ ? path.string() : "(could not open)");
     }
-    std::thread([this] { Run(); }).detach();
+    std::thread([this] { wwe2k14::NameThread(L"samp_profiler"); Run(); }).detach();
   }
 
   // Session 8 task 12 (slow_frame.h): keep the last `capacity` samples' whole call stacks in memory (threads with a

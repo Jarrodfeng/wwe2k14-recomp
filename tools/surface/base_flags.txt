@@ -1,0 +1,76 @@
+# S102 main (2026-11-15 00:1x): the base arm of every Surface A/B = the levers measured and KEPT this arc (one flag per line).
+# s0_5_jobs.ps1 expands the token @BASE in a job line to these flags joined by commas, and refuses an Only=ab job whose arm A does not
+# carry every one of them (add ;Base=none to the line for a deliberate exception: it is stripped before the Surface sees it).
+# Why: ab9b's arm A left out T11 / T12 / T14 (kept at 19:55 / 21:44), so its "base" was an older state and every B arm was read against it.
+# Add a lever here when its Surface row says KEEP (ledger); remove it when a later row drops it.
+# --- shipped AUTO LOW levers (S101 / S102 first rows)
+wwe2k14_rdr_lazy_banks=true
+wwe2k14_rdr_card_cut=true
+wwe2k14_rdr_fb_fast=true
+wwe2k14_rdr_pack_once=true
+wwe2k14_rdr_handoff_memory=true
+wwe2k14_rdr_members_instanced=true
+wwe2k14_rdr_lasting_draw=true
+wwe2k14_rdr_low_no_fullsize_copies=true
+wwe2k14_rdr_low_present_noclear=true
+wwe2k14_rdr_low_shadow_small=true
+wwe2k14_rdr_skip_dead_prelight=true
+# S102 2026-11-15 08:3x: wwe2k14_rdr_low_present_bilinear REMOVED from the base (BUNDLE3 Opus review F1: a look change on LOW that cancels the SGSR present players choose; never shipped; the bench measures the player config)
+wwe2k14_rdr_alias_fullsize=1
+# --- true 720 output (draw 720 + the display mode)
+wwe2k14_display_720p=true
+wwe2k14_display_720p_mode=1280x720
+# --- T11 crowd ids once + origin memo (ab7 abt11: +3.2 fps, swap -1.7 ms at 18 W)
+wwe2k14_rdr_crowd_ids_once=true
+wwe2k14_rdr_origin_memo=true
+# --- T12 + T14 banks group (ab8 g2banks: reader_draw -0.91 ms, +1.6 fps, 3 of 3 pairs power-matched)
+wwe2k14_rdr_bank_dirty=true
+wwe2k14_rdr_note_memo=true
+wwe2k14_rdr_shader_memo=true
+wwe2k14_rdr_pin_hash=true
+# --- measuring aid (GPU role stamps; on in every arm)
+wwe2k14_rdr_gpu_stamps=true
+# --- K2 lasting_nogroup + K1 skip_lean, NO guard decay (ab13 k2l 2026-11-15 02:04: +5.4 fps, 1% low +7.2, swap -3.6 ms, presented ~100 %)
+wwe2k14_rdr_lasting_nogroup=true
+wwe2k14_rdr_skip_lean=true
+# --- all merged levers, kept together (ab16 Bryan +2.6 fps; ab17 Brock +4.6 vs the valid A arms). Out of the base 03:00-03:1x on a
+#     FALSE Brock reading: the "fast" Brock runs were a lost Vulkan device (frame_submit_failed VkResult -4), now refused by bench_line.py.
+wwe2k14_rdr_copy_direct=true
+wwe2k14_rdr_origin_index=true
+wwe2k14_rdr_scene_strings_once=true
+wwe2k14_rdr_prelight_compute=true
+wwe2k14_rdr_arena_fragments=1
+wwe2k14_rdr_combine_lite=1
+wwe2k14_rdr_upd_lean=15
+# --- R21-A frame facts once + R18-B1 frame round trip (ab19 2026-11-15 03:42: +6.6 fps, swap / gpu / render each ~-2 ms)
+wwe2k14_rdr_frame_facts=true
+wwe2k14_rdr_frame_roundtrip=2
+# --- SW1 swap-thread tail removals + R21-C crowd fast (ab22 2026-11-15 04:25: +6.1 fps, swap -2.6 ms)
+wwe2k14_rdr_swap_once=7
+wwe2k14_rdr_crowd_fast=true
+# --- W3 native replay + T15 + bank_blocks (ab23 flip 2026-11-15 04:48: frame_ms -1.49 CLEAR; lost earlier when other threads were the walls)
+wwe2k14_nf_replay_loop=true
+wwe2k14_nf_render_dispatch=true
+wwe2k14_rdr_slot_content_skip=true
+wwe2k14_rdr_slot_ways=true
+wwe2k14_rdr_sampler_memo=true
+wwe2k14_rdr_geo_hash_once=true
+wwe2k14_rdr_bank_blocks=true
+# S102 2026-11-15 06:32: R24 rows 3+4 (ab26 flipgpu, in-run flip, 3 pairs: gpu -0.47 / -0.71 / -0.77 ms, frame -0.38 / -0.29 / -1.02, pair 3 CLEAR on both): C3 frame_direct + shadow_direct, G12 alias_small=2, G4b skip_blank_plane
+wwe2k14_rdr_frame_direct=true
+wwe2k14_rdr_shadow_direct=true
+wwe2k14_rdr_alias_small=2
+wwe2k14_rdr_skip_blank_plane=true
+# S102 2026-11-15 06:58 (R26): bench fidelity, not a lever: the Surface kit is a +dev build, so the provenance writer hook installs (reader.h InstallProvenanceAtStart, dev_owner rule) and costs the update thread ~1.06 ms + the swap tail 0.4-0.5 ms; players' builds are not +dev. U2 asked for this line on 2026-11-15 (UPD_LEAN.md); it was never added.
+wwe2k14_rdr_provenance=false
+# S102 2026-11-15 07:00: bench fidelity, not a lever: the +dev kit also turns on the bug button's case ring (bookmark.h Install by_build: 5 s window, 512 MB cap, a ~464 MB zip at exit, every bench run this session); players: off (S101 lane 11)
+wwe2k14_case=false
+# S102 2026-11-15 08:2x: the small-lever bundle (ab30 flipsmall, in-run flip, 3 pairs: frame_ms -0.44 CLEAR / +1.01 n.s. / -0.49 CLEAR): R23-P plan_memo=7, RT1 render_lean=7, R24-C stencil_dead. (R25-A swap_tail2 was in the flip but is NOT kept: it moves the game's scene-timing input, pinned in the flip; unpinned its effect on the game's quality state is unmeasured.)
+wwe2k14_rdr_plan_memo=7
+wwe2k14_rdr_render_lean=7
+wwe2k14_rdr_stencil_dead=true
+# S102 2026-11-15 08:3x: the run-end keep (a correctness fix, Jarrod 08:1x) is a player default in bundle 3: the bench runs it too
+wwe2k14_rdr_run_end_keep=true
+# S102 2026-11-15 10:4x (Jarrod: the stands sheet "looks fine"): UQ1 + UQ2: the member cut + the crowd record skip (cards + stands + floor) — update thread -0.74 / -1.25 / -1.18 ms, frame +0.19 / -0.49 CLEAR / -0.34 (ab32 flipuqb); crowd_floor (needed for bit 4) is already on by the S101 promotions
+wwe2k14_rdr_member_cut=true
+wwe2k14_rdr_record_skip=7

@@ -1,0 +1,61 @@
+{
+ "owner": "S102 lane L2 (the ring-plane shadow bake, a LOOK lever): src/renderer_adapter/plane_bake.h (switch knobs, planted faults, the key, census, hook <-> binder structs), the marked S102 L2 regions of binder.h (PlaneBakePlan / PlaneBakeRun / PlaneBakeComposite, the dynamic override in ShadowsDynamic, the mat's read pointed at the composite, the extra texture slot, the test wobble), src/renderer_scene/plane_shadow_ours.{h,cpp} (the bake variants of the plane hook: ortho constants for the rope draws, the fullscreen soften / composite program, the rope-object learning), src/renderer/shaders/rdr_plane_bake.{vert,frag} + spv headers, switch wwe2k14_rdr_plane_bake + wwe2k14_rdr_plane_bake_size (rdr_switches.h, reader.h), fview --plane-bake[=SIZE] / --plane-bake-fault / --plane-bake-wobble and the dump of the bake maps (session.cpp), tools/shadow/plane_bake_check.py + plane_bake_sheet.py. 0 game runs, 0 Surface runs. Inputs are read from the main checkout.",
+ "claim": [
+  {
+   "scene": "brock",
+   "side": "gpu",
+   "ms": [-0.1, 0.1],
+   "switch": "wwe2k14_rdr_plane_bake",
+   "kind": "combined all-levers A/B (a claim under ~1 ms; the census line [rdr][plane_bake] proves it took)",
+   "basis": "R17 estimated 0.1-0.3 ms. COUNTS (plane_bake_check.py, Check B): on a hit frame the lever leaves out the rope proxy's 24 mask draws (6,240 prims) of the game's 512 mask pass and adds ONE 512x512 composite pass (3 vertices, 2 reads + a 2x2 solve a pixel), so passes + barriers RISE by one: the saving is the 24 draws against one small pass, about zero. It is a LOOK lever (sharper, steady rope shadow), not a speed lever."
+  },
+  {
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [0, 0],
+   "switch": "wwe2k14_rdr_plane_bake",
+   "basis": "Bryan's plane chain is blank (weight 0): the lever declines (blank) and takes 0 frames; pictures are hash-equal to off (plane_bake_check.py bryan)."
+  }
+ ],
+ "note": "proof = tools/shadow/plane_bake_check.py: fview (headless) on Check B (341 frames, the unpacked zip + its plane oracle) and Bryan under the SHIPPED DEFAULT BUNDLE, with the half rate on in two arms, in ~28 arms: off, nochain (the region the mask matters in), dropropes / dropwrestler (the game's chain without one proxy), on 1024 / 2048, on + --copy-alias 2 (hash-equal to in-place), wobble arms (the rope palette moved 8 units on frames 110..160: the only way to drive the key offline), the planted twins (wrong_arena, half_texel, no_wrestler, composite_min, ropes_kept, bake_late, stale_key: each must fail its named check) and Bryan off / on. Checks: census, equal outside the mat-shadow region, footprint Q, wrestler contact ratio, key under the wobble, order, composite, alias, bryan, validation (error count AND exit code). Sheets: tools/shadow/plane_bake_sheet.py -> out/s102/sheets/l2 of the main checkout. Needs an fview.exe built from this tree (tools/fview/build.ps1).",
+ "checks": [
+  {
+   "name": "s102_l2.proof",
+   "cmd": ["py", "-I", "tools/shadow/plane_bake_check.py"],
+   "timeout_s": 3600,
+   "needs": ["out/lane86/bryan/capture/images.bin", "game_data/extracted"],
+   "exes": ["out/renderer/dev/fview.exe"]
+  },
+  {
+   "name": "s102_l2.lint_structure",
+   "cmd": ["py", "-I", "tools/shadow/plane_bake_lint.py"],
+   "timeout_s": 120,
+   "needs": []
+  },
+  {
+   "name": "s102_l2.lint_helpers",
+   "cmd": ["py", "-I", "tools/shadow/own_pass_helpers_lint.py"],
+   "timeout_s": 120,
+   "needs": []
+  },
+  {
+   "name": "s102_l2.lint_seen",
+   "cmd": ["py", "-I", "tools/gate/lint_seen.py", "--root", "."],
+   "timeout_s": 120,
+   "needs": []
+  },
+  {
+   "name": "s102_l2.win_macro_lint",
+   "cmd": ["py", "-I", "tools/gate/win_macro_lint.py", "--root", "."],
+   "timeout_s": 120,
+   "needs": []
+  },
+  {
+   "name": "s102_l2.game_syntax",
+   "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."],
+   "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/renderer_adapter/*.h", "src/renderer_scene/*.h", "src/renderer/*.h", "src/*.h"]
+  }
+ ]
+}

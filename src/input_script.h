@@ -155,9 +155,11 @@
 
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include "pending_work.h"  // Session 100: the new renderer's named pictures in flight
 #include "music_picker_ui.h"  // lane 292: PickerIsOpen (the keystroke gate below), light: no ImGui / SDK types
 #include "music_preview_seen.h"  // lane 303: press_until_preview (two atomics, no includes)
+#include "ab_flip_anchor.h"  // S102 M7: the frame each route mark fired at (an atomic array, no includes)
 #include <rex/cvar.h>
 #include <rex/det.h>
 #include <rex/hook.h>
@@ -351,7 +353,7 @@ inline void SaveScreenshot(const std::string& label) {
     early_taken = true;
     early_ok = presenter && presenter->CaptureGuestOutput(*early);
   }
-  std::thread([label, early, early_ok, early_taken] {
+  std::thread([label, early, early_ok, early_taken] { wwe2k14::NameThread(L"input_shot");
     struct InFlight {
       ~InFlight() { g_screenshots_in_flight.fetch_sub(1); }
     } in_flight;
@@ -412,7 +414,7 @@ inline void SaveScreenshot(const std::string& label) {
 // captures/NNN_LABEL.jpg, on a worker thread: the scene snapshots that go into Report a problem (src/session_log.h).
 inline void SaveSnapshot(const std::string& label, uint32_t max_width) {
   g_screenshots_in_flight.fetch_add(1);
-  std::thread([label, max_width] {
+  std::thread([label, max_width] { wwe2k14::NameThread(L"input_shot2");
     struct InFlight {
       ~InFlight() { g_screenshots_in_flight.fetch_sub(1); }
     } in_flight;
@@ -916,6 +918,7 @@ class InputScript {
       return false;
     }
     rex::perf::timeline::Record("cvar", Fnv1a32(step.text), uint32_t(step.frames), uint32_t(frame));
+    rdr_sw::NoteWriteCvar(step.text, step.value, frame);  // S102 S0-4: a setting outside the switch table gets its "[switch] frame N" line here; the table's own are logged by the next frame's refresh
     // S101 lane 111 (L-3): a cvar step (live batches too) is a recorded `E F cvar NAME VALUE`: the director's replay handler re-applies it.
     if (!replay::verbs::Playing()) replay::verbs::QueueCvar(step.text, step.value);  // host-only / runin_now skipped, queued only while recording
     if (needs_restart) {
@@ -2174,6 +2177,7 @@ class InputScript {
           rex::perf::timeline::Record("mark", uint32_t(step.frames), uint32_t(frame_));
           WWE2K14_COVERAGE_MARK(uint32_t(step.frames), step.text, frame_);
           GuestWatchOnMark(uint32_t(step.frames), step.text, frame_);  // marks.tsv while a watch/snap runs
+          ab_flip_anchor::NoteMark(uint32_t(step.frames), uint64_t(frame_));  // S102 M7: --wwe2k14_ab_flip anchor=N (an in-run A/B follows the route's marks, not the absolute frame)
           break;
         case Op::kWaitState: {
           if (state_frame_valid_ && state_frame_ == frame_) return;  // one read per frame (Advance can rerun)

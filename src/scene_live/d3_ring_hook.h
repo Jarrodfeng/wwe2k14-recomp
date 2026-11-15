@@ -69,6 +69,8 @@ class RingScope {
   template <class PartScope>
   RingScope(PPCContext& ctx, uint8_t* base, PartScope& t_part) {
     if (!d3::g_ring_hook_on.load(std::memory_order_acquire)) return;   // pairs with the release stores of the live start-up and the gate's latch
+    d3t::HookSample hook_sample;   // S102 K3 review F5
+    const bool idle = skips_auto::HookIdle();   // review F5: nothing to skip: no PredictPath, no mark Acquire (the ledger still runs)
     const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);   // read once: the class table, the tracker, the decision and the packet agree
     const uint32_t model = ctx.r3.u32;
     const auto rd = [base](uint32_t a, uint32_t& v) {
@@ -104,8 +106,8 @@ class RingScope {
       };
       in.probe = &probe;
     }
-    in.path = d3::PredictPath(rd, model, ctx.r13.u32);   // precondition 1 / 2: the hook decides the path itself (the in-struct default Fresh1 is never relied on)
-    const std::shared_ptr<const d3::MarkSet> marks = d3::g_rmarks.Acquire();
+    in.path = idle ? d3::CachePath::Unreadable : d3::PredictPath(rd, model, ctx.r13.u32);   // precondition 1 / 2: the hook decides the path itself (the in-struct default Fresh1 is never relied on)
+    const std::shared_ptr<const d3::MarkSet> marks = idle ? nullptr : d3::g_rmarks.Acquire();
     ++g_rcalls;
     call_ = d3::BeginGuestCall(g_robjs, in, marks.get(), d3::g_rpackets, d3::g_rtally, d3::g_rgate);
     if (call_.out.why == d3::Why::Skip && backed && call_.out.packet_written && rows.call != call_.out.packet_call) d3::g_rstats.call_differs.fetch_add(1, std::memory_order_relaxed);

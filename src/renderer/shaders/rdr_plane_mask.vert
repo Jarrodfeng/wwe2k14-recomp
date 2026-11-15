@@ -29,7 +29,7 @@ float game_pow(float a, float b) {
   return base > 0.0 ? pow(base, b) : (b == 0.0 ? 1.0 : 0.0);
 }
 vec3 bone_point(int id, vec4 p) {
-  int b = 3 * id;
+  int b = clamp(3 * id, 0, vc.WorldMatrixArray.length() - 3);   // S102 V1: inside the declared palette
   return vec3(dot(vc.WorldMatrixArray[b], p), dot(vc.WorldMatrixArray[b + 1], p), dot(vc.WorldMatrixArray[b + 2], p));
 }
 vec4 mul4(vec4 m[4], vec4 v) { return vec4(dot(m[0], v), dot(m[1], v), dot(m[2], v), dot(m[3], v)); }

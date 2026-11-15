@@ -9,16 +9,18 @@
 
 #include "../renderer_scene/live_scene.h"
 #include "light_state_hook.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::lights {
 
 class LightStateContributor : public Contributor {
  public:
   const char* Name() const override { return "lights"; }
+  bool Latch(const FrameInfo& fi) override { return latch_.Take(tracker, fi); }   // S102 U1 (tail_latch.h)
   void Emit(const FrameInfo& fi, SceneTables& t, Counters& c) override {
-    tracker.CloseBefore(fi.guest_frame);   // lane 152 (B1)
+    latch_.Begin(tracker, fi, Name());   // lane 152 (B1) CloseBefore; S102 U1: or the frames the latch took
     bool any = false;
-    while (tracker.TakeNext(scratch_)) {
+    while (latch_.Next(tracker, scratch_)) {
       any = true;
       const uint32_t base = uint32_t(t.light_states.size());
       t.light_states.insert(t.light_states.end(), scratch_.states.begin(), scratch_.states.end());
@@ -42,8 +44,10 @@ class LightStateContributor : public Contributor {
            ", ref_overflow " + std::to_string(s.ref_overflow) + ", late " + std::to_string(s.late) + ", old_calls " + std::to_string(s.old_calls) + "]";
   }
   Tracker tracker;
+  const TrackerLatch<FrameBuffer, kRing>& Latched() const { return latch_; }   // S102 U1 (tests)
 
  private:
+  TrackerLatch<FrameBuffer, kRing> latch_;   // S102 U1 (at most the tracker's ring of unconsumed frames)
   FrameBuffer scratch_;  // reused across Emit calls (its buffers cycle through the tracker's ring)
   uint64_t last_refused_ = 0;
 };

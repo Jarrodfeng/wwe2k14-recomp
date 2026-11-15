@@ -5,6 +5,9 @@
 #include <cstring>
 
 #include "../renderer/shaders/spv/fx_registry.h"
+#include "../renderer_adapter/plane_bake.h"   // S102 L2
+#include "../renderer/shaders/spv/rdr_plane_bake_frag.h"   // S102 L2: the bake lever's fullscreen program
+#include "../renderer/shaders/spv/rdr_plane_bake_vert.h"
 #include "../renderer/shaders/spv/rdr_plane_blur_frag.h"   // lane 159: our programs
 #include "../renderer/shaders/spv/rdr_plane_blur_vert.h"
 #include "../renderer/shaders/spv/rdr_plane_mask_frag.h"
@@ -25,6 +28,84 @@ PlaneShadowOurs::PlaneShadowOurs(rdr::Renderer& renderer, const plane::Faults& f
   blur.vertex_spirv = kSpv_rdr_plane_blur_vert, blur.vertex_bytes = sizeof(kSpv_rdr_plane_blur_vert);
   blur.fragment_spirv = kSpv_rdr_plane_blur_frag, blur.fragment_bytes = sizeof(kSpv_rdr_plane_blur_frag);
   if (!renderer.AddProgramChecked(blur, blur_program_)) blur_program_ = 0;
+  // S102 L2: the bake's fullscreen passes (no vertex buffer). Optional: a driver that refuses the module leaves the bake lever off (g_shared.bake_program_ok stays false), the chain is unchanged.
+  rdr::ProgramDesc bake;
+  bake.name = "rdr_plane_bake";
+  bake.vertex_spirv = kSpv_rdr_plane_bake_vert, bake.vertex_bytes = sizeof(kSpv_rdr_plane_bake_vert);
+  bake.fragment_spirv = kSpv_rdr_plane_bake_frag, bake.fragment_bytes = sizeof(kSpv_rdr_plane_bake_frag);
+  if (renderer.AddProgramChecked(bake, bake_program_)) {
+    bake_layout_ = renderer.AddVertexLayout(rdr::VertexLayoutDesc{});
+    rdr_adapter::plane_bake::g_shared.bake_program_ok = true;
+  } else {
+    bake_program_ = 0;
+    rdr_adapter::plane_bake::g_shared.bake_program_ok = false;
+  }
+}
+
+// ---- S102 L2: what the hook learns about the rope proxy, and the bake's draws --------------------------------------------------------------------------------------------------------------
+void PlaneShadowOurs::NoteEye(uint32_t object, const float* eye) {
+  EyeSet* set = nullptr;
+  for (uint32_t i = 0; i < eyes_used_; ++i)
+    if (eyes_[i].object == object) set = &eyes_[i];
+  if (!set) {
+    if (eyes_used_ >= std::size(eyes_)) return;
+    set = &eyes_[eyes_used_++];
+    *set = EyeSet{};
+    set->object = object;
+  }
+  for (uint32_t i = 0; i < set->n; ++i)
+    if (set->eye[i][0] == eye[0] && set->eye[i][1] == eye[1] && set->eye[i][2] == eye[2]) return;
+  if (set->n < 4) std::memcpy(set->eye[set->n++], eye, 12);
+}
+void PlaneShadowOurs::FinishEyes() {
+  rdr_adapter::plane_bake::Shared& sh = rdr_adapter::plane_bake::g_shared;
+  uint32_t found = 0;
+  for (uint32_t i = 0; i < eyes_used_; ++i)
+    if (eyes_[i].n >= 3) found = eyes_[i].object;
+  if (found && found == sh.rope_object) ++sh.rope_object_frames;
+  else if (found) sh.rope_object = found, sh.rope_object_frames = 1;
+  else if (eyes_used_ == 0) {}   // a frame with no mask draw says nothing
+  else sh.rope_object_frames = 0;
+  eyes_used_ = 0;
+}
+
+// The fullscreen passes (soften x / z, composite): the binder draws the blur-z stream draw as a template (its place, target, fixed state), the program, count and both blocks are ours.
+bool PlaneShadowOurs::ReplaceBakePass(const rdr_adapter::ReplaceIn&, rdr_adapter::ReplaceOut& out, KeepWhy& why) {
+  namespace pb = rdr_adapter::plane_bake;
+  const pb::Call& c = pb::g_call;
+  const pb::Shared& sh = pb::g_shared;
+  if (!bake_program_) {
+    why = KeepWhy::Variant;
+    return false;
+  }
+  std::memset(bake_vs_, 0, sizeof(bake_vs_));
+  std::memset(bake_fs_, 0, sizeof(bake_fs_));
+  const bool composite = c.variant == pb::kVariantComposite;
+  bake_fs_[0] = c.variant == pb::kVariantSoftenX ? 0.0f : c.variant == pb::kVariantSoftenZ ? 1.0f : 2.0f;
+  bake_fs_[1] = c.target_w ? 1.0f / float(c.target_w) : 0.0f;   // (soften: the step of the source = the target's own size, as the passes are the same size)
+  bake_fs_[2] = composite && pb::g_fault == pb::Fault::CompositeMin ? 1.0f : composite && pb::g_fault == pb::Fault::NoBake ? 2.0f : 0.0f;
+  bake_fs_[3] = c.bake_size ? pb::g_soft / (2.0f * c.extent / float(c.bake_size)) : 1.0f;   // the gaussian's sigma in texels: g_soft world units at every bake size
+  if (composite) {
+    std::memcpy(bake_vs_ + 4, c.m + 0, 16);     // row x   (the VERTEX block: the frame pump interpolates it between ticks)
+    std::memcpy(bake_vs_ + 8, c.m + 4, 16);     // row y
+    std::memcpy(bake_vs_ + 12, c.m + 12, 16);   // row w
+    bake_fs_[16] = c.centre[0], bake_fs_[17] = c.centre[1], bake_fs_[18] = (pb::g_fault == pb::Fault::Scale5 ? 0.95f : 1.0f) / c.extent, bake_fs_[19] = c.plane_y;
+    bake_fs_[20] = pb::g_fault == pb::Fault::HalfTexel ? 2.0f / 256.0f : 0.0f;   // PLANT: the bake read two texels of the GAME's 256 map off (the 360's half-pixel quirk and a map texel): 2.5 units, 5-6 pixels on the mat
+    bake_fs_[21] = pb::g_fault == pb::Fault::NoWrestler ? 0.0f : 1.0f;
+    bake_fs_[22] = pb::g_gain;
+  }
+  out = rdr_adapter::ReplaceOut{};
+  out.own.set = true;
+  out.own.program = bake_program_;
+  out.own.vertex_layout = bake_layout_;
+  out.own.topology = 3;
+  out.own.count = 3;
+  out.own.vs_constants = reinterpret_cast<const uint8_t*>(bake_vs_), out.own.vs_bytes = sizeof(bake_vs_);
+  if (composite && pb::g_fault != pb::Fault::CompositeTickCamera) out.own.blend[0] = {16, 48}, out.own.blend_count = 1;   // F1: M follows the camera between game ticks (the planted composite_tick_camera leaves it at the tick's)
+  out.own.fs_constants = reinterpret_cast<const uint8_t*>(bake_fs_), out.own.fs_bytes = sizeof(bake_fs_);
+  out.slots[0].set = true;
+  out.slots[0].image = rdr::ImageId(c.slot0);
+  return true;
 }
 
 void PlaneShadowOurs::SetRecord(const std::shared_ptr<const SceneTables>& record) {
@@ -34,6 +115,7 @@ void PlaneShadowOurs::SetRecord(const std::shared_ptr<const SceneTables>& record
 
 bool PlaneShadowOurs::FrameReady(const rdr_adapter::LoadedFrame& frame) {
   ++stats_.frames;
+  FinishEyes();   // S102 L2: the previous frame's eyes decide which object is the rope proxy
   stream_stamp_ = uint32_t(frame.header.guest_frame);
   if (faults_.late_record && stats_.frames > 30) stream_stamp_ += 6;   // R late_record: from frame 30 the stream is seen 6 frames ahead of the record
   blur_ordinal_ = 0;
@@ -46,6 +128,7 @@ bool PlaneShadowOurs::FrameReady(const rdr_adapter::LoadedFrame& frame) {
 }
 
 bool PlaneShadowOurs::Replace(const rdr_adapter::ReplaceIn& in, rdr_adapter::ReplaceOut& out, KeepWhy& why) {
+  if (rdr_adapter::plane_bake::g_call.variant >= rdr_adapter::plane_bake::kVariantSoftenX) return ReplaceBakePass(in, out, why);   // S102 L2: the bake's own fullscreen draws (not the chain's: no record join, no census)
   ++stats_.claimed;
   const bool blur = in.origin && in.origin->call_site == plane::kBlurCallSite && in.origin->pass_site != plane::kMaskSite;
   ++(blur ? stats_.claimed_blur : stats_.claimed_mask);
@@ -188,6 +271,8 @@ bool PlaneShadowOurs::Replace(const rdr_adapter::ReplaceIn& in, rdr_adapter::Rep
     pick(40, blur_vs_ + 20);
     blur_vs_[24] = blur_x ? 1.0f : 0.0f, blur_vs_[25] = 0.0f, blur_vs_[26] = blur_x ? 0.0f : 1.0f, blur_vs_[27] = blur_x ? -1.0f : 1.0f;
     std::memcpy(fs_, threshold, 16);
+    fs_[1] = fs_[2] = fs_[3] = 0.0f;   // S102 P3 (review F3): only c34.x is written by the game (sub_827ECD10, module+100 at 0x827ECDB4 -> PS c34 at 0x827ECDCC); y, z, w are uninitialised stack words and nothing may depend on them
+    ++stats_.stream_c34;   // S102 P3: still the stream's
     out.own.program = blur_program_;
     out.own.vs_constants = reinterpret_cast<const uint8_t*>(blur_vs_), out.own.vs_bytes = sizeof(blur_vs_);
     out.own.blend[0] = {16, 64}, out.own.blend_count = 1;   // S2: PlaneMatrix follows the camera between ticks
@@ -201,6 +286,7 @@ bool PlaneShadowOurs::Replace(const rdr_adapter::ReplaceIn& in, rdr_adapter::Rep
       return false;
     }
     std::memcpy(mask_vs_, eye, 16);
+    NoteEye(object, eye);   // S102 L2
     pick(7, mask_vs_ + 4);
     for (uint32_t r = 0; r < 7; ++r) {   // fade[r] is the x of row r (the sliding window), fade[7] unused
       float row[4];
@@ -210,12 +296,45 @@ bool PlaneShadowOurs::Replace(const rdr_adapter::ReplaceIn& in, rdr_adapter::Rep
     mask_vs_[15] = 0.0f;
     for (uint32_t r = 0; r < 4; ++r) pick(9 + r, mask_vs_ + 16 + 4 * r);
     for (uint32_t r = 0; r < 4; ++r) pick(13 + r, mask_vs_ + 32 + 4 * r);
+    {   // S102 L2: this frame's screen fit M = PlaneInv * CameraViewProj and the plane's position, from a draw whose rows were just proven against the stream's own
+      rdr_adapter::plane_bake::Shared& sh = rdr_adapter::plane_bake::g_shared;
+      const float* pinv = mask_vs_ + 16;
+      const float* cam = mask_vs_ + 32;
+      for (uint32_t i = 0; i < 4; ++i)
+        for (uint32_t j = 0; j < 4; ++j) {
+          double acc = 0;
+          for (uint32_t k = 0; k < 4; ++k) acc += double(pinv[4 * i + k]) * double(cam[4 * k + j]);
+          sh.m[4 * i + j] = float(acc);
+        }
+      sh.plane_x = mask_vs_[4], sh.plane_y = mask_vs_[5], sh.plane_z = mask_vs_[6];
+      sh.proj_valid = true;
+      ++sh.proj_frame_token;
+    }
     std::memcpy(mask_vs_ + 48, in.vs_block + v.bools_offset, 32);
-    std::memcpy(mask_vs_ + 56, palette, 63 * 16);   // (the palette is one contiguous range of the stream's block)
+    if (faults_.palette_prev && have_prev_palette_) std::memcpy(mask_vs_ + 56, prev_palette_, sizeof(prev_palette_));   // S102 P3 PLANT palette_prev: the previous draw's palette (the wrong proxy's)
+    else std::memcpy(mask_vs_ + 56, palette, 63 * 16);   // (the palette is one contiguous range of the stream's block)
+    if (faults_.palette_prev) {   // S102 P3 (review F11): the 1,008-byte copy runs only for the planted fault, never on the default path
+      std::memcpy(prev_palette_, palette, sizeof(prev_palette_));
+      have_prev_palette_ = true;
+    }
+    ++stats_.stream_eye, ++stats_.stream_palette, ++stats_.stream_bools;   // S102 P3: still the stream's
     std::memset(fs_, 0, sizeof(fs_));
     out.own.program = mask_program_;
     out.own.vs_constants = reinterpret_cast<const uint8_t*>(mask_vs_), out.own.vs_bytes = sizeof(mask_vs_);
     out.own.blend[0] = {0, 32}, out.own.blend[1] = {64, 128}, out.own.blend[2] = {224, 1008}, out.own.blend_count = 3;   // S2: EyePos + PlanePos, PlaneInv + camera, the bone palette follow the tick blend
+    if (rdr_adapter::plane_bake::g_call.variant == rdr_adapter::plane_bake::kVariantBake) {   // S102 L2: a rope draw into the WORLD-plane bake: the screen fit is replaced by an ortho matrix over the plane (x, z) around the bake's centre
+      namespace pb = rdr_adapter::plane_bake;
+      const pb::Call& c = pb::g_call;
+      const float inv = 1.0f / c.extent;
+      float cx = c.centre[0], cz = c.centre[1];
+      if (pb::g_fault == pb::Fault::WrongArena) cx += 60.0f;   // PLANT: another arena's plane position
+      std::memset(mask_vs_ + 16, 0, 32 * sizeof(float));
+      mask_vs_[16] = 1.0f, mask_vs_[21] = 1.0f, mask_vs_[26] = 1.0f, mask_vs_[31] = 1.0f;                 // PlaneInv = identity
+      mask_vs_[32] = inv, mask_vs_[35] = -cx * inv;                                                       // X = (x - cx) / extent
+      mask_vs_[38] = inv, mask_vs_[39] = -cz * inv;                                                       // Y = (z - cz) / extent
+      mask_vs_[47] = 1.0f;                                                                                // W = 1  (Z = 0: the shader sets z from the darkness)
+      out.own.blend_count = 0;   // the bake is not tweened between ticks
+    }
   }
   out.own.fs_constants = reinterpret_cast<const uint8_t*>(fs_), out.own.fs_bytes = sizeof(fs_);
   ++stats_.replaced;
@@ -257,7 +376,10 @@ std::string PlaneShadowOurs::Report() const {
                 (unsigned long long)stats_.kept_variant, (unsigned long long)stats_.kept_state, (unsigned long long)stats_.kept_inputs, delta_known_ ? delta_ : 99, board_.stamps(), (unsigned long long)stats_.relearned, (unsigned long long)stats_.rows_compared,
                 (unsigned long long)stats_.rows_min, (unsigned long long)stats_.rows_max, (unsigned long long)stats_.joined,
                 (unsigned long long)stats_.alone);
-  return b;
+  char tail[240];   // S102 P3: what is still the stream's in a replaced draw (PLANE_OURS_WHOLE.md section 3)
+  std::snprintf(tail, sizeof tail, " | still the stream's, per replaced draw: EyePos %llu, palette %llu, bone switches %llu (mask draws), c34 %llu (blur draws)", (unsigned long long)stats_.stream_eye, (unsigned long long)stats_.stream_palette,
+                (unsigned long long)stats_.stream_bools, (unsigned long long)stats_.stream_c34);
+  return std::string(b) + tail;
 }
 
 ReplaceHookHandle MakePlaneShadowHook(const ReplaceFactoryArgs& args) {

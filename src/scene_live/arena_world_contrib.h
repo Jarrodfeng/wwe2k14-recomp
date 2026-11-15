@@ -9,16 +9,18 @@
 
 #include "../renderer_scene/live_scene.h"
 #include "arena_world_hook.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::arenaworld {
 
 class WorldContributor : public Contributor {
  public:
   const char* Name() const override { return "arena_worlds"; }
+  bool Latch(const FrameInfo& fi) override { return latch_.Take(tracker, fi); }   // S102 U1 (tail_latch.h)
   void Emit(const FrameInfo& fi, SceneTables& t, Counters& c) override {
-    tracker.CloseBefore(fi.guest_frame);   // lane 152 (B1)
+    latch_.Begin(tracker, fi, Name());   // lane 152 (B1) CloseBefore; S102 U1: or the frames the latch took
     bool any = false;
-    while (tracker.TakeNext(scratch_)) {
+    while (latch_.Next(tracker, scratch_)) {
       any = true;
       t.arena_worlds.insert(t.arena_worlds.end(), scratch_.worlds.begin(), scratch_.worlds.end());
       // (c.objects is not touched: these entries are not scene Objects; the census line below counts them)
@@ -46,8 +48,10 @@ class WorldContributor : public Contributor {
            ", old_calls " + std::to_string(s.old_calls) + ", clock_unknown " + std::to_string(clock_unknown_) + "]";
   }
   Tracker tracker;
+  const TrackerLatch<FrameBuffer, kRing>& Latched() const { return latch_; }   // S102 U1 (tests)
 
  private:
+  TrackerLatch<FrameBuffer, kRing> latch_;   // S102 U1 (at most the tracker's ring of unconsumed frames)
   FrameBuffer scratch_;
   uint64_t last_refused_ = 0, clock_unknown_ = 0;
 };

@@ -1,0 +1,21 @@
+{
+ "owner": "S102 lane R24-D (R24 rows 5 and 6): part 1 = the two colour-pass levers (G10 wwe2k14_rdr_low_colour_cuts, C4 wwe2k14_rdr_arena_overdraw) proven flippable mid-run (tools/renderer/colour_flip_check.py; rplay --arm-period / --arena-scan-follow; new PerFrame switch wwe2k14_rdr_arena_scan_hold in rdr_switches.h / reader.h / live.cpp). Part 2 = the hidden draws census (tools/renderer/hidden_draw_census.py). docs/renderer/COLOUR_CUTS_FLIP.md. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {"scene": "bryan", "side": "GPU", "ms": [0.0, 0.8], "switch": "wwe2k14_rdr_low_colour_cuts / wwe2k14_rdr_arena_overdraw", "basis": "part 1 makes the two built levers measurable by the in-run flip; it adds and removes no GPU work itself. The levers' claim stays R24 row 5: 0.0-0.8 ms [E] (0.65-1.06 M shaded fragments a frame of the arena colour pass). Own A/B (the in-run flip), not the combined one: the earlier cross-run pairs read noise."}
+ ],
+ "note": "part 1 proof (colour_flip_check.py, rplay only): Bryan and Brock replayed with the lever steady 0, steady 1 and flipped every 60 frames; every shot (last frame of a phase and first after each flip) is byte-equal to the steady run of its phase, the lever takes some frames and not all, steady 0 vs 1 differ on Bryan (not vacuous), a planted twin (the flipped shots against the opposite value) is caught, and the scan-follow arm shows why the hold switch exists.",
+ "checks": [
+  {"name": "s102_r24d.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1800},
+  {"name": "s102_r24d.flip_proof", "cmd": ["py", "-I", "tools/renderer/colour_flip_check.py", "--root", "."], "timeout_s": 3000,
+   "needs": ["out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin", "out/s101/lane92/case_20261113_093550_855_0_pc_run_exit/capture/images.bin"], "exes": ["out/renderer/dev/rplay.exe"],
+   "affects": ["tools/renderer/colour_flip_check.py", "tools/renderer/colour_cuts_check.py", "src/renderer/colour_cuts.h", "src/renderer/renderer.cpp", "src/renderer/frame_builder.h", "src/renderer/player/rplay.cpp", "src/renderer_adapter/binder.h", "src/renderer_adapter/live.cpp", "src/renderer_adapter/rdr_switches.h", "src/renderer/texture_alpha.h"]},
+  {"name": "s102_r24d.census_selftest", "cmd": ["py", "-I", "tools/renderer/hidden_draw_census.py", "--selftest"], "timeout_s": 120},
+  {"name": "s102_r24d.census", "cmd": ["py", "-I", "tools/renderer/hidden_draw_census.py", "--root", "."], "timeout_s": 3000,
+   "needs": ["out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin", "out/lane86/bryan/capture/images.bin", "out/lane86/brock/capture/images.bin", "out/lane86/wm30/capture/images.bin"], "exes": ["out/renderer/dev/rplay.exe"]},
+  {"name": "s102_r24d.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py", "--root", "."], "timeout_s": 300},
+  {"name": "s102_r24d.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/main.cpp", "src/renderer_adapter/*.h", "src/renderer_adapter/live.cpp"]},
+  {"name": "s102_r24d.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120}
+ ]
+}

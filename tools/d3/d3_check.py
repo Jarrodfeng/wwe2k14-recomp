@@ -1,3 +1,4 @@
+# S102 K4: D3_SKIP=every2 / every3 on a capture recorded live (J1) needs a teach list (D3_SKIP_TEACH_OUT on a no-skip run, D3_SKIP_TEACH_IN on the skip arms), else the ring is never learned and pictures are not a baseline: SKIP_COST.md finding 8. fview prints "WARN K4" when it is missing.
 #!/usr/bin/env python3
 """Lane 138 (D3 skip the object) offline proof, 0 game runs: the arena's D3 machinery through the REAL binder (fview --thin arena --d3 arena) on Check B (run 7051) and run 7079.
 

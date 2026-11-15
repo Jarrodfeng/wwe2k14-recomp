@@ -2,13 +2,12 @@
 // (card_thin_hook.h) asks it, the binder reports into it, and tools\crowd\card_thin_test.cpp runs this very file.
 //
 // What is cut: the card loop sub_82512F70 records, per card, an op-21 (c76-c78, the card's world) and an op-15 (the 4-index strip draw, call site 0x825130C4). While ours draws the cards from the scene
-// record (lane 110 / CD, crowd_cards_core), the stream's card draws are only the trigger, the state source and a proof. THIN keeps the op-21 of EVERY card (the register file, the scene record's feed and
-// the replay bookkeeping stay exactly the game's: no register is left stale, nothing needs a restore) and drops the op-15 of every card except the FIRST card of each person type's loop. The kept
+// record (lane 110 / CD, crowd_cards_core), the stream's card draws are only the trigger, the state source and a proof. THIN keeps the op-21 of EVERY card (as of the card cut alone; S102 UQ1's wwe2k14_rdr_record_skip bit 1 may skip them, see below: with it ON the shadow of c76-c78 is repaired by ONE op-21 at each type loop's exit) and drops the op-15 of every card except the FIRST card of each person type's loop. The kept
 // draw carries the type's picture (slot 0 = the type's bake copy), the frame's real state and its real constants, so the binder can draw the whole type from the record and check the kept card against
 // the record's first card of the type, bit for bit (crowd_cards_core.cpp, the thin branch). A frame is thinned only while the gate is proven, and one run in kProofK is recorded in FULL (the proof
 // frame: the binder re-verifies the whole pairing, the order, the pictures and the one-state rule on it).
 //
-//   --wwe2k14_rdr_crowd_card_thin=0 (default)  off. =1 CENSUS: the decision is made and counted, nothing is dropped. =2 SKIP: as built, behaves as 1 (card_thin_hook.h kSkipBuilt = false).
+//   --wwe2k14_rdr_crowd_card_thin=0 (default)  off. =1 CENSUS: the decision is made and counted, nothing is dropped. =2 behaves as 1. SKIP (S102 T2) is only --wwe2k14_rdr_card_cut (card_thin_hook.h), default off.
 //
 // Thread model: the hook runs on the game's recording thread(s) (Decider is thread_local in the hook), the binder reports from the render thread (Gate: relaxed atomics, one writer).
 #pragma once
@@ -21,9 +20,9 @@ namespace wwe2k14::card_thin {
 
 enum class Mode : uint8_t { Off, Census, Skip };
 
-// The cut is inert until the main session flips this after reading a census (SKIP_GAME_WORK_MAP 13.7). In the core (not the hook) so the binder side (reader.h) can read it too: until then no
-// frame is ever thin and the binder's thin branch is not even enabled (review S1).
-inline constexpr bool kSkipBuilt = false;
+// S102 T2: the build can skip. Whether it does is the per-run switch --wwe2k14_rdr_card_cut (default off), see ResolveMode. In the core (not the hook) so the binder side (reader.h) can read it too.
+// S102 T2: true = the build can skip; WHETHER it does is the per-frame switch --wwe2k14_rdr_card_cut (card_thin_hook.h EffectiveMode), default off.
+inline constexpr bool kSkipBuilt = true;
 inline constexpr uint32_t kHookToStreamOffset = 1;   // stream guest frame - the hook's guest frame stamp (the same measured constant as lane 152's d3::kHookToStreamOffset [C: J1]); [U] for the cards until a live census
 
 inline constexpr uint32_t kProofK = 32;          // one crowd draw run in K is recorded in full
@@ -34,6 +33,15 @@ inline constexpr uint32_t kLatchResets = 3;      // hole-type resets inside kLat
 inline constexpr int64_t kLatchWindowMs = 10000;
 
 inline int64_t NowMs() { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+
+// S102 T2: the hook's mode, from the switches it reads at every card draw (pure, so the unit test drives it). raw = --wwe2k14_rdr_crowd_card_thin (the old census switch), cut = --wwe2k14_rdr_card_cut
+// (default off), scene_crowd = the legacy runs path, bake_skip = lane 155's switch. Only `cut` ever gives Skip; the old =2 stays census. `honour_exclusions=false` is the unit test's plant.
+inline Mode ResolveMode(int raw, bool cut, int scene_crowd, int bake_skip, bool honour_exclusions = true) {
+  if (!cut) return raw <= 0 ? Mode::Off : Mode::Census;
+  if (honour_exclusions && scene_crowd != 0) return Mode::Census;    // SKIP_GAME_WORK_MAP 13.7 item 3: the legacy runs path and the cut are exclusive
+  if (honour_exclusions && bake_skip >= 2) return Mode::Census;      // review S6: lane 155's bake skip leaves a type unjoined: every thin frame would be a hole
+  return kSkipBuilt ? Mode::Skip : Mode::Census;
+}
 
 // Tunables; the shipped values are the defaults. The unit test's plants flip one at a time.
 struct Policy {
@@ -140,13 +148,26 @@ struct Counters {
 };
 
 // One per recording thread: the run and the card loop in progress.
+#ifdef RECORD_SKIP_PLANTS
+inline int g_rs_plant = 0;   // test only (tools/crowd/record_skip_test.cpp): 1 hook_tiled_first, 2 tail_not_noted, 3 keep_forced_drop (a skipped op-21 whose op-15 the cut keeps is dropped anyway), 4 regs_ignored (cards), 11 member_pair_lost, 12 member_tail_not_noted, 13 member_regs_ignored, 14 member_keep_forced_drop
+#define RS_PLANT(n) (::wwe2k14::card_thin::g_rs_plant == (n))
+#else
+#define RS_PLANT(n) false
+#endif
+#define RS_PLANT_KEEP_FORCED RS_PLANT(3)
+
 struct Decider {
   uint64_t run = 0;           // this thread's crowd draw run index (global counter at BeginRun)
   bool proven_run = false;    // the gate's answer, taken ONCE at the run's start (review S2): a run is all full or thin from its first card to its last
   bool proof_run = true;      // this run is recorded in full
   bool type_first = false;    // the next card draw is the first of its type's loop
+  Mode mode = Mode::Off;      // S102 T2 F1: the mode of THIS run, taken once at its start (Off included) and used by every observer until the next run; a switch flipped inside a run changes the next run only
 
-  void BeginRun(const Policy& p, Counters& c, std::atomic<uint64_t>& global_runs, const Gate& g, int64_t now_ms) {
+  void BeginRun(const Policy& p, Counters& c, std::atomic<uint64_t>& global_runs, const Gate& g, int64_t now_ms, Mode run_mode) {
+    mode = run_mode;
+    type_first = false;
+    proven_run = false;
+    if (mode == Mode::Off) return;
     proven_run = g.Proven(now_ms);
     run = global_runs.fetch_add(1, std::memory_order_relaxed) + 1;
     proof_run = !p.proof_runs ? false : (run % p.proof_k == 1);   // the 1st, 33rd, ... run: a proof run right at the start (also after a latch-free restart)
@@ -159,7 +180,7 @@ struct Decider {
     c.loops.fetch_add(1, std::memory_order_relaxed);
   }
   // True = do not record this card's op-15. The op-21 is never touched.
-  bool DropCardDraw(Mode mode, const Policy& p, Gate& g, Counters& c, int64_t now_ms) {
+  bool DropCardDraw(const Policy& p, Gate& g, Counters& c, int64_t now_ms) {   // S102 T2 F1: the run's mode (`mode`), never a per-call one
     if (mode == Mode::Off) return false;
     c.card_calls.fetch_add(1, std::memory_order_relaxed);
     const bool first = type_first && p.keep_first_of_type;
@@ -181,6 +202,44 @@ struct Decider {
     c.dropped.fetch_add(1, std::memory_order_relaxed);
     return true;
   }
+
+  // ---- S102 UQ1 (wwe2k14_rdr_record_skip bit 1, docs\renderer\RECORD_SKIP.md): the card's op-21 goes with its op-15 ----
+  // The card loop records, per card, op 21 (bl 0x825130AC) and, straight-line after it (listing 0x825130B0-0x825130C4: four `li`, one `addi`, no branch), op 15 (bl 0x825130C4). A card whose op-15 this
+  // decider drops needs no constants recorded for it: no draw will read them. Rule: the op-21 is skipped ONLY when the same card's op-15 is certain to be dropped, and the op-15 then follows
+  // the op-21's decision (op21_skipped), whatever the gate or the tiling flag say in between. Everything the decision reads is per-run state fixed at BeginRun / BeginTypeLoop (proven_run is the gate's answer taken ONCE at the run's start),
+  // so the peek cannot disagree with the op-15's own decision in a real run; the pairing flag makes it hold in a run that is not (the unit test plants a gate that flips between the two calls).
+  bool op21_armed = false;     // this run: wwe2k14_rdr_record_skip bit 1 was set when the run began (BeginRun's caller, once per run)
+  bool op21_skipped = false;   // the op-21 of the card in progress was NOT recorded: its op-15 MUST be dropped
+  enum class Op21 : uint8_t { Off, NotSkipMode, FirstOfType, ProofRun, NotProven, Tiled, Taken };
+  // Const: no counter, no state change. Mirrors DropCardDraw's drop conditions one for one (the test asserts equal answers over every state combination).
+  Op21 PeekOp21(const Policy& p, const Gate& g, int64_t now_ms) const {
+    if (!op21_armed) return Op21::Off;
+    if (mode != Mode::Skip) return Op21::NotSkipMode;
+    if (type_first && p.keep_first_of_type) return Op21::FirstOfType;
+    if (proof_run) return Op21::ProofRun;
+    if (!(p.snapshot_per_run ? proven_run : g.Proven(now_ms))) return Op21::NotProven;
+    return Op21::Taken;
+  }
+  // The op-21 hook's question (after the observer has read the card's world). true = do not record this op-21. `tiled` = MSAA / predicated tiling: every card stays recorded.
+  bool SkipCardOp21(const Policy& p, const Gate& g, int64_t now_ms, bool tiled, Op21* why = nullptr) {
+    Op21 w = PeekOp21(p, g, now_ms);
+    if (w == Op21::Taken && tiled) w = Op21::Tiled;
+    if (why) *why = w;
+    op21_skipped = (w == Op21::Taken);
+    return op21_skipped;
+  }
+  // The op-15 hook's decision for a card whose op-15 is about to be recorded or dropped: `drop` is DropCardDraw's answer (false when the hook did not ask or the frame is tiled). A card whose op-21 was skipped and whose
+  // op-15 the cut now KEEPS (the gate latched, or tiling came on, between the two calls; review F1) must not lose its constants: *replay is set and the hook records the op-21 (from the matrix still on the
+  // loop's stack) before the op-15; the card keeps BOTH. Otherwise the pairing holds (dropped op-21, dropped op-15). The flag is consumed here.
+  bool PairOp15(bool drop, bool* replay = nullptr) {
+    const bool skipped = op21_skipped;
+    op21_skipped = false;
+    if (skipped && !drop) {
+      if (replay) *replay = true;
+      return RS_PLANT_KEEP_FORCED ? true : false;
+    }
+    return drop;
+  }
 };
 
 // The hook's per-guest-frame tally, the POSITIVE signal that a frame was thinned and its delivery check (review B1): how many card op-15 recorder calls the game made in the frame (every card, kept
@@ -191,6 +250,7 @@ struct CountRing {
   struct Slot {
     std::atomic<uint64_t> frame{~0ull};
     std::atomic<uint32_t> seen{0}, dropped{0};
+    std::atomic<uint8_t> skip{0};     // S102 T13 review F1: the hook's run mode for this frame was Skip (the binder's per-frame flag; never sticky)
     std::atomic<uint64_t> world{0};   // the SUM of FNV-1a(12 words of c76-c78) over every card op-21 of the frame (order free): which cards, not only how many
   };
   Slot slots[64];
@@ -203,10 +263,15 @@ struct CountRing {
   Slot& For(uint64_t frame) {
     Slot& s = slots[frame & 63];
     if (s.frame.load(std::memory_order_relaxed) != frame) {
-      s.seen.store(0, std::memory_order_relaxed), s.dropped.store(0, std::memory_order_relaxed), s.world.store(0, std::memory_order_relaxed);
+      s.seen.store(0, std::memory_order_relaxed), s.dropped.store(0, std::memory_order_relaxed), s.world.store(0, std::memory_order_relaxed), s.skip.store(0, std::memory_order_relaxed);
       s.frame.store(frame, std::memory_order_relaxed);
     }
     return s;
+  }
+  void MarkSkip(uint64_t frame) { For(frame).skip.store(1, std::memory_order_relaxed); }   // OnCrowdDraw, only for a run whose mode is Skip
+  bool SkipAt(uint64_t frame) const {   // the render thread
+    const Slot& s = slots[frame & 63];
+    return s.frame.load(std::memory_order_relaxed) == frame && s.skip.load(std::memory_order_relaxed) != 0;
   }
   void Note(uint64_t frame, bool dropped) {   // the recording thread, once per card op-15 call
     Slot& s = For(frame);
@@ -224,7 +289,82 @@ struct CountRing {
   }
 };
 
+inline constexpr bool BinderFlagCards(Mode m) { return m == Mode::Skip; }   // S102 T13 review F1 / F2: the binder's per-frame flag is the run's MODE (Skip), carried in the CountRing slot; the sticky the old sticky flag is gone
 inline Gate g_gate;   // the one gate: the binder reports into it (binder.h), the hook asks it (card_thin_hook.h)
 inline CountRing g_counts;   // the hook writes, the binder (crowd_ours via live.cpp) reads
+
+// ---- S102 UQ1 (wwe2k14_rdr_record_skip bit 1): the two hook bodies as PURE functions, so the unit test drives the shipped code and not a hand-made mirror (review F2) ----
+inline constexpr uint32_t kCardOp21Return = 0x825130B0u;   // the return address of the card loop's op-21 recorder call (bl at 0x825130AC; scene_crowd.h kCardOp21Return)
+inline constexpr uint32_t kCardOp15Return = 0x825130C8u;   // the return address of the card loop's op-15 recorder call (bl at 0x825130C4; scene_crowd.h kCardOp15Return)
+
+// The wwe2k14_rdr_record_skip mask of the crowd draw run in progress, read once per run by card_thin's OnCrowdDraw (the first crowd observer) and used by member_thin's (bit 2 stands, bit 4 floor).
+inline std::atomic<int64_t> g_rs_mask{0};
+
+
+// The per-thread census of the skip (plain counters; flushed by the hook at the next run's start).
+struct Op21Tally {
+  uint32_t taken = 0, declined[8] = {};   // declined by Decider::Op21 reason (index = enum value)
+  uint32_t ko = 0;                        // TEST ONLY knock-out: records not made
+  uint32_t forced = 0, tail = 0;          // replayed op-21s (a skipped op-21 whose op-15 the cut then kept: rare, counted); loop-exit op-21 records made
+};
+
+// The last SKIPPED card's world of the loop in progress (review F1): the game's op-21 leaves c76-c78 = the last card's world in the replay's constant shadow; with the tail skipped the shadow would keep the last KEPT
+// card's, so the loop's exit records ONE op-21 with this (as the legacy scene_crowd Flush does for its runs). pending = the last card of the loop in progress had its op-21 skipped.
+struct Tail {
+  bool pending = false;
+  uint32_t w[12] = {};
+};
+
+// The op-21 recorder hook's step, AFTER the observer has read the card's world. true = do not record. read32(addr) reads a guest word (the 12 words at src = the recorder's r5).
+template <class TiledFn, class ReadFn>
+inline bool Op21Step(Decider& d, const Policy& p, const Gate& g, int64_t now_ms, uint32_t lr, TiledFn tiled, uint32_t src, ReadFn read32, Tail& tail, Op21Tally& tally, uint32_t r4 = 76, uint32_t r6 = 3) {
+  if (lr != kCardOp21Return || !d.op21_armed) return false;
+  if ((r4 != 76 || r6 != 3) && !RS_PLANT(4)) {   // review F2: the replayed / repaired op-21 is always (76, 3); any other call stays recorded
+    ++tally.declined[uint8_t(Decider::Op21::Tiled)];
+    tail.pending = false;
+    d.op21_skipped = false;
+    return false;
+  }
+  Decider::Op21 w = d.PeekOp21(p, g, now_ms);
+  const bool t = (w == Decider::Op21::Taken) && tiled();
+  const bool skip = d.SkipCardOp21(p, g, now_ms, t, &w);
+  if (skip) {
+    ++tally.taken;
+    tail.pending = true;
+    if (!RS_PLANT(2))
+      for (uint32_t k = 0; k < 12; ++k) tail.w[k] = read32(src + 4 * k);
+  } else {
+    ++tally.declined[uint8_t(w)];
+    tail.pending = false;   // this card's op-21 IS recorded: the shadow already holds its world
+  }
+  return skip;
+}
+
+// The op-15 recorder hook's step (the former card_thin_hook.h DropCard body). true = do not record this card's draw. Counts the card in the per-frame tally.
+inline bool Op15Step(Decider& d, const Policy& p, Gate& g, Counters& c, CountRing& counts, uint64_t guest_frame, int64_t now_ms, uint32_t lr, bool tiled, Op21Tally& tally, bool* replay = nullptr, Tail* tail = nullptr) {
+  if (lr != kCardOp15Return) return false;
+  if (d.mode == Mode::Off) return false;   // F1: the run's mode, taken at OnCrowdDraw
+  if (d.op21_skipped && !RS_PLANT(1)) {   // this card's op-21 was NOT recorded: the pair must stay whole whatever the gate or the tiling flag say now. DropCardDraw still runs (it advances the type loop and the counters).
+    bool dd = d.DropCardDraw(p, g, c, now_ms);
+    if (tiled) dd = false;   // tiling came on after the op-21 was skipped: the card is kept (the cut's own rule), so its op-21 is replayed
+    bool rp = false;
+    const bool drop = d.PairOp15(dd, &rp);
+    if (rp) {
+      ++tally.forced;
+      if (replay) *replay = true;
+      if (tail) tail->pending = false;   // the replayed op-21 IS recorded: nothing to repair at the loop exit
+    }
+    counts.Note(guest_frame, drop);
+    return drop;
+  }
+  if (tiled) {   // S102 T2: tiling: the run is not droppable; the tally still counts the card (seen, not dropped)
+    counts.Note(guest_frame, false);
+    if (d.op21_skipped) d.op21_skipped = false;   // plant hook_tiled_first only: the pairing was bypassed
+    return false;
+  }
+  const bool drop = d.DropCardDraw(p, g, c, now_ms);
+  counts.Note(guest_frame, drop);   // review B1: the positive signal and the count the binder checks the record against
+  return drop;
+}
 
 }  // namespace wwe2k14::card_thin

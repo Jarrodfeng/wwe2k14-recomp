@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXE = ROOT / 'out' / 'tools' / 'card_thin_test.exe'
-PLANTS = ['drop_first', 'no_proof', 'stale_ignored', 'slack_ignored', 'no_latch', 'hole_ignored', 'skipped_as_hole', 'drop_all', 'proven_per_card', 'stamp_ignored', 'refused_as_fullbad']
+PLANTS = ['sticky_cut_seen', 'flag_from_cut', 'drop_first', 'no_proof', 'stale_ignored', 'slack_ignored', 'no_latch', 'hole_ignored', 'skipped_as_hole', 'drop_all', 'proven_per_card', 'stamp_ignored', 'refused_as_fullbad', 'exclusions_ignored', 'mode_per_card']
 
 if not EXE.exists():
     print(f'FAIL: {EXE} does not exist (build it: tools/crowd/build_card_thin_test.ps1)')

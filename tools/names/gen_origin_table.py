@@ -71,7 +71,7 @@ def build():
 ROLES_SRC = REPO / 'db' / 'ids' / 'surface_roles.json'
 ROLES_OUT = REPO / 'src' / 'renderer_adapter' / 'surface_role_table.h'
 ROLES = ['unnamed', 'scene_color', 'scene_depth', 'shadow_map', 'post_step', 'feedback_map', 'atlas_target', 'menu_picture', 'tron_picture',
-         'ui', 'present', 'other', 'rim_map']  # S101 lane 86: rim_map (names.h SurfaceRole::RimMap)
+         'ui', 'present', 'other', 'rim_map', 'frame_buffer', 'copy_dest', 'light_strip']  # S101 lane 86: rim_map; S102 G6: frame_buffer, copy_dest, light_strip (names.h SurfaceRole)
 ROLE_ENUM = {n: 'SurfaceRole::' + ''.join(p.capitalize() for p in n.split('_')) for n in ROLES}
 
 
@@ -81,6 +81,8 @@ def build_roles():
     for e in data['creators']:
         if e['role'] not in ROLE_ENUM:
             raise SystemExit(f"gen_origin_table: unknown role {e['role']!r} for {e['fn']}")
+        if '[U' in e.get('name', '') and e['role'] not in ('other', 'unnamed'):  # S102 G6 review: an unconfirmed creator may not declare a role (which create is which is not read)
+            raise SystemExit(f"gen_origin_table: {e['fn']} is marked [U (unconfirmed) in its name but declares role {e['role']!r}: only 'other' / 'unnamed' are allowed")
         start = int(e['fn'], 16)
         scale = {True: 'ScaleRule::Yes', False: 'ScaleRule::No', 'screen_shaped': 'ScaleRule::IfScreenShaped'}.get(e['scales'])
         if scale is None:

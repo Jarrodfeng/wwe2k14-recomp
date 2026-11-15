@@ -1,4 +1,5 @@
 // Our crowd camera flashes drawn in place. See flash_ours.h. Session 101, lane 68.
+#include "../thread_name.h"  // S102 H1
 #include "flash_ours.h"
 
 #include <algorithm>
@@ -136,7 +137,7 @@ void FlashOurs::StartLoad(int arena) {
   load_for_ = arena;
   // The planted faults read another arena's pac than the record names.
   const int file_arena = options_.faults.first_arena ? 0 : options_.faults.wrong_arena ? 28 : arena;
-  worker_ = std::thread([this, arena, file_arena, root] {
+  worker_ = std::thread([this, arena, file_arena, root] { wwe2k14::NameThread(L"ours_flash");
     Loaded loaded;
     loaded.arena = arena;
     if (!assets::flash_gs::Init(root)) {

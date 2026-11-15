@@ -156,7 +156,14 @@ rexglue_setup_target(wwe2k14 GPU_PLUGINS xenos)
 #   -DWWE2K14_GUEST_PGO_USE=<file>  profile-guided build of the guest code from a merged .profdata (tools/perf/guest_variant_exe.py measured it).
 # Android builds already use -march=armv8.2-a (tools/android/build_game_android.ps1) and have no physical-address-offset (REX_PHYS_HOST_OFFSET) check; nothing to add there.
 set(WWE2K14_GUEST_ISA "" CACHE STRING "Instruction set of the recompiled guest code ('' = SSE4.1 baseline, 'x86-64-v3')")
+# Session 102 W1 ("widened"): the same level for OUR sources linked into the exe (src/*, the renderer, the scene code), not only the generated guest
+# code. Same -ffp-contract=off reason: our float code was never fused on the PC (no FMA); fusing would change bits. The SDK DLLs stay SSE4.1 (pinned;
+# see docs/research/part2/W1_W2_build.md).
+set(WWE2K14_OURS_ISA "" CACHE STRING "Instruction set of our own sources in the exe ('' = SSE4.1 baseline, 'x86-64-v3')")
 option(WWE2K14_GUEST_PGO_GEN "Instrument the recompiled guest code for PGO (training build)" OFF)
+# Session 102 W2: ON = the same PGO switch (gen / use) also applies to OUR sources in the exe (src/*, the renderer and scene code), not only to
+# the generated guest code. One merged profdata serves both (a profile is keyed by function name + structure hash; unmatched functions are ignored).
+option(WWE2K14_PGO_OURS "PGO gen/use also for our own sources in the exe" OFF)
 set(WWE2K14_GUEST_PGO_USE "" CACHE FILEPATH "Merged .profdata for a profile-guided build of the recompiled guest code")
 if(TARGET wwe2k14_recomp AND NOT ANDROID)
     if(WWE2K14_GUEST_ISA STREQUAL "x86-64-v3")
@@ -164,14 +171,26 @@ if(TARGET wwe2k14_recomp AND NOT ANDROID)
     elseif(NOT WWE2K14_GUEST_ISA STREQUAL "")
         message(FATAL_ERROR "WWE2K14_GUEST_ISA must be empty or x86-64-v3")
     endif()
+    if(WWE2K14_OURS_ISA STREQUAL "x86-64-v3")
+        target_compile_options(wwe2k14 PRIVATE -mavx2 -mfma -mbmi -mbmi2 -mmovbe -mlzcnt -mpopcnt -ffp-contract=off)
+    elseif(NOT WWE2K14_OURS_ISA STREQUAL "")
+        message(FATAL_ERROR "WWE2K14_OURS_ISA must be empty or x86-64-v3")
+    endif()
     if(WWE2K14_GUEST_PGO_GEN)
         target_compile_options(wwe2k14_recomp PRIVATE -fprofile-instr-generate)
+        if(WWE2K14_PGO_OURS)
+            target_compile_options(wwe2k14 PRIVATE -fprofile-instr-generate)
+        endif()
         target_link_options(wwe2k14 PRIVATE -fprofile-instr-generate)
         # the game ends with std::_Exit, so the profile runtime's atexit writer never runs: this hook writes the profile every 10 s
         target_sources(wwe2k14 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools/perf/pgo_exit_hook.cpp)
     elseif(WWE2K14_GUEST_PGO_USE)
         target_compile_options(wwe2k14_recomp PRIVATE -fprofile-instr-use=${WWE2K14_GUEST_PGO_USE}
                                -Wno-profile-instr-unprofiled -Wno-profile-instr-missing)
+        if(WWE2K14_PGO_OURS)
+            target_compile_options(wwe2k14 PRIVATE -fprofile-instr-use=${WWE2K14_GUEST_PGO_USE}
+                                   -Wno-profile-instr-unprofiled -Wno-profile-instr-missing)
+        endif()
     endif()
 endif()
 if(ANDROID)
@@ -250,7 +269,21 @@ if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/game_logo.ico")
     enable_language(RC)
     set(WWE2K14_ICON_RC "${CMAKE_CURRENT_BINARY_DIR}/app_icon.rc")
     file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/game_logo.ico" WWE2K14_ICO)
-    file(WRITE "${WWE2K14_ICON_RC}" "1 ICON \"${WWE2K14_ICO}\"\n")
+    # Session 102 W1: a VERSIONINFO (ProductVersion = version + commit): the launcher starts wwe2k14_v3.exe only when it carries the SAME string as wwe2k14.exe
+    # (src/launcher/cpu_features.h ExeVersionsMatch). Both release builds come from one commit and one VERSION file.
+    execute_process(COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}" rev-parse --short HEAD OUTPUT_VARIABLE WWE2K14_COMMIT
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(NOT WWE2K14_COMMIT)
+        set(WWE2K14_COMMIT "nogit")
+    endif()
+    set(WWE2K14_VER_NUMS "0,0,0,0")
+    if(WWE2K14_VERSION MATCHES "^v?([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+        set(WWE2K14_VER_NUMS "${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0")
+    endif()
+    file(WRITE "${WWE2K14_ICON_RC}" "1 ICON \"${WWE2K14_ICO}\"\n"
+"1 VERSIONINFO\nFILEVERSION ${WWE2K14_VER_NUMS}\nPRODUCTVERSION ${WWE2K14_VER_NUMS}\nBEGIN\n BLOCK \"StringFileInfo\"\n BEGIN\n  BLOCK \"040904B0\"\n  BEGIN\n"
+"   VALUE \"ProductVersion\", \"${WWE2K14_VERSION} ${WWE2K14_COMMIT}\"\n   VALUE \"FileDescription\", \"WWE 2K14 native PC recompilation\"\n  END\n END\n"
+" BLOCK \"VarFileInfo\"\n BEGIN\n  VALUE \"Translation\", 0x409, 1200\n END\nEND\n")
     set_source_files_properties("${WWE2K14_ICON_RC}" PROPERTIES OBJECT_DEPENDS "${WWE2K14_ICO}")
     target_sources(wwe2k14 PRIVATE "${WWE2K14_ICON_RC}")
     target_compile_definitions(wwe2k14 PRIVATE WWE2K14_HAS_ICON=1)
@@ -275,6 +308,23 @@ endif()
 # Windows event log (e.g. "Fault offset: 0x...") can be traced to a recompiled sub_XXXXXXXX.
 if(WIN32)
     target_link_options(wwe2k14 PRIVATE "LINKER:/MAP:$<TARGET_FILE_DIR:wwe2k14>/wwe2k14.map")
+endif()
+
+# S102 S0-6: wwe2k14.pdb for profiling (Surface stacks profile: tools/surface/push_kit.ps1 -Symbols). OFF by default; the pdb is NEVER shipped
+# (make_release.ps1 refuses .pdb; tools/release/check_zip_symbols.py). Debug info does not change code generation; the one thing /DEBUG would
+# change is lld-link's default /OPT:REF /OPT:ICF (it turns them off), so they are passed explicitly. Cheapest tier by default:
+#   our sources (src/*)  -gline-tables-only -gcodeview   (function names + lines)
+#   recompiled guest code  nothing at compile time: the pdb still gets its function names from the linker's public symbols (S_PUB32)
+#   -DWWE2K14_EXE_SYMBOLS_GUEST_LINES=ON  also line tables for the guest code (much bigger pdb, slower link)
+option(WWE2K14_EXE_SYMBOLS "Emit wwe2k14.pdb (symbols for profiling; never shipped)" OFF)
+option(WWE2K14_EXE_SYMBOLS_GUEST_LINES "With WWE2K14_EXE_SYMBOLS: line tables for the recompiled guest code too" OFF)
+if(WIN32 AND WWE2K14_EXE_SYMBOLS)
+    target_compile_options(wwe2k14 PRIVATE -gline-tables-only -gcodeview)
+    if(WWE2K14_EXE_SYMBOLS_GUEST_LINES AND TARGET wwe2k14_recomp)
+        target_compile_options(wwe2k14_recomp PRIVATE -gline-tables-only -gcodeview)
+    endif()
+    target_link_options(wwe2k14 PRIVATE "LINKER:/DEBUG" "LINKER:/OPT:REF" "LINKER:/OPT:ICF"
+                        "LINKER:/PDB:$<TARGET_FILE_DIR:wwe2k14>/wwe2k14.pdb")
 endif()
 
 # Session 17 item 1C: the launcher, a separate Windows program next to wwe2k14.exe (src/launcher/). Dear ImGui on

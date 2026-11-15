@@ -19,6 +19,7 @@
 //  - Object ids are stable across frames ("crowd:block:3:member:17", "actor:slot:0", "arena:slot:12"): SCENE_RECORD.md "Stable ids".
 //  - Assets by name: AssetRef pac + entry from the files, never guest memory addresses.
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -49,6 +50,11 @@ class Contributor {
   virtual void Emit(const FrameInfo& f, SceneTables& t, Counters& c) = 0;
   // S101 lane 109 (F4): appends this class's own totals to the census line (default: nothing).
   virtual void Census(std::string& out) { (void)out; }
+  // S102 U1 (docs\renderer\SWAP_TAIL.md): take EVERY input Emit reads from game threads (snapshots, tracker frames) into the contributor's own
+  // storage, for frame f, while the game threads are parked at the frame barrier. True = taken: the next Emit(f) reads only what Latch took, so it
+  // may run after the update thread was released. False (the default) = this contributor cannot: the writer then runs the whole frame at the latch.
+  // A contributor that latches must also report (NoteViolation) any shared-state read its Emit makes while InDeferredEmit() is true.
+  virtual bool Latch(const FrameInfo& f) { (void)f; return false; }
 };
 
 // Registration happens once, at startup, before Enabled() can become true. The writer does not own contributors (static lifetime).
@@ -95,5 +101,46 @@ struct Totals {
 Totals GetTotals();
 // Same checks ParseRecord makes on a file (every index inside its table): false with the reason. EndFrame runs it before any sink sees a record.
 bool Validate(const SceneTables& t, std::string& error);
+
+// ---- S102 U1 (docs\renderer\SWAP_TAIL.md): the frame boundary in two halves (the switch wwe2k14_rdr_tail_release, reader.h) ----
+// LatchFrame runs where EndFrame ran (the game threads parked at the frame barrier): it counts the frame, asks every contributor to Latch, and
+//  - when every one latched and `allow_defer`: returns with out.emit_deferred = true; EmitLatched(out) builds the record later (after the release);
+//  - otherwise: runs the whole frame now (the contributors that latched use what they took), out.emit_deferred = false.
+// EmitLatched is a no-op unless out.emit_deferred; it clears it. Same record, same sinks, same order as EndFrame.
+struct Latched {
+  bool emit_deferred = false;
+  FrameInfo info;
+  uint32_t contributors = 0;   // how many were registered at the latch (a registration in between refuses the frame: counted)
+};
+void LatchFrame(uint64_t guest_frame, uint32_t capture_frame, bool allow_defer, Latched& out);
+void EmitLatched(Latched& l);
+// True on the thread running a deferred EmitLatched: a contributor's shared-state path reached then is a violation (it claimed to latch and did not).
+// Inline (header-only): tools that link a contributor without live_scene.cpp (crowd_make, wrestler_emit) still link.
+namespace tail_detail {
+inline thread_local bool t_deferred_emit = false;
+inline std::atomic<uint64_t> g_violations{0};
+inline std::atomic<const char*> g_first_violation{nullptr};
+}  // namespace tail_detail
+inline bool InDeferredEmit() { return tail_detail::t_deferred_emit; }
+inline void NoteViolation(const char* contributor) {
+  tail_detail::g_violations.fetch_add(1, std::memory_order_relaxed);
+  const char* none = nullptr;
+  tail_detail::g_first_violation.compare_exchange_strong(none, contributor ? contributor : "?", std::memory_order_relaxed);
+}
+struct LatchTotals {
+  uint64_t latched = 0;          // LatchFrame calls that did work
+  uint64_t deferred = 0;         // of them, the emit was deferred
+  uint64_t not_latchable = 0;    // a contributor could not latch (the frame ran whole at the latch)
+  uint64_t registry_changed = 0; // EmitLatched found another contributor count: the frame was refused
+  uint64_t violations = 0;       // NoteViolation calls (must stay 0)
+  std::string first_violation;   // the first contributor that reported one
+  std::string not_latchable_name;  // the last contributor that could not latch
+};
+LatchTotals GetLatchTotals();
+#ifdef RDR_TAIL_PLANTS
+// Test only (tools\tail\tail_order_test.cpp): 1 = LatchFrame claims every contributor latched without asking it (the emit then reads shared state late);
+// 2 + i = the same for contributor i (registration order) alone.
+inline int g_tail_plant = 0;
+#endif
 
 }  // namespace rdr_scene::live

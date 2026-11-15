@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "../renderer_scene/live_scene.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live {
 
@@ -52,6 +53,7 @@ class WrestlerContributor final : public Contributor {
 
   const char* Name() const override { return "wrestlers"; }
   void Emit(const FrameInfo& f, SceneTables& t, Counters& c) override;
+  bool Latch(const FrameInfo& f) override;   // S102 U1 (tail_latch.h): Emit's item list (the two mutex_ blocks) and the light set, while the game threads are parked
 
   // ---- hook side (any thread, short lock) ----
   // `skel` = the skeleton object's guest address (the stable key), `slot` = character slot 0..8 or -1 when not matched.
@@ -64,7 +66,8 @@ class WrestlerContributor final : public Contributor {
   // update, unseen at the exit of sub_82BD30E8. Applied to the newest stored palette of that skeleton (pending update, else the persistent one).
   void ApplyDelta(uint32_t skel, float dx, float dy, float dz);
   // Lane 43 (hook side, any thread): the palette AS THE DRAW READS IT (copied at sub_82C04DF0's entry). `count` = WantCount(skel) nodes.
-  void SubmitConsumer(uint32_t skel, uint32_t count, const Mat4* skin, uint64_t frame = 0);
+  // S102 U3 (bit 16): `in_place` = a call whose skeleton already holds a consumer update of this frame is written into that update's own buffer (no allocation, same contents and flags).
+  void SubmitConsumer(uint32_t skel, uint32_t count, const Mat4* skin, uint64_t frame = 0, bool in_place = false);
   // Node count the hook must copy for this model object: the largest count sub_82BD30E8 saw for it, 0 = never seen (then no copy is made).
   uint32_t WantCount(uint32_t skel);
   // sub_82C04DF0 calls the hook could not turn into a palette: model never seen by the update hook (a piece of a known skeleton when its r5 equals
@@ -268,6 +271,7 @@ class WrestlerContributor final : public Contributor {
   static constexpr uint32_t kPruneAfter = 120; // Emits without an update before a skeleton leaves the record
  private:
   void Put(uint32_t skel, int32_t slot, uint64_t frame, std::vector<Mat4>&& skin, bool consumer = false);
+  bool PutConsumerInPlace(uint32_t skel, uint64_t frame, const Mat4* skin, uint32_t count);   // S102 U3: Put's consumer path when the frame's update exists (false = nothing touched, use Put)
   struct Known {
     int32_t slot = -1;
     uint32_t max_count = 0;  // the LATEST full count the update hook saw (not a high-water mark: a reused address must not keep a stale count)
@@ -313,6 +317,14 @@ class WrestlerContributor final : public Contributor {
       entry_pieces_desc_{0}, link_count_refused_{0}, linked_seen_as_skel_{0};
   std::atomic<uint64_t> link_kind_[10] = {};
   bool first_wins_ = false;
+  // ---- S102 U1: the latch (docs\renderer\SWAP_TAIL.md). Collect = Emit's two locked blocks, unchanged; the formatting reads only the items. ----
+  struct EmitItem { uint32_t skel; int32_t slot; bool consumer; Link link; std::vector<Mat4> skin; };
+  void Collect(const FrameInfo& f, std::vector<EmitItem>& items, Counters& c);
+  void EmitItems(const FrameInfo& f, SceneTables& t, Counters& c, std::vector<EmitItem>& items, uint32_t light);
+  LatchMark latch_;
+  std::vector<EmitItem> latch_items_;
+  Counters latch_counts_;
+  uint32_t latch_light_ = kUnknown;
 };
 
 WrestlerContributor& Wrestlers();   // the one instance (static lifetime)

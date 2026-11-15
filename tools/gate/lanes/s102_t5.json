@@ -1,0 +1,11 @@
+{
+ "owner": "S102 lane T5 (constants packed once, straight into the frame builder's block): src/renderer_adapter/binder.h PackConstants, src/renderer/frame_builder.h ReserveConstants; switch wwe2k14_rdr_pack_once (default off; rplay / fview --pack-once). 0 game runs.",
+ "claim": {"scene": "bryan", "side": "our render thread", "ms": [0.1, 0.2]},
+ "note": "proof = picture equality on Bryan (fview, every frame hash) and four rplay captures: off vs --pack-once vs --pack-once --fb-fast, plus the planted twin --pack-once-plant (the block misses its last constant range) which must differ. Needs out/renderer/dev/fview.exe and rplay.exe from this tree. unit = the shipped PackOnceInto on fake types (bytes equal the stack-block path; a no-fragment Variant{} packs inside the reserved size) built with AddressSanitizer, plus the planted noclamp twin that ASan must flag. Claim 0.1-0.2 ms: this lane keeps the ring copy (frame constants into the ring, renderer.cpp: tween / DLSS / DisplayOnly redraws read Frame.constants after the frame is built) and the thin / replace PackBlock copies; packing straight into the mapped ring (R3's 0.5-1.5 ms) is a separate lane that needs the ring slot known before the bind.",
+ "checks": [
+  {"name": "s102_t5.unit", "cmd": ["py", "-I", "tools/fb/fb_selftest.py"], "timeout_s": 900},
+  {"name": "s102_t5.proof", "cmd": ["py", "-I", "tools/fb/fb_replay_check.py", "--lane", "t5", "--root", ".", "--quick"], "timeout_s": 3600, "exes": ["out/renderer/dev/fview.exe", "out/renderer/dev/rplay.exe"], "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/captures/s100_heenan_build", "out/captures/s100_match300", "out/captures/s100_s89k_a", "out/captures/brock_s15"]}
+ ]
+}

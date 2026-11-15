@@ -26,6 +26,7 @@
 // Replays and re-shoots are left alone. Windows only (no player on Android: the hooks pass straight through).
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
@@ -173,7 +174,7 @@ class MfPlayer : public PlayerIf {
     if (!started_) {
       started_ = true;
       wake_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-      std::thread([this] { Worker(); }).detach();
+      std::thread([this] { wwe2k14::NameThread(L"user_playlist"); Worker(); }).detach();
     }
     q_.push_back(std::move(c));
     SetEvent(wake_);

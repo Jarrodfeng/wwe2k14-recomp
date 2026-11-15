@@ -1,4 +1,5 @@
 // The crowd's sign / foam-hand draws drawn by us, in place. See crowd_props_ours.h and crowd_props_core.h. S101 lane 133 (a copy of flash_ours.cpp's renderer side).
+#include "../thread_name.h"  // S102 H1
 #include "crowd_props_ours.h"
 
 #include <algorithm>
@@ -81,7 +82,7 @@ void CrowdPropsOurs::StartLoad(int arena) {
   if (worker_.joinable()) worker_.join();
   load_state_ = 1;
   load_for_ = arena;
-  worker_ = std::thread([this, arena, root] {
+  worker_ = std::thread([this, arena, root] { wwe2k14::NameThread(L"ours_crowdprops");
     Loaded loaded;
     loaded.arena = arena;
     if (!assets::crowd_prop_gs::Init(root)) {

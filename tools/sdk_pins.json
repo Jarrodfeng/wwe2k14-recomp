@@ -13497,6 +13497,34 @@
           "size": 11946496
         }
       ]
+    },
+    {
+      "id": "pin-98851b1-1115-0043",
+      "sdk_commit": "98851b186b7de78ee8ecfe1ef126da90ff5d689b",
+      "sdk_branch": "wwe2k14-local",
+      "patch": "patches/rexglue-sdk/full/117-session102-cvar-repeat-parse.diff",
+      "patch_match": "given with -PinPatch",
+      "date": "2026-11-15",
+      "built": "build_sdk.ps1 -Run s6, 2026-11-15T00:43:53 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s6.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "S102 cvar: repeated switches take the last value; parse errors logged (patch 117)",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "53be08adb188dfa305c8e00fc8ad856827c088e5f0a10973c351129867c96d41",
+          "size": 3647488
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "73a58514a6cdd0fb241f4e1b6293493eaf2e78c45dff6e349f42ec3420fd1b40",
+          "size": 19508224
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "a8410fc34ec490448a212b4ddb925ae8c8f81aeccd766ac0d744400825069f41",
+          "size": 11947520
+        }
+      ]
     }
   ]
 }

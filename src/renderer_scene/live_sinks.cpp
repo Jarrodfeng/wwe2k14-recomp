@@ -1,4 +1,5 @@
 // The capture folder's scene sink (Session 101, lane 26). See live_sinks.h.
+#include "../thread_name.h"  // S102 H1
 #include "live_sinks.h"
 
 #include <cstdio>
@@ -31,7 +32,7 @@ bool FolderSink::Begin(const std::string& capture_folder, std::string& error) {
   running_ = true;
   seq_ = 0;
   try {
-    thread_ = std::thread([this] { Run(); });
+    thread_ = std::thread([this] { wwe2k14::NameThread(L"rdr_live_sink"); Run(); });
   } catch (const std::exception& e) {  // no thread: nothing started, nothing thrown into the caller
     running_ = false;
     error = std::string("cannot start the writer thread: ") + e.what();
@@ -109,7 +110,15 @@ void FolderSink::Run() {
     char name[48];
     std::snprintf(name, sizeof(name), "frame_%06u.rsc", item.number);
     std::string error;
-    const bool ok = WriteRecord((std::filesystem::path(folder_) / name).string(), *item.tables, error);
+    // S102 T19 F1: the file is the plain list (version 1, what every reader of a capture folder reads): a marker record is expanded here, on this thread
+    const std::string path = (std::filesystem::path(folder_) / name).string();
+    bool ok;
+#ifdef RDR_CROWD_RUNS_PLANTS
+    if (g_run_plant == 8) ok = WriteRecord(path, *item.tables, error);   // planted 8: the marker record is written as it is (a version 2 file)
+    else
+#endif
+    if (item.tables->crowd_runs.empty()) ok = WriteRecord(path, *item.tables, error);
+    else ok = WriteRecord(path, ExpandCrowdRuns(*item.tables), error);
     {
       std::lock_guard<std::mutex> lock(mu_);
       busy_ = false;

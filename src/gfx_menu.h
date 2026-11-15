@@ -33,6 +33,7 @@
 
 #include "decode_probe.h"  // GuestPtr
 #include "frame_stats.h"
+#include "gfx_applied.h"   // S102 S0-1 (includes gfx_settings.h)
 #include "gfx_settings.h"
 #include "gpu_pick.h"      // Session 37: the chosen card (no FSR on integrated graphics)
 #include "input_script.h"  // g_request_quit (the clean quit)
@@ -261,6 +262,7 @@ inline void ApplyLauncherSettings() {
                 gfxs::Utf8(path));
   gfxs::Choice c;
   gfxs::Parse(json, c);
+  std::string tier_why;  // S102 S0-1: the tier's text for the [gfx][applied] line
   // Session 93: the quality tier (the setting AUTO / LOW / STANDARD -> this start's tier) from the card the game will
   // use (gpu_pick runs later in OnPreSetup, so the list is read here the same way: --wwe2k14_gpu, else the discrete
   // GPU with the most memory, else the first).
@@ -277,13 +279,13 @@ inline void ApplyLauncherSettings() {
     }
 #endif
     std::string why;
-    c.low = gfxs::ResolveQualityTier(c.quality_tier, phone, integrated, gpu_name, &why) == 1;
-    // (The file's tier does nothing with the original look or another renderer: no "LOW" then.)
-    const int renderer_from_flag = gfxs::RendererFromFlags("--wwe2k14_renderer=" + REXCVAR_GET(wwe2k14_renderer));
-    if (c.low && (c.original_look || c.renderer != 2 || (renderer_from_flag >= 0 && renderer_from_flag != 2))) {
-      c.low = false;
-      why = c.original_look ? "STANDARD (original look is on)" : "STANDARD (not the NATIVE renderer)";
-    }
+    // S102 S0-1: the tier resolution moved to gfx_applied.h (the bench's dry run and the launcher use the same function).
+    gfxs::ResolveLow(c, phone, integrated, gpu_name, gfxs::RendererFromFlags("--wwe2k14_renderer=" + REXCVAR_GET(wwe2k14_renderer)), &why);
+    tier_why = why;
+    // S102 G1: the direct settings-file start has no launcher to write the note: set it from the resolved tier so the new renderer's LOW levers (low_levers.h IsLow) read
+    // the same answer as under a launcher. A note the command line / launcher already gave is kept.
+    if (REXCVAR_GET(wwe2k14_quality_note).empty()) rex::cvar::SetFlagByName("wwe2k14_quality_note", (c.low ? "LOW_" : "STANDARD_") + std::string(c.quality_tier != 0 ? "chosen" : "auto"));
+    // (The file's tier does nothing with the original look or another renderer: no "LOW" then; ResolveLow says so in `why`.)
     static bool logged = false;
     if (!logged) {
       logged = true;
@@ -315,7 +317,8 @@ inline void ApplyLauncherSettings() {
   // starting values apply here, as the launcher's first-run setup writes them into a file.
   if (c.low && json.empty()) gfxs::LowStartValues(c.resolution, c.draw_height, c.upscale, c.crowd_density);
   std::string applied;
-  for (const auto& [name, value] : gfxs::GraphicsFlags(c, dir, gfxs::MonitorHz())) {
+  const auto asked_flags = gfxs::GraphicsFlags(c, dir, gfxs::MonitorHz());  // S102 S0-1: kept for the [gfx][applied] line
+  for (const auto& [name, value] : asked_flags) {
     if (rex::cvar::GetFlagSource(name) != rex::cvar::Source::kDefault) continue;  // the command line wins
     if (own_size && (name == "resolution_scale" || name == "wwe2k14_preset_4k60" || name == "wwe2k14_preset_1440p60"))
       continue;
@@ -330,21 +333,27 @@ inline void ApplyLauncherSettings() {
   REXLOG_INFO("[wwe2k14][gfxmenu] settings file {}: upscale {}, resolution {}, frame rate {}, renderer {} -> {}",
               gfxs::Utf8(path), c.upscale, c.resolution, c.frame_rate, c.renderer,
               applied.empty() ? "(nothing to set)" : applied);
+  // S102 S0-1: one line with what a run at these settings is: tier, sizes, crowd, which LOW levers apply and which were asked but are not
+  // read. The swapchain is the window's size, known at the first present: the renderer's `[gfx][present]` line says it.
+  // Once per boot: wwe2k14_app.h calls this twice (before and after the GPU plugin's settings exist); the second call is the one with every flag in place.
+  static int applied_calls = 0;
+  if (++applied_calls == 2) REXLOG_INFO("{}", gfxs::AppliedLine(c, asked_flags, tier_why, 0, 0));
 }
 
 inline bool DlssPossible();  // below
 
-// Session 54: this run draws with NATIVE's truth frames, so it can draw 360p - 540p and 1080p (gfxs::kResolutions).
+// Session 54: this run draws with NATIVE's truth frames, so it can draw 360p - 648p and 1080p (gfxs::kResolutions).
 inline bool NativeRunning() {
   return FlagInt("gpu_native") == 2 && FlagIsTrue("gpu_native_truth") && !FlagIsTrue("wwe2k14_light_renderer");
 }
 // The RESOLUTION row's values (gfxs::kResolutions indices): all with NATIVE, else the whole sizes.
-inline int g_res_order[8] = {3, 5, 6};
+inline int g_res_order[8] = {6, 8, 9};  // 720P, 1440P, 4K (gfxs::kResolutions indices)
 inline int g_res_count = 3;
-inline void BuildResolutionOrder(bool native) {
+// S102 G13: `current` = the entry the file holds; a launcher-only height (576 / 600 / 648) the file holds is listed too, so the row shows it and ACCEPT keeps it.
+inline void BuildResolutionOrder(bool native, int current = -1) {
   g_res_count = 0;
   for (int i = 0; i < gfxs::kResolutionCount && g_res_count < 8; ++i)
-    if (native || !gfxs::kResolutions[i].native_only) g_res_order[g_res_count++] = i;
+    if ((native || !gfxs::kResolutions[i].native_only) && (gfxs::kResolutions[i].in_game_menu || i == current)) g_res_order[g_res_count++] = i;
 }
 
 // After every start-up setting is in place (end of OnPreSetup): what this run is doing, read back from the settings.
@@ -447,8 +456,8 @@ inline void LoadScreenValues() {
   BuildUpscaleOrder(dlss, fsr);
   if ((!dlss && gfxs::IsNvidia(c.upscale)) || (!fsr && gfxs::IsFsr(c.upscale))) c.upscale = 0;
   const bool native = NativeRunning() && c.upscale == 0;  // Session 54 (as the launcher: no upscaler)
-  BuildResolutionOrder(native);
   const int res_index = gfxs::ResolutionIndex(c.resolution, c.draw_height, native);
+  BuildResolutionOrder(native, res_index);  // S102 G13: after the index (a launcher-only height the file holds stays on the row)
   int res_value = 0;
   for (int i = 0; i < g_res_count; ++i)
     if (g_res_order[i] == res_index) res_value = i;
@@ -598,10 +607,13 @@ inline TextEntry g_texts[] = {
     {kTextVal2 + 0, "360P", 0},
     {kTextVal2 + 1, "480P", 0},
     {kTextVal2 + 2, "540P", 0},
-    {kTextVal2 + 3, "720P", 0},
-    {kTextVal2 + 4, "1080P", 0},
-    {kTextVal2 + 5, "1440P", 0},
-    {kTextVal2 + 6, "4K", 0},
+    {kTextVal2 + 3, "576P", 0},  // S102 G13: the indices follow gfxs::kResolutions
+    {kTextVal2 + 4, "600P", 0},
+    {kTextVal2 + 5, "648P", 0},
+    {kTextVal2 + 6, "720P", 0},
+    {kTextVal2 + 7, "1080P", 0},
+    {kTextVal2 + 8, "1440P", 0},
+    {kTextVal2 + 9, "4K", 0},
     {kTextRestart, "Some changes apply the next time you start the game.", 0},
     {kTextQuit, "QUIT TO DESKTOP", 0},
     {kTextQuitAsk, "Quit to desktop?", 0},
@@ -1104,7 +1116,7 @@ REX_HOOK_RAW(sub_82B1ADF8) {
         TableGuard guard(base, kValueTextTable, 8);
         for (int i = 0; i < g_up_count; ++i) Put32(kValueTextTable + 4 * i, kTextVal0 + uint32_t(g_up_order[i]));
         __imp__sub_82B1ADF8(ctx, base);
-      } else if (row == 2) {  // Session 54: up to 7 sizes (as row 0)
+      } else if (row == 2) {  // Session 54: up to 8 sizes (as row 0; S102 G13: 576 / 600 / 648 only when the file holds one)
         TableGuard guard(base, kValueTextTable, 8);
         for (int i = 0; i < g_res_count; ++i) Put32(kValueTextTable + 4 * i, kTextVal2 + uint32_t(g_res_order[i]));
         __imp__sub_82B1ADF8(ctx, base);

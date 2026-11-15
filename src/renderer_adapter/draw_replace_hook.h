@@ -123,9 +123,10 @@ struct ReplaceOut {
 };
 
 // Why a candidate stayed the stream's (counted per hook).
-enum class KeepWhy : uint8_t { NotReady, Unjoined, Mismatch, Variant, Texture, Palette, NotOurs, Count };
+// S102 T17: BudgetDeferred = the props hook is over its per-frame making budget: the stream's draw stays for this frame. Not "not ready": the thin learner must treat it like a foreign claim (unpin).
+enum class KeepWhy : uint8_t { NotReady, Unjoined, Mismatch, Variant, Texture, Palette, NotOurs, BudgetDeferred, Count };
 inline const char* KeepWhyName(KeepWhy w) {
-  static const char* const k[] = {"not ready", "unjoined", "mismatch", "variant", "texture", "palette", "not ours"};
+  static const char* const k[] = {"not ready", "unjoined", "mismatch", "variant", "texture", "palette", "not ours", "budget deferred"};
   return uint8_t(w) < uint8_t(KeepWhy::Count) ? k[uint8_t(w)] : "?";
 }
 

@@ -22,6 +22,8 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
+#include "display_pick.h"  // S102 G2c: the auto:N pick rule
+
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
@@ -43,7 +45,10 @@ REXCVAR_DEFINE_BOOL(wwe2k14_display_720p, false, "wwe2k14",
                     "scale to the panel's native size. For integrated graphics. Windows only; default off");
 REXCVAR_DEFINE_STRING(wwe2k14_display_720p_mode, "1280x720", "wwe2k14",
                       "Session 95: the WIDTHxHEIGHT wwe2k14_display_720p switches to (it must be a mode the display "
-                      "lists; the log names the list and the nearest panel-aspect mode when it is missing)");
+                      "lists; the log names the list and the nearest panel-aspect mode when it is missing). S102 G2c: auto:N = "
+                      "the listed mode with the panel's aspect (square pixels), at the current refresh, whose height is the "
+                      "smallest at or above N and below the panel's own (e.g. auto:912 on a 2736x1824 panel: 1368x912), so the "
+                      "panel's own scaler does the upscale; none listed = no change, one log line");
 
 namespace wwe2k14::display_mode {
 
@@ -93,8 +98,12 @@ inline void Configure() {
     REXLOG_INFO("[display] 720p display: --monitor={} (a secondary display), not switched", mon);
     return;
   }
+  // S102 G2c: "auto:N" picks the mode from the display's list (display_pick.h) instead of naming it.
+  const uint32_t auto_h = wwe2k14::display_pick::ParseAuto(REXCVAR_GET(wwe2k14_display_720p_mode).c_str());
   int want_w = 0, want_h = 0;
-  if (std::sscanf(REXCVAR_GET(wwe2k14_display_720p_mode).c_str(), "%dx%d", &want_w, &want_h) != 2 || want_w < 640 ||
+  if (auto_h) {
+    want_w = 640, want_h = 360;  // (the checks below only reject a malformed WxH)
+  } else if (std::sscanf(REXCVAR_GET(wwe2k14_display_720p_mode).c_str(), "%dx%d", &want_w, &want_h) != 2 || want_w < 640 ||
       want_h < 360) {
     REXLOG_WARN("[display] 720p display: '{}' is not WIDTHxHEIGHT, not switched", REXCVAR_GET(wwe2k14_display_720p_mode));
     return;
@@ -106,7 +115,7 @@ inline void Configure() {
     return;
   }
   g_native_w = int(cur.dmPelsWidth), g_native_h = int(cur.dmPelsHeight);
-  if (int(cur.dmPelsWidth) <= want_w && int(cur.dmPelsHeight) <= want_h) {
+  if (!auto_h && int(cur.dmPelsWidth) <= want_w && int(cur.dmPelsHeight) <= want_h) {
     REXLOG_INFO("[display] 720p display: the desktop is already {}x{}, nothing to do", g_native_w, g_native_h);
     return;
   }
@@ -120,6 +129,18 @@ inline void Configure() {
     if (m.dmBitsPerPel == cur.dmBitsPerPel) all.push_back(m);
   }
   const DEVMODEW* best = nullptr;
+  if (auto_h) {  // S102 G2c: the pick rule over the whole list; the chosen entry is looked up below as an exact WxH at that refresh
+    std::vector<wwe2k14::display_pick::Mode> modes;
+    for (const DEVMODEW& m : all) modes.push_back({m.dmPelsWidth, m.dmPelsHeight, m.dmDisplayFrequency});
+    wwe2k14::display_pick::Mode chosen;
+    if (!wwe2k14::display_pick::Pick(modes.data(), modes.size(), cur.dmPelsWidth, cur.dmPelsHeight, cur.dmDisplayFrequency, auto_h, chosen)) {
+      REXLOG_WARN("[display] 720p display: auto:{}: no listed mode has the panel's aspect at {} Hz with a height from {} up to below {} (native {}x{}); not switched",
+                  auto_h, int(cur.dmDisplayFrequency), auto_h, int(cur.dmPelsHeight), g_native_w, g_native_h);
+      return;
+    }
+    want_w = int(chosen.w), want_h = int(chosen.h);
+    REXLOG_INFO("[display] 720p display: auto:{} picked {}x{} @ {} Hz (asked {}, panel {}x{})", auto_h, want_w, want_h, int(chosen.hz), auto_h, g_native_w, g_native_h);
+  }
   for (const DEVMODEW& m : all) {
     if (int(m.dmPelsWidth) != want_w || int(m.dmPelsHeight) != want_h) continue;
     // Prefer the refresh rate nearest the current one (the driver decides between centred / stretched twins).
@@ -161,6 +182,10 @@ inline void Configure() {
   }
   g_mode = *best;
   g_mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY;
+  if (auto_h) {  // S102 G2c: a lower mode on this panel is stretched by the display's scaler (not centred with bars)
+    g_mode.dmFields |= DM_DISPLAYFIXEDOUTPUT;
+    g_mode.dmDisplayFixedOutput = DMDFO_STRETCH;
+  }
   if (!ApplyMode()) return;
   g_wanted = true;
   REXLOG_INFO("[display] 720p display: {}x{} -> {}x{} @ {} Hz (a temporary mode: restored on close, alt-tab and crash)",

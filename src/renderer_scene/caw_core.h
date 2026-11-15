@@ -17,6 +17,7 @@
 // draw; a part whose bytes no longer fit is un-joined (stale caught) and re-joined by bytes at once if some leaf fits, else left the stream's. PLANT `pinned`: the identity ignores the
 // offsets (counts only), so a part that moved to a new offset with new bytes keeps drawing the old model: the past bug, a pin that does not see a new offset.
 #pragma once
+#include "../thread_name.h"  // S102 H1
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -347,7 +348,7 @@ class CawCore {
         return s2.model;
       }
       lq_.push_back(edit_part);
-      if (!worker_.joinable()) worker_ = std::thread([this] { Work(); });
+      if (!worker_.joinable()) worker_ = std::thread([this] { wwe2k14::NameThread(L"ours_caw"); Work(); });
       lcv_.notify_one();
     }
     pending = true;

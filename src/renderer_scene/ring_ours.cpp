@@ -1,4 +1,5 @@
 // Our ring drawn in place. See ring_ours.h and ring_ours_core.h. Session 101, lane 70.
+#include "../thread_name.h"  // S102 H1
 #include "ring_ours.h"
 
 #include <algorithm>
@@ -165,7 +166,7 @@ void RingOurs::StartLoad(int arena) {
   if (worker_.joinable()) worker_.join();
   load_state_ = 1;
   load_for_ = arena;
-  worker_ = std::thread([this, arena, root] {
+  worker_ = std::thread([this, arena, root] { wwe2k14::NameThread(L"ours_ring");
     Loaded loaded;
     loaded.arena = arena;
     if (!assets::ring_gs::Init(root)) {

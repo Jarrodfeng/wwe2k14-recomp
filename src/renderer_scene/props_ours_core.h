@@ -12,6 +12,7 @@
 // stream's bytes (every draw in fview, the first use of each blob key live). Slots 0 / 4 / 5 are ours only where the content check passed; the mip count is the stream record's
 // (min(record mips, max_level + 1) rule: never more than the stream image holds).
 #pragma once
+#include "props_budget.h"   // S102 T17
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -22,6 +23,7 @@
 
 #include "../assets/prop_game_space.h"
 #include "../renderer_adapter/draw_replace_hook.h"
+#include "../renderer_adapter/plan_memo.h"  // S102 R23-P: kPropsMatch
 #include "../renderer_adapter/image_content_table.h"
 #include "record_io.h"
 #include "ring_ours_core.h"   // RingPrepared (the same prepared buffer)
@@ -99,7 +101,37 @@ class PropsCore {
     if (special_ids_plant && e.arena != 0 && e.arena != 23) return true;
     return e.actors >= 2 || e.crowd > 0;
   }
-  static bool InMatch(const SceneTables& record, bool old_rule_plant = false, bool special_ids_plant = false) { return InMatch(EvidenceOf(record), old_rule_plant, special_ids_plant); }
+  // S102 R23-P (plan_memo.h kPropsMatch): the scene record is a new table every frame (the swap thread builds it), so the answer cannot be kept across frames, but it does not need every object: the rule is
+  // "arena named, not a menu arena, and (>= 2 actors or any crowd member)", which is decided at the first crowd member or the second actor. The same boolean as the full count, a scan that stops there.
+  static bool InMatch(const SceneTables& record, bool old_rule_plant = false, bool special_ids_plant = false) {
+    if (!rdr_adapter::plan_memo::Has(rdr_adapter::plan_memo::kPropsMatch)) {
+      rdr_adapter::plan_memo::Timer tm_(rdr_adapter::plan_memo::kTmPropsMatch);
+      return InMatch(EvidenceOf(record), old_rule_plant, special_ids_plant);
+    }
+    rdr_adapter::plan_memo::Timer tm_(rdr_adapter::plan_memo::kTmPropsMatch);
+    const bool fast = InMatchEarly(record, old_rule_plant, special_ids_plant);
+    if (rdr_adapter::plan_memo::VerifyDue(2)) {   // tool only: the old answer beside the new
+      rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtVerified);
+      if (fast != InMatch(EvidenceOf(record), old_rule_plant, special_ids_plant)) rdr_adapter::plan_memo::Mismatch("props match", "the early scan disagrees with the full count");
+    }
+    return fast;
+  }
+  static bool InMatchEarly(const SceneTables& record, bool old_rule_plant, bool special_ids_plant) {
+    const int arena = ArenaOfRecord(record);
+    if (arena < 0) return false;
+    if (old_rule_plant) return true;
+    if (MenuOnlyArena(arena)) return false;
+    if (special_ids_plant && arena != 0 && arena != 23) return true;
+    const bool plant = rdr_adapter::plan_memo::Plant(5);   // (planted: one actor is taken for a match)
+    int actors = 0;
+    for (const Object& o : record.objects) {
+      const std::string_view id = record.Str(o.id);
+      if (id.compare(0, 6, "crowd:") == 0) return rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtPropsHit), !plant;   // (planted twin 5: the early exit answers the opposite)
+      if (id.compare(0, 6, "actor:") == 0 && ++actors >= 2) return rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtPropsHit), !plant;
+    }
+    rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtPropsMiss);
+    return false;
+  }
   void ResetFrame() { ++frame_no_; }
   void NoClaimFrame() {   // lane 115 F2: a frame where nothing was claimed ticks the clock too (PropsOurs::NoClaimFrame calls this)
     if (!options_.faults.frozen_clock) ++frame_no_;
@@ -116,6 +148,28 @@ class PropsCore {
     int diffuse = -1, normal_map = -1, specular = -1;
     uint32_t diffuse_mips = 0, normal_mips = 0, specular_mips = 0;
   };
+  // S102 T17: the worker's prefix hashes of the file textures (props_budget.h Pre); null = FileHash computes them on first use, as before.
+  void SetPre(std::shared_ptr<const props_budget::Pre> pre) {   // refused (counted) when the tables are not this set's
+    if (pre && (pre->set != props_.get() || pre->hash.size() != props_->textures.size())) {
+      ++stats_.pre_stale;
+      pre_.reset();
+      return;
+    }
+    pre_ = std::move(pre);
+  }
+  // S102 T17: true when deciding this draw costs little (a foreign object, or one with a join already): the budget defers only COLD objects before Decide.
+  bool Warm(const rdr_adapter::ReplaceIn& in) const {
+    const rdr_adapter::DrawOrigin* o = in.origin;
+    if (!o || !props_) return true;
+    if (IsForeign(o->object)) return true;
+    const auto it = joins_.find(o->object);
+    return it != joins_.end() && (it->second.source >= 0 || it->second.foreign);
+  }
+  // S102 T17: a decision that answered yes is taken back (the budget deferred its buffers / images to a later frame): the draw stays the stream's.
+  void Deferred() {
+    if (stats_.replaced) --stats_.replaced;
+    ++stats_.kept[uint8_t(rdr_adapter::KeepWhy::NotReady)];
+  }
   void UploadFailed(PropsPrepared* p) {
     if (p) p->failed = true;
     if (stats_.replaced) --stats_.replaced;
@@ -132,7 +186,7 @@ class PropsCore {
     uint64_t layout_refused = 0, joins_dropped = 0;
     uint64_t slot_kept_tie = 0, slot_kept_no_file = 0, slot_kept_levels = 0;
     uint64_t content_checks = 0, content_ok = 0, content_differs = 0, content_unknown = 0;
-    uint64_t verify_runs = 0, prepared_built = 0, lookalike = 0;   // lookalike: objects given up as NotOurs after failed byte compares
+    uint64_t verify_runs = 0, prepared_built = 0, lookalike = 0, pre_stale = 0;   // lookalike: objects given up as NotOurs after failed byte compares
   };
   const Stats& stats() const { return stats_; }
   std::string TakeFirstFail() {
@@ -190,6 +244,7 @@ class PropsCore {
   std::unordered_map<uint32_t, uint64_t> foreign_;   // object -> the frame its "not a prop of ours" verdict expires (addresses are reused)
   std::unordered_map<uint64_t, bool> content_ok_;
   std::unordered_map<uint64_t, uint64_t> file_hash_;
+  std::shared_ptr<const props_budget::Pre> pre_;   // S102 T17
   std::unordered_map<uint64_t, std::unique_ptr<PropsPrepared>> prepared_;
   std::unordered_map<uint64_t, VerKey> verified_key_;
   std::function<void(PropsPrepared&)> release_;

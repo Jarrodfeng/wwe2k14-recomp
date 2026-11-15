@@ -70,6 +70,7 @@
 // double buffered by word +0 (flipped each update), so the two halves should both hold frames that have already stopped (unconfirmed: sub_8250C700 keeps flipping word +0 before the +248 gate, so the halves could still differ; a failure would be a false A/A alarm).
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/audio/audio_system.h>
 #include <rex/cvar.h>
 #include <rex/hook.h>
@@ -214,7 +215,7 @@ inline void SetAudio(bool pause) {
   if (!g_audio_started) {
     if (!pause) return;
     g_audio_started = true;
-    std::thread(AudioWorker).detach();
+    std::thread([] { wwe2k14::NameThread(L"scene_audio"); AudioWorker(); }).detach();
   }
   g_audio_want = pause;
   g_audio_cv.notify_all();

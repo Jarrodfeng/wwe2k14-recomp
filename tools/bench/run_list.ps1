@@ -186,7 +186,7 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     # 2026-11-09 (Jarrod: 63 GB of timelines on disk): routine shared runs write none. Timed (exclusive) runs and runs asking
     # for GPU timestamps keep it; any other run can ask with --wwe2k14_timeline=true in -Extra.
     $timelineFlag = if ($Lock.Mode -ne 'Shared' -or "$ScriptExtra $Extra" -match '--vulkan_gpu_timestamps=true') { ' --wwe2k14_timeline=true' } else { '' }
-    $flags = "--user_data_root=$R\out\bench\$Work --cache_root=$R\out\bench\$Work\cache$timelineFlag --wwe2k14_input_script=$s"
+    $flags = "--user_data_root=$R\out\bench\$Work --cache_root=$R\out\bench\$Work\cache$timelineFlag --wwe2k14_input_script=$s --wwe2k14_rdr_start_failure_dialog=false"  # S102 U1: a failed renderer start must not put a message box on an unattended run
     $why = Get-RunListRealTimeReason $s "$ScriptExtra $Extra"
     if ($why) { Write-Host "[run_list] $(Split-Path $s -Leaf): normal speed ($why)" }
     else {

@@ -28,6 +28,7 @@
 // _Exit(3). Off until the phone list passes.
 //
 // Test only: --wwe2k14_test_hang=guest|paint|fence stops that side at guest frame --wwe2k14_test_hang_at, for good.
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/perf/hang_beats.h>
@@ -354,7 +355,7 @@ class Guard {
     if (!REXCVAR_GET(wwe2k14_hang_exit)) return;
     // (F7) the request first: a log call or flush can block on a lock the frozen thread holds.
     android_lifecycle::WriteExitRequest("the game froze");
-    std::thread([] {
+    std::thread([] { wwe2k14::NameThread(L"hang_dump");
       Say("hang exit: back to the launcher");
       rex::FlushLogging();
     }).detach();
@@ -368,7 +369,7 @@ class Guard {
     if (capture_busy_.exchange(true)) return;
     const uint32_t at = kCaptureAt[capture_index_++];
     const bool last = capture_index_ == 3;
-    std::thread([this, at, last] {
+    std::thread([this, at, last] { wwe2k14::NameThread(L"hang_report");
       rex::ui::RawImage image;
       const auto t0 = Clock::now();
       const bool ok = capture_(image) && image.width && image.height;
@@ -428,7 +429,7 @@ inline void Start(int log_number, Capture capture) {
   REXLOG_INFO("[hang] guard on: HANG? {} s, HANG: {} s ({} s before the first frame), exit {}", kSuspectTicks, kHangTicks,
               kHangBootTicks, REXCVAR_GET(wwe2k14_hang_exit) ? "on" : "off");
   auto* guard = new Guard(log_number, std::move(capture));
-  std::thread([guard] { guard->Run(); }).detach();
+  std::thread([guard] { wwe2k14::NameThread(L"hang_guard"); guard->Run(); }).detach();
 }
 
 }  // namespace wwe2k14::hang_guard

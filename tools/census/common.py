@@ -481,7 +481,7 @@ class Game:
         settings = os.path.join(CEN, 'settings_%s.json' % self.name)
         os.makedirs(CEN, exist_ok=True)
         shutil.copyfile(SETTINGS_SRC, settings)
-        flags = ['--wwe2k14_d3d_owned=true', '--wwe2k14_native_frame=true', '--wwe2k14_use_launcher_settings=true',
+        flags = ['--wwe2k14_rdr_start_failure_dialog=false', '--wwe2k14_d3d_owned=true', '--wwe2k14_native_frame=true', '--wwe2k14_use_launcher_settings=true',
                  '--wwe2k14_settings_file=%s' % settings, '--wwe2k14_dlc=true',
                  '--wwe2k14_replay_dir=%s' % os.path.join(REPO, 'out', 'replays'),
                  '--wwe2k14_scenario_dir=%s' % os.path.join(REPO, 'out', 'scenarios')]

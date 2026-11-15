@@ -41,7 +41,7 @@ layout(location = 0) out vec4 outShadow;
 
 #if defined(FX_SKINNED) || defined(FX_RIGID)
 vec3 bone_point(int id, vec4 p) {
-  int b = 3 * id;
+  int b = clamp(3 * id, 0, vc.WorldMatrixArray.length() - 3);   // S102 V1: inside the declared palette
   return vec3(dot(vc.WorldMatrixArray[b], p), dot(vc.WorldMatrixArray[b + 1], p), dot(vc.WorldMatrixArray[b + 2], p));
 }
 #endif

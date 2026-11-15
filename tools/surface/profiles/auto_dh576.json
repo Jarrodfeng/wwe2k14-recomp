@@ -1,0 +1,11 @@
+{
+  "renderer": 2,
+  "frame_rate": 1,
+  "resolution": 0,
+  "draw_height": 576,
+  "upscale": 0,
+  "quality_tier": 0,
+  "crowd_density": 70,
+  "true_native": true,
+  "settings_version": 4
+}

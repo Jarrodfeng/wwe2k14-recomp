@@ -4,9 +4,12 @@
 
 // ---- Vertex side. The shader defines CH_BONES (its vec4[63] of 4x3 bone rows) before including this file.
 #ifdef CH_BONES
-int ch_bone(float id) { return 3 * int(id); }
-vec3 ch_bone_point(int b, vec4 p) { return vec3(dot(CH_BONES[b], p), dot(CH_BONES[b + 1], p), dot(CH_BONES[b + 2], p)); }
-vec3 ch_bone_turn(int b, vec3 n) { return vec3(dot(CH_BONES[b].xyz, n), dot(CH_BONES[b + 1].xyz, n), dot(CH_BONES[b + 2].xyz, n)); }
+// S102 V1: a bone id outside the palette the block declares gives -1 and that bone reads as ZERO rows (a zero contribution) instead of a read past the block. Unused id slots hold 255
+// (the crowd card bake's u8x4 ids), and an unchecked 3 * 255 read the uniform block 12 KB past its start, beyond the 8 KB range bound (GPU-assisted validation; undefined without
+// robustBufferAccess). The 4090 read zeros there, so zero keeps every picture byte-equal; sending such an id to bone 0 changed 165 of 341 Brock frames (DEVICE_LOST.md section 8).
+int ch_bone(float id) { int b = 3 * int(id); return (b >= 0 && b <= CH_BONES.length() - 3) ? b : -1; }
+vec3 ch_bone_point(int b, vec4 p) { if (b < 0) return vec3(0.0); return vec3(dot(CH_BONES[b], p), dot(CH_BONES[b + 1], p), dot(CH_BONES[b + 2], p)); }
+vec3 ch_bone_turn(int b, vec3 n) { if (b < 0) return vec3(0.0); return vec3(dot(CH_BONES[b].xyz, n), dot(CH_BONES[b + 1].xyz, n), dot(CH_BONES[b + 2].xyz, n)); }
 
 // Blend position and normal across 1-4 bones. The last weight in use is whatever is left of 1.
 // With four bones the normal follows only the first three: the game's own shortcut, kept.

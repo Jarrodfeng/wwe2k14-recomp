@@ -1,0 +1,20 @@
+{
+ "owner": "S102 lane G3 (maps take turns): src/renderer_adapter/map_turns.h (planner, drawn-frame clock, stale-read ledger), the marked G3 lines in binder.h / live.cpp / live.h / reader.h / rdr_switches.h / gfx_applied.h, fview --turns / --turns-fault / --turns-list, tools/g3/*, docs/renderer/MAP_TURNS.md. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {"lever": "wwe2k14_rdr_turn_wrestler", "scene": "bryan", "side": "GPU", "ms": [0.0, 0.0], "note": "mean is unchanged against today's LOW half rate (it already leaves the wrestler maps out on every other frame); the PEAK frame falls ~1.5-2 ms because the wrestler chain and the props / plane maps no longer land on the same frames. Against a STANDARD start (no half rate) it is the shadow family's half: 1.5-2.0 ms. All unmeasured: no per-pass GPU time exists yet (S0-3)."},
+  {"lever": "wwe2k14_rdr_turn_rim", "scene": "bryan", "side": "GPU", "ms": [0.3, 0.6], "note": "half of S80's 1.0 ms rim map + its blur steps (51 draws, the biggest primitive block); the old half rate never touched it in the new renderer. ESTIMATE."},
+  {"lever": "wwe2k14_rdr_turn_props", "scene": "bryan", "side": "GPU", "ms": [0.0, 0.0], "note": "mean unchanged against today's LOW half rate; peak share of the wrestler line. Standalone: half of 2.0 ms (S80: props 0.27+, ring plane 1.58 before own blurs, 0.83 after). ESTIMATE."},
+  {"lever": "wwe2k14_rdr_half_rate_drawn_clock", "scene": "bryan", "side": "GPU", "ms": [0.0, 0.0], "note": "step 1, a correctness switch (default off): the LOW half rate alternates per DRAWN frame, not per bind; no saving claimed, the gain is a regular alternation on a machine that drops frames (the old parity froze or jumped after lasting-only binds). Jarrod decides the default after a Surface A/B."}
+ ],
+ "note": "unit = the drawn-frame clock + turn table on the real header and a planted copy (the bind-counting clock) that must fail; wiring = every switch defined, in the table, read per frame and gated on LOW, the plan reaching the op loop / the old half rate / copy alias, each link removed in a copy must fail; replay = fview headless on the Bryan entrance and the match: validation 0, stale-read ledger 0, counts fall as claimed, sheet per map, planted stuck-phase twins + the sweat twin caught by the ledger.",
+ "checks": [
+  {"name": "s102_g3.unit", "cmd": ["py", "-I", "tools/g3/g3_check.py", "--root", ".", "--part", "unit"], "timeout_s": 900, "affects": ["src/renderer_adapter/map_turns.h", "tools/g3/*.cpp", "tools/g3/*.py"]},
+  {"name": "s102_g3.wiring", "cmd": ["py", "-I", "tools/g3/g3_check.py", "--root", ".", "--part", "wiring"], "timeout_s": 300, "affects": ["src/renderer_adapter/map_turns.h", "src/renderer_adapter/binder.h", "src/renderer_adapter/live.cpp", "src/renderer_adapter/reader.h", "src/renderer_adapter/rdr_switches.h", "tools/g3/*.py"]},
+  {"name": "s102_g3.bryan", "cmd": ["py", "-I", "tools/g3/g3_check.py", "--root", ".", "--part", "replay", "--capture", "bryan"], "timeout_s": 5400, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"]},
+  {"name": "s102_g3.match", "cmd": ["py", "-I", "tools/g3/g3_check.py", "--root", ".", "--part", "replay", "--capture", "match"], "timeout_s": 5400, "needs": [
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "game_data/extracted"]}
+ ]
+}

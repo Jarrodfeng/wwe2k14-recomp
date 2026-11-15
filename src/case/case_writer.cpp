@@ -1,3 +1,4 @@
+#include "../thread_name.h"  // S102 H1
 #include "case_writer.h"
 
 #include <algorithm>
@@ -615,7 +616,7 @@ void WriteCaseAsync(Snapshot snapshot, CaseRequest request, std::function<void(c
     w.queue.push_back({std::move(snapshot), std::move(request), std::move(done)});
     if (!w.started) {
       w.started = true;
-      std::thread(WorkerLoop).detach();
+      std::thread([] { wwe2k14::NameThread(L"case_writer"); WorkerLoop(); }).detach();
     }
   }
   w.cv.notify_one();

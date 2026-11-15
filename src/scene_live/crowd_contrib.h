@@ -23,12 +23,15 @@
 // includes here: tools\scene\crowd_make.cpp drives the same API from the files.
 #pragma once
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include "../renderer_scene/live_scene.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::crowd {
 
@@ -62,6 +65,7 @@ class Contributor final : public live::Contributor {
  public:
   const char* Name() const override { return "crowd"; }
   void Emit(const FrameInfo& f, SceneTables& t, Counters& c) override;
+  bool Latch(const FrameInfo& f) override;   // S102 U1 (tail_latch.h): the snapshot copy every Emit path makes under mu_, taken while the game threads are parked
 
   // ---- hook side (any thread; cheap) -------------------------------------------------------------------------------------------
   // The crowd draw entry (sub_82519508) begins: the members of the draw so far are discarded (a tiled frame draws the crowd once per tile; the
@@ -87,6 +91,35 @@ class Contributor final : public live::Contributor {
   // palette, also for a type seen only at LOD 1 / 2. Off by default (the record's object count is the lane 27 contract); the live owner path turns it on.
   void SetPoseObjects(bool on) { pose_objects_ = on; }
 
+  // S102 T11 (switch wwe2k14_rdr_crowd_ids_once; fallback g_crowd_ids_once for tools): the census of the cached path, read by the log and by the offline test.
+  struct IdsStats {
+    uint64_t frames = 0;         // Emits that took the cached path
+    uint64_t declined = 0;       // Emits with the switch on that did not (nothing to write)
+    uint64_t id_hits = 0;        // member ids answered from the cache
+    uint64_t id_made = 0;        // member ids formatted (first sight of a (kind, type, index))
+    uint64_t id_uncached = 0;    // member ids formatted into a stack buffer (an index past kIdCacheMax)
+    uint64_t members = 0;
+  };
+  const IdsStats& IdsCensus() const { return ids_stats_; }
+  static constexpr uint32_t kIdCacheMax = 4096;  // member indices past this are formatted every time (no cache)
+  // S102 T19 (switch wwe2k14_rdr_crowd_run_markers; fallback g_crowd_run_markers for tools): the census of the marker path (crowd_contrib.cpp EmitRuns), read by the log and by the offline test.
+  struct RunStats {
+    uint64_t frames = 0;         // Emits that wrote markers
+    uint64_t declined_stale = 0; // Emits with the switch on and no new crowd draw (nothing written, as for the plain path)
+    uint64_t declined_empty = 0; // markers made for a draw with no recordable member (only the pose objects, if any, are written)
+    uint64_t runs = 0, members = 0, singles = 0;   // markers written, members in them, markers that hold one member
+  };
+  const RunStats& RunCensus() const { return run_stats_; }
+#ifdef RDR_CROWD_RUNS_PLANTS
+  int run_plant = 0;   // test only (crowd_run_markers_test.cpp): 1 a run is not broken where the person type / LOD (so the palette) changes; 3 `at` is taken after the pose objects. (g_run_plant 2, 4, 6, 7 are in the expander: rdr_scene::g_run_plant.)
+#endif
+#ifdef RDR_CROWD_IDS_PLANTS
+  // Test only (tools\crowd\crowd_ids_test.cpp): a planted cache fault. 0 none; 1 the id cache ignores the kind (block / floor / card share an entry);
+  // 2 it ignores the person type; 3 the arena's pac string is kept across an arena change; 4 the asset entry cache is keyed without the LOD.
+  int plant = 0;
+  // S102 T11b: 5 the pool field is kept per (type, index) without the kind (a block member's field answers a floor member); 6 the kept fields survive another pool (no id check).
+#endif
+
  private:
   std::mutex mu_;
   std::vector<MemberObs> building_;     // the draw thread's
@@ -94,12 +127,53 @@ class Contributor final : public live::Contributor {
   uint32_t building_other_ = 0, published_other_ = 0;
   uint32_t draw_ring_ = 0;
   uint64_t draw_seq_ = 0, emitted_seq_ = 0;
-  uint32_t stale_run_ = 0;               // consecutive Emits with no new crowd draw
+  size_t last_runs_ = 0;                 // S102 T19 F5: the previous marker record's run count (the next one reserves it)
+  uint32_t stale_run_ = 0;              // consecutive Emits with no new crowd draw
   std::array<std::vector<float>, kTypes * kLods> palettes_[2];  // [ring][slot = lod * 20 + type]
   std::array<std::vector<float>, kTypes * kLods> published_palettes_;  // the set of the ring the last draw read
   int arena_ = -1;
   bool pose_objects_ = false;
+
+  // ---- S102 T11 (the cached path; crowd_contrib.cpp) ----
+  void EmitCached(const FrameInfo& f, SceneTables& t, Counters& c);
+  const std::string* CachedId(uint32_t variant, uint32_t block, uint32_t n, PooledField** pooled = nullptr);
+  PooledField* PoolSlot(uint32_t variant, uint32_t block, uint32_t n);   // S102 SW1: the entry's kept pool field (made when absent); the same slot CachedId hands out   // S102 T11b: `pooled` = the entry's kept pool field
+  // variant: 0 block / 1 floor / 2 card with a known index; 3 / 4 / 5 the same with a per-record ordinal (no readable index)
+  std::array<std::array<std::vector<std::string>, kTypes>, 6> id_cache_;
+  // S102 T11b (wwe2k14_rdr_scene_strings_once; string_pool.h): the pool field of each cached id, kept beside it (same indices); dropped when the pool is another one.
+  std::array<std::array<std::vector<PooledField>, kTypes>, 6> id_pool_;
+  uint32_t pooled_for_ = 0;
+  std::array<std::array<std::array<std::string, kTypes>, kLods>, 2> entry_cache_;  // [card][lod][type]: the asset entry text
+  std::array<std::string, kTypes> pose_id_;                                          // "crowd:pose:TT"
+  std::string pac_cache_;
+  int pac_arena_ = -2;
+  std::vector<MemberObs> scratch_members_;
+  std::array<std::vector<float>, kTypes * kLods> scratch_palettes_;
+  IdsStats ids_stats_;
+  uint64_t ids_window_start_ = 0;
+  // ---- S102 U1 (docs\renderer\SWAP_TAIL.md): the inputs of one Emit, shared by the three paths (Emit, EmitCached, EmitRuns) ----
+  using Palettes = std::array<std::vector<float>, kTypes * kLods>;
+  void SnapLocked(bool& skip, bool& count_stale, std::vector<MemberObs>& members, Palettes& palettes, int& arena, uint32_t& other);   // mu_ held
+  // The snapshot for frame f: the latch's (swapped in) or one taken now under mu_. False = stale (nothing to emit; c.stale counted as before).
+  bool TakeInputs(const FrameInfo& f, Counters& c, std::vector<MemberObs>& members, Palettes& palettes, int& arena, uint32_t& other);
+  struct InputLatch {
+    LatchMark mark;
+    bool skip = false, count_stale = false;
+    std::vector<MemberObs> members;
+    Palettes palettes;
+    int arena = -1;
+    uint32_t other = 0;
+  };
+  InputLatch latch_;
+  // ---- S102 T19 (the marker path; crowd_contrib.cpp) ----
+  void EmitRuns(const FrameInfo& f, SceneTables& t, Counters& c);
+  RunStats run_stats_;
+  uint64_t run_window_start_ = 0;
 };
+
+// The switch's fallback where the cvar table is not live (offline tools); the game's table overrides it once it is.
+inline std::atomic<bool> g_crowd_ids_once{false};
+inline std::atomic<bool> g_crowd_run_markers{false};   // S102 T19: the same for wwe2k14_rdr_crowd_run_markers
 
 Contributor& The();         // the one instance (static lifetime)
 // (Registration: crowd_hooks.h RegisterCrowd(), game side only, so this file links without the writer.)

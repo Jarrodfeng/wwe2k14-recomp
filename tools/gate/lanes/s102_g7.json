@@ -1,0 +1,13 @@
+{
+ "owner": "S102 lane G7 (skin once): tools/g7/*, src/renderer/shaders/rdr_skin_once.comp, docs/renderer/SKIN_ONCE.md. 0 game runs, 0 Surface runs. The compute path in the renderer and the pre-skinned draw variants are NOT built (see the doc: the saving is arithmetic-small).",
+ "claim": [
+  {"lever": "wwe2k14_rdr_skin_once", "scene": "bryan", "side": "gpu", "ms": [0.0, 0.1], "note": "not built as a switch: 17.7k fewer skinned vertices a frame (49.5k -> 31.8k, shadow-layout passes; main is already once) is about 1 MFlop; the kernel is proven offline only"}
+ ],
+ "note": "kernel on the GPU == a float32 model on real Bryan shadow vertices (4/3/2/1 bones), 2 planted twins (another pass's palette, a wrong bone count) caught, census numbers on the Bryan entrance and the match capture (skinning once removes vertices). Headless compute through tools/native/compute_test (run_compute.exe from the main checkout).",
+ "checks": [
+  {"name": "s102_g7.kernel_census", "cmd": ["py", "-I", "tools/g7/g7_check.py", "--root", "."], "timeout_s": 900, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "out/native/compute_test/run_compute.exe"]}
+ ]
+}

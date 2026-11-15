@@ -3,6 +3,7 @@
 // <files>/last_launch.txt rather than starting anything, so a test can read what the phone's game would get.
 //   --files DIR       the app folder stand-in (default: out\launcher_mobile\files next to the build)
 //   --screen WxH      the phone's screen for "fill the screen" (default 3168x1440, Jarrod's Find X8 Ultra)
+#include "../thread_name.h"  // S102 H1
 #include <SDL3/SDL.h>
 
 #include <cstdlib>
@@ -93,7 +94,7 @@ void PickAudio(const fs::path& dir, const std::string& stem) {
         if (!list || !list[0]) return;
         std::vector<fs::path> files;
         for (int i = 0; list[i]; ++i) files.push_back(fs::u8path(list[i]));
-        std::thread([files] {
+        std::thread([files] { wwe2k14::NameThread(L"mob_plat_a");
           std::error_code ec;
           fs::create_directories(d, ec);
           int copied = 0;
@@ -123,7 +124,7 @@ void AddDlc(const fs::path& dlc_dir) {
         if (!list || !list[0]) return;
         std::vector<fs::path> files;
         for (int i = 0; list[i]; ++i) files.push_back(fs::u8path(list[i]));
-        std::thread([files] {
+        std::thread([files] { wwe2k14::NameThread(L"mob_plat_b");
           std::error_code ec;
           fs::create_directories(dir, ec);
           int copied = 0;
@@ -147,7 +148,7 @@ void ExportSaves(const fs::path&) { Message("PC test build: save export works on
 void ImportSaves(const fs::path&) { Message("PC test build: save import works on the phone only"); }
 
 void CheckForUpdate(const std::string& version) {
-  std::thread([version] {
+  std::thread([version] { wwe2k14::NameThread(L"mob_plat_c");
     Event e;
     e.kind = Event::kUpdate;
     // Session 81 test: WWE2K14_UPDATE_FILE=release.json offers that release (an android-v... one with an .apk asset)
@@ -176,7 +177,7 @@ void OpenUrl(const std::string& url) { SDL_OpenURL(url.c_str()); }
 // Session 81: the PC test build only pretends (so the app's update screens can be looked at): a download that counts up,
 // and an install that says so. The phone's real one is LauncherActivity.jDownloadUpdate / jInstallUpdate.
 void DownloadUpdate(const std::string&, const std::string&) {
-  std::thread([] {
+  std::thread([] { wwe2k14::NameThread(L"mob_plat_d");
     constexpr unsigned long long total = 60u << 20;
     for (unsigned long long done = 0; done < total; done += 4u << 20) {
       Event e;

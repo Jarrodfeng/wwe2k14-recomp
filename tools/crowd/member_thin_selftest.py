@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXE = ROOT / 'out' / 'tools' / 'member_thin_test.exe'
-PLANTS = ['run_per_frame', 'calls_collapsed', 'drop_first', 'no_palette_dropped', 'tiled_double', 'stale_ignored', 'slack_ignored', 'no_latch', 'hole_ignored', 'skipped_as_hole', 'proven_per_card', 'no_proof', 'stamp_ignored', 'weak_check', 'floor_site_dropped_unobserved', 'drop_all', 'refused_as_fullbad', 'repeated_run_boundary', 'stamp_offset0', 'elsewhere_ignored', 'miss_ignored', 'ambiguous_counts', 'stamp_unproven_dropped', 'verify_blind', 'judge_count_only', 'stale_streak_kept']
+PLANTS = ['run_per_frame', 'calls_collapsed', 'drop_first', 'no_palette_dropped', 'tiled_double', 'stale_ignored', 'slack_ignored', 'no_latch', 'hole_ignored', 'skipped_as_hole', 'proven_per_card', 'no_proof', 'stamp_ignored', 'weak_check', 'floor_site_dropped_unobserved', 'drop_all', 'refused_as_fullbad', 'repeated_run_boundary', 'stamp_offset0', 'elsewhere_ignored', 'miss_ignored', 'ambiguous_counts', 'stamp_unproven_dropped', 'verify_blind', 'judge_count_only', 'stale_streak_kept', 'cut_exclusion_ignored', 'cut_off_skips', 'sticky_cut_seen', 'flag_from_cut', 'mode_per_call']
 
 if not EXE.exists():
     print(f'FAIL: {EXE} does not exist (build it: tools/crowd/build_member_thin_test.ps1)')

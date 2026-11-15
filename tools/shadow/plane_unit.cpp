@@ -57,8 +57,8 @@ static void RecordChecks() {
   Check(parsed && a == SerializeRecord(back), "record.round_trip_bytes", "write -> read -> write");
   Check(parsed && back.plane_frames.size() == 2 && back.plane_draws.size() == 3 && std::memcmp(back.plane_frames.data(), t.plane_frames.data(), 2 * sizeof(PlaneFrame)) == 0 &&
             std::memcmp(back.plane_draws.data(), t.plane_draws.data(), 3 * sizeof(PlaneDraw)) == 0, "record.tables_equal", "2 frames, 3 draws");
-  Check(sizeof(PlaneFrame) == 200 && sizeof(PlaneDraw) == 160 && kScPlaneFrames == 18 && kScPlaneDraws == 19 && kScCount == 28 && kPlaneLayoutVersion == 1, "record.ids_pinned",
-        "enum ids 18 / 19 before kScCount 28 (ring ids 20 / 21 added by lane 194, caster ids 22 / 23 by lane 202, 24 by lane 217, 25 by lane 221, 26 by lane 226, 27 by lane 242), element sizes 200 / 160, layout version 1");
+  Check(sizeof(PlaneFrame) == 200 && sizeof(PlaneDraw) == 160 && kScPlaneFrames == 18 && kScPlaneDraws == 19 && kScCount >= 28 && kPlaneLayoutVersion == 1, "record.ids_pinned",
+        "enum ids 18 / 19 before kScCount (>= 28) (ring ids 20 / 21 added by lane 194, caster ids 22 / 23 by lane 202, 24 by lane 217, 25 by lane 221, 26 by lane 226, 27 by lane 242), element sizes 200 / 160, layout version 1");
   SceneTables old;
   old.header.guest_frame = 5;
   const std::vector<uint8_t> o = SerializeRecord(old);

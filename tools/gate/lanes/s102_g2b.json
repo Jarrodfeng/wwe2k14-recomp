@@ -1,0 +1,10 @@
+{
+ "owner": "S102 lane G2b (exclusive fullscreen, no DWM compositing): src/renderer/exclusive_policy.h, swapchain.cpp/.h (S102 G2b regions), device.cpp/.h (extension probe), renderer.cpp/.h (option plumbing), reader.h / live.h / live.cpp (the cvar and the option), rdr_switches.h (one table line), rplay --exclusive-fullscreen, tools/g2b/*, docs/renderer/OUTPUT_PASS.md 'Lane G2b'. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {"lever": "wwe2k14_rdr_exclusive_fullscreen", "scene": "bryan", "side": "gpu", "ms": [0.0, 2.5], "note": "ESTIMATE, unmeasured: the part of the 3D-engine busy time that is Windows compositing our 2736x1824 window (R1 finding 2: engine 90-95 % busy vs our bracket 69-70 %, 20-25 points outside our command buffer). Independent flip removes the DWM copy / blend of the window; the true saving may be 0 when the window already flips independently (then the A/B reads 0 and the lead closes). Needs the Surface A/B in OUTPUT_PASS.md 'Lane G2b'"}
+ ],
+ "note": "unit = exclusive_policy.h decisions (switch off = no structs, extension missing = unsupported + normal path, lost event = fallback once) with 4 planted twin headers; wiring = the structs exist in one place behind ChainStructs(), Present and Acquire both turn a lost result into a rebuild + one line, plus 3 planted wiring twins. No window is opened: the Vulkan side cannot run without one (see OUTPUT_PASS.md).",
+ "checks": [
+  {"name": "s102_g2b.unit_wiring", "cmd": ["py", "-I", "tools/g2b/g2b_check.py", "--root", "."], "timeout_s": 600}
+ ]
+}

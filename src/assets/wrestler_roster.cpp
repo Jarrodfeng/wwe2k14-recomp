@@ -21,6 +21,7 @@
 #pragma clang diagnostic pop
 #endif
 
+#include "../thread_name.h"  // S102 H1
 #include "wrestler_roster.h"
 
 #include <algorithm>
@@ -148,7 +149,7 @@ bool Roster::Build(const std::string& game_root, std::string& error) {
 void Roster::BuildAsync(const std::string& game_root) {
   Join();
   state_ = 0;
-  impl_->worker = std::thread([this, game_root] {
+  impl_->worker = std::thread([this, game_root] { wwe2k14::NameThread(L"roster_scan");
     std::string e;
     if (Build(game_root, e)) state_ = 1;
     else error_ = e, state_ = 2;
@@ -162,7 +163,7 @@ std::shared_future<std::shared_ptr<Model>> Roster::LoadModelAsync(int index, boo
     std::lock_guard<std::mutex> lk(impl_->qmu);
     impl_->jobs.push_back(std::move(job));
     if (!impl_->loader.joinable()) {
-      impl_->loader = std::thread([this] {
+      impl_->loader = std::thread([this] { wwe2k14::NameThread(L"roster_loader");
         for (;;) {
           Impl::Job j;
           {
@@ -344,7 +345,7 @@ bool Roster::BuildEdit(const std::string& game_root, std::string& error, const s
 void Roster::BuildEditAsync(const std::string& game_root, const std::string& cache_path) {
   Join();
   state_ = 0;
-  impl_->worker = std::thread([this, game_root, cache_path] {
+  impl_->worker = std::thread([this, game_root, cache_path] { wwe2k14::NameThread(L"roster_scan2");
     std::string e;
     if (BuildEdit(game_root, e, cache_path)) state_ = 1;
     else error_ = e, state_ = 2;

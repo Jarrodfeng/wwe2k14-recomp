@@ -1,10 +1,13 @@
 # Builds the renderer and its player on their own: no SDK, no game build, no run lock. Only changed files are recompiled.
-#   pwsh -NoProfile -File tools\renderer\build.ps1 [-Release] [-Clean] [-NoShaders]
+#   pwsh -NoProfile -File tools\renderer\build.ps1 [-Release] [-Surface] [-Clean] [-NoShaders]
+# S102 M2: -Surface = a release rplay.exe with the C runtime linked in statically (-fms-runtime-lib=static), into out\renderer\surface\, so it starts on the
+# Surface Pro 6 (Windows 11 x64, Intel UHD 620) with only the Vulkan loader (vulkan-1.dll, with the Intel driver) and no VC++ redistributable.
 # -NoShaders keeps the shader headers as they are: for a C++ change while someone is mid-edit on an effect.
-param([switch]$Release, [switch]$Clean, [switch]$NoShaders)
+param([switch]$Release, [switch]$Surface, [switch]$Clean, [switch]$NoShaders)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$kind = if ($Release) { 'release' } else { 'dev' }
+if ($Surface) { $Release = $true }
+$kind = if ($Surface) { 'surface' } elseif ($Release) { 'release' } else { 'dev' }
 $out = Join-Path $repo "out\renderer\$kind"
 $objects = Join-Path $out 'obj'
 if ($Clean -and (Test-Path $objects)) { Remove-Item -Recurse -Force -Confirm:$false $objects }
@@ -17,7 +20,8 @@ if (-not $NoShaders) {
 
 $clang = 'C:\Program Files\LLVM\bin\clang++.exe'
 $sdk = (Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name | Select-Object -Last 1).FullName
-$flags = @('-std=c++20', '-Wall', '-Wextra', '-Wno-unused-parameter', '-Wno-missing-field-initializers', '-g', "-I$sdk\Include", '-D_CRT_SECURE_NO_WARNINGS', '-MMD')
+$flags = @('-std=c++20', '-Wall', '-Wextra', '-Wno-unused-parameter', '-Werror=switch', '-Wno-missing-field-initializers', '-g', "-I$sdk\Include", '-D_CRT_SECURE_NO_WARNINGS', '-MMD')
+if ($Surface) { $flags += @('-fms-runtime-lib=static') }   # S102 M2
 if ($Release) { $flags += @('-O2', '-DNDEBUG') } else { $flags += @('-O1', '-DRDR_DEV') }
 
 $sources = @(Get-ChildItem (Join-Path $repo 'src\renderer') -Recurse -Filter '*.cpp' | Where-Object { $_.Name -notlike '*_test.cpp' } | Select-Object -ExpandProperty FullName)

@@ -59,6 +59,7 @@ class Arm:
         for _ in range(12):
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, errors='replace')
             self.text = (p.stdout or '') + (p.stderr or '')
+            self.rc = p.returncode   # S102 G5 (F1 class fix): the exit code is read (4 = validation errors, counted below)
             if 'Not enough graphics memory for the frame ring' not in self.text:
                 break
             import time
@@ -67,6 +68,8 @@ class Arm:
             print(self.text[-2500:])
             raise RuntimeError('arm %s wrote no hashes' % name)
         self.hashes = read_hashes(hashes)
+        if self.rc not in (0, 4):
+            raise RuntimeError('arm %s: fview exit %d (a crash, not a validation count)' % (name, self.rc))
         v = VALID_RE.findall(self.text)
         self.valid = int(v[-1]) if v else -1
         self.classes = {m.group(1): tuple(map(float, m.groups()[1:])) for m in CLASS_RE.finditer(self.text)}

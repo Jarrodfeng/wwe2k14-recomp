@@ -1,0 +1,10 @@
+{
+  "claim": {"scene": "bryan", "side": "all (the sum of the kept levers; each was measured on the Surface, the bundle is not a new lever)", "ms": [0, 0]},
+  "note": "S102 bundle 3: every Surface-kept renderer lever as a player default (src/bundle3.h, docs/renderer/BUNDLE3.md). lint = tools/bundle3/lint.py: bundle == base_flags.txt minus the documented exclusions, values equal, every cvar defined, every lever a PerFrame table switch or a documented later read; prints both lists. selftest: five planted twins (extra lever in base_flags.txt, extra in the bundle, one removed, a value changed, a typo cvar) must each fail. game_syntax = main.cpp + live.cpp as the PC game builds them. android_syntax = the arm64 NDK -fsyntax-only compile of main.cpp (which includes wwe2k14_app.h, replay_watch.h, nf/*) and live.cpp, no device. 0 game runs. The ms claim is 0: the levers' own rows hold the milliseconds; the Surface bar for the bundle is the main session's.",
+  "checks": [
+    {"name": "s102_bundle3.lint", "cmd": ["py", "-I", "tools/bundle3/lint.py"], "timeout_s": 120, "affects": ["src/bundle3.h", "tools/surface/base_flags.txt", "tools/bundle3/lint.py", "src/renderer_adapter/rdr_switches.h"]},
+    {"name": "s102_bundle3.lint_selftest", "cmd": ["py", "-I", "tools/bundle3/lint.py", "--selftest"], "timeout_s": 120, "affects": ["src/bundle3.h", "tools/surface/base_flags.txt", "tools/bundle3/lint.py"]},
+    {"name": "s102_bundle3.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/bundle3.h", "src/wwe2k14_app.h"]},
+    {"name": "s102_bundle3.android_syntax", "cmd": ["pwsh", "-NoProfile", "-File", "tools/android/wt_syntax_check_game.ps1", "-Worktree", ".", "-Files", "main.cpp,renderer_adapter/live.cpp"], "timeout_s": 900, "needs": ["out/android/game-arm64"], "affects": ["src/bundle3.h", "src/wwe2k14_app.h"]}
+  ]
+}

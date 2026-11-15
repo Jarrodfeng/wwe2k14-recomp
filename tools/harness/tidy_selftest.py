@@ -569,7 +569,7 @@ def suite_s294(script, base, R):
     w = World(base, 's294')
     now = time.time()
     write(w.p('tools', 'x.py'), '# a tool\n')
-    write(w.p('tools', 'x_check.py'), '# a check\n')
+    write(w.p('tools', 'x_check.py'), "B = open('out/s9/runs/20261110_060000_routeD/note.txt')\n")      # S102 K1: a tool a KEEP cites must name the folder itself
     write(w.p('tools', 'pfx_check.py'), "G = 'out/s9/runs/20261110_05*/case_*.zip'\nH = 'out/s9/runs/zzz_*/case_*.zip'\n")     # S4: glob prefixes
     write(w.p('tools', 'gate', 'lanes', 'case.json'), '{"checks": []}')                                                          # a lane called "case"
     write(w.p('STATUS.md'), 'the runs are in out/s9/runs and out\\s9\\runs\n')                                                    # S1: a doc naming a namespace

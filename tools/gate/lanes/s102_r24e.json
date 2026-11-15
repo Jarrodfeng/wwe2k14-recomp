@@ -1,0 +1,19 @@
+{
+ "owner": "S102 lane R24-E (R24 section 9.2 items 1-3, the small GPU passes): switch wwe2k14_rdr_gpu_small (PerFrame mask, default 0; src/renderer/gpu_small.h, post_pass.cpp, live.cpp, rdr_switches.h, reader.h, rplay --gpu-small / --gpu-small-plant / arm kind 7). Bit 1 = our post pass leaves out the quarter-size depth-of-field chain (the two 320x180 passes) when nothing reads it (DOFParam2.x <= 0, a separate far blur, no bloom / glare): BUILT. Bits 2 (rim chain skip) and 4 (pre-light memo) are NOT BUILT: the census (tools/r24e/rim_prelight_census.py) found their inputs differ from the previous frame on every frame. docs/renderer/GPU_SMALL.md. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {"scene": "bryan", "side": "GPU", "ms": [0.5, 0.65], "switch": "wwe2k14_rdr_gpu_small=1", "basis": "R24 section 9 drained table: our chain's two 320x180 steps (other pass image 39 0.70 + image 38 0.18 = 0.88 ms drained) x 0.70 (drained to shipped) = 0.62 ms [E]; 0.5 allows for the table's stamp inflation of small steps. The game's own first-layer chain (post image 45, 0.89 drained) is the stream's and stays. Bryan's entrance two-layer frames only (237 of 237 here); matches, Brock, wm30 decline (near blur live / bloom live). Own A/B (an in-run flip), not the combined one."},
+  {"scene": "bryan", "side": "GPU", "ms": [0.0, 0.0], "switch": "wwe2k14_rdr_gpu_small=2 and =4", "basis": "not built: the rim chain's and the pre-light bake's inputs differ from the previous frame on every captured frame (census), so no memo can remove their work"}
+ ],
+ "note": "proof (gpu_small_check.py, rplay only): Bryan replayed with the lever off / on / flipped every 60 frames / planted / validation 1 and 3; every shot byte-equal; the role audit shows exactly 2 passes fewer per taken frame; wm30 declines and a planted skip where the chain is read moves the picture; the rim / pre-light census.",
+ "checks": [
+  {"name": "s102_r24e.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1800},
+  {"name": "s102_r24e.proof", "cmd": ["py", "-I", "tools/r24e/gpu_small_check.py", "--root", "."], "timeout_s": 3000,
+   "needs": ["out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin", "out/s101/lane92/case_20261113_093550_855_0_pc_run_exit/capture/images.bin", "out/lane86/wm30/capture/images.bin"], "exes": ["out/renderer/dev/rplay.exe"],
+   "affects": ["tools/r24e/gpu_small_check.py", "tools/r24e/gpu_small_test.cpp", "tools/r24e/rim_prelight_census.py", "src/renderer/gpu_small.h", "src/renderer_scene/post_pass.cpp", "src/renderer_scene/post_pass.h", "src/renderer/player/rplay.cpp", "src/renderer_adapter/live.cpp", "src/renderer_adapter/rdr_switches.h"]},
+  {"name": "s102_r24e.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py", "--root", "."], "timeout_s": 300},
+  {"name": "s102_r24e.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/main.cpp", "src/renderer_adapter/*.h", "src/renderer_adapter/live.cpp"]},
+  {"name": "s102_r24e.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120}
+ ]
+}

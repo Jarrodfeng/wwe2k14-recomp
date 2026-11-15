@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../renderer/combine_lite.h"  // S102 R18-B2
+#include "../renderer/gpu_small.h"    // S102 R24-E
 #include "../renderer/shaders/spv/fx_registry.h"
 #include "../renderer/shaders/spv/rdr_fullscreen_vert.h"
 #include "../renderer/shaders/spv/rdr_post_depth_frag.h"
@@ -115,7 +117,15 @@ bool PostPass::Ensure(uint32_t w, uint32_t h, bool scaled, std::string& error) {
   return true;
 }
 
-bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId depth, rdr::ImageId out, const PostParams& p, std::string& error) {
+bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId depth, rdr::ImageId out, const PostParams& p_in, std::string& error) {
+  PostParams forced_copy;   // S102 R24-E (tool only): rplay arm kind 7 forces DOFParam2.x so a capture can cross x = 0
+  const PostParams* use = &p_in;
+  if (rdr::g_gpu_small_force.load(std::memory_order_relaxed)) {
+    forced_copy = p_in;
+    forced_copy.DOFParam2[0] = rdr::CombineLiteFloat(rdr::g_gpu_small_force_x.load(std::memory_order_relaxed));
+    use = &forced_copy;
+  }
+  const PostParams& p = *use;
   passes_ = 0;
   combined_ = false;  // S101 lane PO
   if (colour == rdr::kNoImage || out == rdr::kNoImage || ((p.dof || p.fog || p.dof_chain) && depth == rdr::kNoImage)) { error = "post pass: a missing input image"; return false; }  // (yGlareEtc_fog reads the depth too)
@@ -124,6 +134,16 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
   // S101 lane PS: the dead work. The chain's parts that the combine multiplies by zero are not recorded; the images it still reads are cleared.
   const bool run_blur = bloom && !p.dead_bloom, run_glare = p.glare && !p.dead_glare, run_bright = run_blur || run_glare;
   const bool variant_bloom = bloom || p.bloom_variant;  // the combine has the bloom permutation
+  // S102 R18-B2 (level 1 of wwe2k14_rdr_combine_lite, a REMOVAL): when neither the bloom blur nor the glare is recorded, the combine's bloom and star images are black (cleared just below), so the bloom
+  // permutation adds 0 * scale: the permutation WITHOUT bloom is picked instead, and the two clears are not made (2 fetches a pixel and 2 passes less). Exact: x + 0 * c is x for a finite scale.
+  const bool lite_on = rdr::g_combine_lite.load(std::memory_order_relaxed) >= 1;
+  const bool drop_bloom = lite_on && variant_bloom && !run_blur && !run_glare;
+  // S102 R24-E (wwe2k14_rdr_gpu_small bit 1, gpu_small.h): the quarter-size DoF chain nothing reads is not recorded. The combine reads q2_ only in slot 2 (the near blur: only where DOFParam2.x > 1 - depth)
+  // and in slot 6 when no earlier layer made the far blur; the bright pass (bloom / glare) reads it too. A removal: slot 2 is bound to the scene colour (a valid image the shader never samples then).
+  const bool gs_has_chain = p.dof;
+  const rdr::GpuSmallWhy gs_why = rdr::GpuSmallDecide(rdr::g_gpu_small.load(std::memory_order_relaxed), p.DOFParam2[0], p.far_blur != rdr::kNoImage, run_bright || p.dof_chain, p.depth_from_viewer, gs_has_chain, p.depth_clamped);
+  const bool skip_near = gs_why == rdr::kGsTaken;
+  if (gs_why != rdr::kGsOff) rdr::GpuSmallNote(gs_why, p.DOFParam2[0], skip_near ? (p.t2_blur ? 1u : 2u) : 0u);   // the census: relaxed counters, once per record
   if (p.film && mid_ == rdr::kNoImage) mid_ = Make(p.width, p.height);
   if (p.film && mid_ == rdr::kNoImage) { error = "post pass: could not create the film image"; return false; }
 
@@ -242,6 +262,8 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
     depth = dconv_;
   }
 
+  if (skip_near) {   // S102 R24-E: nothing reads the quarter-size chain (see above)
+  } else
   if (p.t2_blur) {   // lane 140: the blur is one t2 pass over the stream's own quarter-size picture (no dof_down, no hole_fill)
     if (p.blur_source == rdr::kNoImage) { error = "post pass: the t2 blur has no source image"; return false; }
     if (!need("yBlur_t2_fragment", ps)) return false;
@@ -285,7 +307,7 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
     // the bloom is b1_ now
     }
   }
-  if (variant_bloom && !run_blur) {  // S101 lane PS: the combine reads slot 7: black where the bloom is dead or not recorded
+  if (variant_bloom && !run_blur && !drop_bloom) {  // S101 lane PS (S102 R18-B2: not when the permutation without bloom is used): the combine reads slot 7: black where the bloom is dead or not recorded
     rdr::TargetsOp t;
     t.color[0].image = b1_;
     t.color_count = 1;
@@ -307,7 +329,7 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
     Regs m;
     m.SetN(16, p.glare_merge, 4);
     pass(gsum_, ew, eh, vs_quad, m12, m, {{0, g_[0], p.glare_merge_linear[0]}, {1, g_[1], p.glare_merge_linear[1]}, {2, g_[2], p.glare_merge_linear[2]}, {3, g_[3], p.glare_merge_linear[3]}});
-  } else if (variant_bloom) {  // S101 lane PS: was `else if (bloom)`
+  } else if (variant_bloom && !drop_bloom) {  // S101 lane PS: was `else if (bloom)` (S102 R18-B2: not when the permutation without bloom is used)
     rdr::TargetsOp t;  // bloom without glare: the star term is black
     t.color[0].image = gsum_;
     t.color_count = 1;
@@ -319,11 +341,12 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
 
   // The combine.
   if (p.stop_before_combine) return true;  // S101 lane PO planted fault: the combine is left out (combined_ stays false)
-  const std::string name = CombineVariantName(p);
+  if (lite_on) rdr::CombineLiteNote(drop_bloom, p.DOFParam2[2], p.BloomScale[0], p.StarScale[0]);   // S102 R18-B2: the census's per-draw facts (relaxed stores / adds, no string, no lock)
+  const std::string name = rdr::CombineLiteName(CombineVariantName(p, drop_bloom), [&](const char* n) { return Find(n) >= 0; });  // S102 R18-B2: the lite twin at the per-frame switch (combine_lite.h)
   if (!need(name.c_str(), ps)) return false;
   Regs c;
   c.Set(20, p.DOFParam), c.Set(21, p.DOFParam2), c.Set(27, p.RGB), c.Set(29, p.Alpha), c.Set(30, p.ZAdj), c.Set(31, p.BloomScale), c.Set(32, p.StarScale);
-  const rdr::ImageId blur = p.dof ? q2_ : colour;
+  const rdr::ImageId blur = skip_near ? colour : (p.dof ? q2_ : colour);   // S102 R24-E: skip_near binds slot 2 to the scene colour (never sampled then)
   pass(p.film ? mid_ : out, w, h, vs_glare, ps, c, {{0, colour, true}, {2, blur, true}, {3, depth, false}, {6, p.far_blur != rdr::kNoImage ? p.far_blur : blur, true}, {7, b1_, true}, {8, gsum_, true}});  // S101 lane PS: far_blur
   combined_ = true;  // S101 lane PO
   if (p.film) {
@@ -336,11 +359,11 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
   return true;
 }
 
-std::string PostPass::CombineVariantName(const PostParams& p) {  // S101 lane PO
+std::string PostPass::CombineVariantName(const PostParams& p, bool drop_bloom) {  // S101 lane PO (S102 R18-B2: drop_bloom)
   std::string name = "yGlareEtc_";
   if (p.dof) name += "dof_";
   if (p.fog) name += "fog_";
-  if (p.bloom || p.glare || p.bloom_variant) name += "bloom_";
+  if (!drop_bloom && (p.bloom || p.glare || p.bloom_variant)) name += "bloom_";
   if (name == "yGlareEtc_") name += "base_";
   return name + "fragment";
 }

@@ -1,0 +1,8 @@
+{
+ "_note": "S102 K1: out\\ folders that gate lanes name but that a gate step or a tool rebuilds when absent (build outputs, caches, a lazy unpack). tidy.py --missing lists them as regenerable, not MISSING GATE INPUT, while the recipe file exists. Never a capture: a lost capture has no recipe.",
+ "out/caster": "tools/caster/build_caster_rows.ps1",
+ "out/ring": "tools/ring/build_ring_rows.ps1",
+ "out/sphere": "tools/sphere/build_sphere_rows.ps1",
+ "out/s101/copy_readers": "tools/gate/lanes/copy_readers.json",
+ "out/l159/j1/capture": "tools/shadow/plane_shadow_check.py"
+}

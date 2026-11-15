@@ -1,0 +1,38 @@
+{
+ "owner": "S102 lane T17 (the prop-mesh load off the frame that first uses it): src/renderer_scene/props_budget.h (switch globals, the worker's Pre tables, FitMips), props_ours.{h,cpp} (budgeted first use, census line [rdr][props_budget]), props_ours_core.{h,cpp} (SetPre / Deferred, FileHash reads the worker's table), switches wwe2k14_rdr_props_budget / _bytes / _us (rdr_switches.h, reader.h, live.cpp), fview --props-budget / --props-budget-bytes / --props-budget-us / --props-budget-plant / --frame-times (main.cpp, app.h, session.{h,cpp}), tools/props/props_budget_check.py, docs/systems/props_budget.md. 0 game runs, 0 Surface runs.",
+ "claim": {
+  "scene": "bryan",
+  "side": "render",
+  "stat": "max frame (the worst render-thread frame of the entrance) and the 1 % low, not the mean",
+  "ms": [
+   0.8,
+   5.0
+  ],
+  "switch": "wwe2k14_rdr_props_budget",
+  "basis": "R14 section 5: +10 ms on one render-thread frame (props load, frames 14.9 / 17.3 / 22.4 ms against a median 12.5; 1 event a window, +0.2 ms at p99, about +10 ms at the max). MEASURED on the PC (4090, fview, Check F, the biggest ms inside the hook in one frame, 1 run per arm on a PC busy with other lanes, so +-1 ms): off 4.0, worker tables only (pre_only: huge budget) 1.8, budgeted Decide + making with --props-budget-us 1 0.8, bytes budget 256 KB 1.4. Credit: the worker's file hashes ~2.2 ms (off -> pre_only); the budgeted Decide and making a further ~1.0 ms (pre_only -> us1: Decide is now in the budget, a cold object is deferred before it); the bytes budget alone ~0.4. A quiet-PC run before the review fixes read 1.4 off, 0.8 on. Under the shipped defaults (2 MB, 1000 us) the hook spreads Check F's first use over 3 frames (deferred 103 draws, 94 of them before Decide). The Surface figure 5 ms is an ESTIMATE, unmeasured (the same CPU work on slower cores plus staging copies); the lever cannot reach R14's 10 ms unless the rest of that frame is this work, unconfirmed. Bryan's capture has no scene records: his own bytes are unmeasured."
+ },
+ "note": "build = tools/fview/build.ps1 (the gate's exes). One check: fview replays Check F (337 frames, props on) in arms off / on / tight (262144 bytes) with picture hashes and per-frame times; the judge (exit 0, validation errors 0, every frame's hash equal to off, overrun 0, frames over the budget <= fallback, images made == kept) must pass on the real arms and FAIL on the three twins (no_budget, hole, image_twice); timing medians of 3 runs. Needs Check F's case zip, the game files, fview.exe.",
+ "checks": [
+  {
+   "name": "s102_t17.proof",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/props/props_budget_check.py",
+    "--root",
+    ".",
+    "--no-build",
+    "--runs",
+    "2"
+   ],
+   "timeout_s": 3600,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_101633_s100_owner_s89_brock",
+    "game_data/extracted"
+   ]
+  }
+ ]
+}

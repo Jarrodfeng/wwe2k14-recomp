@@ -34,6 +34,7 @@
 
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
@@ -245,7 +246,7 @@ class ThreadPlacement {
 
     wake_event_ = wake;
     stop_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (stop_event_) thread_ = CreateThread(nullptr, 0, &ThreadPlacement::ThreadMain, this, 0, nullptr);
+    if (stop_event_) thread_ = CreateThread(nullptr, 0, &ThreadPlacement::ThreadMain, this, 0, /* thread-named-in: ThreadMain */ nullptr);
     if (!thread_) {
       const DWORD error = GetLastError();
       REXLOG_WARN("[wwe2k14][placement] could not start the watcher thread (error {}); placement off", error);
@@ -365,6 +366,7 @@ class ThreadPlacement {
   }
 
   static DWORD WINAPI ThreadMain(LPVOID self) {
+    wwe2k14::NameThread(L"thread_place");  // S102 H1
     static_cast<ThreadPlacement*>(self)->Run();
     return 0;
   }

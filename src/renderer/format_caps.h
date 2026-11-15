@@ -19,6 +19,7 @@ enum FormatCapMask : uint32_t {
   kCapNoLinear16F = 1u << 3,       // R16 / RG16 / RGBA16 SFLOAT lose linear filtering
   kCapNoBlend16F = 1u << 4,        // ... lose blending
   kCapNoBlendRgb10A2 = 1u << 5,    // A2B10G10R10 loses blending
+  kCapNoBC = 1u << 6,              // S102 U1: BC1-BC5 cannot be sampled (Mali / Xclipse / Adreno 6xx): the decode path (bc_decode.h), or with bc_decode 0 the old refusal
   kCapFallbacksOff = 0x80000000u,  // the re-find: ask the driver for the unsupported thing anyway (counted, never for play)
 };
 
@@ -27,6 +28,10 @@ inline bool IsFloat16Format(VkFormat f) { return f == VK_FORMAT_R16_SFLOAT || f 
 inline bool IsNorm16Format(VkFormat f) {
   return f == VK_FORMAT_R16_UNORM || f == VK_FORMAT_R16G16_UNORM || f == VK_FORMAT_R16G16B16A16_UNORM || f == VK_FORMAT_R16_SNORM || f == VK_FORMAT_R16G16_SNORM ||
          f == VK_FORMAT_R16G16B16A16_SNORM;
+}
+
+inline bool IsBcFormat(VkFormat f) {
+  return f == VK_FORMAT_BC1_RGBA_UNORM_BLOCK || f == VK_FORMAT_BC2_UNORM_BLOCK || f == VK_FORMAT_BC3_UNORM_BLOCK || f == VK_FORMAT_BC4_UNORM_BLOCK || f == VK_FORMAT_BC5_UNORM_BLOCK;
 }
 
 // `features` as the device reports them, minus what the test mask pretends is missing.
@@ -38,6 +43,7 @@ inline VkFormatFeatureFlags ApplyFormatCapMask(VkFormat format, VkFormatFeatureF
   if ((mask & kCapNoLinear16F) && IsFloat16Format(format)) features &= ~VkFormatFeatureFlags(VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT);
   if ((mask & kCapNoBlend16F) && IsFloat16Format(format)) features &= ~VkFormatFeatureFlags(VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT);
   if ((mask & kCapNoBlendRgb10A2) && format == VK_FORMAT_A2B10G10R10_UNORM_PACK32) features &= ~VkFormatFeatureFlags(VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT);
+  if ((mask & kCapNoBC) && IsBcFormat(format)) features = 0;
   return features;
 }
 

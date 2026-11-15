@@ -9,7 +9,7 @@
 #   ... -Seconds 60 -NoGame      a test sample without a game running
 # Columns: time (HH:mm:ss.fff, the Surface's clock = the run log's), t_s, then one column per counter instance
 # (rapl_pkg, rapl_pp0, rapl_pp1, rapl_dram: Energy Meter Power, milliwatts (idle test: PKG 1277, PP0 743, DRAM 543);
-# rapl_*_pwh: the cumulative Energy counters in picowatt-hours; cpu_utility, cpu_perf, cpu_freq_mhz, perf_limit,
+# rapl_*_pwh: the cumulative Energy counters in picowatt-hours; cpu_utility, cpu_perf, cpu_nominal_mhz (renamed Session 102: constant, not a clock), perf_limit,
 # perf_limit_flags (no thermal-zone temperature on this machine, see below),
 # gpu3d_pct (sum of the 3D engines' utilisation, all processes), self_cpu_ms (this logger's own CPU time that second)).
 # Hard timeout -MaxSeconds (default 3600). Read on the PC: tools\surface\power_read.py.
@@ -32,7 +32,7 @@ $wanted = @(
   @('rapl_dram', '\Energy Meter(RAPL_Package0_DRAM)\Power'),
   @('cpu_utility', '\Processor Information(_Total)\% Processor Utility'),
   @('cpu_perf',    '\Processor Information(_Total)\% Processor Performance'),
-  @('cpu_freq_mhz', '\Processor Information(_Total)\Processor Frequency'),
+  @('cpu_nominal_mhz', '\Processor Information(_Total)\Processor Frequency'),   # S102 S0-2: was cpu_freq_mhz; it reads the NOMINAL 1600 in every row (not a measured clock)
   @('perf_limit',       '\Processor Information(_Total)\% Performance Limit'),
   @('perf_limit_flags', '\Processor Information(_Total)\Performance Limit Flags'),
   # Energy: cumulative picowatt-hours (exact mean power over any window = delta energy / delta time).

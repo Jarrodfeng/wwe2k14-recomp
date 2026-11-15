@@ -10,6 +10,7 @@
 
 #if defined(__ANDROID__) || defined(WWE_MUSIC_SDL_PLAYER)  // lane 297: the phone launcher's preview uses it too (WWE_MUSIC_SDL_PLAYER also builds it on the PC test build)
 
+#include "thread_name.h"  // S102 H1
 #include <SDL3/SDL.h>
 #if __has_include(<rex/logging.h>)
 #include <rex/logging.h>
@@ -52,7 +53,7 @@ class Player {
       std::lock_guard lock(m_);
       if (!started_) {
         started_ = true;
-        std::thread([this] { Run(); }).detach();
+        std::thread([this] { wwe2k14::NameThread(L"music_sdl"); Run(); }).detach();
       }
       q_.push_back({id, std::move(file)});
     }

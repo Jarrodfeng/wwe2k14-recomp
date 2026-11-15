@@ -2,6 +2,7 @@
 #include "arena_contrib.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -9,6 +10,7 @@
 #include <string>
 
 #include "../renderer_scene/record_io.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::arena {
 namespace {
@@ -42,6 +44,13 @@ class ArenaContributor final : public Contributor {
  public:
   const char* Name() const override { return "arena"; }
   void Emit(const FrameInfo&, SceneTables& t, Counters& c) override;
+  bool Latch(const FrameInfo& f) override {   // S102 U1 (tail_latch.h): Emit's snapshot copy, while the game threads are parked
+    std::lock_guard<std::mutex> lk(g_lock);
+    latch_snap_ = g_snap;
+    latch_seq_ = g_seq;
+    latch_.Set(f.guest_frame);
+    return true;
+  }
   void Census(std::string& out) override {  // S101 lane 264: the pieces of fields_unknown, since the last census
     out += "[look_unknown_slots " + std::to_string(g_win.look_unknown_slots.exchange(0)) + ", screen_planes_unknown " + std::to_string(g_win.screen_planes_unknown.exchange(0)) +
            ", slot_table_unknown " + std::to_string(g_win.slot_table_unknown.exchange(0)) + ", lights_unknown " + std::to_string(g_win.lights_unknown.exchange(0)) +
@@ -50,16 +59,34 @@ class ArenaContributor final : public Contributor {
 
  private:
   uint64_t last_seq_ = ~0ull;  // Emit runs on the writer's thread only
+  LatchMark latch_;            // S102 U1
+  ArenaSnapshot latch_snap_;
+  uint64_t latch_seq_ = 0;
+  // S102 T11b (wwe2k14_rdr_scene_strings_once; string_pool.h): the pool field of each string this contributor writes, kept so a seeded table is written with no formatting, no
+  // concatenation and no AddString. A slot's strings depend only on its number, the pac string only on the arena id. Dropped when the table's pool is another one.
+  struct SlotFields { PooledField entry, base, r, y; };
+  static constexpr uint32_t kMaxSlotFields = 4096;   // slots past this (or an arena id past kMaxArenas) keep the old path
+  static constexpr int kMaxArenas = 128;
+  std::vector<SlotFields> slot_fields_;
+  std::array<PooledField, kMaxArenas> pac_;
+  PooledField motion_, when_, vis_unknown_;
+  std::array<PooledField, 10> screen_name_, screen_entry_;
+  uint32_t pooled_for_ = 0;
 };
 
-void ArenaContributor::Emit(const FrameInfo&, SceneTables& t, Counters& c) {
+void ArenaContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) {
   ArenaSnapshot s;
   uint64_t seq;
-  {
+  if (latch_.Use(f.guest_frame, Name())) {   // S102 U1: the snapshot the latch copied
+    s = std::move(latch_snap_);
+    seq = latch_seq_;
+  } else {
     std::lock_guard<std::mutex> lk(g_lock);
     s = g_snap;
     seq = g_seq;
   }
+  StringPool* pool = t.SeedPool();   // S102 T11b
+  if (pool) pool->NoteArena(s.arena_id);   // another arena = a new pool at the next record (string_pool.h)
   const bool stale = seq == last_seq_;
   if (stale) ++c.stale;  // no hook ran since the last record
   last_seq_ = seq;
@@ -74,9 +101,42 @@ void ArenaContributor::Emit(const FrameInfo&, SceneTables& t, Counters& c) {
     g_totals.emits += tot.emits, g_totals.unknown += tot.unknown, g_totals.stale += tot.stale;
     return;
   }
-  char pac[64];
-  std::snprintf(pac, sizeof pac, "pac\\bg\\bg%02d.pac", s.arena_id);
-  const uint32_t pac_s = t.AddString(pac);
+  // S102 T11b: with a table seeded from the string pool the strings below are the pool's fields (kept per slot / arena); a string the pool does not hold yet (the first frames, a full pool)
+  // is made and interned the old way. Without a pool (the switch off, a tool's own table) every string is made and interned as before.
+  if (pool && pooled_for_ != pool->id()) {
+    slot_fields_.clear();
+    pac_.fill(PooledField{});
+    motion_ = when_ = vis_unknown_ = PooledField{};
+    screen_name_.fill(PooledField{});
+    screen_entry_.fill(PooledField{});
+    pooled_for_ = pool->id();
+  }
+  uint64_t pooled_hits = 0, pooled_misses = 0;
+  const auto S = [&](PooledField* pf, auto&& make) -> uint32_t {   // make() builds the text
+    if (pool && pf) {
+      const uint32_t f = pf->field ? pf->field : PooledFieldOf(*pool, *pf, make);
+      if (f) { ++pooled_hits; return f; }
+      ++pooled_misses;
+    }
+    return t.AddString(make());
+  };
+  const auto SL = [&](PooledField* pf, const char* literal) -> uint32_t {   // a fixed name
+    if (pool && pf) {
+      const uint32_t f = pf->field ? pf->field : PooledFieldOf(*pool, *pf, [literal]() { return std::string(literal); });
+      if (f) { ++pooled_hits; return f; }
+      ++pooled_misses;
+    }
+    return t.AddString(literal);
+  };
+  int pac_index = s.arena_id;
+#ifdef RDR_CROWD_IDS_PLANTS
+  if (g_arena_strings_plant == 1) pac_index = 0;   // planted: the pac string's field kept without the arena id
+#endif
+  const uint32_t pac_s = S(pool && s.arena_id < kMaxArenas ? &pac_[size_t(pac_index)] : nullptr, [&]() {
+    char pac[64];
+    std::snprintf(pac, sizeof pac, "pac\\bg\\bg%02d.pac", s.arena_id);
+    return std::string(pac);
+  });
   const uint32_t none = kNone;
 
   // ---- light sets ----
@@ -141,38 +201,50 @@ void ArenaContributor::Emit(const FrameInfo&, SceneTables& t, Counters& c) {
         continue;  // game-only slot in the entrance look
       }
     }
+    SlotFields* sf = nullptr;
+    if (pool && sl.slot < kMaxSlotFields) {
+      if (slot_fields_.size() <= sl.slot) slot_fields_.resize(size_t(sl.slot) + 1);
+      sf = &slot_fields_[sl.slot];
+    }
     AssetRef a;
     a.kind = uint8_t(AssetKind::Model);
     a.pac = pac_s;
-    a.entry = t.AddString("slot " + std::to_string(sl.slot));
+    {
+      PooledField* entry_pf = sf ? &sf->entry : nullptr;
+#ifdef RDR_CROWD_IDS_PLANTS
+      if (sf && g_arena_strings_plant == 3) entry_pf = &slot_fields_[0].entry;   // planted: the entry's field kept without the slot number
+#endif
+      a.entry = S(entry_pf, [&]() { return "slot " + std::to_string(sl.slot); });
+    }
     const uint32_t asset = uint32_t(t.assets.size());
     t.assets.push_back(a);
-    const std::string base_id = "arena:slot:" + std::to_string(sl.slot);
-    const auto add = [&](const std::string& id, uint32_t flags, const Mat4& world) {
+    const std::string base_id = sf ? std::string() : "arena:slot:" + std::to_string(sl.slot);   // (the pooled path makes the text only on a miss)
+    const auto id_text = [&](const char* suffix) { return (sf ? "arena:slot:" + std::to_string(sl.slot) : base_id) + suffix; };
+    const auto add = [&](uint32_t id_field, uint32_t flags, const Mat4& world) {
       Object o;
       o.asset = asset;
       o.klass = rdr_adapter::DrawClass::ModelPart;
       o.layer = sl.blend ? 1 : 0;
       o.flags = flags;
-      o.id = t.AddString(id);
+      o.id = id_field;
       o.world = world;
       o.light_set = sl.light_set;
       o.params_first = uint32_t(t.params.size());
       if (sl.motion >= 0) {
         ParamValue p;
-        p.name = t.AddString("arena.slot_motion");
+        p.name = SL(pool ? &motion_ : nullptr, "arena.slot_motion");
         p.value[0] = float(sl.motion);
         t.params.push_back(p);
       }
       if (sl.when) {
         ParamValue p;
-        p.name = t.AddString("arena.slot_when");
+        p.name = SL(pool ? &when_ : nullptr, "arena.slot_when");
         p.value[0] = float(sl.when);
         t.params.push_back(p);
       }
       if (vis_unknown) {
         ParamValue p;
-        p.name = t.AddString("arena.visibility_unknown");
+        p.name = SL(pool ? &vis_unknown_ : nullptr, "arena.visibility_unknown");
         p.value[0] = 1.f;
         t.params.push_back(p);
       }
@@ -181,9 +253,15 @@ void ArenaContributor::Emit(const FrameInfo&, SceneTables& t, Counters& c) {
       ++c.objects, ++tot.objects;
     };
     const uint32_t vis = vis_unknown ? 0u : uint32_t(kObjVisible);
-    add(base_id, vis, IdentityMat4());
-    if (sl.mirror & 1) add(base_id + ":r", vis | kObjMirrorX, Diag(-1.f, 1.f, 1.f)), ++tot.twins;
-    if (sl.mirror & 2) add(base_id + ":y", vis | kObjTurned, Diag(-1.f, 1.f, -1.f)), ++tot.twins;
+    add(S(sf ? &sf->base : nullptr, [&]() { return id_text(""); }), vis, IdentityMat4());
+    if (sl.mirror & 1) {
+      PooledField* r_pf = sf ? &sf->r : nullptr;
+#ifdef RDR_CROWD_IDS_PLANTS
+      if (sf && g_arena_strings_plant == 2) r_pf = &sf->base;   // planted: the mirror twin answers with the slot's own id field
+#endif
+      add(S(r_pf, [&]() { return id_text(":r"); }), vis | kObjMirrorX, Diag(-1.f, 1.f, 1.f)), ++tot.twins;
+    }
+    if (sl.mirror & 2) add(S(sf ? &sf->y : nullptr, [&]() { return id_text(":y"); }), vis | kObjTurned, Diag(-1.f, 1.f, -1.f)), ++tot.twins;
   }
 
   // ---- screens ----
@@ -192,16 +270,19 @@ void ArenaContributor::Emit(const FrameInfo&, SceneTables& t, Counters& c) {
     Target tg;
     tg.role = rdr_adapter::SurfaceRole::TronPicture;
     tg.index = uint8_t(sc.key - 800);
-    tg.name = t.AddString("stage_screen:" + std::to_string(sc.key));
+    PooledField* scr_name = pool ? &screen_name_[size_t(sc.key - 800)] : nullptr;
+    PooledField* scr_entry = pool ? &screen_entry_[size_t(sc.key - 800)] : nullptr;
+    tg.name = S(scr_name, [&]() { return "stage_screen:" + std::to_string(sc.key); });
     const uint32_t ti = uint32_t(t.targets.size());
     t.targets.push_back(tg);
     AssetRef a;
     a.kind = uint8_t(AssetKind::Movie);
     a.pac = 0;
-    a.entry = t.AddString("stage:" + std::to_string(sc.key));  // which movie plays on it is not traced: named by the surface only
+    a.entry = S(scr_entry, [&]() { return "stage:" + std::to_string(sc.key); });  // which movie plays on it is not traced: named by the surface only
     const uint32_t ai = uint32_t(t.assets.size());
     t.assets.push_back(a);
     Movie m;
+    std::memset(static_cast<void*>(&m), 0, sizeof m);   // S102 T11b: the 4 padding bytes before movie_time_s were stack bytes in every record with a screen (every field below is set)
     m.asset = ai;
     m.show = uint8_t(MovieShow::OnTarget);
     m.target = ti;
@@ -218,6 +299,7 @@ void ArenaContributor::Emit(const FrameInfo&, SceneTables& t, Counters& c) {
     ++c.objects, ++tot.objects, ++tot.screens;
   }
 
+  if (pool) pool->stats.arena_fields += pooled_hits, pool->stats.arena_fallback += pooled_misses;   // S102 T11b
   std::lock_guard<std::mutex> lk(g_lock);
   g_totals.emits += tot.emits, g_totals.objects += tot.objects, g_totals.unknown += tot.unknown, g_totals.sets += tot.sets,
       g_totals.twins += tot.twins, g_totals.screens += tot.screens, g_totals.stale += tot.stale;

@@ -1,0 +1,33 @@
+PGO training and use for the GAME EXE: the recompiled guest code AND our own sources (Session 102 lane W2). Commands for the main session; the
+profile is a generated artefact: it lives under out\pgo\ (gitignored by out\), is made on the machine that does the release, never committed or shipped.
+(The two SDK DLLs have their own recipe: tools\release\pgo_train.txt.) 0 game runs for the builder; the runs below are the main session's.
+
+0. Build the instrumented exe (compile only, BUILD run lock; ~ a clean build, 81 s of codegen-free compile plus the generated code):
+     . tools\env.ps1
+     cmake --preset win-amd64-release -B out\pgo\build_gen -DWWE2K14_RELEASE=ON -Drexglue_DIR=<rexglue_DIR of out\build\win-amd64-release\CMakeCache.txt> -DWWE2K14_GUEST_PGO_GEN=ON -DWWE2K14_PGO_OURS=ON
+     cmake --build out\pgo\build_gen -j 16
+   (stage the rex DLLs next to the exe like tools\build.ps1 does; the exe is the stock code plus -fprofile-instr-generate on the guest code AND src\*;
+   tools\perf\pgo_exit_hook.cpp writes the profile every 10 s because the game ends with std::_Exit.)
+   For the AVX2 exe: add -DWWE2K14_GUEST_ISA=x86-64-v3 -DWWE2K14_OURS_ISA=x86-64-v3 (a profile is keyed by function name + structure hash, not by ISA:
+   ONE profile from the base-ISA training serves both release exes; train once).
+
+1. TRAIN (runs after a plan step, rule 7: this is the step's one check; the three routes are the training set the contract asks for):
+     $env:LLVM_PROFILE_FILE = 'C:\Users\Jarrod\wwe2k14-recomp\out\pgo\raw\game_%m_%p.profraw'
+     a. MATCH  : tools\input_scripts\short\s95_pgo_train.txt (boot, launch a match, 1500 frames of match, quit) through tools\bench\run_list.ps1 -Exe <the instrumented exe>
+     b. BRYAN  : & .\tools\native\owned_check.ps1 -Route bryan -Exe <the instrumented exe>   (replays short\s89_record_bryan_first.txt)
+     c. BROCK  : & .\tools\native\owned_check.ps1 -Route brock -Exe <the instrumented exe>   (short\s89_brock*.txt)
+     Remove-Item Env:\LLVM_PROFILE_FILE
+   Proof the training worked: llvm-profdata show out\pgo\raw\game_*.profraw (Total functions > 0, maximum function count > 0).
+
+2. MERGE (the match weighs most of the game's time: weight it 2, the entrances 1 each):
+     $env:Path = 'C:\Program Files\LLVM\bin;' + $env:Path
+     llvm-profdata merge -output out\pgo\game_all.profdata -weighted-input=2,<match>.profraw -weighted-input=1,<bryan>.profraw -weighted-input=1,<brock>.profraw
+
+3. USE: the release takes it as one parameter, for the older-CPU exe and the AVX2 exe both:
+     pwsh -NoProfile -File tools\release\release.ps1 -Version vX -GuestProfdata out\pgo\game_all.profdata   (release.ps1 passes it to make_release.ps1)
+     (-GuestProfileNarrow = the guest code only; no parameter = no profile, as before.) A missing file stops the release before any build.
+   Offline proof that the switches reach the compiler (configure only, no compile): pwsh -NoProfile -File tools\release\prove_build_flags.ps1
+
+4. CHECK (the step's one check, not repeated): determinism hash stream stock vs profile build equal on one recording (PGO changes speed, not results;
+   see docs\research\part2\W1_W2_build.md for the exact runs), then the Surface A/B at 2 cores (R8: -2 to -3 % on the DLLs; the guest code on the
+   Surface was never measured).

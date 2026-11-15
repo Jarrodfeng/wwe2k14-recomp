@@ -7,6 +7,7 @@
 
 #include "../renderer_scene/live_scene.h"
 #include "plane_hook.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::plane {
 
@@ -22,8 +23,13 @@ inline bool DropIfBad(SceneTables& t, Tracker* tracker = nullptr) {
 class PlaneContributor : public Contributor {
  public:
   const char* Name() const override { return "plane"; }
-  void Emit(const FrameInfo&, SceneTables& t, Counters& c) override {
+  bool Latch(const FrameInfo& fi) override {   // S102 U1 (tail_latch.h): Emit's take, while the game threads are parked
     tracker.Take(frames_, draws_);
+    latch_.Set(fi.guest_frame);
+    return true;
+  }
+  void Emit(const FrameInfo& fi, SceneTables& t, Counters& c) override {
+    if (!latch_.Use(fi.guest_frame, Name())) tracker.Take(frames_, draws_);   // S102 U1: or what the latch took (frames_ / draws_ hold it)
     if (draws_.empty() && frames_.empty()) {
       ++empty_emits_;   // the hook gathered nothing since the last record: this record carries no plane tables (the contributor's own count, apart from the tracker's)
       return;
@@ -44,6 +50,7 @@ class PlaneContributor : public Contributor {
   Tracker tracker;
 
  private:
+  LatchMark latch_;   // S102 U1
   std::vector<PlaneFrame> frames_;
   std::vector<PlaneDraw> draws_;
   uint64_t empty_emits_ = 0;

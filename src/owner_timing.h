@@ -53,7 +53,9 @@
 #include "owner_hires_wait.h"
 #include "owner_timing_core.h"
 #include "guest_gpu_only.h"
+#include "load_turbo.h"  // S102 H2: g_load_turbo_ingame_window
 #include "renderer_adapter/reader.h"
+#include "renderer_adapter/swap_tail2.h"  // S102 R25-A
 
 REXCVAR_DEFINE_BOOL(wwe2k14_owner_timing, true, "wwe2k14",
                     "Session 100 (strip-360 B4/B5): in owner mode the game's fences, interrupts and flips are answered by our own guest thread "
@@ -82,6 +84,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_owner_vblank_ours, false, "wwe2k14",
                     "--gpu_vblank_unthrottled_hz (vsync off) exactly as the SDK's VSync thread did, and the SDK starts no VSync thread (SDK patch 114, "
                     "RuntimeConfig::guest_vblank_ours). Refused with a log line when det_frames / det_serial are on, when guest_gpu_only is not on, or when the "
                     "SDK build lacks patch 114. false: the SDK's VSync thread as before");
+
+REXCVAR_DEFINE_BOOL(wwe2k14_owner_load_batch, false, "wwe2k14",
+                    "S102 H2 (R5 item 6): with our vblank, the load-turbo windows' 4-16 kHz vblank no longer makes the 'Owner timing' thread spin (60-97 % of a core for 3-4 s at every match load "
+                    "on a 4-core machine): the thread, while the in-game load window is open and no flip is pending, sleeps on the timer between wakes (about 1 ms apart) and dispatches the vblanks that fell due together (same count, each at most a wake late; src\\owner_hires_wait.h "
+                    "PlanWaitBatched, tools\\h2\\h2_waits_test.cpp). Read every loop turn; false = as before");
 
 REXCVAR_DEFINE_DOUBLE(wwe2k14_owner_scene_timing_fixed_ms, 0.0, "wwe2k14",
                       "Session 101 lane 260 (LEAVE_THE_COMMAND_STREAM 3e): > 0: the scene-timing pair 0x82C16978 / 0x82C16980 (the only GPU timing the game reads; it picks a quality "
@@ -234,7 +241,8 @@ struct GuestEnv {
   }
   // The rate cvars are the SDK loop's own (vsync, gpu_vblank_rate_override_hz, gpu_vblank_unthrottled_hz), re-read every 32 calls.
   void RefreshRate() {
-    if ((g_t.rate_tick++ & 31u) != 0) return;
+    // S102 H2: while batching (or the load window is open) the rate is re-read every call, so the 4 / 16 kHz vblank stops within a wake of the window's end
+    if (g_t.clock.max_catch_up == owner_core::VblankClock::kMaxCatchUp && !g_load_turbo_ingame_window().load(std::memory_order_relaxed) && (g_t.rate_tick++ & 31u) != 0) return;
     const std::string vs = rex::cvar::GetFlagByName("vsync");
     g_t.vsync = vs != "false" && vs != "0";
     g_t.clock.SetInterval(owner_core::VblankIntervalNs(g_t.vsync, 60.0, CvarDouble("gpu_vblank_rate_override_hz"), CvarDouble("gpu_vblank_unthrottled_hz")), NowNs());
@@ -301,8 +309,31 @@ struct GuestEnv {
 };
 inline owner_core::Core<GuestEnv> g_core;
 
+// S102 R25-A (wwe2k14_rdr_swap_tail2 bit 1): the timing thread, before it answers `it`: wait until the reader's guest-reading jobs queued before the hook are done. While it
+// waits the thread keeps its own duties: every wake runs Turn (the vblanks that fell due, then the gate), so a long wait (a backlog of texture reads at a load) is not a
+// stall of the game's vblank (Turn also runs before every item, so dispatching here is the same order).
+inline void JoinForItem(const Item& it, GuestEnv& env) {
+  if (!it.join) return;
+  namespace st = wwe2k14::swap_tail2;
+  const auto t0 = std::chrono::steady_clock::now();
+  const uint32_t ticks = rdr_reader::g_workers.WaitBelowUntil(it.join, [&] {
+    g_core.Turn(env);
+    auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);  // (a vblank deadline of ours replaces this)
+    if (VblankOurs() && g_t.clock.NextDeadline() > 0) until = std::chrono::steady_clock::time_point(std::chrono::nanoseconds(g_t.clock.NextDeadline()));
+    if (g_core.gate_open) until = std::min(until, std::chrono::steady_clock::now() + std::chrono::nanoseconds(owner_wait::kGatePollNs));
+    return std::max(until, std::chrono::steady_clock::now() + std::chrono::microseconds(200));  // (never a spin: a deadline already past, e.g. no device yet, waits 200 us)
+  });
+  const uint64_t ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count());
+  if (ticks) {  // the jobs were still running at the first look
+    st::g_census.timing_waits.fetch_add(1, std::memory_order_relaxed);
+    st::g_census.timing_wait_ns.fetch_add(ns, std::memory_order_relaxed);
+    st::NoteMax(st::g_census.timing_wait_max_ns, ns);
+  }
+}
+
 inline int Loop() {
   auto last_log = std::chrono::steady_clock::now();
+  int64_t last_wake_ns = 0;  // S102 H2: the previous idle wake (the batched load wait)
   owner_wait::CpuMeter cpu_meter;  // lane 306: this thread's CPU in each 10 s window (the spin check)
   GuestEnv env;
   env.base = g_t.base;
@@ -326,9 +357,14 @@ inline int Loop() {
       } else if (VblankOurs() && g_hires.Available()) {  // 3e (Windows): the high-resolution timer + spin, the queue's event waking it at once
         if (g_t.q.empty()) {
           // Lane 306: the gate poll never spins (spin 0); only the real vblank deadline spins, for its last 0.5 ms (owner_wait::PlanWait, tested by tools\owner\spin_cpu_test.cpp)
-          const owner_wait::WaitPlan plan = owner_wait::PlanWait(owner_wait::HiResWait::NowNs(), g_t.clock.NextDeadline(), core.gate_open, g_t.clock.interval_ns);
+          // S102 H2: the switch and the window are read every turn; batching only while the in-game load window is open and no flip is pending
+          const bool batch_on = REXCVAR_GET(wwe2k14_owner_load_batch) && g_load_turbo_ingame_window().load(std::memory_order_relaxed);
+          g_t.clock.max_catch_up = owner_wait::CatchUpFor(batch_on, g_t.clock.interval_ns);
+          const owner_wait::WaitPlan plan = owner_wait::PlanWaitBatched(owner_wait::HiResWait::NowNs(), g_t.clock.NextDeadline(), core.gate_open, g_t.clock.interval_ns, last_wake_ns,
+                                                                        owner_wait::BatchEnabled(batch_on, true, core.gate_open));
           lock.unlock();
           g_hires.Until(plan.target_ns, plan.spin_ns, true);
+          last_wake_ns = owner_wait::HiResWait::NowNs();
           lock.lock();
         }
       } else if (VblankOurs()) {  // 3e: wake for the next vblank deadline as well (and, behind a flip, every 1 ms since lane 306, 250 us before)
@@ -352,6 +388,7 @@ inline int Loop() {
         for (const auto& w : g_t.boot_scratch) env.St32(w.first, w.second);
         env.Release();
       } else {
+        JoinForItem(it, env);  // S102 R25-A: the reader jobs the item covers are finished before the guest can see it (ticket 0 = the hook already waited)
         core.Process(env, it);
       }
     }
@@ -373,6 +410,13 @@ inline int Loop() {
                     c.vblanks.load(), g_t.clock.interval_ns / 1000, g_t.vsync ? "on" : "off", g_t.clock.dropped, g_hires.Available() ? "high-resolution" : "condition_variable", med, mx,
                     g_t.late_us.size(), c.scene_begin.load(), c.scene_end.load(), c.scene_fixed.load());
         g_t.late_us.clear();
+      }
+      {  // S102 R25-A: the join census (only once the switch has been on or a ticket was taken)
+        namespace st = wwe2k14::swap_tail2;
+        const auto& sc = st::g_census;
+        if (sc.tickets.load() || sc.tickets_empty.load())
+          REXLOG_INFO("[owner][swap_tail2] so far: reader join moved to this thread: tickets {} (+{} with nothing pending), waits here {} for {:.2f} ms in all (longest {:.2f} ms); items whose hook waited itself (switch off) {}",
+                      sc.tickets.load(), sc.tickets_empty.load(), sc.timing_waits.load(), double(sc.timing_wait_ns.load()) / 1.0e6, double(sc.timing_wait_max_ns.load()) / 1.0e6, sc.hooks_waited_all.load());
       }
       REXLOG_INFO("[owner][ring] so far: submits skipped {}, run {} (raw ring writes {}; boot submit: ours {}, to the SDK {}, boot raw writes taken {})",
                   c.submits_skipped.load(), c.submits_run.load(), c.raw_ring_writes.load(), c.boot_answered.load(), c.boot_original.load(),
@@ -422,6 +466,21 @@ inline void JoinReader() {
   rdr_reader::g_workers.WaitAll();
 }
 
+// S102 R25-A (wwe2k14_rdr_swap_tail2 bit 1, docs\renderer\SWAP_TAIL.md section 9): the same guarantee, paid where the guest can first see it. The hook (the game's swap thread) takes a
+// ticket for the jobs queued so far and returns at once; the 'Owner timing' thread waits for the ticket right before it answers the item (the fence's words, the interrupt's
+// callback, the flip). Off: the old wait, on the hook's thread, and no ticket.
+inline uint64_t JoinReaderTicket() {
+  namespace st = wwe2k14::swap_tail2;
+  if (!st::On(st::kJoinLater)) {
+    JoinReader();
+    st::g_census.hooks_waited_all.fetch_add(1, std::memory_order_relaxed);
+    return 0;
+  }
+  const uint64_t t = rdr_reader::g_workers.Mark();
+  (t ? st::g_census.tickets : st::g_census.tickets_empty).fetch_add(1, std::memory_order_relaxed);
+  return t;
+}
+
 inline bool Unusual(const uint8_t* base, uint32_t dev) {
   return dn::t_original_depth || dn::Recording(base, dev) || dl::Ld32(base, dev + dn::kDevPredicate) != 0 || (base[dev + dn::kDevByte11068] & 1);
 }
@@ -438,6 +497,9 @@ inline void NeedsProcessor(const char* why) {
 // An original ran for an unusual call: its packets (a fence, an interrupt, a flip) are in the segment and must reach the old processor.
 inline void FellBack() {
   g_t.c.fallbacks.fetch_add(1, std::memory_order_relaxed);
+  // S102 R25-A (review 4): the SDK's processor will write the fence words of this segment itself (not through our item): every ticket already on the queue must be settled first, or the
+  // timing thread could still be waiting for fence k's jobs while the processor has written fence k + 2 and the guest has seen it.
+  rdr_reader::g_workers.WaitAll();
   NeedsProcessor("an unusual call (tiling wrapper / recording / predication / original depth)");
   g_t.ring_needed.store(true, std::memory_order_release);
 }
@@ -458,8 +520,9 @@ inline bool Fence(PPCContext& ctx, uint8_t* base) {
   dl::St32(base, dev + 13608, write_ptr);  // (the original's two bookkeeping stores)
   dl::St32(base, dev + 13612, heap_bits);
   if (base[dev + dn::kDevByte11072] & 0x80) dn::ApplyMiscFlush(base, dev);
-  JoinReader();
+  const uint64_t join = JoinReaderTicket();
   Item it;
+  it.join = join;
   it.fence = true;
   it.a = block + 4;
   it.b = (heap_bits & 3u) | write_ptr;
@@ -483,8 +546,9 @@ inline bool Interrupt(PPCContext& ctx, uint8_t* base) {
   uint32_t flags = ctx.r5.u32;
   if (!(flags & 6)) flags |= 6;
   if ((flags & 2) && (!(flags & 1) || (base[dev + dn::kDevByte11072] & 0x80))) dn::ApplyMiscFlush(base, dev);
-  JoinReader();
+  const uint64_t join = JoinReaderTicket();
   Item it;
+  it.join = join;
   it.flip = ctx.r6.u32 == dn::kFlipScheduler;
   it.a = ctx.r5.u32;
   it.b = ctx.r6.u32;
@@ -533,8 +597,9 @@ inline bool Flip(PPCContext& ctx, uint8_t* base) {
     return true;
   }
   dn::ApplyMiscFlush(base, dev);  // (the emitter's flags 0 -> 6: the flush branch is always taken for the handshake)
-  JoinReader();
+  const uint64_t join = JoinReaderTicket();
   Item it;
+  it.join = join;
   it.flip = true;
   it.a = 0;
   it.b = dn::kFlipScheduler;

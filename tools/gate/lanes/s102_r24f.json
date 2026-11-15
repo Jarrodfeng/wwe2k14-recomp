@@ -1,0 +1,18 @@
+{
+ "owner": "S102 lane R24-F (R24 section 9: nothing separates arena / crowd / wrestlers / ring / particles inside the colour pass): switch wwe2k14_rdr_gpu_group_stamps (PerFrame int, default 0; src/renderer/group_stamps.h, renderer.cpp RecordPass + CollectGroups + LogGpuWindow, frame_builder.h, binder.h + draw_groups.h, live.cpp, rdr_switches.h, reader.h, rplay --gpu-group-stamps / --gpu-group-plant, fview --gpu-group-stamps). An INSTRUMENT: GPU timestamps inside the colour / frame passes at each change of draw group, one [rdr][gpu][groups] table per 600 frames. Off = no group tag on any draw, no stamp, no pool. docs/renderer/GPU_STAMPS.md 'Group stamps'. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {"scene": "bryan", "side": "GPU", "ms": [0.0, 0.0], "switch": "wwe2k14_rdr_gpu_group_stamps=N", "basis": "an instrument: it saves nothing itself and ships off; it names which draw group (arena / wrestler / crowd / ring / particle / props / 2D) holds the colour pass's 4.9-5.3 ms so the next GPU cut can be aimed (R24 section 9). Its own cost is not a claim: a stamp inside a pass drains the pipe."}
+ ],
+ "note": "proof (group_stamps_check.py, rplay only): Bryan and Brock replayed under the shipped default bundle with the switch off / min run 1 / min run 4 / validation 1 / two planted faults; every shot byte-equal to the off run; validation 0; the segments hold 100 % of the draws the passes issued; the groups add up to the pass's own ms and to the per-step table's reading of the same pass; planted twins (a segment missing from the chain, a draw missing from the counts) are caught.",
+ "checks": [
+  {"name": "s102_r24f.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1800},
+  {"name": "s102_r24f.proof", "cmd": ["py", "-I", "tools/r24f/group_stamps_check.py", "--root", "."], "timeout_s": 3000,
+   "needs": ["out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin", "out/s101/lane92/case_20261113_093550_855_0_pc_run_exit/capture/images.bin"], "exes": ["out/renderer/dev/rplay.exe"],
+   "affects": ["tools/r24f/group_stamps_check.py", "tools/r24f/group_stamps_test.cpp", "src/renderer/group_stamps.h", "src/renderer/renderer.cpp", "src/renderer/frame_builder.h", "src/renderer/api.h", "src/renderer_adapter/binder.h", "src/renderer_adapter/draw_groups.h", "src/renderer/player/rplay.cpp", "src/renderer_adapter/live.cpp", "src/renderer_adapter/rdr_switches.h"]},
+  {"name": "s102_r24f.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py", "--root", "."], "timeout_s": 300},
+  {"name": "s102_r24f.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/main.cpp", "src/renderer_adapter/*.h", "src/renderer_adapter/live.cpp"]},
+  {"name": "s102_r24f.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120}
+ ]
+}

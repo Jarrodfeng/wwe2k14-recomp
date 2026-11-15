@@ -1,5 +1,6 @@
 // Session 98 (tron video): the Media Foundation backend of video_player.h. One IMFSourceReader (RGB32 out), guarded by a mutex; a
 // picture is chosen by time stamp only (the last sample with pts <= t), so a seek and a forward read give the same picture.
+#include "../../thread_name.h"  // S102 H1
 #include "video_player.h"
 
 #include <windows.h>
@@ -287,7 +288,7 @@ bool VideoPlayer::FrameAt(double t, VideoFrame& out, std::string& err) {
 
 void VideoPlayer::Request(double t) {
   if (!p_->rd.p) return;
-  if (!p_->th.joinable()) p_->th = std::thread([this] { p_->WorkerMain(); });
+  if (!p_->th.joinable()) p_->th = std::thread([this] { wwe2k14::NameThread(L"view_video"); p_->WorkerMain(); });
   {
     std::lock_guard<std::mutex> g(p_->wmu);
     p_->req_t = t, p_->has_req = true;

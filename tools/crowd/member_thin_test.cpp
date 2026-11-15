@@ -154,6 +154,67 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--plant" && i + 1 < argc) g_plant = argv[++i];
 
+  // 0. S102 T13: the per-frame cut switch resolves the run's mode (the T2 way, card_thin_test's ResolveMode): off = Off (census with the old census cvar), on = Skip, on with the legacy runs path = Census.
+  {
+    const bool excl = !Plant("cut_exclusion_ignored");
+    const bool cut_on = Plant("cut_off_skips") ? true : false;   // plant: the switch is off but the mode is Skip
+    CHECK(mt::ResolveMemberMode(0, cut_on, 0, excl) == mt::Mode::Off, "member cut off, census off: Off (the hooks do nothing)");
+    CHECK(mt::ResolveMemberMode(1, false, 0, excl) == mt::Mode::Census, "member cut off, census on: Census, nothing dropped");
+    CHECK(mt::ResolveMemberMode(0, true, 0, excl) == mt::Mode::Skip, "member cut on: Skip");
+    CHECK(mt::ResolveMemberMode(0, true, 1, excl) == mt::Mode::Census, "member cut on with the legacy --wwe2k14_scene_crowd: Census (the same op-15 sites: exclusive)");
+    // the run's mode is the Decider's: a run begun Off never drops, whatever a later call says
+    World w;
+    for (int i = 0; i < 4; ++i) w.gate.Report(ct::Kind::FullOk, w.now);
+    w.runs.store(1);
+    const World::Out o = w.Run(mt::Mode::Off, World::Shape());
+    CHECK(o.dropped[0] + o.dropped[1] == 0, "a run whose mode is Off drops nothing even with a proven gate");
+  }
+  // 0b. S102 T13 review F1 / F2 / F4b / F6: the binder's per-frame flag is the hook's RUN MODE of that guest frame (CountRing skip bit), never the switch and never sticky.
+  {
+    mt::CountRing ring;
+    bool sticky = false;   // the old g_cut_seen: set on the first ON run, never cleared (plant `sticky_cut_seen` reads it instead of the slot)
+    for (uint64_t f = 80; f < 150; ++f) {
+      const bool cut_on = f >= 100 && f <= 110;
+      const mt::Mode m = mt::DecideRunMode(0, cut_on, 0, true);
+      if (Plant("flag_from_cut") ? cut_on : mt::BinderFlag(m)) ring.MarkSkip(f);
+      if (cut_on) sticky = true;
+      ring.Note(f, mt::kStands, false);   // the hook's tally for the frame (a slot is reused every 64 frames: a stale skip bit must not survive)
+    }
+    const auto flag_at = [&](uint64_t f) { return Plant("sticky_cut_seen") ? sticky : ring.SkipAt(f); };
+    CHECK(flag_at(106), "the flag is true inside the cut window (guest frame 106)");
+    CHECK(!flag_at(140), "the flag is FALSE after the window (guest frame 140): an OFF window runs no member census in the binder");
+    CHECK(!flag_at(99) && flag_at(100) && flag_at(110) && !flag_at(111), "the flag follows the window exactly (99 off, 100 and 110 on, 111 off)");
+    // a slot reused 64 frames later does not carry the old skip bit
+    mt::CountRing r2;
+    r2.MarkSkip(5);
+    r2.Note(5 + 64, mt::kStands, false);
+    CHECK(!r2.SkipAt(5 + 64) && !r2.SkipAt(5), "a reused slot carries no stale skip bit, and the evicted frame reads false");
+    // F2: with the legacy runs path (mode Census) or an inert contributor the flag is NOT set although the switch is on
+    CHECK(!mt::BinderFlag(mt::DecideRunMode(0, true, 1, true)), "cut on with the legacy --wwe2k14_scene_crowd: mode Census, no binder flag");
+    const bool inert_flag = Plant("flag_from_cut") ? true : mt::BinderFlag(mt::DecideRunMode(0, true, 0, false));
+    CHECK(!inert_flag, "cut on but no class is drawn from the record (crowd_ours / scene records off): the run is INERT (Off), no binder flag");
+    CHECK(mt::DecideRunMode(0, true, 0, false) == mt::Mode::Off && mt::DecideRunMode(1, false, 0, false) == mt::Mode::Off && mt::DecideRunMode(2, false, 0, true) == mt::Mode::Skip, "inert without crowd_ours; the old census cvar 2 is still the cut with it");
+    // F4b: the mode is taken ONCE per run: a switch flipped inside a run changes the next run only (plant `mode_per_call` re-resolves at every call)
+    {
+      World w;
+      for (int i = 0; i < 4; ++i) w.gate.Report(ct::Kind::FullOk, w.now);
+      mt::Decider d;
+      d.BeginRun(w.policy, w.counters, w.runs, w.gate, w.now, true);
+      w.runs.store(1);   // not a proof run
+      d.proof_run = false;
+      d.mode = mt::Mode::Skip;   // decided at the run's start (switch on)
+      mt::Query q;
+      int dropped = 0, calls = 0;
+      for (int k = 0; k < 100; ++k) {
+        const bool switch_now = k < 50;   // the switch flips OFF half way through the run
+        const mt::Mode use = Plant("mode_per_call") ? mt::DecideRunMode(0, switch_now, 0, true) : d.mode;
+        if (k % 10 == 0) d.BeginSiteRun(mt::kStands, w.counters);   // a mesh run every 10 members
+        ++calls;
+        dropped += d.DropMemberDraw(mt::kStands, use, w.policy, w.gate, w.counters, w.now, q) ? 1 : 0;
+      }
+      CHECK(calls == 100 && dropped == 90, "a switch flipped inside a run does not change that run: 90 of 100 dropped (the first of each of 10 runs kept)");
+    }
+  }
   // 1. Off: nothing counted, nothing dropped.
   {
     World w;

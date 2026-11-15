@@ -10,6 +10,9 @@
 //          FX_DEBUG (material debug controls: scaled normal map and gloss, key light blended with the per-vertex one, output blended towards the rim term and white).
 
 layout(set = 0, binding = 1, std140) uniform FragmentConstants {
+#ifdef FX_PRELIGHT_ANALYTIC
+  vec4 PreLightK[18];     // S102 L1: the pre-light bake's constants (fx_prelight.glsl)
+#endif
   vec4 SkyDir;
   vec4 SkyCol;
   vec4 GroundCol;
@@ -67,6 +70,7 @@ layout(set = 0, binding = 1, std140) uniform FragmentConstants {
   vec4 ViewLightDepth;   // the light's direction: row 2 of ViewLight
 #endif
 } fc;
+#include "fx_prelight.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[16];
 layout(set = 1, binding = 0) uniform samplerCube cubes[16];
@@ -222,7 +226,11 @@ void main() {
   }
   vec3 lightCube = min(direct + glow * fc.SSColor.xyz * (fc.SS.x * texture(textures[6], uv).y), fc.LightLimit.xyz) * lit;
 #else
+#ifdef FX_PRELIGHT_ANALYTIC
+  vec3 lightCube = min(fx_prelight_eval(n).xyz * fc.DifLghMax.xyz, fc.LightLimit.xyz) * lit;   // S102 L1
+#else
   vec3 lightCube = min(texture(cubes[13], n).xyz * fc.DifLghMax.xyz, fc.LightLimit.xyz) * lit;
+#endif
 #endif
   vec3 ambient = fc.MatAmbCol.xyz;
 #ifdef FX_REFLECT

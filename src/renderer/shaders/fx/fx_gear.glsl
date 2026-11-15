@@ -145,6 +145,9 @@ void main() {
 // FX_MUSCLE (the flex effects' muscle normal map), FX_LOGO, FX_CHANGE_COLOR (team colour masks), FX_DEBUG (the material debug controls),
 // FX_BLOOD_BUMP (where it is wet: a bumped normal from the mask's slope and an extra highlight).
 layout(set = 0, binding = 1, std140) uniform FragmentConstants {
+#ifdef FX_PRELIGHT_ANALYTIC
+  vec4 PreLightK[18];     // S102 L1: the pre-light bake's constants (fx_prelight.glsl)
+#endif
 #ifdef FX_BLOOD
   vec4 Blood;            // x amount
   vec4 BSSBldClr;        // colour the blood / sweat / stain mask tints the albedo towards
@@ -196,6 +199,7 @@ layout(set = 0, binding = 1, std140) uniform FragmentConstants {
   vec4 DebugPS1;         // z blend towards the rim term, w blend towards white
 #endif
 } fc;
+#include "fx_prelight.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[16];
 layout(set = 1, binding = 0) uniform samplerCube cubes[16];
@@ -332,7 +336,11 @@ void main() {
   }
 #endif
 
+#ifdef FX_PRELIGHT_ANALYTIC
+  vec3 diffuseLight = min(fx_prelight_eval(n).rgb * fc.DifLghMax.xyz, fc.fvLightLimit.xyz);   // S102 L1
+#else
   vec3 diffuseLight = min(texture(cubes[13], n).rgb * fc.DifLghMax.xyz, fc.fvLightLimit.xyz);
+#endif
 #ifdef FX_SHADOW
   vec4 shadowMap = textureLod(textures[12], inShadow.xy / inShadow.w, 0.0);
   float shadowLit = 1.0 - ch_shadow_amount(shadowMap, inShadow.z, fc.ShadowPrm[0], fc.ShadowPrm[1], fc.ShadowPrm[2], dot(n, fc.ViewLightDepth.xyz));

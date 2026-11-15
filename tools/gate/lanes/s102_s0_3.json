@@ -1,0 +1,10 @@
+{
+ "owner": "S102 lane S0-3 (GPU stamps per pass, the wait apart): src/renderer/renderer.cpp (stamp pool, a stamp after each step, the colour-output stamp that the acquire wait blocks, CollectGpuTime / LogGpuWindow, the test plants), api.h GpuClass, overlay.h g_gpu_stamps / g_gpu_work_ns_total / g_render_busy_*, binder.h GpuClassOfRole, frame_stats.h (render_thread_ms, gpu_work_ms), rplay --gpu-stamps / --gpu-plant 3|4, tools/renderer/gpu_stamps_check.py. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "bryan", "side": "none (an instrument: it reads the GPU, it does not move work; its own cost is ~0.1 ms a frame when on, so it ships off)", "ms": [0, 0]},
+ "note": "build = tools/renderer/build.ps1 (rplay). proof = rplay on the Bryan entrance capture four times (stamps on, off, an EMPTY pass planted in the plane role, a SLOW pass planted in the rim role): the roles add up to the work, work + wait = the old bracket, the old bracket is unchanged by the stamps, the empty pass reads ~0 and the slow one shows only in its role; two twin verdicts (the slow pass declared in the wrong role, an empty pass declared slow) must be rejected. The wait for the display needs a presenting window: offline it reads 0 (unconfirmed on a device until the Surface runs it).",
+ "checks": [
+  {"name": "s102_s0_3.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1500},
+  {"name": "s102_s0_3.thread_cpu", "cmd": ["py", "-I", "tools/renderer/thread_cpu_selftest.py"], "timeout_s": 400},
+  {"name": "s102_s0_3.proof", "cmd": ["py", "-I", "tools/renderer/gpu_stamps_check.py", "--root", "."], "timeout_s": 1800, "needs": ["out/lane86/bryan/capture"]}
+ ]
+}

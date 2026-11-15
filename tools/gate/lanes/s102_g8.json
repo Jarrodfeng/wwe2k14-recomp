@@ -1,0 +1,106 @@
+{
+ "owner": "S102 lane G8 (the full-size copy alias): the Facts::fullsize rule, Planner census / faults and NoteReadback counting in src/renderer_adapter/copy_alias.h, the binder's EndAliasOf / facts wiring (binder.h), switch wwe2k14_rdr_alias_fullsize (rdr_switches.h, reader.h, live.cpp), fview / rplay flags (--alias-fullsize, --copy-alias-readback, --copy-alias-timeline, --copy-alias-fault), Session::ReadPresentSurface, tools/g8/*, docs/renderer/ALIAS_FULLSIZE.md. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {
+   "level": 1,
+   "scene": "bryan",
+   "side": "GPU",
+   "ms": [
+    0.4,
+    1.6
+   ],
+   "note": "ESTIMATE from copy sizes: 4 of Bryan's 10 full-size copies a frame (2 depth + 2 scene colour, each followed by a later copy into the same destination), ~3.7 MB read + written each, and 4 barriers"
+  },
+  {
+   "level": 2,
+   "scene": "bryan",
+   "side": "GPU",
+   "ms": [
+    0.4,
+    1.6
+   ],
+   "note": "ESTIMATE: the same 4 copies in Bryan (every one has a later copy into its destination); the match gains 2 (depth + scene colour, last into D)"
+  },
+  {
+   "level": 3,
+   "scene": "bryan",
+   "side": "GPU",
+   "ms": [
+    0.5,
+    2.0
+   ],
+   "note": "ESTIMATE: 5 copies (adds the Present copy); unusable by default until a live run shows violations 0 and read-backs of aliased destinations 0"
+  }
+ ],
+ "note": "unit = the rule on synthetic 1280x720 frames (33 expectations) + 6 planted faults that must each fail it; wiring = every link of the switch (table PerFrame default 0, cvar, live.cpp per-frame read, binder facts, alias ended BEFORE Map at a kept copy) with each link removed in a text copy must fail; bryan / match = fview headless: hashes equal on every frame with the switch on (levels 1, 2 and 3, also hashing Map(surface), the LOW combination, post ours), validation 0, stale-read ledger 0, read-backs counted and refused, copies dropped a frame, rplay counts fall by the census; planted twins src_dirty, fs_no_clear (counts), fs_no_reader (ledger), a planted read-back and ignore_readback must all be caught. F1 probe: a persist-only lasting bind after each frame must leave the last picture the drawn frame (twin: guard removed). F2 unit cases for copies another hook drops.",
+ "checks": [
+  {
+   "name": "s102_g8.unit",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g8/g8_check.py",
+    "--root",
+    ".",
+    "--only",
+    "unit"
+   ],
+   "timeout_s": 900
+  },
+  {
+   "name": "s102_g8.wiring",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g8/g8_check.py",
+    "--root",
+    ".",
+    "--only",
+    "wiring"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_g8.bryan",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g8/g8_check.py",
+    "--root",
+    ".",
+    "--only",
+    "replay",
+    "--capture",
+    "bryan"
+   ],
+   "timeout_s": 3000,
+   "exes": [
+    "out/renderer/dev/rplay.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_g8.match",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/g8/g8_check.py",
+    "--root",
+    ".",
+    "--only",
+    "replay",
+    "--capture",
+    "match"
+   ],
+   "timeout_s": 2400,
+   "needs": [
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  }
+ ]
+}

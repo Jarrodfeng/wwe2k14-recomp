@@ -75,15 +75,27 @@ class Session {
   // draws. `fault`: "" or one of bind_pose, identity_vp, no_cards (cards dropped), offset (the record one frame behind), as the acceptance test's planted twins.
   // PrimeCrowd waits (up to `seconds`) for the first frame with a crowd record to have its bodies loaded, so the replay that follows is not a fallback one.
   bool EnableCrowdOurs(const std::string& game_root, const std::string& fault, std::string& error);
+  // S102 P1: the crowd card bake owned (docs\renderer\CARD_BAKE_OURS.md). Call after the capture is open and before the first Bind. `none`: the bake passes are taken out and not re-issued.
+  bool EnableOwnCardBake(const std::string& fault, bool none, int record_offset, std::string& error);
+  std::string BakeCensus() const;
+  std::string OwnGroupCensus() const;   // S102 P4P5: the shadow module's / rim map's groups (own_group.h)
+  std::string PlaneCensus() const;   // S102 P3: the plane chain owned as one pass (binder census)
+  std::string PlaneBakeCensus() const;   // S102 L2: the ring-plane shadow bake (binder census)
   // S101 lane 82: call BEFORE EnableCrowdOurs. floor: the seated floor people are ours too (CrowdOursOptions::floor); synth_file (test only, may be empty): floor members added to a copy of each record
   // read (crowd_floor_synth.h). The planted floor faults (floor_lod1, floor_type_shift, floor_first_texture, floor_dup, floor_drop_no_draw) are `fault` names of EnableCrowdOurs and need floor.
   bool SetCrowdFloor(bool floor, const std::string& synth_file, std::string& error);
   // S101 lane CD: call BEFORE EnableCrowdOurs. cards: the far cards are ours (CrowdOursOptions::cards; the planted faults cards_* are `fault` names of EnableCrowdOurs and need cards); unchecked: test only.
   void SetCrowdCards(bool cards, bool unchecked);
+  void SetCrowdMembersLive(bool live);  // S102 T13 F4b: the live path's flag (CrowdOursOptions::members_thin_at) from the sidecar, with members_thin and member_probe off
   bool SetCrowdMembersThin(bool thin, bool probe, const std::string& counts_file, std::string& error);  // lane 272 (member_thin_core.h): fview --crowd-members-thin [--crowd-members-probe] [--crowd-members-thin-counts FILE: hook_frame,site,seen,dropped,world per line]
   bool SetCrowdCardsThin(bool thin, const std::string& counts_file, std::string& error);  // lane 175 (card_thin_core.h): fview --crowd-cards-thin [--crowd-cards-thin-counts FILE: hook_frame,seen,dropped per line]
   // S101 lane CD: ReplayThrough hashes the presented surface of every frame (FNV-1a of its bytes) into FrameHashes() (the byte-equal proofs of the promotions).
   void SetHashFrames(bool on);
+  // S102 R24-A: with --present-size, ReplayThrough also hashes the PRESENTED output (the swapchain image: what the player sees) after every frame (PresentFrameHashes).
+  void SetPresentHashFrames(bool on);
+  const std::vector<uint64_t>& PresentFrameHashes() const;
+  void SetFrameTimes(bool on);   // S102 T17: ReplayThrough times the bind and RenderFrame of every frame (FrameTimes: per frame {bind ms, render ms})
+  const std::vector<std::pair<double, double>>& FrameTimes() const;
   void SetDumpFrames(const std::vector<uint32_t>& frames, const std::string& dir);  // lane 155: with --replay, write the presented surface of these frames as PNG (dir/frame_NNNNN.png)
   const std::vector<uint64_t>& FrameHashes() const;
   uint32_t PresentFormat() const;  // rdr::Format of the last hashed presented surface
@@ -142,6 +154,15 @@ class Session {
   bool ReadPresented(std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height);  // the last present's source, RGBA8
   const rdr_adapter::shadows_ours::Plan& ShadowsPlan() const;
   std::string ShadowsReport() const;
+  std::string DeadWorkReport() const;     // S102 lane G4 (dead_work.h): the dead-pass census, printed by fview at the end of a replay
+  std::string TurnsReport() const;        // S102 lane G3 (map_turns.h): the maps' turns census + the stale-read ledger
+  uint64_t TurnsStale() const;            // S102 lane G3: stale reads so far
+  std::string PlaneBlankReport() const;   // S102 lane G4b (plane_blank.h): the blank plane chain census
+  std::string PreLightAnalyticReport() const;   // S102 lane L1 (prelight_analytic.h): the analytic pre-light census
+  std::string PreLightReport() const;     // S102 lane C1 (prelight_layered.h): the layered pre-light census
+  std::string PreLightComputeReport() const;   // S102 lane L1b (prelight_compute.h): the compute pre-light census
+  std::string FrameCutsReport() const;   // S102 lane G11 (frame_cuts.h): the frame buffer cuts census
+  std::string FrameRoundTripReport() const;   // S102 R18-B1 (frame_roundtrip.h): the identity restores census
   std::string CopyAliasReport() const;   // S101 lane 190 (copy_alias.h): the elide census, printed by fview at the end of a replay
   uint32_t ShadowsOursWidth(uint32_t image) const;   // 0: the stream's image
   uint32_t ShadowsOursHeight(uint32_t image) const;
@@ -158,7 +179,11 @@ class Session {
   // backward = the surfaces are put back first (class comment). False: no frame, or the frames could not be replayed.
   bool RenderThrough(int op);
   // Mip 0 of a capture image as RGBA8 (formats ReadImage supports). False: not readable. (16F surfaces are scaled by their peak: display only.)
-  bool ReadSurface(uint32_t image, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height);
+  // S102 G2: one text block: the output counters (presents, capped, SGSR), the last present written to `shot` (PNG, when set and there is an offscreen output), and with stamps the 'output' role's mean ms.
+  std::string PresentReport(const std::string& shot, bool stamps);
+  bool ReadSurface(uint32_t image, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height, uint32_t layer = 0);   // S102 C1: `layer` (a cube's face)
+  // S102 G8: the frame's presented picture as the binder presented it (the Present's own, mapped image: with the full-size alias rule the Present may read a scene target, not the capture's image).
+  bool ReadPresentSurface(uint32_t surface, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height);
   // S101 lane 34: the renderer image a capture image id is bound to now (kNoImage: none). post_proof hands it to the post pass as its input.
   rdr::ImageId MappedImage(uint32_t image) const;
   bool ReadPixel(uint32_t image, int x, int y, uint8_t out[4]);

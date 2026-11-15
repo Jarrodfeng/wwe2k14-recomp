@@ -77,6 +77,26 @@ inline WaitPlan PlanWait(int64_t now_ns, int64_t deadline_ns, bool gate_open, in
   return {deadline_ns, interval_ns >= 4000000 ? std::min(kVblankSpinNs, interval_ns / 32) : 0};
 }
 
+// S102 H2 piece 1 (--wwe2k14_owner_load_batch, default off; R5 item 6): the load-turbo windows run the vsync-off vblank at wwe2k14_load_turbo_vblank_hz: 16 kHz by default,
+// 4 kHz (250 us) under the lean set that every default player config gets (TRUE NATIVE -> d3d_owned -> s95_lean; the Surface logs show interval 250 us). At those intervals
+// the thread wakes 4-16 thousand times a second; whatever the timer does not cover is a spin (R5: 60-97 % of a core for 3-4 s at each match load). Batched: while the in-game
+// load window is open, for intervals under kBatchBelowNs, the thread sleeps on the timer until kBatchWakeNs after its last wake (a wake costs about 1 ms of wall time, measured
+// offline: ~1.03 ms at 16 kHz, so ~16 vblanks per wake) and the clock owes it the vblanks that fell due (all dispatched in one Turn: the count is unchanged, each vblank at
+// most a wake late: p90 0.94 ms, max 1.6 ms in the offline test). The catch-up limit (CatchUpFor) is raised only for those intervals, only while batching: the default of 8 would
+// read a batch as a stall and drop vblanks, and a limit of 256 at 60 Hz would fire ~120 interrupts back to back after a 2 s stall. An item (a flip, a fence) still wakes the
+// wait at once, and no batching while a flip is pending (BatchEnabled: the frame limiter's gate would wait a wake per load frame).
+inline constexpr int64_t kBatchBelowNs = 1000000;  // intervals under this (above 1 kHz: 4 kHz and 16 kHz) are the load-turbo rates
+inline constexpr int64_t kBatchWakeNs = 500000;    // at least this long between idle wakes
+inline constexpr uint32_t kBatchCatchUp = 256;     // VblankClock::max_catch_up while batching: a timer wake late by a few ms on a busy 4-core machine owes ~100 (16 ms), caught up in one Turn
+inline constexpr uint32_t kDefaultCatchUp = 8;     // VblankClock::kMaxCatchUp
+inline uint32_t CatchUpFor(bool batch, int64_t interval_ns) { return batch && interval_ns > 0 && interval_ns < kBatchBelowNs ? kBatchCatchUp : kDefaultCatchUp; }
+inline bool BatchEnabled(bool switch_on, bool ingame_window_open, bool gate_open) { return switch_on && ingame_window_open && !gate_open; }
+inline WaitPlan PlanWaitBatched(int64_t now_ns, int64_t deadline_ns, bool gate_open, int64_t interval_ns, int64_t last_wake_ns, bool enabled) {
+  const WaitPlan p = PlanWait(now_ns, deadline_ns, gate_open, interval_ns);
+  if (!enabled || interval_ns <= 0 || interval_ns >= kBatchBelowNs) return p;
+  return {std::max(p.target_ns, last_wake_ns + kBatchWakeNs), 0};
+}
+
 struct HiResWait {
 #ifdef _WIN32
   HANDLE timer = nullptr, ev = nullptr;

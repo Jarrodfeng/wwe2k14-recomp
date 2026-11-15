@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 #include "d3_arena.h"
+#include "skips_auto.h"   // S102 K3
 
 namespace rdr_adapter::d3 {
 
@@ -137,6 +138,7 @@ inline CallOutcome DecideCall(GuestObjects& objs, const CallInputs& in, const Ma
   SkipInputs si;
   si.path = in.path;
   si.switch_on = in.ring ? g_ring_d3 : in.caster ? g_caster_d3 : in.wrestler ? g_wrestlers_d3 : g_arena_d3, si.owner = in.owner;
+  if (!in.wrestler && !skips_auto::Allows()) si.switch_on = false;   // S102 K3 (skips_auto.h): our render thread cannot use the cut in this guest frame: the call is recorded in full (SwitchOff) and the ledger learns it as any recorded call. The wrestler class is not one of the five skips
   si.gate_proven = gate.Proven(in.now_ms);
   const uint64_t pframe = in.frame + (fault == Fault::ProofSkew ? 11 : 0);   // (plant: a skewed proof clock)
   si.proof_frame = ObjectProofFrame(in.object, pframe) || (in.proof_skew && ObjectProofFrame(in.object, pframe + in.proof_skew));   // lane 152 (12): both clocks' proof frames are full frames

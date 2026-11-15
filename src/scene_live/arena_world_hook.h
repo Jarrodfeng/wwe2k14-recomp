@@ -17,6 +17,7 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
@@ -25,6 +26,7 @@
 
 #include "../renderer_scene/scene_record.h"
 #include "arena_world.h"
+#include "../renderer_adapter/upd_lean.h"   // S102 U2 (the plant macro, the census; no game includes)
 
 namespace rdr_scene::live::arenaworld {
 
@@ -52,8 +54,22 @@ class Tracker {
   Plant plant = Plant::None;
 
   // `read_word(addr, v)` / `read_mat(addr, float[16] host order)` are the guest reads (the fake in the test, wrestlers::ReadWord / ReadMatrices in the game).
+  // S102 U2 (R22 cut 3; `lean` = wwe2k14_rdr_upd_lean bit 4): the parts of one object call this once each with the same (object, palette) in one frame; the first call recorded the world (or found
+  // it recorded) and every later one only finds it in index_ after five guest word reads and a matrix read. With `lean` a thread-local memo of the last (this, key, frame) that is known to be in
+  // index_ answers a repeat before the reads. It is valid only while this tracker is still in that frame (frame_now_, moved by Advance under the lock, which is also where index_ is cleared); the
+  // world recorded is the first call's, as before. Stats of a repeat (calls, foreign_palette) are not counted on that path; memo_hits is.
   template <class ReadWordFn, class ReadMatFn>
-  void OnModelCall(uint32_t model, uint32_t palette_ptr, uint64_t frame, ReadWordFn read_word, ReadMatFn read_mat) {
+  void OnModelCall(uint32_t model, uint32_t palette_ptr, uint64_t frame, ReadWordFn read_word, ReadMatFn read_mat, bool lean = false) {
+    struct Memo {
+      const void* owner = nullptr;
+      uint64_t key = 0, frame = ~0ull;
+    };
+    thread_local Memo memo;
+    const uint64_t memo_key = (uint64_t(model) << 32) | palette_ptr;
+    if (lean && memo.owner == this && memo.key == memo_key && (UPD_PLANT(6) || (memo.frame == frame && frame_now_.load(std::memory_order_relaxed) == frame))) {
+      wwe2k14::upd_lean::Count(wwe2k14::upd_lean::kArenaMemo);
+      return;
+    }
     uint32_t field = 0, desc_base = 0, bones = 0, node = 0;
     const bool pal = palette_ptr != 0;
     const bool f200 = pal && read_word(model + 200, field);
@@ -78,7 +94,10 @@ class Tracker {
     if (node_bad) { ++stats_.node_bad; return; }
     if (!ok) { ++stats_.unreadable; return; }
     const uint64_t key = (uint64_t(model) << 32) | palette_ptr;  // dedupe on (object, r5): the parts of one object share it, a caller with another array does not
-    if (index_.count(key)) return;
+    if (index_.count(key)) {
+      if (lean) memo.owner = this, memo.key = key, memo.frame = frame;
+      return;
+    }
     if (cur_.worlds.size() >= kMaxObjects) { ++stats_.overflow; return; }
     ArenaWorld w;
     w.kind = kAwObject;
@@ -98,6 +117,7 @@ class Tracker {
       if (it == first_.end()) first_.emplace(model, std::vector<float>(w.world, w.world + 12));
       else std::memcpy(w.world, it->second.data(), sizeof w.world);
     }
+    if (lean) memo.owner = this, memo.key = key, memo.frame = frame;
     index_.emplace(key, uint32_t(cur_.worlds.size()));
     cur_.worlds.push_back(w);
     ++stats_.recorded;
@@ -126,8 +146,13 @@ class Tracker {
     std::lock_guard<std::mutex> lk(mu_);
     if (taken_ >= closed_count_) return false;
     FrameBuffer& b = ring_[taken_ % kRing];
-    out = std::move(b);
-    b = FrameBuffer();
+    if (wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry2)) {   // S102 U3 (bit 16): swap, so the buffer the caller handed back keeps its capacity in the ring (no reallocation of the worlds vector each frame)
+      std::swap(out, b);
+      b.worlds.clear(), b.valid = false, b.frame = 0, b.origin = 0, b.origin_known = false;   // == a default FrameBuffer, capacity kept
+    } else {
+      out = std::move(b);
+      b = FrameBuffer();
+    }
     ++taken_;
     return true;
   }
@@ -155,6 +180,7 @@ class Tracker {
   bool Advance(uint64_t frame) {
     if (!cur_.valid) {
       cur_.valid = true, cur_.frame = frame;
+      frame_now_.store(frame, std::memory_order_relaxed);
       return true;
     }
     if (frame < cur_.frame) return false;
@@ -164,10 +190,18 @@ class Tracker {
         ++stats_.late;
       }
       cur_.origin = origin_, cur_.origin_known = origin_known_;  // the snapshot, at close
-      ring_[closed_count_ % kRing] = std::move(cur_);
-      ++closed_count_;
-      cur_ = FrameBuffer();
+      if (wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry2)) {   // S102 U3 (bit 16): swap + clear (the vector keeps the capacity the frame grew to)
+        std::swap(ring_[closed_count_ % kRing], cur_);
+        wwe2k14::upd_lean::Count(wwe2k14::upd_lean::kArenaSwap);
+        ++closed_count_;
+        cur_.worlds.clear(), cur_.origin = 0, cur_.origin_known = false;
+      } else {
+        ring_[closed_count_ % kRing] = std::move(cur_);
+        ++closed_count_;
+        cur_ = FrameBuffer();
+      }
       cur_.valid = true, cur_.frame = frame;
+      frame_now_.store(frame, std::memory_order_relaxed);
       index_.clear();
       ++stats_.frames;
     }
@@ -177,6 +211,7 @@ class Tracker {
   mutable std::mutex mu_;
   FrameBuffer cur_, ring_[kRing];
   std::unordered_map<uint64_t, uint32_t> index_;
+  std::atomic<uint64_t> frame_now_{~0ull};   // S102 U2: cur_.frame, readable without the lock (the lean memo's guard)
   std::unordered_map<uint32_t, std::vector<float>> first_;  // MovingStatic only
   uint64_t closed_count_ = 0, taken_ = 0;
   uint32_t origin_ = 0;

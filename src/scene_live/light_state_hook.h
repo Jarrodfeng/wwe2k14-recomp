@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "../renderer_scene/scene_record.h"
+#include "../renderer_adapter/upd_lean.h"   // S102 U2 (the plant macro; no game includes)
 
 namespace rdr_scene::live::lights {
 
@@ -195,6 +196,39 @@ class Tracker {
                     state, idx);
       log(line);
     }
+  }
+
+  // S102 U2 (R22 cut 3; wwe2k14_rdr_upd_lean bit 4): OnModelCall's common case without its copies. A call whose slot already holds a state of this frame and whose guest record is
+  // unchanged (the parts of one object and its neighbours share a state) only needs "is it the same": `same(addr, ref, n)` compares the guest bytes IN PLACE with the slot's kept key
+  // (0 = equal, 1 = differs, -1 = unreadable) and the call records its ref. That drops the 2208-byte read, the two 1232-byte key copies and the key store of every call. Anything
+  // else (a new frame, a new slot, a changed record, an unreadable word, a plant, the log budget) goes to OnModelCall unchanged, which counts and records it exactly as before:
+  // the states, refs and hashes that come out are the same bytes (tools\upd_lean). Counters differ only in `same_as_last`, which both paths bump.
+  template <class ReadWordFn, class SameFn, class ReadBytesFn, class LogFn>
+  void OnModelCallLean(uint32_t model, uint32_t r13, uint64_t frame, ReadWordFn read_word, SameFn same, ReadBytesFn read_bytes, LogFn log, bool* took = nullptr) {
+    if (took) *took = false;
+    uint32_t g = 0, arr = 0, tls = 0, blk = 0, idx = 0, wbits = 0, hbits = 0;
+    if (read_word(kGlobalWord, g) && g != 0 && read_word(g + 4, arr) && arr != 0 && read_word(r13, tls) && tls != 0 && read_word(tls + 1048, blk) && blk != 0 &&
+        read_word(blk + 32, idx) && idx < kMaxSlot && read_word(g + 208, wbits) && read_word(g + 212, hbits)) {
+      const uint32_t rec = arr + idx * kRecordSize;
+      std::unique_lock<std::mutex> lock(mu_);
+      Slot& sl = slot_[idx];
+      if (plant_ == Plant::None && log_budget_ == 0 && cur_.valid && frame == cur_.frame && sl.valid && sl.frame == cur_.frame && sl.index < cur_.states.size()) {
+        // (the guest compare runs under the lock: two guest reads of ~1.2 KB, no allocation; the slot's key is what it is compared with)
+        const int a = same(rec, sl.key, kUsedA);
+        const int b = UPD_PLANT(7) ? a : (a == 0 ? same(rec + kUsedB0, sl.key + kUsedA, kUsedB) : a);
+        if (a == 0 && b == 0 && std::memcmp(sl.key + kUsedA + kUsedB, &wbits, 4) == 0 && std::memcmp(sl.key + kUsedA + kUsedB + 4, &hbits, 4) == 0) {
+          ++stats_.calls, ++stats_.same_as_last;
+          if (cur_.refs.size() >= kMaxRefs) { ++stats_.ref_overflow; if (took) *took = true; return; }
+          const uint32_t ordinal = NextOrdinalLocked(model);
+          if (ordinal == 0xFFFFFFFFu) { ++stats_.ref_overflow; if (took) *took = true; return; }
+          prev_state_ = sl.index;
+          cur_.refs.push_back({model, ordinal, sl.index, uint32_t(cur_.frame)});
+          if (took) *took = true;
+          return;
+        }
+      }
+    }
+    OnModelCall(model, r13, frame, read_word, read_bytes, log);
   }
 
   // lane 152 (D3-F item 16): the D3 decision's pre-read. Would OnModelCall record this call's state and ref, or fail? Read only: no ref, no state, no counter, no frame rotation. `table_states` = the states the

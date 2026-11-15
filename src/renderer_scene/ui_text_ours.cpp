@@ -1,4 +1,5 @@
 // See ui_text_ours.h. Session 101, lane 89 (UT).
+#include "../thread_name.h"  // S102 H1
 #include "ui_text_ours.h"
 
 #include <chrono>
@@ -195,7 +196,7 @@ bool UiTextOurs::FrameReady(const rdr_adapter::LoadedFrame& frame) {
       if (root_.empty()) return ++census_.not_ready_frames, false;   // no game folder known yet
     }
     if (!load_started_.exchange(true)) {
-      if (options_.live) load_thread_ = std::thread([this] { LoadFonts(); });
+      if (options_.live) load_thread_ = std::thread([this] { wwe2k14::NameThread(L"ours_ui_fonts"); LoadFonts(); });
       else LoadFonts();
     }
   }

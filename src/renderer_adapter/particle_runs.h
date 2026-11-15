@@ -203,7 +203,7 @@ inline bool SameRun(const LoadedFrame& frame, uint32_t a, uint32_t b, Fault faul
       const int d = SlotDiff(frame, frame.texture_slots[da.texture_first + t], frame.texture_slots[db.texture_first + t]);
       return *why = d == 1 ? Why::TexImage : d == 2 ? Why::TexSampler : Why::TexOther, false;
     }
-  if (da.ps_bank != db.ps_bank && std::memcmp(&frame.constant_banks[da.ps_bank], &frame.constant_banks[db.ps_bank], sizeof(ConstantBank)) != 0) return *why = Why::PsBank, false;
+  if (da.ps_bank != db.ps_bank && !frame.constant_banks.SameMap(da.ps_bank, db.ps_bank) && std::memcmp(&frame.constant_banks[da.ps_bank], &frame.constant_banks[db.ps_bank], sizeof(ConstantBank)) != 0) return *why = Why::PsBank, false;
   if (!SameVsBank(frame.constant_banks[da.vs_bank], frame.constant_banks[db.vs_bank], fault, da.vs_hash == kSoftVs)) {
     *why = Why::VsBank;
     if (reg) *reg = FirstVsDiff(frame.constant_banks[da.vs_bank], frame.constant_banks[db.vs_bank], da.vs_hash == kSoftVs);

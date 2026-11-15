@@ -1,0 +1,20 @@
+{
+ "owner": "S102 lane UQ1 (record skip at the source): --wwe2k14_rdr_record_skip (PerFrame mask, default 0), bits 1 (cards) / 2 (stands members) / 4 (floor members) (+ 0x80 test-only knock-out) = the far card's op-21 is not recorded when the card cut drops that card's op-15. src/scene_live/card_thin_core.h (Decider::PeekOp21 / SkipCardOp21 / PairOp15), card_thin_hook.h (switch, per-run read, census, DropCard pairing), src/scene_crowd.h (the op-21 hook), rdr_switches.h (kRecordSkip). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "bryan", "side": "the game's update thread (CGameMainThread)", "ms": [0.35, 0.5]},
+ "note": "unit = record_skip_test.exe, a recorded-call-trace driver of the shipped decision (pairing, proof / unproven / tiled / census / bit-off arms, a gate that flips between the two calls, peek purity over 24 state combinations) + 8 planted faults that must each fail; check = record_skip_check.py: wiring lint (observer before skip, pairing before tiled) with its planted twin, per-site census of Bryan / Check B / wm30 / the R25-B stretch, and the inheritance question (no draw after a skipped card reads its world, count > 0 so it is not vacuous) with a planted twin. Kind: removes work (recorder calls on the update thread and the same records' reader / parse share), not a memo. Measured inside the combined all-levers A/B (sub-1 ms claim).",
+ "checks": [
+  {"name": "s102_uq1.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/crowd/build_record_skip_test.ps1"], "timeout_s": 600},
+  {"name": "s102_uq1.member_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/crowd/build_member_thin_test.ps1"], "timeout_s": 600},
+  {"name": "s102_uq1.member_unit", "cmd": ["py", "-I", "tools/crowd/member_thin_selftest.py"], "timeout_s": 300},
+  {"name": "s102_uq1.card_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/crowd/build_card_thin_test.ps1"], "timeout_s": 600},
+  {"name": "s102_uq1.card_unit", "cmd": ["py", "-I", "tools/crowd/card_thin_selftest.py"], "timeout_s": 300},
+  {"name": "s102_uq1.unit", "cmd": ["py", "-I", "tools/crowd/record_skip_selftest.py"], "timeout_s": 300},
+  {"name": "s102_uq1.check", "cmd": ["py", "-I", "tools/crowd/record_skip_check.py", "--root", ".", "--captures", "bryan,checkB,wm30", "--step", "10"], "timeout_s": 1800, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131029_s100_owner_s90_wm30/case_20261112_131111_940_0_pc_run_exit.zip"]},
+  {"name": "s102_uq1.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py"], "timeout_s": 300},
+  {"name": "s102_uq1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/scene_crowd.h", "src/scene_live/card_thin_core.h", "src/scene_live/card_thin_hook.h", "src/renderer_adapter/rdr_switches.h"]},
+  {"name": "s102_uq1.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 300}
+ ]
+}

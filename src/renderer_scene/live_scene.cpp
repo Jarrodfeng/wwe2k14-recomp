@@ -4,6 +4,11 @@
 // capture arms / the case ring starts, so contention is nil, and RemoveSink returning means no EndFrame still holds the sink.
 #include "live_scene.h"
 
+#include "../renderer_adapter/rdr_switches.h"   // S102 T11b: wwe2k14_rdr_scene_strings_once, read every frame (no game or SDK includes)
+#include "string_pool.h"
+#include "swap_once.h"     // S102 SW1: wwe2k14_rdr_swap_once (the swap thread's every-frame work done once)
+#include "tables_pool.h"   // S102 SW1
+
 #include <atomic>
 #include <cstdio>
 #include <exception>
@@ -32,7 +37,18 @@ struct State {
   uint64_t window_records = 0, window_refused = 0, window_sink_errors = 0;
   uint64_t validate_refused = 0;  // refusals blamed on no single contributor (the tables failed validation)
   uint32_t logged_refusals = 0;
+  LatchTotals latch;  // S102 U1 (under mu; violations are the atomics below)
+  StringPool pool;                  // S102 T11b: the strings every frame's record repeats (string_pool.h); written by the writer thread under `mu`
+  uint64_t pool_window_start = 0;   // the guest frame the pool's census window began at (0 = none yet)
+  TablesPool tables_pool;           // S102 SW1: recycled record tables (swap_once bit 1); the table's last owner gives it back from any thread (its own mutex)
+  uint64_t so_window_start = 0;     // S102 SW1: the guest frame the swap_once census window began at (0 = none yet)
+  uint64_t so_base[8] = {};         // the swap_once counters at the window's start (the line prints the window's counts)
 };
+
+// S102 U1: the deferred emit's thread flag and the violation counter live in live_scene.h (tail_detail, inline).
+using tail_detail::t_deferred_emit;
+using tail_detail::g_violations;
+using tail_detail::g_first_violation;
 
 State& S() {
   static State* s = new State;  // leaked: a late call after static destruction never touches freed memory
@@ -123,6 +139,12 @@ bool Validate(const SceneTables& t, std::string& error) {
       return false;
     }
   }
+  if (!t.crowd_runs.empty() || !t.crowd_members.empty()) {  // S102 T19: the crowd run markers must index their members, assets and palettes inside the tables
+    if (const std::string rp0 = CrowdRunsProblem(t); !rp0.empty()) {
+      error = rp0;
+      return false;
+    }
+  }
   for (size_t i = 0; i < t.light_refs.size(); ++i)  // S101 lane 109: a light ref must point inside the light states
     if (t.light_refs[i].state >= t.light_states.size()) {
       std::snprintf(b, sizeof(b), "LightRef %zu: state %u, but there are %zu light states", i, t.light_refs[i].state, t.light_states.size());
@@ -160,6 +182,7 @@ bool Validate(const SceneTables& t, std::string& error) {
 void EndFrame(uint64_t guest_frame) { EndFrame(guest_frame, kNoCaptureFrame); }
 
 static void EndFrameImpl(uint64_t guest_frame, uint32_t capture_frame);
+static void BuildFrame(State& s, const FrameInfo& info);  // S102 U1
 
 // S101 lane 26 review: nothing throws into guest code. An allocation failure (the tables, the vectors) refuses the frame like any other fault.
 void EndFrame(uint64_t guest_frame, uint32_t capture_frame) {
@@ -191,8 +214,60 @@ static void EndFrameImpl(uint64_t guest_frame, uint32_t capture_frame) {
   info.guest_frame = guest_frame;
   info.frame_in_window = s.frames_in_window - 1;
   info.capture_frame = capture_frame;
+  BuildFrame(s, info);  // S102 U1: the body moved into BuildFrame (unchanged), shared with LatchFrame / EmitLatched
+}
 
-  auto tables = std::make_shared<SceneTables>();
+// The record of one frame: every contributor's Emit in registration order, Validate, the sinks. `s.mu` is held by the caller.
+static void BuildFrame(State& s, const FrameInfo& info) {
+  const uint64_t guest_frame = info.guest_frame;
+  // S102 SW1 (wwe2k14_rdr_swap_once, PerFrame, read here every record): the mask the contributors read while this record is built, and the recycled table (bit 1).
+  const uint32_t swap_mask = uint32_t(rdr_sw::IntSeen(rdr_sw::kSwapOnce, int64_t(swap_once::g_fallback.load(std::memory_order_relaxed)), guest_frame)) & swap_once::kAll;
+  swap_once::g_mask.store(swap_mask, std::memory_order_relaxed);
+  if (!(swap_mask & swap_once::kTables)) s.tables_pool.Trim();   // (SW1 review 3: bit 1 off = the free list is released)
+  TablesPool::Handle tables = (swap_mask & swap_once::kTables) ? s.tables_pool.Take() : TablesPool::Plain();
+  if (swap_mask) {
+    swap_once::g_count.frames.fetch_add(1, std::memory_order_relaxed);
+    if (s.so_window_start == 0 || guest_frame >= s.so_window_start + 600) {   // the census line, every 600 frames while the lever is on (the S102 rule)
+      const swap_once::Counters& c = swap_once::g_count;
+      const uint64_t now[8] = {c.frames.load(std::memory_order_relaxed), c.tables_reused.load(std::memory_order_relaxed), c.tables_made.load(std::memory_order_relaxed),
+                               c.tables_dropped.load(std::memory_order_relaxed), c.crowd_fast.load(std::memory_order_relaxed), c.crowd_slow.load(std::memory_order_relaxed),
+                               c.overlay_posted.load(std::memory_order_relaxed), c.overlay_skipped.load(std::memory_order_relaxed)};
+      if (s.so_window_start != 0 && s.log) {
+        char line[400];
+        std::snprintf(line, sizeof line,
+                      "[rdr][swap_once] mask %u, frames %llu; tables: reused %llu, made %llu, dropped (free list full) %llu; crowd members: fast %llu, through the id cache %llu; overlay requests: posted %llu, skipped %llu",
+                      swap_mask, (unsigned long long)(now[0] - s.so_base[0]), (unsigned long long)(now[1] - s.so_base[1]), (unsigned long long)(now[2] - s.so_base[2]),
+                      (unsigned long long)(now[3] - s.so_base[3]), (unsigned long long)(now[4] - s.so_base[4]), (unsigned long long)(now[5] - s.so_base[5]),
+                      (unsigned long long)(now[6] - s.so_base[6]), (unsigned long long)(now[7] - s.so_base[7]));
+        s.log(line);
+      }
+      for (int i = 0; i < 8; ++i) s.so_base[i] = now[i];
+      s.so_window_start = guest_frame ? guest_frame : 1;
+    }
+  }
+  // S102 T11b: the string pool (read every frame, at the record's start). The pool takes what the contributors queued last frame, then this frame's table starts as a copy of it;
+  // a contributor finds the table's pool with SeedPool() and writes pool fields instead of interning (string_pool.h). Off = nothing here runs.
+  if (rdr_sw::BoolSeen(rdr_sw::kSceneStringsOnce, g_scene_strings_once.load(std::memory_order_relaxed), guest_frame)) {
+    StringPool& pool = s.pool;
+    pool.Commit();
+    ++pool.stats.frames;
+    if (tables->SeedStrings(pool)) ++pool.stats.seeded;
+    if (s.pool_window_start == 0 || guest_frame >= s.pool_window_start + 600) {   // the census line, every 600 frames while the lever is on (R13 / S102 rule)
+      if (s.pool_window_start != 0 && s.log) {
+        const StringPool::Stats& st = pool.stats;
+        char line[420];
+        std::snprintf(line, sizeof line,
+                      "[rdr][scene_strings_once] frames %llu, taken %llu, declined %llu (by reason: stale crowd %llu, pool full %llu, not fresh %llu), crowd fields from the pool %llu (not yet %llu), arena fields %llu (not yet %llu), pool %zu strings %zu bytes, queued at most %llu, pool resets %llu",
+                      (unsigned long long)st.frames, (unsigned long long)st.seeded, (unsigned long long)(st.frames - st.seeded + st.crowd_stale + st.refused_full),
+                      (unsigned long long)st.crowd_stale, (unsigned long long)st.refused_full, (unsigned long long)(st.frames - st.seeded), (unsigned long long)st.crowd_fields,
+                      (unsigned long long)st.crowd_fallback, (unsigned long long)st.arena_fields, (unsigned long long)st.arena_fallback, pool.Count(), pool.Blob().size(),
+                      (unsigned long long)st.pending_max, (unsigned long long)st.resets);
+        s.log(line);
+      }
+      pool.stats = StringPool::Stats{};
+      s.pool_window_start = guest_frame ? guest_frame : 1;
+    }
+  }
   tables->header.source = uint8_t(Source::Live);
   tables->header.guest_frame = guest_frame;
 
@@ -231,12 +306,13 @@ static void EndFrameImpl(uint64_t guest_frame, uint32_t capture_frame) {
     ++s.window_refused;
     return;  // the frame's record is dropped; the game path is unaffected
   }
+  tables->DropSeedPool();   // S102 T11b (R20 review F4): the sinks and the render thread get a table that does not point into the writer's mutable pool
   for (size_t i = 0; i < counters.size(); ++i) {
     s.window[i].sum.objects += counters[i].objects;
     s.window[i].sum.unknown += counters[i].unknown;
     s.window[i].sum.stale += counters[i].stale;
   }
-  std::shared_ptr<const SceneTables> shared = std::move(tables);
+  std::shared_ptr<const SceneTables> shared = std::move(tables);   // (S102 SW1: the unique handle's deleter goes with it: the last owner gives the table back to the pool)
   for (Sink* sink : s.sinks) {
     try {
       sink->OnRecordShared(info, shared);
@@ -247,6 +323,107 @@ static void EndFrameImpl(uint64_t guest_frame, uint32_t capture_frame) {
   }
   ++s.totals.records;
   ++s.window_records;
+}
+
+// ---- S102 U1 (docs\renderer\SWAP_TAIL.md): the frame boundary in two halves ----
+
+static void RefuseLocked(State& s, uint64_t guest_frame, const std::string& why) {
+  ++s.totals.refused;
+  ++s.window_refused;
+  LogRefusal(s, "guest frame " + std::to_string(guest_frame) + ": " + why);
+}
+
+static void LatchImpl(uint64_t guest_frame, uint32_t capture_frame, bool allow_defer, Latched& out) {
+  State& s = S();
+  if (!s.contributor_count.load(std::memory_order_relaxed)) return;
+  std::lock_guard lock(s.mu);
+  if (s.sinks.empty() || s.contributors.empty()) return;
+  ++s.totals.frames;  // (EndFrameImpl's own count: one per frame, here instead of there)
+  ++s.frames_in_window;
+  FrameInfo info;
+  info.guest_frame = guest_frame;
+  info.frame_in_window = s.frames_in_window - 1;
+  info.capture_frame = capture_frame;
+  ++s.latch.latched;
+  bool all = true;
+  for (size_t i = 0; i < s.contributors.size(); ++i) {
+    Contributor* c = s.contributors[i];
+#ifdef RDR_TAIL_PLANTS
+    if (g_tail_plant == 1 || g_tail_plant == 2 + int(i)) continue;  // planted: "latched" without taking anything (1 = every contributor, 2 + i = only contributor i)
+#endif
+    bool took = false;
+    try {
+      took = c->Latch(info);
+    } catch (...) {
+      ++s.window[i].refused;
+      RefuseLocked(s, guest_frame, std::string("contributor \"") + c->Name() + "\" threw in its latch");
+      return;
+    }
+    if (!took) {
+      all = false;
+      s.latch.not_latchable_name = c->Name();
+    }
+  }
+  if (all && allow_defer) {
+    out.emit_deferred = true;
+    out.info = info;
+    out.contributors = uint32_t(s.contributors.size());
+    ++s.latch.deferred;
+    return;
+  }
+  if (!all) ++s.latch.not_latchable;
+  BuildFrame(s, info);  // the contributors that latched use what they took (same frame)
+}
+
+void LatchFrame(uint64_t guest_frame, uint32_t capture_frame, bool allow_defer, Latched& out) {
+  out.emit_deferred = false;
+  if (!Enabled()) return;
+  try {
+    LatchImpl(guest_frame, capture_frame, allow_defer, out);
+  } catch (...) {
+    out.emit_deferred = false;
+    State& s = S();
+    try {
+      std::lock_guard lock(s.mu);
+      RefuseLocked(s, guest_frame, "out of memory or an unexpected failure at the latch");
+    } catch (...) {
+    }
+  }
+}
+
+void EmitLatched(Latched& l) {
+  if (!l.emit_deferred) return;
+  l.emit_deferred = false;
+  State& s = S();
+  t_deferred_emit = true;
+  try {
+    std::lock_guard lock(s.mu);
+    if (s.contributors.size() != l.contributors) {
+      ++s.latch.registry_changed;
+      RefuseLocked(s, l.info.guest_frame, "a contributor registered between the latch and the emit");
+    } else if (!s.sinks.empty()) {
+      BuildFrame(s, l.info);
+    }
+  } catch (...) {
+    try {
+      std::lock_guard lock(s.mu);
+      RefuseLocked(s, l.info.guest_frame, "out of memory or an unexpected failure building the latched record");
+    } catch (...) {
+    }
+  }
+  t_deferred_emit = false;
+}
+
+LatchTotals GetLatchTotals() {
+  State& s = S();
+  LatchTotals t;
+  {
+    std::lock_guard lock(s.mu);
+    t = s.latch;
+  }
+  t.violations = g_violations.load(std::memory_order_relaxed);
+  if (const char* f = g_first_violation.load(std::memory_order_relaxed)) t.first_violation = f;
+  return t;
 }
 
 void CensusLog(uint64_t from, uint64_t to) {

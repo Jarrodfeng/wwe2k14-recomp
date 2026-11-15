@@ -914,7 +914,8 @@ inline void WrestlerModelEntryRead(uint32_t model, uint32_t palette, uint32_t r1
       rdr_scene::live::Wrestlers(), model, palette, frame,
       [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
       [](uint32_t a, uint32_t n, std::vector<rdr_scene::Mat4>& out) { return wwe2k14::wrestlers::ReadMatrices(a, n, out); },
-      wwe2k14::wrestlers::t_palette);
+      wwe2k14::wrestlers::t_palette, !wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry),   // S102 U2: no unknown-model census counters under the lean entry
+      wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry2));   // S102 U3: the consumer palette written in place
 }
 void wwe2k14_model_entry(PPCRegister& r3, PPCRegister& r5, PPCRegister& r13) {
   if (rdr_scene::live::lights::LightStatesRegistered()) wwe2k14::lights::ModelEntryHook(r3.u32, r13.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));  // S101 lane 109: R at the model call (read only; registered only with --wwe2k14_scene_records)

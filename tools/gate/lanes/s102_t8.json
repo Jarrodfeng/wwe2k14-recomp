@@ -1,0 +1,10 @@
+{
+ "owner": "S102 lane T8 (hand the frame over in memory): src/renderer_adapter/frame_handoff.h (FrameData, Serialize, BindInto, Pool), reader.h (FillFrameData / FrameBytes / FrameHandoff, cvar wwe2k14_rdr_handoff_memory, the submit call), live.h + live.cpp (SubmitFrameData, Message::data, the bind), rdr_switches.h (HandoffMemory, PerFrame), handoff_test.cpp + tools/renderer/handoff_unit.py. 0 game runs.",
+ "claim": {"scene": "bryan", "side": "swap + render", "ms": [0.15, 0.6], "basis": "swap thread: the serialise (FrameBytes' ~0.7 MB copy) is gone, measured 0.2-0.3 ms warm on this PC (cache-cold on the Surface maybe 2x); render thread: ParseFrame was pointer binding, 0.01-0.04 ms; R3's 0.2-0.5 ms for the render side was too high. Offline direction only, unmeasured on the Surface"},
+ "note": "unit = every frame of both captures: the binder-visible contents (header, every table, strings, thin / D3 stamps, every constant bank) equal from the file's bytes, from Serialize -> ParseFrame and from BindInto, one synthetic frame with thin facts + stamps + D3 counts; five planted twins (origins, header flags, bank patches, strings, thin facts not handed over) must each be caught. Needs the main checkout's case zips (read in place).",
+ "checks": [
+  {"name": "s102_t8.unit", "cmd": ["py", "-I", "tools/renderer/handoff_unit.py", "--root", "."], "timeout_s": 1500, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip"]}
+ ]
+}

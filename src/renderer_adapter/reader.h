@@ -11,6 +11,7 @@
 // Every case the reader cannot describe is counted by name (Note), logged once, and summed per 600 frames: [rdr][census].
 #pragma once
 
+#include "../thread_name.h"  // S102 H1
 #include <functional>
 #include <algorithm>
 #include <array>
@@ -48,6 +49,13 @@
 #include <rex/system/xmemory.h>
 
 #include "../renderer/dlss_jitter.h"
+#include "low_levers.h"       // S102 lane G1
+#include "../renderer/frame_switches.h"  // S102 T4 / T5: rdr::g_fb_fast, rdr::g_pack_once
+#include "../renderer/output_switches.h"  // S102 G2: rdr::g_out_cap_h, rdr::g_out_bilinear
+#include "../blackbox.h"          // S102 U1: Note (the phone's start-up file)
+#include "../android_lifecycle.h" // S102 U1: WriteExitRequest
+#include "../platform/compat.h"   // S102 U1: MessageBoxW / ExitProcess
+#include "start_failure_text.h"   // S102 U1
 #include "announce.h"         // S101 lane 271: g_announced_arena
 #include "d3_latch_hook.h"    // lane 301: g_d3_latch_hook
 #include "../d3d_shader_bind.h"  // Ld32 / Ld64 / Host / VariantRecord / PatchedVertexShader: facts about the shader objects
@@ -57,21 +65,32 @@
 #include "../frame_stats.h"      // g_guest_frame
 #include "thumb_defer_core.h"    // lane 232: the replay-thumbnail deferral board
 #include "geo_forget.h"         // lane 266: the geometry age queue (forgetting a little every frame)
+#include <optional>
+#include "particle_lite.h"        // S102 T18: the lite record path for particle draws (pure logic, tools\particle_lite)
+#include "slot_geo_memo.h"          // S102 T15: the per-draw slot / sampler / geometry memos (pure logic, tools\t15)
 #include "periodic_times.h"    // lane 266: the ms each periodic job took (the [rdr][periodic] line)
 #include "../host_write.h"       // strip-360 E2 / E3: host writers report the guest bytes they write (OnHostWrite)
 #include "../guest_view.h"       // strip-360 tier C: the 0xE0000000 view rule, one place
 #include "../nf/observers.h"    // the SetTexture observer (bind trace)
 #include "../pending_work.h"     // g_live_pictures_in_flight (a route's quit waits for named pictures)
 #include "../renderer/player/png.h"  // diagnosis pictures of read-back copies
+#include "knockouts.h"       // S102 lane KO: ko::g_reader_none
 #include "adapter_frame.h"
+#include "bank_dirty.h"    // S102 T12: bank change detection pieces (the unit test runs the same code)
 #include "copy_alias.h"     // S101 lane 190: NoteReadback (a destination the CPU read back is never elided)
+#include "dead_work.h"      // S102 lane G4: the per-frame switches
 #include "capture.h"
 #include "names.h"          // S101 names: the frame's v2 sections
 #include "prov_map.h"      // S101 lane17: the page map (who wrote each page last) and the provenance label rule
 #include "names_draw.h"     // S101 lane 18: NamesCount, InternName, TakeDrawOriginInto
 #include "reader_thin.h"    // lane 122: D1 thin draws, the reader side (FrameLite)
+#include "draw_memos.h"     // S102 T14: the note / shader / pin-set memos (switches wwe2k14_rdr_note_memo, _shader_memo, _pin_hash)
+#include "skips_auto.h"   // S102 K3 review F2: NoteMarker
 #include "d3_arena.h"      // lane 138: D3 skip the object (the switch, the guest tally behind the frame header counts)
 #include "../scene_live/span_timer.h"  // lane 122: records per span (SKIP_GAME_WORK_MAP.md 1.3)
+#include "upd_lean.h"       // S102 U2: less of our work on the update thread (the lane switch wwe2k14_rdr_upd_lean)
+#include "swap_tail2.h"     // S102 R25-A: the swap thread's waits that were ours (wwe2k14_rdr_swap_tail2)
+#include "join_ticket.h"    // S102 R25-A: which reader jobs a fence waits for (a ticket, not WaitAll)
 #include "origin_intern.h"  // S101 names: the tag a replayed draw record carries (draw_origin.h writes it)
 #include "origin_table.h"   // S101 names: submit function -> class, technique (generated from db\ids\origin_table.json)
 #include "surface_creators.h"    // S101 names: header -> the call that created it (surface_roles_hook.h)
@@ -80,8 +99,11 @@
 #include "stage_view.h"          // S101 lane 59: the stage view switch (g_enabled) and the director's "playing" atomic
 #include "surface_role_table.h"  // S101 names: creating function -> role (generated from db\ids\surface_roles.json)
 #include "live.h"
+#include "frame_handoff.h"  // S102 lane T8
+#include "tail_release.h"   // S102 U1: our end-of-frame work after the barrier release (docs\renderer\SWAP_TAIL.md)
 #include "plane_repoint.h"  // lane 195: a re-pointed flush-driven plane is read again
 #include "display_rate.h"  // lane 168: the pump rate follows the display's refresh
+#include "../frame_split.h"   // S102 H3: the swap thread's per-frame split (--wwe2k14_frame_split)
 #include "../renderer_scene/live_scene.h"   // S101 lane 26: the live scene writer's frame boundary (one EndFrame call where the frame is written / submitted)
 #include "../renderer_scene/live_sinks.h"   // S101 lane 26: the capture folder's scene\ sink
 
@@ -93,6 +115,7 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_provenance, false, "wwe2k14",
                     "S101 lane17: record who wrote each page (file reads, copies, decoders) and label every texture bind (frame section 66, the [rdr][names] provenance lines). "
                     "Off for players (nothing is hooked, nothing is paid); on by itself with the bug button's case ring, a +dev PC owner-mode build, or a capture armed at start");
 REXCVAR_DECLARE(std::string, wwe2k14_low_ram);   // lane 126 (src\low_ram.h)
+REXCVAR_DECLARE(std::string, wwe2k14_gpu);       // S102 U1 (src\gpu_pick.h): the launcher's graphics card choice, now also read by the new renderer's device pick
 REXCVAR_DECLARE(bool, wwe2k14_case);  // (case/case_hook.h)
 REXCVAR_DECLARE(int32_t, wwe2k14_scene_crowd);   // lane 295 (6): the legacy queue path (scene_crowd.h) makes the member cut census-only
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_bake_skip);  // lane 190 (S1): scene_live/bake_skip_hook.h
@@ -163,8 +186,24 @@ REXCVAR_DEFINE_STRING(wwe2k14_rdr_live_picture_isolates, "", "wwe2k14",
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_live_png_every, 0, "wwe2k14", "Session 100: also write the mirror's picture every N drawn frames (0 off)");
 REXCVAR_DEFINE_STRING(wwe2k14_rdr_format_caps_mask, "", "wwe2k14",
                       "Session 101 lane 200 (dev only): hex bit mask of format features to pretend are missing, to run the format-capability fallbacks on a full-feature GPU (src\\renderer\\format_caps.h; 80000000 = fallbacks off, the re-find). Empty = the device as it is");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_bc_decode, 1, "wwe2k14",
+                     "S102 lane U1 (docs\\renderer\\TITLE_CARD_MALI.md): block-compressed textures (BC1-BC5) on a graphics chip that cannot sample them (Mali, Xclipse, Adreno 6xx phones) are decoded on the CPU into plain textures when they are uploaded. 1 = automatic (only where the chip lacks BC: no change anywhere else), 0 = off (the v0.3.2 behaviour: every such texture is refused and the title card and menus are missing), 2 = always (diagnosis)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gpu_timestamps, true, "wwe2k14",
                     "Lane 269: two Vulkan timestamps around every submitted frame of the new renderer, read a few frames late without stalling: the CSV gpu_ms, the slow-frame GPU field and the [rdr][gpu] lines. Two timestamps a frame, negligible");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gpu_stamps, false, "wwe2k14",  // S102 S0-3: an instrument (claim 0 ms), read every frame
+                    "S102 S0-3: a GPU timestamp after each step of every frame, so the [rdr][gpu] line gives milliseconds per surface role (colour, shadow, rim, plane, cards, post, output, other) and the wait for the display apart from the work, and the frames CSV gets render_thread_ms and gpu_work_ms. Off = lane 269's two timestamps only");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gpu_pass_stamps, false, "wwe2k14",  // S102 R24-B: an instrument, read every frame
+                    "S102 R24-B (docs\\renderer\\GPU_STAMPS.md): a GPU timestamp after EVERY pass and copy step (it forces wwe2k14_rdr_gpu_stamps on), and one [rdr][gpu][passes] table at 600 frames and every 600 after: per step the role, kind, image, size, format and the mean / p90 GPU microseconds. The stamps drain the pipe a little more than the run-level ones: read the table as a ranking. Off = today's stamps");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gpu_outside, false, "wwe2k14",  // S102 G5: an instrument, read every frame
+                    "S102 G5 (docs\\renderer\\GPU_OUTSIDE.md): meter the GPU work outside the frame's command buffer: each frame's fence is waited on right after the submit, so the submit-to-signal wall time less the stamped work is logged as [rdr][outside] with the CPU time of every outside point. Serialises CPU and GPU: an instrument, off by default");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_upload_batch, false, "wwe2k14",  // S102 G5, read every frame
+                    "S102 G5: record a frame's texture uploads as three groups (every layout change to copy-destination in one barrier, all the copies, every change back in one barrier) instead of two barriers per upload. The picture is byte-equal");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_props_budget, false, "wwe2k14",  // S102 T17, read every frame
+                    "S102 T17 (docs\\systems\\props_budget.md): the props hook (commentary table, steps, microphone) makes its GPU buffers and images under a per-frame budget (wwe2k14_rdr_props_budget_bytes / _us); a draw past it keeps the stream's draw for that frame and is made on a later one, so the frame that first uses the 223 prop meshes no longer pays for all of them. The worker also prepares the file hashes and widened texels. Needs wwe2k14_rdr_props_ours. The picture is the same");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_props_budget_bytes, 2097152, "wwe2k14", "S102 T17: bytes of buffers + images the props hook may make in one frame (the first creation of a frame is always allowed). Read every frame");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_props_budget_us, 1000, "wwe2k14", "S102 T17: microseconds of making the props hook may spend in one frame. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_counts, false, "wwe2k14",  // S102 M1
+                    "S102 M1: count the calls the new renderer records (draws, binds, barriers, ring bytes, area bound; src\\renderer\\counts.h) and log the per-frame means every 600 frames as [rdr][counts]. Integer increments only; off by default");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_live_validation, 0, "wwe2k14", "Session 100: the mirror renderer's Vulkan validation (0 off, 1 core + sync, 2 + best practices)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pipeline_store, true, "wwe2k14",  // default ON since 2026-11-13 15:5x (Jarrod: everything on; live pair 7195 / 7196)
                     "Lane 276 (SKIP_GAME_WORK_MAP 19.10): keep a list of the pipelines the new renderer built and the driver's pipeline cache on disk (cache folder renderer_pipelines, header-checked, made on this machine, never shipped), and build the listed pipelines in the menus before a scene needs them. Off until the live check");
@@ -188,6 +227,13 @@ REXCVAR_DEFINE_INT32(wwe2k14_rdr_capture_budget_mb, 4096, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_scene_records, false, "wwe2k14",
                     "Session 101 lane 26: a capture also writes the live scene writer's records beside its frames (scene\\frame_NNNNNN.rsc; needs "
                     "--wwe2k14_rdr_capture_frames), and the case ring (bug button) keeps them for its zip. Off by default (timed / speed runs refuse it); a class's records exist only once its contributor is registered");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_fb_fast, false, "wwe2k14",  // S102 T4
+                    "Session 102 lane T4 (docs/research/part2/R3_render_thread_path.md cut 5): the frame builder de-duplicates states, dynamics, samplers and texture sets with a word-wise hash "
+                    "into open-addressing tables that keep their storage across frames, instead of a byte-wise hash into node tables freed every frame. The same ids and the same frame either way. "
+                    "Read every frame. Off by default");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pack_once, false, "wwe2k14",  // S102 T5
+                    "Session 102 lane T5 (R3 cut 6): the binder packs a draw's constants once, straight into the frame builder's block (no stack block copied in afterwards). "
+                    "The same bytes in the same places either way. Read every frame. Off by default");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_ours, false, "wwe2k14",
                     "Session 101 lane 35 (the crowd's first promotion, docs/renderer/CROWD_PROMOTION.md): owner mode draws the stands crowd (blocks + far cards) with our "
                     "scene front-end from the live scene record instead of replaying the game's draws. Needs --wwe2k14_scene_records and the new renderer (owner mode). A frame "
@@ -201,6 +247,7 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_floor, false, "wwe2k14",
                     "Session 101 lane 82 (the crowd family at 0x8276ED60, docs/renderer/CROWD_FAMILY_8276ED60.md): with --wwe2k14_rdr_crowd_ours, the seated floor people (the ringside crowd "
                     "drawn by sub_8276EAA0, about 5% of a match picture) are drawn by ours too, as LOD 0 crowd members through the same seam; the game's draws of them are dropped. Needs "
                     "--wwe2k14_rdr_crowd_ours (and so --wwe2k14_scene_records). Off by default on PC and phone; a person whose type has no LOD 0 palette keeps the game's draw");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_card_cut);   // S102 T2 (scene_live/card_thin_hook.h)
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_card_thin);  // lane 175 (scene_live/card_thin_hook.h)
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_member_thin);  // lane 272 (scene_live/member_thin_hook.h)
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_cards, false, "wwe2k14",
@@ -347,8 +394,121 @@ REXCVAR_DEFINE_INT32(wwe2k14_rdr_copy_alias, 0, "wwe2k14",
                      "dropped, drops nothing), 2 drop. Needs the new renderer (owner mode); no scene record needed");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_copy_alias_classes, 1, "wwe2k14",
                      "Session 101 lane 190: with --wwe2k14_rdr_copy_alias=2 which kinds of copy are dropped (bit mask: 1 crowd bake, 2 shadow, 4 rim, 8 post, 16 scene colour, 32 other). Default 1");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_alias_small, 0, "wwe2k14",  // S102 G12, read every frame
+                     "Session 102 lane G12 (docs/renderer/COPIES_LEFT.md, src/renderer_adapter/copy_alias.h): read EVERY frame, 0-2. Lifts lane 190's class mask and copy-alias mode for the copies its strict rule already admits: "
+                     "1 = classes crowd bake (not while --wwe2k14_rdr_crowd_bake_skip=2), shadow, rim and post (the rim class is unexercised: no capture has a rim copy the rule admits yet) ; 2 = also scene colour and other (held back until `read-backs of aliased destinations (small)` is counted 0 live). The readers sample the source target for the rest of the frame. Default 0 (off)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_shadow_direct, false, "wwe2k14",  // S102 C3, read every frame
+                    "Session 102 lane C3 (docs/renderer/COPIES_LEFT.md, src/renderer_adapter/copy_alias.h): with shadows_ours on, the whole copies of one of our shadow images into another of the same size are not made: the readers sample our map image (a per-segment alias of the texture to the map). With the half-rate shadows (every tier's default) a destination is left alone when a copy into it has a source the half rate skips, and everything is left alone until the shadow maps are learned; also not with a D3 marker frame, a turn or the plane blank skip (all counted). Default off");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_frame_direct, false, "wwe2k14",  // S102 C3, read every frame
+                    "Session 102 lane C3 (docs/renderer/COPIES_LEFT.md, FRAME_CLASS.md): G8's full-size alias at level 3 (segments, depth, the Present), under its own switch and census line. The frame buffer's resolve copies and the Present's copy are not made; the readers sample the source target. Not with DLSS, a velocity pass or a D3 marker frame. Default off");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stencil_dead, false, "wwe2k14",  // S102 R24-C, read every frame
+                    "Session 102 lane R24-C (docs/renderer/DEPTH_NOSTENCIL.md, src/renderer/depth_nostencil.h): stencil liveness. A stencil clear (the pass's load op or a clear inside it), a stencil load / store, and the stencil aspect of a depth copy are not done when no draw of the pass tests stencil and no later pass or copy of the frame reads it (the game clears depth + stencil together in every depth pass and mostly never reads the stencil). Read every frame. Off by default");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_copy_batch, false, "wwe2k14",  // S102 G12, read every frame
+                    "Session 102 lane G12 (docs/renderer/COPIES_LEFT.md, src/renderer/copy_batch.h): record adjacent copies of one source into distinct layers / mips of one destination (the six faces of a light cube) as ONE vkCmdCopyImage with several regions and one barrier flush. The picture is byte-equal. Default off");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_breadcrumbs, true, "wwe2k14",  // S102 D1, read every frame
+                    "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md, src/renderer/breadcrumbs.h): keep a small record of the last 8 frames' steps (passes, copies, the present: their images, draws, programs) and the last pipelines built, and log it once if the Vulkan device is ever lost, with the GPU marker words when those are on. A few stores a step, no per-draw work, no GPU work. Default on");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_frame_top_barrier, 0, "wwe2k14",  // S102 D1 round 6, read every frame
+                     "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md section 13): the lost-device test on Intel UHD 620. 1 = one full memory barrier at the top of every frame's command buffer (all earlier GPU work finishes and its writes are visible before the frame starts: no overlap between frames); 2 = also one before the present. Costs the overlap between frames. Default 0 (off: nothing changes)");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_gpu_marker, 0, "wwe2k14",  // S102 D1, read every frame
+                     "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md): write a frame / step marker word into a host-visible buffer as the GPU reaches each point, so a lost device's log names the step the GPU stopped at. 0 off, 1 the first step of each run of one GPU class and the present, 2 every pass and the first copy of each run of copies, 3 every step (diagnosis; each END word behind a barrier pair, which serialises the GPU), 4 every step with BEGIN words only (no barriers: the front end's reach, approximate, for a race the barriers might hide). It costs GPU time (any marker about +0.35 ms a frame on an RTX 4090; unmeasured on the Surface). Default 0 (off)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_device_lost_message, false, "wwe2k14",  // S102 D1, read every frame
+                    "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md): when the graphics driver drops the game's GPU device (VK_ERROR_DEVICE_LOST: the picture freezes for good), show the player a plain message on the PC that says so and to restart the game. The game keeps running behind it. Default off (Jarrod's call)");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_combine_lite, 0, "wwe2k14",  // S102 R18-B2, read every frame
+                     "Session 102 lane R18-B2 (docs/renderer/COMBINE_LITE.md, src/renderer/combine_lite.h): read EVERY frame, 0-2. Our own post combine does less per pixel. 1 = the exact early-outs: the permutation without bloom when the bloom and glare are not recorded (their images are black), and a depth-of-field blur whose weight is 0 or a bloom / star image whose scale is 0 not fetched (byte-equal on NVIDIA; exact up to floating-point contraction elsewhere; the fog mix is unchanged). 2 = also FXAA 3.11's flat-pixel exit (the four smoothing taps are not made where the five taps are flat): a LOOK lever, not byte-equal, judged by Jarrod's eyes. Needs the post chain to be ours (--wwe2k14_rdr_post_ours). Default 0 (off)");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_gpu_small, 0, "wwe2k14",  // S102 R24-E, read every frame
+                     "Session 102 lane R24-E (docs/renderer/GPU_SMALL.md, src/renderer/gpu_small.h): read EVERY frame, a bit mask. 1 = our post pass leaves out the quarter-size depth-of-field chain (two 320x180 passes) when nothing reads it: the combine's near-blur weight is 0 for every pixel (DOFParam2.x <= 0), the far blur is an earlier layer's own image and no bloom or glare reads the chain. A removal, the picture is byte-equal. Bits 2 and 4 are reserved and do nothing. Default 0 = the same passes as before.");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_gpu_group_stamps, 0, "wwe2k14",  // S102 R24-F: an instrument, read every frame
+                     "S102 R24-F (docs\\renderer\\GPU_STAMPS.md, src/renderer/group_stamps.h): GPU timestamps at the change of draw GROUP (arena, wrestler, ring, props, crowd, particles, 2D, ...) inside the colour and frame passes, and one [rdr][gpu][groups] table at 600 frames and every 600 after: per pass and group the mean / p90 GPU microseconds, the draws and the share of the pass. 0 = off (default). N >= 1: a stamp is written only when the segment before it holds at least N draws (1 = every change; 4 is a good cut); it forces the per-step stamps on. A stamp inside a pass drains it, so the table is a ranking, not the shipped cost: an instrument for the Surface, never on for players. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_fast, false, "wwe2k14",  // S102 R21-C, read every frame
+                    "Session 102 lane R21-C (docs/renderer/CROWD_RANK_FAST.md, src/renderer_adapter/crowd_rank.h): read EVERY frame. The crowd's rank work done once and flat: whether a program is a crowd one comes from a table made once (not two string compares on each of the frame's ~1,300 draws), and the density rank's memory of positions is an open-addressing table instead of a node map (the same ranks and counters, bit for bit). false = as before. Pictures are byte-equal");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_crowd_workers, 0, "wwe2k14",  // S102 R21-C step 3, read every frame
+                     "Session 102 lane R21-C step 3 (src/renderer_scene/crowd_workers.h): read EVERY frame, 0-2. Worker threads pose and pack the crowd members' classes (the per-class work of the members' injection) in parallel; they are joined before the geometry is pushed. 0 = on the render thread. Pictures are byte-equal");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_copy_direct, false, "wwe2k14",  // S102 C5, read every frame
+                    "Session 102 lane C5 (docs/renderer/COPIES_LEFT.md section 6, src/renderer_adapter/copy_alias.h): read EVERY frame. A copy the strict alias rule admits (the crowd card bake, small sprite / post stand-ins of at most 128 pixels a side) is REMOVED: its pass renders straight into the copy's destination, so the readers sample the destination itself and no copy, alias or source layout change exists. Needs the destination to be made with target usage (images made while the switch is on). Default off");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_alias_fullsize, 0, "wwe2k14",
+                     "Session 102 lane G8 (docs/renderer/ALIAS_FULLSIZE.md, src/renderer_adapter/copy_alias.h): read EVERY frame, 0-3. Drops the full-size (screen-sized, 1280x720-class) resolve copies the strict alias "
+                     "rule keeps; the readers sample the source target for the rest of the frame. 1 (safest): only a copy that a later whole copy into the same destination follows. 2: also the last copy "
+                     "into a destination, and depth copies. 3: also a destination only the Present reads (needs a live run with violations 0 first). It takes its copies WHATEVER --wwe2k14_rdr_copy_alias "
+                     "(any mode, census 1 included) and --wwe2k14_rdr_copy_alias_classes say, scene colour and other classes included; it refuses a destination the CPU ever read back and counts every read-back "
+                     "of one it aliased ([rdr][copy_alias] full-size line). Needs the new renderer (owner mode); not with DLSS");
+// S102 lane G4 (docs/renderer/DEAD_WORK.md, src/renderer_adapter/dead_work.h): read every frame (LiveSendImages), never copied once at start.
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_match_card_bake, false, "wwe2k14",
+                    "Session 102 lane G4: the binder leaves out the crowd card bake's passes (SetTargets, Clear, draw, copy) of a frame in which nothing reads their pictures (a match: no far cards). "
+                    "Off by default. The game still records them (P1 removes that); this saves the GPU work. Needs draw origins (names)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_dead_prelight, false, "wwe2k14",
+                    "Session 102 lane G4: CENSUS ONLY. Counts the pre-light cube bake's slot passes whose cube nothing reads in the frame (entrances: most slots) and cuts nothing: the game re-bakes a slot only when "
+                    "its lights change, so a plain cut would leave stale cubes (docs/renderer/DEAD_WORK.md, the lazy re-bake). Off by default. Needs draw origins (names)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_frame_selfblit, false, "wwe2k14",   // S102 lane G11, PerFrame (rdr_switches.h)
+                    "Session 102 lane G11 (docs/renderer/FRAME_CLASS.md, src/renderer_adapter/frame_cuts.h): the binder leaves out the full-screen sprite draw that writes a whole copy of the frame buffer back into it "
+                    "(the 360 resolves a target into a texture and draws the texture back; here the target already holds those pixels). Exact: the draw is left out only when the frame shows the texture is an unchanged whole copy of the target. "
+                    "Off by default. Read every frame");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_frame_roundtrip, 0, "wwe2k14",   // S102 lane R18-B1, PerFrame (rdr_switches.h)
+                     "Session 102 lane R18-B1 (docs/renderer/FRAME_ROUNDTRIP.md, src/renderer_adapter/frame_roundtrip.h), 0-2, read every frame: the frame buffer's round trip. 1: a colour + depth restore whose sources are exactly what its "
+                     "targets already hold (a whole copy of the colour target, a depth source equal to the depth target, nothing written to either since, by the frame's own ops) is left out, and so is the self blit (no pass, no copies). "
+                     "Exact. 2: also (step 2) the scene target and the frame buffer are one image for the span. Off by default. Not with DLSS or a velocity pass");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_frame_restore, false, "wwe2k14",   // S102 lane G11, PerFrame (rdr_switches.h)
+                    "Session 102 lane G11 (docs/renderer/FRAME_CLASS.md, src/renderer_adapter/frame_cuts.h): the binder turns the colour + depth restore pass of the frame buffer (a full-screen shader pass, "
+                    "the 360 putting two textures back into its EDRAM) into two image copies of the same bits. Off by default. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_plane_bake, false, "wwe2k14",   // S102 lane L2, PerFrame (rdr_switches.h)
+                    "Session 102 lane L2 (docs/renderer/SHADOWS_OURS.md \"S102 L2\", src/renderer_adapter/plane_bake.h): the ring mat's rope shadow is baked once into a world-plane map (re-baked when the rope proxy's constants move more "
+                    "than a quarter unit) and composited per frame into a bigger map the ring mat reads; the rope draws of the game's plane mask pass are left out, the wrestlers' contact shadow stays the game's. A LOOK lever "
+                    "(sharper, steady rope shadow); about 0.1-0.3 ms in a match, 0 in Bryan's entrance (blank chain). Needs the plane hook (wwe2k14_rdr_plane_shadow_ours) and draw origins (names). Off by default. Read every frame");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_plane_bake_size, 1024, "wwe2k14",   // S102 lane L2
+                     "Session 102 lane L2: with --wwe2k14_rdr_plane_bake the bake's edge in texels (256 to 2048; the composite is half of it). 1024 default; 512 for low-spec");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_blank_plane, false, "wwe2k14",   // S102 lane G4b, PerFrame (rdr_switches.h)
+                    "Session 102 lane G4b (docs/renderer/DEAD_WORK.md, src/renderer_adapter/plane_blank.h): the binder leaves out the ring-mat plane shadow chain (4 passes, the mask draws, 3 clears, a downscale, 2 blurs, 4 copies) "
+                    "of a frame in which its own constants say it draws nothing (the plane module's weight is 0: Bryan's entrance), after one executed run that writes the picture back to zero. Off by default. "
+                    "The game still records the chain; this saves the GPU work. Needs draw origins (names). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_prelight_analytic, false, "wwe2k14",   // S102 lane L1, PerFrame (rdr_switches.h)
+                    "Session 102 lane L1 (docs/renderer/PRELIGHT_DIRECT.md section 8, src/renderer_adapter/prelight_analytic.h): the pre-light cube bake (five slots a frame: a strip pass, a draw and six copies each) is not "
+                    "drawn; the wrestlers' skin / gear / transparent shaders evaluate the bake's four lights per pixel at the surface normal instead of sampling the cube. The look is the cube's function without its 64x64 "
+                    "quantisation. Off by default. A slot with a reader that cannot be twinned, another planner's op, or an unusual shape keeps the stream's bake. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_prelight_compute, false, "wwe2k14",   // S102 lane L1b, PerFrame (rdr_switches.h)
+                    "Session 102 lane L1b (docs/renderer/PRELIGHT_DIRECT.md section 9, src/renderer_adapter/prelight_compute.h): the pre-light cube bake (five slots a frame: a strip pass, a draw and six copies each) is replaced by ONE compute "
+                    "dispatch that writes all the taken cubes (storage images) from the slots' own constants: no strips, no render passes, no copies. Every reader samples the cubes exactly as before. Off by default. A slot with an "
+                    "unusual shape, another planner's op, a cube read between the dispatch and its slot, or a cube made without storage usage keeps the stream's bake. Read every frame; light cubes made while it is off cannot "
+                    "be written by the dispatch (the census counts them)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_prelight_layered, false, "wwe2k14",   // S102 lane C1, PerFrame (rdr_switches.h)
+                    "Session 102 lane C1 (docs/renderer/PRELIGHT_DIRECT.md section 7, src/renderer_adapter/prelight_layered.h): with --wwe2k14_rdr_small_passes_ours, the pre-light strips (five 384x64 targets a frame) are not made: "
+                    "each light cube's six faces are drawn in ONE render pass over the cube's six layers (VK_KHR_multiview, Vulkan 1.1 core), and the 30 strip-to-cube copies a frame are left out. Off by default. A slot the "
+                    "owned pre-light did not draw, a dead slot, a strip anything else reads, or a device without multiview keeps the stream's strip and copies. Read every frame; light cubes made while it is off cannot be drawn into "
+                    "(the census counts them)");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_shadow_map_size, 512, "wwe2k14",
                      "Session 101 lane 123: with --wwe2k14_rdr_shadows_ours the shadow maps' edge in texels (64 to 4096). 512 = the Xbox 360's look; 256 low-spec; 1024 / 2048 PC presets");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_shadow_small, false, "wwe2k14",   // S102 G1 lever 1
+                    "Session 102 lane G1 (low_levers.h): under the LOW tier (and with --wwe2k14_rdr_shadows_ours) the shadow maps are 256 texels, not --wwe2k14_rdr_shadow_map_size. Off by default");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_present_noclear, false, "wwe2k14",   // S102 G1 lever 2
+                    "Session 102 lane G1 (low_levers.h): under the LOW tier the present no longer clears the whole panel every frame, only the bars around the picture. Off by default");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_low_output_cap, 0, "wwe2k14",   // S102 G2 (b), PerFrame
+                     "Session 102 lane G2 (low_levers.h): under the LOW tier the output is drawn at most N pixels tall (360 to 8192; the width follows the panel's shape) and a bilinear blit stretches it over the panel, "
+                     "so a high-resolution panel is not filled by the upscaling shader. 0 = off (the default). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_present_bilinear, false, "wwe2k14",   // S102 G2 (c), PerFrame
+                    "Session 102 lane G2 (low_levers.h): under the LOW tier the upscaling present is a plain bilinear sample instead of SGSR. Off by default. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_present_fetch, false, "wwe2k14",   // S102 R24-A, PerFrame
+                    "Session 102 lane R24-A (docs/renderer/PRESENT_COPY.md, renderer.cpp TryPresentFetch): when the picture is shown 1:1 on the panel and the game's display curve is the identity, the present is a copy of the picture into the swapchain image "
+                    "instead of the full-screen draw (no look change: the draw would write the values it reads). Declined, counted by reason in the [rdr][present_fetch] line, whenever the draw does something else (a curve, a stretch, an overlay, DLSS, the output cap). Off by default. Read every frame");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_arena_fragments, 0, "wwe2k14",   // S102 R18-B3, PerFrame
+                     "Session 102 lane R18-B3 (docs/renderer/ARENA_FRAGMENTS.md, src/renderer/arena_fragments.h): a bit mask of cuts to the arena's shaded fragments, no look change. 1 = the arena draws proven to have an output alpha of exactly 1 "
+                     "are drawn with the alpha blend switched off (it equals the source colour there, and the destination is no longer read). 2 = the prepass also takes the families the census found opaque in effect. 0 = off (the default). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_frame_facts, false, "wwe2k14",   // S102 R21-A, PerFrame
+                    "Session 102 lane R21-A (docs/renderer/FRAME_FACTS.md, src/renderer/frame_facts.h): facts our render thread re-derived every frame are derived once: the arena record's object ids classified by a byte test (no std::string / sscanf per object), the blend keys of the 120 Hz tween / DLSS motion path not made while neither is on, the thin draws' key counts in a flat table. The picture is byte-identical.");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_overdraw, false, "wwe2k14",   // S102 C4, PerFrame
+                    "Session 102 lane C4 (docs/renderer/COLOUR_PASS.md): the scene colour pass's depth prepass (as wwe2k14_rdr_low_colour_cuts bit 1) also takes the arena draws whose diffuse texture is PROVEN to have no alpha (the slot's swizzle, the format, "
+                    "a scan of the texture's content), so the light-mapped arena shades the visible surface only. No look change. Off by default. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_scan_hold, false, "wwe2k14",   // S102 R24-D, PerFrame
+                    "Session 102 lane R24-D (docs/renderer/COLOUR_CUTS_FLIP.md): the texture-alpha scan that wwe2k14_rdr_arena_overdraw needs (binder.h ScanImageAlpha) runs on every texture load, also while arena_overdraw is off, so a mid-run flip of arena_overdraw finds the textures proven. A flip test arms it at the start. Costs the scan once per texture load; no look change. Off by default. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_half_transparents, false, "wwe2k14",   // S102 C4, PerFrame
+                    "Session 102 lane C4 (docs/renderer/COLOUR_PASS.md, src/renderer/half_trans.h): under the LOW tier the tail of additive scene draws (the arena's light glows and shadow overlays that write no depth) is drawn into a half-size target against a "
+                    "half-size depth and added back with a depth-aware upsample. A look lever (the approved half-size transparents): off by default. Read every frame");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_low_colour_cuts, 0, "wwe2k14",   // S102 G10, PerFrame
+                     "Session 102 lane G10 (docs/renderer/COLOUR_PASS.md, src/renderer/colour_cuts.h): under the LOW tier, a bit mask of cuts to the scene colour pass. 1 = a depth-only prepass of the opaque light-mapped arena draws, "
+                     "whose normal draws then shade the visible surface only (the draws keep the game's order). 0 = off (the default). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_robust_buffers, false, "wwe2k14",   // S102 D1, StartOnly
+                    "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md, job C): the Vulkan device is made with robustBufferAccess, so a read past the end of a buffer returns zeros or in-range data instead of faulting the GPU. A diagnosis switch for the lost device on Intel UHD 620: if the losses stop with it on, the cause is an out-of-range buffer read. May cost GPU time. Off by default. Read once at start");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_exclusive_fullscreen, false, "wwe2k14",   // S102 G2b, StartOnly
+                    "Session 102 lane G2b (exclusive_policy.h): Windows only. The window's swapchain asks for VK_EXT_full_screen_exclusive at the panel's own current mode (no display-mode change), so Windows can present it by independent flip with no compositing by the desktop. Losing it (alt-tab) falls back to the normal path with one log line. The line `[gfx][present] exclusive <on|off|lost|unsupported> mode WxH@Hz` says what happened. Off by default. Read once at start");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_no_fullsize_copies, false, "wwe2k14",   // S102 G1 lever 3
+                    "Session 102 lane G1 (low_levers.h): under the LOW tier the resolve copies the alias rule admits (copy_alias.h, every class) are dropped: --wwe2k14_rdr_copy_alias=2 with all classes. Off by default");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_shadow_plane_scale, 100, "wwe2k14",
                      "Session 101 lane 123: with --wwe2k14_rdr_shadows_ours the ring mat's plane shadow mask (a screen-space picture) as a percent of the 360's size; 0 follows the render scale");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_debug_spin_us, 0, "wwe2k14", "Session 100 (diagnosis only, WM30 crash): a busy pause of N microseconds per recorded draw");
@@ -387,6 +547,126 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pace_game, false, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_keeps_state, false, "wwe2k14",
                     "Session 100 (strip-360 A1): a skipped frame also keeps per-frame copies that carry state (read before written in their frame); "
                     "exact state, but the skip then saves little (run 6953)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_turn_wrestler, false, "wwe2k14",   // S102 lane G3 (map_turns.h), PerFrame, only under LOW
+                    "S102 G3: under LOW the wrestler shadow maps A / B and their blur steps are drawn on even drawn frames and left out on odd ones (age at most one drawn frame). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_turn_rim, false, "wwe2k14",
+                    "S102 G3: under LOW the rim light map and its blur steps are drawn with the wrestler chain's turn (even drawn frames). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_turn_props, false, "wwe2k14",
+                    "S102 G3: under LOW the props map, the circle blobs and the ring plane mask are drawn on odd drawn frames and left out on even ones. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_half_rate_drawn_clock, false, "wwe2k14",   // S102 G3 step 1, PerFrame, default OFF (Jarrod decides after a Surface A/B)
+                    "S102 G3: the LOW half rate (gpu_shadow_half_rate) alternates on DRAWN frames instead of binds (a lasting-only bind of a skipped frame no longer moves the parity). false = the old per-bind count. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_fence_friendly, false, "wwe2k14",
+                    "S102 H2 (R5 item 4): the render thread waits for its frame slot's fence by polling vkGetFenceStatus and sleeping in short slices (src\\renderer\\fence_wait.h) instead of one blocking vkWaitForFences, "
+                    "so an Intel driver that spins inside the wait cannot burn a core (up to 0.5 ms later to see the fence); false = the blocking wait. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_split, false, "wwe2k14",   // S102 R21-B, PerFrame, default OFF
+                    "S102 R21-B (docs\\renderer\\STAGE_SPLIT.md): the two-stage render thread: frame N+1 is bound on rdr_render while rdr_record records, submits and presents frame N "
+                    "(a frame costs max(bind, record), not bind + record, when a core is free). Frames that read the renderer's result (pictures, read-backs, photo mode, tween, DLSS) "
+                    "run on the one-thread path. false = one thread, as before. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_lazy_banks, false, "wwe2k14",
+                    "S102 T1: the render thread resolves a draw's shader constants (bank defs + patches) only when it packs them, into pooled memory reused frame to frame, "
+                    "instead of expanding every bank of every frame at parse time (up to ~18 MB a frame); false = the old expansion. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_bank_blocks, false, "wwe2k14",
+                    "S102 T1b: constants by block map: each bank def is a 64-entry map (256 B) of 64-byte blocks, and the packers copy the register ranges a variant reads block by block, "
+                    "so a bank is never assembled for them (implies lazy banks; whole-bank readers still assemble on first read). false = lazy_banks / the old expansion. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_bank_dirty, false, "wwe2k14",
+                    "S102 T12 (R13 cut 4): constant-bank change detection on the render-command thread without the C runtime memcmp: the dirty-block compares are inline SSE2, and an emit builds only blocks that can differ from the last bank sent (not dirty with the same literals = skipped; dirty with no literal = a patch with no compare). Banks are byte-identical to off. false = the old compares. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_tail_release, false, "wwe2k14",
+                    "S102 U1 (docs\\renderer\\SWAP_TAIL.md): the present's own work (the scene record's formatting and sinks, the frame's hand-off to the render thread, the geometry forget, "
+                    "the census lines) runs right AFTER the game releases its update thread at the frame barrier, not before: the inputs are latched first (the contributors' snapshots, "
+                    "the frame's tables), the game's own order is unchanged. Live mirror only (not a capture, not with the case ring). false = all of it before the release, as before. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_handoff_memory, false, "wwe2k14",
+                    "S102 T8: the reader hands each live frame to the render thread as its tables (frame_handoff.h), no serialise on the swap thread and no parse on the render thread; "
+                    "false = the frame's bytes as before. The case ring and a capture still serialise. Read every frame, at record time");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_members_instanced, false, "wwe2k14",
+                    "S102 T6: the crowd's members (with --wwe2k14_rdr_crowd_ours) are one instanced draw per group of members that share their material and constants (the world rows per instance) instead of one draw each; "
+                    "false = one draw per member. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_ids_once, false, "wwe2k14",
+                    "S102 T11: the crowd contributor (with --wwe2k14_rdr_crowd_ours, or any sink that makes the live record) builds each member's id string once and reuses it, "
+                    "interns the ids with no heap string per member, and reuses its member / palette copies across frames; the record's bytes are the same. false = a formatted string and two heap strings per member per frame. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_strings_once, false, "wwe2k14",
+                    "S102 T11b (R20 cut 1): the live scene record's repeated strings (the crowd's member ids, the arena's slot ids and names) are made once, in one pool that every frame's table starts as a copy of; "
+                    "a contributor writes a pool field with no hashing, no formatting and no heap string. The record names the same strings (Str of every field is equal; field numbers differ; files are written with only the strings used). "
+                    "false = every string interned again every frame. Read every frame, at the record's start");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_particle_lite, false, "wwe2k14",
+                    "S102 T18 (R15 Brock's pyro burst): a run of the game's particle draws (adjacent, the same recorder call site, program pair, layout and strides, nothing but float constants set between them) is recorded with a lite path: "
+                    "the fixed / dynamic state records, the texture slot records and the vertex layout are copied from the run's previous draw instead of derived again; the bank delta, the inline vertices and the origin are still taken per draw. "
+                    "The recorded frame is byte-equal. false = the full path for every draw. Read every frame, at the present");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_draw_lite, 0, "wwe2k14",
+                     "S102 SW2 (R23 cut 5), a bit mask (only bit 1 is used): 1 = every draw (not only the particle runs) may take the lite record path: when its shader pair, primitive, strides and declaration equal the previous recorded draw's and the device state, the texture slots "
+                     "and the registry did not move, the fixed / dynamic state records, the texture slot records and the layout (and the origin record, when the origin key is equal too) are copied from that draw instead of derived again; "
+                     "The recorded frame is byte-equal. 0 = the full path. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_run_markers, false, "wwe2k14",
+                    "S102 T19: the crowd contributor (with --wwe2k14_rdr_crowd_ours, or any sink that makes the live record) writes one marker object per run of same-type stands members (their worlds and indices, no id string or Object each), "
+                    "and our renderer expands the markers into the same member list on the render thread. false = one Object and one id string per member. Read every frame");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_debug_particle_marks, 0, "wwe2k14",
+                     "S102 T18 (diagnosis only): log the first N particle candidates whose C7 marks were set: the device's main (+16), fetch (+24, low and high word) and misc (+32) masks at the draw's entry, "
+                     "whether the previous draw had bound shaders, and which setters the set bits name");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_content_skip, false, "wwe2k14",
+                    "S102 T15 (R13 section 7): AddTextureSlot's hit path skips the EnsureContent call when the image was already checked this record frame (the call's own first return, taken before it). false = the call every slot of every draw. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_ways, false, "wwe2k14",
+                    "S102 T15: the reader keeps 4 records per texture slot (round-robin) instead of 1, so draws that alternate two textures or two shaders on a slot hit. false = one record per slot. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_sampler_memo, false, "wwe2k14",
+                    "S102 T15: the sampler table index of a slot's descriptor inputs is remembered within the frame tables' generation (no descriptor build, hash or map find for a repeat). false = built and deduped at every slot miss. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_geo_hash_once, false, "wwe2k14",
+                    "S102 T15: a small vertex stream's full hash is made once per draw (the memo check) and handed to the content key, instead of up to three times. false = hashed again at each use. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_origin_memo, false, "wwe2k14",
+                    "S102 T11 (R13 cut 5): a one-entry memo of the last draw-origin tag in front of the thread-local map, so the several lookups a draw makes for one replay record cost one map find. "
+                    "false = a map find per lookup. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_note_memo, false, "wwe2k14",
+                    "S102 T14 (R13 per-draw cost): the census add of a note the reader has counted before (a name it writes on many draws, e.g. viewport_z_inverted) goes to cached cells instead of a std::string and two std::map finds; "
+                    "the census window and the seen set are the same. false = the map path. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_shader_memo, false, "wwe2k14",
+                    "S102 T14 (R13 per-draw cost): a table of the vertex / pixel shaders already resolved, found by object, declaration, strides and microcode address and checked against a kept copy of the whole microcode, "
+                    "in front of the microcode hash and the map find the one-entry last-shader memo falls back to; the same shader info comes out. false = hash and find. Read every frame, at the present");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_swap_once, 0, "wwe2k14",
+                     "S102 SW1 (SWAP_TAIL.md section 5, R20 4b / 5c): bit mask of work the game's swap thread did every frame whose answer does not change, now done once: 1 the live scene record's tables are recycled (cleared, capacity kept: "
+                     "no allocation and no fresh pages a frame), 2 the crowd contributor writes a member's id by the pool field it kept (no id cache lookup, no id string touched), 4 the dev overlay's paint request is posted to the UI thread only while a dialog "
+                     "is open. The same records (byte-equal) and the same pictures. 0 = off. Read every frame (the record's start / the present)");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_plan_memo, 0, "wwe2k14",
+                     "S102 R23-P (docs/renderer/PLAN_MEMO.md, src/renderer_adapter/plan_memo.h): bit mask of the render thread's planner work done every frame whose answer does not change, removed: 1 the post chain read (the pixel shader looked up first "
+                     "and cached, the written-by-another-draw mark made once a pass), 2 the copy alias planner's event list (a counting sort by image, the site marks once a pass), "
+                     "4 the props' match evidence (the scan stops at the first crowd member or second actor). The same plans, the same pictures. 0 = off. Read every frame (the bind's start)");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_upd_lean, 0, "wwe2k14",
+                     "S102 U2 (R22 cuts 2-6): bit mask of our per-frame work taken off the game's update thread: 1 the host-write page marks (the census-only 'notified' marks, 2 of the 4 fetch_or per word, are made only while a census is on), "
+                     "2 the draw-origin writer lookup (a last-key memo and a direct-mapped cache), 16 (S102 U3) model-entry round 2 (guest memory resolved once, the consumer palette written in place, the arena frame buffers swapped), 8 the game-wide op-21 recorder hook goes straight to the original from any other site, 4 the model-entry contributors (the light state compared in place, the arena world's per-frame memo, the wrestlers' unknown-model counters skipped). "
+                     "Same reader inputs with it off or on (tools\\upd_lean). 0 = off. Read every frame, at the present");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_swap_tail2, 0, "wwe2k14",
+                     "S102 R25-A (docs\\renderer\\SWAP_TAIL.md section 9): bit mask of waits on the game's swap thread that were ours: 1 the fence / interrupt / flip hooks no longer wait for the reader's worker jobs "
+                     "(owner_timing.h JoinReader): they take a ticket and the 'Owner timing' thread waits for it right before it answers the item (the guest sees the fence only after the jobs queued before it are done). "
+                     "The reader's output is the same. 0 = off (the hook waits itself, as before). Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_origin_index, false, "wwe2k14",
+                    "S102 T14b (R20 brief C): the draw-origin lookup answers by the id the tag carries (a lock-free chunk array the writer fills) instead of the one-entry memo and the thread-local map; the same key comes out. "
+                    "false = the memo / map path. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_shader_serial, false, "wwe2k14",
+                    "PARKED (weakens the check; not for players): S102 T14b (R20 brief C): a shader table entry whose whole microcode was compared in this frame part answers its next hits with the head compare only (no whole-microcode compare per draw); "
+                    "implies the shader table (wwe2k14_rdr_shader_memo's) and keeps its census. false = a whole compare at every hit. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pin_hash, false, "wwe2k14",
+                    "S102 T14 (R13 per-draw cost): the thin-draw pin set answers key / triple membership from a hash table built when it is published, not a binary search over a sorted vector; the same answers. "
+                    "false = the binary search. Read every frame, at the present");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_lasting_draw, false, "wwe2k14",
+                    "S102 T3 (a): a frame the sink would skip, whose lasting bind keeps more than wwe2k14_rdr_lasting_draw_pct percent of its draws, is drawn and shown "
+                    "instead (lasting_draw.h); the 30 fps rate skip is never overridden. Read every frame");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_lasting_draw_pct, 50, "wwe2k14",
+                    "S102 T3 (a): the share of a skipped frame's draws (percent, 1..100) a lasting bind may keep before the frame is drawn instead (the fraction 0.5 = 50). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_guard_decay, false, "wwe2k14",
+                    "S102 K1 (R16 piece B): the state guard of the lasting-copy classifier decays: an image counts as carrying content between frames only while it was read before its copy (or in a frame with no copy into it) in one of the last "
+                    "16 frames handled, so the match's moving shadow copies stop making every skipped frame a near-full lasting bind (lasting_prune.h). false = the guard is insert-only (v0.3.2). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_lean, false, "wwe2k14",
+                    "S102 K1 (R16 piece A): the per-frame bookkeeping every handled frame does for the lasting-copy classifier (the state-guard walk of lasting_prune.h) runs on flat arrays instead of hash maps; the same results, "
+                    "a smaller cost for a frame that is handled but not drawn. false = the maps (v0.3.2). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skips_auto, false, "wwe2k14",
+                    "S102 K3 (R16 lane K3, skips_auto.h): the five D3 skips (caster map + rim, ring, caster plane, crowd member, arena) are active only while our render thread keeps up: they are armed as the start-only switches say "
+                    "(wwe2k14_rdr_caster_d3 ..., armed by the app when this is on at start and they were left at their defaults) and a controller turns them on after the thread has kept up (busy, queue behind, skipped share, 100 ms guard) "
+                    "for a dwell, and off again, with hysteresis, the moment it falls behind. A change happens at a guest frame boundary only (the call is recorded in full: SwitchOff). false = the skips are whatever the start-only switches armed. Read every frame");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_skips_auto_force, 0, "wwe2k14",
+                     "S102 K3 review F3 (TEST ONLY): with wwe2k14_rdr_skips_auto on, 1 = the five D3 skips are held OFF whatever the controller says (the A/B arm 'K3 armed, forced off': the cost of being armed), 2 = held ON. 0 = the controller decides. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_lasting_nogroup, false, "wwe2k14",
+                    "S102 K2 (R16 piece C): a skipped frame's lasting bind keeps only the passes that feed its lasting copies. The model-part group rule (every pass holding an engine-object draw is kept when one is) is gone: the D3 / thin "
+                    "call ordinals and the call-count guards are counted over the whole frame's ops, so a dropped object pass shifts nothing (lasting_prune.h, binder.h). false = the group rule (v0.3.2). Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_lasting_nogroup_targets, false, "wwe2k14",
+                    "S102 K2 (review F4): with wwe2k14_rdr_lasting_nogroup on, a skipped frame's lasting bind also keeps every object pass that draws to a lasting render target (a bake whose product a later frame reads straight from the target). Off = only the passes that feed a lasting copy. Read every frame");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_run_end_keep, false, "wwe2k14",
+                    "S102 K2 round 2: when the sink skips a frame because the queue is behind, the next frame is already queued: a copy this frame leaves out as per-frame work, whose destination the next frame does not copy into, is kept (the copy run ended on this skipped frame: nothing would ever write the image again and it stays one frame older than the game's). The 30 fps rate skips have no next frame and are unchanged. Read every frame");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_prune, true, "wwe2k14",
                     "Lane 307: a skipped frame binds only the passes that feed its lasting copies (lasting_prune.h); false = every op but the per-frame copies (the bind before lane 307): the A/B handle");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_perframe_by_image, true, "wwe2k14",
@@ -401,6 +681,10 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_marks_verify, false, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_catch_up_state, true, "wwe2k14",
                     "Session 100 (strip-360 A1b): the frame drawn after skipped ones repeats the small state passes (exposure / adaptation) "
                     "they left out, once per game frame: those effects follow the game's frames, not the frames drawn");
+// S102 lane KO (knockouts.h): test-only knock-outs for the Surface, default off, read per frame through the S0-4 table.
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ko_draw_none, false, "wwe2k14", "S102 KO (test only): our renderer records no scene draws and no copies; parse and bind still run, the present still runs");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ko_render_drop, false, "wwe2k14", "S102 KO (test only): our render thread drops every frame at once (no parse, bind, record or present); the reader still serialises");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ko_reader_none, false, "wwe2k14", "S102 KO (test only): the reader hooks on the swap thread read nothing (taken at the present hook); use ON from boot");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_max_queued, 2, "wwe2k14",
                      "Session 100 (strip-360 A1): our renderer skips a frame (keeping only its lasting work) when this many newer frames wait "
                      "(latest wins; was 4: up to 4 frames of latency, and a renderer slower than the game starved the screen)");
@@ -599,6 +883,16 @@ struct ScopedNs {  // (ticks, despite the name: the fields it adds to are printe
   explicit ScopedNs(uint64_t& a) : acc(a) {}
   ~ScopedNs() { acc += ReaderTicks() - t0; }
 };
+// S102 H3: the reader's draw and present totals, in nanoseconds, for FrameStats::OnSwap's swap-thread split (--wwe2k14_frame_split). Reads two counters the reader keeps
+// today (g_times.draw / .present, rdtsc ticks, written on this same thread): NO new clock on the per-draw path; called once per guest frame, and only while the switch is on.
+// F2: g_times is zeroed every 600 frames by CensusMaybe (inside OnPresent, BEFORE OnSwap): g_split_ticks banks both totals first (every `g_times = {}` is preceded by
+// the Bank call: toolsrame_splitrame_split_check.py lints that), so the reported totals never go backwards.
+inline wwe2k14::frame_split::RunningTicks g_split_ticks;
+inline wwe2k14::frame_split::ReaderNs ReaderSplitNs() {
+  const double per_ns = TicksPerNs();
+  return {uint64_t(double(g_split_ticks.Draw(g_times.draw)) / per_ns), uint64_t(double(g_split_ticks.Present(g_times.present)) / per_ns)};
+}
+inline const bool g_reader_split_registered = (wwe2k14::frame_split::g_reader_read = &ReaderSplitNs, true);
 // S100 speed diagnosis (--wwe2k14_rdr_debug_fine_times): the per-draw parts split further; nanoseconds and counts per census window.
 struct FineTimes {
   uint64_t vs_lookup = 0, ps_lookup = 0, bank_refresh = 0, bank_lits = 0, bank_emit = 0, fixed_decode = 0, fixed_dedupe = 0, dyn_decode = 0,
@@ -625,6 +919,15 @@ struct FineNs {  // ticks, as ScopedNs
 };
 
 inline std::mutex g_mutex;  // every hook body runs under it (creates and releases come from several threads, ADAPTER_CALLS section 7)
+// S102 U1 Review F3: the reader lock for a hook a game thread enters (texture create / release / lock / flush): counts a wait that met a running finish (census only).
+inline std::unique_lock<std::mutex> LockReaderCounted() {
+  std::unique_lock<std::mutex> lock(g_mutex, std::try_to_lock);
+  if (!lock.owns_lock()) {
+    if (rdr_adapter::tail::The().Finishing()) rdr_adapter::tail::The().CountMutexWait();
+    lock.lock();
+  }
+  return lock;
+}
 
 // S100 speed: on a reader worker thread, notes go to the job and are recorded by the game thread when it joins the job (the census is
 // the game thread's).
@@ -633,11 +936,10 @@ struct NoteCount {
   uint64_t n = 0;
 };
 inline thread_local std::vector<NoteCount>* t_note_sink = nullptr;  // a run of one note (a note per index) stays one entry
+inline rdr_adapter::draw_memos::NoteMemo g_note_memo;   // S102 T14 (wwe2k14_rdr_note_memo): the cells of the names counted before; invalidated where the window is cleared (CensusMaybe)
 inline void NoteCounted(const char* name, uint64_t n) {
-  g_census.window[name] += n;
-  uint64_t& seen = g_census.seen[name];
-  if (seen == 0) REXLOG_WARN("[rdr][census] first seen: {} (guest frame {})", name, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));
-  seen += n;
+  rdr_adapter::draw_memos::CountNote(g_note_memo, g_census.window, g_census.seen, name, n, rdr_adapter::draw_memos::g_note_on.load(std::memory_order_relaxed),   // S102 T14 (the body is shared with the offline test)
+                                     [&] { REXLOG_WARN("[rdr][census] first seen: {} (guest frame {})", name, wwe2k14::g_guest_frame.load(std::memory_order_relaxed)); });
 }
 inline void Note(const char* name) {
   if (t_note_sink) {
@@ -673,7 +975,9 @@ inline void InstallProvenanceAtStart() {
 #if defined(WWE2K14_VERSION) && !defined(__ANDROID__)
   dev_owner = REXCVAR_GET(wwe2k14_rdr_owner) && std::string_view(WWE2K14_VERSION).find("+dev") != std::string_view::npos;  // (the case ring's rule, bookmark.h)
 #endif
-  if (wwe2k14::prov::WantedAtStart(REXCVAR_GET(wwe2k14_rdr_provenance), REXCVAR_GET(wwe2k14_case), dev_owner, REXCVAR_GET(wwe2k14_rdr_capture_frames) > 0)) {
+  // S102 U2 (R22 cut 1): an explicit --wwe2k14_rdr_provenance=false wins over the by-build enables (+dev owner, the case ring), as --wwe2k14_case=false does (bookmark.h): a +dev bench can match a player's build.
+  const bool explicit_off = rex::cvar::GetFlagSource("wwe2k14_rdr_provenance") != rex::cvar::Source::kDefault && !REXCVAR_GET(wwe2k14_rdr_provenance);
+  if (wwe2k14::prov::WantedAtStart(REXCVAR_GET(wwe2k14_rdr_provenance), REXCVAR_GET(wwe2k14_case), dev_owner, REXCVAR_GET(wwe2k14_rdr_capture_frames) > 0, explicit_off)) {
     g_prov_on.store(true, std::memory_order_relaxed);
     wwe2k14::prov::InstallWriterHook(&OnHostWriteBy);
   }
@@ -733,6 +1037,8 @@ inline void ProvenanceLog(uint64_t from, uint64_t to) {
 inline rdr_adapter::periodic::Times g_periodic;  // lane 266: the periodic jobs' ms in this census window (printed by CensusMaybe, reset there)
 inline double PeriodicMs(std::chrono::steady_clock::time_point t0) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(); }
 
+inline void DrawMemosLog(uint64_t from, uint64_t to);   // S102 T14: defined after the shader tables (they need the shader info types)
+
 inline void CensusMaybe() {
   Census& c = g_census;
   const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
@@ -749,6 +1055,7 @@ inline void CensusMaybe() {
   REXLOG_INFO("[rdr][census] frames {}-{}: presents {}, draws {} (inline {}), clears {}, copies {}; cases {}{}", c.window_start, frame, c.presents, c.draws, c.inlines,
               c.clears, c.copies, total, total ? ": " + cases : "");
   CensusSourceLog(c.window_start, frame);
+  DrawMemosLog(c.window_start, frame);   // S102 T14: the three memos' census lines (only while a switch is on)
   if (c.presents) {
     const double per = 1e6 * double(c.presents);
     const double per_t = per * TicksPerNs();  // the time fields are ticks
@@ -792,8 +1099,10 @@ inline void CensusMaybe() {
   g_periodic.census.Add(PeriodicMs(census_t0));
   REXLOG_INFO("{}", g_periodic.Line(c.window_start, frame));  // lane 266 (the line's own formatting is not in the census ms: a few us)
   g_periodic.Reset();
+  g_split_ticks.Bank(g_times.draw, g_times.present);  // S102 H3 F2: before the reset, so fs_reader_draw_ms / fs_reader_present_ms stay continuous
   g_times = {};
   std::memset(g_lock_window_ns, 0, sizeof(g_lock_window_ns));
+  g_note_memo.Invalidate();   // S102 T14: the window map's nodes are gone
   c.window.clear();
   c.window_start = frame;
   c.draws = c.inlines = c.clears = c.copies = c.presents = 0;
@@ -1547,6 +1856,46 @@ struct LastShader {
   const void* info = nullptr;
 };
 inline LastShader g_last_vs, g_last_ps;
+inline rdr_adapter::draw_memos::ShaderTable<VertexShaderInfo> g_vs_memo;   // S102 T14 (wwe2k14_rdr_shader_memo)
+inline rdr_adapter::draw_memos::ShaderTable<PixelShaderInfo> g_ps_memo;
+// S102 T14: `[rdr][<lever>] frames A-B, taken T, declined D (by reason)` for each memo that is on (a Surface "no gain" must be told apart from "took 0").
+inline void DrawMemosLog(uint64_t from, uint64_t to) {
+  if (rdr_adapter::draw_memos::g_note_on.load(std::memory_order_relaxed)) {
+    const rdr_adapter::draw_memos::NoteStats& s = g_note_memo.stats;
+    REXLOG_INFO("[rdr][note_memo] frames {}-{}, taken {}, declined {} (first sightings, slot clashes and names over 47 characters; of those names {}), cells remembered {}", from, to, s.hits, s.misses, s.declined_long, s.remembered);
+  }
+  g_note_memo.stats = {};
+  if (rdr_adapter::draw_memos::g_shader_serial_on.load(std::memory_order_relaxed)) {   // S102 T14b: names built here, every 600 frames; the counters are plain fields
+    const rdr_adapter::draw_memos::ShaderStats& v = g_vs_memo.stats;
+    const rdr_adapter::draw_memos::ShaderStats& p = g_ps_memo.stats;
+    REXLOG_INFO("[rdr][shader_serial] frames {}-{}, trusted {} (vs {}, ps {}: the epoch rule, head compare only), verified {} (vs {}, ps {}: first hit of an entry in a frame part, whole compare), declined {} (not in the table: hash and find)", from, to,
+                v.trusted + p.trusted, v.trusted, p.trusted, v.verified + p.verified, v.verified, p.verified, v.misses + p.misses);
+  }
+  if (rdr_adapter::draw_memos::g_shader_on.load(std::memory_order_relaxed)) {
+    const rdr_adapter::draw_memos::ShaderStats& v = g_vs_memo.stats;
+    const rdr_adapter::draw_memos::ShaderStats& p = g_ps_memo.stats;
+    REXLOG_INFO("[rdr][shader_memo] frames {}-{}, taken {} (vs {}, ps {}), declined {} (vs {}, ps {}: the one-entry memo missed and the table did not know the shader; microcode over {} bytes {}), remembered {}", from, to, v.hits + p.hits, v.hits, p.hits,
+                v.misses + p.misses, v.misses, p.misses, rdr_adapter::draw_memos::ShaderTable<VertexShaderInfo>::kMaxBytes, v.declined_big + p.declined_big, v.remembered + p.remembered);
+  }
+  if (wwe2k14::upd_lean::g_mask.load(std::memory_order_relaxed)) {   // S102 U2: the census, one line per window while the lane switch is on (cells are cumulative; relaxed, approximate)
+    namespace ul = wwe2k14::upd_lean;
+    REXLOG_INFO("[rdr][upd_lean] frames {}-{}, mask {}: marks reports {}, origin intern (memo {}, direct {}, map {}), lights (fast {}, full {}), arena memo {}; round 2: consumer palettes in place {}, arena frame swaps {} [cumulative; counted only while a census is on; EntryUnknownModel / EntryPieces read 0 under bit 4]", from, to, ul::g_mask.load(std::memory_order_relaxed),
+                ul::Get(ul::kMarkReports), ul::Get(ul::kInternMemo), ul::Get(ul::kInternDirect), ul::Get(ul::kInternMap), ul::Get(ul::kLightFast), ul::Get(ul::kLightFull),
+                ul::Get(ul::kArenaMemo), ul::Get(ul::kConsumerInPlace), ul::Get(ul::kArenaSwap));
+  }
+  if (rdr_adapter::origin::g_index_on.load(std::memory_order_relaxed)) {   // S102 T14b: the reader thread's own counters (plain, per thread)
+    const rdr_adapter::origin::IndexStats& o = rdr_adapter::origin::t_index_stats;
+    REXLOG_INFO("[rdr][origin_index] frames {}-{}, taken {} (lookups answered by the id), declined {} (not one of our tags {}, id past the published count {})", from, to, o.taken, o.bad_tag + o.past_count, o.bad_tag, o.past_count);
+  }
+  rdr_adapter::origin::t_index_stats = {};
+  g_vs_memo.stats = {};
+  g_ps_memo.stats = {};
+  if (rdr_adapter::draw_memos::g_pin_hash_on.load(std::memory_order_relaxed)) {
+    REXLOG_INFO("[rdr][pin_hash] frames {}-{}, taken {} (queries answered by the table), declined {} (no table: a set made outside Publish)", from, to, rdr_adapter::draw_memos::g_pin_stats.taken, rdr_adapter::draw_memos::g_pin_stats.declined);
+  }
+  rdr_adapter::draw_memos::g_pin_stats = {};
+}
+
 
 inline const VertexShaderInfo* GetVertexShader(PPCContext& ctx, uint8_t* base, uint32_t dev, uint32_t vs, const uint8_t strides[24]) {
   VsKey key{};
@@ -1568,7 +1917,11 @@ inline const VertexShaderInfo* GetVertexShader(PPCContext& ctx, uint8_t* base, u
       last.code_addr == code_addr && last.bytes == bytes && std::memcmp(last.strides, strides, 24) == 0 && std::memcmp(last.head, source, head) == 0) {
     return static_cast<const VertexShaderInfo*>(last.info);
   }
-  auto remember = [&](const VertexShaderInfo* info) {
+  const uint64_t serial_epoch = rdr_adapter::draw_memos::g_shader_serial_on.load(std::memory_order_relaxed) ? g_shader_repeat_epoch : 0;   // S102 T14b: 0 = whole compare at every hit
+  const bool memo_on = serial_epoch || rdr_adapter::draw_memos::g_shader_on.load(std::memory_order_relaxed);   // S102 T14 (T14b: the serial switch implies the table)
+  rdr_adapter::draw_memos::ShaderTable<VertexShaderInfo>::Key memo_key;
+  if (memo_on) memo_key = rdr_adapter::draw_memos::ShaderTable<VertexShaderInfo>::MakeKey(vs, key.decl, code_addr, bytes, key.seven_c != 0, strides);   // F4
+  auto remember = [&](const VertexShaderInfo* info, bool into_table = true) {
     last.epoch = g_shader_repeat_epoch;
     last.object = vs;
     last.decl = key.decl;
@@ -1578,8 +1931,12 @@ inline const VertexShaderInfo* GetVertexShader(PPCContext& ctx, uint8_t* base, u
     std::memcpy(last.strides, strides, 24);
     std::memcpy(last.head, source, head);
     last.info = info;
+    if (memo_on && into_table) g_vs_memo.Remember(memo_key, source, info, serial_epoch);   // S102 T14
     return info;
   };
+  if (memo_on) {   // S102 T14: the same shader found by comparing the whole microcode with the kept copy (the plain path hashes it and finds it in g_vs)
+    if (const VertexShaderInfo* hit = g_vs_memo.Find(memo_key, source, serial_epoch)) return remember(hit, false);
+  }
   key.code = cap::Xxh3(source, bytes);  // S100 speed: was db::Hash64, a serial multiply chain (~5 cycles per 8 bytes) over the whole microcode every draw
   if (auto it = g_vs.find(key); it != g_vs.end()) return remember(&it->second);
 
@@ -1665,7 +2022,8 @@ inline const VertexShaderInfo* GetVertexShader(PPCContext& ctx, uint8_t* base, u
   }
   BuildLayout(info);
   auto [it, inserted] = g_vs.emplace(key, std::move(info));
-  return remember(&it->second);
+  // F5: the patch routine may have written the microcode in place since it was hashed: the table keeps a copy only of bytes that still hash to the key's code
+  return remember(&it->second, memo_on && cap::Xxh3(source, bytes) == key.code);
 }
 
 inline const PixelShaderInfo* GetPixelShader(uint8_t* base, uint32_t ps) {
@@ -1683,15 +2041,23 @@ inline const PixelShaderInfo* GetPixelShader(uint8_t* base, uint32_t ps) {
       std::memcmp(last.head, source, head) == 0) {
     return static_cast<const PixelShaderInfo*>(last.info);
   }
-  auto remember = [&](const PixelShaderInfo* found) {
+  const uint64_t serial_epoch = rdr_adapter::draw_memos::g_shader_serial_on.load(std::memory_order_relaxed) ? g_shader_repeat_epoch : 0;   // S102 T14b (see GetVertexShader)
+  const bool memo_on = serial_epoch || rdr_adapter::draw_memos::g_shader_on.load(std::memory_order_relaxed);   // S102 T14 (see GetVertexShader)
+  rdr_adapter::draw_memos::ShaderTable<PixelShaderInfo>::Key memo_key;
+  if (memo_on) memo_key = rdr_adapter::draw_memos::ShaderTable<PixelShaderInfo>::MakeKey(ps, 0, code_addr, bytes, false, nullptr);   // F4
+  auto remember = [&](const PixelShaderInfo* found, bool into_table = true) {
     last.epoch = g_shader_repeat_epoch;
     last.object = ps;
     last.code_addr = code_addr;
     last.bytes = bytes;
     std::memcpy(last.head, source, head);
     last.info = found;
+    if (memo_on && into_table) g_ps_memo.Remember(memo_key, source, found, serial_epoch);   // S102 T14
     return found;
   };
+  if (memo_on) {
+    if (const PixelShaderInfo* hit = g_ps_memo.Find(memo_key, source, serial_epoch)) return remember(hit, false);
+  }
   const uint64_t code = cap::Xxh3(source, bytes);  // S100 speed: was db::Hash64 every draw (see GetVertexShader); the inventory's hash
   const uint64_t key = (uint64_t(ps) << 32) ^ code;
   if (auto it = g_ps.find(key); it != g_ps.end()) return remember(&it->second);
@@ -1700,7 +2066,7 @@ inline const PixelShaderInfo* GetPixelShader(uint8_t* base, uint32_t ps) {
   info.writes_depth = info.hash == kDepthExportPs;
   ParseMicrocode(source, bytes / 4, false, info.facts);
   auto [it, inserted] = g_ps.emplace(key, std::move(info));
-  return remember(&it->second);
+  return remember(&it->second, memo_on && cap::Xxh3(source, bytes) == code);   // S102 T14 F5 (see GetVertexShader)
 }
 
 // The literal constants of a shader, over its bank (registers are the 512 vec4 of the two banks, as the library's literal table addresses them).
@@ -1837,6 +2203,16 @@ inline constexpr uint64_t kGeometryMarkEvery = kLiveGeometryKeepFrames / 2;
 
 // Capture or live: the heavy work (constants, geometry, texture contents) runs only then.
 inline bool Recording() { return g_cap.active || g_live.active(); }
+// S102 lane KO (knockouts.h): the gate every reader hook sits behind: --wwe2k14_rdr_capture, and not the reader_none knock-out.
+inline bool ReaderOn() { return REXCVAR_GET(wwe2k14_rdr_capture) && !ko::g_reader_none.load(std::memory_order_relaxed); }
+// S102 lane KO: called by the present hook AFTER the reader's own OnPresent (a frame is never cut in the middle): takes the switch for the next frame.
+inline void KoLatchAtPresent() {
+  const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
+  const bool now = rdr_sw::BoolSeen(rdr_sw::kKoReaderNone, false, frame);
+  if (now && !ko::g_reader_none.load(std::memory_order_relaxed)) ko::KoOnce(2, "wwe2k14_rdr_ko_reader_none", [](const char* n) { REXLOG_INFO("[ko] {} on", n); });
+  ko::g_reader_none.store(now, std::memory_order_relaxed);
+  if (now) rdr_adapter::origin::g_on.store(false, std::memory_order_relaxed);  // S102 KO review F3: origin tagging is set only in OnPresent, which reader_none skips
+}
 inline uint64_t SinkAppend(cap::Stream stream, std::vector<uint8_t>&& bytes) {
   ScopedNs timer(g_times.sink);  // lane 273: named in the slow-frame line and the 600-frame line, so a stall in the hand-over is read, not guessed
   ++g_times.sink_n;
@@ -1897,6 +2273,10 @@ inline void WriteFrameFile(uint64_t guest_frame, uint32_t present_interval) {
 // the render side, so its contents are sent again.
 inline std::vector<cap::ImageRecord> g_live_sent;
 inline void LiveSendImages() {
+  // S102 lane G4: per frame. Review F4: off while the game-side bake skip is in Skip mode (it leaves the destinations stale by design: two cuts of one pass).
+  rdr_adapter::dead_work::g_skip_card_bake.store(REXCVAR_GET(wwe2k14_rdr_skip_match_card_bake) && REXCVAR_GET(wwe2k14_rdr_crowd_bake_skip) < 2, std::memory_order_relaxed);
+  rdr_adapter::copy_alias::g_small_bake_off.store(REXCVAR_GET(wwe2k14_rdr_crowd_bake_skip) >= 2, std::memory_order_relaxed);   // S102 G12 review F2: the same S1 test as copy_alias_classes, per frame
+  rdr_adapter::dead_work::g_skip_prelight.store(REXCVAR_GET(wwe2k14_rdr_skip_dead_prelight), std::memory_order_relaxed);   // (census only, see dead_work.h)
   const bool grew = g_reg.images.size() != g_live_sent.size();
   const bool marked = g_images_dirty;
   if (!marked && !grew && g_record_frame % 60) return;  // S100 speed: nothing written since the last send
@@ -1946,8 +2326,12 @@ inline void LiveForgetGeometry() {
 
 inline void JoinReaderWork();  // S100 speed: the reader workers' results into this frame (defined after EnsureContent)
 inline void FrameProvenance(FrameTables& t);  // S101 names A1c (defined with TakeDrawOrigin)
-inline std::vector<uint8_t> FrameBytes(uint64_t guest_frame, uint32_t present_interval, uint32_t index) {
-  JoinReaderWork();  // every frame (and frame part) is serialized here: its texture contents must be in it
+// S102 lane T8: every table of g_frame <-> a FrameData (a swap: the capacity travels, nothing is copied). Symmetric: the same call puts them back.
+inline void SwapFrameTables(FrameTables& t, rdr_adapter::handoff::FrameData& d) { rdr_adapter::handoff::SwapTables(t, d); }   //   // (member list: frame_handoff.h WWE2K14_HANDOFF_TABLES; handoff_unit.py lints it against FrameTables)
+// The frame (part) as it leaves the reader: the header and the little sections are made here, the tables move into `d` (g_frame is left with `d`'s old, empty
+// tables: the caller either swaps them back (FrameBytes) or goes on to Reset, which only clears).
+inline void FillFrameData(uint64_t guest_frame, uint32_t present_interval, rdr_adapter::handoff::FrameData& d, uint32_t index) {
+  JoinReaderWork();  // every frame (and frame part) is handed over here: its texture contents must be in it
   FrameTables& t = g_frame;
   FrameProvenance(t);  // S101 names A1c: the provenance of every texture this frame (part) binds
   cap::FrameFileHeader h;
@@ -1958,11 +2342,6 @@ inline std::vector<uint8_t> FrameBytes(uint64_t guest_frame, uint32_t present_in
   h.guest_frame = guest_frame;
   if (t.lite_begun && t.lite.lite_draws()) h.flags |= cap::kFrameHasThin;  // lane 122 (review 5): a capture / case zip of this frame holds thin draws
   h.present_interval = present_interval;
-  struct Part {
-    uint32_t id;
-    size_t element, count;
-    const void* data;
-  };
   cap::D3FrameCounts d3_counts;  // lane 138: the per-frame marker / dropped counts (the section is present only while the D3 switch is on)
   if (rdr_adapter::d3::g_arena_d3) {
     const rdr_adapter::d3::FrameCounts fc = rdr_adapter::d3::g_tally.TakeAndReset();
@@ -1972,53 +2351,27 @@ inline std::vector<uint8_t> FrameBytes(uint64_t guest_frame, uint32_t present_in
   }
   cap::ThinFrameStamp thin_stamp;  // lane 122: the pin-set generation this frame part's lite decisions used (the section is present only when the reader read a pin set)
   if (t.lite_begun) thin_stamp = cap::ThinFrameStamp{t.lite.stamp(), 0, guest_frame, t.lite.lite_draws(), 0};
-  const Part parts[] = {
-      {cap::kSecOps, sizeof(cap::Op), t.ops.size(), t.ops.data()},
-      {cap::kSecTargets, sizeof(rdr::TargetsOp), t.targets.size(), t.targets.data()},
-      {cap::kSecClears, sizeof(rdr::ClearOp), t.clears.size(), t.clears.data()},
-      {cap::kSecDraws, sizeof(cap::Draw), t.draws.size(), t.draws.data()},
-      {cap::kSecCopies, sizeof(rdr::CopyOp), t.copies.size(), t.copies.data()},
-      {cap::kSecPresents, sizeof(rdr::PresentOp), t.presents.size(), t.presents.data()},
-      {cap::kSecFixeds, sizeof(cap::DrawFixed), t.fixeds.size(), t.fixeds.data()},
-      {cap::kSecDynamics, sizeof(cap::DrawDynamic), t.dynamics.size(), t.dynamics.data()},
-      {cap::kSecSamplers, sizeof(rdr::SamplerDesc), t.samplers.size(), t.samplers.data()},
-      {cap::kSecTextureSlots, sizeof(cap::TextureSlot), t.texture_slots.size(), t.texture_slots.data()},
-      {cap::kSecLayouts, sizeof(cap::VertexLayout), t.layouts.size(), t.layouts.data()},
-      {cap::kSecElements, sizeof(cap::VertexElement), t.elements.size(), t.elements.data()},
-      {cap::kSecConstantBanks, sizeof(cap::ConstantBank), t.constant_banks.size(), t.constant_banks.data()},
-      {cap::kSecBoolLoops, sizeof(cap::BoolLoop), t.bool_loops.size(), t.bool_loops.data()},
-      {cap::kSecContents, sizeof(cap::ContentRef), t.contents.size(), t.contents.data()},
-      {cap::kSecCopyExtras, sizeof(cap::CopyExtra), t.copy_extras.size(), t.copy_extras.data()},
-      {cap::kSecBankDefs, sizeof(cap::BankDef), t.bank_defs.size(), t.bank_defs.data()},
-      {cap::kSecBankPatches, sizeof(cap::BankPatch), t.bank_patches.size(), t.bank_patches.data()},
-      {cap::kSecDrawOrigins, sizeof(cap::DrawOrigin), t.origins.size(), t.origins.data()},  // S101 names (names.h)
-      {cap::kSecProvenance, sizeof(cap::TextureProvenance), t.provenance.size(), t.provenance.data()},
-      {cap::kSecTextRuns, sizeof(cap::TextRun), t.text_runs.size(), t.text_runs.data()},  // S101 U1
-      {cap::kSecThin, sizeof(cap::ThinFrameStamp), t.lite_begun ? 1u : 0u, &thin_stamp},  // lane 122 (D1 thin draws)
-      {cap::kSecThinFacts, sizeof(cap::ThinDrawFacts), t.thin_facts.size() == t.draws.size() ? t.thin_facts.size() : size_t(0), t.thin_facts.data()},  // lane 122 (review 6)
-      {cap::kSecD3, sizeof(cap::D3FrameCounts), rdr_adapter::d3::g_arena_d3 ? 1u : 0u, &d3_counts},  // lane 138 (D3 skip the object)
-      {cap::kSecStrings, 1, t.strings.size(), t.strings.data()},  // (last: FrameProvenance above may add strings)
-  };
-  h.section_count = uint32_t(std::size(parts));
-  std::vector<cap::SectionEntry> entries(std::size(parts));
-  size_t offset = sizeof(cap::FrameFileHeader) + entries.size() * sizeof(cap::SectionEntry);
-  size_t total = offset;
-  for (size_t i = 0; i < std::size(parts); ++i) {
-    entries[i].id = parts[i].id;
-    entries[i].element_size = uint32_t(parts[i].element);
-    entries[i].count = parts[i].count;
-    entries[i].offset = offset;
-    offset += parts[i].element * parts[i].count;
-    total = offset;
-  }
-  std::vector<uint8_t> file;
-  file.reserve(total);
-  PutBytes(file, &h, 1);
-  PutBytes(file, entries.data(), entries.size());
-  for (const Part& p : parts) {
-    if (p.count) PutBytes(file, static_cast<const uint8_t*>(p.data), p.element * p.count);
-  }
+  d.Clear();   // (a pooled FrameData comes back cleared; a stack one is empty)
+  d.h = h;
+  d.has_thin = t.lite_begun, d.thin_stamp = thin_stamp;
+  d.has_d3 = rdr_adapter::d3::g_arena_d3, d.d3_counts = d3_counts;
+  SwapFrameTables(t, d);   // the section list (frame_handoff.h ForEachSection) is the one place that names every section
+}
+
+// The bytes of the frame (part): a capture file, the case ring, a read-back part, or a live frame with the hand-over switch off. g_frame keeps its tables.
+inline std::vector<uint8_t> FrameBytes(uint64_t guest_frame, uint32_t present_interval, uint32_t index) {
+  rdr_adapter::handoff::FrameData d;
+  FillFrameData(guest_frame, present_interval, d, index);
+  std::vector<uint8_t> file = rdr_adapter::handoff::Serialize(d);
+  SwapFrameTables(g_frame, d);   // back (the caller may read g_frame again, or Reset it)
   return file;
+}
+
+// S102 lane T8: the frame as a FrameData, handed to the sink without serialising. g_frame is left empty-handed (the pool's cleared tables): Reset follows.
+inline std::shared_ptr<rdr_adapter::handoff::FrameData> FrameHandoff(uint64_t guest_frame, uint32_t present_interval, uint32_t index) {
+  std::shared_ptr<rdr_adapter::handoff::FrameData> d = rdr_adapter::handoff::FramePool().Take();
+  FillFrameData(guest_frame, present_interval, *d, index);
+  return d;
 }
 
 inline std::filesystem::path CapturesRoot() {
@@ -2103,6 +2456,33 @@ inline void OnGammaRamp(PPCContext& ctx, uint8_t* base) {
               curve[128], curve[256], curve[512], curve[768], curve[1020]);
 }
 
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_start_failure_dialog, true, "wwe2k14",
+                    "S102 lane U1: when the new renderer cannot start (graphics driver refused the card, window or swapchain), say so in a plain message (a box on the PC; a line in the phone's start-up file and the launcher is asked to come back) instead of a black window for ever. Tests turn the box off");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_test_fail_start, false, "wwe2k14",
+                    "S102 lane U1 (+dev builds only): make the new renderer's start fail on purpose, to see the message and the report's verdict line");
+
+// S102 U1 (R9 finding 1): the message. On the PC a box, then the process ends (the game would otherwise run on behind a black window); on a phone the start-up file
+// carries the reason and the launcher is asked to come back (the same file the hang guard's exit uses). A test run (no dialog) only logs.
+inline void ShowStartFailure(const std::string& reason, const std::string& card) {
+  const std::string text = rdr_adapter::start_failure::Text(reason, card);
+  REXLOG_ERROR("[rdr][verdict] message for the player: {}", text);
+  // Only when the new renderer OWNS the window: otherwise the SDK's presenter still draws and a failed mirror is not a black window (review U1 item 4a).
+  if (!REXCVAR_GET(wwe2k14_rdr_start_failure_dialog) || !REXCVAR_GET(wwe2k14_rdr_owner)) return;
+#if defined(_WIN32)
+  std::wstring wide;  // UTF-8 (a driver's or a card's name may not be ASCII)
+  if (const int n = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), int(text.size()), nullptr, 0); n > 0) {
+    wide.resize(size_t(n));
+    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), int(text.size()), wide.data(), n);
+  }
+  MessageBoxW(nullptr, wide.c_str(), L"WWE 2K14", MB_ICONERROR | MB_OK | MB_TOPMOST | MB_SETFOREGROUND);
+  rex::FlushLogging();  // the log line above must be on disk before the process ends
+  ExitProcess(1);  // the launcher's kGameReportedErrorExitCode: the game showed its own message
+#elif defined(__ANDROID__)
+  rex::FlushLogging();
+  wwe2k14::android_lifecycle::WriteExitRequest("the new renderer could not start");
+#endif
+}
+
 // The live mirror (LIVE_ADAPTER.md stage A). Every image's contents are sent again from here on, like at a capture's start.
 inline void LiveLog(const char* line) { REXLOG_INFO("{}", line); }
 inline void OnHostWrite(uint32_t addr, uint32_t length);  // (with the page marks below)
@@ -2113,6 +2493,9 @@ inline void StartLive() {
   cap::LiveOptions options;
   options.validation = REXCVAR_GET(wwe2k14_rdr_live_validation);
   options.gpu_timestamps = REXCVAR_GET(wwe2k14_rdr_gpu_timestamps);  // lane 269
+  options.gpu_name = REXCVAR_GET(wwe2k14_gpu);  // S102 U1
+  options.bc_decode = uint32_t(std::clamp(REXCVAR_GET(wwe2k14_rdr_bc_decode), 0, 2));  // S102 U1: read when the renderer starts (a device property, not per frame)
+  options.counts = REXCVAR_GET(wwe2k14_rdr_counts);  // S102 M1
 #if defined(WWE2K14_VERSION)
   constexpr bool kDevBuild = std::string_view(WWE2K14_VERSION).find("+dev") != std::string_view::npos;
 #else
@@ -2182,8 +2565,8 @@ inline void StartLive() {
     options.crowd_ours = REXCVAR_GET(wwe2k14_rdr_crowd_ours) && REXCVAR_GET(wwe2k14_scene_records);  // S101 lane 35
     options.crowd_floor = options.crowd_ours && REXCVAR_GET(wwe2k14_rdr_crowd_floor);  // S101 lane 82: the seated floor people, only with the crowd promotion
     options.crowd_cards = options.crowd_ours && REXCVAR_GET(wwe2k14_rdr_crowd_cards);  // S101 lane CD: the far cards, only with the crowd promotion
-    options.crowd_cards_thin_probe = options.crowd_cards && REXCVAR_GET(wwe2k14_rdr_crowd_card_thin) >= 1;  // lane 175 (SF2)
-    options.crowd_cards_thin = options.crowd_cards && REXCVAR_GET(wwe2k14_rdr_crowd_card_thin) >= 2 && wwe2k14::card_thin::kSkipBuilt;  // lane 175 (review S1): the binder's thin branch exists only while the cut can act (census mode and the inert build leave it off); the gate reports flow either way
+    options.crowd_cards_thin_probe = options.crowd_cards && (REXCVAR_GET(wwe2k14_rdr_crowd_card_thin) >= 1 || REXCVAR_GET(wwe2k14_rdr_card_cut));  // lane 175 (SF2)
+    options.crowd_cards_thin = false;  // S102 T2 F6: the start-time copy is gone; the binder's thin branch follows --wwe2k14_rdr_card_cut every cards frame through options.cards_thin_now (card_thin::g_cut_seen, live.cpp). The gate reports flow with the probe
     options.crowd_members_probe = options.crowd_ours && REXCVAR_GET(wwe2k14_rdr_crowd_member_thin) >= 1;  // lane 272: census (the uniformity verify, the stamp probe, the gate's reports)
     options.crowd_members_thin = options.crowd_ours && REXCVAR_GET(wwe2k14_rdr_crowd_member_thin) >= 2 && wwe2k14::member_thin::kSkipBuilt && REXCVAR_GET(wwe2k14_scene_crowd) == 0;  // lane 272: the binder's thin branch exists only while the cut can act
     options.arena_ours = REXCVAR_GET(wwe2k14_rdr_arena_ours) && REXCVAR_GET(wwe2k14_scene_records);  // S101 lane 41
@@ -2363,6 +2746,27 @@ inline void StartLive() {
       REXLOG_INFO("[rdr][settings] crowd density {}%, shadows {}{}, depth of field {}", options.crowd_density, options.shadows ? "on" : "off",
                   options.shadow_half ? " (every other frame)" : "", options.depth_of_field ? "on" : "off");
     }
+    {  // S102 lane G1: LOW's levers (low_levers.h), each behind its own switch, default off
+      const auto flag = [](const char* name) { return rex::cvar::GetFlagInfo(name) ? rex::cvar::GetFlagByName(name) : std::string(); };
+      const bool low = rdr_adapter::low_levers::IsLow(flag);
+      options.low_tier = low;   // S102 lane G3
+      const uint32_t size_was = options.shadow_map_size;
+      options.shadow_map_size = rdr_adapter::low_levers::ShadowMapSize(REXCVAR_GET(wwe2k14_rdr_low_shadow_small), low, options.shadows_ours, options.shadow_map_size);
+      options.prelight_compute = REXCVAR_GET(wwe2k14_rdr_prelight_compute);   // S102 L1b review F2: the start-time value
+      options.prelight_layered = REXCVAR_GET(wwe2k14_rdr_prelight_layered);   // S102 C1 review F2: the start-time value (the device enables multiview only then)
+      options.robust_buffers = REXCVAR_GET(wwe2k14_rdr_robust_buffers);   // S102 D1 (StartOnly: the device is made once)
+#if defined(_WIN32)
+      options.exclusive_fullscreen = REXCVAR_GET(wwe2k14_rdr_exclusive_fullscreen);  // S102 G2b (StartOnly: the swapchain is built once)
+#endif
+      rdr::g_low_tier.store(low, std::memory_order_relaxed);  // S102 G2: the two output levers are PerFrame (live.cpp reads the S0-4 table) but LOW is the tier resolved at start
+      options.present_noclear = rdr_adapter::low_levers::PresentNoClear(REXCVAR_GET(wwe2k14_rdr_low_present_noclear), low);
+      const rdr_adapter::low_levers::CopyAlias alias = rdr_adapter::low_levers::CopyAliasFor(REXCVAR_GET(wwe2k14_rdr_low_no_fullsize_copies), low, options.copy_alias, options.copy_alias_classes);
+      options.copy_alias = alias.mode, options.copy_alias_classes = alias.classes;
+      if (options.copy_alias >= 2 && (options.copy_alias_classes & 1u) && REXCVAR_GET(wwe2k14_rdr_crowd_bake_skip) >= 2) options.copy_alias_classes &= ~1u;  // as the plain switch (above)
+      if (REXCVAR_GET(wwe2k14_rdr_low_shadow_small) && low && !options.shadows_ours) REXLOG_WARN("[rdr][low] --wwe2k14_rdr_low_shadow_small needs --wwe2k14_rdr_shadows_ours (the maps are the stream's otherwise): off");
+      REXLOG_INFO("[rdr][low] LOW {}: shadow maps {} (was {}), present clear {}, copy alias mode {} classes 0x{:X}", low ? "yes" : "no", options.shadow_map_size, size_was,
+                  options.present_noclear ? "bars only" : "whole panel", options.copy_alias, options.copy_alias_classes);
+    }
     {  // settings parity S5: the screen shape (the SDK's cvars, set by ultrawide.h)
       const auto num = [](const char* name, double fallback) {
         const std::string v = rex::cvar::GetFlagInfo(name) ? rex::cvar::GetFlagByName(name) : std::string();
@@ -2397,9 +2801,15 @@ inline void StartLive() {
     if (!options.window) REXLOG_ERROR("[rdr][live] owner mode: no game window found; the new renderer runs headless");
   }
   std::string error;
-  if (!g_live.Start(options, error)) {
+  // S102 U1: --wwe2k14_rdr_test_fail_start makes this start fail with the plain sentence the real failures use (dev builds only; the offline twin is rplay --gpu 99).
+  const bool forced_fail = kDevBuild && REXCVAR_GET(wwe2k14_rdr_test_fail_start);
+  if (forced_fail) error = "This graphics hardware is below the minimum. Missing: (test: --wwe2k14_rdr_test_fail_start).";
+  if (forced_fail || !g_live.Start(options, error)) {
     REXLOG_ERROR("[rdr][live] could not start: {}", error);
+    REXLOG_ERROR("[rdr][verdict] FAILED to start: {} (card asked for: '{}')", error, options.gpu_name);  // S102 U1: the one line a report reads first
+    wwe2k14::blackbox::Note("FAILED: the new renderer could not start: %s", error.c_str());
     REXCVAR_SET(wwe2k14_rdr_live, false);
+    ShowStartFailure(error, options.gpu_name);
     return;
   }
   g_cap.geo.clear();
@@ -2694,6 +3104,10 @@ inline void OnHostWrite(uint32_t addr, uint32_t length) {
   const uint32_t phys = wwe2k14::guest_view::ToPhysical(addr);
   if (phys >= kPhysBytes) return;
   const uint32_t last = uint32_t(std::min<uint64_t>(uint64_t(phys) + length - 1, kPhysBytes - 1));
+  if (wwe2k14::upd_lean::On(wwe2k14::upd_lean::kMarks)) {   // S102 U2 (R22 cut 2): same written marks; the census-only notified marks only while a census is on
+    wwe2k14::upd_lean::MarkPagesLean(g_written_pages, g_written_pages_geo, g_notified_pages, g_notified_pages_geo, phys >> 12, last >> 12, wwe2k14::upd_lean::g_census.load(std::memory_order_relaxed));
+    return;
+  }
   ForPageMasks(phys >> 12, last >> 12, [](uint32_t word, uint64_t mask) {
     g_written_pages[word].fetch_or(mask, std::memory_order_relaxed);
     g_written_pages_geo[word].fetch_or(mask, std::memory_order_relaxed);
@@ -2809,6 +3223,7 @@ inline uint64_t SampleTexture(const uint32_t w[6]) {
 // the hash, hand the blob to the sink, append the ContentRef. A CPU write while a worker reads is caught by the watch next frame.
 struct ReaderJob {
   virtual ~ReaderJob() = default;
+  uint64_t seq = 0;  // S102 R25-A: the join ticket number of a guest-reading job, 0 for the others (set by Pool::Push, under its mutex)
   virtual void Run() = 0;  // on a worker: reads guest memory only through the job's own inputs; no reader tables, no SDK calls
   std::vector<NoteCount> notes;
 };
@@ -2824,12 +3239,7 @@ struct TextureJob : ReaderJob {
     if (ok) hash = cap::Xxh3(blob.data(), blob.size());
   }
 };
-struct ReaderWorkers {
-  std::mutex mu;
-  std::condition_variable work_cv, done_cv;
-  std::deque<ReaderJob*> queue;
-  size_t running = 0;  // queued or being read
-  bool stop = false;
+struct ReaderWorkers : wwe2k14::join_ticket::Pool<ReaderJob> {  // S102 R25-A: the queue, WaitAll and the tickets are join_ticket.h's (the offline test runs the same code)
   int started = 0;  // detached: they wait on work_cv until the process ends (a joinable global std::thread would abort at exit)
   std::vector<std::unique_ptr<TextureJob>> frame_jobs;  // game thread: this frame's, in submission order
 
@@ -2837,30 +3247,20 @@ struct ReaderWorkers {
     const int want = std::clamp(REXCVAR_GET(wwe2k14_rdr_reader_workers), 0, 8);
     if (!want) return false;
     if (!started) {
-      for (int i = 0; i < want; ++i) std::thread([this] { Loop(); }).detach();
+      for (int i = 0; i < want; ++i) std::thread([this, i] { wwe2k14::NameThread(L"rdr_reader"); Loop(i); }).detach();
       started = want;
       REXLOG_INFO("[rdr][workers] {} reader worker thread(s) started (texture contents off the game's render thread)", want);
     }
     return true;
   }
-  void Loop() {
+  void Loop(int slot) {
     for (;;) {
-      ReaderJob* job = nullptr;
-      {
-        std::unique_lock lock(mu);
-        work_cv.wait(lock, [&] { return stop || !queue.empty(); });
-        if (stop && queue.empty()) return;
-        job = queue.front();
-        queue.pop_front();
-      }
+      ReaderJob* job = Pop(slot);
+      if (!job) return;
       t_note_sink = &job->notes;
       job->Run();
       t_note_sink = nullptr;
-      {
-        std::lock_guard lock(mu);
-        --running;
-      }
-      done_cv.notify_all();
+      Finish(slot);
     }
   }
   void Submit(uint32_t id, const uint32_t w[6]) {
@@ -2870,20 +3270,11 @@ struct ReaderWorkers {
     std::memcpy(job->w, w, sizeof(job->w));
     TextureJob* raw = job.get();
     frame_jobs.push_back(std::move(job));
-    Push(raw);
+    Queue(raw, true);  // a texture read: reads guest memory (S102 R25-A: only these take a fence's ticket)
   }
-  void Push(ReaderJob* job) {  // the caller keeps the job alive until WaitAll
+  void Queue(ReaderJob* job, bool guest_reads) {  // the caller keeps the job alive until WaitAll
     job->notes.clear();
-    {
-      std::lock_guard lock(mu);
-      queue.push_back(job);
-      ++running;
-    }
-    work_cv.notify_one();
-  }
-  void WaitAll() {
-    std::unique_lock lock(mu);
-    done_cv.wait(lock, [&] { return running == 0; });
+    Push(job, guest_reads);
   }
 };
 inline ReaderWorkers g_workers;
@@ -3317,16 +3708,49 @@ inline uint32_t BuildSampler(const uint32_t w[6], const TFetch& t) {
 
 struct SlotCache {
   uint8_t kind = 0;  // 0 none, 1 a texture, 2 no texture (T14)
-  uint64_t generation = ~0ull, epoch = ~0ull;
-  const TFetch* fetch = nullptr;  // the shader's fetch facts (g_vs / g_ps entries: never changed once made)
-  uint32_t object = 0, id = 0;
-  uint32_t w[6] = {};
-  uint8_t header_raw[24] = {};
+  rdr_adapter::slot_geo_memo::SlotKey key;  // S102 T15: generation, epoch, the shader's fetch facts (g_vs / g_ps entries: never changed once made), object, words, header bytes
+  uint32_t id = 0;
   bool packed = false, copy_dest = false, swap = false, target16 = false;
   uint8_t pack_host[4] = {};
   cap::TextureSlot out;
 };
-inline std::array<SlotCache, 32> g_slot_cache;
+inline rdr_adapter::slot_geo_memo::SlotWayTable<SlotCache, 32> g_slot_cache;  // S102 T15: way 0 is the old one-entry-per-slot record
+inline rdr_adapter::slot_geo_memo::SamplerMemo g_sampler_memo;                // S102 T15 (wwe2k14_rdr_sampler_memo)
+
+// S102 T15 (wwe2k14_rdr_slot_content_skip): EnsureContent(id, w), minus the call when its own first lines would return at once.
+inline void EnsureContentChecked(uint32_t id, const uint32_t w[6]) {
+  namespace dm = rdr_adapter::slot_geo_memo;
+  if (dm::g_content_skip_on.load(std::memory_order_relaxed)) {
+    const Image& img = ById(id);
+    if (dm::ContentDone(img.copy_dest, img.checked_frame, g_record_frame)) {
+      ++dm::g_census.content.taken;
+      return;
+    }
+    ++dm::g_census.content.declined;
+    ++dm::g_census.content.by[img.copy_dest ? 1 : 0];
+  }
+  EnsureContent(id, w);
+}
+
+// S102 T15 (wwe2k14_rdr_sampler_memo): BuildSampler behind a memo of its inputs.
+inline uint32_t BuildSamplerMemo(const uint32_t w[6], const TFetch& t) {
+  namespace dm = rdr_adapter::slot_geo_memo;
+  if (!dm::g_sampler_memo_on.load(std::memory_order_relaxed)) return BuildSampler(w, t);
+  const dm::SamplerKey k = dm::MakeSamplerKey(w, t.mag, t.min, t.mip, t.aniso, g_aniso_override, g_jitter.lod_bias, g_debug_lod0, g_debug_no_aniso);
+  if ((w[5] & 3) >= 2) {  // BuildSampler's census note: the memo does not stand in for it
+    ++dm::g_census.sampler.declined, ++dm::g_census.sampler.by[1];
+    return BuildSampler(w, t);
+  }
+  uint32_t index = 0;
+  if (g_sampler_memo.Find(k, g_frame.generation, index)) {
+    ++dm::g_census.sampler.taken;
+    return index;
+  }
+  ++dm::g_census.sampler.declined, ++dm::g_census.sampler.by[0];
+  index = BuildSampler(w, t);
+  g_sampler_memo.Put(k, g_frame.generation, index);
+  return index;
+}
 
 inline void AddTextureSlot(uint8_t* base, uint32_t dev, uint32_t slot, const TFetch& t) {
   // The slot as the GPU holds it (SyncGpuFetch: a null SetTexture leaves the last uploaded texture in place); the device's record when the
@@ -3344,13 +3768,25 @@ inline void AddTextureSlot(uint8_t* base, uint32_t dev, uint32_t slot, const TFe
   }
   // S100 speed: the same words, object, header bytes and shader fetch as this slot's last add in these frame tables, with the registry
   // unchanged since (g_reg.epoch) and the image's flags as they were: its record again (EnsureContent still runs: once a frame, the watch).
-  SlotCache& sc = g_slot_cache[slot & 31];
+  // S102 T15 (wwe2k14_rdr_slot_ways): up to 4 records per slot, the first whose key matches; a miss (or a matched record whose image flags moved)
+  // overwrites that record (the matched one) or the slot's round-robin victim. With the switch off the only record is way 0: the old rule.
+  namespace dm = rdr_adapter::slot_geo_memo;
+  const bool ways_on = dm::g_slot_ways_on.load(std::memory_order_relaxed);
   const uint8_t* header_raw = object ? db::Host(base, object + 28) : nullptr;
-  if (sc.kind && sc.generation == g_frame.generation && sc.epoch == g_reg.epoch && sc.fetch == &t && sc.object == object &&
-      std::memcmp(sc.w, w, sizeof(w)) == 0 && (!object || std::memcmp(sc.header_raw, header_raw, sizeof(sc.header_raw)) == 0)) {
+  int way = 0;
+  dm::SlotKey now;
+  now.generation = g_frame.generation, now.epoch = g_reg.epoch, now.fetch = &t, now.object = object;
+  now.aniso_override = g_aniso_override;
+  std::memcpy(&now.lod_bias_bits, &g_jitter.lod_bias, 4);
+  std::memcpy(now.w, w, sizeof(w));
+  if (object) std::memcpy(now.header_raw, header_raw, sizeof(now.header_raw));
+  SlotCache* matched = g_slot_cache.Find(slot, ways_on ? dm::kSlotWays : 1, way, [&](const SlotCache& c) { return c.kind && c.key.Equal(now); });
+  if (matched) {
+    SlotCache& sc = *matched;
     if (sc.kind == 2) {  // no texture (T14)
       g_frame.texture_slots.push_back(sc.out);
       ++g_times.slots_reused;
+      if (ways_on) ++dm::g_census.ways.taken, dm::g_census.ways_hit_extra += way ? 1 : 0;
       return;
     }
     const Image& img = ById(sc.id);
@@ -3358,19 +3794,18 @@ inline void AddTextureSlot(uint8_t* base, uint32_t dev, uint32_t slot, const TFe
         std::memcmp(img.pack_host, sc.pack_host, 4) == 0) {
       g_frame.texture_slots.push_back(sc.out);
       ++g_times.slots_reused;
-      EnsureContent(sc.id, w);
+      if (ways_on) ++dm::g_census.ways.taken, dm::g_census.ways_hit_extra += way ? 1 : 0;
+      EnsureContentChecked(sc.id, w);
       return;
     }
   }
+  if (ways_on) ++dm::g_census.ways.declined, ++dm::g_census.ways.by[matched ? 1 : 0];  // 1 = the key matched but the image flags moved
+  SlotCache& sc = matched ? *matched : g_slot_cache.Victim(slot, ways_on ? dm::kSlotWays : 1);
   sc.kind = 0;
   auto remember = [&](uint8_t kind, uint32_t id, const cap::TextureSlot& rec) {
     sc.kind = kind;
-    sc.generation = g_frame.generation;
-    sc.epoch = g_reg.epoch;  // after this add's own registry changes
-    sc.fetch = &t;
-    sc.object = object;
-    std::memcpy(sc.w, w, sizeof(w));
-    if (object) std::memcpy(sc.header_raw, header_raw, sizeof(sc.header_raw));
+    sc.key = now;
+    sc.key.epoch = g_reg.epoch;  // after this add's own registry changes
     sc.id = id;
     sc.out = rec;
     if (id) {
@@ -3497,10 +3932,10 @@ inline void AddTextureSlot(uint8_t* base, uint32_t dev, uint32_t slot, const TFe
       }
     }
   }
-  out.sampler = BuildSampler(w, t);
+  out.sampler = BuildSamplerMemo(w, t);  // S102 T15
   g_frame.texture_slots.push_back(out);
   remember(1, id, out);
-  EnsureContent(id, w);
+  EnsureContentChecked(id, w);  // S102 T15
 }
 
 // ---- draw state -----------------------------------------------------------------------------------------------------------------------
@@ -3803,6 +4238,7 @@ inline void GatherStateWords(const uint8_t* base, uint32_t dev, Prim prim, bool 
 }
 struct StateCache {
   uint64_t generation = ~0ull;
+  uint64_t entry = ~0ull;  // S102 T18 (C7 hole): particle_lite::Entries() of the draw this cache was last filled from / confirmed by; by_marks needs exactly one draw entry since (this draw's own)
   StateWords words;
   uint32_t fixed = 0, dynamic = 0;
   // bool / loop constants: the device's raw 160 bytes
@@ -4083,7 +4519,12 @@ struct GeoJob : ReaderJob {
   uint64_t census_old_key = 0;
   uint32_t census_addr = 0, census_bytes = 0;
   bool census_named = false;
+  // S102 T15 (wwe2k14_rdr_geo_hash_once): the hash of exactly this job's vertex bytes (vsrc, hash_len), made by BuildGeometry's memo check
+  bool pre_vhash_ok = false;
+  uint64_t pre_vhash = 0;
   void Clear() {
+    pre_vhash_ok = false;
+    pre_vhash = 0;
     vs = nullptr;
     prim = Prim::TriList;
     is_inline = idx32 = restart_on = ok = emit_indices = memo = census_rewatch = false;
@@ -4289,7 +4730,7 @@ inline void GeoKey(GeoJob& j, std::vector<uint32_t>& indices) {
       indices[i] = (j.restart_on && v == j.reset_value) ? kGeoReset : GeoResolve1(j, v);
     }
   }
-  uint64_t key = cap::Xxh3(j.vsrc, j.hash_len);
+  uint64_t key = j.pre_vhash_ok ? j.pre_vhash : cap::Xxh3(j.vsrc, j.hash_len);  // S102 T15: the same hash, made once
   key ^= j.vs->layout_hash * 0x9E3779B97F4A7C15ull;
   key ^= uint64_t(uint32_t(j.prim)) * 0xC2B2AE3D27D4EB4Full;
   key ^= cap::Xxh3(indices.data(), indices.size() * 4) * 0xFF51AFD7ED558CCDull;
@@ -4457,6 +4898,12 @@ inline GeoJobPool g_geo_jobs;
 
 enum class GeoResult { kNone, kBuilt, kPending };
 
+// S102 T15: BuildGeometry's hash of the whole vertex stream, for RunGeometryBuild's GeoKey (wwe2k14_rdr_geo_hash_once).
+inline thread_local rdr_adapter::slot_geo_memo::StreamHint t_stream_hint;
+struct HintGuard {
+  ~HintGuard() { t_stream_hint = rdr_adapter::slot_geo_memo::StreamHint{}; }
+};
+
 // One build: gathered here, then converted here (small) or on a worker (big: kPending, `pending` the job). Built: `out` and `content_key`.
 inline GeoResult RunGeometryBuild(const uint8_t* base, uint32_t dev, const DrawArgs& a, const VertexShaderInfo& vs, GeoRef& out, uint64_t& content_key,
                                   GeoJob*& pending) {
@@ -4503,7 +4950,7 @@ inline GeoResult RunGeometryBuild(const uint8_t* base, uint32_t dev, const DrawA
     const uint64_t th0 = ReaderTicks();
     GeoCopyInputs(*j);
     ++g_times.geo_async;
-    g_workers.Push(j);
+    g_workers.Queue(j, false);  // S102 R25-A: a geometry build reads copies made at the draw, not guest memory
     g_times.geo_hand += ReaderTicks() - th0;
     worst.worker = true;
     pending = j;
@@ -4511,6 +4958,16 @@ inline GeoResult RunGeometryBuild(const uint8_t* base, uint32_t dev, const DrawA
   }
   static thread_local std::vector<uint32_t> indices;
   const uint64_t tk0 = ReaderTicks();
+  namespace dm = rdr_adapter::slot_geo_memo;
+  // S102 T15 (wwe2k14_rdr_geo_hash_once): BuildGeometry hashed the whole stream for its memo check; this is the same bytes when the range is all of it.
+  if (!here.is_inline && t_stream_hint.valid && dm::g_geo_hash_once_on.load(std::memory_order_relaxed)) {
+    if (dm::HintMatches(t_stream_hint, here.vsrc, here.hash_len)) {
+      here.pre_vhash_ok = true, here.pre_vhash = t_stream_hint.hash;
+      ++dm::g_census.hash.taken;
+    } else {
+      ++dm::g_census.hash.declined, ++dm::g_census.hash.by[0];
+    }
+  }
   GeoKey(here, indices);
   content_key = here.content_key;
   const uint64_t tk1 = ReaderTicks();
@@ -4635,9 +5092,20 @@ inline GeoResult BuildGeometry(const uint8_t* base, uint32_t dev, const DrawArgs
   const uint32_t index_phys = wwe2k14::guest_view::ToPhysical(index_virt);
   // Strip-360 E3: small geometry (stream + index range within kSmallGeoBytes) is checked by a full hash at every use, never protected.
   const bool small_geo = !PageWatchOn() && (k.fetch[0] & ~3u) && stream_bytes && uint64_t(stream_bytes) + index_bytes <= kSmallGeoBytes;
-  auto full_hash_of = [&]() {
-    uint64_t h = cap::Xxh3(Phys(k.fetch[0] & ~3u), stream_bytes);
-    if (index_bytes) h ^= cap::Xxh3(db::Host(base, index_virt), index_bytes) * 0x9E3779B97F4A7C15ull;
+  // S102 T15 (wwe2k14_rdr_geo_hash_once): the stream's hash and the combined one are kept for this draw: the memo check, the memo store and (the stream
+  // part) GeoKey need the same bytes' hash, and the old code made it at each of them. Off: made again at every call, as before.
+  namespace dm = rdr_adapter::slot_geo_memo;
+  const bool hash_once = dm::g_geo_hash_once_on.load(std::memory_order_relaxed);
+  bool hashed = false;
+  uint64_t hashed_full = 0, hashed_stream = 0;
+  auto full_hash_of = [&]() -> uint64_t {
+    if (hash_once && hashed) {
+      ++dm::g_census.hash.taken;
+      return hashed_full;
+    }
+    const uint64_t sh = cap::Xxh3(Phys(k.fetch[0] & ~3u), stream_bytes);
+    const uint64_t h = dm::CombineSmall(sh, index_bytes != 0, index_bytes ? cap::Xxh3(db::Host(base, index_virt), index_bytes) : 0);
+    hashed = true, hashed_stream = sh, hashed_full = h;
     return h;
   };
   auto it = g_geo_memo.find(memo_key);
@@ -4742,6 +5210,9 @@ inline GeoResult BuildGeometry(const uint8_t* base, uint32_t dev, const DrawArgs
   GeoResult r;
   {
     ScopedNs build_timer(g_times.geo_build);
+    HintGuard hint_guard;  // S102 T15: the hint never outlives this build, on any path out
+    t_stream_hint = (hash_once && small_geo && hashed) ? dm::StreamHint{Phys(k.fetch[0] & ~3u), stream_bytes, hashed_stream, true} : dm::StreamHint{};
+    if (hash_once && !(small_geo && hashed)) ++dm::g_census.hash.declined, ++dm::g_census.hash.by[1];
     r = RunGeometryBuild(base, dev, a, vs, out, content_key, pending);
   }
   if (r == GeoResult::kNone) return r;
@@ -4861,8 +5332,33 @@ struct BankCache {
   uint64_t vs_dirty = ~0ull, ps_dirty = ~0ull;
   uint64_t vs_lit_last = 0, ps_lit_last = 0;
   uint64_t full_generation = ~0ull;  // S100 speed: the frame tables' generation of the last full compare (one per frame part)
+  // S102 T12 (bank_dirty.h): "a dirty block differs from the last bank sent" holds only after an emit followed a refresh that started from a real copy of
+  // the device (not the pattern fill of a new device pointer); the literal table's serial at the last emit; the switch, read once a frame.
+  cap::bank_dirty::State bd;  // dirty_exact, the literal serials (bank_dirty.h: the unit test runs these very calls)
+  uint64_t sw_frame = ~0ull;
+  bool sw_on = false;
+  uint64_t declined_frame = ~0ull;
 };
 inline BankCache g_bank_cache;
+inline cap::bank_dirty::Counters g_bank_dirty;  // S102 T12: the census (the [rdr][bank_dirty] line every 600 frames while on)
+// S102 T12: the switch, read once a frame by the first draw of it (a PerFrame switch of the S0-4 table, acknowledged with a [switch] seen line).
+inline bool BankDirtyOn(BankCache& c) {
+  const uint64_t guest_frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);  // F5: keyed on the guest frame (a frame part's draws all see one value)
+  if (c.sw_frame == guest_frame) return c.sw_on;
+  c.sw_frame = guest_frame;
+  c.sw_on = rdr_sw::BoolSeen(rdr_sw::kBankDirty, false, guest_frame);
+  if (c.sw_on) {
+    cap::bank_dirty::Counters& k = g_bank_dirty;
+    if (++k.frames % 600 == 0) {
+      REXLOG_INFO(
+          "[rdr][bank_dirty] frames {}, taken {} emits, declined {} emits (device pointer changed: dirty not exact; {} frames); blocks: old plan {}, built {}, compared {}, skipped unchanged {}, "
+          "patch without compare {}; refresh compares inline {}; patches {}",
+          k.frames, k.emits - k.emits_old_plan, k.emits_old_plan, k.frames_declined, k.blocks_touch, k.blocks_built, k.blocks_compared, k.blocks_skipped_same, k.blocks_skipped_known,
+          k.refresh_blocks, k.patches);
+    }
+  }
+  return c.sw_on;
+}
 
 // S100 speed: which 64-byte constant blocks the library marked dirty since the reader last refreshed its banks (bit b = block b).
 // The library's writers copy into the shadows and OR the block's bit (bit 63 - block, big-endian order) into the device's masks, +0
@@ -4991,12 +5487,14 @@ inline uint32_t PushBanks(uint8_t* base, uint32_t dev, const VertexShaderInfo* v
   const uint8_t* vs_dev = db::Host(base, dev + kDevVsFloat);
   const uint8_t* ps_dev = db::Host(base, dev + kDevPsFloat);
   bool changed = false;
+  const bool dirty_on = BankDirtyOn(c);  // S102 T12
   bool full = REXCVAR_GET(wwe2k14_rdr_debug_bank_verify) || !REXCVAR_GET(wwe2k14_rdr_bank_marks) || c.full_generation != g_frame.generation;
   if (!c.valid || c.dev != dev) {
     std::memset(c.vs_raw, 0xA5, sizeof(c.vs_raw));  // differs from anything: every block converted below
     std::memset(c.ps_raw, 0xA5, sizeof(c.ps_raw));
     c.dev = dev;
     c.valid = true;
+    c.bd.OnDeviceChange();  // S102 T12: every block reads as changed against the pattern, not against the last bank sent (always, switch on or off)
     full = true;
     c.full_generation = ~0ull;  // (no count of unmarked changes against the fill pattern)
   }
@@ -5014,8 +5512,9 @@ inline uint32_t PushBanks(uint8_t* base, uint32_t dev, const VertexShaderInfo* v
       }
       c.full_generation = g_frame.generation;
     } else {
-      ApplyBankBlocks(vs_dev, c.vs_raw, c.vs_base.dwords, ChangedBankBlocks(vs_dev, c.vs_raw, marked[0]), changed, c.vs_dirty);
-      ApplyBankBlocks(ps_dev, c.ps_raw, c.ps_base.dwords, ChangedBankBlocks(ps_dev, c.ps_raw, marked[1]), changed, c.ps_dirty);
+      // S102 T12: the same blocks, compared inline (bank_dirty.h Equal64) when the switch is on
+      ApplyBankBlocks(vs_dev, c.vs_raw, c.vs_base.dwords, dirty_on ? cap::bank_dirty::ChangedBlocks(vs_dev, c.vs_raw, marked[0], true, &g_bank_dirty) : ChangedBankBlocks(vs_dev, c.vs_raw, marked[0]), changed, c.vs_dirty);
+      ApplyBankBlocks(ps_dev, c.ps_raw, c.ps_base.dwords, dirty_on ? cap::bank_dirty::ChangedBlocks(ps_dev, c.ps_raw, marked[1], true, &g_bank_dirty) : ChangedBankBlocks(ps_dev, c.ps_raw, marked[1]), changed, c.ps_dirty);
     }
   }
   if (changed) ++c.version;
@@ -5054,6 +5553,7 @@ inline uint32_t PushBanks(uint8_t* base, uint32_t dev, const VertexShaderInfo* v
       lc.generation = g_frame.generation;
       std::memcpy(lc.key, key, sizeof(key));
       lc.lits.clear();
+      c.bd.OnLitRebuild();  // S102 T12: the literal table changed (same block as the clear that starts the rebuild)
       if (vs_lit) LiteralList(base, vs_lit + 872, key[2], lc.lits);
       if (ps_lit) LiteralList(base, ps_lit + 40, key[3], lc.lits);
       lc.mask[0] = lc.mask[1] = 0;
@@ -5090,7 +5590,15 @@ inline uint32_t PushBanks(uint8_t* base, uint32_t dev, const VertexShaderInfo* v
     std::memcpy(out, base_bank.dwords + 16 * b, 64);
     for (uint32_t i = lc.start[stage][b]; i < lc.start[stage][b + 1]; ++i) out[lc.by_block[stage][i].dword & 15] = lc.by_block[stage][i].value;
   };
-  auto emit = [&](const cap::ConstantBank& base_bank, uint32_t stage, uint64_t touch, cap::ConstantBank& last, uint32_t& last_def) -> uint32_t {
+  if (dirty_on) {
+    g_bank_dirty.emits += 2;  // (a call is two stage emits)
+    if (!c.bd.dirty_exact) {
+      g_bank_dirty.emits_old_plan += 2;
+      g_bank_dirty.frames_declined += c.sw_frame != c.declined_frame;
+      c.declined_frame = c.sw_frame;
+    }
+  }
+  auto emit = [&](const cap::ConstantBank& base_bank, uint32_t stage, uint64_t dirty, uint64_t lit_now, uint64_t lit_last, cap::ConstantBank& last, uint32_t& last_def) -> uint32_t {
     FrameTables& t = g_frame;
     if (last_def == cap::kBankNoBase) {
       cap::BankDef d;
@@ -5104,27 +5612,16 @@ inline uint32_t PushBanks(uint8_t* base, uint32_t dev, const VertexShaderInfo* v
       t.bank_defs.push_back(d);
       return last_def;
     }
-    cap::BankDef d;
-    d.base = last_def;
-    d.patch_first = uint32_t(t.bank_patches.size());
-    for (uint64_t m = touch; m; m &= m - 1) {
-      const uint32_t b = uint32_t(std::countr_zero(m));
-      uint32_t block[16];
-      block_of(base_bank, stage, b, block);
-      if (std::memcmp(block, last.dwords + 16 * b, 64) == 0) continue;
-      cap::BankPatch& patch = t.bank_patches.emplace_back();
-      patch.block = b;
-      std::memcpy(patch.dwords, block, 64);
-      std::memcpy(last.dwords + 16 * b, block, 64);
-    }
-    d.patch_count = uint32_t(t.bank_patches.size()) - d.patch_first;
-    if (!d.patch_count) return last_def;  // the same bank as before
-    last_def = uint32_t(t.bank_defs.size());
-    t.bank_defs.push_back(d);
+    // S102 T12: the blocks this emit builds and compares (bank_dirty.h: the old set = dirty | literal blocks, or fewer with the switch on)
+    const cap::bank_dirty::Plan plan = c.bd.PlanFor(dirty_on, dirty, lit_now, lit_last);
+    last_def = cap::bank_dirty::EmitPatches(
+        t.bank_defs, t.bank_patches, plan, dirty_on ? uint64_t(std::popcount(dirty | lit_now | lit_last)) : 0, [&](uint32_t b, uint32_t out[16]) { block_of(base_bank, stage, b, out); }, last, last_def,
+        dirty_on ? &g_bank_dirty : nullptr);
     return last_def;
   };
-  c.vs_index = emit(c.vs_base, 0, c.vs_dirty | lit_mask[0] | c.vs_lit_last, c.vs_last, c.vs_def);
-  c.ps_index = emit(c.ps_base, 1, c.ps_dirty | lit_mask[1] | c.ps_lit_last, c.ps_last, c.ps_def);
+  c.vs_index = emit(c.vs_base, 0, c.vs_dirty, lit_mask[0], c.vs_lit_last, c.vs_last, c.vs_def);
+  c.ps_index = emit(c.ps_base, 1, c.ps_dirty, lit_mask[1], c.ps_lit_last, c.ps_last, c.ps_def);
+  c.bd.AfterEmit();  // S102 T12
   c.vs_dirty = c.ps_dirty = 0;
   c.vs_lit_last = lit_mask[0];
   c.ps_lit_last = lit_mask[1];
@@ -5150,7 +5647,14 @@ inline bool NoMarks(const uint8_t* base, uint32_t dev) {
   return !db::Ld64(base, dev + 16) && !(db::Ld64(base, dev + 24) >> 32) && !db::Ld64(base, dev + 32);
 }
 // forced_bind: the inline Begin's stride rule (a stride other than the bound one raises bit 19, d3d_layer_inline.h OwnerNullBegin).
+struct MarksDbg {  // S102 T18 (diagnosis): the raw masks ReadMarks saw at the last draw entry (kept only while wwe2k14_rdr_debug_particle_marks > 0)
+  uint64_t main = 0, fetch = 0, misc = 0;
+  bool prev_bound = false, forced = false;
+};
+inline MarksDbg g_marks_dbg;
 inline bool ReadMarks(const uint8_t* base, uint32_t dev, bool forced_bind = false) {
+  if (REXCVAR_GET(wwe2k14_rdr_debug_particle_marks) > 0) g_marks_dbg = {db::Ld64(base, dev + 16), db::Ld64(base, dev + 24), db::Ld64(base, dev + 32), g_prev_draw_bound, forced_bind};
+  rdr_adapter::particle_lite::NoteEntry();  // S102 T18 (C7 hole): one count per draw entry, recorded or not (a draw that returns early records nothing, its setters' marks are cleared all the same)
   const bool unmarked = !g_prev_draw_bound && NoMarks(base, dev);
   g_prev_draw_bound = forced_bind || (uint32_t(db::Ld64(base, dev + 16)) & 0x1E0000u) != 0;
   return unmarked;
@@ -5227,9 +5731,10 @@ inline void ThinLiteBegin(FrameTables& t) {   // lane 289: factored out (a ring 
   t.lite.Begin(rdr_adapter::thin::g_pins.Acquire(), wwe2k14::g_guest_frame.load(std::memory_order_relaxed));   // the newest pin set the binder published, read once per frame part (its generation is stamped on the frame)
   t.lite_begun = true;
 }
-inline bool ThinLiteDraw(FrameTables& t, bool inline_vertices, uint64_t vs_hash, uint64_t ps_hash, const cap::ThinDrawFacts& facts) {
+inline bool ThinLiteDraw(FrameTables& t, bool inline_vertices, uint64_t vs_hash, uint64_t ps_hash, const cap::ThinDrawFacts& facts, bool* noquery = nullptr) {   // S102 T18: *noquery = the call returned before Query (nothing counted)
   namespace og = rdr_adapter::origin;
   ThinLiteBegin(t);
+  if (noquery) *noquery = true;  // S102 T18: every return false below, up to Query, leaves it set
   if (!t.lite.active()) return false;  // review 7: no pins yet (or none left): nothing can be lite, nothing needs counting, and no origin is resolved
   og::Key k;
   if (!og::Global().Resolve(og::t_replay_tag, k) || k.op != og::t_replay_op) return false;
@@ -5239,7 +5744,58 @@ inline bool ThinLiteDraw(FrameTables& t, bool inline_vertices, uint64_t vs_hash,
   const og::FnRow* pass = ui_submitter ? nullptr : og::FindRow(og::kPasses, k.pass_site);
   const og::FnRow* row = pass ? pass : sub;
   if (!row || row->klass != cap::DrawClass::ModelPart) return false;
+  if (noquery) *noquery = false;  // S102 T18: Query counts
   return t.lite.Query(k.pass_site, k.object, k.part, !inline_vertices, rdr_adapter::thin::ProgramKey(vs_hash, ps_hash, facts));
+}
+
+// S102 T18 (diagnosis, wwe2k14_rdr_debug_particle_marks = N): the first N marked candidates' raw marks. The main mask's bits 17-20 are the shader bind (d3d_shader_bind.h Commit); with prev_bound set the draw
+// reads the device whatever the masks say (ReadMarks). The other bits are named by the library setter that sets them (d3d_layer*.h): the log prints the numbers, the names come from reading them.
+inline void PlLogMarks(const rdr_adapter::particle_lite::Key& k) {
+  static int logged = 0;
+  const int32_t want = REXCVAR_GET(wwe2k14_rdr_debug_particle_marks);
+  if (want <= 0 || logged >= want) return;
+  ++logged;
+  const MarksDbg& m = g_marks_dbg;
+  REXLOG_WARN("[rdr][particle_lite] marks #{} site {:08X}: prev_draw_bound {}, forced_bind {}, main(+16) {:016X} [shader bind bits 17-20: {:X}], fetch(+24) low {:08X} (texture slots) high {:08X} (reg block 0x2280), misc(+32) {:016X}", logged, k.site,
+              m.prev_bound, m.forced, m.main, uint32_t(m.main >> 17) & 0xF, uint32_t(m.fetch), uint32_t(m.fetch >> 32), m.misc);
+}
+
+// S102 T18 (F1): the slot facts the lite path's copied records are a function of: the GPU's copy of the record (g_gpu_fetch: where the LOW word of dev+24, the texture dirty bits, lands) and
+// its object, the object's header bytes, the image's flags, and the registry epoch (the same inputs as AddTextureSlot's SlotKey, plus the flags it re-checks).
+inline void PlSnapOne(uint8_t* base, uint32_t dev, uint32_t slot, uint32_t image, rdr_adapter::particle_lite::SlotSnap& o) {
+  o.slot = uint8_t(slot);
+  o.image = image;
+  o.flags = 0;
+  std::memset(o.pack_host, 0, sizeof(o.pack_host));
+  uint32_t object = 0;
+  if (slot < g_gpu_fetch.size() && g_gpu_fetch[slot].known && g_gpu_fetch_device == dev) {
+    std::memcpy(o.w, g_gpu_fetch[slot].words, sizeof(o.w));
+    object = g_gpu_fetch[slot].object;
+  } else {
+    for (uint32_t k = 0; k < 6; ++k) o.w[k] = db::Ld32(base, dev + kDevFetch + 24 * slot + 4 * k);
+    object = db::Ld32(base, dev + kDevTexObj + 4 * slot);
+  }
+  o.object = object;
+  if (object) std::memcpy(o.header, db::Host(base, object + 28), sizeof(o.header));
+  else std::memset(o.header, 0, sizeof(o.header));
+  if (image) {
+    const Image& img = ById(image);
+    o.flags = uint8_t((img.packed ? 1 : 0) | (img.copy_dest ? 2 : 0) | (img.swap ? 4 : 0) | (img.target16 ? 8 : 0));
+    std::memcpy(o.pack_host, img.pack_host, sizeof(o.pack_host));
+  }
+}
+inline void PlSnapSlots(uint8_t* base, uint32_t dev, const cap::TextureSlot* recs, uint32_t count, rdr_adapter::particle_lite::SlotsSnap& out) {
+  out.epoch = g_reg.epoch;
+  out.n = count < 32 ? count : 32;
+  for (uint32_t i = 0; i < out.n; ++i) PlSnapOne(base, dev, recs[i].slot, recs[i].image, out.s[i]);
+}
+// The live state of the slots the previous draw used, against its snapshot.
+inline bool PlSlotsSame(uint8_t* base, uint32_t dev, const rdr_adapter::particle_lite::SlotsSnap& prev) {
+  rdr_adapter::particle_lite::SlotsSnap now;
+  now.epoch = g_reg.epoch;
+  now.n = prev.n;
+  for (uint32_t i = 0; i < prev.n; ++i) PlSnapOne(base, dev, prev.s[i].slot, prev.s[i].image, now.s[i]);
+  return now.Equal(prev);
 }
 
 inline void DrawCommon(PPCContext& ctx, uint8_t* base, uint32_t dev, const DrawArgs& a) {
@@ -5312,21 +5868,77 @@ inline void DrawCommon(PPCContext& ctx, uint8_t* base, uint32_t dev, const DrawA
   d.source_prim = uint8_t(a.prim);
   if (a.inline_vertices) d.flags |= cap::kDrawInline;
 
+  // S102 T18 (wwe2k14_rdr_particle_lite): a hard-yParticle inline draw at a particle recorder site is a candidate; the gate (particle_lite.h) says whether it is the next draw of a run.
+  namespace pl = rdr_adapter::particle_lite;
+  std::optional<pl::Key> pl_key_opt;  // (nothing zero-filled on the off path)
+  bool pl_candidate = false, pl_lite = false, pl_verify_taken = false, pl_thin_noquery = false;
+  // S102 SW2 (wwe2k14_rdr_draw_lite bit 1): the same gate for every other draw (its own Gate and census: the key leaves the origin out, origin_same says whether it matches)
+  const bool pl_particle_try = pl::g_on.load(std::memory_order_relaxed) && a.inline_vertices && ps && vs->original_hash == pl::kVs && ps->hash == pl::kPs;
+  const bool pl_general = !pl_particle_try && pl::g_on_gen.load(std::memory_order_relaxed);
+  pl::Gate* pl_gate = pl_general ? &pl::g_gate_gen : &pl::g_gate;
+  bool pl_origin_copy = false;  // the origin record (and the thin query's skip) of the previous draw is this draw's too
+  StateWords pl_words;          // the gate's own state gather (marks set), handed to the full path when the draw is declined: one gather per draw
+  bool pl_have_words = false;
+  if (pl_particle_try || pl_general) {
+    rdr_adapter::origin::Key pk;
+    const bool pk_ok = rdr_adapter::origin::Global().Resolve(rdr_adapter::origin::t_replay_tag, pk) && pk.op == rdr_adapter::origin::t_replay_op;
+    if (pl_general || (pk_ok && (pk.call_site == pl::kSpriteSite || pk.call_site == pl::kQuadSite))) {
+      pl_candidate = true;
+      pl::Key& pl_key = pl_key_opt.emplace();
+      if (pk_ok) pl_key.op = pk.op, pl_key.site = pk.call_site, pl_key.pass_site = pk.pass_site, pl_key.object = pk.object, pl_key.part = pk.part, pl_key.widget = pk.widget, pl_key.text = pk.text, pl_key.run = pk.run;
+      else pl_key.origin_ok = false;
+      pl_key.vs_object = vs_object, pl_key.ps_object = ps_object, pl_key.decl = db::Ld32(base, dev + kDevDecl), pl_key.prim = uint32_t(a.prim);
+      pl_key.vs = vs, pl_key.ps = ps;
+      std::memcpy(pl_key.strides, strides, sizeof(strides));
+      // Modes that change a draw's records after the state is read: never lite (and the draw ends the run: Remember leaves the gate invalid).
+      const bool excluded = !Recording() || g_wide.on() || g_jitter.on || TraceOn();
+      if (!a.unmarked) PlLogMarks(pl_key);  // diagnosis: which setters raised the marks on this candidate (a cvar, off by default)
+      const bool pl_taken = pl_gate->Decide(
+          pl_key, a.unmarked, t.generation, t.draws.size(), t.ops.size(), excluded, pl::Entries(),
+          [&] {  // the marks are set: the state words the full path gathers, against the state cache's (the by-marks path's own compare; ~280 bytes)
+            const StateCache& sc = g_state_cache;
+            if (!(sc.generation == t.generation && pl::StateEntryOk(sc.entry, pl::Entries()) && sc.words.prim == uint32_t(a.prim) && sc.words.has_ps == uint32_t(ps_object != 0) &&
+                  sc.words.writes_depth == uint32_t(ps && ps->writes_depth)))
+              return false;
+            GatherStateWords(base, dev, a.prim, ps_object != 0, ps, pl_words);
+            pl_have_words = true;  // (a declined draw's full path uses these words: S102 SW2)
+            return std::memcmp(&pl_words, &sc.words, sizeof(pl_words)) == 0;
+          },
+          [&] { return PlSlotsSame(base, dev, pl_gate->snap); }) == pl::Reason::Taken;
+      // F5: under --wwe2k14_rdr_debug_marks_verify the full path runs and what the lite path would have copied is compared with it below (particle_lite_miss).
+      pl_lite = pl_taken && !REXCVAR_GET(wwe2k14_rdr_debug_marks_verify);
+      pl_verify_taken = pl_taken && !pl_lite;
+      pl_origin_copy = pl_taken && (!pl_general || (pl_gate->origin_same && pl_key.run == 0 && pl_key.widget == 0 && pl_key.text == 0));  // S102 SW2 (review F1): a glyph / widget / run draw's TakeDrawOrigin also pushes its TextRun and bumps the ui census: never copied
+    }
+  }
+  struct PlPrev {
+    uint32_t fixed = 0, dynamic = 0, texture_first = 0, texture_count = 0, layout = 0;
+  } pl_prev;  // the run's previous draw: only the five fields the lite path reads (a copy: the tables grow below)
+  if (pl_lite || pl_verify_taken) {
+    const cap::Draw& pd = t.draws[pl_gate->draw_index];
+    pl_prev.fixed = pd.fixed, pl_prev.dynamic = pd.dynamic, pl_prev.texture_first = pd.texture_first, pl_prev.texture_count = pd.texture_count, pl_prev.layout = pd.layout;
+  }
+
   cap::DrawFixed fixed;
   std::memset(&fixed, 0, sizeof(fixed));
   cap::DrawDynamic dynamic;
   std::memset(&dynamic, 0, sizeof(dynamic));
-  {
+  if (pl_lite) {  // S102 T18: what the by-marks path hands this draw: the state cache's records, which are the previous draw's
+    d.fixed = pl_prev.fixed;
+    d.dynamic = pl_prev.dynamic;
+    ++g_times.state_reused;
+  } else {
     ScopedNs state_timer(g_times.state);
     StateCache& sc = g_state_cache;
     // C7: no setter since the last draw (its marks), the same primitive and pixel shader facts: the last draw's state, the device unread.
-    const bool by_marks = a.unmarked && sc.generation == t.generation && sc.words.prim == uint32_t(a.prim) &&
+    const bool by_marks = a.unmarked && pl::StateEntryOk(sc.entry, pl::Entries()) /* S102 T18 (C7 hole): no draw entered a hook and recorded nothing since the cache's draw */ && sc.generation == t.generation && sc.words.prim == uint32_t(a.prim) &&
                           sc.words.has_ps == uint32_t(ps_object != 0) && sc.words.writes_depth == uint32_t(ps && ps->writes_depth);
     const bool verify = by_marks && REXCVAR_GET(wwe2k14_rdr_debug_marks_verify);
-    StateWords words;
+    StateWords words_local;
+    StateWords& words = pl_have_words ? pl_words : words_local;  // S102 SW2: the gate's gather of this draw, when it made one
     if (by_marks && !verify) {
       ++g_times.state_by_marks;
-    } else {
+    } else if (!pl_have_words) {
       GatherStateWords(base, dev, a.prim, ps_object != 0, ps, words);
     }
     if (verify && std::memcmp(&words, &sc.words, sizeof(words)) != 0) {
@@ -5383,10 +5995,22 @@ inline void DrawCommon(PPCContext& ctx, uint8_t* base, uint32_t dev, const DrawA
       g_fine.last_dynamic = d.dynamic;
     }
   }
+  g_state_cache.entry = pl::Entries();  // S102 T18 (C7 hole): the state this draw recorded is what the cache holds (a lite draw's state is the cache's: the same facts)
 
   // Texture slots: only those a shader of this draw fetches.
   d.texture_first = uint32_t(t.texture_slots.size());
-  {
+  if (pl_lite) {  // S102 T18: the previous draw's slot records again (one record per slot per draw, as the full path appends)
+    cap::TextureSlot lite_slots[32];
+    const uint32_t n = pl_prev.texture_count < 32 ? pl_prev.texture_count : 32;
+    for (uint32_t k = 0; k < n; ++k) lite_slots[k] = t.texture_slots[pl_prev.texture_first + k];
+    for (uint32_t k = 0; k < n; ++k) t.texture_slots.push_back(lite_slots[k]);
+    g_times.slots_reused += n;
+    // S102 SW2 (review F2): the full path's slot hit calls EnsureContent(image, words) for every textured slot (a copy destination every draw: a CPU rewrite between two draws is a new content ref; the others return at once).
+    // The snapshot's words are the ones the hit path reads (PlSnapOne = AddTextureSlot's source), proven equal to the live state by Decide.
+    if (pl_general)
+      for (uint32_t k = 0; k < pl_gate->snap.n; ++k)
+        if (pl_gate->snap.s[k].image) EnsureContentChecked(pl_gate->snap.s[k].image, pl_gate->snap.s[k].w);
+  } else {
     ScopedNs slots_timer(g_times.slots);
     for (uint32_t slot = 0; slot < 32; ++slot) {
       const TFetch& a_t = vs->facts.tfetch[slot];
@@ -5419,7 +6043,9 @@ inline void DrawCommon(PPCContext& ctx, uint8_t* base, uint32_t dev, const DrawA
   }
 
   // Layout.
-  if (FineNs layout_fine(g_fine.layout); !vs->elements.empty()) {
+  if (pl_lite) {  // S102 T18: the same vertex shader as the previous draw
+    d.layout = pl_prev.layout;
+  } else if (FineNs layout_fine(g_fine.layout); !vs->elements.empty()) {
     cap::VertexLayout layout;
     layout.element_first = uint32_t(t.elements.size());
     layout.element_count = uint32_t(vs->elements.size());
@@ -5480,7 +6106,10 @@ inline void DrawCommon(PPCContext& ctx, uint8_t* base, uint32_t dev, const DrawA
         else if (s.slot == 5) thin_facts_now.img5 = s.image;
       }
     }
-    const bool thin_lite = rdr_adapter::thin::FactsTableOn() && ThinLiteDraw(t, a.inline_vertices != nullptr, vs->original_hash, ps ? ps->hash : 0, thin_facts_now);  // lane 122: a pinned key's draw: no geometry build (the binder draws its template)
+    // S102 T18: the previous draw of the run returned before the thin query (its answer is a function of the origin facts in the key): the same answer, nothing to count
+    const bool pl_skip_thin = pl_lite && pl_origin_copy && pl_gate->SkipThin();
+    if (pl_skip_thin) pl_thin_noquery = true;
+    const bool thin_lite = rdr_adapter::thin::FactsTableOn() && !pl_skip_thin && ThinLiteDraw(t, a.inline_vertices != nullptr, vs->original_hash, ps ? ps->hash : 0, thin_facts_now, &pl_thin_noquery);  // lane 122: a pinned key's draw: no geometry build (the binder draws its template)
     if (!thin_lite && !(REXCVAR_GET(wwe2k14_rdr_debug_live_skip) & 1)) {
       ScopedNs timer(g_times.geometry);
       built = BuildGeometry(base, dev, a, *vs, g, pending_geometry);
@@ -5497,7 +6126,40 @@ inline void DrawCommon(PPCContext& ctx, uint8_t* base, uint32_t dev, const DrawA
   t.ops.push_back({cap::OpKind::Draw, uint32_t(t.draws.size())});
   t.draws.push_back(d);
   if (rdr_adapter::thin::FactsTableOn()) t.thin_facts.push_back(thin_facts_now);   // review F1  // lane 122: parallel to draws
-  t.origins.push_back(TakeDrawOrigin(t));  // S101 names
+  size_t pl_runs_before = 0;
+  if (pl_lite && pl_origin_copy) {  // S102 T18: the origin of the same key is the previous draw's record; the names census counts it as TakeDrawOriginInto would
+    ++pl_gate->census->origin_copied;
+    const cap::DrawOrigin lite_origin = t.origins[pl_gate->draw_index];
+    ++rdr_adapter::names_draw::g_names.draws;
+    ++rdr_adapter::names_draw::g_names.by_class[uint8_t(lite_origin.klass)];
+    t.origins.push_back(lite_origin);
+  } else {
+    pl_runs_before = t.text_runs.size();  // S102 SW2 (F1, live verify): did the full path push a TextRun for this draw
+    t.origins.push_back(TakeDrawOrigin(t));  // S101 names
+  }
+  if (pl_candidate) {  // S102 T18
+    if (pl_verify_taken) {  // F5: what the lite path would have copied, against what the full path just recorded
+      const bool same = d.fixed == pl_prev.fixed && d.dynamic == pl_prev.dynamic && d.layout == pl_prev.layout && d.texture_count == pl_prev.texture_count &&
+                        (d.texture_count == 0 || std::memcmp(&t.texture_slots[d.texture_first], &t.texture_slots[pl_prev.texture_first], d.texture_count * sizeof(cap::TextureSlot)) == 0) &&
+                        (!pl_origin_copy || (std::memcmp(&t.origins.back(), &t.origins[pl_gate->draw_index], sizeof(cap::DrawOrigin)) == 0 && t.text_runs.size() == pl_runs_before));  // (F1: a copied origin must not have skipped a TextRun)
+      if (!same) {
+        const uint64_t n = ++pl_gate->census->misses;
+        static uint32_t pl_logged = 0;
+        if (pl_logged < 12) {
+          ++pl_logged;
+          REXLOG_WARN("[rdr][{}] miss #{}: a taken draw's full record differs from the previous draw's (fixed {}/{}, dynamic {}/{}, layout {}/{}, slots {}/{}; guest frame {})", pl_general ? "draw_lite" : "particle_lite", n, d.fixed, pl_prev.fixed, d.dynamic,
+                      pl_prev.dynamic, d.layout, pl_prev.layout, d.texture_count, pl_prev.texture_count, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));
+        }
+      }
+    }
+    if (pl_lite) {  // S102 SW2: a taken draw's slots are the snapshot's own (Decide just proved them): nothing to rebuild
+      pl_gate->RememberTaken(*pl_key_opt, t.draws.size() - 1, t.ops.size(), pl_thin_noquery, pl::Entries());
+    } else {
+      pl::SlotsSnap pl_snap;
+      PlSnapSlots(base, dev, t.texture_slots.data() + d.texture_first, d.texture_count, pl_snap);
+      pl_gate->Remember(*pl_key_opt, t.generation, t.draws.size() - 1, t.ops.size(), pl_thin_noquery, pl::Entries(), pl_snap);
+    }
+  }
 }
 
 // lane 152 (D3-F, SKIP_GAME_WORK_MAP.md 10.7 item 6): the D3 MARKER. The hook's op-15 record (r4 = 6, r5 = the hook's guest frame, r6 = the mark generation, r7 = 0) replays as a draw whose origin call_site is
@@ -5515,6 +6177,7 @@ inline bool TryD3Marker(const DrawArgs& a) {
     Note("d3_marker_bad_frame");
     return true;
   }
+  skips_auto::NoteMarker();   // S102 K3 review F2: this frame carries a marker: it is bound with the chains whatever the timing window says (SubmitFrame: ChainFor)
   FrameTables& t = g_frame;
   cap::Draw m;
   if (!t.draws.empty()) m = t.draws.back();
@@ -5832,7 +6495,8 @@ inline void OnTextureLock(PPCContext& ctx, uint8_t* base) {
   if (t_thumb_replay) return;
   if (!REXCVAR_GET(wwe2k14_rdr_owner) || !REXCVAR_GET(wwe2k14_rdr_readback)) return;
   const uint32_t lr = uint32_t(ctx.lr), obj = ctx.r3.u32, layer = ctx.r5.u32, level = ctx.r6.u32;
-  std::lock_guard lock(g_mutex);
+  rdr_adapter::tail::The().FlushIfPending(rdr_adapter::tail::kAtLock);   // S102 U1 review F1: frame G (the copy this lock reads) is handed over before a part is drawn
+  std::unique_lock lock = LockReaderCounted();
   if (!g_live.active()) return;
   const auto it = g_reg.tex_by_object.find(obj);
   if (it == g_reg.tex_by_object.end()) return;
@@ -6265,9 +6929,237 @@ inline void OnResolve(PPCContext& ctx, uint8_t* base) {
   if (g_live.active() && REXCVAR_GET(wwe2k14_rdr_readback_async)) g_live.Async().NoteCopy(dest_id, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));  // lane 232: the lag's reference (a no-op for an image nobody watches)
 }
 
+// ---- S102 U1 (docs\renderer\SWAP_TAIL.md): OnPresent's end, in functions shared by the old path and the tail latch / finish ----
+inline void ResetFrameAndJitter() {
+  g_frame.Reset();
+  if (g_jitter.on) {  // S10b: the next frame's jitter (this one's phase is in its header)
+    g_jitter.phase = (g_jitter.phase + 1) % g_jitter.phases;
+    g_jitter.scene_done = false;
+    {  // lane 185
+      cap::jitter::Window window{g_jitter.hud, g_jitter.legacy, g_jitter.armed};
+      cap::jitter::NextFrame(window);
+      g_jitter.armed = window.armed, g_jitter.hud = window.hud;
+    }
+  }
+}
+inline void PresentSlowFrame(uint64_t guest_frame) {
+  {
+    // This frame's reader time (the difference since the last present); a burst is logged with its parts.
+    const ReaderTimes& n = g_times;
+    ReaderTimes& p = g_frame_times;
+    const double to_ms = 1.0 / (1e6 * TicksPerNs());  // the time fields are ticks
+    const double ms = (n.draw - p.draw) * to_ms;
+    uint64_t lk[7];
+    TakeStoreLockMax(lk);
+    if (ms > kSlowFrameMs) {
+      REXLOG_WARN("[rdr][time] slow frame {}: reader {:.1f} ms on the render thread (shaders {:.1f}, targets {:.1f}, state {:.1f}, texture slots {:.1f} "
+                  "of which contents {:.1f}, constant banks {:.1f}, geometry {:.1f} of which builds on this thread {:.1f} (gather {:.1f}, key {:.1f}, stored lookup {:.1f}, convert {:.1f}, store {:.1f} with {} sink appends taking {:.1f}, copy + hand to a worker {:.1f}), "
+                  "inline builds {}, rebuilt memo entries {}; the slowest single build {:.1f} ms: {} {} bytes {} indices; live store lock held at most: geometry read {:.2f}, append {:.2f}, drop {:.2f}, texture erase {:.2f}, an append waited {:.2f}, an append's allocation {:.2f}, its case-ring copy {:.2f} ms; clock reads only with debug_fine_times)",
+                  guest_frame, ms, (n.shaders - p.shaders) * to_ms, (n.targets - p.targets) * to_ms, (n.state - p.state) * to_ms,
+                  (n.slots - p.slots) * to_ms, (n.content - p.content) * to_ms, (n.banks - p.banks) * to_ms, (n.geometry - p.geometry) * to_ms,
+                  (n.geo_build - p.geo_build) * to_ms, (n.geo_gather - p.geo_gather) * to_ms, (n.geo_key - p.geo_key) * to_ms, (n.geo_find - p.geo_find) * to_ms,
+                  (n.geo_conv - p.geo_conv) * to_ms, (n.geo_store - p.geo_store) * to_ms, n.sink_n - p.sink_n, (n.sink - p.sink) * to_ms, (n.geo_hand - p.geo_hand) * to_ms,
+                  n.geo_inline - p.geo_inline, n.geo_builds - p.geo_builds, g_worst_build.ticks * to_ms,
+                  g_worst_build.worker ? "handed to a worker," : (g_worst_build.is_inline ? "inline," : "indexed,"), g_worst_build.bytes, g_worst_build.count,
+                  lk[0] * 1e-6, lk[1] * 1e-6, lk[2] * 1e-6, lk[3] * 1e-6, lk[4] * 1e-6, lk[5] * 1e-6, lk[6] * 1e-6);
+    }
+    g_worst_build = {};
+  }
+}
+// S102 U1 review F3: the 600-frame census lines (CensusMaybe formats every line of the window) and the cost line; a deferred tail runs them at the next present.
+inline void PresentCensus(uint64_t guest_frame) {
+  CensusMaybe();
+  const auto cost_t0 = std::chrono::steady_clock::now();  // lane 266
+  if (const std::string cost_line = wwe2k14::cost::Update(REXCVAR_GET(wwe2k14_cost_counters), guest_frame, REXCVAR_GET(wwe2k14_cost_counters) ? wwe2k14::cost::TicksPerNs() : 1.0); !cost_line.empty())
+  {
+    REXLOG_INFO("{}", cost_line);  // S101 lane 83: one line every 600 frames (a no-op when the switch is off)
+    if (const std::string span_line = wwe2k14::spans::Line(guest_frame); !span_line.empty())
+      REXLOG_INFO("{} (totals since start; spans/f over all frames so far)", span_line);  // lane 122: records per span by tag, the half the cost line lacks
+    g_periodic.cost.Add(PeriodicMs(cost_t0));  // lane 266
+  }
+}
+inline void PresentCounters(uint64_t guest_frame) {
+  PresentSlowFrame(guest_frame);
+  PresentCensus(guest_frame);
+  g_frame_times = g_times;
+}
+inline void PresentControl(uint64_t guest_frame) {
+  // S101 lane18: labels only for a capture or the case ring, never for a player's live mirror alone. In owner mode the case ring records
+  // through the live mirror (g_cap stays false: Check D run 7062 showed labels 0), so the ring's switch is the provenance one (g_prov_on:
+  // --wwe2k14_rdr_provenance, --wwe2k14_case, +dev owner, capture frames; lane 17).
+  if (rdr_adapter::origin::g_labels_wanted.load(std::memory_order_relaxed) && !g_cap.active &&
+      rdr_adapter::origin::Runs().size() >= rdr_adapter::origin::TextRuns::kMaxRuns * 3 / 4)
+    rdr_adapter::origin::Runs().Clear();  // S101 lane 89 (review F5): a live session's clocks and counters would fill the 8,192-entry run table and coverage would stop (ids stay valid, they just stop counting)
+  rdr_adapter::origin::g_labels.store(g_cap.active || g_prov_on.load(std::memory_order_relaxed) || rdr_adapter::origin::g_labels_wanted.load(std::memory_order_relaxed),  // S101 lane 89: or the ui_text hook is on
+                                      std::memory_order_relaxed);
+  rdr_adapter::origin::g_on.store(Recording(), std::memory_order_relaxed);  // S101 names: tags only while someone reads them
+  g_fine_on = REXCVAR_GET(wwe2k14_rdr_debug_fine_times);
+  rdr_adapter::g_store_timing.store(g_fine_on, std::memory_order_relaxed);  // lane 273: the live store's clock reads
+  // The bind trace: whole frames, present to present.
+  if (const uint32_t left = g_trace_left.load(std::memory_order_relaxed)) {
+    g_trace_left.store(left - 1, std::memory_order_relaxed);
+    REXLOG_INFO("[rdr][trace] present (guest frame {}){}", guest_frame, left == 1 ? ": trace ended" : "");
+    if (left == 1) wwe2k14::nf_observers::g_set_texture.store(nullptr, std::memory_order_relaxed);
+  }
+  if (const int32_t trace = REXCVAR_GET(wwe2k14_rdr_bind_trace); trace > 0 && !TraceOn()) {
+    REXCVAR_SET(wwe2k14_rdr_bind_trace, 0);
+    g_trace_draw = 0;
+    g_trace_left.store(uint32_t(trace), std::memory_order_relaxed);
+    wwe2k14::nf_observers::g_set_texture.store(&OnSetTextureTrace, std::memory_order_relaxed);
+    REXLOG_INFO("[rdr][trace] started: {} frame(s) from guest frame {}", trace, guest_frame);
+  }
+  const int32_t want = REXCVAR_GET(wwe2k14_rdr_capture_frames);
+  if (want > 0 && !g_cap.active) {
+    REXCVAR_SET(wwe2k14_rdr_capture_frames, 0);
+    if (g_live.active()) REXLOG_WARN("[rdr][capture] not started: the live mirror is running (one or the other)");
+    else StartCapture(uint32_t(want));
+  }
+  if (REXCVAR_GET(wwe2k14_rdr_live) && !g_live.active() && !g_cap.active) StartLive();
+}
+
+// ---- S102 U1: the tail after the release (switch wwe2k14_rdr_tail_release; tail_release.h has the order and the window) ----
+// Swap thread. Latched in OnPresent (g_mutex held), finished by TailFinishAt (the release hook; the walk start / the next present as safety nets).
+struct TailPending {
+  uint64_t guest_frame = 0;
+  bool in_memory = false;
+  std::shared_ptr<rdr_adapter::handoff::FrameData> frame;   // the in-memory way: the frame's tables, detached from g_frame at the latch
+  rdr_adapter::handoff::FrameData bytes_frame;               // the bytes way: the same, kept (its capacity ping-pongs with g_frame's)
+  rdr_scene::live::Latched scene;                            // the scene record's deferred emit (if every contributor latched)
+};
+inline TailPending g_tail;
+// Review F3: the census part of a finished tail (CensusMaybe, the cost line, the memo sweep) runs at the next present, under the reader lock while the update
+// thread is parked, not in the finish where the update thread's lock hooks would wait for it. Its frame number is the finished frame's.
+inline bool g_tail_census_due = false;
+inline uint64_t g_tail_census_frame = 0;
+inline uint64_t g_tail_window_start = 0;
+inline rdr_adapter::tail::Stats g_tail_window;
+inline uint64_t g_tail_violations_seen = 0;
+
+// Every present: may its tail run after the release? (counts the answer by reason; the census line every 600 frames while the switch is on)
+inline bool TailDecide(uint64_t guest_frame) {
+  namespace tl = rdr_adapter::tail;
+  const bool on = rdr_sw::BoolSeen(rdr_sw::kTailRelease, REXCVAR_GET(wwe2k14_rdr_tail_release), guest_frame);
+  uint8_t why = tl::kWhyCount;
+  if (!on) why = tl::kOff;
+  else if (g_cap.active) why = tl::kCapture;
+  else if (!g_live.active()) why = tl::kNotLive;
+  else if (cap::LiveSink::FrameBytesNeeded()) why = tl::kCaseRing;
+  else if (REXCVAR_GET(wwe2k14_rdr_debug_live_skip) & 4) why = tl::kLiveSkip;
+  tl::State& st = tl::The();
+  const bool defer = st.Decide(why);
+  if (on && (guest_frame >= g_tail_window_start + 600 || g_tail_window_start == 0)) {
+    if (g_tail_window_start != 0) {
+      const rdr_scene::live::LatchTotals lt = rdr_scene::live::GetLatchTotals();
+      REXLOG_INFO("{}; scene latches {}, emits deferred {}, not latchable {}{}{}, registry changed {}, VIOLATIONS {}{}{}", st.CensusLine(g_tail_window_start, guest_frame, g_tail_window),
+                  lt.latched, lt.deferred, lt.not_latchable, lt.not_latchable_name.empty() ? "" : " (last: ", lt.not_latchable_name.empty() ? "" : lt.not_latchable_name + ")",
+                  lt.registry_changed, lt.violations, lt.first_violation.empty() ? "" : " (first: " + lt.first_violation + ")", "");
+      if (lt.violations != g_tail_violations_seen) {
+        g_tail_violations_seen = lt.violations;
+        REXLOG_WARN("[rdr][tail_release] a contributor read game-thread state during a deferred emit ({} so far, first: {}): its latch does not take everything (docs\renderer\SWAP_TAIL.md)",
+                    lt.violations, lt.first_violation);
+      }
+    }
+    g_tail_window = st.stats();
+    g_tail_window_start = guest_frame ? guest_frame : 1;
+  }
+  return defer;
+}
+
+inline void TailFinishAt(rdr_adapter::tail::Where where);
+
+// The latch (OnPresent, the update thread parked): what reads game-thread state, and the frame leaves g_frame. Mirrors OnPresent's live path.
+inline void TailLatch(uint8_t* base, uint32_t dev, uint64_t guest_frame) {
+  namespace tl = rdr_adapter::tail;
+  tl::The().SetFinish(&TailFinishAt);
+  g_tail.guest_frame = guest_frame;
+  g_tail.scene = {};
+  if (rdr_scene::live::Enabled()) {
+    wwe2k14::frame_split::ScopedSceneEnd split_timer;
+    rdr_scene::live::LatchFrame(guest_frame, rdr_scene::live::kNoCaptureFrame, /*allow_defer=*/true, g_tail.scene);  // (no capture: kNoCaptureFrame, as EndFrame's argument)
+  }
+  {
+    ScopedNs timer(g_times.present);
+    LiveSendImages();  // first: a frame must never name an image the sink lacks
+    if (g_display_curve_pending) {
+      g_live.SetDisplayCurve(g_display_curve.data());
+      g_display_curve_pending = false;
+    }
+    const rdr_adapter::handoff::Way way = rdr_adapter::handoff::Decide(rdr_sw::BoolSeen(rdr_sw::kHandoffMemory, false, guest_frame), cap::LiveSink::FrameBytesNeeded());
+    g_tail.in_memory = way == rdr_adapter::handoff::Way::kMemory;
+    const uint32_t interval = db::Ld32(base, dev + kDevPresentInterval);
+    if (g_tail.in_memory) {
+      rdr_adapter::handoff::FramePool().SetKeep(size_t(std::max(1, REXCVAR_GET(wwe2k14_rdr_max_queued))) + 3);   // review F5: + the frame g_tail holds until the finish
+      g_tail.frame = FrameHandoff(guest_frame, interval, uint32_t(g_record_frame));
+    } else {
+      FillFrameData(guest_frame, interval, g_tail.bytes_frame, uint32_t(g_record_frame));
+    }
+  }
+  ResetFrameAndJitter();   // g_frame is the next frame's from here (a late append from another thread goes there, as after today's Reset)
+  PresentControl(guest_frame);
+  tl::The().SetPending(g_tail.scene.emit_deferred);
+}
+
+// The finish: right after the release (the update thread runs), on the swap thread, before the next walk. Review F1: it holds the tail's finish mutex from
+// start to end and the frame stays pending until it is done, so a read-back lock / an attire pack on a game thread (FlushIfPending(kAtLock) before the
+// reader lock) never draws a part before frame G is handed over: it waits for this, or runs it itself. Lock order: finish -> the scene writer -> g_mutex.
+inline void TailFinishAt(rdr_adapter::tail::Where where) {
+  rdr_adapter::tail::State& st = rdr_adapter::tail::The();
+  std::lock_guard<std::mutex> finish_lock(st.FinishMutex());
+  if (!st.Pending()) return;   // another thread finished it while this one waited
+  st.FinishStarted();
+  if (g_tail.scene.emit_deferred) {  // outside g_mutex: the record touches no reader state (the writer and the contributors have their own locks)
+    wwe2k14::frame_split::ScopedSceneEnd split_timer;
+    rdr_scene::live::EmitLatched(g_tail.scene);
+  }
+  {
+    std::lock_guard lock(g_mutex);
+    const auto locked_t0 = std::chrono::steady_clock::now();
+    const uint64_t guest_frame = g_tail.guest_frame;
+    {
+      ScopedNs timer(g_times.present);
+      const std::string picture = REXCVAR_GET(wwe2k14_rdr_live_picture);
+      if (!picture.empty()) REXCVAR_SET(wwe2k14_rdr_live_picture, std::string());
+      const bool send = g_live.active();   // false: the mirror stopped between the latch and here (a quit): the frame is dropped, as a stopped sink drops it
+      if (!picture.empty() && send) wwe2k14::g_live_pictures_in_flight.fetch_add(1);   // (debug_live_skip & 4 declined the tail: every deferred frame reaches the sink)
+      // (with --wwe2k14_rdr_pace_game the wait is now after the release: the game may be one frame further ahead of the render thread; the pictures are the same)
+      if (send && REXCVAR_GET(wwe2k14_rdr_pace_game)) g_live.WaitForRoom(size_t(std::max(1, REXCVAR_GET(wwe2k14_rdr_max_queued))), 1000);  // checks only
+      if (!send) {
+        g_tail.frame.reset();
+      } else if (g_tail.in_memory) {
+        g_live.SubmitFrameData(std::move(g_tail.frame), guest_frame, picture);
+        g_tail.frame.reset();
+      } else {
+        g_live.SubmitFrame(rdr_adapter::handoff::Serialize(g_tail.bytes_frame), guest_frame, picture);
+      }
+      LiveForgetGeometry();
+    }
+    JoinReaderWork();
+    g_times.memo_entries = g_geo_memo.size();
+    g_times.images = g_reg.images.size();
+    if (Recording()) ++g_record_frame;
+    PresentSlowFrame(guest_frame);
+    g_frame_times = g_times;
+    g_tail_census_due = true;   // review F3: CensusMaybe, the cost line and the memo sweep at the next present (PresentTailCensus)
+    g_tail_census_frame = guest_frame;
+    st.AddLockedNs(uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - locked_t0).count()));
+  }
+  st.FinishDone(where);
+}
+
+// Review F3: a finished tail's census part, at the next present (g_mutex held, the update thread parked). The memo sweep's 600-frame test reads g_record_frame,
+// one higher than in the finish: the sweep runs once per 600 frames all the same (one frame later).
+inline void PresentTailCensus() {
+  if (!g_tail_census_due) return;
+  g_tail_census_due = false;
+  if (Recording()) ForgetStaleMemo();
+  PresentCensus(g_tail_census_frame);
+}
+
 // 0x82CB37C0 the swap core (r3 device, r4 the texture to show): the end of the frame.
 inline void OnPresent(PPCContext& ctx, uint8_t* base) {
+  rdr_adapter::tail::The().FlushIfPending(rdr_adapter::tail::kAtPresent);  // S102 U1: a tail still pending (no release since the last present) finishes first
   std::lock_guard lock(g_mutex);
+  PresentTailCensus();   // S102 U1 review F3: the last deferred frame's census lines (nothing when the tail did not defer)
   Census& census = g_census;
   ++census.presents;
   const uint32_t dev = ctx.r3.u32, tex = ctx.r4.u32;
@@ -6299,9 +7191,44 @@ inline void OnPresent(PPCContext& ctx, uint8_t* base) {
   } else {
     Note("present_no_texture");
   }
+  rdr::g_fb_fast.store(REXCVAR_GET(wwe2k14_rdr_fb_fast), std::memory_order_relaxed);    // S102 T4: read every frame (the builder latches it in Begin)
+  rdr::g_pack_once.store(REXCVAR_GET(wwe2k14_rdr_pack_once), std::memory_order_relaxed);  // S102 T5
   // S101 lane 26: the live scene writer's frame boundary, once per frame, for every sink (the capture folder, the case ring). One relaxed load when off.
   if (g_cap.active) CheckWriter();  // S101 lane 26 review: a writer error / budget stop is seen BEFORE the record is numbered (CheckWriter is safe twice)
-  if (rdr_scene::live::Enabled()) rdr_scene::live::EndFrame(guest_frame, g_cap.active && !g_cap.stop ? g_cap.frame_index : rdr_scene::live::kNoCaptureFrame);
+  rdr_adapter::origin::g_memo_on.store(rdr_sw::BoolSeen(rdr_sw::kOriginMemo, false, guest_frame), std::memory_order_relaxed);   // S102 T11: read every frame
+  {  // S102 T15: the draw memos' switches, read every frame (the hot paths read the relaxed atomics); the census line every 600 frames
+    namespace dm = rdr_adapter::slot_geo_memo;
+    dm::g_content_skip_on.store(rdr_sw::BoolSeen(rdr_sw::kSlotContentSkip, false, guest_frame), std::memory_order_relaxed);
+    dm::g_slot_ways_on.store(rdr_sw::BoolSeen(rdr_sw::kSlotWays, false, guest_frame), std::memory_order_relaxed);
+    dm::g_sampler_memo_on.store(rdr_sw::BoolSeen(rdr_sw::kSamplerMemo, false, guest_frame), std::memory_order_relaxed);
+    dm::g_geo_hash_once_on.store(rdr_sw::BoolSeen(rdr_sw::kGeoHashOnce, false, guest_frame), std::memory_order_relaxed);
+    dm::LogCensus(guest_frame, +[](const char* line) { REXLOG_INFO("{}", line); });
+  }
+  rdr_adapter::particle_lite::g_on.store(rdr_sw::BoolSeen(rdr_sw::kParticleLite, false, guest_frame), std::memory_order_relaxed);   // S102 T18: read every frame
+  rdr_adapter::particle_lite::LogCensus(guest_frame, +[](const char* line) { REXLOG_INFO("{}", line); });
+  {  // S102 SW2: wwe2k14_rdr_draw_lite, bit 1: the lite record path for every draw (particle_lite.h, the general gate); bit 2 is unused (R23 cut 8, inline copies in the native constant uploads, measured about 0 and removed)
+    namespace pl = rdr_adapter::particle_lite;
+    const int64_t m = rdr_sw::IntSeen(rdr_sw::kDrawLite, 0, guest_frame);
+    pl::g_gate_gen.general = true, pl::g_gate_gen.census = &pl::g_census_gen;  // (idempotent: the gate's two settings)
+    pl::g_on_gen.store((m & 1) != 0, std::memory_order_relaxed);
+    pl::LogCensusGeneral(guest_frame, +[](const char* line) { REXLOG_INFO("{}", line); });
+  }
+  rdr_adapter::draw_memos::g_note_on.store(rdr_sw::BoolSeen(rdr_sw::kNoteMemo, false, guest_frame), std::memory_order_relaxed);   // S102 T14: read every frame
+  rdr_adapter::draw_memos::g_shader_on.store(rdr_sw::BoolSeen(rdr_sw::kShaderMemo, false, guest_frame), std::memory_order_relaxed);
+  rdr_adapter::draw_memos::g_pin_hash_on.store(rdr_sw::BoolSeen(rdr_sw::kPinHash, false, guest_frame), std::memory_order_relaxed);
+  rdr_adapter::origin::g_index_on.store(rdr_sw::BoolSeen(rdr_sw::kOriginIndex, false, guest_frame), std::memory_order_relaxed);   // S102 T14b
+  wwe2k14::upd_lean::g_census.store(SourceCensusOn(), std::memory_order_relaxed);   // S102 U2: the notified marks are made only while a census asks for them (read per frame)
+  wwe2k14::upd_lean::g_mask.store(uint32_t(rdr_sw::IntSeen(rdr_sw::kUpdLean, 0, guest_frame)) & wwe2k14::upd_lean::kAll2, std::memory_order_relaxed);   // S102 U2: read every frame
+  wwe2k14::swap_tail2::g_mask.store(uint32_t(rdr_sw::IntSeen(rdr_sw::kSwapTail2, 0, guest_frame)) & wwe2k14::swap_tail2::kAll, std::memory_order_relaxed);   // S102 R25-A: read every frame
+  rdr_adapter::draw_memos::g_shader_serial_on.store(rdr_sw::BoolSeen(rdr_sw::kShaderSerial, false, guest_frame), std::memory_order_relaxed);   // S102 T14b
+  if (TailDecide(guest_frame)) {   // S102 U1 (docs\renderer\SWAP_TAIL.md): the latch now, the rest right after the game releases its update thread (TailFinishAt)
+    TailLatch(base, dev, guest_frame);
+    return;
+  }
+  if (rdr_scene::live::Enabled()) {
+    wwe2k14::frame_split::ScopedSceneEnd split_timer;  // S102 H3: one relaxed load when --wwe2k14_frame_split is off
+    rdr_scene::live::EndFrame(guest_frame, g_cap.active && !g_cap.stop ? g_cap.frame_index : rdr_scene::live::kNoCaptureFrame);
+  }
   if (g_cap.active) {
     CheckWriter();
     if (!g_cap.stop) {
@@ -6324,8 +7251,16 @@ inline void OnPresent(PPCContext& ctx, uint8_t* base) {
     // bisection switch below never reaches the sink, so it is not counted.
     if (!picture.empty() && !(REXCVAR_GET(wwe2k14_rdr_debug_live_skip) & 4)) wwe2k14::g_live_pictures_in_flight.fetch_add(1);
     if (REXCVAR_GET(wwe2k14_rdr_pace_game)) g_live.WaitForRoom(size_t(std::max(1, REXCVAR_GET(wwe2k14_rdr_max_queued))), 1000);  // checks only
-    if (!(REXCVAR_GET(wwe2k14_rdr_debug_live_skip) & 4))
-      g_live.SubmitFrame(FrameBytes(guest_frame, db::Ld32(base, dev + kDevPresentInterval), uint32_t(g_record_frame)), guest_frame, picture);
+    if (!(REXCVAR_GET(wwe2k14_rdr_debug_live_skip) & 4)) {
+      // S102 lane T8: read once per guest frame here (the record side) and carried by the message; the render thread never reads it. The case ring needs bytes.
+      bool first_forced = false;
+      const rdr_adapter::handoff::Way way = rdr_adapter::handoff::Decide(rdr_sw::BoolSeen(rdr_sw::kHandoffMemory, false, guest_frame), cap::LiveSink::FrameBytesNeeded(), &first_forced);
+      if (first_forced) REXLOG_INFO("[rdr][live] handoff_memory is on but the case ring is on (a +dev owner build turns it on; --wwe2k14_case=false stops that): every frame is still serialised, nothing is handed over in memory");
+      const bool in_memory = way == rdr_adapter::handoff::Way::kMemory;
+      if (in_memory) rdr_adapter::handoff::FramePool().SetKeep(size_t(std::max(1, REXCVAR_GET(wwe2k14_rdr_max_queued))) + 2);
+      if (in_memory) g_live.SubmitFrameData(FrameHandoff(guest_frame, db::Ld32(base, dev + kDevPresentInterval), uint32_t(g_record_frame)), guest_frame, picture);
+      else g_live.SubmitFrame(FrameBytes(guest_frame, db::Ld32(base, dev + kDevPresentInterval), uint32_t(g_record_frame)), guest_frame, picture);
+    }
     LiveForgetGeometry();
   }
   JoinReaderWork();  // a frame left out of the sink (a stopped capture, debug_live_skip 4): its jobs still joined before its tables go
@@ -6333,86 +7268,16 @@ inline void OnPresent(PPCContext& ctx, uint8_t* base) {
   g_times.memo_entries = g_geo_memo.size();
   g_times.images = g_reg.images.size();
   if (Recording()) ++g_record_frame;
-  g_frame.Reset();
-  if (g_jitter.on) {  // S10b: the next frame's jitter (this one's phase is in its header)
-    g_jitter.phase = (g_jitter.phase + 1) % g_jitter.phases;
-    g_jitter.scene_done = false;
-    {  // lane 185
-      cap::jitter::Window window{g_jitter.hud, g_jitter.legacy, g_jitter.armed};
-      cap::jitter::NextFrame(window);
-      g_jitter.armed = window.armed, g_jitter.hud = window.hud;
-    }
-  }
-  {
-    // This frame's reader time (the difference since the last present); a burst is logged with its parts.
-    const ReaderTimes& n = g_times;
-    ReaderTimes& p = g_frame_times;
-    const double to_ms = 1.0 / (1e6 * TicksPerNs());  // the time fields are ticks
-    const double ms = (n.draw - p.draw) * to_ms;
-    uint64_t lk[7];
-    TakeStoreLockMax(lk);
-    if (ms > kSlowFrameMs) {
-      REXLOG_WARN("[rdr][time] slow frame {}: reader {:.1f} ms on the render thread (shaders {:.1f}, targets {:.1f}, state {:.1f}, texture slots {:.1f} "
-                  "of which contents {:.1f}, constant banks {:.1f}, geometry {:.1f} of which builds on this thread {:.1f} (gather {:.1f}, key {:.1f}, stored lookup {:.1f}, convert {:.1f}, store {:.1f} with {} sink appends taking {:.1f}, copy + hand to a worker {:.1f}), "
-                  "inline builds {}, rebuilt memo entries {}; the slowest single build {:.1f} ms: {} {} bytes {} indices; live store lock held at most: geometry read {:.2f}, append {:.2f}, drop {:.2f}, texture erase {:.2f}, an append waited {:.2f}, an append's allocation {:.2f}, its case-ring copy {:.2f} ms; clock reads only with debug_fine_times)",
-                  guest_frame, ms, (n.shaders - p.shaders) * to_ms, (n.targets - p.targets) * to_ms, (n.state - p.state) * to_ms,
-                  (n.slots - p.slots) * to_ms, (n.content - p.content) * to_ms, (n.banks - p.banks) * to_ms, (n.geometry - p.geometry) * to_ms,
-                  (n.geo_build - p.geo_build) * to_ms, (n.geo_gather - p.geo_gather) * to_ms, (n.geo_key - p.geo_key) * to_ms, (n.geo_find - p.geo_find) * to_ms,
-                  (n.geo_conv - p.geo_conv) * to_ms, (n.geo_store - p.geo_store) * to_ms, n.sink_n - p.sink_n, (n.sink - p.sink) * to_ms, (n.geo_hand - p.geo_hand) * to_ms,
-                  n.geo_inline - p.geo_inline, n.geo_builds - p.geo_builds, g_worst_build.ticks * to_ms,
-                  g_worst_build.worker ? "handed to a worker," : (g_worst_build.is_inline ? "inline," : "indexed,"), g_worst_build.bytes, g_worst_build.count,
-                  lk[0] * 1e-6, lk[1] * 1e-6, lk[2] * 1e-6, lk[3] * 1e-6, lk[4] * 1e-6, lk[5] * 1e-6, lk[6] * 1e-6);
-    }
-    g_worst_build = {};
-  }
-  CensusMaybe();
-  // S101 lane18: labels only for a capture or the case ring, never for a player's live mirror alone. In owner mode the case ring records
-  // through the live mirror (g_cap stays false: Check D run 7062 showed labels 0), so the ring's switch is the provenance one (g_prov_on:
-  // --wwe2k14_rdr_provenance, --wwe2k14_case, +dev owner, capture frames; lane 17).
-  if (rdr_adapter::origin::g_labels_wanted.load(std::memory_order_relaxed) && !g_cap.active &&
-      rdr_adapter::origin::Runs().size() >= rdr_adapter::origin::TextRuns::kMaxRuns * 3 / 4)
-    rdr_adapter::origin::Runs().Clear();  // S101 lane 89 (review F5): a live session's clocks and counters would fill the 8,192-entry run table and coverage would stop (ids stay valid, they just stop counting)
-  rdr_adapter::origin::g_labels.store(g_cap.active || g_prov_on.load(std::memory_order_relaxed) || rdr_adapter::origin::g_labels_wanted.load(std::memory_order_relaxed),  // S101 lane 89: or the ui_text hook is on
-                                      std::memory_order_relaxed);
-  rdr_adapter::origin::g_on.store(Recording(), std::memory_order_relaxed);  // S101 names: tags only while someone reads them
-  const auto cost_t0 = std::chrono::steady_clock::now();  // lane 266
-  if (const std::string cost_line = wwe2k14::cost::Update(REXCVAR_GET(wwe2k14_cost_counters), wwe2k14::g_guest_frame.load(std::memory_order_relaxed), REXCVAR_GET(wwe2k14_cost_counters) ? wwe2k14::cost::TicksPerNs() : 1.0); !cost_line.empty())
-  {
-    REXLOG_INFO("{}", cost_line);  // S101 lane 83: one line every 600 frames (a no-op when the switch is off)
-    if (const std::string span_line = wwe2k14::spans::Line(wwe2k14::g_guest_frame.load(std::memory_order_relaxed)); !span_line.empty())
-      REXLOG_INFO("{} (totals since start; spans/f over all frames so far)", span_line);  // lane 122: records per span by tag, the half the cost line lacks
-    g_periodic.cost.Add(PeriodicMs(cost_t0));  // lane 266
-  }
-  g_frame_times = g_times;
-  g_fine_on = REXCVAR_GET(wwe2k14_rdr_debug_fine_times);
-  rdr_adapter::g_store_timing.store(g_fine_on, std::memory_order_relaxed);  // lane 273: the live store's clock reads
-  // The bind trace: whole frames, present to present.
-  if (const uint32_t left = g_trace_left.load(std::memory_order_relaxed)) {
-    g_trace_left.store(left - 1, std::memory_order_relaxed);
-    REXLOG_INFO("[rdr][trace] present (guest frame {}){}", guest_frame, left == 1 ? ": trace ended" : "");
-    if (left == 1) wwe2k14::nf_observers::g_set_texture.store(nullptr, std::memory_order_relaxed);
-  }
-  if (const int32_t trace = REXCVAR_GET(wwe2k14_rdr_bind_trace); trace > 0 && !TraceOn()) {
-    REXCVAR_SET(wwe2k14_rdr_bind_trace, 0);
-    g_trace_draw = 0;
-    g_trace_left.store(uint32_t(trace), std::memory_order_relaxed);
-    wwe2k14::nf_observers::g_set_texture.store(&OnSetTextureTrace, std::memory_order_relaxed);
-    REXLOG_INFO("[rdr][trace] started: {} frame(s) from guest frame {}", trace, guest_frame);
-  }
-  const int32_t want = REXCVAR_GET(wwe2k14_rdr_capture_frames);
-  if (want > 0 && !g_cap.active) {
-    REXCVAR_SET(wwe2k14_rdr_capture_frames, 0);
-    if (g_live.active()) REXLOG_WARN("[rdr][capture] not started: the live mirror is running (one or the other)");
-    else StartCapture(uint32_t(want));
-  }
-  if (REXCVAR_GET(wwe2k14_rdr_live) && !g_live.active() && !g_cap.active) StartLive();
+  ResetFrameAndJitter();   // S102 U1: moved into a function (unchanged), shared with TailLatch
+  PresentCounters(guest_frame);   // S102 U1: the slow-frame line, CensusMaybe, the cost line (unchanged; the cost line's frame is this present's guest_frame = the g_guest_frame it read)
+  PresentControl(guest_frame);    // S102 U1: the label / origin flags, the bind trace, capture / live start (unchanged)
 }
 
 // 0x82CA87C0: called after the original returned the object in r3.
 inline void OnTextureCreated(PPCContext& ctx, uint8_t* base) {
   const uint32_t obj = ctx.r3.u32;
   if (!obj) return;
-  std::lock_guard lock(g_mutex);
+  std::unique_lock lock = LockReaderCounted();   // S102 U1 review F3 (counts a wait on a running tail finish)
   ++g_reg.epoch;
   if (auto it = g_reg.tex_by_object.find(obj); it != g_reg.tex_by_object.end()) {
     ById(it->second).live = false;
@@ -6424,7 +7289,7 @@ inline void OnTextureCreated(PPCContext& ctx, uint8_t* base) {
 // 0x82CAD760: every kind of resource goes through it; only ours are acted on.
 inline void OnResourceReleased(PPCContext& ctx, uint8_t* base) {
   (void)base;
-  std::lock_guard lock(g_mutex);
+  std::unique_lock lock = LockReaderCounted();   // S102 U1 review F3
   OnReleased(ctx.r3.u32);
 }
 
@@ -6525,7 +7390,8 @@ inline void OnAttirePacked(uint8_t* base, uint32_t dest_obj, uint32_t level, uin
 }
 
 inline void OnUnlockFlush(PPCContext& ctx, uint8_t* base) {
-  std::lock_guard lock(g_mutex);
+  if (uint32_t(ctx.lr) == kPackDestFlushReturn) rdr_adapter::tail::The().FlushIfPending(rdr_adapter::tail::kAtLock);   // S102 U1 review F1: the pack's copy (and its debug read-back) after frame G
+  std::unique_lock lock = LockReaderCounted();
   // S100: the attire pack step's two flushes (OnAttirePacked).
   const uint32_t lr = uint32_t(ctx.lr);
   if (lr == kPackSourceFlushReturn) {

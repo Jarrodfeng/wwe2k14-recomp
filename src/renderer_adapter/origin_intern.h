@@ -16,6 +16,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "upd_lean.h"   // S102 U2
+
 namespace rdr_adapter::origin {
 
 struct Key {
@@ -49,13 +51,79 @@ inline uint32_t MakeTag(uint32_t id) { return id ? (id & kMaxIds) | (CheckBits(i
 // On only while the reader records or draws live (reader.h sets it once a frame from Recording()): with nothing reading the tags, the
 // recorder hooks write none (S101 review 1: players must not pay for names nobody reads). The first frame after a start is unnamed.
 inline std::atomic<bool> g_on{false};
+// S102 T11 (R13 cut 5; switch wwe2k14_rdr_origin_memo, set once a frame by the reader): Resolve keeps the last (tag, key) of each thread and answers a repeat of it
+// without a map find. A draw resolves the same record's tag up to four times; ids are never reused, so a remembered answer stays right.
+inline std::atomic<bool> g_memo_on{false};
+#ifdef RDR_ORIGIN_MEMO_PLANTS
+// Test only (tools\crowd\crowd_ids_test.cpp): 1 the memo is stored for a tag whose id is not interned yet (answers true with an empty key later); 2 the memo ignores which table it came from.
+inline int g_memo_plant = 0;
+#endif
+// S102 T14b (R20 brief C; switch wwe2k14_rdr_origin_index, set once a frame by the reader): Resolve answers by the id the tag already carries: an array of
+// fixed chunks the writer fills (key first, then the published count), read with no lock, no map and no per-thread copy. false = the memo / map path above.
+inline std::atomic<bool> g_index_on{false};
+// S102 T14b census (the reader thread's own, plain counters, no atomics; read by the thread that logs): lookups answered by index / refused (not one of our tags, or an id the table does not hold yet).
+struct IndexStats {
+  uint64_t taken = 0, bad_tag = 0, past_count = 0;
+};
+inline thread_local IndexStats t_index_stats;
+#ifdef RDR_ORIGIN_INDEX_PLANTS
+// Test only (tools\draw_index\draw_index_test.cpp): 1 the check bits are not checked; 2 the published count is not checked (an id past it answers true with an empty key); 3 the key is read one slot early.
+inline int g_index_plant = 0;
+#define RDR_IDX_PLANT(n) (::rdr_adapter::origin::g_index_plant == (n))
+#else
+#define RDR_IDX_PLANT(n) false
+#endif
+// S102 T11 review F4: every Table has a serial; the thread-local caches (the memo, the map, the writer's front) belong to one table and start afresh for another.
+inline uint64_t NextTableSerial() { static std::atomic<uint64_t> n{0}; return ++n; }
 
 class Table {
  public:
   // Writer side (game threads recording draws). Never fails: past kMaxIds the tag is 0 (unnamed) and counted.
   // A thread-local front cache answers steady frames with no lock (S101 review 4).
+  // S102 U2 (R22 cut 4; wwe2k14_rdr_upd_lean bit 2): the writer's lookup on the update thread. Draws of one model part intern the same key again and again: a last-key memo
+  // answers a repeat with one 32-byte compare, a direct-mapped array of 1024 entries answers the rest of a steady frame with one hash and one compare, and a miss falls to
+  // the map below, whose answer fills both. Ids are never reused, so a remembered (key, tag) of THIS table stays right; another table (serial) starts them afresh.
+  uint32_t InternFast(const Key& k) {
+    struct Ent {
+      Key key;
+      uint32_t tag = 0;
+    };
+    struct Cache {
+      uint64_t owner = 0;
+      Key last;
+      uint32_t last_tag = 0;
+      Ent direct[1024];
+    };
+    thread_local Cache c;
+    if (c.owner != serial_ && !UPD_PLANT(4)) c = Cache{}, c.owner = serial_;
+    if (c.last_tag && c.last == k) {
+      wwe2k14::upd_lean::Count(wwe2k14::upd_lean::kInternMemo);
+      return c.last_tag;
+    }
+    const size_t h = KeyHash{}(k);
+    Ent& e = c.direct[h & 1023];
+    if (e.tag && (UPD_PLANT(5) || e.key == k)) {
+      c.last = e.key;
+      c.last_tag = e.tag;
+      wwe2k14::upd_lean::Count(wwe2k14::upd_lean::kInternDirect);
+      return e.tag;
+    }
+    wwe2k14::upd_lean::Count(wwe2k14::upd_lean::kInternMap);
+    const uint32_t tag = InternMap(k);
+    if (tag) {
+      e.key = k, e.tag = tag;
+      c.last = k, c.last_tag = tag;
+    }
+    return tag;
+  }
   uint32_t Intern(const Key& k) {
+    if (wwe2k14::upd_lean::On(wwe2k14::upd_lean::kOriginFront)) return InternFast(k);
+    return InternMap(k);
+  }
+  uint32_t InternMap(const Key& k) {
     thread_local std::unordered_map<Key, uint32_t, KeyHash> front;
+    thread_local uint64_t front_owner = 0;
+    if (front_owner != serial_) front.clear(), front_owner = serial_;   // (another table: its ids are not this one's)
     if (auto it = front.find(k); it != front.end()) return it->second;
     const uint32_t tag = InternLocked(k);
     if (tag && front.size() < 65536) front.emplace(k, tag);
@@ -68,29 +136,83 @@ class Table {
     keys_.push_back(k);
     const uint32_t id = uint32_t(keys_.size());  // 1-based
     ids_.emplace(k, id);
+    Publish(id, k);   // S102 T14b
     return MakeTag(id);
   }
   // Reader side. False: not one of our tags (garbage at +12, or 0).
   bool Resolve(uint32_t tag, Key& out) const {
     const uint32_t id = tag & kMaxIds;
+    if (g_index_on.load(std::memory_order_relaxed)) return ResolveIndexed(tag, out);   // S102 T14b
     if (!id || (tag >> 24) != CheckBits(id)) return false;
+    thread_local struct { uint64_t owner = 0; uint32_t tag = 0; Key key; } memo;   // S102 T11: the last answer (tag 0 never reaches here: id 0 returns above)
+    const bool memo_on = g_memo_on.load(std::memory_order_relaxed);
+#ifdef RDR_ORIGIN_MEMO_PLANTS
+    const bool memo_mine = g_memo_plant == 2 || memo.owner == serial_;
+#else
+    const bool memo_mine = memo.owner == serial_;
+#endif
+    if (memo_on && memo.tag == tag && memo_mine) {
+      out = memo.key;
+      return true;
+    }
     thread_local std::unordered_map<uint32_t, Key> front;  // ids are never reused: a cached answer stays right
+    thread_local uint64_t front_owner = 0;
+    if (front_owner != serial_) front.clear(), front_owner = serial_;   // S102 T11 F4: another table starts afresh
     if (auto it = front.find(tag); it != front.end()) {
       out = it->second;
+      if (memo_on) memo.owner = serial_, memo.tag = tag, memo.key = out;
       return true;
     }
     {
       std::lock_guard lock(mutex_);
-      if (id > keys_.size()) return false;
+      if (id > keys_.size()) {
+#ifdef RDR_ORIGIN_MEMO_PLANTS
+        if (g_memo_plant == 1 && memo_on) memo.owner = serial_, memo.tag = tag, memo.key = Key{};
+#endif
+        return false;
+      }
       out = keys_[id - 1];
     }
     if (front.size() < 65536) front.emplace(tag, out);
+    if (memo_on) memo.owner = serial_, memo.tag = tag, memo.key = out;
+    return true;
+  }
+  // S102 T14b: the lock-free answer. The writer (InternLocked) stores the key into its chunk slot BEFORE it publishes the new count (release); a reader that sees
+  // id <= count (acquire) reads a finished slot. Slots are never rewritten (ids are never reused), chunks never freed or moved while the table lives.
+  bool ResolveIndexed(uint32_t tag, Key& out) const {
+    const uint32_t id = tag & kMaxIds;
+    if (!id || (!RDR_IDX_PLANT(1) && (tag >> 24) != CheckBits(id))) { ++t_index_stats.bad_tag; return false; }
+    const uint32_t count = count_.load(std::memory_order_acquire);
+    if (id > count && !RDR_IDX_PLANT(2)) { ++t_index_stats.past_count; return false; }
+    const uint32_t at = (RDR_IDX_PLANT(3) && id > 1 ? id - 2 : id - 1);
+    const Key* chunk = chunks_[at >> kChunkBits].load(std::memory_order_acquire);
+    if (!chunk) { ++t_index_stats.past_count; return false; }   // no chunk made yet (reachable only with plant 2: an id past the count)
+    out = chunk[at & (kChunkSize - 1)];
+    ++t_index_stats.taken;
     return true;
   }
   size_t size() const { std::lock_guard lock(mutex_); return keys_.size(); }
   uint64_t overflow() const { std::lock_guard lock(mutex_); return overflow_; }
+  ~Table() {
+    for (auto& c : chunks_) delete[] c.load(std::memory_order_relaxed);
+  }
 
  private:
+  static constexpr uint32_t kChunkBits = 12, kChunkSize = 1u << kChunkBits;
+  static constexpr uint32_t kChunkCount = (kMaxIds + kChunkSize - 1) >> kChunkBits;   // 4096 pointers
+  void Publish(uint32_t id, const Key& k) {   // under mutex_; id = 1-based, the next one
+    const uint32_t at = id - 1;
+    Key* chunk = chunks_[at >> kChunkBits].load(std::memory_order_relaxed);
+    if (!chunk) {
+      chunk = new Key[kChunkSize];
+      chunks_[at >> kChunkBits].store(chunk, std::memory_order_release);
+    }
+    chunk[at & (kChunkSize - 1)] = k;
+    count_.store(id, std::memory_order_release);
+  }
+  std::atomic<Key*> chunks_[kChunkCount] = {};
+  std::atomic<uint32_t> count_{0};
+  const uint64_t serial_ = NextTableSerial();
   mutable std::mutex mutex_;
   std::unordered_map<Key, uint32_t, KeyHash> ids_;
   std::vector<Key> keys_;

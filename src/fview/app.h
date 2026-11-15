@@ -41,6 +41,7 @@ struct Options {
   bool replay = false;       // headless replay like rplay
   int gpu = -1;
   uint32_t format_caps_mask = 0;  // lane 200: --format-caps-mask HEX (renderer.h)
+  uint32_t bc_decode = 1;         // S102 U1: --bc-decode N (renderer.h RendererOptions::bc_decode)
   float scale = 1.0f;
   // S101 lane 35 (the crowd's first promotion): --crowd-ours draws the crowd from the capture's scene records (needs scene\), --crowd-fault NAME plants a fault
   // (bind_pose, identity_vp, no_cards, offset), --game DIR is the game files the crowd's bodies are read from (default: <root>\game_data\extracted).
@@ -51,10 +52,20 @@ struct Options {
   int sweep_slot = -1;       // --sweep-slot N: also hash every distinct image bound at fetch slot N (12 = the shadow readers' maps)
   bool crowd_ours = false;
   std::string dump_frames, dump_dir;  // lane 155: --dump-frames 189,199 --dump-dir DIR (with --replay): the presented surface of those frames as PNG
+  // S102 G2: the output pass offline (a replay's presents drawn into offscreen images of this size; rplay has the same flags)
+  uint32_t present_w = 0, present_h = 0;   // --present-size WxH
+  int present_effect = -1;                 // --present-effect sgsr (1) | bilinear (0); -1 leaves the renderer's default (bilinear)
+  uint32_t output_cap = 0;                 // --output-cap H
+  bool output_cap_plant = false, present_bilinear = false;  // --output-cap-plant (TEST ONLY), --present-bilinear (the (c) switch)
+  std::string present_shot;                // --present-shot FILE: the last frame's presented output as PNG
+  std::string present_hash_frames;         // S102 R24-A: --present-hash-frames FILE (with --replay --present-size): one line "frame,hash" per replayed frame, FNV-1a of the PRESENTED output (the swapchain image), not of the picture
+  bool gpu_stamps = false;                 // --gpu-stamps: the per-role GPU stamps; one [fview][gpu] line with the 'output' role's mean ms at the end of a replay
+  std::string frame_times;           // S102 T17: --frame-times FILE (with --replay): one line "frame,bind_ms,render_ms,props_bytes,replace_ms" per replayed frame (bind = the hooks and the binder, render = RenderFrame: the render thread of the live sink)
   std::string hash_frames;           // S101 lane CD: --hash-frames FILE (with --replay): one line "frame,hash" per replayed frame (FNV-1a of the presented surface), for the byte-equal proofs
   bool crowd_cards = false;          // S101 lane CD: --crowd-cards (with --crowd-ours): the far cards ours (one instanced draw per person type)
   std::string crowd_members_thin_counts;   // lane 272: --crowd-members-thin-counts FILE (the cut tool's sidecar: hook_frame,site,seen,dropped,world per line)
   bool crowd_members_thin = false;   // lane 272: --crowd-members-thin: a frame whose stream holds only the first member of each mesh run is drawn from the record
+  bool crowd_members_live = false;   // S102 T13 F4b: --crowd-members-thin-live: the LIVE path: members_thin = false, member_probe = false, the binder's per-frame flag members_thin_at true on every frame the sidecar holds a tally for (the hook's skip bit)
   bool crowd_members_probe = false;  // lane 272: --crowd-members-probe: the census (class-uniformity verify + stamp probe + gate results) on the capture as it is, nothing thin
   std::string crowd_cards_thin_counts;   // lane 175: --crowd-cards-thin-counts FILE (the cut tool's sidecar: hook_frame,seen,dropped)
   bool crowd_cards_thin = false;     // lane 175: --crowd-cards-thin: a frame whose stream holds only the first card of each type's loop is drawn from the record
@@ -77,6 +88,10 @@ struct Options {
   bool circles_ours = false;   // lane 136: --circles-ours (the circle blob shadows from the scene record); faults: --replace-fault circles.NAME (bind_pose, join_by_index, no_fade, no_verify)
   std::string circles_oracle, circles_check;   // lane 136: --circles-oracle FILE.circ (tools\shadow\circles_oracle.py dump: the writer's record played from the capture's own constants); --circles-check OUT.json (lockstep stream vs circles, picture compared)
   bool small_passes_ours = false;  // lane 135: --small-passes-ours (the sweat map and skin pre-light passes); faults: --replace-fault small.NAME
+  bool own_card_bake = false, own_card_bake_none = false;   // S102 P1: --own-card-bake[=none] [--bake-fault LIST] [--bake-record-offset N]: the crowd card bake owned (card_bake_ours.h)
+  std::string own_plane_images = "220,221";   // S102 P3: with --own-plane --plane-check: the capture image ids compared in the lockstep (the plane chain's copy destinations: the mask 220, the blur result 221)
+  std::string bake_fault;
+  int bake_record_offset = 0;
   bool rim_chain_ours = false;  // lane 151: --rim-chain-ours (the rim light map's reductions and blur by our programs); faults: --replace-fault rimchain.NAME
   std::string rim_chain_check, rim_chain_images;   // lane 151: --rim-chain-check OUT.json (two sessions in lockstep: the stream vs the rim chain by our programs); --rim-chain-images 222,223,224,225
   std::string rim_chain_override;   // lane 151: --rim-chain-override FROM:TO (capture image ids): in BOTH sessions the rim reductions' input FROM is read as TO (a structured image: tests the reduction's logic on dark and lit texels)

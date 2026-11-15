@@ -26,6 +26,7 @@
 // docs\systems\music.md "Per-wrestler choices (lane 309)".
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
@@ -418,7 +419,7 @@ inline bool TryOpen(uint8_t* base, uint32_t lr) {
                   current, seq, lr);
       // The tags and covers: read off every game and UI thread, handed over one by one (the list may shift meanwhile: by path).
       auto post = hh.post_ui;
-      std::thread([songs, gen, post] {
+      std::thread([songs, gen, post] { wwe2k14::NameThread(L"music_pick");
         try {  // nothing may escape a worker (std::terminate): the rows just keep their file names and the record
           size_t art_total = 0;
           for (const auto& path : *songs) {

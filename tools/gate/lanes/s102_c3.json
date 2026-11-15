@@ -1,0 +1,357 @@
+{
+ "owner": "S102 lane C3 (the copies that exist only because the 360 had eDRAM): shadow_direct (copy_alias.h `sd` rule + binder.h facts, switch wwe2k14_rdr_shadow_direct), frame_direct (the full-size rule at level 3 under its own switch and census, wwe2k14_rdr_frame_direct), their table / cvar / live.cpp / fview / rplay wiring, tools/c3/*, docs/renderer/COPIES_LEFT.md section 5. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {
+   "switch": "wwe2k14_rdr_shadow_direct",
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [
+    0.1,
+    0.4
+   ],
+   "note": "ESTIMATE from counts, under the PLAYERS' default (half-rate shadows on): the half check reports what it takes per frame (stale-read violations 0). Small copies: 14 us a copy step on the 4090 (G12's census), 57 us averaged on the Surface. A Surface row decides"
+  },
+  {
+   "switch": "wwe2k14_rdr_frame_direct",
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [
+    0.5,
+    1.5
+   ],
+   "note": "ESTIMATE from counts and copy size: 5 of Bryan's 10 full-size (1280x720) copies a frame go (the scene colour / depth resolves into images 2 / 5, twice, and the Present's copy into image 1), 4.6 MPix a frame, 3.7 MB read + 3.7 MB written per copy on the Surface's shared memory; copies and barriers measured by the counts check (G12's copy batch on in both arms). The same take as G8's level 3 under its own switch. A Surface row decides"
+  }
+ ],
+ "note": "wiring = every link of both switches, each removed in a text copy must fail the lint; core / default / low / batch / g11 / match / brock = fview headless, the presented picture's hash of EVERY frame byte-equal with the switches on, validation errors AND exit code read, the taken counts a frame from the census lines; plants = a reader still on the dropped copy's destination (shadow, scene copies), the Present reading a stale image, the shadow readers re-pointed on a half-rate frame, each CAUGHT and each applied (it was taking copies); counts = rplay copies / passes / barriers / pipeline binds a frame (copy batch on in every arm): copies fall by what was taken, passes, barriers and binds do not rise.",
+ "checks": [
+  {
+   "name": "s102_c3.wiring",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "wiring"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_c3.unit",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "unit"
+   ],
+   "timeout_s": 900
+  },
+  {
+   "name": "s102_c3.half",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "half"
+   ],
+   "timeout_s": 3400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.p4",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "p4"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.readback",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "readback"
+   ],
+   "timeout_s": 3400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.partprobe",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "partprobe"
+   ],
+   "timeout_s": 3400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.rplayval",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "rplayval"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/rplay.exe"
+   ],
+   "needs": [
+    "out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.core",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "core"
+   ],
+   "timeout_s": 3400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.default",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "default"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.low",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "low"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.batch",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "batch"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.g11",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "g11"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.plants",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "plants"
+   ],
+   "timeout_s": 3400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.match",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "match"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.brock",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "brock"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/lane86/brock/capture",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.counts",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/c3/c3_check.py",
+    "--root",
+    ".",
+    "--only",
+    "counts"
+   ],
+   "timeout_s": 3000,
+   "exes": [
+    "out/renderer/dev/rplay.exe"
+   ],
+   "needs": [
+    "out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_c3.game_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/game_syntax.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "src/renderer_adapter/copy_alias.h",
+    "src/renderer_adapter/binder.h",
+    "src/renderer_adapter/live.cpp",
+    "src/renderer_adapter/rdr_switches.h",
+    "src/renderer_adapter/reader.h"
+   ]
+  }
+ ]
+}

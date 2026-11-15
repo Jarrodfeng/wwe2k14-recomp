@@ -1,3 +1,4 @@
+# S102 K4: D3_SKIP=every2 / every3 on a capture recorded live (J1) needs a teach list (D3_SKIP_TEACH_OUT on a no-skip run, D3_SKIP_TEACH_IN on the skip arms), else the ring is never learned and pictures are not a baseline: SKIP_COST.md finding 8. fview prints "WARN K4" when it is missing.
 #!/usr/bin/env python3
 """Lane 229 (Ring D3 R3, INERT; docs/renderer/SKIP_GAME_WORK_MAP.md 16.8): the ring class's D3 chain through the REAL binder on the kept captures that carry ring draws, 0 game runs.
 

@@ -99,7 +99,7 @@ def main():
         scenes.append(('all', pts[0][0] - 1, pts[-1][0], None))
     print(f'{pc}: {len(rows)} samples; RAPL divisor {a.div:g}')
     print(f'{"scene":14s} {"s":>5s} {"frames":>6s} {"fps":>6s} {"PKG W":>6s} {"cores":>6s} {"GPU W":>6s} {"DRAM":>6s} '
-          f'{"mJ/frm":>7s} {"CPU%":>5s} {"MHz":>5s} {"3D%":>5s} {"maxC":>5s} {"self":>5s}')
+          f'{"mJ/frm":>7s} {"CPU%":>5s} {"perf%":>5s} {"3D%":>5s} {"maxC":>5s} {"self":>5s}')
     for n, t1, t2, fr in scenes:
         rs = [r for t, r in pts if t - 1.0 >= t1 and t <= t2]   # whole seconds inside the scene
         if not rs:
@@ -127,7 +127,7 @@ def main():
         maxc = max(temps) - 273.15 if temps and max(temps) > 200 else (max(temps) if temps else None)
         print(f'{n[:14]:14s} {secs_n:5d} {str(fr) if fr is not None else "-":>6s} {f(fps, "{:6.1f}")} {f(pkg)} '
               f'{f(mean(rs, "rapl_pp0", a.div))} {f(mean(rs, "rapl_pp1", a.div))} {f(mean(rs, "rapl_dram", a.div))} '
-              f'{f(mj, "{:7.0f}")} {f(mean(rs, "cpu_utility"), "{:5.0f}")} {f(mean(rs, "cpu_freq_mhz"), "{:5.0f}")} '
+              f'{f(mj, "{:7.0f}")} {f(mean(rs, "cpu_utility"), "{:5.0f}")} {f(mean(rs, "cpu_perf"), "{:5.0f}")} '
               f'{f(mean(rs, "gpu3d_pct"), "{:5.0f}")} {f(maxc, "{:5.1f}")} {f(mean(rs, "self_cpu_ms"), "{:5.0f}")}')
 
 

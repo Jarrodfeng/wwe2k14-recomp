@@ -1,0 +1,81 @@
+# ReXGlue SDK changes for WWE 2K14 (session102-cvar-repeat-parse): 1903e00d..98851b18 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits:
+#  98851b1 S102 cvar-parse: repeated string switch takes the last value (CLI11 Throw policy dropped every later cvar); parse error logged in FinalizeInit
+diff --git a/src/core/cvar.cpp b/src/core/cvar.cpp
+index 965dd10f..7fe5f80b 100644
+--- a/src/core/cvar.cpp
++++ b/src/core/cvar.cpp
+@@ -37,6 +37,8 @@ std::mutex g_mutex;
+ // Set once cvar::Init has parsed the command line; later registrations are
+ // from runtime-loaded modules and drain pending values.
+ std::atomic<bool> g_init_done = false;
++// S102 cvar-parse: a command line parse error seen in Init (logging may not be up yet); FinalizeInit logs it.
++std::string g_init_parse_error;
+ 
+ // wwe2k14 patch (Session 77): value changes, for ChangeCount().
+ std::atomic<uint64_t> g_change_count{0};
+@@ -696,10 +698,13 @@ std::vector<std::string> Init(int argc, char** argv) {
+           },
+           entry.description);
+     } else {
++      // S102 cvar-parse: a repeated switch is legal and the LAST one wins. CLI11's default policy (Throw) made a
++      // repeated string switch throw in the callback stage, which skipped every cvar registered after it.
+       app.add_option_function<std::string>(
+-          "--" + entry.name,
+-          [&entry](const std::string& val) { ApplyFromSource(entry, val, Source::kCommandLine); },
+-          entry.description);
++              "--" + entry.name,
++              [&entry](const std::string& val) { ApplyFromSource(entry, val, Source::kCommandLine); },
++              entry.description)
++          ->multi_option_policy(CLI::MultiOptionPolicy::TakeLast);
+     }
+   }
+ 
+@@ -709,6 +714,8 @@ std::vector<std::string> Init(int argc, char** argv) {
+     // TODO(tomc): dumb workaround for the stupid chicken and its egg.
+     //             dont call rex logging funcs here for now.
+     fprintf(stderr, "cvar: CLI11  parse error: %s\n", e.what());
++    // S102 cvar-parse: never silent. Switches after the failing one may not be applied; FinalizeInit logs this.
++    g_init_parse_error = e.what();
+   }
+ 
+   // Stash unrecognized --options for cvars that register later. Supported
+@@ -783,6 +790,9 @@ void ApplyEnvironment() {
+ void FinalizeInit() {
+   std::lock_guard lock(g_mutex);
+   g_finalized = true;
++  if (!g_init_parse_error.empty()) {
++    REXLOG_ERROR("[cvar] command line parse error: {}; switches after it may not be applied", g_init_parse_error);
++  }
+   for (const auto& [name, values] : GetPendingValuesStorage()) {
+     (void)values;
+     REXLOG_WARN("Config: unknown cvar '{}'", name);
+diff --git a/tests/unit/core/cvar_test.cpp b/tests/unit/core/cvar_test.cpp
+index 03a12cb3..98680fd7 100644
+--- a/tests/unit/core/cvar_test.cpp
++++ b/tests/unit/core/cvar_test.cpp
+@@ -752,3 +752,24 @@ TEST_CASE("cvar InvokeCommand dispatches commands", "[cvar]") {
+     CHECK_FALSE(rex::cvar::InvokeCommand("does_not_exist", ""));
+   }
+ }
++
++// S102 cvar-parse: a repeated string switch used to make CLI11 throw (MultiOptionPolicy::Throw) in the callback stage,
++// which skipped every cvar registered after it. Declaration order = registration order: B before C.
++REXCVAR_DEFINE_BOOL(test_rep_a, false, "Test", "Repeat test A");
++REXCVAR_DEFINE_STRING(test_rep_b, "def", "Test", "Repeat test B");
++REXCVAR_DEFINE_STRING(test_rep_c, "def", "Test", "Repeat test C");
++
++TEST_CASE("cvar repeated string switch: last wins, later switches still applied", "[cvar]") {
++  rex::cvar::testing::ResetAllForTesting();
++  char argv0[] = "cvar_test";
++  char a1[] = "--test_rep_a=true";
++  char a2[] = "--test_rep_b=x";
++  char a3[] = "--test_rep_b=y";
++  char a4[] = "--test_rep_c=z";
++  char* argv[] = {argv0, a1, a2, a3, a4};
++  rex::cvar::Init(5, argv);
++  CHECK(REXCVAR_GET(test_rep_a) == true);
++  CHECK(REXCVAR_GET(test_rep_b) == "y");
++  CHECK(REXCVAR_GET(test_rep_c) == "z");
++  rex::cvar::testing::ResetAllForTesting();
++}

@@ -20,6 +20,7 @@
 // Replays and re-shoots keep the original theme (the replay modes are left alone).
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
@@ -203,7 +204,7 @@ inline void Post(Command c) {
   if (!g_worker_started) {
     g_worker_started = true;
     g_wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    std::thread(Worker).detach();
+    std::thread([] { wwe2k14::NameThread(L"entr_music"); Worker(); }).detach();
   }
   g_queue.push_back(std::move(c));
   SetEvent(g_wake);

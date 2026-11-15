@@ -44,14 +44,18 @@ struct World {
   }
   // One crowd draw run: `types` loops of `per_type` cards each. Returns {card draws recorded, card draws dropped}.
   struct Out { uint32_t recorded = 0, dropped = 0; bool proof = false; };
-  Out Run(ct::Mode mode, uint32_t types, uint32_t per_type) {
+  // flip_after >= 0: the switch (the cvar) changes to flip_to before that type loop, INSIDE the run. The shipped decider took the mode at BeginRun and keeps it for the run; plant `mode_per_card` re-reads it at every card.
+  Out Run(ct::Mode mode, uint32_t types, uint32_t per_type, int flip_after = -1, ct::Mode flip_to = ct::Mode::Off) {
     Out o;
-    dec.BeginRun(policy, counters, runs, gate, now);
+    ct::Mode cur = mode;
+    dec.BeginRun(policy, counters, runs, gate, now, mode);
     o.proof = dec.proof_run;
     for (uint32_t t = 0; t < types; ++t) {
+      if (int(t) == flip_after) cur = flip_to;
       dec.BeginTypeLoop(counters);
       for (uint32_t k = 0; k < per_type; ++k) {
-        const bool drop = Plant("drop_all") ? (mode != ct::Mode::Off) : dec.DropCardDraw(mode, policy, gate, counters, now);
+        if (Plant("mode_per_card")) dec.mode = cur;
+        const bool drop = Plant("drop_all") ? (mode != ct::Mode::Off) : dec.DropCardDraw(policy, gate, counters, now);
         ++(drop ? o.dropped : o.recorded);
       }
     }
@@ -79,6 +83,60 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--plant" && i + 1 < argc) g_plant = argv[++i];
 
+  // 0b. S102 T13 review F1 / F2 (T2's flag): the binder's per-frame flag is the hook's run MODE of that guest frame (the CountRing skip bit), never the switch alone and never sticky.
+  {
+    ct::CountRing ring;
+    bool sticky = false;   // the old g_cut_seen
+    for (uint64_t f = 80; f < 150; ++f) {
+      const bool cut_on = f >= 100 && f <= 110;
+      const ct::Mode m = ct::ResolveMode(0, cut_on, 0, 0);
+      if (Plant("flag_from_cut") ? cut_on : ct::BinderFlagCards(m)) ring.MarkSkip(f);
+      if (cut_on) sticky = true;
+      ring.Note(f, false);
+    }
+    const auto flag_at = [&](uint64_t f) { return Plant("sticky_cut_seen") ? sticky : ring.SkipAt(f); };
+    CHECK(flag_at(106), "cards: the flag is true inside the cut window (guest frame 106)");
+    CHECK(!flag_at(140), "cards: the flag is FALSE after the window (guest frame 140)");
+    CHECK(!ct::BinderFlagCards(ct::ResolveMode(0, true, 1, 0)) && !(Plant("flag_from_cut") ? true : ct::BinderFlagCards(ct::ResolveMode(0, true, 0, 2))), "cards: the cut on with the legacy runs path or bake skip 2 is Census: no binder flag");
+  }
+  // 0. S102 T2: the switch. Only the cut switch gives Skip, and the exclusions (legacy runs path, bake skip =2) and the old =2 all fall back to census / off.
+  {
+    const bool ex = !Plant("exclusions_ignored");
+    CHECK(ct::ResolveMode(0, false, 0, 0, ex) == ct::Mode::Off, "switch off, census off: Off");
+    CHECK(ct::ResolveMode(2, false, 0, 0, ex) == ct::Mode::Census, "the old crowd_card_thin=2 alone is census (the cut is --wwe2k14_rdr_card_cut)");
+    CHECK(ct::ResolveMode(0, true, 0, 0, ex) == ct::Mode::Skip, "cut on: Skip");
+    CHECK(ct::ResolveMode(0, true, 1, 0, ex) == ct::Mode::Census, "cut on with the legacy scene_crowd runs path: census, never Skip");
+    CHECK(ct::ResolveMode(0, true, 0, 2, ex) == ct::Mode::Census, "cut on with the bake skip =2: census, never Skip");
+    CHECK(ct::ResolveMode(0, true, 0, 1, ex) == ct::Mode::Skip, "bake skip census (=1) does not stop the cut");
+  }
+  // 0b. S102 T2: a frame ours has no record for. The hook thinned it (proven gate), the binder reports a HOLE: the gate unproves at once and the NEXT runs keep every card (the game's draws are the fallback).
+  {
+    World w;
+    w.Warm(4);
+    w.runs.store(1);
+    CHECK(w.Run(ct::Mode::Skip, 20, 5).dropped == 80, "proven: the cut is on");
+    w.gate.Report(ct::Kind::ThinHole, w.now);   // the binder had no record for that thinned frame
+    w.now += 16;
+    w.runs.store(1);
+    const World::Out o = w.Run(ct::Mode::Skip, 20, 5);
+    CHECK(o.dropped == 0 && o.recorded == 100, "after a missing record the next run keeps every card (fallback to the game's draws)");
+    w.Warm(3);
+    w.runs.store(1);
+    CHECK(w.Run(ct::Mode::Skip, 20, 5).dropped == 80, "and three clean bound frames later the cut is back");
+  }
+  // 0c. S102 T2 F1: a flip INSIDE a crowd run (S0-4's on / off / on routes) changes the next run, never part of this one: a run is all thin or all full, so the per-frame tally stays exact.
+  {
+    World w;
+    w.Warm(4);
+    w.runs.store(1);
+    const World::Out a = w.Run(ct::Mode::Skip, 20, 5, 10, ct::Mode::Off);   // switched off halfway
+    CHECK(a.dropped == 80 && a.recorded == 20, "a switch turned off inside a run: the run stays thin to its end (tally exact)");
+    World w2;
+    w2.Warm(4);
+    w2.runs.store(1);
+    const World::Out b = w2.Run(ct::Mode::Off, 20, 5, 10, ct::Mode::Skip);   // switched on halfway
+    CHECK(b.dropped == 0 && b.recorded == 100, "a switch turned on inside a run: the run stays full to its end");
+  }
   // 1. Off: nothing counted, nothing dropped.
   {
     World w;
@@ -202,11 +260,11 @@ int main(int argc, char** argv) {
   {
     World w;
     w.runs.store(1);
-    w.dec.BeginRun(w.policy, w.counters, w.runs, w.gate, w.now);   // cold gate: the run is full
+    w.dec.BeginRun(w.policy, w.counters, w.runs, w.gate, w.now, ct::Mode::Skip);   // cold gate: the run is full
     uint32_t dropped = 0;
     for (int k = 0; k < 4; ++k) {
       w.dec.BeginTypeLoop(w.counters);
-      for (int i = 0; i < 5; ++i) dropped += w.dec.DropCardDraw(ct::Mode::Skip, w.policy, w.gate, w.counters, w.now);
+      for (int i = 0; i < 5; ++i) dropped += w.dec.DropCardDraw(w.policy, w.gate, w.counters, w.now);
       if (k == 1) for (int j = 0; j < 4; ++j) w.gate.Report(ct::Kind::FullOk, w.now);   // the gate becomes proven mid-run
     }
     CHECK(dropped == 0, "a gate that becomes proven mid-run does not thin the rest of that run");

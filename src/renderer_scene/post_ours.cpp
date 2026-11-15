@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../renderer/gpu_small.h"   // S102 R24-E
 #include "../renderer/problem.h"
 #include "../renderer/shaders/spv/fx_registry.h"
 
@@ -102,6 +103,7 @@ uint32_t PostOurs::Inject(rdr_adapter::PostInject& in) {
   const rdr::ImageId out = map(d.out);
   PostParams p = d.params;
   p.far_blur = d.far_blur ? map(d.far_blur) : rdr::kNoImage;
+  p.depth_clamped = d.null_depth || (in.formats && d.depth && d.depth < in.image_count && rdr::GpuSmallDepthClamped(in.formats[d.depth]));   // S102 R24-E: the depth the combine reads is in [0, 1]
   if (d.t2_default_tables) {   // lane 140 planted t2_default_tables
     const PostParams def = DefaultPostParams(1280, 720, true);
     std::memcpy(p.bloom_t2_offsets, def.bloom_t2_offsets, sizeof p.bloom_t2_offsets);

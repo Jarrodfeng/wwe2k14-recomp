@@ -4,6 +4,7 @@
 // B1 (read-before-write and kUsageLasting guards), B2 (d3_blind).
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 #include "lasting_prune.h"
@@ -186,7 +187,156 @@ static void TestD3Blind() {   // B2
   CHECK(st.object_passes == 1 && st.object_passes_kept == 1 && !st.d3_blind());
 }
 
-int main() {
+// S102 K2 (R16 piece C): the model-part group rule is optional. A frame with three object passes: A feeds a lasting copy, B and C feed nothing. With the group rule all three are kept (the shipped lasting bind);
+// with group = false only A is: B and C are counted as left out although another object pass was kept, kept_mask marks exactly A's ops, grouped_kept is 0. `half` (the planted twin, test only) applies the rule to about half of the
+// object passes (a hash): it keeps one of B / C and the numbers differ from the honest ones, which this test must see (run with --plant-half: it must FAIL).
+static int g_plant_half = 0;
+static void TestNoGroup() {
+  Syn s;
+  s.SetTargets(10); s.DrawOp({}, 0x1111);   // A: an object pass feeding the lasting copy
+  s.CopyOp(10, 20, true);
+  s.SetTargets(11); s.DrawOp({}, 0x2222);   // B
+  s.SetTargets(12); s.DrawOp({}, 0x3333);   // C
+  s.SetTargets(13); s.DrawOp();             // a plain pass nothing needs
+  const LoadedFrame f = s.Frame();
+  std::vector<Op> out, dropped;
+  lasting::Stats st;
+  lasting::Pruner grouped;
+  grouped.Select(f, s.seed, out, dropped, st, false);
+  CHECK(st.object_passes == 3 && st.object_passes_kept == 3 && st.grouped_kept == 2 && st.object_passes_dropped == 0 && out.size() == 7);
+  lasting::Pruner nog;
+  nog.group = false;
+  nog.group_plant = g_plant_half;
+  nog.Select(f, s.seed, out, dropped, st, false);
+  CHECK(st.object_passes == 3 && st.object_passes_kept == 1 && st.grouped_kept == 0 && st.object_passes_dropped == 2);
+  CHECK(out.size() == 3 && nog.kept_mask.size() == f.ops.count);
+  CHECK(nog.kept_mask[0] && nog.kept_mask[1] && nog.kept_mask[2] && !nog.kept_mask[3] && !nog.kept_mask[4] && !nog.kept_mask[5] && !nog.kept_mask[6] && !nog.kept_mask[7]);
+  CHECK(!st.d3_blind());
+  std::printf("nogroup: object passes kept %u of %u, left out %u, grouped %u (the group rule keeps all 3)\n", st.object_passes_kept, st.object_passes, st.object_passes_dropped, st.grouped_kept);
+  // no object pass kept: blind, with or without the group rule
+  Syn t;
+  t.SetTargets(10); t.DrawOp({}, 0x1111);
+  t.SetTargets(12); t.DrawOp();
+  t.CopyOp(12, 13, true);
+  const LoadedFrame g = t.Frame();
+  nog.group_plant = 0;
+  nog.Select(g, t.seed, out, dropped, st, false);
+  CHECK(st.d3_blind() && st.object_passes_dropped == 0);
+}
+
+// S102 K2: without the group rule an object pass that draws to a LASTING render target (usage kUsageLasting: a bake whose product a later frame reads straight from the target, no copy) is lasting work: kept as a seed.
+// J1 found it (fview, drawn pictures differed from frame 204 on): the group rule had kept such passes by accident. plant_no_lasting_target (run with --plant-lasting) must FAIL this test.
+static int g_plant_lasting = 0;
+static void TestLastingTarget() {
+  Syn s;
+  s.SetTargets(30); s.DrawOp({}, 0x4444);   // an object pass drawing to image 30 (lasting)
+  s.SetTargets(31); s.DrawOp({}, 0x5555);   // an object pass drawing to image 31 (not lasting)
+  s.SetTargets(12); s.DrawOp();             // a plain pass
+  s.CopyOp(12, 13, true);                   // the only lasting copy: it needs the plain pass
+  std::vector<ImageRecord> images(40);
+  for (uint32_t i = 0; i < images.size(); ++i) images[i].id = i + 1;
+  images[29].usage = uint8_t(rdr::kUsageLasting | rdr::kUsageTarget);
+  const LoadedFrame f = s.Frame();
+  std::vector<Op> out, dropped;
+  lasting::Stats st;
+  lasting::Pruner p;
+  p.group = false;
+  p.images = &images;
+  p.lasting_targets = true;
+  p.plant_no_lasting_target = g_plant_lasting != 0;
+  p.Select(f, s.seed, out, dropped, st, false);
+  CHECK(st.lasting_target_passes == 1 && st.object_passes == 2 && st.object_passes_kept == 1 && st.object_passes_dropped == 1 && !st.d3_blind());
+  CHECK(p.kept_mask[0] && p.kept_mask[1] && !p.kept_mask[2] && !p.kept_mask[3]);   // the lasting-target pass is kept, the other object pass is not
+  lasting::Pruner grouped;   // with the group rule the counter stays 0 and nothing here feeds an object pass
+  grouped.images = &images;
+  grouped.Select(f, s.seed, out, dropped, st, false);
+  CHECK(st.lasting_target_passes == 0 && st.object_passes_kept == 0);   // (no object pass feeds the copy, so the group rule keeps none: the shipped bind drops the bake here too; it kept it only when ANOTHER object pass was kept)
+  lasting::Pruner off_default;   // the sub-switch is off by default: the pass is not a seed
+  off_default.group = false;
+  off_default.images = &images;
+  off_default.Select(f, s.seed, out, dropped, st, false);
+  CHECK(st.lasting_target_passes == 0 && st.object_passes_kept == 0);
+  lasting::Pruner none_images;   // no image table: no pass counts as lasting
+  none_images.group = false;
+  none_images.lasting_targets = true;
+  none_images.Select(f, s.seed, out, dropped, st, false);
+  CHECK(st.lasting_target_passes == 0 && st.object_passes_kept == 0);
+  std::printf("lasting target: the object pass drawing to image 30 (lasting) is kept as a seed without the group rule, the one drawing to image 31 is not\n");
+}
+
+// S102 K2 (review F1): a kept pass's own attachments are inputs. A writes depth D (and colour T1); B draws into T2 with depth D and no clear, and its output is copied to a lasting destination: without the group rule
+// A must still be kept (B depth-tests against what A wrote). When B clears colour and depth in full first, A is not needed. --plant-attach (plant_no_attach) must FAIL the first case.
+static int g_plant_attach = 0;
+static void TestAttachmentLoad() {
+  for (int with_clear = 0; with_clear < 2; ++with_clear) {
+    Syn s;
+    s.SetTargets(20); s.targets.back().depth.image = rdr::ImageId(50); s.DrawOp({}, 0x6666);   // A: colour 20, depth 50
+    s.SetTargets(21); s.targets.back().depth.image = rdr::ImageId(50);                         // B: colour 21, the same depth
+    if (with_clear) {
+      rdr::ClearOp cl;
+      cl.flags = uint8_t(rdr::kClearColor | rdr::kClearDepth | rdr::kClearStencil);
+      cl.full = 1;
+      s.clears.push_back(cl);
+      s.ops.push_back({OpKind::Clear, uint32_t(s.clears.size() - 1)});
+      s.seed.push_back(0);
+    }
+    s.DrawOp({}, 0x7777);
+    s.CopyOp(21, 22, true);
+    const LoadedFrame f = s.Frame();
+    std::vector<Op> out, dropped;
+    lasting::Stats st;
+    lasting::Pruner p;
+    p.group = false;
+    p.plant_no_attach = g_plant_attach != 0;
+    p.Select(f, s.seed, out, dropped, st, false);
+    const bool a_kept = p.kept_mask[0] != 0;
+    if (with_clear) CHECK(!a_kept);   // B clears its attachments in full first: A feeds nothing
+    else CHECK(a_kept);               // no clear: B depth-tests against A's depth, A is a load dependency
+  }
+  std::printf("attachment load: a kept pass without a clear pulls in the earlier writer of its depth; with a full clear it does not\n");
+}
+
+static void TestSwitchMidRun() {   // S102 S0-4 (J, I)
+  lasting::CopyStreaks st;
+  st.by_image = false;
+  bool per_frame = false;
+  for (int f = 0; f < 6; ++f) {   // one rectangle shifting by 8 px a frame, the image rule OFF: nothing is per-frame by the image
+    Syn s;
+    s.CopyOp(5, 41, true, 128 + f * 8, 72, 256, 368);
+    const LoadedFrame fr = s.Frame();
+    st.Note(fr);
+    per_frame |= st.PerFrame(fr.copies[0]);
+  }
+  CHECK(!per_frame);
+  st.by_image = true;   // flipped on mid-run: the bookkeeping kept running, so the very next frame already counts the streak
+  Syn s;
+  s.CopyOp(5, 41, true, 128 + 6 * 8, 72, 256, 368);
+  const LoadedFrame fr = s.Frame();
+  st.Note(fr);
+  CHECK(st.PerFrame(fr.copies[0]));
+  // (I) the owed copies are forgotten when the catch-up switch is off
+  lasting::CopyStreaks st2;
+  for (int f = 0; f < 4; ++f) {
+    Syn s2;
+    s2.CopyOp(5, 42, true, 0, 0, 64, 64);
+    st2.Note(s2.Frame());
+  }
+  for (auto& kv : st2.copy_seen) kv.second.missed = 3;
+  st2.ClearMissed();
+  bool any = false;
+  for (auto& kv : st2.copy_seen) any |= kv.second.missed != 0;
+  CHECK(!any && !st2.copy_seen.empty());
+}
+
+int main(int argc, char** argv) {
+  for (int i = 1; i < argc; ++i)
+    if (std::string(argv[i]) == "--plant-half") g_plant_half = 1;
+    else if (std::string(argv[i]) == "--plant-lasting") g_plant_lasting = 1;
+    else if (std::string(argv[i]) == "--plant-attach") g_plant_attach = 1;   // S102 K2 (review F1): the run must FAIL   // S102 K2: the J1 failure (an object pass drawing to a lasting target is dropped): the run must FAIL   // S102 K2: the planted twin (the group rule half removed): the run must FAIL
+  TestNoGroup();
+  TestLastingTarget();
+  TestAttachmentLoad();
+  TestSwitchMidRun();
   TestChain();
   TestRaster();
   TestGuards();

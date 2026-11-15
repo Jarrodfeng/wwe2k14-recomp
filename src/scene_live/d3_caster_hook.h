@@ -70,6 +70,8 @@ class CasterScope {
   CasterScope(PPCContext& ctx, uint8_t* base, PartScope& t_part, uint8_t pass, bool recorded, uint32_t tracker_ordinal, uint64_t frame) {   // frame = the ONE read of g_guest_frame the entry hook made (tracker and decision agree)
     if (!d3::g_caster_hook_on.load(std::memory_order_acquire)) return;   // pairs with the release stores of the live start-up and the gate's latch
     if (pass < 1 || pass > 3) return;
+    d3t::HookSample hook_sample;   // S102 K3 review F5
+    const bool idle = skips_auto::HookIdle();   // review F5: nothing to skip: no PredictPath, no mark Acquire (the ledger still runs)
     if (t_copen.active || t_open.active) {   // a nested call: never decided, never counted
       d3::g_cstats.nested.fetch_add(1, std::memory_order_relaxed);
       return;
@@ -82,7 +84,7 @@ class CasterScope {
     in.state_readable = recorded, in.state_count = 0;   // the record is the tracker's (written before this decision); an entry it did not record cannot back a marker
     in.now_ms = d3::NowMs();
     in.proof_skew = d3::kHookToStreamOffset;
-    in.path = d3::PredictPathCaster([base](uint32_t a, uint32_t& v) {
+    in.path = idle ? d3::CachePath::Unreadable : d3::PredictPathCaster([base](uint32_t a, uint32_t& v) {
       if (!wwe2k14::GuestWordReadableFast(a)) return false;
       v = Ld32(base, a);
       return true;
@@ -90,7 +92,7 @@ class CasterScope {
     d3::g_cstats.calls[pass].fetch_add(1, std::memory_order_relaxed);
     d3::g_cstats.path[pass][uint8_t(in.path)].fetch_add(1, std::memory_order_relaxed);
     if (!recorded) d3::g_cstats.no_record[pass].fetch_add(1, std::memory_order_relaxed);
-    const std::shared_ptr<const d3::MarkSet> marks = d3::g_cmarks.Acquire();
+    const std::shared_ptr<const d3::MarkSet> marks = idle ? nullptr : d3::g_cmarks.Acquire();
     ++g_ccalls;
     call_ = d3::BeginGuestCall(g_cobjs, in, marks.get(), d3::g_cpackets, d3::g_ctally, d3::g_cgate);
     if (call_.out.why == d3::Why::ProofFrame && call_.out.eligible && marks && marks->Has(d3::MarkKey(in.object, call_.out.ordinal))) d3::g_cstats.proof_markable[pass].fetch_add(1, std::memory_order_relaxed);   // lane 268: a MARKED object's call lost to a proof frame (the census's "proof frame" counts every object's)

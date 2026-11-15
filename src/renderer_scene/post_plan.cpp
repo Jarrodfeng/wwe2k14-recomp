@@ -8,6 +8,7 @@
 
 #include "../renderer/shaders/spv/fx_registry.h"
 #include "../renderer_adapter/capture_reader.h"
+#include "../renderer_adapter/plan_memo.h"  // S102 R23-P
 
 namespace rdr_scene {
 namespace {
@@ -81,18 +82,76 @@ bool ReadStreamChain(const rdr_adapter::CaptureReader& cap, const rdr_adapter::L
   return ReadStreamChain(size, f, out, error);
 }
 
-bool ReadStreamChain(const ChainImageSize& size, const rdr_adapter::LoadedFrame& f, StreamChain& out, std::string& error) {
+namespace {
+
+// S102 R23-P (plan_memo.h kPostChain): the registry answers "which variant is this pixel shader" for ~1250 draws a frame, nearly all of them the same few hundred shaders: a direct-mapped cache in front of
+// the hash table (the registry never changes after it is built, so an entry never goes stale). The planted fault keys the slot by the low 8 bits of the hash and trusts it without comparing the hash.
+struct PsCache {
+  uint64_t hash[512] = {};
+  int32_t idx[512] = {};
+  uint8_t used[512] = {};
+};
+
+// Equality of two reads of one frame (the verify mode and its plants): every field the plan reads.
+bool SameChain(const StreamChain& a, const StreamChain& b, std::string& why) {
+  char buf[200];
+  if (a.named != b.named || a.later_draws != b.later_draws || a.draws_in_frame != b.draws_in_frame) { std::snprintf(buf, sizeof buf, "frame facts differ (named %d/%d, later %u/%u)", a.named, b.named, a.later_draws, b.later_draws); why = buf; return false; }
+  if (a.draws.size() != b.draws.size()) { std::snprintf(buf, sizeof buf, "chain draws %zu / %zu", a.draws.size(), b.draws.size()); why = buf; return false; }
+  for (size_t i = 0; i < a.draws.size(); ++i) {
+    const ChainDraw &x = a.draws[i], &y = b.draws[i];
+    if (x.kind != y.kind || x.draw != y.draw || x.op != y.op || x.target != y.target || x.target_w != y.target_w || x.target_h != y.target_h || x.site != y.site || x.ps_variant != y.ps_variant ||
+        x.vs_patched_hash != y.vs_patched_hash || x.slots.size() != y.slots.size() || std::memcmp(x.regs, y.regs, sizeof x.regs) != 0) { std::snprintf(buf, sizeof buf, "chain draw %zu (draw %u) differs", i, x.draw); why = buf; return false; }
+    for (size_t s = 0; s < x.slots.size(); ++s) {
+      const ChainSlot &p = x.slots[s], &q = y.slots[s];
+      if (p.slot != q.slot || p.image != q.image || p.filter != q.filter || p.addr_u != q.addr_u || p.addr_v != q.addr_v || p.writer != q.writer) {
+        std::snprintf(buf, sizeof buf, "chain draw %zu slot %zu: writer %d / %d", i, s, int(p.writer), int(q.writer)); why = buf; return false;
+      }
+    }
+  }
+  if (a.copies.size() != b.copies.size()) { why = "copies differ in number"; return false; }
+  for (size_t i = 0; i < a.copies.size(); ++i)
+    if (a.copies[i].op != b.copies[i].op || a.copies[i].src != b.copies[i].src || a.copies[i].dst != b.copies[i].dst) { why = "a copy differs"; return false; }
+  return true;
+}
+
+bool ReadStreamChainImpl(const ChainImageSize& size, const rdr_adapter::LoadedFrame& f, StreamChain& out, std::string& error, bool fast) {
   out = StreamChain{};
   const Registry& reg = Reg();
   out.draws_in_frame = f.draws.count;
   out.named = f.origins.count == f.draws.count && f.draws.count != 0;
   // which draws are chain draws: a post quad's vertex program + a chain pixel program (the effect), found without names; the call site is only recorded
-  std::vector<int8_t> chain(f.draws.count, 0);
-  std::vector<ChainKind> kind(f.draws.count, ChainKind::Count);
-  std::vector<int> ps_var(f.draws.count, -1);
+  std::vector<int8_t> chain_l;
+  std::vector<ChainKind> kind_l;
+  std::vector<int> ps_var_l;
+  std::vector<uint32_t> draw_op_l;
+  static thread_local std::vector<int8_t> chain_t;   // (the fast path keeps its scratch: the vectors are assigned, not allocated, every frame)
+  static thread_local std::vector<ChainKind> kind_t;
+  static thread_local std::vector<int> ps_var_t;
+  static thread_local std::vector<uint32_t> draw_op_t;
+  static thread_local PsCache cache;
+  std::vector<int8_t>& chain = fast ? chain_t : chain_l;
+  std::vector<ChainKind>& kind = fast ? kind_t : kind_l;
+  std::vector<int>& ps_var = fast ? ps_var_t : ps_var_l;
+  std::vector<uint32_t>& draw_op = fast ? draw_op_t : draw_op_l;
+  chain.assign(f.draws.count, 0);
+  kind.assign(f.draws.count, ChainKind::Count);
+  ps_var.assign(f.draws.count, -1);
+  uint64_t cache_hits = 0, cache_misses = 0, labels_skipped = 0, labels_made = 0;
+  const bool plant_low_bits = fast && rdr_adapter::plan_memo::Plant(2);
   for (uint32_t i = 0; i < f.draws.count; ++i) {
     const rdr_adapter::Draw& d = f.draws[i];
     if (!d.ps_hash) continue;
+    if (fast) {   // the pixel shader first: nearly every draw stops here (one cached lookup); only a chain pixel shader asks for the vertex program
+      const uint32_t slot = plant_low_bits ? uint32_t(d.ps_hash & 511u) : uint32_t((d.ps_hash * 0x9E3779B97F4A7C15ull) >> 55);
+      int ps;
+      if (cache.used[slot] && (plant_low_bits || cache.hash[slot] == d.ps_hash)) ps = cache.idx[slot], ++cache_hits;
+      else ps = reg.Find(d.ps_hash), cache.used[slot] = 1, cache.hash[slot] = d.ps_hash, cache.idx[slot] = ps, ++cache_misses;
+      if (ps < 0 || reg.kind[size_t(ps)] == ChainKind::Count) continue;
+      const int vs = reg.Find(d.vs_hash);
+      if (vs < 0 || !reg.chain_vs[size_t(vs)]) continue;
+      chain[i] = 1, kind[i] = reg.kind[size_t(ps)], ps_var[i] = ps;
+      continue;
+    }
     const int vs = reg.Find(d.vs_hash), ps = reg.Find(d.ps_hash);
     if (vs < 0 || ps < 0 || !reg.chain_vs[size_t(vs)] || reg.kind[size_t(ps)] == ChainKind::Count) continue;
     chain[i] = 1, kind[i] = reg.kind[size_t(ps)], ps_var[i] = ps;
@@ -101,7 +160,11 @@ bool ReadStreamChain(const ChainImageSize& size, const rdr_adapter::LoadedFrame&
   uint32_t cur_t = 0;
   bool have_t = false;
   uint32_t combine_op = ~0u;
-  std::vector<uint32_t> draw_op(f.draws.count, ~0u);
+  // S102 R23-P: "another draw wrote cur_t" (label -1) is the same assignment for every non-chain draw of a pass: it is made once, until a chain draw or a copy writes a label (neg_t = the image whose label is -1 now)
+  bool neg_valid = false;
+  uint32_t neg_t = 0;
+  const bool plant_first_only = fast && rdr_adapter::plan_memo::Plant(1);
+  draw_op.assign(f.draws.count, ~0u);
   for (uint32_t k = 0; k < f.ops.count; ++k) {
     const rdr_adapter::Op& op = f.ops[k];
     if (op.kind == rdr_adapter::OpKind::SetTargets) {
@@ -112,7 +175,10 @@ bool ReadStreamChain(const ChainImageSize& size, const rdr_adapter::LoadedFrame&
       if (op.index >= f.draws.count) { error = "a draw op names a missing draw"; return false; }
       draw_op[op.index] = k;
       if (!chain[op.index]) {
-        if (have_t) label[cur_t] = -1;
+        if (have_t) {
+          if (fast && ((neg_valid && neg_t == cur_t) || plant_first_only)) ++labels_skipped;
+          else label[cur_t] = -1, neg_valid = fast, neg_t = cur_t, ++labels_made;
+        }
         continue;
       }
       const rdr_adapter::Draw& d = f.draws[op.index];
@@ -135,6 +201,7 @@ bool ReadStreamChain(const ChainImageSize& size, const rdr_adapter::LoadedFrame&
       if (d.ps_bank >= f.constant_banks.count) { error = "a draw's pixel bank is outside the table"; return false; }
       std::memcpy(c.regs, f.constant_banks[d.ps_bank].dwords, sizeof c.regs);
       label[cur_t] = int32_t(out.draws.size());
+      neg_valid = false;   // (planted twin 1 is the mark skipped while the target differs: a memo keyed without the target)
       if (c.kind == ChainKind::Combine) combine_op = k;
       out.draws.push_back(std::move(c));
     } else if (op.kind == rdr_adapter::OpKind::Copy) {
@@ -143,12 +210,35 @@ bool ReadStreamChain(const ChainImageSize& size, const rdr_adapter::LoadedFrame&
       out.copies.push_back({k, c.source.image, c.dest.image});
       const auto s = label.find(c.source.image);
       label[c.dest.image] = s == label.end() ? -2 : s->second;
+      neg_valid = false;
     }
   }
   if (combine_op != ~0u)
     for (uint32_t i = 0; i < f.draws.count; ++i)
       if (!chain[i] && draw_op[i] != ~0u && draw_op[i] > combine_op) ++out.later_draws;
+  if (fast) {
+    rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtPostFast);
+    rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtPostCacheHit, cache_hits), rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtPostCacheMiss, cache_misses);
+    rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtPostLabelSkip, labels_skipped), rdr_adapter::plan_memo::Count(rdr_adapter::plan_memo::kCtPostLabelDo, labels_made);
+  }
   return true;
+}
+
+}  // namespace
+
+bool ReadStreamChain(const ChainImageSize& size, const rdr_adapter::LoadedFrame& f, StreamChain& out, std::string& error) {
+  using namespace rdr_adapter::plan_memo;
+  if (!Has(kPostChain)) return ReadStreamChainImpl(size, f, out, error, false);
+  if (!VerifyDue(0)) return ReadStreamChainImpl(size, f, out, error, true);
+  StreamChain ref;   // verify (tool only): the old read beside the new, every field compared
+  std::string ref_error;
+  const bool ref_ok = ReadStreamChainImpl(size, f, ref, ref_error, false);
+  const bool ok = ReadStreamChainImpl(size, f, out, error, true);
+  Count(kCtVerified);
+  std::string why;
+  if (ref_ok != ok) Mismatch("post chain read", "one read failed");
+  else if (ok && !SameChain(ref, out, why)) Mismatch("post chain read", why);
+  return ok;
 }
 
 // ---- the plan ----------------------------------------------------------------------------------------------------------------------------

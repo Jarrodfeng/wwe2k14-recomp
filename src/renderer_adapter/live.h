@@ -16,6 +16,8 @@
 #include "capture.h"
 #include "../renderer/overlay.h"
 
+namespace rdr_adapter::handoff { struct FrameData; }  // S102 lane T8 (frame_handoff.h)
+
 namespace rdr_adapter {
 
 // Lane 273: the longest time (ns) since the last read-out that the live sink's store mutex was HELD, by holder, and the longest an Append WAITED for it.
@@ -53,6 +55,8 @@ inline void StoreTimer::Stop() {
 
 struct LiveOptions {
   uint32_t format_caps_mask = 0;          // lane 200: renderer.h RendererOptions::format_caps_mask (dev switch, 0 = the device as it is)
+  std::string gpu_name;                   // S102 U1: the launcher's graphics card (--wwe2k14_gpu), part of a name; empty = the best card
+  uint32_t bc_decode = 1;                // S102 U1: RendererOptions::bc_decode (0 off, 1 auto, 2 force)
   int validation = 0;                     // the renderer's validation level (0 off, 1 core + sync, 2 + best practices)
   float render_scale = 1.0f;              // S100 settings parity S1: the game's 1280x720 targets drawn this many times larger
   std::filesystem::path png_folder;       // where the mirror's pictures go
@@ -73,13 +77,19 @@ struct LiveOptions {
   float shown_wide = 1.0f, shown_tall = 1.0f;  // lane 201: the screen-shape factors the present stretches back (reader.h g_wide); photo mode saves the stretched picture
   bool present_fill = false;              // settings parity S5: the present stretches to the window (the reader squeezes the scene)
   bool present_sgsr = false;              // settings parity S10a: the phone's SGSR UPSCALING (--present_effect=sgsr) in our present
+  bool present_noclear = false;           // S102 G1 lever 2: the present clears only the bars (low_levers.h; renderer.h present_noclear)
+  bool prelight_compute = false;          // S102 L1b review F2: the start-time value of wwe2k14_rdr_prelight_compute (renderer.h light_cube_compute: the compute pipelines are made at startup only then)
+  bool prelight_layered = false;          // S102 C1 review F2: the start-time value of wwe2k14_rdr_prelight_layered (renderer.h multiview: the device enables multiview only then)
+  bool robust_buffers = false;            // S102 D1: StartOnly (renderer.h robust_buffers): the device enables robustBufferAccess
+  bool exclusive_fullscreen = false;      // S102 G2b: StartOnly (renderer.h exclusive_fullscreen); Windows only, read at StartLive
   int dlss_mode = -1;                     // settings parity S10b: DLSS (renderer.h RendererOptions::dlss_mode), -1 off
   std::string streamline_dir;              // NVIDIA's runtime folder
   bool dlss_jitter_legacy = false;         // lane 185: the S10b jitter / velocity window (diagnosis, --wwe2k14_rdr_dlss_jitter_legacy)
   uint32_t dlss_phases = 8;              // the jitter's phases (dlss_jitter.h)
   bool tween = false;                     // settings parity S9b (the decoupled 120): each tick drawn twice, halfway from the previous tick
                                           // (renderer/frame_blend.h), then its own; the game keeps its 60 updates
-  bool gpu_timestamps = true;             // lane 269: renderer.h RendererOptions::gpu_timestamps (--wwe2k14_rdr_gpu_timestamps)
+  bool counts = false;                    // S102 M1: renderer.h RendererOptions::counts (--wwe2k14_rdr_counts)
+  bool gpu_timestamps = true;          // lane 269: renderer.h RendererOptions::gpu_timestamps (--wwe2k14_rdr_gpu_timestamps)
   uint32_t present_hz = 0;                // S100 phone 120 fix 2: the presents spaced at this rate (renderer.h RendererOptions::present_hz)
   uint32_t draw_vblanks = 0;              // settings parity S9 (the decoupled 30): a frame is drawn once this many vblanks of presents have
                                           // passed (2: 60-a-second presents every other one, the game's stock 30 each one); 0 / 1 every frame
@@ -88,6 +98,7 @@ struct LiveOptions {
   bool density_track = true;              // S101 lane 234 (crowd_rank.h): the density rank follows a member that moves
   bool depth_of_field = true;
   bool shadow_half = false;               // settings parity S12: the shadow maps every other frame (binder.h g_shadow_half)
+  bool low_tier = false;                  // S102 lane G3: the resolved tier is LOW (low_levers.h IsLow): the map turns (map_turns.h) apply only then
   bool crowd_cards_thin_probe = false;    // lane 175 (SF2): census of the thin record's stamp offset (cvar >= 1)
   bool crowd_cards_thin = false;          // lane 175: with crowd_cards, a frame whose stream holds only the first card of each type loop is drawn from the record (card_thin_core.h)
   bool crowd_members_probe = false;       // lane 272 (member_thin_core.h): census of the members' thin record (cvar >= 1): class-uniformity verify + the stamp offsets probe + the gate's reports; nothing is drawn differently
@@ -169,6 +180,10 @@ class LiveSink {
   // Hands a finished frame (the capture format's frame file bytes) to the render thread; returns at once. A non-empty `picture` writes this
   // frame's picture as live_<picture>.png (an input script names the frame it also screenshots on the old renderer).
   void SubmitFrame(std::vector<uint8_t>&& frame, uint64_t guest_frame, const std::string& picture = {});
+  // S102 lane T8 (--wwe2k14_rdr_handoff_memory): the same frame handed over as its tables, not bytes (frame_handoff.h). The caller checked that nothing
+  // needs the bytes (the case ring is off, no capture). The tables are bound in place on the render thread; the pooled FrameData goes back after the frame.
+  static bool FrameBytesNeeded();   // the case ring is on: it takes the frame's bytes (case_hook::OnFrame), so the hand-over serialises
+  void SubmitFrameData(std::shared_ptr<handoff::FrameData> frame, uint64_t guest_frame, const std::string& picture = {});
   // Checks only: blocks until fewer than `max_waiting` frames are queued (at most `timeout_ms`).
   void WaitForRoom(size_t max_waiting, uint32_t timeout_ms);
   // A copy the game reads back with the CPU (S100, owner mode: the attires built on the GPU at a character load): the frame so far (the

@@ -153,6 +153,7 @@ STEPS = [
     ('session101-guest-vblank-ours', 'f15def823a0c7176ff394d759c59608d42e2bdfd'),  # RuntimeConfig::guest_vblank_ours, interrupt_callback accessors, plugin ABI 3 (lane 260)
     ('session101-audio-inject', '59838b80715ef7693004262134f7a549917dcf11'),  # rex::perf::audio::SetInject: the app's stereo music added to FL/FR before the tap, fold and mute (lane 288)
     ('session101-async-log', '1903e00da44e4416dd8f280cb7329eab15e78af1'),  # rex::AsyncSink: the log file written on a thread, critical drains, DrainLogging / TakeLogWriteStats (lane 302)
+    ('session102-cvar-repeat-parse', '98851b186b7de78ee8ecfe1ef126da90ff5d689b'),  # a repeated string switch takes the last value (CLI11 TakeLast) + a FinalizeInit log (S102; pin 98851b1)
 ]
 # Numbers that belong to no step on wwe2k14-local (kept numbering stable): 104 = S99 scaled-readback-rumble, parked
 # (patches\rexglue-sdk\parked\), it was never merged. 109 / 110 (Session 101, lane 46) stay on their own branch until merged.

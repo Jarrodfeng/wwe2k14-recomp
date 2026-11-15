@@ -24,7 +24,7 @@ class CaseSceneSink : public rdr_scene::live::Sink {
     if (!case_hook::Enabled()) return;
     const rdr_scene::SceneTables& r = *t;
     // an estimate of the record's size (the cap only): the tables' element bytes
-    const uint64_t estimate = sizeof(rdr_scene::SceneHeader) + r.strings.size() + r.assets.size() * sizeof(rdr_scene::AssetRef) +
+    const uint64_t estimate = sizeof(rdr_scene::SceneHeader) + (r.strings.size() > r.SeedPrefixBytes() ? r.strings.size() - r.SeedPrefixBytes() : r.strings.size()) +   /* S102 T11b F2: the file is written without the pool prefix */ r.assets.size() * sizeof(rdr_scene::AssetRef) +
                               r.objects.size() * sizeof(rdr_scene::Object) + r.bones.size() * sizeof(rdr_scene::Mat4) +
                               r.params.size() * sizeof(rdr_scene::ParamValue) + r.lights.size() * sizeof(rdr_scene::Light) +
                               r.sprites.size() * sizeof(rdr_scene::Sprite) + r.texts.size() * sizeof(rdr_scene::Text) +
@@ -34,8 +34,15 @@ class CaseSceneSink : public rdr_scene::live::Sink {
                               r.circle_shadows.size() * sizeof(rdr_scene::CircleShadow) + r.circle_mesh.size() * sizeof(rdr_scene::CircleMesh) + r.plane_frames.size() * sizeof(rdr_scene::PlaneFrame) +
                               r.plane_draws.size() * sizeof(rdr_scene::PlaneDraw) + r.arena_worlds.size() * sizeof(rdr_scene::ArenaWorld) + r.ring_rows.size() * sizeof(rdr_scene::RingRows) +
                               r.ring_nodes.size() * sizeof(rdr_scene::RingNodeRows) + r.caster_calls.size() * sizeof(rdr_scene::CasterCall) + r.caster_nodes.size() * 4 +
-                              r.caster_mats.size() * sizeof(rdr_scene::Mat4) + r.caster_states.size() * sizeof(rdr_scene::LightState) + r.caster_extras.size() * sizeof(rdr_scene::CasterExtra) + r.sphere_occ.size() * sizeof(rdr_scene::SphereOccRow);
-    case_hook::OnScene(f.guest_frame, estimate, [t] { return rdr_scene::SerializeRecord(*t); });
+                              r.caster_mats.size() * sizeof(rdr_scene::Mat4) + r.caster_states.size() * sizeof(rdr_scene::LightState) + r.caster_extras.size() * sizeof(rdr_scene::CasterExtra) + r.sphere_occ.size() * sizeof(rdr_scene::SphereOccRow) +
+                              // S102 T19 F3: the crowd run markers (tools\gate\t19_lint.py: this names every SceneTables vector)
+                              r.crowd_runs.size() * sizeof(rdr_scene::CrowdRun) + r.crowd_members.size() * sizeof(rdr_scene::CrowdMember);
+    // S102 T19 F1: the file is the plain list (version 1, what every reader of a case folder reads): a marker record is expanded here, on the ring's thread, never on the game's
+    case_hook::OnScene(f.guest_frame, estimate, [t] {
+      if (t->crowd_runs.empty()) return rdr_scene::SerializeRecord(*t);
+      const rdr_scene::SceneTables plain = rdr_scene::ExpandCrowdRuns(*t);
+      return rdr_scene::SerializeRecord(plain);
+    });
     ++g_held;
   }
   void Census(std::string& line) override { line += "case ring scene records " + std::to_string(case_hook::Stats().scene_records); }

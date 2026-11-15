@@ -27,6 +27,7 @@
 
 #include "../renderer/api.h"
 #include "names.h"
+#include "draw_memos.h"   // S102 T14: FlatSet64 (the pin set's membership)
 
 namespace rdr_adapter::thin {
 
@@ -72,7 +73,19 @@ inline uint64_t FactsHash(const ThinDrawFacts& f) {
 inline uint64_t ProgramKey(uint64_t vs_hash, uint64_t ps_hash, const ThinDrawFacts& f) { return Mix(ProgramHash(vs_hash, ps_hash), FactsHash(f)); }
 inline uint64_t KeyHash(uint32_t pass_site, uint32_t object, uint32_t part, uint32_t ordinal, uint64_t program = 0) { return Mix(Mix(TripleHash(pass_site, object, part), ordinal), program) | 1ull; }
 // Proof frame for a key: every kProofK-th frame, spread by the key's hash. k == 0: never (the planted `no_proof`).
-inline bool IsProofFrame(uint64_t key_hash, uint64_t frame, uint32_t k = kProofK) { return k != 0 && (key_hash % k) == (frame % k); }
+// S102 K4 (review F1): the residue ROTATES every period ((frame + frame / k) % k). The hashes of keys and objects end in `| 1`, so the old `frame % k` matched only ODD frames: a session that binds only even guest
+// frames (the 30 fps decoupled mode binds every other frame at a fixed phase) never re-proved a key or certified a D3 object. Rotating, a key's proof frame is one in k and moves one frame earlier each period,
+// so it visits both parities every two periods (frames 32q + ((r - q) mod 32)); the gap between two visits of one parity is at most 3 periods (kProofOverdue allows 4). The reader, the guest hook and the binder all
+// ask THIS function (IsProofFrame / ObjectProofFrame), so they agree for any k.
+#ifdef RDR_DEV   // S102 K4 PLANT (dev builds only: fview / rplay; the game exe never defines RDR_DEV): the pre-K4 rule, `frame % k` (odd frames only for the odd hashes), fview D3_PROOF_RULE=old
+inline bool g_plant_proof_rule_old = false;
+inline bool IsProofFrame(uint64_t key_hash, uint64_t frame, uint32_t k = kProofK) { return k != 0 && (key_hash % k) == (g_plant_proof_rule_old ? frame % k : (frame + frame / k) % k); }
+#else
+inline bool IsProofFrame(uint64_t key_hash, uint64_t frame, uint32_t k = kProofK) { return k != 0 && (key_hash % k) == ((frame + frame / k) % k); }
+#endif
+// S102 K4: a pinned key / marked object whose last proof is older than this many frames while it is drawn is OVERDUE (counted, and a D3 mark expires): 4 periods = the longest gap between two proof visits that fall on a
+// frame the session binds, for any periodic skip with a period up to 3 (every2, every3), with a margin.
+inline constexpr uint32_t kProofOverdue = 4 * kProofK;
 // lane 138 (D3): the hash an OBJECT's proof frame is taken from (all the object's parts prove in one frame; d3_arena.h ObjectProofFrame).
 inline uint64_t ObjectProofHash(uint32_t object) { return Mix(0xD3D3D3D3ull, object) | 1ull; }
 
@@ -116,10 +129,19 @@ struct PinSet {
   std::vector<uint64_t> triples;   // sorted (site, object, part) hashes of those keys: the reader counts ordinals only for these
   std::vector<uint64_t> arena_triples;   // lane 152 (D3-F item 13): the subset of `triples` whose keys are the ARENA's (D3's proof-by-object applies to these only)
   std::vector<uint64_t> wrestler_triples;   // lane 227 (Wrestlers D3 H2): the subset whose keys are the WRESTLERS' (the wrestler chain's proof-by-object applies to these only, behind its own switch)
-  bool Has(uint64_t key) const { return std::binary_search(keys.begin(), keys.end(), key); }
+  // S102 T14 (wwe2k14_rdr_pin_hash): the same two memberships by an open-addressing table, built once when the set is published (Publish); a set made
+  // any other way (a test) has no table and answers by the binary search, as does every set while the switch is off.
+  draw_memos::FlatSet64 key_table, triple_table;
+  bool Has(uint64_t key) const {
+    if (key_table.built() && draw_memos::g_pin_hash_on.load(std::memory_order_relaxed)) return key_table.Contains(key);
+    return std::binary_search(keys.begin(), keys.end(), key);
+  }
   bool IsArenaTriple(uint64_t triple) const { return std::binary_search(arena_triples.begin(), arena_triples.end(), triple); }
   bool IsWrestlerTriple(uint64_t triple) const { return std::binary_search(wrestler_triples.begin(), wrestler_triples.end(), triple); }
-  bool HasTriple(uint64_t triple) const { return std::binary_search(triples.begin(), triples.end(), triple); }
+  bool HasTriple(uint64_t triple) const {
+    if (triple_table.built() && draw_memos::g_pin_hash_on.load(std::memory_order_relaxed)) return triple_table.Contains(triple);
+    return std::binary_search(triples.begin(), triples.end(), triple);
+  }
 };
 
 // Binder -> reader: the newest published set. Acquire() is one lock and a shared_ptr copy (once a frame).
@@ -133,14 +155,16 @@ class PinPublisher {
     arena_triples.erase(std::unique(arena_triples.begin(), arena_triples.end()), arena_triples.end());
     std::sort(wrestler_triples.begin(), wrestler_triples.end());
     wrestler_triples.erase(std::unique(wrestler_triples.begin(), wrestler_triples.end()), wrestler_triples.end());
-    std::lock_guard<std::mutex> lock(mu_);
-    if (!force_new_generation && current_ && current_->keys == keys && current_->triples == triples && current_->arena_triples == arena_triples && current_->wrestler_triples == wrestler_triples) return current_->generation;
-    auto set = std::make_shared<PinSet>();
-    set->generation = ++generation_;
+    auto set = std::make_shared<PinSet>();   // F3: the set and its tables are built BEFORE the lock (readers take Acquire's lock once a frame)
     set->keys = std::move(keys);
     set->triples = std::move(triples);
     set->arena_triples = std::move(arena_triples);
     set->wrestler_triples = std::move(wrestler_triples);
+    set->key_table.Build(set->keys);   // S102 T14
+    set->triple_table.Build(set->triples);
+    std::lock_guard<std::mutex> lock(mu_);
+    if (!force_new_generation && current_ && current_->keys == set->keys && current_->triples == set->triples && current_->arena_triples == set->arena_triples && current_->wrestler_triples == set->wrestler_triples) return current_->generation;
+    set->generation = ++generation_;
     current_ = std::move(set);
     return generation_;
   }

@@ -94,6 +94,10 @@ struct CrowdCounters {
   // S101 lane CD (the far cards through InjectCards): frames drawn / frames the stream's cards stayed, card draws dropped / kept, cards drawn, time inside InjectCards.
   uint64_t card_frames_ours = 0, card_frames_fallback = 0, card_draws_dropped = 0, card_draws_kept = 0, cards_drawn = 0;
   double card_ms_ours = 0;
+  // S102 R21-C: where the density test (a rank call) ran on a crowd-named program: [0] a draw that is not a crowd origin (floor / the rest), [1] a crowd origin before ours was injected (state 0),
+  // [2] a crowd origin the stream keeps (ours could not draw it), [3] a crowd origin with ours not in the frame (fallback / persist-only). The early-out (the top of BindDraw) counts every crowd origin it
+  // leaves: stream_dropped (the same as draws_dropped); dens_cull = tests that left the draw out.
+  uint64_t dens_tests[4] = {0, 0, 0, 0}, dens_cull[4] = {0, 0, 0, 0};
 };
 
 }  // namespace rdr_adapter

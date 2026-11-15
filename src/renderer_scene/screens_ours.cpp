@@ -1,4 +1,5 @@
 // Our stage screens drawn in place. See screens_ours.h and screens_ours_core.h. S101 lane 115 (a copy of ring_ours.cpp's renderer side, geometry only).
+#include "../thread_name.h"  // S102 H1
 #include "screens_ours.h"
 
 #include <chrono>
@@ -78,7 +79,7 @@ void ScreensOurs::StartLoad(int arena) {
   if (worker_.joinable()) worker_.join();
   load_state_ = 1;
   load_for_ = arena;
-  worker_ = std::thread([this, arena, root] {
+  worker_ = std::thread([this, arena, root] { wwe2k14::NameThread(L"ours_screens");
     Loaded loaded;
     loaded.arena = arena;
     if (!assets::screen_gs::Init(root)) {

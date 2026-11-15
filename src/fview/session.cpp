@@ -1,4 +1,6 @@
 #include "session.h"
+#include "../renderer_scene/props_budget.h"  // S102 T17
+#include <chrono>
 
 #include <algorithm>
 #include <array>
@@ -10,12 +12,15 @@
 
 #include "../renderer/frame_builder.h"
 #include "../renderer/player/png.h"  // lane 155: WritePng for --dump-frames
+#include "../renderer/output_switches.h"  // S102 G2
+#include "../renderer/present_fetch_plants.h"  // S102 R24-A
 #include "../renderer_adapter/binder.h"
 #include "../renderer_adapter/image_info_table.h"  // S101 lane 47
 #include "../renderer_adapter/image_content_feed.h"  // S101 lane 66: the UI's image-content table, fed from the capture's contents
 #include <map>
 #include <set>
 #include "../renderer_scene/crowd_ours.h"  // S101 lane 35
+#include "../renderer_scene/card_bake_ours.h"   // S102 P1
 #include "../renderer_scene/post_ours.h"  // S101 lane PO
 #include "../renderer_scene/crowd_floor_synth.h"  // S101 lane 82: test-only floor members
 #include "../renderer_scene/record_io.h"
@@ -58,6 +63,9 @@ struct Session::Impl {
   std::vector<HistoryEntry> empty_history;
   std::vector<rdr::Op> segment;  // the ops of the segment being rendered (the Frame handed to the renderer points into it)
   std::unique_ptr<rdr_scene::CrowdOurs> crowd;  // S101 lane 35: the crowd drawn by us (--crowd-ours)
+  std::unique_ptr<rdr_scene::CardBakeOurs> bake;   // S102 P1: the crowd card bake owned (--own-card-bake)
+  int bake_record_index = -1;                        // S102 P1: the record numbered like the stream frame (the bake's pose), not the crowd's j-1
+  int bake_offset = 0;   // S102 P1
   std::unique_ptr<rdr_scene::PostOurs> post;    // S101 lane PO: the post chain recorded by our own pass (--post-ours)
   std::unique_ptr<rdr_adapter::ReplaceTestHook> replace_test;  // S101 lane 41: --replace-test
   // S101 lane 47 (review D5): the supplier table is declared BEFORE the hooks that call it, so it is destroyed after them
@@ -87,15 +95,20 @@ struct Session::Impl {
   bool crowd_cards = false, crowd_cards_unchecked = false;  // S101 lane CD
   bool crowd_cards_thin = false;  // lane 175
   bool crowd_members_thin = false, crowd_members_probe = false;   // lane 272
+  bool crowd_members_live = false;   // S102 T13 F4b
   struct MemberCount { uint32_t seen, dropped; uint64_t world; };
   std::unordered_map<uint64_t, MemberCount> member_counts[2];   // lane 272: [site] hook frame -> (op-15 calls seen, dropped, world sum), the cut tool's sidecar
   struct ThinCount { uint32_t seen, dropped; uint64_t world; };
   std::unordered_map<uint64_t, ThinCount> thin_counts;   // lane 175: hook frame -> (card op-15 calls seen, dropped, world sum), the cut tool's sidecar
+  bool time_frames = false;                     // S102 T17
+  std::vector<std::pair<double, double>> frame_times;
   bool hash_frames = false;                     // S101 lane CD
   std::set<uint32_t> dump_frames;               // lane 155: --dump-frames
   std::string dump_dir;
   uint32_t present_format = 0;
   std::vector<uint64_t> frame_hashes;
+  bool present_hash_frames = false;             // S102 R24-A
+  std::vector<uint64_t> present_frame_hashes;
   std::unique_ptr<rdr_scene::FloorSynth> floor_synth;  // S101 lane 82: --crowd-floor-synth (test only)
   int crowd_offset = -1;                        // the pairing (lane 36): stream frame j takes record j-1; the planted fault uses 0
   int crowd_record_index = -1;
@@ -125,6 +138,7 @@ Session::~Session() {
   if (renderer_) renderer_->WaitIdle();
   impl_->binder.reset();
   impl_->crowd.reset();  // (the hook goes before the renderer; the binder no longer points at it)
+  impl_->bake.reset();   // S102 P1 (the binder pointed at it)
   impl_->post.reset();   // S101 lane PO (same reason: its PostPass destroys images through the renderer; found by an intermittent exit crash under --validation)
   impl_->replace_test.reset();  // S101 lane 41 (same reason)
   impl_->replace_handles.clear();
@@ -163,6 +177,20 @@ static void FeedUi(I& im, const rdr_adapter::CaptureReader& capture, rdr::Render
 
 void Session::FeedCrowd(uint32_t f) {
   Impl& im = *impl_;
+  if (im.bake) {   // S102 P1: the pose record is the one numbered like the stream frame (bake_pose_check: not j-1, not j+1)
+    const int bi = int(f) + im.bake_offset;
+    if (bi != im.bake_record_index) {
+      im.bake_record_index = bi;
+      std::shared_ptr<const rdr_scene::SceneTables> rec;
+      if (bi >= 0 && uint32_t(bi) < capture_->frame_count() && capture_->HasSceneRecord(uint32_t(bi))) {
+        auto tables = std::make_shared<rdr_scene::SceneTables>();
+        std::string err;
+        if (rdr_scene::ReadRecord(capture_->SceneRecordPath(uint32_t(bi)).string(), *tables, err)) rec = tables;
+        else std::fprintf(stderr, "[fview] scene record %d: %s\n", bi, err.c_str());
+      }
+      im.bake->SetRecord(rec);
+    }
+  }
   if (!im.crowd && im.replace_handles.empty()) return;
   const int index = int(f) + im.crowd_offset;  // S101 lane 36: stream frame j is drawn with record j-1 (bit-exact, 178/178 frames): crowd_offset is -1 by default
   if (index != im.crowd_record_index) {
@@ -724,11 +752,38 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
   std::unordered_set<uint32_t> swapped_draws;   // lane 129 review F4: this frame's draws whose vertex buffer was swapped
   std::unordered_set<uint32_t> arena_objects;  // the objects the arena hook replaced so far (swap only; both arms track them the same way)
   if (swap_frame >= 0) im.binder->TrackArenaObjects(&arena_objects);
+  bool fv_throttle_pending = false;
+  uint32_t fv_chain_frames = 0, fv_plain_frames = 0;   // S102 K3 rework: frames bound with / without the D3 chains under D3_AUTO_THROTTLE
   rdr_adapter::lasting::CopyStreaks fv_streaks;   // lane 307 (TEST ONLY): D3_SKIP_LASTING=prune = live.cpp's pruned lasting bind for a skipped frame
   rdr_adapter::lasting::Pruner fv_pruner;
   std::vector<uint8_t> fv_seed;
   std::vector<rdr_adapter::Op> fv_kept, fv_dropped;
   uint32_t fv_prune_frames = 0, fv_prune_blind = 0;
+  double fv_bind_ms = 0;   // S102 K2 (review F4): total Bind() ms of the pruned lasting binds (ThinBeginFrame + chain End calls included)
+  uint64_t fv_obj_passes = 0, fv_obj_kept = 0, fv_obj_dropped = 0;   // S102 K2: object passes of the pruned frames, kept, and left out although another was kept
+  // S102 K4: the TEACH frames. A capture recorded live holds the draws the live reader made lite from ITS pin set (flag kDrawThin: no geometry, nothing to learn from); the full draws a template is learned from sit
+  // in a few frames only (J1: the ring's, on every other frame). The live reader's pin set is the binder's own, so a live skipped frame only delays a learn (the key stays full until pinned); a frozen capture cannot
+  // do that: skip the frame that holds the only full draws and the ring is never learned, and every later lite draw of it is "not learned" (drawn by nothing). D3_SKIP_TEACH_OUT=file (a no-skip arm) writes the
+  // frames a template was learned in; D3_SKIP_TEACH_IN=file (the skip arms) binds those frames instead of skipping them. Without the file the old schedule runs (that is the plant).
+  std::unordered_set<uint32_t> k4_teach;
+  if (const char* pr = std::getenv("D3_PROOF_RULE")) rdr_adapter::thin::g_plant_proof_rule_old = std::strcmp(pr, "old") == 0;   // S102 K4 PLANT: the pre-K4 proof rule (dev build only)
+  std::string k4_teach_out;
+  const char* k4_teach_in = std::getenv("D3_SKIP_TEACH_IN");
+  if (k4_teach_in && *k4_teach_in) {
+    std::ifstream ti(k4_teach_in);
+    if (!ti) {
+      error = std::string("D3_SKIP_TEACH_IN: cannot read ") + k4_teach_in;
+      return false;
+    }
+    for (std::string line; std::getline(ti, line);)
+      if (!line.empty()) k4_teach.insert(uint32_t(std::strtoul(line.c_str(), nullptr, 10)));
+  }
+  const auto k4_learned = [&]() {
+    uint64_t n = 0;
+    for (uint8_t c = 0; c < uint8_t(rdr_adapter::thin::Cls::Count); ++c) n += im.binder->thin_counters(rdr_adapter::thin::Cls(c)).learned;
+    return n;
+  };
+  uint64_t k4_teach_kept = 0;   // frames the schedule would skip that the teach list bound instead
   for (uint32_t f = 0; f < count; ++f) {
     if (!capture_->LoadFrame(f, frame)) {
       error = "could not read frame " + std::to_string(f);
@@ -815,12 +870,64 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
       }
     }
     if (im.d3_records_on && !im.d3_records_preload && (!im.d3_records_late || f >= 1)) DeliverD3Record(im.d3_records_late ? f - 1 : f);   // lane 152 (B1): the live order (late = the plant)
+    if (const char* sched = std::getenv("D3_AUTO_SCHED")) {   // S102 K3 (TEST ONLY): the skips_auto controller's decision forced by stream frame: "0:on,120:off,200:on" = the skips are on from frame 0, off from 120, on from 200 (latched at the frame boundary, as frame_stats.h does)
+      bool on = false;
+      for (const char* c = sched; *c;) {
+        char* e = nullptr;
+        const unsigned long at = std::strtoul(c, &e, 10);
+        if (e == c || *e != ':') break;
+        const bool v = std::strncmp(e + 1, "on", 2) == 0;
+        if (f >= at) on = v;
+        c = std::strchr(e, ',');
+        if (!c) break;
+        ++c;
+      }
+      skips_auto::SetWant(on);
+      if (std::getenv("D3_AUTO_THROTTLE")) {   // S102 K3 rework (TEST ONLY): the armed-off throttle as live runs it: armed by K3, the warm word = the schedule's state kWarmFrames frames ahead (the controller's wish precedes the applied word), the
+        // binder's chains run only for a frame ChainWanted() names (the latch ring holds this frame's applied word)
+        auto state_at = [&](uint64_t at) {
+          bool v = false;
+          for (const char* c = sched; *c;) {
+            char* e = nullptr;
+            const unsigned long a = std::strtoul(c, &e, 10);
+            if (e == c || *e != ':') break;
+            if (at >= a) v = std::strncmp(e + 1, "on", 2) == 0;
+            c = std::strchr(e, ',');
+            if (!c) break;
+            ++c;
+          }
+          return v;
+        };
+        skips_auto::SetArmedByK3(true);
+        const unsigned lag = std::getenv("D3_AUTO_LAG") ? unsigned(std::atoi(std::getenv("D3_AUTO_LAG"))) : 0u;   // TEST ONLY (review F2): the latch ring is N frames STALE while the hook decides on the current state: a marker can arrive on a frame the timing window does not name
+        skips_auto::SetWarm(lag ? false : state_at(f + skips_auto::kWarmFrames));
+        skips_auto::AtGuestFrame(true, f);
+        if (lag) skips_auto::g_ring[f & 255].store((uint64_t(f) << 1) | (state_at(f >= lag ? f - lag : 0) ? 1u : 0u), std::memory_order_relaxed);
+        fv_throttle_pending = true;
+      } else {
+        skips_auto::AtGuestFrame(true);
+      }
+    }
     im.binder->D3EmulateReader(frame);   // lane 138
     im.binder->D3CEmulateReader(frame);  // lane 217 (E2b): no-op unless --d3 casters
     im.binder->D3REmulateReader(frame);  // lane 229 (Ring D3 R3): no-op unless --d3 ring (after the arena's: the chains' markers are told apart by their call sites)
     im.binder->D3WEmulateReader(frame);  // lane 227 (H2): no-op unless --d3 wrestlers
+    if (fv_throttle_pending) {   // S102 K3 (TEST ONLY): the throttle's per-frame decision, AFTER the emulated hook ran (the reader counts the markers it builds: SubmitFrame's ChainFor)
+      fv_throttle_pending = false;
+      bool chain = skips_auto::ChainWanted(f);
+      if (!std::getenv("D3_NO_MARKER_RULE"))   // the twin: the timing window alone (the first version)
+        for (uint32_t i = 0; i < frame.draws.count && !chain; ++i)
+          if ((frame.draws[i].flags & rdr_adapter::kDrawNoGeometry) && frame.OriginOf(i) && rdr_adapter::d3::IsAnyMarkerCall(frame.OriginOf(i)->call_site)) chain = true;
+      im.binder->d3_chain_frame = chain;
+      im.binder->D3NoteChain(chain, frame.header.guest_frame);
+      fv_chain_frames += chain ? 1 : 0, fv_plain_frames += chain ? 0 : 1;
+      ++(chain ? rdr_adapter::d3t::g_frames_chain : rdr_adapter::d3t::g_frames_off);
+      if (f % 100 == 99) std::printf("[fview] D3_AUTO_THROTTLE: frames bound with the chains %u, without %u; %s\n", fv_chain_frames, fv_plain_frames, rdr_adapter::d3t::Line().c_str());
+    }
     if (const char* sk = std::getenv("D3_SKIP"); sk && im.thin_on) {   // lane 152 (TEST ONLY): the live sink skips frames it does not bind (the 30 fps shape `every2`, backed-up `burst`); the hook already ran
-      const bool skip = std::strcmp(sk, "every2") == 0 ? (f % 2) == 1 : (f % 23 >= 5 && f % 23 < 9) || (f % 47 >= 30 && f % 47 < 32);
+      const unsigned k4_phase = std::getenv("D3_SKIP_PHASE") ? unsigned(std::atoi(std::getenv("D3_SKIP_PHASE"))) : 1u;   // S102 K4 (diagnosis): which residue is skipped (every2 default 1, every3 default 1)
+      bool skip = std::strcmp(sk, "every2") == 0 ? (f % 2) == (k4_phase % 2) : std::strcmp(sk, "every3") == 0 ? (f % 3) == (k4_phase % 3) : (f % 23 >= 5 && f % 23 < 9) || (f % 47 >= 30 && f % 47 < 32);
+      if (skip && k4_teach.count(f)) skip = false, ++k4_teach_kept;   // S102 K4: a frame the no-skip run learned a template in is bound
       // lane 204 (P): D3_SKIP_LASTING=1 = live.cpp's order for a skipped frame WITH lasting work: no D3FrameSkipped, the frame's draws (markers included) are bound, the bind's BuildMini takes the packets;
       // D3_SKIP_LASTING=old = lane 152's order (D3FrameSkipped first, then the lasting bind): every marker of that bind is a hole (the Check K1 latch). Then the frame goes on to the normal bind below.
       const char* lasting_arm = std::getenv("D3_SKIP_LASTING");
@@ -831,6 +938,12 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
       }
       if (skip && prune_arm) {   // lane 307: classify, prune, discard the dropped draws' packets, bind persist-only, render PersistentOnly, restore
         fv_streaks.Classify(frame, false, fv_seed, [](const rdr::CopyOp&) {});
+        if (std::getenv("D3_NOGROUP_STRESS")) {   // S102 K2 (TEST ONLY): every skipped frame gets one forced lasting copy (the f-th copy op of the frame) so the lasting bind, and with it the ordinal view, runs on many more frames than the classifier's own seeds give
+          std::vector<uint32_t> copy_ops;
+          for (uint32_t i = 0; i < frame.ops.count; ++i)
+            if (frame.ops[i].kind == rdr_adapter::OpKind::Copy) copy_ops.push_back(i);
+          if (!copy_ops.empty()) fv_seed[copy_ops[f % copy_ops.size()]] = 1;
+        }
         bool any = false;
         for (uint8_t v : fv_seed) any |= v != 0;
         rdr_adapter::lasting::Stats ps;
@@ -841,7 +954,18 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
           csv += std::to_string(f) + ",0,0,0\n";
           continue;
         }
+        // S102 K2: D3_NOGROUP=1 = wwe2k14_rdr_lasting_nogroup (no model-part group rule; the chains count their ordinals over the whole frame's ops). Plants D3_NOGROUP_PLANT: boundord = the ordinals are taken from the bound ops;
+        // droppass = the ordinal view lacks one dropped object pass; half = the group rule is applied to about half of the object passes only (a hash of pass and frame; with the bound-op ordinals: the half-removed rule).
+        const bool nogroup = std::getenv("D3_NOGROUP") != nullptr;
+        const char* ng_plant = std::getenv("D3_NOGROUP_PLANT");
+        fv_pruner.group = !nogroup;
+        fv_pruner.lasting_targets = std::getenv("D3_NOGROUP_TARGETS") != nullptr;   // review F4: the sub-switch
+        fv_pruner.images = &capture_->images();   // S102 K2: the lasting render targets
+        fv_pruner.plant_no_attach = ng_plant && std::strcmp(ng_plant, "noattach") == 0;   // S102 K2 (review F1)
+        fv_pruner.plant_no_lasting_target = ng_plant && std::strcmp(ng_plant, "nolasttarget") == 0;   // plant: an object pass that draws to a lasting render target is dropped (the J1 failure)
+        fv_pruner.group_plant = ng_plant && std::strcmp(ng_plant, "half") == 0 ? 1 : 0;
         fv_pruner.Select(frame, fv_seed, fv_kept, fv_dropped, ps, false);
+        fv_obj_passes += ps.object_passes, fv_obj_kept += ps.object_passes_kept, fv_obj_dropped += ps.object_passes_dropped;
         frame.ops = rdr_adapter::Table<rdr_adapter::Op>{fv_dropped.data(), uint32_t(fv_dropped.size())};
         im.binder->D3FrameSkipped(frame);
         frame.ops = rdr_adapter::Table<rdr_adapter::Op>{fv_kept.data(), uint32_t(fv_kept.size())};
@@ -852,13 +976,24 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
         im.binder->d3_skip_observe = ps.d3_blind() && !std::getenv("D3_PRUNE_NO_OBSERVE");   // plant D3_PRUNE_NO_OBSERVE: the guard missing (the review B2 failure)
         fv_prune_blind += im.binder->d3_skip_observe ? 1 : 0;
         ++fv_prune_frames;
+        if (!nogroup && std::getenv("D3_GROUP_VIEW")) im.binder->ord_full_ops = &all_ops, im.binder->ord_keep = &fv_pruner.kept_mask;   // review F3 (diagnosis): the SHIPPED group rule with the full ordinal view: does Observe's marker bank (mk_vs, d3_binder.h) differ when taken from the full ops?
+        if (nogroup) {
+          const bool bound_view = ng_plant && (std::strcmp(ng_plant, "boundord") == 0 || std::strcmp(ng_plant, "half") == 0);
+          if (!bound_view) im.binder->ord_full_ops = &all_ops, im.binder->ord_keep = &fv_pruner.kept_mask;
+          im.binder->ord_plant = ng_plant && std::strcmp(ng_plant, "droppass") == 0 ? 2 : ng_plant && std::strcmp(ng_plant, "noobserve") == 0 ? 3 : ng_plant && std::strcmp(ng_plant, "observeall") == 0 ? 4 : 0;
+        }
+        const auto fv_t0 = std::chrono::steady_clock::now();
         im.binder->Bind(frame, *capture_, builder, pstats);
+        fv_bind_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - fv_t0).count();   // review F4: the CPU cost of a lasting bind with the D3 / thin begin and end in it
+        im.binder->ord_full_ops = nullptr, im.binder->ord_keep = nullptr, im.binder->ord_plant = 0;
         im.binder->d3_skip_observe = false;
         im.binder->persist_only_bind = false;
         im.binder->frame_part_open = false;
         frame.ops = all_ops;
         renderer_->RenderFrame(builder.Finish(), rdr::RenderMode::PersistentOnly);
-        std::printf("[fview] D3_SKIP_LASTING=prune: %u pruned skipped frames so far, %u of them with no D3 / thin begin-end (no object pass kept)\n", fv_prune_frames, fv_prune_blind);
+        std::printf("[fview] frame %u: D3_SKIP_LASTING=prune%s: %u pruned skipped frames so far, %u of them with no D3 / thin begin-end (no object pass kept); object passes %llu, kept %llu, left out although another was kept %llu; ordinal view frames %llu, runs counted not learned %llu; Bind() mean %.3f ms\n",
+                    f, nogroup ? " (D3_NOGROUP)" : "", fv_prune_frames, fv_prune_blind, (unsigned long long)fv_obj_passes, (unsigned long long)fv_obj_kept, (unsigned long long)fv_obj_dropped,
+                    (unsigned long long)im.binder->ord_view_frames, (unsigned long long)im.binder->ord_view_dropped_runs, fv_prune_frames ? fv_bind_ms / fv_prune_frames : 0.0);
         csv += std::to_string(f) + ",0,0,0\n";
         continue;
       }
@@ -875,7 +1010,9 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
     if (release_frame >= 0 && int(f) == release_frame) im.binder->TestReleasePart();   // review F2 (TEST ONLY): the wrestlers' hook destroys one part's buffers
     if (epoch_at >= 0 && int(f) == epoch_at) im.binder->TestForceEpoch();  // the arena "changed": every template is void from this frame
     if (!isolate.empty() && int(f) >= isolate_from) stats.isolate = isolate.c_str();  // review 3: an isolate bind (read-only for the thin store)
+    const uint64_t k4_l0 = k4_learned();
     im.binder->Bind(frame, *capture_, builder, stats);
+    if (k4_learned() != k4_l0) k4_teach_out += std::to_string(f) + "\n";   // S102 K4
     if (bind_trace.size() == frame.ops.count) {   // review F7
       for (uint32_t i = 0; i < frame.ops.count; ++i) {
         if (frame.ops[i].kind != rdr_adapter::OpKind::Draw || (!bind_trace[i].fate && !bind_trace[i].keep_why)) continue;
@@ -889,7 +1026,7 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
     std::vector<uint8_t> rgba;
     uint32_t w = 0, h = 0;
     const uint32_t surface = SurfaceOf(frame);
-    if (surface && ReadSurface(surface, rgba, w, h)) {
+    if (surface && ReadPresentSurface(surface, rgba, w, h)) {
       for (uint8_t b : rgba) hash = (hash ^ b) * 1099511628211ull;
       if (const char* save = std::getenv("D3_SAVE"); save && ((std::string(",") + save + ",").find("," + std::to_string(f) + ",") != std::string::npos)) {   // lane 138 (diagnosis): D3_SAVE=39,40 writes frame_N.ppm into the run folder
         std::ofstream ppm(std::filesystem::path(out_dir) / ("frame_" + std::to_string(f) + ".ppm"), std::ios::binary);
@@ -910,6 +1047,13 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
     error = "cannot write " + out_dir + "\\frames.csv";
     return false;
   }
+  if (const char* to = std::getenv("D3_SKIP_TEACH_OUT"); to && *to) {   // S102 K4
+    std::ofstream teach(to, std::ios::binary);
+    teach << k4_teach_out;
+  }
+  if (!k4_teach_in && std::getenv("D3_SKIP") && lite_total > 0 && (std::strcmp(std::getenv("D3_SKIP"), "every2") == 0 || std::strcmp(std::getenv("D3_SKIP"), "every3") == 0))   // S102 K4
+    std::printf("[fview] WARN K4: D3_SKIP=%s on a capture that already holds %llu lite draws (recorded live) and no D3_SKIP_TEACH_IN: the schedule may skip the only frames a template is learned from (SKIP_COST.md finding 8); pictures of such a run are not a baseline. Write the list with D3_SKIP_TEACH_OUT on a no-skip run.\n", std::getenv("D3_SKIP"), static_cast<unsigned long long>(lite_total));
+  if (k4_teach_in) std::printf("[fview] S102 K4: teach frames %zu (templates learned in them by the no-skip run), %llu of them were due to be skipped and were bound\n", k4_teach.size(), static_cast<unsigned long long>(k4_teach_kept));
   std::ofstream tout(std::filesystem::path(out_dir) / "trace.csv", std::ios::binary);   // lane 129 review F7
   tout << trace_csv;
   std::printf("[fview] lane 162: draws the capture already carries lite (kDrawThin, made by the live reader): %llu in %u of %u frames%s\n", static_cast<unsigned long long>(lite_total), lite_frames, count, std::getenv("L162_DROP_LITE") ? " (DROPPED in this arm)" : "");
@@ -967,13 +1111,19 @@ bool Session::SetCrowdFloor(bool floor, const std::string& synth_file, std::stri
   return true;
 }
 
-void Session::SetHashFrames(bool on) { impl_->hash_frames = on; }  // S101 lane CD
+void Session::SetHashFrames(bool on) { impl_->hash_frames = on; }
+void Session::SetPresentHashFrames(bool on) { impl_->present_hash_frames = on; }  // S102 R24-A
+const std::vector<uint64_t>& Session::PresentFrameHashes() const { return impl_->present_frame_hashes; }  // S102 R24-A
+void Session::SetFrameTimes(bool on) { impl_->time_frames = on; }  // S102 T17
+const std::vector<std::pair<double, double>>& Session::FrameTimes() const { return impl_->frame_times; }  // S101 lane CD
 void Session::SetDumpFrames(const std::vector<uint32_t>& frames, const std::string& dir) {  // lane 155
   impl_->dump_frames.insert(frames.begin(), frames.end());
   impl_->dump_dir = dir;
 }
 const std::vector<uint64_t>& Session::FrameHashes() const { return impl_->frame_hashes; }
 uint32_t Session::PresentFormat() const { return impl_->present_format; }
+
+void Session::SetCrowdMembersLive(bool live) { impl_->crowd_members_live = live; }
 
 bool Session::SetCrowdMembersThin(bool thin, bool probe, const std::string& counts_file, std::string& error) {  // lane 272
   impl_->crowd_members_thin = thin;
@@ -1018,6 +1168,30 @@ void Session::SetCrowdCards(bool cards, bool unchecked) {  // S101 lane CD
   impl_->crowd_cards_unchecked = unchecked;
 }
 
+// S102 P1: the crowd card bake owned (card_bake_ours.h). `fault`: CardBakeFaults::Parse's list; `none`: the passes are taken out and not re-issued (the "no bake at all" arm);
+// `record_offset`: 0 = the record numbered like the stream frame (the right one), -1 = one behind (a planted fault: the stale record).
+bool Session::EnableOwnCardBake(const std::string& fault, bool none, int record_offset, std::string& error) {
+  Impl& im = *impl_;
+  if (!capture_ || capture_->scene_record_count() == 0) {
+    error = "the capture has no scene records (scene\\frame_NNNNNN.rsc): the bake's pose comes from the record";
+    return false;
+  }
+  rdr_scene::CardBakeFaults faults;
+  if (!rdr_scene::CardBakeFaults::Parse(fault, faults, error)) return false;
+  im.bake = std::make_unique<rdr_scene::CardBakeOurs>(faults);
+  im.bake_offset = record_offset;
+  im.bake_record_index = -2;
+  im.binder->SetBakeHook(im.bake.get());
+  rdr_adapter::g_own_card_bake = true;
+  rdr_adapter::g_own_card_bake_none = none;
+  return true;
+}
+
+std::string Session::BakeCensus() const { return impl_->binder ? impl_->binder->BakeCensus() : std::string(); }
+std::string Session::OwnGroupCensus() const { return impl_->binder ? impl_->binder->OwnGroupCensus() : std::string(); }   // S102 P4P5
+std::string Session::PlaneCensus() const { return impl_->binder ? impl_->binder->PlaneCensus() : std::string(); }   // S102 P3
+std::string Session::PlaneBakeCensus() const { return impl_->binder ? impl_->binder->PlaneBakeCensus() : std::string(); }   // S102 L2
+
 bool Session::EnableCrowdOurs(const std::string& game_root, const std::string& fault, std::string& error) {
   Impl& im = *impl_;
   if (!capture_ || capture_->scene_record_count() == 0) {
@@ -1037,7 +1211,10 @@ bool Session::EnableCrowdOurs(const std::string& game_root, const std::string& f
   o.cards_thin = im.crowd_cards_thin && im.crowd_cards;  // lane 175
   o.members_thin = im.crowd_members_thin;   // lane 272
   o.member_probe = im.crowd_members_probe;
-  if (o.member_probe) {
+  if (im.crowd_members_live) {   // S102 T13 F4b: the live path: the flag is the hook's skip bit; here: a tally row exists for the hook frame
+    o.members_thin_at = [&im](uint64_t f) { return im.member_counts[0].count(f) > 0 || im.member_counts[1].count(f) > 0; };
+  }
+  if (o.member_probe || im.crowd_members_live) {
     o.member_counts = [&im](uint64_t f, int site, uint32_t& seen, uint32_t& dropped, uint64_t& world) {
       const auto it = im.member_counts[site].find(f);
       if (it == im.member_counts[site].end()) return false;
@@ -1066,6 +1243,11 @@ bool Session::EnableCrowdOurs(const std::string& game_root, const std::string& f
   else if (fault == "identity_vp") o.fault_identity_viewproj = true;
   else if (fault == "no_cards") o.fault_no_cards = true;
   else if (fault == "double_mesh") o.fault_double_mesh = true;
+  else if (fault == "inst_world_first") o.fault_inst_world_first = true;   // S102 T6: every instance of a group takes the group's first world (needs --members-instanced on)
+  else if (fault == "inst_group_ignores_fs") o.fault_inst_group_ignores_fs = true;   // S102 T6: the group test skips the fragment block (with --members-perturb the draw is wrong)
+  else if (fault == "inst_first_fit") o.fault_inst_first_fit = true;                 // S102 T6: any earlier group may take a member: the draw order changes
+  else if (fault == "inst_rows_transposed") o.fault_inst_rows_transposed = true;     // S102 T6: the world rows written transposed
+  else if (fault == "inst_drop_last") o.fault_inst_drop_last = true;       // S102 T6: the last instance of every group is not drawn
   else if (fault == "undrawable_type") o.fault_undrawable_first = true;
   else if (fault == "lod0_palette") o.fault_lod0_palette = true;
   else if (fault == "record_missing_member") o.fault_record_missing_member = true, o.verify_pairing = false;  // S101 lane 82: verify OFF (a non-verified live frame)
@@ -1146,6 +1328,7 @@ std::string Session::CrowdReport() const {
   std::snprintf(line, sizeof line, "[rdr][crowd] ours frames %llu, fallback %llu, stream draws dropped %llu, members drawn %llu, ms ours %.2f (stream draws kept for members ours could not draw: %llu), persist-only %llu", static_cast<unsigned long long>(c.ours_frames),
                 static_cast<unsigned long long>(c.fallback_frames), static_cast<unsigned long long>(c.draws_dropped), static_cast<unsigned long long>(c.members_drawn), c.ms_ours, static_cast<unsigned long long>(c.draws_kept), static_cast<unsigned long long>(c.persist_only));
   std::string text = line;
+  text += "\n" + im.binder->CrowdFastLine();  // S102 R21-C
   if (im.crowd && im.crowd->InjectsCards()) {  // S101 lane CD: the binder's side of the cards census
     char cl[320];
     std::snprintf(cl, sizeof cl, "\n[rdr][crowd] cards: frames ours %llu, fallback %llu, card draws dropped %llu, cards drawn %llu, kept %llu, ms ours %.2f", static_cast<unsigned long long>(c.card_frames_ours),
@@ -1166,6 +1349,34 @@ uint64_t Session::crowd_frames_ours() const { return impl_->binder ? impl_->bind
 uint64_t Session::crowd_frames_fallback() const { return impl_->binder ? impl_->binder->crowd_counters().fallback_frames : 0; }
 uint64_t Session::crowd_draws_dropped() const { return impl_->binder ? impl_->binder->crowd_counters().draws_dropped : 0; }
 
+std::string Session::PresentReport(const std::string& shot, bool stamps) {
+  char buf[640];
+  std::snprintf(buf, sizeof buf, "[fview][present] presents %llu, drawn capped %llu (cap %u, plant %d), through SGSR %llu, bilinear switch %d, makecap tries %llu, blit ms %.4f",
+                static_cast<unsigned long long>(rdr::g_out_frames.load()), static_cast<unsigned long long>(rdr::g_out_cap_frames.load()), rdr::g_out_cap_h.load(), rdr::g_out_cap_plant.load() ? 1 : 0,
+                static_cast<unsigned long long>(rdr::g_out_sgsr_frames.load()), rdr::g_out_bilinear.load() ? 1 : 0,
+                static_cast<unsigned long long>(rdr::g_out_makecap_tries.load()), renderer_->GpuRoles().blit_ms);
+  std::string text = buf;
+  text += "\n" + rdr::PresentFetchLine("[fview]");  // S102 R24-A
+  if (!shot.empty()) {
+    std::vector<uint8_t> rgba;
+    uint32_t w = 0, h = 0;
+    if (renderer_->ReadPresent(rgba, w, h) && rdr::WritePng(shot.c_str(), rgba.data(), w, h)) {
+      std::snprintf(buf, sizeof buf, "\n[fview][present] wrote %s (%ux%u)", shot.c_str(), w, h);
+    } else {
+      std::snprintf(buf, sizeof buf, "\n[fview][present] could not read the offscreen output for %s", shot.c_str());
+    }
+    text += buf;
+  }
+  if (stamps) {
+    const rdr::Renderer::GpuRoleTotals roles = renderer_->GpuRoles();
+    std::snprintf(buf, sizeof buf, "\n[fview][gpu] stamped frames %llu: mean ms a frame: output %.4f (blit %.4f) colour %.4f shadow %.4f post %.4f cards %.4f other %.4f; work %.4f total %.4f",
+                  static_cast<unsigned long long>(roles.frames), roles.cls_ms[rdr::kGpuOutput], roles.blit_ms, roles.cls_ms[rdr::kGpuColor], roles.cls_ms[rdr::kGpuShadow], roles.cls_ms[rdr::kGpuPost], roles.cls_ms[rdr::kGpuCards],
+                  roles.cls_ms[rdr::kGpuOther], roles.work_ms, roles.total_ms);
+    text += buf;
+  }
+  return text;
+}
+
 bool Session::Open(const std::string& folder, const rdr::RendererOptions& options, std::string& error) {
   folder_ = folder;
   capture_ = std::make_unique<rdr_adapter::CaptureReader>();
@@ -1175,7 +1386,9 @@ bool Session::Open(const std::string& folder, const rdr::RendererOptions& option
   }
   renderer_ = rdr::Renderer::Create(options, error);
   if (!renderer_) return false;
-  impl_->binder = std::make_unique<rdr_adapter::Binder>(*renderer_);
+  rdr::PresentFetchPlants(*renderer_);  // S102 R24-A (TEST ONLY: a plant flag or nothing)
+  impl_->binder =std::make_unique<rdr_adapter::Binder>(*renderer_);
+  impl_->binder->SetBlendKeysWanted(false);   // S102 R21-A: fview has no tween / DLSS consumer (only read with --frame-facts on)
   impl_->binder->CreateImages(*capture_);
   if (std::getenv("L162_CAPTURED_ONLY")) impl_->binder->SetThinCapturedOnly(true);   // lane 162 (TEST ONLY): only the capture's own lite draws are lite
   impl_->binder->SetThinOffline(true);  // lane 122: a capture replay learns its thin keys from its own full frames
@@ -1219,11 +1432,29 @@ bool Session::ReplayThrough(uint32_t count, ReplayTotals& totals, std::string& e
     FeedCrowd(f);  // S101 lane 35
     const uint64_t members_before = im.binder->crowd_counters().members_drawn;
     if (im.thin_on) im.binder->ThinEmulateReader(frame, im.thin_lag);  // lane 122
+    // S102 G3 (review F1): a frame the capture marks kFramePart (a DrawAndRead part) is bound as live binds it: frame_part_open for that bind. --part-every N (map_turns.h g_plant_part_every, TEST ONLY) plants one every N-th frame.
+    im.binder->frame_part_open = (frame.header.flags & rdr_adapter::kFramePart) != 0 || (rdr_adapter::map_turns::g_plant_part_every && f % rdr_adapter::map_turns::g_plant_part_every == rdr_adapter::map_turns::g_plant_part_every - 1);
+    if (im.time_frames) rdr_scene::props_budget::g_frame_index.store(f, std::memory_order_relaxed);   // S102 T17 (only with --frame-times: the default replay reads no clock)
+    const auto t_bind0 = im.time_frames ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     im.binder->Bind(frame, *capture_, builder, stats);
+    const auto t_bind1 = im.time_frames ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    im.binder->frame_part_open = false;
     if (im.crowd_by_frame.size() <= f) im.crowd_by_frame.resize(size_t(f) + 1, 0);
     im.crowd_by_frame[f] = uint32_t(im.binder->crowd_counters().members_drawn - members_before);
     renderer_->RenderFrame(builder.Finish());
+    if (im.time_frames) im.frame_times.push_back({std::chrono::duration<double, std::milli>(t_bind1 - t_bind0).count(), std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_bind1).count()});   // S102 T17
     Add(totals, stats);
+    if (im.present_hash_frames) {  // S102 R24-A: the swapchain image this frame left (offscreen under --present-size), as the player would see it
+      renderer_->WaitIdle();
+      std::vector<uint8_t> out_rgba;
+      uint32_t ow = 0, oh = 0;
+      uint64_t out_hash = 0;
+      if (renderer_->ReadPresent(out_rgba, ow, oh)) {
+        out_hash = 0xcbf29ce484222325ull;
+        for (uint8_t byte : out_rgba) out_hash = (out_hash ^ byte) * 0x100000001b3ull;
+      }
+      im.present_frame_hashes.push_back(out_hash);
+    }
     if (im.hash_frames || im.dump_frames.count(f)) {  // S101 lane CD: the presented surface of this frame
       renderer_->WaitIdle();
       uint32_t surface = 0;
@@ -1232,16 +1463,58 @@ bool Session::ReplayThrough(uint32_t count, ReplayTotals& totals, std::string& e
       uint64_t hash = 0;
       std::vector<uint8_t> rgba;
       uint32_t w = 0, h = 0;
-      if (surface && ReadSurface(surface, rgba, w, h)) {
+      if (surface && ReadPresentSurface(surface, rgba, w, h)) {
         hash = 0xcbf29ce484222325ull;
         for (uint8_t byte : rgba) hash = (hash ^ byte) * 0x100000001b3ull;
       }
       im.frame_hashes.push_back(hash);
+      if ((rdr_adapter::copy_alias::g_lasting_probe || rdr_adapter::copy_alias::g_part_probe > 0) && f + 1 < count) {   // S102 G8 F1: a skipped frame that runs lasting work: the NEXT frame bound once more as a persist-only part; the last picture must stay this frame's
+        rdr_adapter::LoadedFrame next;
+        if (capture_->LoadFrame(f + 1, next)) {
+          rdr::FrameBuilder pb;
+          pb.Begin(f);
+          rdr_adapter::BindStats pstats;
+          const bool full_part = rdr_adapter::copy_alias::g_part_probe > 0;   // S102 C3 F3: a Full-mode part of the next frame's first N ops (the read-back split), not a persist-only bind
+          if (full_part && next.ops.count > uint32_t(rdr_adapter::copy_alias::g_part_probe)) next.ops.count = uint32_t(rdr_adapter::copy_alias::g_part_probe);
+          im.binder->frame_part_open = true;
+          im.binder->persist_only_bind = !full_part;
+          im.binder->Bind(next, *capture_, pb, pstats);
+          im.binder->persist_only_bind = false;
+          im.binder->frame_part_open = false;
+          if (full_part) renderer_->RenderFrame(pb.Finish());
+          else renderer_->RenderFrame(pb.Finish(), rdr::RenderMode::PersistentOnly);
+          renderer_->WaitIdle();
+          std::vector<uint8_t> prgba;
+          uint32_t pw = 0, ph = 0;
+          uint64_t ph_hash = 0;
+          if (ReadPresentSurface(surface, prgba, pw, ph)) {
+            ph_hash = 0xcbf29ce484222325ull;
+            for (uint8_t byte : prgba) ph_hash = (ph_hash ^ byte) * 0x100000001b3ull;
+          }
+          ++rdr_adapter::copy_alias::g_probe_count;
+          if (ph_hash != hash) ++rdr_adapter::copy_alias::g_probe_bad;
+        }
+      }
       if (im.dump_frames.count(f) && !rgba.empty()) {  // lane 155: the picture of a chosen frame, for the magnitude of a difference the hash only counts
         char name[64];
         std::snprintf(name, sizeof name, "/frame_%05u.png", f);
         std::filesystem::create_directories(im.dump_dir);
         rdr::WritePng((im.dump_dir + name).c_str(), rgba.data(), w, h);
+        if (rdr_adapter::plane_bake::g_fview) {   // S102 L2: the bake's raw and softened maps and the composite of this frame, for the sheet and the footprint check
+          rdr::ImageId raw = rdr::kNoImage, soft = rdr::kNoImage, comp = rdr::kNoImage;
+          im.binder->PlaneBakeImages(raw, soft, comp);
+          const std::pair<const char*, rdr::ImageId> maps[3] = {{"/bakeraw_%05u.png", raw}, {"/bake_%05u.png", soft}, {"/comp_%05u.png", comp}};
+          for (const auto& m : maps) {
+            std::vector<uint8_t> mrgba;
+            uint32_t mw = 0, mh = 0;
+            rdr::ImageRef ref;
+            ref.image = m.second;
+            if (m.second != rdr::kNoImage && renderer_->ReadImage(ref, mrgba, mw, mh) && !mrgba.empty()) {
+              std::snprintf(name, sizeof name, m.first, f);
+              rdr::WritePng((im.dump_dir + name).c_str(), mrgba.data(), mw, mh);
+            }
+          }
+        }
       }
       for (const rdr_adapter::ImageRecord& r : capture_->images())
         if (r.id == surface) im.present_format = r.format;  // review: the presented surface's storage format (rdr::Format; 8-bit = RGBA8 1 / BGRA8 3)
@@ -1250,6 +1523,11 @@ bool Session::ReplayThrough(uint32_t count, ReplayTotals& totals, std::string& e
   renderer_->WaitIdle();
   im.replayed = count;
   return true;
+}
+
+static bool layers_dump_ok(uint32_t frame, const char* every) {   // S102 L1b (tool only)
+  const int n = every ? std::atoi(every) : 1;
+  return n <= 1 || frame % uint32_t(n) == 0;
 }
 
 // S101 lane 99: every frame played in order (the hooks keep their state across frames, as live), and after each the picture (the Present source) and the given images read back and hashed.
@@ -1266,6 +1544,7 @@ bool Session::SweepHashes(const std::vector<uint32_t>& images, int slot, std::st
   };
   csv = "frame,picture";
   for (uint32_t id : images) csv += ",img" + std::to_string(id);
+  if (std::getenv("FVIEW_SWEEP_COUNTS")) csv += ",gpu_ops,gpu_targets,gpu_clears,gpu_draws,gpu_copies";   // S102 P1: the frame the renderer was given (after the binder), counts only
   if (slot >= 0) csv += ",slot" + std::to_string(slot) + "_images,slot" + std::to_string(slot) + "_hash";
   csv += "\n";
   for (uint32_t f = 0; f < frame_count(); ++f) {
@@ -1300,6 +1579,10 @@ bool Session::SweepHashes(const std::vector<uint32_t>& images, int slot, std::st
     };
     one(present);
     for (uint32_t id : images) csv += ",", one(id);
+    if (std::getenv("FVIEW_SWEEP_COUNTS")) {   // S102 P1
+      std::snprintf(line, sizeof line, ",%u,%u,%u,%u,%u", full.ops.count, full.targets.count, full.clears.count, full.draws.count, full.copies.count);
+      csv += line;
+    }
     if (slot >= 0) {   // every distinct image the frame's draws bind at that fetch slot (slot 12: the shadow readers' maps and the plane mask), one combined hash
       std::set<uint32_t> ids;
       for (uint32_t t = 0; t < frame.texture_slots.count; ++t)
@@ -1308,12 +1591,48 @@ bool Session::SweepHashes(const std::vector<uint32_t>& images, int slot, std::st
       for (uint32_t id : ids) {
         rgba.clear();
         w = h = 0;
-        const uint64_t one_hash = ReadSurface(id, rgba, w, h) ? fnv(rgba, w, h) : 0xDEADull;
+        uint64_t one_hash = ReadSurface(id, rgba, w, h) ? fnv(rgba, w, h) : 0xDEADull;
+        uint32_t layers = 1;
+        if (std::getenv("FVIEW_SWEEP_LAYERS"))
+          for (const rdr_adapter::ImageRecord& rec : capture_->images())
+            if (rec.id == id) layers = rec.layers;
+        if (layers > 1)   // S102 C1 (as G14): an image with layers (a light cube) is hashed over ALL its faces: the pre-light proof compares the six layers, not layer 0 only
+          for (uint32_t layer = 1; layer < layers; ++layer) {
+            rgba.clear();
+            if (!ReadSurface(id, rgba, w, h, layer)) break;
+            one_hash = (one_hash ^ fnv(rgba, w, h)) * 1099511628211ull;
+          }
         combined = (combined ^ id) * 1099511628211ull;
         combined = (combined ^ one_hash) * 1099511628211ull;
       }
       std::snprintf(line, sizeof line, ",%zu,%016llx", ids.size(), (unsigned long long)combined);
       csv += line;
+    }
+    if (const char* dump_dir = std::getenv("FVIEW_SWEEP_CUBE_DUMP"); dump_dir && layers_dump_ok(f, std::getenv("FVIEW_CUBE_DUMP_EVERY"))) {   // S102 L1b (tool only): the faces' bytes of EVERY light cube (64x64, six layers, one mip), read or not: tools/l1b compares two arms texel by texel
+      std::set<uint32_t> baked;   // the cubes a 384x64 strip is copied into this frame (the pre-light slots' cubes)
+      for (uint32_t c = 0; c < frame.copies.count; ++c) {
+        const uint32_t src = frame.copies[c].source.image;
+        for (const rdr_adapter::ImageRecord& rec : capture_->images())
+          if (rec.id == src && rec.width == 384 && rec.height == 64) baked.insert(frame.copies[c].dest.image);
+      }
+      for (const rdr_adapter::ImageRecord& rec : capture_->images()) {
+        if (rec.width != 64 || rec.height != 64 || rec.layers != 6 || rec.mips != 1 || !baked.count(rec.id)) continue;
+        std::vector<uint8_t> dump;
+        bool ok = true;
+        for (uint32_t layer = 0; layer < 6 && ok; ++layer) {
+          rgba.clear();
+          w = h = 0;
+          ok = ReadSurface(rec.id, rgba, w, h, layer);
+          dump.insert(dump.end(), rgba.begin(), rgba.end());
+        }
+        if (!ok) continue;
+        char name[512];
+        std::snprintf(name, sizeof name, "%s/f%04u_i%u.bin", dump_dir, f, rec.id);
+        if (std::FILE* out = std::fopen(name, "wb")) {
+          std::fwrite(dump.data(), 1, dump.size(), out);
+          std::fclose(out);
+        }
+      }
     }
     csv += "\n";
   }
@@ -1372,6 +1691,15 @@ bool Session::ReadPresented(std::vector<uint8_t>& rgba, uint32_t& width, uint32_
 const rdr_adapter::shadows_ours::Plan& Session::ShadowsPlan() const { return impl_->binder->shadows_plan(); }
 std::string Session::ShadowsReport() const { return impl_->binder->ShadowsOursReport(); }
 std::string Session::CopyAliasReport() const { return impl_->binder ? impl_->binder->CopyAliasReport() : std::string(); }  // S101 lane 190
+std::string Session::DeadWorkReport() const { return impl_->binder ? impl_->binder->DeadWorkReport() : std::string(); }  // S102 lane G4
+std::string Session::TurnsReport() const { return impl_->binder ? impl_->binder->TurnsReport() : std::string(); }  // S102 lane G3
+uint64_t Session::TurnsStale() const { return impl_->binder ? impl_->binder->turns_census().StaleTotal() : 0; }  // S102 lane G3
+std::string Session::PlaneBlankReport() const { return impl_->binder ? impl_->binder->PlaneBlankReport() : std::string(); }  // S102 lane G4b
+std::string Session::PreLightAnalyticReport() const { return impl_->binder ? impl_->binder->PreLightAnalyticReport() : std::string(); }  // S102 L1
+std::string Session::PreLightReport() const { return impl_->binder ? impl_->binder->PreLightReport() : std::string(); }  // S102 C1
+std::string Session::PreLightComputeReport() const { return impl_->binder ? impl_->binder->PreLightComputeReport() : std::string(); }  // S102 L1b
+std::string Session::FrameCutsReport() const { return impl_->binder ? impl_->binder->FrameCutsReport() : std::string(); }  // S102 lane G11
+std::string Session::FrameRoundTripReport() const { return impl_->binder ? impl_->binder->FrameRoundTripReport() : std::string(); }  // S102 R18-B1
 uint32_t Session::ShadowsOursWidth(uint32_t image) const { return impl_->binder->ShadowsOursWidth(image); }
 uint32_t Session::ShadowsOursHeight(uint32_t image) const { return impl_->binder->ShadowsOursHeight(image); }
 
@@ -1505,8 +1833,19 @@ bool Session::RenderThrough(int op) {
 
 rdr::ImageId Session::MappedImage(uint32_t image) const { return impl_->binder ? impl_->binder->Mapped(image) : rdr::kNoImage; }  // S101 lane 34
 
-bool Session::ReadSurface(uint32_t image, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height) {
+bool Session::ReadPresentSurface(uint32_t surface, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height) {
+  if ((rdr_adapter::copy_alias::g_fullsize > 0 || rdr_adapter::copy_alias::g_frame_direct) && !rdr_adapter::copy_alias::g_hash_mapped) {   // S102 C3: frame_direct raises the level to 3 too   // (the old path elsewhere: the capture's id mapped after the bind, the alias gone)
+    rdr::ImageRef ref;
+    ref.image = impl_->binder->last_present().source.image;
+    if (ref.image == rdr::kNoImage) return false;
+    return renderer_->ReadImage(ref, rgba, width, height);
+  }
+  return ReadSurface(surface, rgba, width, height);
+}
+
+bool Session::ReadSurface(uint32_t image, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height, uint32_t layer) {
   rdr::ImageRef ref;
+  ref.layer = uint8_t(layer);   // S102 C1: a cube's face
   ref.image = impl_->binder->Mapped(image);
   if (ref.image == rdr::kNoImage) return false;
   return renderer_->ReadImage(ref, rgba, width, height);

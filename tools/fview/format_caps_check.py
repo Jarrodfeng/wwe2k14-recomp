@@ -37,7 +37,8 @@ def run(exe, root, cap, mask, hashes):
     for s in re.finditer(r'format caps summary: linear->nearest slots (\d+), blits->nearest (\d+), blend off (\d+), vertex unsupported (\d+); illegal \(fallbacks off\) linear (\d+), blend (\d+)', text): pass  # the LAST summary line (first one at the first change, final at shutdown)
     frames = [l for l in hashes.read_text().splitlines() if not l.startswith('format')] if hashes.exists() else []
     caps_lines = sum(1 for l in text.splitlines() if l.startswith('[rdr] format caps:'))
-    return (int(m.group(1)) if m else None), (tuple(int(x) for x in s.groups()) if s else (0, 0, 0, 0, 0, 0)), frames, caps_lines
+    rc = p.returncode   # S102 G5 (F1 class fix): fview exits 4 on validation errors AFTER writing the csv; any other non-zero exit is a crash and reads as no count
+    return (int(m.group(1)) if m and rc in (0, 4) else None), (tuple(int(x) for x in s.groups()) if s else (0, 0, 0, 0, 0, 0)), frames, caps_lines
 
 
 def main():

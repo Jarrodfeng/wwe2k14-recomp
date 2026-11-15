@@ -1,0 +1,38 @@
+{
+ "owner": "S102 lane R21-C (the crowd's rank work done once and flat; R21 research cut 3): src/renderer_adapter/crowd_rank.h (CrowdNodeKnown / CrowdFlatKnown, one RankT over both), binder.h (g_crowd_fast, CrowdVariantTable, SetFast per Bind, the census CrowdFastLine, the test twins), crowd_hook.h (density census counters), src/renderer_scene/crowd_workers.h + crowd_ours.cpp/.h (the pose on a pool), members_switch.h, rdr_switches.h / reader.h / live.cpp (switches wwe2k14_rdr_crowd_fast + wwe2k14_rdr_crowd_workers, PerFrame, default off), fview / rplay --crowd-fast [--crowd-fast-steps N --crowd-fast-fault NAME --crowd-workers N --crowd-workers-fault unjoined], tools/crowd/crowd_fast_check.py, crowd_rank_test.cpp, crowd_workers_test.cpp. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {
+   "switch": "wwe2k14_rdr_crowd_fast",
+   "scene": "bryan",
+   "side": "render",
+   "ms": [0.1, 0.4],
+   "note": "ESTIMATE restated after review F5 (census: ~842 rank calls a frame, 95 % followed = one find; the ~40 fresh / inherited ranks a frame ran the O(N) last_ / last2_ scan, now a 27-cell grid lookup with the same entries in the same order; the strncmp step is ~20-40 us; the PC bind_us smoke was noise-level, -5 % mean over 2 repeats on a 4090): step 2 = the rank memory as an open-addressing table instead of a node map, ~1,200 calls a frame on the Surface heavy stretch (R21: Rank 1.6 ms, 5.4 % of the thread, of which the find is the part this takes), 0.3-0.5 ms; step 1 = the crowd-program test of the density block answered from a table made once instead of two strncmp on each of the ~1,300 draws a frame, 0.05-0.2 ms. The brief's step 1 premise (the density rank on ~449 stream crowd draws that ours then drops, 0.7 ms) is NOT in this tree: the early-out for dropped stream draws is the base's own (binder.h BindDraw top, S101 lane 35: every crowd draw ours drops returns before the density test); the census proves it (density tests on dropped draws: 0 in every capture; the tests that run are on draws the stream keeps drawing). Kind: removal of work; own Surface A/B not needed under ~1 ms alone (combined A/B; census line `[rdr][crowd_fast]` proves it took)."
+  },
+  {
+   "switch": "wwe2k14_rdr_crowd_workers",
+   "scene": "bryan",
+   "side": "render",
+   "ms": [0.0, 0.5],
+   "note": "PARKED (default 0, no Surface enable until a Surface A/B shows [rdr][crowd] ms ours and the update thread busy time do not rise; PC smoke: bind_us +9 % with 2 workers on a 4090). UNCONFIRMED: the pose of every class's meshes (PoseVertices, 0.84 ms on the Surface heavy stretch, R21 section 4a) on 2 pool threads plus the render thread, joined before the class loop; 0 if no core is free (sys_cpu 72-90 % in the heavy window with the profiler on). Packing (PackFromBank) is NOT moved: the audit found it reads lazily resolved constant banks (BankView::Resolve caches on first read), a shared-state hazard. Default 0 workers; the Surface job decides."
+  }
+ ],
+ "note": "unit = the rank unit (flat == node for 3.4 million calls incl. the 600-frame window rotations, a flipping run, the lane 234 burst plant re-found at 42 % flips on the flat tracker, plants rank_radius_off / flat_no_rotate) + the pool unit (3 plants); wiring = every link of both switches with a text twin each; bryan / brock = fview headless, the whole player bundle at crowd density 70, off vs fast vs steps alone vs fast + 2 workers byte-equal on every frame with validation 0 / exit 0, the crowd / cards / rank counters equal, twins early_keep / early_first / rank_radius_off / workers_unjoined caught; counts = rplay --timing bind_us per step, interleaved 3 repeats, Bryan + Brock.",
+ "checks": [
+  {"name": "s102_r21_c.unit", "cmd": ["py", "-I", "tools/crowd/crowd_fast_check.py", "--root", ".", "--only", "unit"], "timeout_s": 900,
+   "affects": ["src/renderer_adapter/crowd_rank.h", "src/renderer_scene/crowd_workers.h", "tools/crowd/crowd_rank_test.cpp", "tools/crowd/crowd_workers_test.cpp", "tools/crowd/crowd_fast_check.py"]},
+  {"name": "s102_r21_c.wiring", "cmd": ["py", "-I", "tools/crowd/crowd_fast_check.py", "--root", ".", "--only", "wiring"], "timeout_s": 120,
+   "affects": ["src/renderer_adapter/rdr_switches.h", "src/renderer_adapter/reader.h", "src/renderer_adapter/live.cpp", "src/renderer_adapter/binder.h", "src/renderer_scene/crowd_ours.cpp", "src/fview/main.cpp", "src/renderer/player/rplay.cpp", "tools/crowd/crowd_fast_check.py"]},
+  {"name": "s102_r21_c.bryan", "cmd": ["py", "-I", "tools/crowd/crowd_fast_check.py", "--root", ".", "--only", "bryan"], "timeout_s": 3400,
+   "exes": ["out/renderer/dev/fview.exe"],
+   "needs": ["out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip", "game_data/extracted"]},
+  {"name": "s102_r21_c.brock", "cmd": ["py", "-I", "tools/crowd/crowd_fast_check.py", "--root", ".", "--only", "brock"], "timeout_s": 2400,
+   "exes": ["out/renderer/dev/fview.exe"],
+   "needs": ["out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip", "game_data/extracted"]},
+  {"name": "s102_r21_c.counts", "cmd": ["py", "-I", "tools/crowd/crowd_fast_check.py", "--root", ".", "--only", "counts"], "timeout_s": 3000,
+   "exes": ["out/renderer/dev/rplay.exe"],
+   "needs": ["out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin", "out/lane86/brock/capture/images.bin", "game_data/extracted"]},
+  {"name": "s102_r21_c.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/renderer_adapter/binder.h", "src/renderer_adapter/crowd_rank.h", "src/renderer_scene/crowd_ours.h", "src/renderer_scene/crowd_workers.h"]}
+ ]
+}

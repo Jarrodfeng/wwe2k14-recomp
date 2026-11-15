@@ -1,4 +1,5 @@
 // Live shader reload (Session 101, lane 24). See shader_reload.h and docs\renderer\SCENE_FRONTEND.md "Live reload".
+#include "../thread_name.h"  // S102 H1
 #include "shader_reload.h"
 
 #include <algorithm>
@@ -268,7 +269,7 @@ ShaderReload::ShaderReload(const Options& options) : opt_(options) {
   if (opt_.watch) {
     if (opt_.root.empty() || opt_.src_dir.empty() || !fs::exists(opt_.root / "tools" / "fview" / "reload_effect.py", ec))
       std::fprintf(stderr, "[reload] the watcher is off: tools\\fview\\reload_effect.py not found from the exe or the working folder (WWE_SHADER_ROOT names the repo)\n");
-    else worker_ = std::thread([this] { WorkerMain(); });
+    else worker_ = std::thread([this] { wwe2k14::NameThread(L"ours_shaderrel"); WorkerMain(); });
   }
 }
 

@@ -59,7 +59,7 @@ struct Op {
 
 // Pipeline-level state. rdr::DrawState holds Vulkan's numbers already; program and vertex_layout stay 0 here (the binder fills them).
 struct DrawFixed {
-  rdr::DrawState state;
+  rdr::DrawState state{};
   uint8_t alpha_test = 0;     // A1: compare the shader's raw colour-0 alpha
   uint8_t alpha_func = 7;     // VkCompareOp (the Xenos bits are the same numbers, A2)
   uint8_t alpha_to_coverage = 0;

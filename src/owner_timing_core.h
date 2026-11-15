@@ -20,6 +20,7 @@ struct Item {
   uint32_t a = 0, b = 0, c = 0, d = 0, e = 0;  // fence: marker at, marker, value at, value; interrupt: flags, callback, argument, scratch, options
   uint32_t dev = 0;
   bool boot_writes = false;  // 3a: apply the boot segment's scratch write-backs at this place in the stream
+  uint64_t join = 0;         // S102 R25-A (wwe2k14_rdr_swap_tail2 bit 1): the reader-job ticket the thread waits for before it answers this item (0 = none)
 };
 
 enum class Count { Fence, Gated, Released, Interrupt, Flip, DispatchWait, Vblank };
@@ -41,6 +42,7 @@ inline uint64_t SceneTicksForMs(double ms, float scale) {
 // every owed vblank; after a stall of minutes (a suspend, a debugger) that is thousands in a row, so here at most kMaxCatchUp are fired and the grid restarts from now.
 struct VblankClock {
   static constexpr uint32_t kMaxCatchUp = 8;
+  uint32_t max_catch_up = kMaxCatchUp;  // S102 H2: the batched load wait (owner_hires_wait.h PlanWaitBatched) raises it so a batch is never mistaken for a stall
   int64_t interval_ns = 16666667;
   int64_t next_ns = 0;
   bool started = false;
@@ -63,7 +65,7 @@ struct VblankClock {
     while (now_ns >= next_ns) {
       ++n;
       next_ns += interval_ns;
-      if (n >= kMaxCatchUp) {
+      if (n >= max_catch_up) {
         if (now_ns >= next_ns) {
           next_ns = now_ns + interval_ns;
           ++dropped;

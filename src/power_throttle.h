@@ -45,6 +45,7 @@
 // own it): the watcher's own tracked-thread map only; no game memory, no renderer state.
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
@@ -204,7 +205,7 @@ class Watcher {
 
   void Start() {
     stop_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (stop_) thread_ = CreateThread(nullptr, 0, &Watcher::Main, this, 0, nullptr);
+    if (stop_) thread_ = CreateThread(nullptr, 0, &Watcher::Main, this, 0, /* thread-named-in: Watcher::Main */ nullptr);
     if (!thread_) REXLOG_WARN("[wwe2k14][power] could not start the watcher (error {}); off", GetLastError());
   }
   void Stop() {
@@ -230,6 +231,7 @@ class Watcher {
   int eco_threads_ = 0, kept_threads_ = 0, packed_threads_ = 0, failures_ = 0;
 
   static DWORD WINAPI Main(LPVOID self) {
+    wwe2k14::NameThread(L"power_watch");  // S102 H1
     static_cast<Watcher*>(self)->Run();
     return 0;
   }

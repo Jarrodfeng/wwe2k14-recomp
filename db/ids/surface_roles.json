@@ -9,11 +9,11 @@
   {"fn": "0x827EA4F0", "role": "rim_map", "scales": false, "lasting": false, "name": "rim light map (T_RimLightMap 512x256: colour, depth, blur target) [S101 lane 86: was tagged shadow_map as 'shadow maps B']"},
   {"fn": "0x827FD3C8", "role": "atlas_target", "scales": false, "lasting": false, "name": "crowd thumbnails (redrawn every frame: not lasting until a later-frame read is shown)"},
   {"fn": "0x825BB398", "role": "atlas_target", "scales": false, "lasting": true, "name": "crowd atlas"},
-  {"fn": "0x82C202D0", "role": "other", "scales": false, "lasting": true, "name": "light-cube strips (yprelight)"},
+  {"fn": "0x82C202D0", "role": "light_strip", "scales": false, "lasting": true, "name": "light-cube strips (yprelight) [S102 G6: was other]"},
   {"fn": "0x82C1C278", "role": "post_step", "scales": "screen_shaped", "lasting": false, "name": "HDR chain (yDownScale, yBlur, yToneMap, yGlareEtc)"},
   {"fn": "0x82C2B128", "role": "post_step", "scales": "screen_shaped", "lasting": false, "name": "DoF downsample / blur (candidate)"},
   {"fn": "0x82C296C0", "role": "post_step", "scales": "screen_shaped", "lasting": false, "name": "halation / radial blur"},
-  {"fn": "0x82BC39E0", "role": "other", "scales": "screen_shaped", "lasting": false, "name": "screen-size RT pair [U which]"},
+  {"fn": "0x82BC39E0", "role": "other", "scales": "screen_shaped", "lasting": false, "name": "screen-size RT pair [U which create; S102 G6: db draw_submit.json calls it a colour surface + texture pair, the Bryan capture's frame buffer (images 8 / 9) is colour + depth with no creator row, so no role is declared here: the stamps derive frame_buffer from facts (binder stamp_roles.h)]"},
   {"fn": "0x83419478", "role": "atlas_target", "scales": false, "lasting": true, "name": "attire atlas (CEditExSSCompositTexture)"}
  ]
 }

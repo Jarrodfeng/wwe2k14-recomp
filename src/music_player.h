@@ -35,6 +35,7 @@
 // (16-bit PCM stereo, any rate) goes through the built-in WavPcmSource on every platform.
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -307,7 +308,7 @@ class MusicPlayer {
   // must not stall the caller (lane 298: preparing the arena effects, then SetChain). A first Start waits for it (Loading).
   explicit MusicPlayer(std::function<void(MusicPlayer&)> warmup = {}) : warmup_(std::move(warmup)) {
     for (auto& r : rings_) r.data.assign(size_t(kRingFrames) * 2, 0.0f);
-    thread_ = std::thread([this] { DecodeLoop(); });
+    thread_ = std::thread([this] { wwe2k14::NameThread(L"music_decode"); DecodeLoop(); });
   }
   ~MusicPlayer() {
     {

@@ -36,6 +36,7 @@
 #include "scene_live/d3_caster_hook.h"  // lane 228: D3 skip the pass (CasterScope in the three caster pass hooks below, NoteCasterPart in the sub_82BDED40 hook)
 #include "scene_live/d3_ring_hook.h"  // lane 246: D3 skip the call for the RING class (RingScope in the sub_82C04DF0 hook below, before the arena's CallScope)
 #include "scene_live/d3_wrestler_hook.h"  // lane 245: D3 skip the wrestler's colour call (WrestlerScope in the sub_82C04DF0 hook below, NoteWrestlerPart in the sub_82BDED40 hook)
+#include "scene_live/own_node_hook.h"  // S102 P4P5: the node switch on the shadow module's (sub_827E9740) and the rim map's (sub_827EA7B8) draw nodes; compiled and reviewed, not run
 
 REXCVAR_DEFINE_BOOL(wwe2k14_draw_origin, true, "wwe2k14",
                     "S101: tag every draw record with the code that submitted it (renderer names, docs\\renderer\\NAMES.md); false = all draws unnamed");

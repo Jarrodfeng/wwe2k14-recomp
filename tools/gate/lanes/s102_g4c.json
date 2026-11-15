@@ -1,0 +1,15 @@
+{
+ "owner": "lane G4c (S102): the blank plane shadow chain is not drawn under the players' config (shipped default bundle + the half rate). Builds on G4b: src/renderer_adapter/plane_blank.h (half-rate frames are neither the ledger's first run nor counted as taken; faults ignore_half / ignore_readers; planner time in the census), the marked lines in binder.h (PlaneBlankBegin: half_skips), rplay --skip-blank-plane, tools/renderer/g4c_check.py. Switch wwe2k14_rdr_skip_blank_plane (G4b's), PerFrame, default off. docs/renderer/DEAD_WORK.md and SHADOWS_OURS.md. A REMOVAL lane (passes, draws, copies, clears of a chain that draws nothing are not recorded). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "bryan", "side": "GPU", "ms": [0.05, 0.2]},
+ "note": "Kind: measured inside the combined all-levers A/B (under ~1 ms, no cost on another side); its census line [rdr][plane_blank] proves it took. The ms is an ESTIMATE from counts and the Surface's plane role stamp (0.43 ms on a drawn frame, R17); the half rate already leaves the chain out of every second drawn frame, so the lever takes the other half: about 0.2 ms a frame on average, 0.43 ms on the frames it takes. proof = unit (the ledger, the half-rate frame, a reader of a chain image, with four planted twins), fview on the gate's Bryan capture + lane86 Bryan + lane86 Check B under the bundle + --shadow-half (hashes equal on every frame, validation 0, exit 0, the lever took frames, bound draws fall by exactly the census draws, planner under 200 us a frame), twins always / window on Check B, rplay --counts off vs on (nothing rises, passes and draws fall).",
+ "checks": [
+  {"name": "s102_g4c.build_fview", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 1800},
+  {"name": "s102_g4c.build_renderer", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1800},
+  {"name": "s102_g4c.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py"], "timeout_s": 300},
+  {"name": "s102_g4c.win_macro_lint", "cmd": ["py", "-I", "tools/gate/win_macro_lint.py"], "timeout_s": 300},
+  {"name": "s102_g4c.own_pass_helpers_lint", "cmd": ["py", "-I", "tools/shadow/own_pass_helpers_lint.py"], "timeout_s": 300},
+  {"name": "s102_g4c.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"], "affects": ["src/renderer_adapter/plane_blank.h", "src/renderer_adapter/binder.h"]},
+  {"name": "s102_g4c.proof", "cmd": ["py", "-I", "tools/renderer/g4c_check.py", "--root", "."], "timeout_s": 3600,
+   "needs": ["out/lane86/bryan/capture", "out/lane86/brock/capture", "out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin"], "exes": ["out/renderer/dev/rplay.exe", "out/renderer/dev/fview.exe"]}
+ ]
+}

@@ -24,6 +24,55 @@
    "hashes": [
     "B799CCB8D7FE9C4C"
    ]
+  },
+  {
+   "name": "base_layered",
+   "defines": [
+    "FX_LAYERED"
+   ],
+   "constants": [
+    {
+     "field": "ScreenScale",
+     "register": 201,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": []
+  },
+  {
+   "name": "base_layered_swap",
+   "defines": [
+    "FX_LAYERED",
+    "FX_LAYERED_SWAP"
+   ],
+   "constants": [
+    {
+     "field": "ScreenScale",
+     "register": 201,
+     "count": 1
+    }
+   ],
+   "attributes": [
+    {
+     "fetch": 0,
+     "location": 0
+    },
+    {
+     "fetch": 1,
+     "location": 1
+    }
+   ],
+   "hashes": []
   }
  ],
  "fragment": [

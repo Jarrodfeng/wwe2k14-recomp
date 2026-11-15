@@ -35,6 +35,9 @@ def records(path):
         read = zf.read
     for n in names:
         b = read(n)
+        ver = struct.unpack_from('<I', b, 4)[0] if len(b) >= 8 and b[:4] == b'RSCN' else 1   # S102 T19 F1: a version 2 record holds its crowd members as markers; files on disk are version 1
+        if ver != 1:
+            raise SystemExit('scene record version %d: this audit reads version 1 (expand the crowd run markers first)' % ver)
         if len(b) < 40 or b[:4] != b'RSCN':
             continue
         count = struct.unpack_from('<I', b, 8)[0]

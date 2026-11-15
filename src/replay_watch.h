@@ -49,7 +49,9 @@
 #include <cstdint>
 
 #include "cost_counters.h"  // S101 lane 83
+#include "nf/replay_native.h"  // S102 W3: the native replay loop and dispatcher (default off)
 #include "frame_stats.h"  // g_guest_frame
+#include "renderer_adapter/tail_release.h"  // S102 U1: a tail still pending finishes before the walk
 
 #if defined(__ANDROID__)
 REXCVAR_DEFINE_BOOL(wwe2k14_replay_guard, true, "wwe2k14",
@@ -61,32 +63,9 @@ REXCVAR_DEFINE_BOOL(wwe2k14_replay_guard, false, "wwe2k14",
 REXCVAR_DEFINE_INT32(wwe2k14_replay_guard_test_frame, 0, "wwe2k14",
                      "Session 73: test - the replay guard ends list 0 on purpose at this guest frame (0 = off)");
 
+#include "replay_guard.h"  // S102 W3 (review F5): the ring, the guard and the per-record hook body, moved out unchanged in behaviour
+
 namespace wwe2k14::replay_watch {
-
-inline constexpr uint64_t kRunaway = 3000000;  // a heavy entrance frame dispatches well under 100,000 records
-inline constexpr uint32_t kMaxLists = 16;
-inline constexpr uint32_t kMaxReports = 20;
-inline constexpr uint32_t kMaxEndReports = 3;  // Session 77: report-only end crossings
-
-struct Entry {
-  uint32_t record, opcode, length, position;
-};
-inline thread_local uint64_t t_dispatches = 0;
-inline thread_local Entry t_ring[64];
-inline thread_local uint32_t t_list_count = 0, t_start[kMaxLists], t_end[kMaxLists], t_buffer_index = 0;
-inline thread_local uint64_t t_test_frame_done = 0;
-inline std::atomic<uint32_t> g_reports{0};
-inline std::atomic<uint32_t> g_end_reports{0};
-inline std::atomic<uint32_t> g_fake_records{0};  // guest address of two 16-byte records: opcode 104, then 105
-
-inline uint32_t Be32(const uint8_t* base, uint32_t a) {
-  const uint8_t* p = base + a;
-  return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3];
-}
-inline void Put32(uint8_t* base, uint32_t a, uint32_t v) {
-  uint8_t* p = base + a;
-  p[0] = uint8_t(v >> 24), p[1] = uint8_t(v >> 16), p[2] = uint8_t(v >> 8), p[3] = uint8_t(v);
-}
 
 inline uint32_t FakeRecords(uint8_t* base) {
   uint32_t a = g_fake_records.load(std::memory_order_acquire);
@@ -102,104 +81,61 @@ inline uint32_t FakeRecords(uint8_t* base) {
   return aligned;
 }
 
-inline void LogRing(const uint8_t* base, uint32_t manager, const char* why) {
-  const uint32_t lists = Be32(base, manager + 132), descs = Be32(base, manager + 108);
-  REXLOG_WARN("[wwe2k14][replay_watch] {} (frame {}): manager 0x{:08X}, position {}, buffer index {} (at the walk's "
-              "start {}), {} lists (descriptors at 0x{:08X})",
-              why, g_guest_frame.load(std::memory_order_relaxed), manager, Be32(base, manager + 44),
-              Be32(base, manager + 36), t_buffer_index, lists, descs);
-  // Session 77 (gap 23): the buffer pointers the walk indexes ([manager + 4 * (index + 12)]) and the recorders'
-  // descriptor array (+104), as they are now (a VdSwap hash showed other values than the walk's record addresses).
-  REXLOG_WARN("[wwe2k14][replay_watch]   buffers +48..+60: 0x{:08X} 0x{:08X} 0x{:08X} 0x{:08X}; recorders' "
-              "descriptors +104 0x{:08X}; capacity +28 {}",
-              Be32(base, manager + 48), Be32(base, manager + 52), Be32(base, manager + 56), Be32(base, manager + 60),
-              Be32(base, manager + 104), Be32(base, manager + 28));
-  for (uint32_t i = 0; i < lists && i < kMaxLists; ++i) {
-    const uint32_t d = descs + i * 68;
-    REXLOG_WARN("[wwe2k14][replay_watch]   list {}: start {} end {} (at the walk's start: {} / {})", i,
-                Be32(base, d + 16), Be32(base, d + 12), i < t_list_count ? t_start[i] : 0,
-                i < t_list_count ? t_end[i] : 0);
-  }
-  const uint64_t n = t_dispatches;
-  for (uint64_t k = (n > 64 ? n - 64 : 0); k < n; ++k) {
-    const Entry& e = t_ring[k % 64];
-    REXLOG_WARN("[wwe2k14][replay_watch]   #{}: record 0x{:08X} opcode {} length {} position {}", k, e.record,
-                e.opcode, e.length, e.position);
-  }
-}
+}  // namespace wwe2k14::replay_watch
 
-// After a dispatch: the loop's next step; ends the list (104) when it leaves the record buffer, or the replay (105)
-// when it runs away. A list's end passed inside the buffer is only logged (Session 77, gap 23).
-inline void Guard(uint8_t* base, uint32_t manager, uint32_t slot) {
-  const uint32_t pos = Be32(base, manager + 44);
-  const uint32_t record = Be32(base, slot);
-  const uint32_t len = Be32(base, record + 8);
-  const uint32_t next = pos + len + 1;
-  const bool runaway = t_dispatches >= kRunaway;
-  // The record buffer holds [manager+28] slots (269,760 in a tag match); 0 = unknown, then only a wrap counts.
-  const uint32_t capacity = Be32(base, manager + 28);
-  const bool outside = next < pos || (capacity != 0 && next >= capacity);  // (next < pos: wrapped past 2^32)
-  // The list being walked, as the lists are now (a list still growing while it is walked is not cut short).
-  const uint32_t descs = Be32(base, manager + 108);
-  uint32_t count = Be32(base, manager + 132);
-  count = count < kMaxLists ? count : kMaxLists;
-  uint32_t list = kMaxLists, end = 0;
-  for (uint32_t i = 0; i < count; ++i) {
-    const uint32_t s = Be32(base, descs + i * 68 + 16), e = Be32(base, descs + i * 68 + 12);
-    if (list == kMaxLists && s < e && pos >= s && pos <= e) list = i, end = e;
-  }
-  const int32_t test_frame = REXCVAR_GET(wwe2k14_replay_guard_test_frame);
-  const uint64_t frame = g_guest_frame.load(std::memory_order_relaxed);
-  const bool test = test_frame > 0 && frame >= uint64_t(test_frame) && t_test_frame_done == 0 && list == 0;
-  if (!outside && !runaway && !test) {
-    if (list < kMaxLists && next > end && g_end_reports.fetch_add(1, std::memory_order_relaxed) < kMaxEndReports) {
-      LogRing(base, manager, "a render-command list's walk passed its end inside the buffer (report only)");
-      REXLOG_WARN("[wwe2k14][replay_watch] last record 0x{:08X} length {}: next position {} (list {} ends at {}, "
-                  "buffer {} slots); left alone",
-                  record, len, next, list, end, capacity);
-    }
-    return;
-  }
-  if (test) t_test_frame_done = frame;
-  const uint32_t fake = FakeRecords(base);
-  const uint32_t index = Be32(base, manager + 36);
-  const uint32_t buffer = Be32(base, manager + 4 * (index + 12));
-  const uint32_t target = runaway ? fake + 16 : fake;
-  const bool can_end = fake && ((target - buffer) & 15) == 0;
-  if (g_reports.fetch_add(1, std::memory_order_relaxed) < kMaxReports) {
-    LogRing(base, manager,
-            test ? "TEST: the replay guard ends list 0 on purpose"
-            : runaway ? "a render-command replay ran past 3000000 dispatches"
-                      : "a render-command list's walk left the record buffer");
-    REXLOG_WARN("[wwe2k14][replay_watch] last record 0x{:08X} length {}: next position {} (list {} ends at {}, "
-                "buffer {} slots); {}",
-                record, len, next, list < kMaxLists ? int(list) : -1, end, capacity,
-                can_end ? (runaway ? "the replay is ended (105)" : "the list is ended (104)")
-                        : "cannot end it (the record buffer is not 16-byte aligned)");
-  }
-  if (!can_end) return;
-  // The loop adds len + 1 to [manager+44] and reads the record at buffer + 16 * position (32-bit wrap).
-  const uint32_t target_pos = (target - buffer) >> 4;
-  Put32(base, manager + 44, target_pos - len - 1);
+// S102 W3 (docs/research/part2/W3_native_replay.md): native versions of the game's replay loop sub_82BB5BE8 and interpreter sub_82BB53D0
+// (src/nf/replay_native.h; proved against the recompiled functions by tools/w3/diff). Both PerFrame, default off (the table is
+// src/renderer_adapter/rdr_switches.h): the sub_82BB5BE8 hook reads them ONCE per replay through rdr_sw::BoolSeen with the guest frame and latches the
+// dispatcher's value in a thread_local for that replay; the per-record hook never reads a cvar for them (tools/w3/hook_lint.py).
+REXCVAR_DEFINE_BOOL(wwe2k14_nf_replay_loop, false, "wwe2k14",
+                    "Session 102 W3: the render-command replay loop (sub_82BB5BE8) as native code (src/nf/replay_native.h); read once per replay");
+REXCVAR_DEFINE_BOOL(wwe2k14_nf_render_dispatch, false, "wwe2k14",
+                    "Session 102 W3: the render-command interpreter (sub_82BB53D0) as native code for the ops whose case is one call; the others run "
+                    "the recompiled one (src/nf/replay_native.h); read once per replay");
+namespace wwe2k14::replay_watch {
+inline thread_local bool t_native_dispatch = false;  // this replay's dispatcher switch (latched by the sub_82BB5BE8 hook)
+// Every 600 replays while a native switch is on: what the native code took (the census line the Surface reads to tell "no gain" from "did nothing").
+inline void CensusTick(uint64_t guest_frame) {
+  auto& c = wwe2k14::nf_replay::g_census;
+  ++c.frames;
+  if (c.frames % 600 != 0) return;
+  const uint64_t taken = c.native_calls + c.exits, declined = c.fallbacks + c.hooked_op81 + c.hooked_bookkeeping + c.hooked_dispatch_off;
+  REXLOG_INFO("[rdr][nf_replay] frames {}, taken {}, declined {} (by reason: recompiled interpreter for ops 9/10/12/42/43/46/49/52-58/72/79/81/82/103 {}, "
+              "op 81 through the hook {}, guard / cost counters / Android watch on {}, dispatcher switch off {}); guest frame {}, loop {}, dispatcher {}",
+              c.frames, taken, declined, c.fallbacks, c.hooked_op81, c.hooked_bookkeeping, c.hooked_dispatch_off, guest_frame, int(c.loop_on), int(c.dispatch_on));
 }
-
 }  // namespace wwe2k14::replay_watch
 
 // render_cmd_replay_lists: one call per frame; the count starts again and the lists' bounds are kept.
 REX_HOOK_RAW(sub_82BB5BE8) {
+  rdr_adapter::tail::The().FlushIfPending(rdr_adapter::tail::kAtWalk);  // S102 U1 (safety net; the release hook normally finished it): one relaxed load
   namespace rw = wwe2k14::replay_watch;
-  rw::t_dispatches = 0;
-  if (REXCVAR_GET(wwe2k14_replay_guard)) {
-    const uint32_t manager = ctx.r3.u32;
-    const uint32_t count = rw::Be32(base, manager + 132), descs = rw::Be32(base, manager + 108);
-    rw::t_list_count = count < rw::kMaxLists ? count : rw::kMaxLists;
-    for (uint32_t i = 0; i < rw::t_list_count; ++i) {
-      rw::t_start[i] = rw::Be32(base, descs + i * 68 + 16);
-      rw::t_end[i] = rw::Be32(base, descs + i * 68 + 12);
-    }
-    rw::t_buffer_index = rw::Be32(base, manager + 36);
+  wwe2k14::frame_split::WalkScope split_walk;  // S102 H3: the walk (the native loop or the recompiled one) timed for the swap-thread split; one relaxed load when off
+  const uint64_t guest_frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
+  // S102 W3 (review F1): the switches are read here, once per replay, as the table's PerFrame entries (a mid-run flip is logged "[switch] frame N" and
+  // "[switch] seen frame N"); the raw cvar is only the answer before the table's first refresh.
+  const bool loop_on = rdr_sw::BoolSeen(rdr_sw::kNfReplayLoop, REXCVAR_GET(wwe2k14_nf_replay_loop), guest_frame);
+  const bool dispatch_on = rdr_sw::BoolSeen(rdr_sw::kNfRenderDispatch, REXCVAR_GET(wwe2k14_nf_render_dispatch), guest_frame);
+  rw::t_native_dispatch = dispatch_on;
+  rw::BeginReplay(base, ctx.r3.u32, REXCVAR_GET(wwe2k14_replay_guard));
+  if (loop_on) {
+    // `fast` = no per-record bookkeeping is on (the replay guard, the cost counters, the Android watch) and the dispatcher switch is on, so a record
+    // other than op 81 goes straight to the native dispatcher.
+#if defined(__ANDROID__)
+    constexpr bool kFast = false;
+#else
+    const bool kFast = dispatch_on && !REXCVAR_GET(wwe2k14_replay_guard) && !wwe2k14::cost::On();
+#endif
+    wwe2k14::nf_replay::g_census.loop_on = loop_on, wwe2k14::nf_replay::g_census.dispatch_on = dispatch_on;
+    wwe2k14::nf_replay::ReplayLists(ctx, base, kFast, dispatch_on);
+    rw::CensusTick(guest_frame);
+    return;
   }
   __imp__sub_82BB5BE8(ctx, base);
+  if (dispatch_on) {  // the dispatcher switch alone also reports (the recompiled loop calls the hook, which counts what Dispatch took)
+    wwe2k14::nf_replay::g_census.loop_on = loop_on, wwe2k14::nf_replay::g_census.dispatch_on = dispatch_on;
+    rw::CensusTick(guest_frame);
+  }
 }
 
 // render_cmd_dispatch: r3 = the manager, r4 = the stack slot holding the record's address.
@@ -212,61 +148,21 @@ REX_HOOK_RAW(sub_82BB5BE8) {
 REXCVAR_DEFINE_BOOL(wwe2k14_replay_call_check, true, "wwe2k14",
                     "Session 100: skip a render-command call (opcode 81) whose cached list is not a valid record list (freed memory) "
                     "instead of jumping into it (src/replay_watch.h)");
-namespace wwe2k14::replay_watch {
-inline constexpr uint32_t kCallCheckRecords = 64;
-inline std::atomic<uint64_t> g_calls_skipped{0};
-// True when the list at `list` looks like a record list up to its return (or for kCallCheckRecords records).
-inline bool CallTargetValid(const uint8_t* base, uint32_t list) {
-  if (!list || (list & 15)) return false;
-  uint32_t at = list;
-  for (uint32_t k = 0; k < kCallCheckRecords; ++k) {
-    const uint32_t op = Be32(base, at), len = Be32(base, at + 8);
-    if (op == 82) return true;
-    if (op > 105 || len >= 4096) return false;
-    at += 16 * (len + 1);
-  }
-  return true;
-}
-}  // namespace wwe2k14::replay_watch
 
 REX_HOOK_RAW(sub_82BB53D0) {
   namespace rw = wwe2k14::replay_watch;
-  const uint32_t manager = ctx.r3.u32, slot = ctx.r4.u32;
-  if (REXCVAR_GET(wwe2k14_replay_call_check)) {
-    const uint32_t record = rw::Be32(base, slot);
-    if (rw::Be32(base, record) == 81) {
-      const uint32_t target = rw::Be32(base, record + 16);
-      if (!rw::CallTargetValid(base, target)) {
-        const uint64_t n = rw::g_calls_skipped.fetch_add(1, std::memory_order_relaxed);
-        if (n < 8 || (n & 1023) == 0) {
-          REXLOG_WARN("[wwe2k14][replay_watch] call skipped (frame {}): record 0x{:08X} calls 0x{:08X}, whose first words {:08X} {:08X} {:08X} {:08X} "
-                      "are not a record list (a released model's cached list); {} skipped so far",
-                      wwe2k14::g_guest_frame.load(std::memory_order_relaxed), record, target, rw::Be32(base, target), rw::Be32(base, target + 4),
-                      rw::Be32(base, target + 8), rw::Be32(base, target + 12), n + 1);
-        }
-        return;  // the loop's own step ([manager+44] += len + 1) moves past the 81
-      }
-    }
-  }
 #if defined(__ANDROID__)
   constexpr bool kWatch = true;
 #else
   const bool kWatch = REXCVAR_GET(wwe2k14_replay_guard);
 #endif
-  if (kWatch) {
-    const uint32_t record = rw::Be32(base, slot);
-    rw::t_ring[rw::t_dispatches % 64] = {record, rw::Be32(base, record), rw::Be32(base, record + 8),
-                                         rw::Be32(base, manager + 44)};
-    ++rw::t_dispatches;
-  }
-  {
+  rw::HookedDispatch(ctx, base, REXCVAR_GET(wwe2k14_replay_call_check), kWatch, REXCVAR_GET(wwe2k14_replay_guard), [&] {
     // S101 lane 83: replay cost per record by opcode (outermost dispatch only; the record's opcode is read only when the counters are on).
-    wwe2k14::cost::ReplaySpan cost_span(wwe2k14::cost::On() ? rw::Be32(base, rw::Be32(base, slot)) : 0u);
-    __imp__sub_82BB53D0(ctx, base);
-  }
-  if (REXCVAR_GET(wwe2k14_replay_guard)) {
-    rw::Guard(base, manager, slot);
-  } else if (kWatch && rw::t_dispatches == rw::kRunaway && rw::g_reports.fetch_add(1) == 0) {
-    rw::LogRing(base, manager, "a render-command replay ran past 3000000 dispatches");
-  }
+    wwe2k14::cost::ReplaySpan cost_span(wwe2k14::cost::On() ? rw::Be32(base, rw::Be32(base, ctx.r4.u32)) : 0u);
+    if (rw::t_native_dispatch) {
+      wwe2k14::nf_replay::Dispatch(ctx, base);  // S102 W3: the native interpreter (latched for this replay); its Fall ops run the recompiled one
+    } else {
+      __imp__sub_82BB53D0(ctx, base);
+    }
+  });
 }

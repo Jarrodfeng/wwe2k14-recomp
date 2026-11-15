@@ -76,11 +76,11 @@ class LocalHost:
 
 
 class SurfaceHost:
-    """The seam, not built: rplay on the Surface Pro 6 over SSH (tools\\surface\\: push the capture and rplay.exe, run, pull timing.csv + pictures)."""
+    """S102 M2: the Surface is the lab queue, not a second mechanism: tools\\surface\\lab.py (submit / run / show; docs\\renderer\\SURFACE_LAB.md)."""
     name = 'surface'
 
     def run_rplay(self, *a, **k):
-        raise NotImplementedError('farm host "surface" is designed (docs\\renderer\\FARM.md) but not built')
+        raise NotImplementedError('farm host "surface" is the lab queue: py -I tools\\surface\\lab.py submit CAPTURE ... then run (docs\\renderer\\SURFACE_LAB.md)')
 
 
 class PhoneHost:

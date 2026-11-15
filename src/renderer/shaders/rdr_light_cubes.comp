@@ -1,0 +1,51 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// S102 lane L1b (docs/renderer/PRELIGHT_DIRECT.md section 9): the game's pre-light cubes (five 64x64x6 RGBA8 cubes a frame) written by ONE compute dispatch, no strip, no render pass, no copy.
+// Our own code. One invocation = one texel of one face of one cube; workgroup z = cube * 6 + face (uniform per group: the cube's constants and its storage image are chosen by branches, no dynamic
+// indexing of descriptors). The value is the bake's own function (fx_prelight.glsl, the same text the per-pixel path uses) at the unit direction of that texel, read from the direction table
+// (rdr_light_dirs.comp: the direction the bake's raster would have interpolated, made once; review F7). Constants are read straight from the uniform block (review F6: no private copies).
+#define FX_PRELIGHT_ANALYTIC
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std140) uniform LightCubeConstants { vec4 K[90]; } lc;   // five cubes' PreLightK blocks (18 vec4 each; fx_prelight.glsl lists the layout)
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2DArray cube0;
+layout(set = 0, binding = 2, rgba8) uniform writeonly image2DArray cube1;
+layout(set = 0, binding = 3, rgba8) uniform writeonly image2DArray cube2;
+layout(set = 0, binding = 4, rgba8) uniform writeonly image2DArray cube3;
+layout(set = 0, binding = 5, rgba8) uniform writeonly image2DArray cube4;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2DArray dirs;
+
+struct PreLightBlock { vec4 PreLightK[18]; };
+PreLightBlock fc;   // this invocation's cube's block (fx_prelight.glsl reads `fc.PreLightK[...]`; only the entries it uses are loaded, by constant index)
+
+#include "fx_prelight.glsl"
+
+void main() {
+  const uint cube = gl_WorkGroupID.z / 6u;
+  const uint layer = gl_WorkGroupID.z - cube * 6u;
+  const uint base = cube * 18u;
+  fc.PreLightK[0] = lc.K[base + 0u];
+  fc.PreLightK[1] = lc.K[base + 1u];
+  fc.PreLightK[2] = lc.K[base + 2u];
+  fc.PreLightK[3] = lc.K[base + 3u];
+  fc.PreLightK[4] = lc.K[base + 4u];
+  fc.PreLightK[5] = lc.K[base + 5u];
+  fc.PreLightK[6] = lc.K[base + 6u];
+  fc.PreLightK[7] = lc.K[base + 7u];
+  fc.PreLightK[8] = lc.K[base + 8u];
+  fc.PreLightK[9] = lc.K[base + 9u];
+  fc.PreLightK[10] = lc.K[base + 10u];
+  fc.PreLightK[11] = lc.K[base + 11u];
+  fc.PreLightK[12] = lc.K[base + 12u];
+  fc.PreLightK[13] = lc.K[base + 13u];
+  fc.PreLightK[14] = lc.K[base + 14u];
+  fc.PreLightK[17] = lc.K[base + 17u];
+  const ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+  const ivec3 at = ivec3(texel, int(layer));
+  const vec4 color = fx_prelight_eval(imageLoad(dirs, at).xyz);
+  if (cube == 0u) imageStore(cube0, at, color);
+  else if (cube == 1u) imageStore(cube1, at, color);
+  else if (cube == 2u) imageStore(cube2, at, color);
+  else if (cube == 3u) imageStore(cube3, at, color);
+  else imageStore(cube4, at, color);
+}

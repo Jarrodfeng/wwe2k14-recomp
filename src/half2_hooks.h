@@ -285,7 +285,7 @@ REX_HOOK_RAW(sub_82CBE210) {
 // The float constants' sources (FloatSources): recorded only while Half 2 is on; the writers always run.
 REX_HOOK_RAW(sub_82CBD7C0) {
   // Session 100 (speed): the constant blocks this flush uploads, for the adapter reader's bank compare (reader.h OnFloatFlush).
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnFloatFlush(ctx.r4.u64, ctx.r5.u32);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnFloatFlush(ctx.r4.u64, ctx.r5.u32);
   if (auto* cp = wwe2k14::half2::Cp(); cp && cp->half2_full()) {  // (Session 50: the compare mode only)
     wwe2k14::half2::SyncGeneration(cp);
     wwe2k14::half2::RecordShadowFlush(ctx.r4.u64, ctx.r5.u32);
@@ -314,7 +314,7 @@ inline void LayeredWriterNoted(PPCContext& ctx, uint8_t* base) {
 REX_HOOK_RAW(sub_82CB19E0) {
   // Session 87: the D3D layer's writer (its own state flush into a token, then the original writer for the draw packets;
   // the original untouched when the switch is off or on a counted fallback), inside the half2 wrapper as before.
-  if (REXCVAR_GET(wwe2k14_rdr_capture) && wwe2k14::rdr_reader::OnDrawIndexed(ctx, base)) return;   // lane 152 (S2): a D3 marker is ours only: it never reaches the D3D writer
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */ && wwe2k14::rdr_reader::OnDrawIndexed(ctx, base)) return;   // lane 152 (S2): a D3 marker is ours only: it never reaches the D3D writer
   wwe2k14::rdr_reader::ScopedNs old_timer(wwe2k14::rdr_reader::g_times.old_draws);  // S100 speed: the old path's share of the game's thread
   if (wwe2k14::d3d_layer::OwnerNullDraw(ctx, base)) return;  // S100 speed: owner mode, the device bookkeeping only (d3d_layer.h)
   if (REXCVAR_GET(wwe2k14_d3d_layer)) {
@@ -326,14 +326,14 @@ REX_HOOK_RAW(sub_82CB19E0) {
 REX_EXTERN(__imp__sub_82CB1510);
 REX_HOOK_RAW(sub_82CB1520) {
   // Session 87 (F3): the layer's BeginVertices (the draw is then ours end to end: no library packets, no half2 entry).
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnBeginVertices(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnBeginVertices(ctx, base);
   wwe2k14::rdr_reader::ScopedNs old_timer(wwe2k14::rdr_reader::g_times.old_draws);
   if (wwe2k14::d3d_inline::OwnerNullBegin(ctx, base)) return;  // S100 speed: owner mode, the device bookkeeping only
   if (wwe2k14::d3d_inline::Begin(ctx, base)) return;
   wwe2k14::half2::AroundWriter<__imp__sub_82CB1520>(2, ctx, base);
 }
 REX_HOOK_RAW(sub_82CB1510) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnEndVertices(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnEndVertices(ctx, base);
   wwe2k14::rdr_reader::ScopedNs old_timer(wwe2k14::rdr_reader::g_times.old_draws);
   if (wwe2k14::d3d_inline::OwnerNullEnd(ctx, base)) return;  // S100 speed: (before End: both use the open-draw record)
   if (wwe2k14::d3d_inline::End(ctx, base)) return;
@@ -349,7 +349,7 @@ REX_HOOK_RAW(sub_82CB4B00) {
 // the new renderer's present (reader.h OnGammaRamp). Only reads guest memory; then the original as before.
 REX_EXTERN(__imp__sub_82CBABB0);
 REX_HOOK_RAW(sub_82CBABB0) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnGammaRamp(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnGammaRamp(ctx, base);
   __imp__sub_82CBABB0(ctx, base);
 }
 REX_HOOK_RAW(sub_82CAEA30) {
@@ -400,8 +400,8 @@ inline uint8_t* NoGpuByte(uint8_t* base, uint32_t device) {
 }  // namespace wwe2k14::half2
 REX_HOOK_RAW(sub_82CB37C0) {
   using namespace wwe2k14::half2;
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnPresent(ctx, base);
-  if (REXCVAR_GET(wwe2k14_rdr_capture) && REXCVAR_GET(wwe2k14_rdr_readback_defer)) wwe2k14::thumb_defer::OnPresent(ctx, base);  // lane 232: deferred replay-thumbnail jobs whose picture landed
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnPresent(ctx, base);  wwe2k14::rdr_reader::KoLatchAtPresent();  // S102 KO: the reader_none switch is taken after the reader's own present (never mid-frame)
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */ && REXCVAR_GET(wwe2k14_rdr_readback_defer)) wwe2k14::thumb_defer::OnPresent(ctx, base);  // lane 232: deferred replay-thumbnail jobs whose picture landed
   rex::graphics::CommandProcessor* cp = Cp();
   if (!cp || !cp->half2_logging()) {
     const uint32_t device = ctx.r3.u32;

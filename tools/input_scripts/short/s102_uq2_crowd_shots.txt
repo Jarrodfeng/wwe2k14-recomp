@@ -1,0 +1,31 @@
+# Session 102 (2026-11-15 08:4x, lane UQ2): the step check's picture: the stands and ringside floor with the member cut + crowd record skip
+# OFF vs ON (wwe2k14_rdr_member_cut 0/1 + wwe2k14_rdr_record_skip 0/7, both PerFrame), in a match with the default camera, the game step
+# at 1000 Hz so the scene stands nearly still between shots; off, on, off again (the second off proves the toggle returns).
+# (08:5x: the script screenshot reads the old emulated output, absent in owner mode: our renderer's own wwe2k14_rdr_live_picture writes live_<label>.png instead)
+# Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true. Untimed. on_fail quit.
+on_fail quit
+log uq2: start
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+press_until_file START m3.pac 30 300
+log uq2: match scene
+wait_frames 240
+cvar wwe2k14_step_hz 1000
+wait_frames 30
+cvar wwe2k14_rdr_member_cut false
+cvar wwe2k14_rdr_record_skip 0
+wait_frames 20
+cvar wwe2k14_rdr_live_picture uq2_off_a
+wait_frames 5
+cvar wwe2k14_rdr_member_cut true
+cvar wwe2k14_rdr_record_skip 7
+wait_frames 20
+cvar wwe2k14_rdr_live_picture uq2_on
+wait_frames 5
+cvar wwe2k14_rdr_member_cut false
+cvar wwe2k14_rdr_record_skip 0
+wait_frames 20
+cvar wwe2k14_rdr_live_picture uq2_off_b
+wait_frames 5
+log uq2: end
+quit

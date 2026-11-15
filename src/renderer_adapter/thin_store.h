@@ -8,10 +8,12 @@
 //     carry non-decreasing generations, so no later frame can name the key) AND the key's last use is kReleaseFrames old.
 // Planted `release_without_ack`: erased at the unpin itself. A lite draw whose template is gone is a hole.
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
 
+#include "../renderer/frame_facts.h"  // S102 R21-A
 #include "thin_draw.h"
 
 namespace rdr_adapter::thin {
@@ -47,6 +49,7 @@ class ThinStore {
     bool pinned = true;
     bool pending = false;   // unpinned this frame; the generation that lacks it is known at EndFrame
     uint32_t unpin_gen = 0; // the first published generation without the key
+    uint64_t proved = 0;    // S102 K4: the bound frame the key was learned or last proved in (the overdue census)
   };
 
   explicit ThinStore(PinPublisher* publisher = &g_pins) : pub_(publisher) {}
@@ -105,6 +108,18 @@ class ThinStore {
     return it != map_.end() && it->second.pinned ? &it->second : nullptr;
   }
   bool Known(uint64_t key_hash) const { return map_.find(key_hash) != map_.end(); }
+  // S102 K4 (review live check b): the proof ran for this key in the frame being bound.
+  void Proved(uint64_t key_hash) {
+    const auto it = map_.find(key_hash);
+    if (it != map_.end()) it->second.proved = frame_;
+  }
+  // S102 K4: pinned keys of class `c` drawn lately (last use within 2 frames of `now`) whose last proof is older than `limit` frames. Census only (every 600 frames), never per draw.
+  uint64_t OverdueKeys(Cls c, uint64_t now, uint64_t limit) const {
+    uint64_t n = 0;
+    for (const auto& kv : map_)
+      if (kv.second.pinned && kv.second.t.cls == c && kv.second.last_use + 2 >= now && now > kv.second.proved + limit) ++n;
+    return n;
+  }
 
   // A P2a replacement passed every check: this is the key's template (a new key, or an unpinned one coming back). Counted by the caller via the return: true = learned.
   bool Learn(const ThinKey& key, ThinTemplate t) {
@@ -114,7 +129,7 @@ class ThinStore {
     if (it != map_.end() && it->second.pinned) return false;
     t.learned_frame = uint32_t(frame_);
     Entry e;
-    e.key = key, e.t = t, e.last_use = frame_;
+    e.key = key, e.t = t, e.last_use = frame_, e.proved = frame_;
     map_[h] = e;
     dirty_ = true;
     return true;
@@ -260,14 +275,43 @@ class ThinStore {
 
 // The keys of a frame, the binder's way (the reader counts the same ordinals only for pinned triples, reader_thin.h): over ALL the frame's candidate draws in draw order.
 // get(i, site, object, part) returns true when draw i is a candidate (a model part at one of the two colour sites with an object). keys[i] = 0: not a candidate.
-template <class Get>
-inline void ComputeKeys(uint32_t n, Get get, std::vector<uint64_t>& keys, std::vector<ThinKey>* full = nullptr, bool no_ordinal = false,
-                        const std::unordered_map<uint32_t, ThinKey>* reserved = nullptr,
-                        const std::unordered_map<uint32_t, const std::vector<uint64_t>*>* fill = nullptr) {  // lane 289 (the LIVE form of `reserved`): fill[i] = the part triples of the skipped call whose MARKER is draw i; they count at the marker's position (the reader counts the same list, reader_thin.h Reserve).  // get(i, site, object, part, program); lane 258: `reserved` = draws cut from the frame (a D3 skip): not keyed, but they still count in the ordinals of their triple
+// S102 R21-A (wwe2k14_rdr_frame_facts): the per-frame triple -> count table as a flat open-addressing table whose storage lives across frames (a generation stamp clears it):
+// the unordered_map made one heap node per distinct triple every frame. Same counts, same ordinals.
+struct FlatCount {
+  std::vector<uint64_t> key;
+  std::vector<uint32_t> val, stamp;
+  uint32_t gen = 0, used = 0, mask = 0;
+  void Begin() {
+    if (key.empty()) key.assign(1024, 0), val.assign(1024, 0), stamp.assign(1024, 0), mask = 1023;
+    if (++gen == 0) std::fill(stamp.begin(), stamp.end(), 0u), gen = 1;
+    used = 0;
+  }
+  uint32_t& operator[](uint64_t k) {
+    if (used * 2 >= mask + 1) Grow();
+    uint32_t i = uint32_t((k * 0x9E3779B97F4A7C15ull) >> 40) & mask;
+    for (;; i = (i + 1) & mask) {
+      if (stamp[i] != gen) {
+        stamp[i] = gen, key[i] = k, val[i] = 0, ++used;
+        return val[i];
+      }
+      if (key[i] == k) return val[i];
+    }
+  }
+  void Grow() {
+    std::vector<uint64_t> ok = std::move(key);
+    std::vector<uint32_t> ov = std::move(val), os = std::move(stamp);
+    const uint32_t old_gen = gen, n = (mask + 1) * 2;
+    key.assign(n, 0), val.assign(n, 0), stamp.assign(n, 0), mask = n - 1, used = 0, gen = 1;
+    for (size_t j = 0; j < ok.size(); ++j)
+      if (os[j] == old_gen) (*this)[ok[j]] = ov[j];
+  }
+};
+
+template <class Get, class Count>
+inline void ComputeKeysImpl(Count& count, uint32_t n, Get get, std::vector<uint64_t>& keys, std::vector<ThinKey>* full, bool no_ordinal,
+                            const std::unordered_map<uint32_t, ThinKey>* reserved, const std::unordered_map<uint32_t, const std::vector<uint64_t>*>* fill) {  // lane 289 (the LIVE form of `reserved`): fill[i] = the part triples of the skipped call whose MARKER is draw i; they count at the marker's position (the reader counts the same list, reader_thin.h Reserve).  // get(i, site, object, part, program); lane 258: `reserved` = draws cut from the frame (a D3 skip): not keyed, but they still count in the ordinals of their triple
   keys.assign(n, 0);
   if (full) full->assign(n, ThinKey{});
-  std::unordered_map<uint64_t, uint32_t> count;
-  count.reserve(256);
   for (uint32_t i = 0; i < n; ++i) {
     uint32_t site = 0, object = 0, part = 0;
     uint64_t program = 0;
@@ -287,6 +331,22 @@ inline void ComputeKeys(uint32_t n, Get get, std::vector<uint64_t>& keys, std::v
     keys[i] = KeyHash(site, object, part, ordinal, program);
     if (full) (*full)[i] = ThinKey{site, object, part, ordinal, program};
   }
+}
+
+template <class Get>
+inline void ComputeKeys(uint32_t n, Get get, std::vector<uint64_t>& keys, std::vector<ThinKey>* full = nullptr, bool no_ordinal = false,
+                        const std::unordered_map<uint32_t, ThinKey>* reserved = nullptr,
+                        const std::unordered_map<uint32_t, const std::vector<uint64_t>*>* fill = nullptr) {  // (the lane 289 / 258 notes are on the implementation above)
+  if (rdr::FrameFactsOn()) {   // S102 R21-A
+    static thread_local FlatCount flat;
+    flat.Begin();
+    ComputeKeysImpl(flat, n, get, keys, full, no_ordinal, reserved, fill);
+    rdr::g_ff_keys_flat.fetch_add(1, std::memory_order_relaxed);
+    return;
+  }
+  std::unordered_map<uint64_t, uint32_t> count;
+  count.reserve(256);
+  ComputeKeysImpl(count, n, get, keys, full, no_ordinal, reserved, fill);
 }
 
 }  // namespace rdr_adapter::thin

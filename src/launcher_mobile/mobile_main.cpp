@@ -13,6 +13,7 @@
 // launcher_shots.ps1 uses it). --tap sends a touch tap at the 3rd frame, --quit-ms quits after N ms (Session 72: the
 // frame pacing check; launcher.log shows when the page came and how many frames were drawn). --share-test makes
 // SHARE's zip (<files>/logs/share/wwe2k14_report_NNN.zip, its path in launcher.log) without a share sheet and quits.
+#include "../thread_name.h"  // S102 H1
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
@@ -1581,7 +1582,7 @@ class App {
     job->name = name.empty() ? std::string("the zip") : name;
     tronzip_ = job;
     Log("IMPORT TRON PREVIEWS: %s (%s)", job->name.c_str(), address.c_str());
-    std::thread([job, path, dir = TronsDir()] {
+    std::thread([job, path, dir = TronsDir()] { wwe2k14::NameThread(L"mob_trons");
       try {
         job->err = tron_zip::Import(path, dir, job->result, &job->prog);
       } catch (const std::exception& e) {
@@ -1659,7 +1660,7 @@ class App {
     stars_wm30_ = wm30, stars_why_ = c.why, stars_fail_.clear(), stars_card_ = true;
     auto j = stars_job_ = std::make_shared<StarsJob>();
     const std::string mods = ModsDir(), root = read_path_, dlc = StarsDlcDir(), off = StarsDlcOff();
-    std::thread([j, st, mods, root, dlc, off] {
+    std::thread([j, st, mods, root, dlc, off] { wwe2k14::NameThread(L"mob_import");
       launcher::GameFiles g;
       g.SetRoot(fs::u8path(root));
       std::string e;

@@ -30,6 +30,7 @@
 #include <windows.h>
 #endif
 
+#include "../renderer_adapter/upd_lean.h"   // S102 U3 (bit 16)
 #include "wrestler_contrib.h"
 
 namespace wwe2k14::wrestlers {
@@ -49,12 +50,40 @@ inline bool SafeCopy(void* dst, const void* src, size_t n) {
 #endif
 }
 
+// S102 U3 (R26 lane A (b), wwe2k14_rdr_upd_lean bit 16): the guest memory object, resolved once. Every guest read of the model-entry contributors (about 10 a call, a few hundred calls a frame) went through
+// REX_KERNEL_MEMORY() = kernel_state()->memory(), a call and a load each time (kernel_state.cpp:74 0.05 ms in R26's profile). The Memory object lives as long as the kernel state, which lives as long as the process.
+inline rex::memory::Memory* GuestMem() {
+  if (wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry2)) {
+    static std::atomic<rex::memory::Memory*> cached{nullptr};
+    rex::memory::Memory* m = cached.load(std::memory_order_relaxed);
+    if (!m) cached.store(m = REX_KERNEL_MEMORY(), std::memory_order_relaxed);
+    return m;
+  }
+  return REX_KERNEL_MEMORY();
+}
 // Big-endian guest bytes -> host.
 inline bool ReadGuest(uint32_t guest, void* dst, size_t n) {
   if (guest < 0x10000 || uint64_t(guest) + n > 0x100000000ull) return false;
   if (uint64_t(guest) + n > 0x7F000000ull && guest < 0x80000000u) return false;  // MMIO heap
-  auto* host = REX_KERNEL_MEMORY()->TranslateVirtual<const uint8_t*>(guest);
+  auto* host = GuestMem()->TranslateVirtual<const uint8_t*>(guest);
   return host && SafeCopy(dst, host, n);
+}
+// S102 U2 (R22 cut 3): compare n guest bytes in place with a host buffer: 0 equal, 1 differs, -1 unreadable (same bounds and fault rules as ReadGuest, no copy).
+inline int CompareGuest(uint32_t guest, const void* ref, size_t n) {
+  if (guest < 0x10000 || uint64_t(guest) + n > 0x100000000ull) return -1;
+  if (uint64_t(guest) + n > 0x7F000000ull && guest < 0x80000000u) return -1;  // MMIO heap
+  auto* host = GuestMem()->TranslateVirtual<const uint8_t*>(guest);
+  if (!host) return -1;
+#ifdef _WIN32
+  static int (*volatile cmp)(const void*, const void*, size_t) = std::memcmp;   // S102 U3 review: a call through a volatile pointer, so the fault is in a callee of the __try body (SafeCopy's pattern; tools\upd_lean lint)
+  __try {
+    return cmp(host, ref, n) != 0 ? 1 : 0;
+  } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+    return -1;
+  }
+#else
+  return std::memcmp(host, ref, n) != 0 ? 1 : 0;
+#endif
 }
 inline bool ReadWord(uint32_t guest, uint32_t& v) {
   uint32_t raw = 0;

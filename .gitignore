@@ -26,6 +26,7 @@ build/
 CMakeUserPresets.json
 logs/
 *.log
+!tools/board/fixtures/**/*.log
 .vs/
 .vscode/
 __pycache__/
@@ -49,3 +50,4 @@ thirdparty/
 /cases/
 *.zip.part
 case_*.zip
+*.pdb

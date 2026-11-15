@@ -568,20 +568,20 @@ inline void LogCensusIfDue(bool force) {
 REX_HOOK_RAW(sub_82CA87C0) {
   if (!Mode()) {
     __imp__sub_82CA87C0(ctx, base);
-    if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnTextureCreated(ctx, base);
+    if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnTextureCreated(ctx, base);
     return;
   }
   const uint32_t lr = uint32_t(ctx.lr);
   const uint32_t args[8] = {ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32};
   __imp__sub_82CA87C0(ctx, base);
   OnCreate(base, ctx.r3.u32, lr, args);
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnTextureCreated(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnTextureCreated(ctx, base);
 }
 
 // 0x82CAD760 destroy resource (r3 = the resource; every kind goes through it, only registered textures are acted on): the id is retired
 // before the library waits for the GPU and frees the blocks.
 REX_HOOK_RAW(sub_82CAD760) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnResourceReleased(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnResourceReleased(ctx, base);
   if (Mode()) OnDestroy(base, ctx.r3.u32);
   __imp__sub_82CAD760(ctx, base);
 }
@@ -589,14 +589,14 @@ REX_HOOK_RAW(sub_82CAD760) {
 // 0x82CA7EB8 the library's texture lock (Session 100; reached by branch from LockRect 0x82CA8628 and the surface lock 0x82CA8AB0): r3 the
 // texture, r5 face / slice, r6 level. Owner mode: a picture our renderer made is read back into memory before the CPU reads it.
 REX_HOOK_RAW(sub_82CA7EB8) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnTextureLock(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnTextureLock(ctx, base);
   __imp__sub_82CA7EB8(ctx, base);
 }
 
 // 0x82CA6BE0 the unlock flush (r3 = the object; tail-called by the engine wrapper's unmap 0x82BD47F0): the engine says the object's
 // memory was written. Trace: which objects, when relative to the first bind. Cut: a Changed item for a defined object.
 REX_HOOK_RAW(sub_82CA6BE0) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnUnlockFlush(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnUnlockFlush(ctx, base);
   const int mode = Mode();
   if (!mode) {
     __imp__sub_82CA6BE0(ctx, base);
@@ -689,7 +689,7 @@ inline void PlaneFlushChanged(uint8_t* base, uint32_t set) {
 // 0x827FB540 the video display set's plane flush (once a frame on the display set; texset_flush_planes): counted; with the cut, the planes of
 // the flush are marked changed (above).
 REX_HOOK_RAW(sub_827FB540) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnPlaneFlush(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnPlaneFlush(ctx, base);
   if (Mode()) g_reg.c.plane_flushes.fetch_add(1, std::memory_order_relaxed);
   const uint32_t set = ctx.r3.u32;
   __imp__sub_827FB540(ctx, base);

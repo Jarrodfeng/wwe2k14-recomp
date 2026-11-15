@@ -7,6 +7,7 @@
 // Same rules as the PC backend: one decoder guarded by a mutex; a picture is chosen by time stamp only (the last frame with pts <= t), so
 // a seek and a forward read give the same picture; a request less than 2 s ahead of the current picture decodes forward, anything else
 // seeks to the previous key frame (the export writes one a second) and decodes forward from there.
+#include "../../thread_name.h"  // S102 H1
 #include "video_player.h"
 
 #include <android/log.h>
@@ -395,7 +396,7 @@ bool VideoPlayer::FrameAt(double t, VideoFrame& out, std::string& err) {
 
 void VideoPlayer::Request(double t) {
   if (!p_->open) return;
-  if (!p_->th.joinable()) p_->th = std::thread([this] { p_->WorkerMain(); });
+  if (!p_->th.joinable()) p_->th = std::thread([this] { wwe2k14::NameThread(L"view_video"); p_->WorkerMain(); });
   {
     std::lock_guard<std::mutex> g(p_->wmu);
     p_->req_t = t, p_->has_req = true;

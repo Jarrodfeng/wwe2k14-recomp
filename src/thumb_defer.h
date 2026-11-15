@@ -17,7 +17,7 @@ REX_EXTERN(__imp__sub_8274FC60);
 REX_EXTERN(__imp__sub_82750580);
 
 REX_HOOK_RAW(sub_8274FA70) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture) && wwe2k14::rdr_reader::OnThumbJobEnter(ctx, base)) return;  // deferred: the present runs it when its picture is here
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */ && wwe2k14::rdr_reader::OnThumbJobEnter(ctx, base)) return;  // deferred: the present runs it when its picture is here
   __imp__sub_8274FA70(ctx, base);
 }
 
@@ -50,7 +50,7 @@ inline void OnPresent(PPCContext& ctx, uint8_t* base) {
 
 // S2: the file writer. When it is entered for an object whose job is still deferred (+44 == 4), that job runs first so the thumbnail is saved, not skipped.
 REX_HOOK_RAW(sub_8274FC60) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture) && REXCVAR_GET(wwe2k14_rdr_readback_defer)) {
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */ && REXCVAR_GET(wwe2k14_rdr_readback_defer)) {
     static thread_local std::vector<wwe2k14::rdr_reader::ThumbRun> run;
     wwe2k14::rdr_reader::ThumbBeforeWrite(base, ctx.r3.u32, run);
     if (!run.empty()) wwe2k14::thumb_defer::RunJobs(ctx, base, run);
@@ -65,6 +65,6 @@ REX_HOOK_RAW(sub_8274FC60) {
 
 // B1: the object's destructor frees its buffer and texture without touching +44 / +52: its deferral is dropped first.
 REX_HOOK_RAW(sub_82750580) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture) && REXCVAR_GET(wwe2k14_rdr_readback_defer)) wwe2k14::rdr_reader::OnThumbObjectDestroyed(ctx.r3.u32);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */ && REXCVAR_GET(wwe2k14_rdr_readback_defer)) wwe2k14::rdr_reader::OnThumbObjectDestroyed(ctx.r3.u32);
   __imp__sub_82750580(ctx, base);
 }

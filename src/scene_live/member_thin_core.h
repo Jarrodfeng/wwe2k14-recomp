@@ -35,6 +35,25 @@ enum Site : uint8_t { kStands = 0, kFloor = 1, kSites = 2 };
 inline constexpr bool kSkipBuilt = true;
 inline constexpr uint32_t kHookToStreamOffset = ct::kHookToStreamOffset;   // stream guest frame - the hook's guest frame stamp [C: live census run 7200, 2026-11-13 16:35: offset 1 matched 1800 / 1800 full frames, offsets 0 / 2 matched 436 / 436]
 
+// S102 T13: the per-frame cut switch (--wwe2k14_rdr_member_cut, member_thin_hook.h), the T2 way (card_thin_core.h ResolveMode / the old sticky flag). The run's mode: cut off -> Off (or Census with the old census cvar); cut on -> Skip,
+// except with the legacy --wwe2k14_scene_crowd runs path (the same op-15 sites: exclusive, census only). `honour_exclusions=false` is the unit test's plant.
+inline Mode ResolveMemberMode(int raw, bool cut, int scene_crowd, bool honour_exclusions = true) {
+  if (!cut) return raw <= 0 ? Mode::Off : Mode::Census;
+  if (honour_exclusions && scene_crowd != 0) return Mode::Census;
+  return kSkipBuilt ? Mode::Skip : Mode::Census;
+}
+// S102 T13 review F1 / F2: the binder's per-frame flag is the hook's RUN MODE for that guest frame, carried in the CountRing slot (skip bit, CountRing::MarkSkip / SkipAt), written only when the run's mode is Skip
+// (BinderFlag), never from the switch alone and never sticky: an OFF window after an ON window runs no member census in the binder.
+inline constexpr bool BinderFlag(Mode m) { return m == Mode::Skip; }
+// The run's mode with the crowd contributor's preconditions: no class drawn from the scene record (--wwe2k14_rdr_crowd_ours + --wwe2k14_scene_records) = the cut and the census are inert (Off): nothing could ever be proven.
+inline Mode DecideRunMode(int raw, bool cut_switch, int scene_crowd, bool crowd_ours_on) {
+  const bool cut = cut_switch || raw >= 2;
+  if (!crowd_ours_on && (cut || raw > 0)) return Mode::Off;
+  return ResolveMemberMode(raw, cut, cut ? scene_crowd : 0);
+}
+// Set by the hook on every observed run (census or cut): the palette observer (the manager's thread) records only then.
+inline std::atomic<bool> g_observed{false};
+
 inline constexpr uint32_t kStandsOp15Return = 0x82518578u;   // the return address of the stands member loop's op-15 recorder call (bl at 0x82518574)
 inline constexpr uint32_t kFloorOp15Return = 0x8276ED64u;    // the floor loop's (bl at 0x8276ED60)
 inline constexpr uint32_t kStandsOp14Return = 0x82518450u;   // the group's op 14 (bl at 0x8251844C): a stands run begins
@@ -67,8 +86,24 @@ struct Decider {
   bool proven_run = false;    // the gate's answer, taken ONCE at the run's start (review S2 of the cards): a run is all full or thin from its first member to its last
   bool proof_run = true;      // this run is recorded in full
   bool stamp_run = false;     // lane 295 (fail closed): the stamp proof's answer, taken ONCE at the run's start (the offset-1 stamp is proven by recent full frames)
+  Mode mode = Mode::Off;      // S102 T13: the mode of THIS run, taken once at its start (Off included) and used by every observer until the next run on this thread (a switch flipped inside a run changes the next run only)
   Reason last = kProofRun;    // lane 295: why the last DropMemberDraw kept its member (the hook logs a refusal once per reason)
   bool first[kSites] = {false, false};   // the next op 15 of the site is the first of its run
+  bool op21_armed[kSites] = {false, false};     // S102 UQ2: wwe2k14_rdr_record_skip bit 2 (stands) / 4 (floor) when the run began
+  bool op21_skipped[kSites] = {false, false};   // the op 21 of the member in progress was NOT recorded: its op 15 MUST be dropped
+  // S102 UQ2: would DropMemberDraw(site, ...) drop this member's op 15 RIGHT NOW? Const: no counter, no state change; the same conditions in the same order (the unit test asserts equal answers).
+  bool PeekDrop(int site, Mode mode, const Policy& p, const Gate& g, int64_t now_ms, const Query& q) const {
+    if (mode != Mode::Skip || site < 0 || site >= kSites) return false;
+    if (first[site] && p.keep_first_of_type) return false;
+    if (proof_run) return false;
+    if (honour_tiled && q.tiled) return false;
+    if (g.latched.load(std::memory_order_acquire)) return false;
+    if (!(p.snapshot_per_run ? proven_run : g.Proven(now_ms))) return false;
+    if (honour_stamp_run && !stamp_run) return false;
+    if (!q.class_known) return false;
+    if (honour_palette && !q.palette_ok) return false;
+    return true;
+  }
   // Plants (tests only; the shipped values are the defaults):
   bool honour_palette = true;   // plant `no_palette_dropped`
   bool honour_tiled = true;     // plant `tiled_double`'s hook half (a tiled frame is thinned)
@@ -121,6 +156,60 @@ struct Decider {
   }
 };
 
+// ---- S102 UQ2 (wwe2k14_rdr_record_skip bits 2 / 4): a member's op 21 goes with its op 15 (stands 0x82518554 / 74, floor 0x8276ED38 / 60: straight-line pairs, no branch between; listings read 2026-11-15) ----
+// Same rules as the cards (card_thin_core.h Op21Step): the op 21 is skipped only when the SAME member's op 15 is certain to be dropped (PeekDrop, after the observer has read the member's world and class),
+// the op 15 then follows the op 21's decision, and the loop's exit records ONE op 21 with the last skipped member's world so the constant shadow ends as the game's would.
+inline constexpr uint32_t kStandsOp21Return = 0x82518558u, kFloorOp21Return = 0x8276ED3Cu;
+inline constexpr int SiteOfOp21(uint32_t lr) { return lr == kStandsOp21Return ? int(kStands) : lr == kFloorOp21Return ? int(kFloor) : -1; }
+struct MTally {   // per thread, plain counters (flushed by the hook once a run)
+  uint32_t taken[kSites] = {}, declined[kSites] = {}, forced[kSites] = {}, tail[kSites] = {};
+};
+using Tail = ct::Tail;
+#ifdef RECORD_SKIP_PLANTS
+#define MS_PLANT(n) (::wwe2k14::card_thin::g_rs_plant == (n))   // 11 = member_pair_lost (the op 15 ignores the op 21's skip), 12 = member_tail_not_noted, 13 = member_regs_ignored, 14 = member_keep_forced_drop
+#else
+#define MS_PLANT(n) false
+#endif
+#define RS_PLANT_MEMBER(n) MS_PLANT(n)
+// The op-21 recorder hook's step. lr = the recorder's return address. allowed = the site is ours (the floor needs its switch). true = do not record. read32(addr) reads a guest word.
+template <class TiledFn, class ReadFn>
+inline bool MemberOp21Step(Decider& d, uint32_t lr, bool allowed, Mode mode, const Policy& p, const Gate& g, int64_t now_ms, Query q, TiledFn tiled, uint32_t src, ReadFn read32, Tail* tails, MTally& tally,
+                           uint32_t r4 = 76, uint32_t r6 = 3) {
+  const int site = SiteOfOp21(lr);
+  if (site < 0 || !d.op21_armed[site]) return false;
+  if ((r4 != 76 || r6 != 3) && !RS_PLANT_MEMBER(13)) {   // review F2: the floor passes r4 = type & 0xFFFF at runtime; only a (76, 3) call can be repaired / replayed with a literal, anything else stays recorded
+    ++tally.declined[site];
+    tails[site].pending = false;
+    d.op21_skipped[site] = false;
+    return false;
+  }
+  bool drop = allowed && d.PeekDrop(site, mode, p, g, now_ms, q);
+  if (drop && tiled()) drop = false;   // MSAA / predicated tiling: every member stays (asked only for a member that would otherwise be skipped)
+  d.op21_skipped[site] = drop;
+  if (drop) {
+    ++tally.taken[site];
+    tails[site].pending = true;
+    if (!MS_PLANT(12))
+      for (uint32_t k = 0; k < 12; ++k) tails[site].w[k] = read32(src + 4 * k);
+  } else {
+    ++tally.declined[site];
+    tails[site].pending = false;   // this member's op 21 IS recorded: the shadow holds its world
+  }
+  return drop;
+}
+// The op-15 side: dd = DropMemberDraw's own answer (called for its state and counters either way). A member whose op 21 was skipped is dropped whatever dd says.
+inline bool MemberOp15Pair(Decider& d, int site, bool dd, MTally& tally, bool* replay = nullptr, Tail* tails = nullptr) {
+  const bool skipped = d.op21_skipped[site] && !MS_PLANT(11);
+  d.op21_skipped[site] = false;
+  if (skipped && !dd) {   // review F1: the cut now KEEPS this member (the gate latched, tiling came on, between the two calls): its op-21 is replayed by the hook, the member keeps both records
+    ++tally.forced[site];
+    if (replay) *replay = true;
+    if (tails) tails[site].pending = false;
+    return MS_PLANT(14) ? true : false;
+  }
+  return dd;
+}
+
 // The hook's per-guest-frame tally, per site: the op-15 calls the game made (kept or dropped), how many were dropped, and the SUM (order free) of FNV-1a over the 12 words of every op-21 world of the
 // site (lane 175 review B1: the world sum says WHICH members, the count says how many). Keyed by the guest frame the hook ran in; the binder looks up (stream frame - kHookToStreamOffset).
 struct CountRing {
@@ -128,6 +217,7 @@ struct CountRing {
     std::atomic<uint64_t> frame{~0ull};
     std::atomic<uint32_t> seen[kSites]{}, dropped[kSites]{};
     std::atomic<uint64_t> world[kSites]{};
+    std::atomic<uint8_t> skip{0};   // S102 T13 review F1: the hook's run mode for this frame was Skip (the binder's per-frame flag)
   };
   Slot slots[64];
   bool honour_stamp = true;   // plant `stamp_ignored`
@@ -136,9 +226,15 @@ struct CountRing {
     Slot& s = slots[frame & 63];
     if (s.frame.load(std::memory_order_relaxed) != frame) {
       for (int k = 0; k < kSites; ++k) s.seen[k].store(0, std::memory_order_relaxed), s.dropped[k].store(0, std::memory_order_relaxed), s.world[k].store(0, std::memory_order_relaxed);
+      s.skip.store(0, std::memory_order_relaxed);
       s.frame.store(frame, std::memory_order_relaxed);
     }
     return s;
+  }
+  void MarkSkip(uint64_t frame) { For(frame).skip.store(1, std::memory_order_relaxed); }   // OnCrowdDraw, only for a run whose mode is Skip
+  bool SkipAt(uint64_t frame) const {   // the render thread: was the hook's run in Skip mode in that guest frame? (a slot that holds another frame says false)
+    const Slot& s = slots[frame & 63];
+    return s.frame.load(std::memory_order_relaxed) == frame && s.skip.load(std::memory_order_relaxed) != 0;
   }
   void Note(uint64_t frame, int site, bool dropped) {   // the recording thread, once per op-15 call of the site
     Slot& s = For(frame);

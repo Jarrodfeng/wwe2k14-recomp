@@ -13,6 +13,7 @@
 #           against 16.7 ms per scene (tools\bench\bench_report.py)
 #   frames_bryan / frames_brock / frames_match (Session 89, ask for them with -Only): one scene each, normal speed,
 #           fixed seed 1, quits at the scene's end (tools\input_scripts\scenes\)
+#   frames_bryan_heavy (S102 M6, also -AbScene): Bryan's heavy stretch only, tron+760 .. +1330 (scenes\bryan_heavy.txt header: why)
 #   ab      (Session 95, heat aid; ask for it with -Only ab) INTERLEAVED A/B on a hot machine: arm A, arm B, A, B ... with a
 #           fixed gap and NO cool-down, so both arms see the same heat (the fanless Surface drifts 35% in 8 minutes: Bryan GPU
 #           23.3 -> 31.5 ms over six sequential runs, out\s95\step0.md). One scene per run (-AbScene frames_bryan|frames_brock|
@@ -27,9 +28,17 @@
 #           own cache (%LOCALAPPDATA%Low\Intel\ShaderCache) is moved aside ONLY with -ColdDriver (Jarrod's call), and
 #           moved back afterwards - nothing is deleted.
 # Then: Out\surface_bench_<stamp>.zip (logs only: no pictures, no game data) for the PC.
-param([Parameter(Mandatory)][string]$Exe, [Parameter(Mandatory)][string]$GameData,
-      [Parameter(Mandatory)][string]$UserData, [Parameter(Mandatory)][string]$Routes,
-      [Parameter(Mandatory)][string]$Replays, [Parameter(Mandatory)][string]$Out,
+# S102 S0-1: -Profile auto|standard_player|release_day picks the settings file the game runs (profiles\<name>.json beside this script; tools\surface\profile_check.py
+# proves them). auto (the default) = what a fresh install on integrated graphics writes: the AUTO tier resolving to LOW, 720p, crowd 70 %, LOW's
+# levers on (src\gfx_applied.h FreshInstall; the bench measures at 60 fps, a fresh install writes 30: that also leaves out entrance_60fps=false, step_hz 30, vblank spin 250,
+# direct texture loads). standard_player = the same install after the player picks STANDARD (true_native on, no LOW levers). release_day = release day's file byte for byte (no settings_version / true_native: no D3D-layer stack, no LOW levers), kept for continuity. Every run's log carries the game's own `[gfx][applied]` line (tier, render scale, internal
+# size, crowd, levers on / asked but ignored); -DryRun (PC only, no game, no ssh) writes the file and prints the line the game would log
+# for it (out\tools\gfx_applied.exe, built by build_gfx_applied.ps1), with the Surface's panel size (-Panel) as the swapchain.
+#   pwsh -File bench.ps1 -Profile auto -DryRun -Out out\s102\bench_dry
+# (The six paths below are required unless -DryRun.)
+[CmdletBinding()]  # (review A: a misspelt bench_args key must throw, not run silently)
+param([string]$Exe = '', [string]$GameData = '', [string]$UserData = '', [string]$Routes = '', [string]$Replays = '', [string]$Out = '',
+      [ValidateSet('auto', 'standard_player', 'release_day', 'auto_dh540', 'auto_dh576', 'auto_dh600', 'auto_dh648')][string]$Profile = 'auto', [switch]$DryRun, [string]$Panel = '2736x1824',
       # (Session 80: the --wwe2k14_launch=lesnar_bryan scenario's folder; the game's default is ..\..\scenarios from the
       # exe, which only a build inside the repo has - out\scenarios.)
       [string]$Scenarios = '',
@@ -52,9 +61,37 @@ param([Parameter(Mandatory)][string]$Exe, [Parameter(Mandatory)][string]$GameDat
       # (Session 95, warm-60 work: Power=true in bench_args.txt) power_log.ps1 beside this script samples the RAPL powers,
       # CPU utility, thermal zones and the 3D engine once a second into <step>\power.csv (read: tools\surface\power_read.py).
       [switch]$Power,
+      # (Session 102 lane S0-2: power logging is ON for every step now (-Power is kept, a no-op); NoPower=true in bench_args.txt turns it off.
+      # A scene step (thread-sampled) is tagged steady / not steady from its own power.csv by heat_steady.ps1; a run outside the band is
+      # moved to <step>_rejected and repeated once.)
+      [switch]$NoPower,
+      # (Session 102, 08:34, R14: NoThreads=true in bench_args.txt skips thread_busy.ps1, the once-a-second thread sampler,
+      # to measure what it costs the 1 % low; the heat verdict still runs.)
+      [switch]$NoThreads,
       # (Session 95: the ab step, see above.)
       [string]$AbScene = 'frames_match', [string[]]$ArmAFlags = @(), [string[]]$ArmBFlags = @(), [string]$ArmBExe = '', [int]$AbRounds = 2,
-      [int]$AbGapSeconds = 20, [switch]$AbWarmup)
+      [int]$AbGapSeconds = 5, [switch]$AbWarmup,
+# S102 M5: -ArmFlags 'A:flags|g2:flags|g3:flags' = several B arms in one job (flags split by ',', arms by '|'; arm A is required). -AbPlan prints the run order
+# and folder names without starting anything (and refuses an order where an arm always runs last or a B arm has no A neighbour in a round); -AbPlanOrder
+# 'A,g2,A,g3;g3,A,g2' checks a hand-made order (rounds split by ';') instead of the generated one.
+[string[]]$ArmFlags = @(), [switch]$AbPlan, [string]$AbPlanOrder = '',
+# S102 S0-5: cvars added to every per-scene step (frames_bryan / _brock / _match), comma-separated like -ArmBFlags, e.g.
+# SceneFlags=wwe2k14_rdr_ko_draw_none=true in bench_args.txt for one knock-out job (each job = its own zip).
+[string[]]$SceneFlags = @(),
+# S102 H3: FrameSplit=true in bench_args.txt adds --wwe2k14_frame_split=true to every per-scene step (frames_bryan / _brock / _match, and the ab arms): seven more
+# columns at the end of frames_NNN.csv, the game's swap thread split per frame (src\frame_split_math.h; read with bench_line.py --split / ab_line.py --split).
+[switch]$FrameSplit,
+# S102 M7: AbFlip=<spec> in bench_args.txt (spec format: src\ab_flip_math.h; characters A-Z a-z 0-9 _ = + / only) = the in-run A/B (--wwe2k14_ab_flip). With a scene step
+# (frames_bryan_heavy ...) the run flips on that schedule. With Only=ab the job is ONE COMPLEMENTARY PAIR per round: arm A runs the spec, arm B the same spec plus
+# /first=on (so every guest frame is measured both ways); read with  flip_line.py <ab_1_A> --pair <ab_1_B>. Not with ArmFlags / ArmBFlags / ArmBExe.
+[string]$AbFlip = '',
+# S102 B1 (R28, the Surface's power budget): the Surface opens every run in a power burst (about 145 % cpu_perf, 20-26 W, from an energy credit of 200-235 J that 50+ s idle
+# refills; it ends 10-40 s into a run) and the bar must be measured after it. Warm=SECONDS in bench_args.txt: before the first measured scene step, run the first selected scene's
+# own route as a discarded load (folders warm_1, warm_2 ... , same flags as the measured steps, never read as a number) until SECONDS of wall time have gone by: the burst is spent
+# and the measured steps start from a drawn-down credit. No new route is needed: a scene run is 40-50 s, Warm=60 is two of them. Repeats=N: every selected scene step runs N times,
+# round-robin (bryan, brock, match, bryan, ...), the first in frames_<scene>, the others in frames_<scene>_r2 ... _rN; tools\surfacear_report.py prints median and range per scene
+# (and which repeats were SUSTAINED, burst_rules.py). Both are for the scene steps (frames_bryan / _brock / _match / _bryan_heavy), not ab.
+[int]$Warm = 0, [int]$Repeats = 1)
 # (-Levers a,b: only those levers / probes and their base run, e.g. -Only levers -Levers no_alias_direct,aniso_4x.)
 $ErrorActionPreference = 'Stop'
 $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })  # (pwsh -File: one string)
@@ -65,12 +102,93 @@ function Select-Levers($table) {
   if ($unknown.Count) { Write-Host "[surface] not a lever / probe here: $($unknown -join ', ')" }
   return @($table.Keys | Where-Object { $_ -eq 'base' -or $Levers -contains $_ })
 }
+# S102 M5: the multi-arm ab plan. Arms: ordered name -> flag list (arm A required). Each round runs every B arm once and A ceil(k/2) times, laid out
+# b1 A b2 | b3 A b4 | ... (an odd last B gets "A b" before it), so every B arm has an A right beside it; the B list is rotated right by one per round, so the
+# arm that runs last changes every round (k = 1 keeps the old A B / B A alternation).
+function Get-AbArmSpec([string[]]$Raw) {
+  $spec = [ordered]@{}
+  foreach ($chunk in @($Raw | ForEach-Object { $_ -split '\|' } | Where-Object { $_.Trim() })) {
+    $n, $f = $chunk -split ':', 2
+    $n = $n.Trim()
+    if ($n -notmatch '^[A-Za-z0-9]{1,20}$' -or ($n -match '^A\d+$')) { throw "ab: bad arm name '$n' in -ArmFlags (letters and digits, 1-20; A2, A3 ... are the base's repeat runs)" }
+    if ($spec.Contains($n)) { throw "ab: arm '$n' twice in -ArmFlags" }
+    $spec[$n] = @(@($f -split ',') | Where-Object { $_ -and $_.Trim() } | ForEach-Object { '--' + $_.Trim().TrimStart('-') })
+  }
+  if (-not $spec.Contains('A')) { throw "ab: -ArmFlags needs an arm named A (the base)" }
+  if ($spec.Count -lt 2) { throw 'ab: -ArmFlags needs at least one arm besides A' }
+  return $spec
+}
+function Get-AbPlan([string[]]$Names, [int]$Rounds, [bool]$Warmup) {
+  $b = @($Names | Where-Object { $_ -ne 'A' }); $k = $b.Count
+  $seq = @()
+  if ($Warmup) { $seq += , @('abwarm', 'A') }
+  for ($r = 1; $r -le $Rounds; $r++) {
+    $rot = ($r - 1) % $k
+    $bb = @(); for ($i = 0; $i -lt $k; $i++) { $bb += $b[(($i - $rot) % $k + $k) % $k] }
+    $lay = @()
+    for ($i = 0; $i -lt $k; $i += 2) {
+      if ($i + 1 -lt $k) { $lay += $bb[$i]; $lay += 'A'; $lay += $bb[$i + 1] } else { $lay += 'A'; $lay += $bb[$i] }
+    }
+    if ($k -eq 1 -and $r % 2 -eq 0) { [array]::Reverse($lay) }
+    $na = 0
+    foreach ($a in $lay) { $fa = $a; if ($a -eq 'A') { $na++; if ($na -gt 1) { $fa = "A$na" } }; $seq += , @("ab_${r}_$fa", $a) }   # a round's 2nd A run is ab_<r>_A2 ...
+  }
+  return $seq
+}
+# $Rounds: array of arrays of arm names (warm-up excluded). Returns a list of refusal strings (empty = fine).
+function Test-AbOrder($Rounds, [string[]]$Names) {
+  $bad = @(); $b = @($Names | Where-Object { $_ -ne 'A' }); $n = 0
+  foreach ($rd in $Rounds) {
+    $n++; $rd = @($rd)
+    foreach ($x in $b) {
+      $c = @($rd | Where-Object { $_ -eq $x }).Count
+      if ($c -ne 1) { $bad += "round ${n}: arm $x runs $c times (want 1)"; continue }
+      $ix = [array]::IndexOf($rd, $x)
+      $nb = @($(if ($ix -gt 0) { $rd[$ix - 1] } else { '' }), $(if ($ix -lt $rd.Count - 1) { $rd[$ix + 1] } else { '' }))
+      if ($nb -notcontains 'A') { $bad += "round ${n}: arm $x has no A beside it" }
+    }
+    if (@($rd | Where-Object { $_ -eq 'A' }).Count -lt 1) { $bad += "round ${n}: no A" }
+  }
+  if (@($Rounds).Count -ge 2) {
+    $lasts = @($Rounds | ForEach-Object { @($_)[-1] } | Select-Object -Unique)
+    if ($lasts.Count -eq 1) { $bad += "arm $($lasts[0]) runs last in every round (the heat drift would land on it)" }
+  }
+  return $bad
+}
+if ($AbPlan) {
+  $names = if ($AbPlanOrder) { @($AbPlanOrder -split '[;,]' | Where-Object { $_ } | Select-Object -Unique) } elseif ($ArmFlags.Count) { @((Get-AbArmSpec $ArmFlags).Keys) } else { @('A', 'B') }
+  if ($AbPlanOrder) { $rounds = @($AbPlanOrder -split ';' | ForEach-Object { , @($_ -split ',' | Where-Object { $_ }) }) }
+  else { $rounds = @(); $sq = Get-AbPlan $names $AbRounds $false; for ($r = 1; $r -le $AbRounds; $r++) { $rounds += , @($sq | Where-Object { $_[0] -like "ab_${r}_*" } | ForEach-Object { $_[1] }) } }
+  if ($AbWarmup -and -not $AbPlanOrder) { Write-Host 'run abwarm (A, discarded)' }
+  $r = 0; foreach ($rd in $rounds) { $r++; $na = 0; Write-Host ("round ${r}: " + (($rd | ForEach-Object { $f = $_; if ($_ -eq 'A') { $na++; if ($na -gt 1) { $f = "A$na" } }; "ab_${r}_$f" }) -join ' ')) }
+  $bad = Test-AbOrder $rounds $names
+  $nRuns = (@($rounds | ForEach-Object { @($_).Count } | Measure-Object -Sum).Sum) + $(if ($AbWarmup) { 1 } else { 0 })
+  Write-Host "plan: $($names.Count) arms, $($rounds.Count) rounds, $nRuns runs"
+  if ($bad.Count) { $bad | ForEach-Object { Write-Host "REFUSED: $_" }; exit 1 }
+  Write-Host 'plan ok'
+  exit 0
+}
+if (-not $DryRun) {
+  foreach ($n in 'Exe', 'GameData', 'UserData', 'Routes', 'Replays', 'Out') { if (-not (Get-Variable $n -ValueOnly)) { throw "bench.ps1: -$n is required (only -DryRun runs without it)" } }
+} elseif (-not $Out) { throw 'bench.ps1: -DryRun needs -Out (a folder under out\)' }
 $stamp = Get-Date -Format 'yyyyMMdd_HHmm'
-$exeDir = Split-Path -Parent $Exe
-$logs = Join-Path $exeDir 'logs'
+$exeDir = if ($Exe) { Split-Path -Parent $Exe } else { '' }
+$logs = if ($exeDir) { Join-Path $exeDir 'logs' } else { '' }
 New-Item -ItemType Directory -Force $Out | Out-Null
-$settings = Join-Path $Out 'settings_native720.json'
-Set-Content $settings '{"renderer": 2, "frame_rate": 1, "resolution": 0, "quality_tier": 2}'   # NATIVE, 60 fps, 720p (a test file)
+# S102 S0-1: the profile's file, copied byte for byte (a test file: the game gets it with --wwe2k14_settings_file, never the player's own).
+$profileFile = Join-Path (Join-Path $PSScriptRoot 'profiles') "$Profile.json"
+if (-not (Test-Path $profileFile)) { throw "bench.ps1: profile file missing: $profileFile (push_kit.ps1 sends tools\surface\profiles)" }
+$settings = Join-Path $Out "settings_$Profile.json"
+Copy-Item -Force $profileFile $settings
+Write-Host "[surface] profile $Profile : $settings"
+if ($DryRun) {
+  $cli = Join-Path $PSScriptRoot '..\..\out\tools\gfx_applied.exe'
+  if (-not (Test-Path $cli)) { & (Join-Path $PSScriptRoot 'build_gfx_applied.ps1') }
+  $cli = (Resolve-Path (Join-Path $PSScriptRoot '..\..\out\tools\gfx_applied.exe')).Path
+  & $cli --settings $settings --gpu integrated --gpu-name 'Intel(R) UHD Graphics 620' --panel $Panel
+  if ($LASTEXITCODE -ne 0) { throw "gfx_applied failed ($LASTEXITCODE)" }
+  return
+}
 
 # (Session 80, -Front: see the parameter.) Waits for the game's window, makes it topmost (above the taskbar) and the
 # foreground window (an Alt press first: Windows lets a process that just had input move the foreground), and says
@@ -105,8 +223,13 @@ function Set-GameFront($proc, [string]$name) {
 # (Session 79, 04:30: -Threads samples every thread's CPU time once a second with thread_busy.ps1 - copied next to this
 # script - into <step>\threads.csv; -Affinity limits the game to those logical processors, e.g. 0xF = 2 cores / 4
 # threads, the i3-6100U's count. Read on the PC: tools\perf\thread_scenes.py <threads.csv> <the step's log>.)
+# (Session 102 lane S0-2: the heat rule, stale-file clean-up and retry decision are functions in heat_steady.ps1 next to this script, so they can be tested.)
+$heatLib = Join-Path $PSScriptRoot 'heat_steady.ps1'
+$haveHeat = Test-Path $heatLib
+if ($haveHeat) { . $heatLib }
+$script:PrevPower = ''
 function Invoke-Step([string]$name, [string]$route, [string[]]$flags, [bool]$freshData, [bool]$Threads = $false,
-                     [int64]$Affinity = 0) {
+                     [int64]$Affinity = 0, [bool]$Retry = $false, [string]$FirstTry = '') {
   # (Session 95: the ab step's arm B may come from another build folder.)
   $Exe = if ($script:StepExe) { $script:StepExe } else { $Exe }
   $exeDir = Split-Path -Parent $Exe
@@ -117,18 +240,44 @@ function Invoke-Step([string]$name, [string]$route, [string[]]$flags, [bool]$fre
   if ($freshData) { $cache = Join-Path $work 'cache'; if (Test-Path $cache) { Remove-Item -Recurse -Force $cache } }
   $before = @(Get-ChildItem $logs -Filter 'wwe2k14_*.log' -ErrorAction SilentlyContinue | ForEach-Object Name)
   $gameArgs = @("--game_data_root=$GameData", "--user_data_root=$work", "--cache_root=$(Join-Path $work 'cache')",
-            "--wwe2k14_settings_file=$settings", '--wwe2k14_use_launcher_settings=true',
+            "--wwe2k14_settings_file=$settings", '--wwe2k14_rdr_start_failure_dialog=false', '--wwe2k14_use_launcher_settings=true',
             "--wwe2k14_replay_dir=$Replays", "--wwe2k14_input_script=$(Join-Path $Routes $route)",
             $(if ($Scenarios) { "--wwe2k14_scenario_dir=$Scenarios" }),
             '--wwe2k14_timeline=true', '--wwe2k14_native_frame=true') + $flags +
               @($GameFlags | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { '--' + $_.TrimStart('-') })
   $gameArgs = @($gameArgs | Where-Object { $_ })
+  # S102 main (2026-11-15 00:3x): one copy of each switch, the LATER one wins (job flags override the step's own). A string switch given twice
+  # makes the SDK's CLI11 parse throw, and every switch registered after it is then silently dropped (stderr only): the stacks step hard-codes
+  # --wwe2k14_profile_threads and the profile jobs passed it again, so --wwe2k14_launch / scenario_dir / every rdr flag were lost and the route
+  # timed out at the menu (prof2 00:04, upd1 20:52). Found by reading cvar.cpp Init + CLI11's MultiOptionPolicy::Throw.
+  $seenArg = @{}; $keep = New-Object System.Collections.Generic.List[string]; $dropped = @()
+  for ($k = $gameArgs.Count - 1; $k -ge 0; $k--) {
+    $key = ($gameArgs[$k] -replace '=.*$', '').ToLowerInvariant()
+    if ($seenArg.ContainsKey($key)) { $dropped += $gameArgs[$k]; continue }
+    $seenArg[$key] = $true; $keep.Insert(0, $gameArgs[$k])
+  }
+  if ($dropped.Count) { Write-Host "[surface] $name : duplicate switches removed (the later one kept): $($dropped -join ' ')" }
+  $gameArgs = @($keep)
   Write-Host "[surface] $name : $route $($flags -join ' ')$(if ($Affinity) { ' (affinity 0x{0:X})' -f $Affinity })"
   $dest = Join-Path $Out $name
+  # S102 main (2026-11-14 20:20): a step folder was reused across jobs and never cleared, so every arm folder carried older runs of the same
+  # name (ab_2_B held runs from 2026-11-07 / 11-13 / 11-14 morning). bench_line reads the newest run, so a step that failed to write its csv
+  # would have reported an OLD run as this job's number. Earlier jobs' files were already fetched in their own zips: clear the step's files.
+  if (Test-Path $dest) {
+    $old = @(Get-ChildItem $dest -File -ErrorAction SilentlyContinue)
+    if ($old.Count) { $old | Remove-Item -Force -ErrorAction SilentlyContinue; Write-Host "[surface] $name : cleared $($old.Count) files of earlier jobs from the step folder" }
+  }
   New-Item -ItemType Directory -Force $dest | Out-Null
+  # (Session 102 lane S0-2: a power.csv / counters.txt / verdict from an earlier run of this step is removed BEFORE the run, so a run can
+  # never carry another run's power file; the old R5 finding: files from 6 days earlier sat beside the new log and looked current.)
+  # (threads.csv too: thread_busy.ps1 appends, and a second header row breaks tools\perf\thread_scenes.py.)
+  if ($haveHeat) { foreach ($stale in (Clear-StaleStepFiles $dest)) { Write-Host "[surface] $name : removed stale $stale" } }
+  $usePower = -not $NoPower
   $busy = $null
   $busyScript = Join-Path $PSScriptRoot 'thread_busy.ps1'
-  if ($Threads -and (Test-Path $busyScript)) {
+  if ($Threads -and $NoThreads) {
+    Write-Host "[surface] $name : NoThreads: no thread sampler (S102 R14)"
+  } elseif ($Threads -and (Test-Path $busyScript)) {
     # (Session 80: the PowerShell running this script, pwsh or Windows PowerShell.)
     $busy = Start-Process (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
                                                $busyScript, '-Out', (Join-Path $dest 'threads.csv'),
@@ -138,21 +287,38 @@ function Invoke-Step([string]$name, [string]$route, [string[]]$flags, [bool]$fre
   }
   $pwr = $null
   $pwrScript = Join-Path $PSScriptRoot 'power_log.ps1'
-  if ($Power -and (Test-Path $pwrScript)) {
+  if ($usePower -and (Test-Path $pwrScript)) {
     $pwr = Start-Process (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
                                                $pwrScript, '-Out', (Join-Path $dest 'power.csv'), '-WaitForStart', '120',
                                                '-MaxSeconds', ($TimeoutSeconds + 120)) -PassThru -WindowStyle Hidden
-  } elseif ($Power) { Write-Host "[surface] $name : power_log.ps1 not next to bench.ps1 - no power log" }
+  } elseif ($usePower) { Write-Host "[surface] $name : power_log.ps1 not next to bench.ps1 - no power log" }
   $t0 = Get-Date
   $p = Start-Process -FilePath $Exe -ArgumentList $gameArgs -WorkingDirectory $exeDir -PassThru
   if ($Affinity) { try { $p.ProcessorAffinity = [IntPtr]$Affinity } catch { Write-Host "[surface] affinity not set: $_" } }
   if ($Front) { Set-GameFront $p $name }
-  if (-not $p.WaitForExit($TimeoutSeconds * 1000)) { $p.Kill(); Write-Host "[surface] $name : timed out, killed" }
+  $timedOut = $false
+  if (-not $p.WaitForExit($TimeoutSeconds * 1000)) { $p.Kill(); $timedOut = $true; Write-Host "[surface] $name : timed out, killed" }
   if ($busy -and -not $busy.WaitForExit(30000)) { Stop-Process -Id $busy.Id -Force }
   if ($pwr -and -not $pwr.WaitForExit(30000)) { Stop-Process -Id $pwr.Id -Force }
   Get-ChildItem $logs | Where-Object { $before -notcontains $_.Name -and $_.LastWriteTime -ge $t0 } |
     Where-Object { $_.Extension -in '.log', '.csv', '.txt' } | Copy-Item -Destination $dest
   Write-Host "[surface] $name : exit $($p.ExitCode), $([int]((Get-Date) - $t0).TotalSeconds) s"
+  # (Session 102 lane S0-2: the heat verdict of a scene step, one rule written in heat_steady.ps1 / heat_rules.py.)
+  # (A/B arms and the abwarm run get a verdict but never a repeat; only a heat reason on a game that ended cleanly repeats: Test-HeatRetry.)
+  if ($usePower -and $Threads -and $haveHeat) {
+    $pcsv = Join-Path $dest 'power.csv'
+    $hv = Get-HeatVerdict $pcsv $script:PrevPower
+    $text = if ($Retry -and $FirstTry) { "retry; first try: $FirstTry`r`nthis try: $($hv.Reason)" } else { $hv.Reason }
+    Set-Content (Join-Path $dest 'heat_verdict.txt') $text
+    Write-Host "[surface] $name : heat: $($hv.Reason)"
+    if (Test-HeatRetry $hv $name $Retry $p.ExitCode $timedOut) {
+      $rej = "$dest`_rejected"
+      if (Test-Path $rej) { Remove-Item -Recurse -Force $rej }
+      Move-Item $dest $rej
+      Write-Host "[surface] $name : rejected (outside the steady band), repeating once; kept as $rej"
+      Invoke-Step $name $route $flags $freshData $Threads $Affinity $true $hv.Reason
+    } elseif (Test-Path $pcsv) { $script:PrevPower = $pcsv }
+  }
 }
 
 if ($Only -contains 'passes') {
@@ -196,10 +362,47 @@ if ($Only -contains 'frames') {
 $sceneSteps = [ordered]@{
   'frames_bryan' = @('bryan_entrance.txt', @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_launch_participants=324,343', '--wwe2k14_fixed_seed=1'))
   'frames_brock' = @('brock_entrance.txt', @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_fixed_seed=1'))
+  'frames_bryan_heavy' = @('bryan_heavy.txt', @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_launch_participants=324,343', '--wwe2k14_fixed_seed=1'))   # S102 M6: Bryan's heavy stretch only (tron+760 .. +1330), see the route's header
   'frames_match' = @('match.txt', @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_launch_skip_entrances=true', '--wwe2k14_fixed_seed=1'))
 }
-foreach ($k in $sceneSteps.Keys) {
-  if ($Only -contains $k) { Invoke-Step $k $sceneSteps[$k][0] $sceneSteps[$k][1] $false -Threads $true }
+$sceneFlagList = @($SceneFlags | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { '--' + $_.TrimStart('-') })
+if ($FrameSplit) { $sceneFlagList = @($sceneFlagList) + @('--wwe2k14_frame_split=true') }  # S102 H3
+# S102 M7 (review F5): the NON-reference phase's values on the command line of both arms, so a switch that only works when armed at start (reader.h LiveOptions copies,
+# the prelight multiview device feature, the card thin probe: src\ab_flip_math.h kArmed) is armed; the game sets the reference values at frame 2 and the phases from the anchor.
+function Get-AbFlipCli([string]$Spec) {
+  $phases = @($Spec -split '/' | Where-Object { $_ -and $_ -notmatch '^(period|settle|start|order|first|anchor)=' })
+  if ($phases.Count -lt 2) { return @() }
+  $non = ($phases[1] -split '=', 2)[1]
+  return @($non -split '\+' | Where-Object { $_ } | ForEach-Object { '--' + $_ })
+}
+if ($AbFlip) {   # S102 M7: the in-run A/B; the format is checked here and by s0_5_jobs.ps1, the game checks the switches (PerFrame only) and refuses a bad spec whole
+  if ($AbFlip -notmatch '^[A-Za-z0-9_=+/:]{8,600}$') { throw "AbFlip: the spec may hold only letters, digits, _ = + / : (no ; , | space): $AbFlip" }
+  if ($ArmFlags.Count -or $ArmAFlags.Count -or $ArmBFlags.Count -or $ArmBExe) { throw 'AbFlip: not with ArmFlags / ArmAFlags / ArmBFlags / ArmBExe (put the base levers in SceneFlags: both arms get them) (the two arms of an AbFlip job are the complementary schedules)' }
+  if ($AbFlip -match '(^|/)first=') { throw 'AbFlip: do not write first= (arm B adds /first=on itself)' }
+  if ($AbFlip -notmatch '(^|/)anchor=\d') { throw 'AbFlip: the spec needs anchor=<route mark id> (a pair is paired by route-mark time, never by the absolute guest frame)' }
+  if ($Only -notcontains 'ab') { $sceneFlagList = @($sceneFlagList) + @(Get-AbFlipCli $AbFlip) + @("--wwe2k14_ab_flip=$AbFlip") }
+}
+$abSceneFlags = @($SceneFlags | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { '--' + $_.TrimStart('-') })   # S102 M7 (F8): SceneFlags (the base levers) reach EVERY ab arm
+# S102 B1: Warm / Repeats (see the parameters). The names the zip takes are listed in $stepKeys below.
+$selScenes = @($sceneSteps.Keys | Where-Object { $Only -contains $_ })
+if (($Warm -gt 0 -or $Repeats -gt 1) -and -not $selScenes.Count) { Write-Host "[surface] Warm=$Warm Repeats=$Repeats ignored: no scene step in -Only ($($Only -join ','))" }
+if ($Warm -lt 0 -or $Warm -gt 600) { throw "Warm=$Warm : seconds, 0 to 600" }
+if ($Repeats -lt 1 -or $Repeats -gt 9) { throw "Repeats=$Repeats : 1 to 9" }
+if ($Warm -gt 0 -and $selScenes.Count) {
+  $wk = $selScenes[0]
+  $warmStart = Get-Date; $wi = 0
+  while (((Get-Date) - $warmStart).TotalSeconds -lt $Warm -and $wi -lt 6) {
+    $wi++
+    Write-Host "[surface] warm_$wi : discarded load (the $wk route) to spend the power burst; $([int]((Get-Date) - $warmStart).TotalSeconds) s of $Warm s so far"
+    Invoke-Step "warm_$wi" $sceneSteps[$wk][0] (@($sceneSteps[$wk][1]) + $sceneFlagList) $false -Threads $false
+  }
+  Write-Host "[surface] warm: $wi discarded run(s), $([int]((Get-Date) - $warmStart).TotalSeconds) s; the measured steps start now"
+}
+for ($rep = 1; $rep -le $Repeats; $rep++) {
+  foreach ($k in $selScenes) {
+    $nm = if ($rep -eq 1) { $k } else { "${k}_r$rep" }
+    Invoke-Step $nm $sceneSteps[$k][0] (@($sceneSteps[$k][1]) + $sceneFlagList) $false -Threads $true
+  }
 }
 # pinned (Session 79, not in the default list): the frames run held to 2 cores / 4 threads (the i3-6100U's count; the
 # Surface's i5 has 4 / 8), with every thread's CPU time: the CPU budget at 60 fps on a 4-thread laptop.
@@ -220,13 +423,13 @@ if ($Only -contains 'shaderrank') {
 }
 # stacks (Session 95): one symbols profile of the frames route (the kit needs push_kit -Symbols).
 if ($Only -contains 'stacks') {
-  Invoke-Step 'stacks' 'profile_lesnar_bryan.txt' @('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_fixed_seed=1',
-    '--wwe2k14_profile_gpu_commands=true', '--wwe2k14_profile_stacks=true') $false
+  Invoke-Step 'stacks' 'profile_lesnar_bryan.txt' (@('--wwe2k14_launch=lesnar_bryan', '--wwe2k14_fixed_seed=1',
+    '--wwe2k14_profile_gpu_commands=true', '--wwe2k14_profile_threads=rdr_render,rdr_record', '--wwe2k14_profile_main=true', '--wwe2k14_profile_stacks=true') + $sceneFlagList) $false   # S102: SceneFlags reach the profile too; the owned renderer has no "GPU Commands" thread: sample the main (VdSwap) thread and rdr_render
 }
 # ab (Session 95, heat aid): see the header. Same scene, A B B A back to back with a fixed gap.
 if ($Only -contains 'ab') {
   if (-not $sceneSteps.Contains($AbScene)) { Write-Host "[surface] ab: -AbScene must be one of $($sceneSteps.Keys -join ', ')"; throw 'bad -AbScene' }
-  if (-not $ArmBFlags.Count -and -not $ArmBExe) { Write-Host '[surface] ab: arm B equals arm A (no -ArmBFlags, no -ArmBExe): the pair measures the noise floor' }
+  if (-not $ArmFlags.Count -and -not $ArmBFlags.Count -and -not $ArmBExe) { Write-Host '[surface] ab: arm B equals arm A (no -ArmBFlags, no -ArmBExe): the pair measures the noise floor' }
   if ($ArmBExe -and -not (Test-Path -LiteralPath $ArmBExe)) { throw "ab: -ArmBExe not found: $ArmBExe" }
   # (Session 95 stack 4: -ArmAFlags are added to arm A only, so the arms can differ by a whole flag set.)
   $armAFlagList = @($ArmAFlags | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { '--' + $_.TrimStart('-') })
@@ -234,18 +437,29 @@ if ($Only -contains 'ab') {
   $order = New-Object System.Collections.Generic.List[string]
   $abNames = @()
   $seq = @()
-  if ($AbWarmup) { $seq += , @('abwarm', 'A') }
+  $armSpec = $null
+  if ($ArmFlags.Count) {   # S102 M5: several B arms in one job
+    if ($ArmAFlags.Count -or $ArmBFlags.Count -or $ArmBExe) { throw 'ab: -ArmFlags replaces -ArmAFlags / -ArmBFlags / -ArmBExe: use one form' }
+    $armSpec = Get-AbArmSpec $ArmFlags
+    $seq = @(Get-AbPlan @($armSpec.Keys) $AbRounds ([bool]$AbWarmup))
+    $planRounds = @(); for ($r = 1; $r -le $AbRounds; $r++) { $planRounds += , @($seq | Where-Object { $_[0] -like "ab_${r}_*" } | ForEach-Object { $_[1] }) }
+    $planBad = Test-AbOrder $planRounds @($armSpec.Keys)
+    if ($planBad.Count) { throw "ab: the order was refused: $($planBad -join '; ')" }
+    Write-Host "[surface] ab: $($armSpec.Count) arms ($($armSpec.Keys -join ', ')), $AbRounds rounds, $($seq.Count) runs"
+  }
+  elseif ($AbWarmup) { $seq += , @('abwarm', 'A') }
   # A B B A A B ...: heat drifts up one slot at a time, so alternate which arm goes first in a round (Session 95 review).
-  for ($r = 1; $r -le $AbRounds; $r++) {
+  if (-not $armSpec) { for ($r = 1; $r -le $AbRounds; $r++) {
     if ($r % 2 -eq 1) { $seq += , @("ab_${r}_A", 'A'); $seq += , @("ab_${r}_B", 'B') }
     else { $seq += , @("ab_${r}_B", 'B'); $seq += , @("ab_${r}_A", 'A') }
-  }
+  } }
   $first = $true
   foreach ($e in $seq) {
     if (-not $first) { Write-Host "[surface] ab: gap $AbGapSeconds s (no cool-down: both arms stay hot)"; Start-Sleep -Seconds $AbGapSeconds }
     $first = $false
     $script:StepExe = if ($e[1] -eq 'B' -and $ArmBExe) { $ArmBExe } else { '' }
-    $fl = @($sceneSteps[$AbScene][1]) + $(if ($e[1] -eq 'B') { $armBFlagList } else { $armAFlagList })
+    # S102 M7 (review F8): every ab arm gets the SceneFlags (the @BASE levers) BEFORE its arm flags (later wins, so an arm flag overrides); s0_5_jobs.ps1's @BASE guard credits SceneFlags as arm A's flags, and they never reached the arms before.
+    $fl = @($sceneSteps[$AbScene][1]) + $abSceneFlags + $(if ($armSpec) { @($armSpec[$e[1]]) } elseif ($e[1] -eq 'B') { $armBFlagList } else { $armAFlagList }) + $(if ($FrameSplit) { @('--wwe2k14_frame_split=true') } else { @() }) + $(if ($AbFlip) { @(Get-AbFlipCli $AbFlip) + @("--wwe2k14_ab_flip=$AbFlip" + $(if ($e[1] -eq 'B') { '/first=on' } else { '' })) } else { @() })  # S102 H3: both arms; S102 M7: the complementary pair (non-reference values on the command line)
     $order.Add("$($e[0])`t$($e[1])`t$(Get-Date -Format 'HH:mm:ss')`t$AbScene`t$($fl -join ' ')`t$(if ($script:StepExe) { $script:StepExe } else { $Exe })")
     Invoke-Step $e[0] $sceneSteps[$AbScene][0] $fl $false -Threads $true
     if ($e[0] -ne 'abwarm') { $abNames += $e[0] }
@@ -358,7 +572,8 @@ if ($Only -contains 'precompile') {
   }
 }
 $zip = Join-Path $Out "surface_bench_$stamp.zip"
-$dirs = @(Get-ChildItem $Out -Directory | Where-Object Name -in $Only | ForEach-Object FullName)
+$stepBase = { param($n) ($n -replace '_rejected$', '') -replace '_r\d+$', '' }   # S102 B1: frames_bryan_r2 / frames_bryan_r2_rejected belong to frames_bryan
+$dirs = @(Get-ChildItem $Out -Directory | Where-Object { $Only -contains $_.Name -or $Only -contains (& $stepBase $_.Name) -or $_.Name -like 'warm_*' } | ForEach-Object FullName)   # (S0-2: a rejected heat run travels in the zip too; S102 B1: repeats and the warm-up loads too)   # (S0-2: a rejected heat run travels in the zip too)
 if ($script:AbOrderFile -and (Test-Path $script:AbOrderFile)) { $dirs += $script:AbOrderFile }
 if ($dirs.Count) {
   Compress-Archive -Path $dirs -DestinationPath $zip

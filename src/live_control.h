@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
@@ -340,7 +341,7 @@ inline void Install() {
   if (name.empty()) return;
 #ifdef _WIN32
   const std::string full = "\\\\.\\pipe\\wwe2k14_live_" + name;
-  std::thread([wide = std::wstring(full.begin(), full.end())] { Serve(wide); }).detach();
+  std::thread([wide = std::wstring(full.begin(), full.end())] { wwe2k14::NameThread(L"live_control"); Serve(wide); }).detach();
   REXLOG_INFO("[wwe2k14][live] listening on {} (src/live_control.h; client: py tools\\live\\live.py --name {})", full,
               name);
 #else

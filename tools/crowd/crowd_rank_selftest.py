@@ -13,7 +13,7 @@ print(r.stdout.strip().splitlines()[-1])
 if r.returncode != 0:
     print(r.stdout)
     bad += 1
-for plant in ('no_track', 'no_swap', 'no_guard'):
+for plant in ('no_track', 'no_swap', 'no_guard', 'rank_radius_off', 'flat_no_rotate'):
     r = subprocess.run([str(EXE), '--plant', plant], capture_output=True, text=True)
     print('plant %s: %s (exit %d)' % (plant, 'caught' if r.returncode == 1 else 'NOT CAUGHT', r.returncode))
     bad += r.returncode != 1

@@ -19,6 +19,7 @@
 #include "../renderer_adapter/image_content_feed.h"  // S101 lane 66
 #include "../renderer_adapter/image_info_table.h"
 #include "crowd_ours.h"
+#include "card_bake_ours.h"   // S102 P1
 #include "post_ours.h"   // S101 lane PO
 #include "record_io.h"
 #include "replace_factories.h"
@@ -38,13 +39,16 @@ struct PromotionOptions {
   bool rim = false;   // lane 124: the rim light map's casters (after the shadow casters)
   bool small_passes = false;   // lane 135: the sweat map and skin pre-light passes (needs neither the game files nor scene records)
   bool rim_chain = false;   // lane 151: the rim light map's reductions and blur by our programs (needs neither the game files nor scene records)
+  bool own_card_bake = false, bake_none = false;   // S102 P1: the crowd card bake owned (card_bake_ours.h); needs scene records, no game files
+  std::string bake_fault;
+  int bake_record_offset = 0;
   std::string post_fault, post_limits;
   float render_scale = 1.0f;
   bool crowd_cards = false;  // S101 lane CD: with crowd, the far cards ours (CrowdOursOptions::cards)
   std::string game_root;  // the player's game files (game_data\extracted)
-  bool any() const { return crowd || arena || wrestlers || ring || ui || ui_text || flash || props || shadow_casters || screens || post || rim || movie || small_passes || circles || plane_shadow || rim_chain /* lane 151 */; }   // lane 124: rim  // S101 lane 115: screens
+  bool any() const { return own_card_bake || crowd || arena || wrestlers || ring || ui || ui_text || flash || props || shadow_casters || screens || post || rim || movie || small_passes || circles || plane_shadow || rim_chain /* lane 151 */; }   // lane 124: rim  // S101 lane 115: screens
   bool any_game() const { return crowd || arena || wrestlers || ring || ui || ui_text || flash || props || shadow_casters || screens || rim; }   // lane 124: rim  // S101 lane PO: the classes that read the game files
-  bool needs_scene_records() const { return crowd || arena || wrestlers || ring || flash || props || shadow_casters || screens || rim; }   // lane 124: rim (as shadow_casters: the class itself only joins through a record; fview exempts both so Bryan, a capture without records, runs with nothing replaced)  // S101 lane 115: screens; S101 lane 99; S101 lane 66: every class but the UI joins by scene record
+  bool needs_scene_records() const { return own_card_bake || crowd || arena || wrestlers || ring || flash || props || shadow_casters || screens || rim; }   // lane 124: rim (as shadow_casters: the class itself only joins through a record; fview exempts both so Bryan, a capture without records, runs with nothing replaced)  // S101 lane 115: screens; S101 lane 99; S101 lane 66: every class but the UI joins by scene record
 };
 
 class PromotionRig {
@@ -87,6 +91,15 @@ class PromotionRig {
       binder.SetCrowdHook(crowd_.get());
       rdr_adapter::g_crowd_ours = true;
     }
+    if (options.own_card_bake) {   // S102 P1: the crowd card bake owned (needs scene records only)
+      CardBakeFaults faults;
+      if (!CardBakeFaults::Parse(options.bake_fault, faults, error)) return false;
+      bake_ = std::make_unique<CardBakeOurs>(faults);
+      bake_offset_ = options.bake_record_offset;
+      binder.SetBakeHook(bake_.get());
+      rdr_adapter::g_own_card_bake = true;
+      rdr_adapter::g_own_card_bake_none = options.bake_none;
+    }
     handles_.reserve(std::size(kReplaceClasses));  // (one per class in the table: lane 84 review)
     if (options.arena && !AddClass(renderer, binder, options, "arena", g_arena_factory, &rdr_adapter::g_arena_ours, error)) return false;
     if (options.wrestlers && !AddClass(renderer, binder, options, "wrestlers", g_wrestlers_factory, &rdr_adapter::g_wrestlers_ours, error)) return false;
@@ -107,7 +120,7 @@ class PromotionRig {
     return true;
   }
 
-  bool active() const { return crowd_ || post_ || !handles_.empty(); }
+  bool active() const { return bake_ || crowd_ || post_ || !handles_.empty(); }
 
   // S101 lane 271: the match card's arena handed to every per-arena class before any record names it (live.cpp does the same on the live thread when session_log.h publishes the card).
   void Announce(int arena) {
@@ -148,6 +161,20 @@ class PromotionRig {
       rdr_adapter::LoadedFrame content_frame;
       if (capture_->LoadFrame(f, content_frame)) rdr_adapter::FeedImageContents(content_frame, *capture_, content_, content_scratch_);
     }
+    if (bake_) {   // S102 P1: the pose record is the one numbered like the stream frame (not the crowd's f-1)
+      const int bi = int(f) + bake_offset_;
+      if (bi != bake_record_index_) {
+        bake_record_index_ = bi;
+        std::shared_ptr<const SceneTables> rec;
+        if (bi >= 0 && uint32_t(bi) < capture_->frame_count() && capture_->HasSceneRecord(uint32_t(bi))) {
+          auto tables = std::make_shared<SceneTables>();
+          std::string err;
+          if (ReadRecord(capture_->SceneRecordPath(uint32_t(bi)).string(), *tables, err)) rec = tables;
+          else std::fprintf(stderr, "[rplay] scene record %d: %s\n", bi, err.c_str());
+        }
+        bake_->SetRecord(rec);
+      }
+    }
     const int index = int(f) - 1;
     if (index != record_index_) {
       record_index_ = index;
@@ -176,6 +203,8 @@ class PromotionRig {
       text += "[rplay] " + crowd_->Report() + "\n";
     }
     if (post_) text += binder.PostCensus() + "\n";   // S101 lane PO
+    if (bake_) text += binder.BakeCensus() + "\n";   // S102 P1
+    if (rdr_adapter::g_own_plane) text += binder.PlaneCensus() + "\n";   // S102 P3
     for (size_t i = 0; i < handles_.size(); ++i) {
       text += binder.ReplaceCensus(handles_[i].hook->Name()) + "\n";
       if (handles_[i].report) text += "[rplay] [rdr][" + std::string(handles_[i].hook->Name()) + "] " + handles_[i].report() + "\n";
@@ -186,6 +215,7 @@ class PromotionRig {
   // Destroy the hooks (the caller destroys the binder first: it points at them).
   void Reset() {
     crowd_.reset();
+    bake_.reset();   // S102 P1
     post_.reset();   // S101 lane PO
     handles_.clear();
   }
@@ -220,6 +250,8 @@ class PromotionRig {
   bool ui_on_ = false;
   std::unique_ptr<CrowdOurs> crowd_;
   std::unique_ptr<PostOurs> post_;   // S101 lane PO
+  std::unique_ptr<CardBakeOurs> bake_;   // S102 P1
+  int bake_offset_ = 0, bake_record_index_ = -2;
   std::vector<ReplaceHookHandle> handles_;
   int record_index_ = -1;
   std::shared_ptr<const SceneTables> record_;

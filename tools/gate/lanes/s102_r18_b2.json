@@ -1,0 +1,179 @@
+{
+ "owner": "S102 lane R18-B2 (the owned combine does less per pixel): src/renderer/combine_lite.h, the FX_LITE / FX_LITE_FXAA twins of yGlareEtc.frag (tools/renderer/compile_shaders.py lite_twins), the pick in post_pass.cpp, switch wwe2k14_rdr_combine_lite, tools/r18/*, docs/renderer/COMBINE_LITE.md. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {
+   "switch": "wwe2k14_rdr_combine_lite",
+   "level": 1,
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [
+    0.05,
+    0.35
+   ],
+   "note": "ESTIMATE (review of 4c6c959d): level 1 now also drops the bloom permutation where the bloom and glare are not recorded (Bryan: BloomScale 0 on every frame, census proves it) = 2 fetches a pixel + 2 clears; plus the guarded DoF / bloom fetches. Pictures byte-equal on NVIDIA (exact up to FP contraction). UHD 620: 0.15-0.35 ms if the combine is sampler-bound, 0.05-0.15 if not. Combined all-levers A/B on the Surface decides."
+  },
+  {
+   "switch": "wwe2k14_rdr_combine_lite",
+   "level": 2,
+   "scene": "bryan",
+   "side": "gpu",
+   "ms": [
+    0.1,
+    0.2
+   ],
+   "note": "ESTIMATE, a LOOK lever (not byte-equal; Jarrod judges the sheet and the clip). MEASURED flat share on the Bryan capture 28.6 % (frames 30/100/200; out/r18/flat_share.txt): 0.286 x 4 of ~10 fetches x 1.5-1.9 ms = 0.17-0.22 ms of fetch weight on a fetch-bound GPU; lowered to 0.1-0.2."
+  }
+ ],
+ "note": "fetches = lite twins exist, the existing yGlareEtc variants byte-identical (0 deleted lines), static counts, the executed-fetch model; wiring = every link of the switch with 6 text plants; bryan = fview, Bryan case zip, whole shipped bundle: level 1 BYTE-EQUAL, validation 0 AND exit 0, the lever took every combine draw, level 2 differs, planted twins (lite_dof_always_skip, lite_flat_wide, lite_not_applied); captures = match / brock / wm30 level 1 byte-equal + the bloom plant (NOTE when no capture has a live bloom); flat = the magenta mark twin: share of combine pixels the flat exit takes, per capture.",
+ "checks": [
+  {
+   "name": "s102_r18_b2.build_fview",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/fview/build.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s102_r18_b2.shaders_current",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/renderer/compile_shaders.py",
+    "--check"
+   ],
+   "timeout_s": 900
+  },
+  {
+   "name": "s102_r18_b2.spv_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/r18/spv_lint_b2.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_r18_b2.fetches",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/r18/r18_b2_check.py",
+    "--root",
+    ".",
+    "--only",
+    "fetches,wiring"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_r18_b2.bryan",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/r18/r18_b2_check.py",
+    "--root",
+    ".",
+    "--only",
+    "bryan",
+    "--jobs",
+    "3"
+   ],
+   "timeout_s": 2400,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_r18_b2.captures",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/r18/r18_b2_check.py",
+    "--root",
+    ".",
+    "--only",
+    "captures",
+    "--jobs",
+    "3"
+   ],
+   "timeout_s": 3000,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "out/lane86/brock/capture",
+    "out/lane86/wm30/capture",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_r18_b2.flat",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/r18/r18_b2_check.py",
+    "--root",
+    ".",
+    "--only",
+    "flat",
+    "--jobs",
+    "3"
+   ],
+   "timeout_s": 3000,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "out/lane86/brock/capture",
+    "out/lane86/wm30/capture",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s102_r18_b2.game_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/game_syntax.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include"
+   ]
+  },
+  {
+   "name": "s102_r18_b2.lint_seen",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/lint_seen.py"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_r18_b2.lint_effects",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/renderer/lint_effects.py",
+    "--quiet"
+   ],
+   "timeout_s": 300
+  }
+ ]
+}

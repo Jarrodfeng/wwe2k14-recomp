@@ -95,6 +95,7 @@ inline uint32_t FenceCompleted(uint32_t device) {
 // this header is only included from main.cpp.
 void wwe2k14_gpu_wait_begin(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5) {
   (void)r3;
+  wwe2k14::frame_split::FenceBegin();  // S102 H3: the wait's wall time for the swap-thread split (--wwe2k14_frame_split)
   // Session 15 (determinism): det_frames counts the thread as blocked while it spins in a GPU wait loop.
   rex::det::EnterWait();
   wwe2k14::low_power::Begin();  // Session 37: a new wait (its first --wwe2k14_low_power_spin_us spin, then sleeps)
@@ -113,6 +114,7 @@ inline void DetSerialGpuPoll() {
 }
 
 void wwe2k14_gpu_wait_end(PPCRegister& r3) {
+  wwe2k14::frame_split::FenceEnd();  // S102 H3
   rex::det::LeaveWait();  // Session 15 (determinism): see wwe2k14_gpu_wait_begin
   if (!rex::perf::timeline::Enabled()) return;
   const uint32_t device = wwe2k14::GuestU32(r3.u32);

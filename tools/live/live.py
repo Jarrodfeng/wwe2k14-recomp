@@ -226,7 +226,7 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
         path = os.path.join(REPO, path)
     if not os.path.exists(path):
         return 'no such script: %s' % path
-    flags = '--wwe2k14_live=%s' % name
+    flags = '--wwe2k14_live=%s --wwe2k14_rdr_start_failure_dialog=false' % name  # S102 U1: no message box on a driven run
     if launch:
         flags += ' --wwe2k14_launch=%s' % launch
     # Session 29 part 3: live sessions catch hitches by themselves (a bookmark at a 50 ms frame during steady play) with

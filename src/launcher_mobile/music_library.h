@@ -16,6 +16,7 @@
 // decodes two songs at once; the UI thread only calls Refresh() / Entries() / TakeMessages(), which never block on a decode.
 #pragma once
 
+#include "../thread_name.h"  // S102 H1
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -118,7 +119,7 @@ class Library {
     sh_->mods = std::move(mods);
     sh_->cache = CacheDir(sh_->mods);
     // Half-written files of an earlier run (a killed copy / conversion): *.part older than 10 minutes, in the cache and the song folders.
-    std::thread([sh = sh_] {
+    std::thread([sh = sh_] { wwe2k14::NameThread(L"mob_music_scan");
       try {
         audio_import::CleanStale(sh->cache);
         const auto limit = std::chrono::minutes(10);
@@ -468,7 +469,7 @@ class Library {
     sh->pending = int(sh->jobs.size()) + (sh->busy ? 1 : 0);
     if (!sh->started) {
       sh->started = true;
-      std::thread([sh] { Worker(sh); }).detach();
+      std::thread([sh] { wwe2k14::NameThread(L"mob_music_work"); Worker(sh); }).detach();
     }
     sh->cv.notify_one();
   }

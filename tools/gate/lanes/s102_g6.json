@@ -1,0 +1,12 @@
+{
+ "owner": "S102 lane G6 (name what the GPU stamps call other): src/renderer/api.h GpuClass (+ ui, copies, prelight, feedback), renderer.cpp (the by-class lines, the stamp census g_gpu_census), overlay.h g_gpu_census, names.h SurfaceRole (+ frame_buffer, copy_dest, light_strip), db/ids/surface_roles.json + surface_role_table.h (two creator rows renamed), binder.h (GpuClassOfRole, RoleForStamps, RefreshGpuClasses, plants 2 / 3), rplay --gpu-census / --gpu-class-plant drop_copy_dest | drop_frame_buffer, tools/renderer/gpu_other_census.py (the offline census) and gpu_other_check.py (the proof). Names and classes only: no picture changes. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "bryan", "side": "none (an instrument: it renames what the GPU line reports, it moves no work)", "ms": [0, 0]},
+ "note": "build = tools/renderer/build.ps1. proof = rplay on the Bryan entrance capture (the gate's bryan input) with stamps on: `other` holds under 10 % of the stamped GPU time (it was 57 % offline: copies into unnamed textures about half, the frame buffer's passes the rest); plants drop_copy_dest (other must read over 10 %) and drop_frame_buffer (other must rise 3 points); the verdict twin; the final frame byte-equal with and without the plants and the census; the pass-pixel census under the role table (under 10 %) and under a planted table without the scene (over 50 %). stamps = the S0-3 proof re-run on its own capture with the wider roles line (regex follows the new classes).",
+ "checks": [
+  {"name": "s102_g6.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1500},
+  {"name": "s102_g6.lint", "cmd": ["py", "-I", "tools/renderer/gpu_class_lint.py", "--root", "."], "timeout_s": 600},
+  {"name": "s102_g6.names", "cmd": ["py", "-I", "tools/names/gen_origin_table.py", "--check"], "timeout_s": 900},
+  {"name": "s102_g6.proof", "cmd": ["py", "-I", "tools/renderer/gpu_other_check.py", "--root", "."], "timeout_s": 1800, "needs": ["out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin"], "exes": ["out/renderer/dev/rplay.exe"]},
+  {"name": "s102_g6.stamps", "cmd": ["py", "-I", "tools/renderer/gpu_stamps_check.py", "--root", "."], "timeout_s": 1800, "needs": ["out/lane86/bryan/capture"], "exes": ["out/renderer/dev/rplay.exe"]}
+ ]
+}

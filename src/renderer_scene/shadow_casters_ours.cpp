@@ -1,4 +1,5 @@
 // See shadow_casters_ours.h. Session 101, lane 99.
+#include "../thread_name.h"  // S102 H1
 #include "shadow_casters_ours.h"
 
 #include <chrono>
@@ -41,7 +42,7 @@ bool ShadowCastersOurs::FrameReady(const rdr_adapter::LoadedFrame& frame) {
         if (!set) rdr::Log("[rdr][shadow_casters] chCommon.pac entry 0 could not be read: %s", err.c_str());
         return set;
       };
-      proxy_future_ = std::async(live_ ? std::launch::async : std::launch::deferred, work);
+      proxy_future_ = std::async(live_ ? std::launch::async : std::launch::deferred, [work, live = live_] { if (live) wwe2k14::NameThread(L"ours_shadowcst"); return work(); });  // S102 H1: named only on its own thread (deferred runs on the caller)
     }
   }
   if (proxy_future_.valid() && (!live_ || proxy_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)) {

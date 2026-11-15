@@ -1355,6 +1355,7 @@ inline void ApplySetting(const std::string& name, const std::string& value) {
   const bool undeclared = info && !restart && info->category == "wwe2k14";
   const char* note = !ok ? "" : restart ? " (takes effect after a restart)"
                               : undeclared ? " (when it is read is not declared: may need a restart)" : "";
+  if (ok) rdr_sw::NoteWriteCvar(name, value, g_guest_frame.load());  // S102 S0-4: same path as a route's `cvar` step
   s.last_change = name + " = '" + value + "' (was '" + old + "') -> " + (ok ? "ok" : "REJECTED") + note;
   REXLOG_INFO("[wwe2k14][inspector] set {} = '{}' (was '{}', guest frame {}) -> {}{}", name, value, old,
               g_guest_frame.load(), ok ? "ok" : "rejected", note);

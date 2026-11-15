@@ -1,0 +1,87 @@
+{
+ "owner": "S102 lane U3 (R26 lane A (b): round 2 of our work on the game's update thread, model-entry hook): src/renderer_adapter/upd_lean.h (bit 16), reader.h (mask width, census), wrestler_hook.h (GuestMem; CompareGuest's volatile memcmp), wrestler_contrib.cpp/.h (PutConsumerInPlace), model_hooks.h, fp_probe.h, arena_world_hook.h (frame buffer swap); switch wwe2k14_rdr_upd_lean bit 16, default 0. 0 game runs, 0 Surface runs. NAME CLASH NOTE: tools/gate/lanes/s102_u3_u4.json is the Khronos-profiles / bench-button lane's file (a different 'U3'); this lane's checks are named s102_u3_upd.*. Kind: removes work (an allocation + free per consumer palette call, a kernel_state() call per guest read, a frame buffer reallocation per frame). R26 (c) (report memo) was built, measured on the PC (slower) and dropped.",
+ "claim": {
+  "scene": "bryan",
+  "side": "update thread (game); frame only while the update thread is the long side",
+  "ms": [
+   0.05,
+   0.2
+  ],
+  "switch": "wwe2k14_rdr_upd_lean=31",
+  "basis": "[E] R26 section 2: model-entry hook 1.08 ms incl (malloc / RtlSizeHeap 0.17-0.20, kernel_state 0.05); bit 16 removes the allocation + free of every consumer palette call, the kernel_state() call per guest read and the arena frame-buffer regrowth. Below R26's 0.3-0.7 hope: the rest is per-call fixed work with no unchanged-result shortcut. PC micro-bench: consumer palette repeat 108 -> 72 ns. The palette copy now sits inside the contributor's mutex (the swap thread's Collect may wait slightly longer). Combined A/B only (under 1 ms)."
+ },
+ "note": "check 1 = tools/upd_lean/upd_lean2_check.py: builds upd_lean2_test.cpp (+ wrestler_contrib.cpp, record_io.cpp) against the SHIPPED headers with -DUPD_LEAN_PLANTS: wrestler records + counters byte-equal with the in-place consumer palette flipped every ~700 steps, arena worlds + stats byte-equal with bit 16 flipped every call / every 97 calls / always on (incl. 2380 overflowed worlds and late calls); each arm proves the lever took; planted twin 11 (stale in-place palette = the S101 'first update of the frame wins' bug re-found) must fail; 6 glue lints; the SEH class lint over every __try under src (volatile function pointer call, no inline memory touch; planted twins); the SEH repro built with the game target's FLAGS parsed from build.ninja (SafeCopy's pattern survives a NOACCESS page, an inline volatile load dies). Check 2 = U2's check re-run. Check 3 = U2's --syntax (main.cpp, live.cpp as the game compiles them).",
+ "checks": [
+  {
+   "name": "s102_u3_upd.upd_lean2",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/upd_lean/upd_lean2_check.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 1800,
+   "affects": [
+    "tools/upd_lean/upd_lean2_test.cpp",
+    "tools/upd_lean/upd_lean2_check.py",
+    "src/renderer_adapter/upd_lean.h",
+    "src/renderer_adapter/reader.h",
+    "src/scene_live/wrestler_hook.h",
+    "src/scene_live/wrestler_contrib.cpp",
+    "src/scene_live/wrestler_contrib.h",
+    "src/scene_live/model_hooks.h",
+    "src/scene_live/arena_world_hook.h",
+    "src/fp_probe.h"
+   ],
+   "needs": [
+    "out/build/win-amd64-release/build.ninja"
+   ]
+  },
+  {
+   "name": "s102_u3_upd.u2_still_passes",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/upd_lean/upd_lean_check.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 1800,
+   "affects": [
+    "tools/upd_lean/upd_lean_test.cpp",
+    "tools/upd_lean/upd_lean_check.py",
+    "src/renderer_adapter/upd_lean.h",
+    "src/renderer_adapter/reader.h",
+    "src/fp_probe.h",
+    "src/scene_live/arena_world_hook.h"
+   ]
+  },
+  {
+   "name": "s102_u3_upd.game_units_compile",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/upd_lean/upd_lean_check.py",
+    "--root",
+    ".",
+    "--syntax"
+   ],
+   "timeout_s": 1800,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include"
+   ],
+   "affects": [
+    "tools/upd_lean/upd_lean_check.py",
+    "src/renderer_adapter/upd_lean.h",
+    "src/renderer_adapter/reader.h",
+    "src/scene_live/wrestler_hook.h",
+    "src/scene_live/wrestler_contrib.h",
+    "src/scene_live/model_hooks.h",
+    "src/scene_live/arena_world_hook.h",
+    "src/fp_probe.h"
+   ]
+  }
+ ]
+}

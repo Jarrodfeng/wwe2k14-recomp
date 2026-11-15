@@ -174,10 +174,11 @@ inline bool Sane(const Record& r) {
   if (r.layout.per_instance[0] > 1 || r.layout.per_instance[1] > 1) return false;
   if (r.pass.color_count > uint8_t(kMaxColorTargets) || r.pass.has_depth > 1) return false;
   if (r.pass.samples == 0 || r.pass.samples > 64 || (r.pass.samples & (r.pass.samples - 1))) return false;
-  if (r.pass.pad != 0) return false;  // the swapchain's own class is never stored
+  if (r.pass.pad == 1 || r.pass.pad > 6) return false;  // the swapchain's own class is never stored; S102 C1: `pad` of a stored record is the view count of a multiview class (0 = an ordinary pass, 2..6 = layers), older lists hold 0
   for (int i = 0; i < kAttachmentSlots; ++i)
     if (r.pass.formats[i] > 184) return false;
   if (s.topology > 10 || s.cull > 3 || s.front_face > 1 || s.depth_compare > 7) return false;
+  if (s.variant > 1 || s.pad != 0) return false;  // S102 G10 (review F9/F10): the prepass twin is a listed variant; nothing else may hide in the spare bytes
   if (s.program != 0 || s.vertex_layout != 0) return false;
   const StencilFace faces[2] = {s.front, s.back};
   for (const StencilFace& f : faces)

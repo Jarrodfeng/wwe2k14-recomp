@@ -1,7 +1,9 @@
 #include "device.h"
 
 #include <atomic>
+#include <cctype>
 #include <cstring>
+#include <string>
 
 #include "format_caps.h"
 #include "log_formats.h"  // S101 lane 19 review: shared with the case zip
@@ -25,6 +27,25 @@ VKAPI_ATTR VkBool32 VKAPI_CALL OnValidation(VkDebugUtilsMessageSeverityFlagBitsE
     Log("[rdr][validation] warning %s", data->pMessage);
   }
   return VK_FALSE;
+}
+
+// S102 U1: `part` (the launcher's graphics card choice) found in a device name, any case.
+bool NameHas(const char* name, const std::string& part) {
+  std::string n(name), p(part);
+  for (char& c : n) c = char(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : p) c = char(std::tolower(static_cast<unsigned char>(c)));
+  return n.find(p) != std::string::npos;
+}
+
+bool InstanceHas(const char* name) {  // S102 G2b F3
+  uint32_t count = 0;
+  vk::vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
+  std::vector<VkExtensionProperties> exts(count);
+  vk::vkEnumerateInstanceExtensionProperties(nullptr, &count, exts.data());
+  for (const auto& e : exts) {
+    if (std::strcmp(e.extensionName, name) == 0) return true;
+  }
+  return false;
 }
 
 bool HasLayer(const char* name) {
@@ -90,10 +111,16 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
   // ---- instance ----
   std::vector<const char*> instance_extensions;
   std::vector<const char*> layers;
+  bool has_caps2 = false;  // S102 G2b
   if (options.windowed) {
     instance_extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
 #if defined(_WIN32)
     instance_extensions.push_back("VK_KHR_win32_surface");
+    // S102 G2b F3: the exclusive-fullscreen switch needs VK_KHR_get_surface_capabilities2 (to read fullScreenExclusiveSupported). Without it the device extension stays off: `unsupported`.
+    if (options.exclusive_fullscreen && InstanceHas("VK_KHR_get_surface_capabilities2")) {
+      instance_extensions.push_back("VK_KHR_get_surface_capabilities2");
+      has_caps2 = true;
+    }
 #elif defined(__ANDROID__)
     instance_extensions.push_back("VK_KHR_android_surface");
 #endif
@@ -113,6 +140,10 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
   VkValidationFeaturesEXT validation_features{VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
   validation_features.enabledValidationFeatureCount = options.validation >= 2 ? 2 : 1;
   validation_features.pEnabledValidationFeatures = validation_enables;
+  // S102 D1 (DEVICE_LOST.md, the PC route): level 3 = GPU-assisted validation (out-of-range index / vertex fetches, descriptor and buffer-address checks done by
+  // instrumented shaders) instead of synchronisation validation (the layer does not run both at once). Offline tools only (rplay --validation 3).
+  VkValidationFeatureEnableEXT gpu_av[2] = {VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT, VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT};
+  if (options.validation >= 3) validation_features.enabledValidationFeatureCount = 2, validation_features.pEnabledValidationFeatures = gpu_av;
   VkInstanceCreateInfo instance_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
   instance_info.pNext = validate ? &validation_features : nullptr;
   instance_info.pApplicationInfo = &app;
@@ -139,6 +170,7 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
   std::vector<VkPhysicalDevice> gpus(gpu_count);
   vk::vkEnumeratePhysicalDevices(instance_, &gpu_count, gpus.data());
   int best_score = -1;
+  bool named_found = false;
   std::vector<std::string> best_missing;
   for (uint32_t i = 0; i < gpu_count; ++i) {
     if (options.gpu_index >= 0 && int(i) != options.gpu_index) continue;
@@ -153,7 +185,12 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
       if (best_missing.empty()) best_missing = missing;
       continue;
     }
-    const int score = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2 : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 1 : 0;
+    int score = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2 : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 1 : 0;
+    // S102 U1: the launcher's card choice (R9 finding 3: only the SDK's device honoured it, and the SDK has no device any more). A name match outranks every type score.
+    if (!options.gpu_name.empty() && NameHas(props.deviceName, options.gpu_name)) {
+      score = 100;
+      named_found = true;
+    }
     if (score > best_score) {
       best_score = score;
       physical_ = gpus[i];
@@ -169,6 +206,8 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
     }
     return false;
   }
+  if (!options.gpu_name.empty())
+    Log("[rdr] graphics card: asked for '%s' (the launcher): %s%s", options.gpu_name.c_str(), named_found ? "using " : "no card clears the floor with that name, using ", properties_.deviceName);
   VkPhysicalDeviceFeatures available{};
   vk::vkGetPhysicalDeviceFeatures(physical_, &available);
   vk::vkGetPhysicalDeviceMemoryProperties(physical_, &memory_);
@@ -183,6 +222,7 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
     if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
       queue_family_ = i;
       found_queue = true;
+      caps_.compute = (families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;   // S102 L1b: the frame's queue can dispatch (every graphics family does in practice)
     }
   }
   if (!found_queue) {
@@ -193,9 +233,24 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
   // ---- device: the floor, plus compressed texture support when the hardware has it ----
   VkPhysicalDeviceFeatures enabled{};
   enabled.depthClamp = available.depthClamp;
+  enabled.occlusionQueryPrecise = options.occlusion_precise && available.occlusionQueryPrecise;  // S102 G11 (F1): only when the offline frame trace asks (DeviceOptions::occlusion_precise)
   enabled.samplerAnisotropy = available.samplerAnisotropy;
+  enabled.robustBufferAccess = options.robust_buffers && available.robustBufferAccess;  // S102 D1: only when --wwe2k14_rdr_robust_buffers asks (DEVICE_LOST.md job C)
+  if (options.robust_buffers) Log("[rdr] robustBufferAccess %s (--wwe2k14_rdr_robust_buffers)", enabled.robustBufferAccess ? "ON" : "asked for, but the device does not offer it");
+  enabled.pipelineStatisticsQuery = options.pipeline_statistics && available.pipelineStatisticsQuery;  // S102 G10 (review F11): only when rplay asks; the game's device is unchanged
   enabled.textureCompressionBC = available.textureCompressionBC;
   enabled.textureCompressionASTC_LDR = available.textureCompressionASTC_LDR;
+  // S102 C1 (layered_targets.h; review F2): multiview (core in Vulkan 1.1, no extension to name) is enabled ONLY when the caller asked (DeviceOptions::multiview: wwe2k14_rdr_prelight_layered on at start) AND the
+  // device has it; with the switch off the device creation below is exactly what it was (no feature query, no pNext). The pre-light cube bake renders its six faces in one pass through it;
+  // maxMultiviewViewCount is at least 6 whenever the feature exists.
+  VkPhysicalDeviceMultiviewFeatures multiview_available{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
+  if (options.multiview && vk::vkGetPhysicalDeviceFeatures2) {
+    VkPhysicalDeviceFeatures2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    query.pNext = &multiview_available;
+    vk::vkGetPhysicalDeviceFeatures2(physical_, &query);
+  }
+  VkPhysicalDeviceMultiviewFeatures multiview_enabled{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
+  multiview_enabled.multiview = options.multiview && multiview_available.multiview;   // guarded by options.
   const float priority = 1.0f;
   VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
   queue_info.queueFamilyIndex = queue_family_;
@@ -203,27 +258,45 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
   queue_info.pQueuePriorities = &priority;
   // Phone 120 fix (S100, runs s100ph1 / s100ph2): Android took our plain FIFO presents at 60 a second on a 120 Hz screen; the old presenter
   // reached 120 with desired present times (VK_GOOGLE_display_timing). Enabled when the device has it (swapchain.cpp Present).
-  bool has_timing = false;
+  bool has_timing = false, has_exclusive = false;
   if (options.windowed) {
     uint32_t ext_count = 0;
     vk::vkEnumerateDeviceExtensionProperties(physical_, nullptr, &ext_count, nullptr);
     std::vector<VkExtensionProperties> exts(ext_count);
     vk::vkEnumerateDeviceExtensionProperties(physical_, nullptr, &ext_count, exts.data());
     for (const auto& e : exts) has_timing |= std::strcmp(e.extensionName, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) == 0;
+    {  // S102 D1 (DEVICE_LOST.md): what a lost device could be asked, logged once; nothing enabled (the player's device is unchanged)
+      bool fault = false, budget = false;
+      for (const auto& e : exts) fault |= std::strcmp(e.extensionName, "VK_EXT_device_fault") == 0, budget |= std::strcmp(e.extensionName, "VK_EXT_memory_budget") == 0;
+      Log("[rdr] device offers VK_EXT_device_fault: %s, VK_EXT_memory_budget: %s (lost-device diagnosis; neither enabled)", fault ? "yes" : "no", budget ? "yes" : "no");
+    }
+#if defined(_WIN32)
+    // S102 G2b: only when the switch asked for it and the instance has VK_KHR_get_surface_capabilities2 (F3); otherwise the flag stays false and the swapchain logs "unsupported".
+    if (options.exclusive_fullscreen && has_caps2)
+      for (const auto& e : exts) has_exclusive |= std::strcmp(e.extensionName, "VK_EXT_full_screen_exclusive") == 0;
+#endif
   }
-  const char* device_extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME};
+  const char* device_extensions[3] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, nullptr, nullptr};
+  uint32_t device_extension_count = 0;
+  if (options.windowed) {
+    device_extension_count = 1;
+    if (has_timing) device_extensions[device_extension_count++] = VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME;
+    if (has_exclusive) device_extensions[device_extension_count++] = "VK_EXT_full_screen_exclusive";  // S102 G2b
+  }
   VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_info.queueCreateInfoCount = 1;
   device_info.pQueueCreateInfos = &queue_info;
-  device_info.enabledExtensionCount = options.windowed ? (has_timing ? 2 : 1) : 0;
+  device_info.enabledExtensionCount = device_extension_count;
   device_info.ppEnabledExtensionNames = device_extensions;
   device_info.pEnabledFeatures = &enabled;
+  device_info.pNext = multiview_enabled.multiview ? &multiview_enabled : nullptr;   // S102 C1
   if (vk::vkCreateDevice(physical_, &device_info, nullptr, &device_) != VK_SUCCESS) {
     error = "The graphics driver refused to create a device.";
     return false;
   }
   dlss_ = streamline::Active() && streamline::Available(physical_);  // S10b
   caps_.display_timing = has_timing;
+  caps_.full_screen_exclusive = has_exclusive;  // S102 G2b
   vk::LoadDevice(device_);
   vk::vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
 
@@ -232,6 +305,8 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
   caps_.bc = enabled.textureCompressionBC;
   caps_.astc_ldr = enabled.textureCompressionASTC_LDR;
   caps_.depth_clamp = enabled.depthClamp;
+  caps_.occlusion_precise = enabled.occlusionQueryPrecise != 0;  // S102 G11
+  caps_.multiview = multiview_enabled.multiview != 0;  // S102 C1
   caps_.anisotropy = enabled.samplerAnisotropy;
   caps_.max_anisotropy = enabled.samplerAnisotropy ? properties_.limits.maxSamplerAnisotropy : 1.0f;
   caps_.uniform_align = properties_.limits.minUniformBufferOffsetAlignment;

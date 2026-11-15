@@ -329,7 +329,8 @@ inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchCont
   if (!s.shadows) f.push_back("--gpu_dynamic_shadows=false");
   // Session 100 (Jarrod 2026-11-11 09:3x: "Half rate absolutely should be turned on by default for phones"): LOW (every phone's AUTO) draws
   // the dynamic shadow maps every other frame (the new renderer's binder, settings parity S12); STANDARD keeps them every frame.
-  else if (low) f.push_back("--gpu_shadow_half_rate=true");
+  // Session 102 (Jarrod 2026-11-14 19:5x: "a default for everyone, not just LOW"): every tier with shadows on.
+  else f.push_back("--gpu_shadow_half_rate=true");
   if (!s.depth_of_field) f.push_back("--gpu_depth_of_field=false");
   if (!s.film_grain) f.push_back("--wwe2k14_film_grain=false");  // Session 100 settings parity S3
   int crowd_pct = (std::clamp(s.crowd_density, 0, 100) + 5) / 10 * 10;  // (Session 95: the slider as it is; LOW's 70% is written into it, ApplyLowStart)

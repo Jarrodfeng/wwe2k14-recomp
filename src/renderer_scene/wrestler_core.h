@@ -17,6 +17,7 @@
 //   bytes    the vertex bytes we built equal the stream draw's captured bytes (positions within a few float ulps, normals one field step) and our index buffer is the
 //            stream's: every draw in fview, the first use of each built part plus every 64th live.
 #pragma once
+#include "../thread_name.h"  // S102 H1
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -590,7 +591,7 @@ class WrestlerCore {
         m.failed = !m.model;
         return m.model.get();
       }
-      m.future = faults_.thread_per_read ? std::async(std::launch::async, work).share() : roster->LoadModelAsync(e, !faults_.no_pac_keep);   // lane 142: one FIFO loader thread (plant thread_per_read: one thread per read)
+      m.future = faults_.thread_per_read ? std::async(std::launch::async, [work] { wwe2k14::NameThread(L"ours_wrest_rd"); return work(); }).share() : roster->LoadModelAsync(e, !faults_.no_pac_keep);   // lane 142: one FIFO loader thread (plant thread_per_read: one thread per read)
     }
     if (m.future.valid() && m.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
       try {
@@ -1129,7 +1130,7 @@ class WrestlerCore {
           std::memcpy(&verify_ours_, pr.vertex.data() + size_t(cr.first_bad_vertex) * roles.host_stride + r.offset, 4);
           std::memcpy(&verify_theirs_, vb.data() + size_t(cr.first_bad_vertex) * roles.host_stride + r.offset, 4);
         }
-    for (const assets::wrestler_geom::RoleCompare& rc : cr.role) stats_.cmp_values += rc.values, stats_.cmp_exact += rc.exact, stats_.cmp_near += rc.near, stats_.cmp_bad += rc.bad;
+    for (const assets::wrestler_geom::RoleCompare& rc : cr.role) stats_.cmp_values += rc.values, stats_.cmp_exact += rc.exact, stats_.cmp_near += rc.near, stats_.cmp_bad += rc.bad;  // win-macro-ok: RoleCompare::near; wrestler_ours.cpp (the only game unit that includes this header) is in the game build and compiles, windows.h is not before it there; rename if that changes
     if (!cr.all_ok) return false;
     if (dr.index_bytes != pr.index.size() * 2 || dr.index_32bit || !read(dr.index_offset, dr.index_bytes, ib) || ib.size() < dr.index_bytes) return verify_what_ = "index_size", false;
     if (!pr.index.empty() && std::memcmp(ib.data(), pr.index.data(), ib.size())) return verify_what_ = "index_bytes", false;

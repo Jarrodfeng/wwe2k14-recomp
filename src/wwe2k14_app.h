@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 
+#include "renderer_adapter/skips_auto.h"  // S102 K3 (pure: the gate's armed flag)
 #include "guest_gpu_only.h"  // lane 241 (3b)
 #include "blackbox.h"  // Session 73: logs/startup.txt (start-up steps, crashes, low memory)
 #include "android_memory.h"  // Session 73: Android's memory warnings (GameActivity.onTrimMemory)
@@ -106,6 +107,7 @@
 #include "scene_vs_swap.h"  // Session 87 stage 4: our own arena vertex shaders (--wwe2k14_vs_swap, off)
 #include "session_log.h"  // Session 58: --wwe2k14_session_log (scene / match lines and snapshots for problem reports)
 #include "surface_roles_hook.h"  // S101 names A1b: which function created each render target (docs\renderer\NAMES.md)
+#include "tail_release_hook.h"  // S102 U1: our present work after the barrier release (--wwe2k14_rdr_tail_release, default off)
 #include "replay_watch.h"  // Session 63: log a runaway render-command replay; S73 b78: end it (default on Android)
 #include "xdet_check.h"  // Session 77 (P7): --wwe2k14_xdet_check, the tester determinism check's profile
 #include "diag.h"        // Session 95: --wwe2k14_diag, the diagnostic run (also reached through input_script.h)
@@ -115,6 +117,9 @@
 #include "vb_unlock_report.h"   // Session 100 strip-360 E3: the game's vertex-buffer unlock reports the buffer to the reader
 #include "shader_list.h"  // Session 61: --wwe2k14_shader_list (the shipped shader list into the shader storage)
 #include "renderer_adapter/overlay_drawer.h"  // Session 100 settings parity S11
+#include "renderer_adapter/rdr_switches.h"  // S102 SW1: the overlay paint request reads wwe2k14_rdr_swap_once
+#include "frame_stats.h"  // S102 SW1: g_guest_frame
+#include "bundle3.h"  // S102 bundle 3: the measured-and-kept renderer levers as player defaults
 #include "renderer_adapter/d3_latch_hook.h"  // lane 301: g_d3_latch_hook
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
@@ -207,6 +212,10 @@ REXCVAR_DEFINE_BOOL(wwe2k14_s101_promotions2, true, "wwe2k14",
                     "--wwe2k14_owner_boot_submit_ours + --wwe2k14_owner_guest_gpu_only (no emulated 360 GPU, 7163), --wwe2k14_owner_vblank_ours "
                     "(our own vblank, 7184 / 7185 / 7188). The D3 skips (caster / ring / plane / crowd member / arena) are proven but off for this "
                     "release (Surface: they cost the render thread more than they save). Each only if left at default; false = all of them off.");
+// S102 bundle 3 (Jarrod 2026-11-15 08:1x, DECISIONS): every renderer lever the Surface measured and kept (tools\surface\base_flags.txt minus the bench-fidelity and diagnostic lines) is a player default, PC and phone.
+REXCVAR_DEFINE_BOOL(wwe2k14_s102_bundle3, true, "wwe2k14",
+                    "S102 bundle 3 (default on, PC and phone): the renderer levers the Surface measured and kept (src/bundle3.h, docs/renderer/BUNDLE3.md), plus the stale-image fix --wwe2k14_rdr_run_end_keep. "
+                    "Each only if left at default (the command line, a +dev APK's dev_flags.txt and a launcher file win). Needs --wwe2k14_s101_promotions. false = v0.3.2's defaults.");
 REXCVAR_DEFINE_BOOL(wwe2k14_s101_promotions, true, "wwe2k14",
                     "Session 101 branch: start the PC in owner mode with every renderer promotion that passed Check K (the J+ set: crowd, cards, floor, "
                     "arena, ring, wrestlers, props, flashes, particles, UI, UI text / quads, casters, shadows, rim + rim chain, screens, post, movie, small "
@@ -310,6 +319,29 @@ class Wwe2k14App : public rex::ReXApp {
       // (4-core laptop) they make the game reach 60 while our render thread re-binds nearly a whole frame for every skipped one, so the
       // picture drops to ~28 shown vs ~47-53 with them off (runs 181-193, docs\BENCHMARKS.md). They come back in arc part 2.
       REXLOG_INFO("[wwe2k14] S101 promotions 2 on: {} switches applied (thumbnail deferral, boot ours + no emulated GPU + our vblank; the D3 skips are off for this release); --wwe2k14_s101_promotions2=false for the old path", applied);
+    }
+    // S102 bundle 3 (src\bundle3.h, docs\renderer\BUNDLE3.md): the measured-and-kept levers on by default, PC and phone. Needs the S101 promotions (owner mode, the ours switches) like bundle 2.
+    // Applied here, before the launcher's settings and before anything reads a renderer switch; GetFlagSource keeps the command line, a +dev APK's dev_flags.txt (applied first in this function) and the bench's flags.
+    if (REXCVAR_GET(wwe2k14_s102_bundle3) && REXCVAR_GET(wwe2k14_s101_promotions)) {
+      int levers = 0, fixes = 0;
+      wwe2k14::bundle3::Apply(levers, fixes);
+#if defined(__ANDROID__)
+      constexpr const char* kPlatform = "phone list: the PC list, every lever compiled for arm64";
+#else
+      constexpr const char* kPlatform = "PC list";
+#endif
+      REXLOG_INFO("[wwe2k14] S102 bundle 3 on ({}): {} levers + {} correctness fixes applied (the rest set explicitly); --wwe2k14_s102_bundle3=false for v0.3.2's defaults", kPlatform, levers, fixes);
+    }
+    // S102 K3 (src\renderer_adapter\skips_auto.h; default OFF, not a player default until the Surface row exists): --wwe2k14_rdr_skips_auto=true ARMS the five D3 skips here (each only if left at its default; their
+    // start-only switches build the hooks and the binder's chains once) and the controller then turns them on and off per guest frame by our render thread's headroom. Without the switch nothing here runs.
+    if (rex::cvar::GetFlagByName("wwe2k14_rdr_skips_auto") == "true") {
+      int armed = 0;
+      for (const char* name : {"wwe2k14_rdr_caster_d3", "wwe2k14_rdr_caster_d3_plane", "wwe2k14_rdr_ring_d3", "wwe2k14_rdr_ring_d3_live", "wwe2k14_rdr_arena_d3"}) {
+        if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) { rex::cvar::SetFlagByName(name, "true"); ++armed; }
+      }
+      if (rex::cvar::GetFlagSource("wwe2k14_rdr_crowd_member_thin") == rex::cvar::Source::kDefault) { rex::cvar::SetFlagByName("wwe2k14_rdr_crowd_member_thin", "2"); ++armed; }
+      skips_auto::SetArmedByK3(armed > 0);   // review F1: the gate then answers false whenever the switch is off, so a mid-session switch-off turns the armed skips off
+      REXLOG_INFO("[wwe2k14] K3 skips_auto on: {} D3 skips armed (caster map / rim / plane, ring, arena, crowd member); the controller turns them on and off by the render thread's headroom", armed);
     }
     // Session 100 stage B (docs\renderer\LIVE_ADAPTER.md): the new renderer owns the window; the SDK keeps its command processor.
     if (REXCVAR_GET(wwe2k14_rdr_owner)) {
@@ -854,8 +886,10 @@ class Wwe2k14App : public rex::ReXApp {
       });
       if (imgui_drawer() && wwe2k14::rdr_overlay::g_drawer) {
         wwe2k14::rdr_reader::g_on_present = [this] {
+          // S102 SW1 (wwe2k14_rdr_swap_once bit 4, PerFrame, read at every present): no request while no dialog is open and no overlay list is on the screen.
+          const bool skip_idle = (rdr_sw::IntSeen(rdr_sw::kSwapOnce, 0, wwe2k14::g_guest_frame.load(std::memory_order_relaxed)) & int64_t(rdr_scene::swap_once::kOverlay)) != 0;
           wwe2k14::rdr_overlay::RequestPaint([this](std::function<void()> f) { app_context().CallInUIThread(std::move(f)); }, window(),
-                                            imgui_drawer());
+                                            imgui_drawer(), skip_idle);
         };
       }
     }

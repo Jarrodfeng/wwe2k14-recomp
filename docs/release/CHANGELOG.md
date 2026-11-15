@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.3.3
+
+**v0.3.3: a lot faster on weak machines and phones, and the black title screen on some phones is fixed.**
+
+Over the last two days I measured dozens of small speed-ups in my renderer on a weak laptop and kept only the ones that clearly paid. Until now they were all switched
+off for players. Now they are on for everyone, on PC and on phones, and the pictures should look the same.
+
+### Faster
+
+- **The game runs faster almost everywhere, most of all on weak machines and phones.** The game spent time on work nobody sees: re-reading the same data every frame,
+  copying pictures nobody looked at, recording crowd members that my renderer then threw away, and threads waiting on each other. On my Surface Pro 6 (Intel UHD 620
+  graphics), after it had warmed up and settled, v0.3.3 against v0.3.2 in back-to-back runs: Daniel Bryan's entrance 38 -> 46 pictures a second (+21 %), Brock Lesnar's
+  entrance 41 -> 51 (+26 %), and a match now holds its 60 more steadily. Every part of the frame got cheaper: the game's own drawing thread, my renderer's thread and the
+  graphics card's time. On my PC (RTX 4090) the new renderer's pictures were checked against the old path at 720p and 1440p.
+  - On weak machines (where the quality setting AUTO picks LOW) three more cuts apply: smaller shadow maps, a lighter final picture step and fewer copies. They do
+    nothing on STANDARD or HIGH.
+  - If something looks wrong that did not in v0.3.2, start the game with `--wwe2k14_s102_bundle3=false` and tell me: that gives v0.3.2's behaviour back.
+
+### Fixed
+
+- **Black title screen on some phones.** What players saw: on some phones (a Mali graphics chip in the report I got) the picture stayed black from the title screen on,
+  while the menus' sounds played. Cause: the game's textures are stored in a compressed format (BC) that some phone graphics chips cannot read at all, and my renderer
+  refused those textures. Fix: on a graphics chip that cannot read them (Mali, Samsung Xclipse, older Adreno 6xx and any other), the textures are unpacked when they load.
+  Chips that can read them (every PC graphics card, newer Adreno) are unchanged. I could not try it on a Mali phone myself; it was checked on a simulated one.
+- **A picture could stay one frame old after the game skipped a frame.** What players saw: now and then an effect or a texture (anything the game redraws into an
+  image only some frames) looked a beat behind. Cause: when my renderer skips a frame to catch up, a copy that frame would have refreshed an image was left out, and if
+  the next frame did not refresh it either, nothing wrote that image again until the next change. Fix: such a copy is kept when the next frame would not redo it.
+- **A crowd drawing step read past the end of a table.** What players saw: probably nothing, but on some graphics drivers a read like that can corrupt a picture or stop
+  the graphics card. Cause: unused bone slots in the crowd's bodies held the value 255, and the crowd's drawing step looked that bone up in a table of 21. Fix: such a
+  bone now counts for nothing, as it always should have.
+
+### Phones
+
+- **Phones get the same speed-ups as the PC.** I ran both entrances and matches on my own phone (an Adreno 830) and saw no picture errors. Phones with other chips
+  (Mali, Xclipse) have not been tried by me with this release: if something looks wrong, a report helps a lot.
+
 ## v0.3.2
 
 **v0.3.2: the game now draws with a renderer I wrote, and it brings your own music.**

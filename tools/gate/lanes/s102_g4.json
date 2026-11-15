@@ -1,0 +1,9 @@
+{
+ "owner": "lane G4 (S102): dead work, binder side: src/renderer_adapter/dead_work.h (the planner), the marked lines in binder.h / reader.h / live-side fview flags, tools/renderer/g4_check.py (the proof), tools/renderer/g4_census.py (the is-it-read census). docs/renderer/DEAD_WORK.md. 0 game runs.",
+ "claim": {"scene": "bryan", "side": "GPU", "ms": [0.2, 0.8], "also": {"scene": "match", "side": "GPU", "ms": [0.4, 1.2]}},
+ "note": "needs this checkout's out/renderer/dev/fview.exe (built by the first check) and the extracted captures out/lane86/<wm30|bryan|brock>/capture. proof: fview replays each capture with the cuts off and on (--dead-work 3): picture hashes equal on every frame, validation 0, the cut equals the census of passes whose destinations nothing reads, bound draws drop by exactly the cut draws; planted twins (cut_live, ignore_readers) must be caught by the picture check. The ms in the claim are estimates (no per-pass GPU time exists): the Surface ranks them.",
+ "checks": [
+  {"name": "s102_g4.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1"], "timeout_s": 1800},
+  {"name": "s102_g4.proof", "cmd": ["py", "-I", "tools/renderer/g4_check.py"], "timeout_s": 3000, "needs": ["out/lane86/wm30/capture", "out/lane86/bryan/capture", "out/lane86/brock/capture"]}
+ ]
+}

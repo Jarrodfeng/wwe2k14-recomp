@@ -19,6 +19,7 @@
 // Pictures from the game stay inside the player's report zip (CLAUDE.md rule 1): they are never committed or shipped.
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/perf/timeline.h>
@@ -248,7 +249,7 @@ inline std::string Hex(uint64_t v) {
 inline void Shot(const std::string& name, int slot) {
   State& s = S();
   const std::filesystem::path path = s.dir / "shots" / (name + ".jpg");
-  std::thread([&s, path, slot] {
+  std::thread([&s, path, slot] { wwe2k14::NameThread(L"diag_save");
     auto* runtime = REX_KERNEL_STATE()->emulator();
     auto* graphics = runtime ? runtime->graphics_system() : nullptr;
     auto* presenter = graphics ? graphics->presenter() : nullptr;
@@ -387,7 +388,7 @@ inline void EncodeRaw(const std::string& stem, uint32_t width, int quality) {
   if (!std::filesystem::exists(raw, ec)) return;
   s.encodes.fetch_add(1);
   const std::filesystem::path out = s.dir / (stem + ".jpg");
-  std::thread([raw, out, width, quality] {
+  std::thread([raw, out, width, quality] { wwe2k14::NameThread(L"diag_shot");
     std::ifstream f(raw, std::ios::binary);
     std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     f.close();
@@ -577,7 +578,7 @@ inline void Init() {
 #ifdef WWE2K14_VERSION
   WriteFile(s.dir / "version.txt", std::string(WWE2K14_VERSION) + "\n");
 #endif
-  std::thread(WatchdogLoop).detach();
+  std::thread([] { wwe2k14::NameThread(L"diag_watchdog"); WatchdogLoop(); }).detach();
   REXLOG_INFO("[diag] diagnostic run on: arm {} in {} (deadline {} s)", s.arm_id, s.dir.string(),
               REXCVAR_GET(wwe2k14_diag_arm_s));
 }

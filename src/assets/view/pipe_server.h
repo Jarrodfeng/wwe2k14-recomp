@@ -15,6 +15,7 @@
 #include <cstdlib>
 #endif
 
+#include "../../thread_name.h"  // S102 H1
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -89,7 +90,7 @@ class PipeServer {
       err = "cannot create pipe " + name_ + " (error " + std::to_string(GetLastError()) + "; another viewer owns the name?)";
       return false;
     }
-    th_ = std::thread([this] { Run(); });
+    th_ = std::thread([this] { wwe2k14::NameThread(L"view_pipe_srv"); Run(); });
     th_.detach();
     return true;
   }
@@ -171,7 +172,7 @@ class PipeServer {
       close(fd_), fd_ = -1;
       return false;
     }
-    th_ = std::thread([this] { Run(); });
+    th_ = std::thread([this] { wwe2k14::NameThread(L"view_pipe_srv2"); Run(); });
     th_.detach();
     return true;
   }

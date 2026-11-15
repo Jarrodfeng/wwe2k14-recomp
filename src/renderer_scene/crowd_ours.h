@@ -10,6 +10,7 @@
 // No game or SDK includes. Threads: SetRecord from any thread; FrameReady / Inject / the report on the render thread (the one that binds frames).
 // The per-class build (BuildClass) touches only its own scratch and the shared read-only body, so a later version can run the 20 classes on workers.
 #pragma once
+#include "crowd_workers.h"  // S102 R21-C step 3
 #include <functional>
 #include <array>
 #include <atomic>
@@ -62,6 +63,11 @@ struct CrowdOursOptions {
   bool caches = true;
   bool fault_cache_tex_stale = false;   // planted: the texture cache key leaves the picture out (members take the first picture of the frame)
   bool fault_double_mesh = false;  // planted: every mesh of a member drawn twice ("more geometry per member than the stream draws")
+  // S102 T6 (members instanced, switch wwe2k14_rdr_members_instanced / fview --members-instanced; the live switch is read per frame in InjectBody, this is the test override): the members of one
+  // class that share a material and constants are ONE instanced draw per mesh (the world rows per instance, yAudienceInst). Planted twins: every instance of a group takes the group's FIRST world
+  // (the crowd collapses to a few spots) / the last instance of every group is left out.
+  // More planted twins: the group test skips the fragment block (needs --members-perturb) / any earlier group may take a member (first fit: the draw order changes) / the world rows written transposed.
+  bool fault_inst_world_first = false, fault_inst_drop_last = false, fault_inst_group_ignores_fs = false, fault_inst_first_fit = false, fault_inst_rows_transposed = false;
   // Offline check (fview): before the stream's draws are dropped, compare each member's world (the 12 floats of c76-c78) with the world of the stream's own crowd
   // draws of this frame, bit for bit, and the member count with the stream's draw count: the pairing proof (lane 36: record j-1 matches stream frame j exactly). Every frame here; live: every Nth.
   bool verify_pairing = false;
@@ -76,11 +82,13 @@ struct CrowdOursOptions {
   bool thin_probe = false;       // lane 175 (SF2): census of the tally's stamp offset on every full frame (log: offset 0 / 1 / 2 match counts)
   uint32_t thin_offset = 1;      // stream guest frame - hook frame (card_thin_core.h kHookToStreamOffset)
   bool cards_thin = false;       // lane 175 (card_thin_core.h): a frame whose stream holds only the first card of each type's loop is drawn from the record (needs cards)
+  std::function<bool(uint64_t)> cards_thin_at;   // S102 T2: read at every cards frame; true = the cut switch is on (live: card_thin::the old sticky flag, set per crowd run by the hook from --wwe2k14_rdr_card_cut). OR-ed with cards_thin.
   // lane 272 (member_thin_core.h, SKIP_GAME_WORK_MAP 20): the stands / floor members' thin record. The hook's per-frame tally of a site (stands 0 / floor 1): op-15 calls seen, dropped, world sum; false = unknown.
   // Live: member_thin_core.h g_counts; fview: the cut tool's sidecar.
   std::function<bool(uint64_t hook_frame, int site, uint32_t& seen, uint32_t& dropped, uint64_t& world)> member_counts;
   uint32_t member_offset = 1;     // stream guest frame - hook frame (member_thin_core.h kHookToStreamOffset)
   bool member_probe = false;      // census (live --wwe2k14_rdr_crowd_member_thin >= 1): class-uniformity verify on full frames + the stamp offsets probe + the gate reports; nothing is drawn differently
+  std::function<bool(uint64_t)> members_thin_at;   // S102 T13 review F1: read at the start of every Inject with the HOOK frame (stream frame - member_offset); true = the hook's run mode in that frame was Skip (live: member_thin::g_counts.SkipAt; fview: --crowd-members-thin-live, a sidecar row). OR-ed with members_thin
   bool members_thin = false;      // a frame whose stream holds only the first member of each mesh run is drawn from the record (the thin branch of Inject); implies member_probe
   bool fault_member_one_material = false;   // planted: every class takes the frame's first kept draw's bank and picture (lane 35's several-outfits bug, re-found)
   bool fault_member_own_sd = false;         // planted: a thin frame looks up each member's OWN stream draw (null for a dropped one): body diffuse + the first draw's constants (lane 270 merge hazard)
@@ -118,6 +126,11 @@ class CrowdOurs final : public rdr_adapter::CrowdHook {
   struct Stats {
     uint64_t frames = 0;              // Inject calls that drew
     uint64_t tex_hit = 0, tex_miss = 0, parse_checked = 0, parse_mismatch = 0, pose_checked = 0, pose_mismatch = 0;  // lane 270
+    uint64_t workers_runs = 0, workers_jobs = 0, workers_frames = 0;  // S102 R21-C step 3: frames posed on the pool / pool runs / class jobs
+    // S102 T6: frames whose members were drawn instanced / the instanced draws (one per group and mesh) / the groups / the members in them / the members that opened a group beyond the class's first
+    // (a different material or constants) / frames asked for instancing that fell back to one draw per member (no program, layout or variant) / the most draws of one frame.
+    uint64_t inst_audit_members = 0, inst_audit_bad = 0, inst_order_bad = 0;   // S102 T6 audit (offline, verify_pairing): members rebuilt from their group's rep + instance row vs their own block / fragment block / material; instance slot != stream order
+    uint64_t inst_frames = 0, inst_draws = 0, inst_groups = 0, inst_members = 0, inst_splits = 0, inst_fallback = 0, inst_max_draws = 0;
     uint64_t members = 0;             // members drawn
     uint64_t cards = 0;               // of them: the far cards
     uint64_t unposed = 0;             // members of a type with no palette in the record (drawn at the stored pose)
@@ -145,6 +158,7 @@ class CrowdOurs final : public rdr_adapter::CrowdHook {
     uint64_t card_joined_stream = 0, card_nobake_frames = 0, card_bake_frames = 0;   // lane 223
     uint64_t card_unpaired_record = 0, card_inversions = 0, card_holes = 0, card_record = 0, card_joined_position = 0;
     uint64_t thin_probe_frames = 0, thin_probe_match[3] = {0, 0, 0};   // lane 175 (SF2): full frames probed / those whose tally at guest_frame - k equals the stream's card count and the record's world sum
+    uint64_t card_prev_record_tried = 0, card_prev_record_drawn = 0;   // S102 T2 F4: thin frames with a missing / refused record that took the previous usable record / of those, drawn (the tally proved it is this frame's card set)
     uint64_t card_thin_frames = 0, card_thin_cards = 0, card_thin_dropped = 0, card_thin_holes = 0;  // lane 175: thin frames drawn / cards in them / the game's dropped op-15 records (record cards minus kept stream cards) / thin frames ours could not draw
     // lane 272 (members thin): thin frames drawn / members in them / the game's dropped member op 15s (seen - kept) / thin frames ours could not draw; full frames clean (kept 0, uniform) / refused;
     // the uniformity verify over every claimed stream draw of the full frames (members compared with their class's first draw: slot 0 picture / constant banks and bools differ); the stamp probe.
@@ -234,6 +248,14 @@ class CrowdOurs final : public rdr_adapter::CrowdHook {
 
   rdr::Renderer& renderer_;
   CrowdOursOptions options_;
+  std::shared_ptr<const SceneTables> last_card_rec_;   // S102 T2 F4: the last record that gave a usable card plan (a thinned frame whose own record is missing is checked against it, by the tally)
+  bool MembersThin() const { return options_.members_thin || mthin_live_; }   // S102 T13: per frame (refreshed by RefreshMembersThin at the start of Inject / MemberNotReadyResult: one value for the whole frame)
+  void RefreshMembersThin(uint64_t stream_frame) { mthin_live_ = options_.members_thin_at && stream_frame >= options_.member_offset && options_.members_thin_at(stream_frame - options_.member_offset); }
+  bool mthin_live_ = false;
+  bool CardsThin() const { return options_.cards_thin || cthin_live_; }   // S102 T2: per frame (cthin_live_ = the hook's run mode of this frame, RefreshCardsThin, T13 review F1)
+  void RefreshCardsThin(uint64_t stream_frame) { cthin_live_ = options_.cards_thin_at && stream_frame >= options_.thin_offset && options_.cards_thin_at(stream_frame - options_.thin_offset); }
+  bool cthin_live_ = false;
+
   std::mutex mu_;                           // guards record_ and root_
   std::shared_ptr<const SceneTables> record_;
   std::string root_;
@@ -246,7 +268,13 @@ class CrowdOurs final : public rdr_adapter::CrowdHook {
   Loaded loaded_;
   int load_for_ = -1;
   std::unordered_map<int, uint16_t> layouts_;
+  std::unordered_map<int, uint16_t> inst_layouts_;   // S102 T6: the instanced twin's layout by the plain variant (binding 1 = the world rows per instance)
+  uint16_t InstLayoutFor(int vs);
+  struct InstWork { std::vector<uint32_t> group_rep, group_first, group_count, group_pos, group_of, slot_of; std::vector<float> rows; };   // S102 T6: reused every frame
+  InstWork inst_;
+  std::vector<uint8_t> audit_block_;   // S102 T6 audit scratch
   std::array<ClassScratch, kCrowdClassCount> scratch_;
+  CrowdWorkers workers_;  // S102 R21-C step 3: the pose of the classes' meshes (switch wwe2k14_rdr_crowd_workers), joined inside Phase A
   rdr::ImageId white_ = rdr::kNoImage;
   std::vector<uint8_t> block_;
   Stats stats_;

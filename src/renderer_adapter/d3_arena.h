@@ -666,6 +666,7 @@ struct D3Counters {
   // lane 301 (SKIP_GAME_WORK_MAP.md 11.10): the marked sequence is a frozen, certified version. `drift_after_mark` = full frames that changed a COMPLETE sequence (drift learned, part list changed): it left the mark set at once and the last proven
   // parts serve the markers in flight. `unsourced_after_mark` = markers whose SEQUENCE carries a register no record can give (drift, not mapped, palette): with the freeze this must stay 0; `record_missing` is now only a light / world / clock
   // record that is really absent. `frozen_markers` = markers drawn from the frozen (proven) parts.
+  uint64_t observe_skipped_runs = 0;    // S102 K2: keyed runs of passes a lasting bind left out (counted by the ordinal scan and the guards over the whole frame, not learned or proved: required only to be counted, never a bar)
   uint64_t drift_after_mark = 0, unsourced_after_mark = 0, frozen_markers = 0, marked_unsourced_peak = 0;   // peak: the largest `marked_unsourced` any Publish saw (the end-of-run value alone can read 0 after the fact)
 };
 

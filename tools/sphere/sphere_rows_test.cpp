@@ -28,7 +28,7 @@ using namespace rdr_scene::live::spheres;
 using rdr_scene::live::Counters;
 using rdr_scene::live::FrameInfo;
 
-static_assert(kScSphereOcc == 27 && kScCount == 28 && sizeof(SphereOccRow) == 200 && sizeof(uint32_t) == 4 && kSphereMax == 2 && kSphereRecWords == 13, "section 27, 200 bytes a row; the Python reader pins the same");
+static_assert(kScSphereOcc == 27 && kScCount >= 28 && sizeof(SphereOccRow) == 200 && sizeof(uint32_t) == 4 && kSphereMax == 2 && kSphereRecWords == 13, "section 27, 200 bytes a row; the Python reader pins the same");
 static_assert(offsetof(SphereOccRow, p) == 32 && offsetof(SphereOccRow, v) == 64 && offsetof(SphereOccRow, table) == 96, "the layout tools\\skip\\ledger_io.py Record.sphere_occ reads");
 
 static int g_fail = 0, g_checks = 0;

@@ -7,16 +7,23 @@
 
 #include "../renderer_scene/live_scene.h"
 #include "circle_hook.h"
+#include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::circles {
 
 class CircleContributor : public Contributor {
  public:
   const char* Name() const override { return "circles"; }
-  void Emit(const FrameInfo&, SceneTables& t, Counters& c) override {
+  bool Latch(const FrameInfo& fi) override {   // S102 U1 (tail_latch.h): Emit's take, while the game threads are parked
+    tracker.Take(scratch_, &latch_mesh_, latch_mesh_present_, /*always_mesh=*/true);
+    latch_.Set(fi.guest_frame);
+    return true;
+  }
+  void Emit(const FrameInfo& fi, SceneTables& t, Counters& c) override {
     bool mesh_present = false;
     CircleMesh mesh;
-    tracker.Take(scratch_, &mesh, mesh_present, /*always_mesh=*/true);
+    if (latch_.Use(fi.guest_frame, Name())) mesh = latch_mesh_, mesh_present = latch_mesh_present_;   // S102 U1: what the latch took (scratch_ holds its entries)
+    else tracker.Take(scratch_, &mesh, mesh_present, /*always_mesh=*/true);
     if (scratch_.empty()) {
       ++c.stale;   // the hook gathered no entry since the last record: this record carries no circle tables
       return;
@@ -37,6 +44,9 @@ class CircleContributor : public Contributor {
 
  private:
   std::vector<CircleShadow> scratch_;
+  LatchMark latch_;   // S102 U1
+  CircleMesh latch_mesh_;
+  bool latch_mesh_present_ = false;
 };
 
 inline CircleContributor& The() {

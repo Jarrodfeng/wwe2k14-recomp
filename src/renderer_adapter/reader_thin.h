@@ -35,6 +35,7 @@ class FrameLite {
   // eligible = false (an inline-vertex draw: its vertex bytes are new every frame and cannot be skipped) still counts its ordinal.
   bool Query(uint32_t pass_site, uint32_t object, uint32_t part, bool eligible = true, uint64_t program = 0) {
     if (!active_) return false;
+    if (draw_memos::g_pin_hash_on.load(std::memory_order_relaxed)) ++(snap_->triple_table.built() ? draw_memos::g_pin_stats.taken : draw_memos::g_pin_stats.declined);   // S102 T14 census
     const uint64_t triple = TripleHash(pass_site, object, part);
     if (!snap_->HasTriple(triple)) return false;
     uint32_t ordinal = Next(triple);

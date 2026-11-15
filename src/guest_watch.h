@@ -62,6 +62,7 @@
 
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/memory/utils.h>
@@ -175,7 +176,7 @@ class GuestWatchSymbols {
  public:
   void StartLoad() {
     if (started_.exchange(true)) return;
-    std::thread([this] { Load(); }).detach();
+    std::thread([this] { wwe2k14::NameThread(L"gwatch_load"); Load(); }).detach();
   }
   bool ready() const { return ready_.load(std::memory_order_acquire); }
 
@@ -388,7 +389,7 @@ class GuestWatch {
     }
     if (frame - last_rearm_frame_ >= 120 && !rearm_running_.exchange(true)) {
       last_rearm_frame_ = frame;
-      std::thread([this] {
+      std::thread([this] { wwe2k14::NameThread(L"gwatch_scan");
         std::lock_guard<std::mutex> lock(arm_mutex_);
         ArmThreads(true);
         rearm_running_.store(false);
@@ -554,7 +555,7 @@ class GuestWatch {
   // Arms from a helper thread (so the calling thread gets the registers too) and waits for it.
   uint32_t ArmSync(bool only_new) {
     uint32_t armed = 0;
-    std::thread([this, only_new, &armed] {
+    std::thread([this, only_new, &armed] { wwe2k14::NameThread(L"gwatch_arm");
       std::lock_guard<std::mutex> lock(arm_mutex_);
       armed = ArmThreads(only_new);
     }).join();

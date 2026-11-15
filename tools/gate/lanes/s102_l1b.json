@@ -1,0 +1,125 @@
+{
+ "owner": "lane L1b (S102): the pre-light cubes written by ONE compute dispatch, wwe2k14_rdr_prelight_compute (REMOVAL lane: 5 strip passes, 5 draws, 30 copies a frame and their barriers become one dispatch; the readers are untouched). The fallback L1's review (PRELIGHT_DIRECT.md 8.6 F7 (c)) wrote down and did not build. src/renderer_adapter/prelight_compute.h (planner, mesh check, texel -> grid mapping from the draw's own clip transform, census, planted faults), the marked lines in binder.h (PreLightComputeBegin / PreLightComputeDispatch / the walk's drop / the alias op_excluded / the cube's storage usage in SyncImages / the pre-light GPU class / the live census) / rdr_switches.h / reader.h / fview + rplay flags (--prelight-compute, --prelight-compute-fault, --no-compute, --light-cube-plant, rplay --arms kind 6) / session.cpp (FVIEW_SWEEP_CUBE_DUMP), src/renderer/api.h (OpKind::Dispatch, DispatchOp, Frame::dispatches) + frame_builder.h + light_cubes.h + renderer.cpp (StepKind::Dispatch in Compile, LightCubesInit / RecordLightCubes: the compute pipeline, one descriptor set per slot, ONE barrier flush for the cubes, one vkCmdDispatch) + vk_api.h (vkCreateComputePipelines, vkCmdDispatch) + device (caps.compute only: NO device feature or extension), src/renderer/shaders/rdr_light_cubes.comp + rdr_light_dirs.comp (the direction table, with its face-swapped planted twin), problem.h (g_problem_nonfatal, selftest only), rplay --light-cube-selftest, src/renderer_adapter/prelight_compute_test.cpp and tools/renderer/compile_shaders.py, tools/l1b/*. docs/renderer/PRELIGHT_DIRECT.md section 9. 0 game runs, 0 Surface runs.",
+ "claim": {
+  "scene": "bryan",
+  "side": "GPU",
+  "ms": [
+   0.0,
+   0.3
+  ],
+  "switch": "wwe2k14_rdr_prelight_compute",
+  "basis": "ESTIMATE from the op count (tools/l1b/l1b_opcount.py), RESTATED after the review (F6 + F7; PRELIGHT_DIRECT.md 9.5): the per-frame shader is 267 ALU lane ops a texel x 122,880 texels = 32.8 M lane ops, EQUAL to the raster pre-light pass it replaces (267 ops x 5 x 384 x 64 pixels = 32.8 M): the ALU work is not removed. What goes is the pass overhead: 5 render passes, 5 draws, 5 batched copy commands (G12), 9 barriers and 4 pipeline binds a frame (rplay counts), and the strip attachments' traffic. The UHD 620's pre-light role is 0.44 ms (ALU 0.17-0.35 ms of it): the net is about 0.0 to +0.3 ms, NOT a removal of net GPU work; the Surface decides. The earlier 0.44 + 0.25 of copies baseline double-counted the copies G12 already batches. Kind: combined all-levers A/B (under ~1 ms; the live census line proves it took). 4090 stamps (a ranking): pre-light role -0.075 ms, total -0.071 ms."
+ },
+ "note": "The cubes are compared with the stream's bake texel by texel (tools/l1b/l1b_cubes.py on fview dumps; bars in docs/renderer/PRELIGHT_DIRECT.md 9.3). Planted twins: half_texel_dropped and stale_k (the cube bars), --light-cube-plant 2 (face axis), --light-cube-plant 1 (the dispatch-to-reader barrier left out: validation errors, exit 4), keep_ops (counts), phantom_reader (declined) + no_reader_check (audit), ignore_overlap (audit), bad_mesh (declined). The wiring with each link removed in a text copy; spv_lint (every SPIR-V header but the two new compute shaders byte-equal); the game-TU syntax check; device_features_lint (the device creation is unchanged). REVIEW FIXES F1-F7 (docs 9.5): persistence by the copies' rule (selftest + plant 4), the pipelines made at startup so compute_supported() is truthful before ops are dropped (plant 3), both axes of the mapping guarded (shifted_screen), 8-group tag cap (unit test + plant), a dispatch naming a missing image dropped in Compile (selftest), no private arrays in the per-frame shader, the direction table made once; the signed split of the 1-level cube differences is printed; the whole-picture difference (l1b_pics.py) is in the proof.",
+ "checks": [
+  {
+   "name": "s102_l1b.build_fview",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/fview/build.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s102_l1b.build_rplay",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/renderer/build.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s102_l1b.spv_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/l1b/spv_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_l1b.lint_seen",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/lint_seen.py"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_l1b.win_macro_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/win_macro_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_l1b.device_features_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/renderer/device_features_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 120
+  },
+  {
+   "name": "s102_l1b.own_pass_helpers_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/shadow/own_pass_helpers_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s102_l1b.game_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/game_syntax.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 1500,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include"
+   ]
+  },
+  {
+   "name": "s102_l1b.proof",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/l1b/l1b_check.py",
+    "--root",
+    ".",
+    "--only",
+    "census,wiring,unit,selftest,replay,counts,plants,pics,opcount"
+   ],
+   "timeout_s": 7200,
+   "exes": [
+    "out/renderer/dev/fview.exe",
+    "out/renderer/dev/rplay.exe"
+   ],
+   "needs": [
+    "out/lane86/bryan/capture",
+    "out/lane86/brock/capture"
+   ]
+  }
+ ]
+}

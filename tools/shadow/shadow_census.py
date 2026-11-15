@@ -43,7 +43,7 @@ LAMBERT = (0x82BF5C58, 0x82BF8118)
 ORDER = ['plane', 'plane_down', 'plane_blur', 'props', 'mapA', 'mapB', 'reduce', 'min_pair', 'min_rgba', 'min_r', 'min_rg', 'rim', 'rim_reduce', 'rim_t2']
 MAP_KINDS = ('props', 'mapA', 'mapB')
 FMT_RGBA8, FMT_RGBA16F = 1, 16
-ROLE_NAMES = ['unnamed', 'scene_color', 'scene_depth', 'shadow_map', 'post_step', 'feedback_map', 'atlas_target', 'menu_picture', 'tron_picture', 'ui', 'present', 'other', 'rim_map']
+ROLE_NAMES = ['unnamed', 'scene_color', 'scene_depth', 'shadow_map', 'post_step', 'feedback_map', 'atlas_target', 'menu_picture', 'tron_picture', 'ui', 'present', 'other', 'rim_map', 'frame_buffer', 'copy_dest', 'light_strip']
 ELEM_SIZE = {109: 16, 106: 12, 41: 4, 37: 4, 92: 8, 83: 4}
 IMG_DT = np.dtype([('id', '<u4'), ('w', '<u2'), ('h', '<u2'), ('d', '<u2'), ('mips', 'u1'), ('layers', 'u1'), ('format', 'u1'), ('kind', 'u1'), ('usage', 'u1'), ('source', 'u1'),
                    ('flags', 'u1'), ('gf', 'u1'), ('role', 'u1'), ('role_flags', 'u1'), ('pad', 'u1'), ('pad2', 'u1', (3,))])

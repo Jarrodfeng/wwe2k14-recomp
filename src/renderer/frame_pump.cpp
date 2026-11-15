@@ -1,3 +1,4 @@
+#include "../thread_name.h"  // S102 H1
 #include "frame_pump.h"
 
 #include <algorithm>
@@ -16,7 +17,7 @@ double Now() {
 }  // namespace
 
 FramePump::FramePump(Renderer& renderer, const PumpOptions& options) : renderer_(renderer), game_rate_(options.game_rate), fps_cap_(options.fps_cap), slots_(new Slot[kSlots]) {
-  thread_ = std::thread([this] { Run(); });
+  thread_ = std::thread([this] { wwe2k14::NameThread(L"rdr_frame_pump"); Run(); });
 }
 
 FramePump::~FramePump() {

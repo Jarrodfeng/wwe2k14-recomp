@@ -16,6 +16,7 @@
 // frames, readable-page checks first); a worker thread does the file read, the pipe and the logging.
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/system/xmemory.h>
@@ -279,7 +280,7 @@ inline void OnFrame(uint8_t* base, uint64_t frame) {
     if (REXCVAR_GET(wwe2k14_discord_app_id).empty())
       REXLOG_WARN("[wwe2k14][discord] --wwe2k14_discord is on but --wwe2k14_discord_app_id is empty: the activity is "
                   "logged, nothing is sent");
-    std::thread(Worker).detach();
+    std::thread([] { wwe2k14::NameThread(L"discord_status"); Worker(); }).detach();
   }
   Snapshot s;
   uint32_t a = 0, b = 0, seq = 0;

@@ -56,6 +56,7 @@
 
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
@@ -891,7 +892,7 @@ inline void FlightDump(const char* reason, const std::string& detail, const void
   {
     auto task = std::make_shared<std::packaged_task<std::vector<FlightGuestThread>()>>(FlightGuestThreads);
     std::future<std::vector<FlightGuestThread>> future = task->get_future();
-    std::thread([task] { (*task)(); }).detach();
+    std::thread([task] { wwe2k14::NameThread(L"flight_task"); (*task)(); }).detach();
     if (future.wait_for(std::chrono::seconds(2)) == std::future_status::ready) guests = future.get();
     else guests_timed_out = true;
   }
@@ -1307,7 +1308,7 @@ inline void StartFlightRecorder() {
   FlightParseTests(REXCVAR_GET(wwe2k14_flight_test));
   REXLOG_INFO("[wwe2k14][flight] recorder on: {} events per thread ring, hang watchdog {} s, dumps -> {}",
               kFlightRingSize, REXCVAR_GET(wwe2k14_flight_hang_seconds), FlightLogsPath());
-  std::thread(FlightWatchdog).detach();
+  std::thread([] { wwe2k14::NameThread(L"flight_watchdog"); FlightWatchdog(); }).detach();
 }
 
 // VdSwap hook, main thread, every frame (before the frame is handed to ReXGlue).

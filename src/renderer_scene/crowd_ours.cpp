@@ -1,4 +1,5 @@
 // The crowd drawn by us inside the game's frame. See crowd_ours.h and docs\renderer\CROWD_PROMOTION.md.
+#include "../thread_name.h"  // S102 H1
 #include "crowd_ours.h"
 
 #include <algorithm>
@@ -6,10 +7,13 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "../assets/crowd_body.h"
+#include "../renderer_adapter/members_switch.h"  // S102 T6
+#include "../renderer_adapter/rdr_switches.h"    // S102 T6: MembersInstanced, read per frame
 #include "../scene_live/crowd_skip_core.h"  // S101 lane 50: SkippingNow (no game or SDK includes)
 #include "../scene_live/member_thin_core.h"  // lane 272: the members thin record (CheckTally; no game or SDK includes)
 #include "../renderer/problem.h"
@@ -230,7 +234,7 @@ void CrowdOurs::StartLoad(int arena) {
   load_state_ = 1;
   load_for_ = arena;
   ++stats_.arena_loads;
-  worker_ = std::thread([this, arena, root] {
+  worker_ = std::thread([this, arena, root] { wwe2k14::NameThread(L"ours_crowd");
     Loaded loaded;
     loaded.arena = arena;
     if (!assets::crowd_body::Init(root)) {
@@ -446,6 +450,63 @@ bool CrowdOurs::FrameReady() {
   return true;
 }
 
+// S102 T6: the instanced twin of a plain yAudience variant (yAudience_<x>_vertex -> yAudienceInst_<x>_vertex), -1 when there is none or its constant block differs from the plain one's.
+static int InstVariantOf(int vs) {
+  static std::unordered_map<int, int> cache;
+  const auto found = cache.find(vs);
+  if (found != cache.end()) return found->second;
+  int result = -1;
+  const char* name = vs >= 0 ? kVariants[vs].name : nullptr;
+  static const char kPrefix[] = "yAudience_";
+  if (name && std::strncmp(name, kPrefix, sizeof kPrefix - 1) == 0) {
+    const std::string twin = std::string("yAudienceInst_") + (name + sizeof kPrefix - 1);
+    for (size_t i = 0; i < std::size(kVariants); ++i)
+      if (kVariants[i].name && twin == kVariants[i].name) {
+        const rdr::fx::Variant& a = kVariants[vs];
+        const rdr::fx::Variant& b = kVariants[i];
+        bool same = a.block_bytes == b.block_bytes && a.constant_count == b.constant_count && a.bools_offset == b.bools_offset;   // the block must be pushed as it is
+        for (uint16_t k = 0; same && k < a.constant_count; ++k)
+          same = a.constants[k].reg == b.constants[k].reg && a.constants[k].count == b.constants[k].count && a.constants[k].offset == b.constants[k].offset;
+        if (same) result = int(i);
+        break;
+      }
+  }
+  cache.emplace(vs, result);
+  return result;
+}
+
+uint16_t CrowdOurs::InstLayoutFor(int vs) {   // S102 T6: LayoutFor's vertex inputs plus binding 1 = the three world rows per instance (attributes 4-6, as the cards' twin)
+  const auto found = inst_layouts_.find(vs);
+  if (found != inst_layouts_.end()) return found->second;
+  constexpr uint16_t kRGB32F = 106, kRG32F = 103, kRGBA32F = 109;
+  uint16_t id = 0xFFFF;
+  const fxt::VariantTable* t = TableOf(vs);
+  bool supported = t != nullptr && t->input_count > 0;
+  rdr::VertexLayoutDesc desc{};
+  desc.strides[0] = uint32_t(sizeof(PosedVertex));
+  desc.strides[1] = 48;
+  desc.per_instance[1] = 1;
+  for (uint32_t k = 0; supported && k < t->input_count && desc.attribute_count + 3 < rdr::kMaxVertexAttributes; ++k) {
+    const std::string name = t->inputs[k].name;
+    rdr::VertexAttribute a{};
+    a.location = t->inputs[k].location;
+    if (name == "inPosition" && t->inputs[k].components == 3) a.format = kRGB32F, a.offset = uint32_t(offsetof(PosedVertex, pos));
+    else if (name == "inNormal" && t->inputs[k].components == 3) a.format = kRGB32F, a.offset = uint32_t(offsetof(PosedVertex, normal));
+    else if (name == "inUv" && t->inputs[k].components == 2) a.format = kRG32F, a.offset = uint32_t(offsetof(PosedVertex, uv));
+    else supported = false;
+    desc.attributes[desc.attribute_count++] = a;
+  }
+  if (supported && desc.attribute_count != t->input_count) supported = false;   // (the attribute limit stopped the loop early)
+  if (supported) {
+    desc.attributes[desc.attribute_count++] = {4, 1, kRGBA32F, 0};
+    desc.attributes[desc.attribute_count++] = {5, 1, kRGBA32F, 16};
+    desc.attributes[desc.attribute_count++] = {6, 1, kRGBA32F, 32};
+    id = renderer_.AddVertexLayout(desc);
+  }
+  inst_layouts_.emplace(vs, id);
+  return id;
+}
+
 uint16_t CrowdOurs::LayoutFor(int vs) {
   const auto found = layouts_.find(vs);
   if (found != layouts_.end()) return found->second;
@@ -472,27 +533,25 @@ uint16_t CrowdOurs::LayoutFor(int vs) {
 
 namespace {
 // The packed constant block of a variant from a draw's own bank (the binder's PackConstants layout), for per-member material values.
-void PrefetchBank(const rdr::fx::Variant& v, const rdr_adapter::ConstantBank& bank) {  // lane 270: the lines PackFromBank will read
+void PrefetchBank(const rdr::fx::Variant& v, const rdr_adapter::BankView& banks, uint32_t index) {  // lane 270: the lines PackFromBank will read (S102 T1b: through the block map: the bank is not assembled to be prefetched)
   for (uint32_t r = 0; r < v.constant_count; ++r) {
     const rdr::fx::ConstantRange& range = v.constants[r];
-    const char* from = reinterpret_cast<const char*>(bank.dwords + uint32_t(range.reg) * 4);
-    for (uint32_t b = 0; b < uint32_t(range.count) * 16; b += 64) __builtin_prefetch(from + b);
-    __builtin_prefetch(from + uint32_t(range.count) * 16 - 1);
+    const uint32_t first = uint32_t(range.reg) * 16, last = first + uint32_t(range.count) * 16;
+    for (uint32_t at = first; at < last; at += 64 - (at & 63)) __builtin_prefetch(reinterpret_cast<const char*>(banks.Block(index, at >> 6)) + (at & 63));
   }
 }
 uint32_t PackedBytes(const rdr::fx::Variant& v) { return std::min<uint32_t>(std::max<uint32_t>(v.block_bytes, 16), 8192); }
-uint32_t PackFromBank(const rdr::fx::Variant& v, const rdr_adapter::ConstantBank& bank, const rdr_adapter::BoolLoop& bools, uint8_t* block) {
+uint32_t PackFromBank(const rdr::fx::Variant& v, const rdr_adapter::BankRef& bank, const rdr_adapter::BoolLoop& bools, uint8_t* block) {   // S102 T1b: BankRef (a plain bank converts)
   const uint32_t bytes = PackedBytes(v);
   std::memset(block, 0, bytes);
   for (uint32_t r = 0; r < v.constant_count; ++r) {
     const rdr::fx::ConstantRange& range = v.constants[r];
-    std::memcpy(block + range.offset, bank.dwords + uint32_t(range.reg) * 4, uint32_t(range.count) * 16);
+    bank.CopyBytes(uint32_t(range.reg) * 16, uint32_t(range.count) * 16, block + range.offset);   // S102 T1b
   }
   if (v.bools_offset != 0xFFFF) std::memcpy(block + v.bools_offset, bools.words, 32);
   return bytes;
 }
-uint64_t WorldHashOfBank(const rdr_adapter::ConstantBank& bank) {
-  const uint32_t* c = bank.dwords + 76 * 4;
+uint64_t WorldHashOfBank(const uint32_t* c) {   // S102 T1b: c76-c78's 12 dwords = the start of block 19 (dwords 304-319), read through BankView::Block
   uint64_t h = 0xcbf29ce484222325ull;
   for (int k = 0; k < 12; ++k) h = (h ^ c[k]) * 0x100000001b3ull;
   return h;
@@ -535,7 +594,8 @@ uint64_t WorldHashOfMat(const Mat4& w) {
 // lane 272: the members' thin record around InjectBody. In: the hook's tally of the stream frame (member_thin_core.h CountRing, or the cut tool's sidecar), per site. Out: in.member_result for the gate
 // (1 a full frame drawn clean, 2 a full frame refused / not clean, 3 a thin frame drawn, 4 a thin frame ours could not draw = a hole). Both switches off: InjectBody alone, nothing else runs.
 uint8_t CrowdOurs::MemberNotReadyResult(const rdr_adapter::LoadedFrame& frame) {
-  if (!options_.members_thin || !options_.member_counts) return 0;
+  RefreshMembersThin(frame.header.guest_frame);   // S102 T13 review F1: the hook's run mode of this frame
+  if (!MembersThin() || !options_.member_counts) return 0;
   const uint64_t fno = frame.header.guest_frame;
   if (fno < options_.member_offset) return 0;
   for (int site = 0; site < 2; ++site) {
@@ -552,7 +612,8 @@ const char* const CrowdOurs::kPhaseNames[] = {"setup", "assets parse", "palettes
 const size_t CrowdOurs::kPhaseCount = sizeof kPhaseNames / sizeof kPhaseNames[0];
 
 uint32_t CrowdOurs::Inject(rdr_adapter::CrowdInject& in) {
-  if (!(options_.member_probe || options_.members_thin)) return InjectBody(in);
+  RefreshMembersThin(in.frame ? in.frame->header.guest_frame : 0);   // S102 T13 review F1: the hook's run mode of this frame, once per frame
+  if (!(options_.member_probe || MembersThin())) return InjectBody(in);
   mt_ = MemberFrame{};
   for (auto& row : mt_.draw_of_class) for (int& v : row) v = -1;
   if (options_.member_counts && in.frame) {
@@ -564,7 +625,7 @@ uint32_t CrowdOurs::Inject(rdr_adapter::CrowdInject& in) {
         mt_.signal = mt_.signal || (t.known && t.dropped > 0);
       }
   }
-  if (options_.member_counts && in.frame && options_.members_thin && !mt_.signal) {   // lane 295: the thin stamp at offset 0 / 2 only (the offset-1 tally is missing): a stamp elsewhere
+  if (options_.member_counts && in.frame && MembersThin() && !mt_.signal) {   // lane 295: the thin stamp at offset 0 / 2 only (the offset-1 tally is missing): a stamp elsewhere
     const uint64_t fno = in.frame->header.guest_frame;
     bool known1 = false, other = false;
     for (int k = 0; k < 3 && fno >= uint64_t(k); ++k)
@@ -584,10 +645,10 @@ uint32_t CrowdOurs::Inject(rdr_adapter::CrowdInject& in) {
     if (in.member_result == 4 && !mt_.hole_counted) ++stats_.member_thin_holes;   // (a hole the body did not count itself: an early return before the thin branch)
   } else {
     in.member_result = (drawn && mt_.full_clean) ? 1 : 2;
-    if (options_.members_thin && mt_.stream_short) {   // the cards' SF1 backstop: a refused frame whose stream holds fewer member draws than the record has members has probably lost them (an unknown or wrong-offset tally): a hole whatever the tally says, so a wrong offset latches after 3
+    if (MembersThin() && mt_.stream_short) {   // the cards' SF1 backstop: a refused frame whose stream holds fewer member draws than the record has members has probably lost them (an unknown or wrong-offset tally): a hole whatever the tally says, so a wrong offset latches after 3
       in.member_result = 4;
       if (!mt_.hole_counted) ++stats_.member_thin_holes, ++stats_.member_why[mt_.elsewhere ? wwe2k14::member_thin::kWhyElsewhere : "stream holds fewer member draws than the record has members, tally says not thin"];
-    } else if (options_.members_thin && drawn && mt_.nonuniform) {   // lane 295 SF2: a class whose members bind different material on a FULL frame (the proof frame included) is the one silently-wrong-picture path (a dropped member would be drawn with the anchor's material): report it as a hole so 3 in 10 s latch the cut
+    } else if (MembersThin() && drawn && mt_.nonuniform) {   // lane 295 SF2: a class whose members bind different material on a FULL frame (the proof frame included) is the one silently-wrong-picture path (a dropped member would be drawn with the anchor's material): report it as a hole so 3 in 10 s latch the cut
       in.member_result = 4;
       if (!mt_.hole_counted) ++stats_.member_thin_holes, ++stats_.member_why["a full frame's class binds different material (non-uniform): the cut's claim is false"];
     } else {
@@ -614,7 +675,7 @@ uint32_t CrowdOurs::Inject(rdr_adapter::CrowdInject& in) {
       for (int site = 0; site < fv.sites; ++site) stats_.member_va.Calls(fv.at[1][site], fv.stream_draws[site], fv.rec_world[site]);
     if (j.take == mth::Take::Full && !signal) ++stats_.member_va.frames;
   }
-  if (options_.member_probe && options_.member_counts && !signal && drawn && in.frame) {   // the stamp probe: which offset's tally equals the full frame the game recorded
+  if ((options_.member_probe || MembersThin()) && options_.member_counts && !signal && drawn && in.frame) {   // S102 T13 review F4a: the stamp probe also runs on the live path (the flag, no start option)   // the stamp probe: which offset's tally equals the full frame the game recorded
     ++stats_.member_probe_frames;
     const uint64_t fno = in.frame->header.guest_frame;
     for (int k = 0; k < 3; ++k) {
@@ -693,7 +754,7 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
   stream.Reset(t.objects.size() + 64);
   uint64_t stream_draws = 0, floor_stream_draws = 0;
   std::vector<std::pair<uint64_t, uint32_t>> claimed;  // S101 lane 82 follow-up: every claimed stream draw (world hash, draw index)
-  const bool member_on = (options_.member_probe || options_.members_thin) && !options_.cards_as_bodies && !options_.fault_no_cards;   // lane 272
+  const bool member_on = (options_.member_probe || MembersThin()) && !options_.cards_as_bodies && !options_.fault_no_cards;   // lane 272
   std::vector<uint8_t> in_ops;   // lane 272: the stream is what the op list DRAWS (a thin capture's cut draws keep their table rows; a live frame's table holds only recorded draws)
   if (member_on) {
     in_ops.assign(fr.draws.count, 0);
@@ -705,7 +766,7 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
     if (d + 16 < fr.draws.count) {  // lane 270: the c76-c78 words of a crowd draw's bank sit in a cache line nobody has touched this frame (banks are 4 KB apart): ask for the one 16 draws ahead
       const rdr_adapter::DrawOrigin* ahead = fr.OriginOf(d + 16);
       if (ahead && (ahead->call_site == rdr_adapter::kCrowdBlocksSite || ahead->call_site == rdr_adapter::kCrowdCardsSite || ahead->call_site == rdr_adapter::kCrowdFloorSite)) {
-        const char* w = reinterpret_cast<const char*>(fr.constant_banks[fr.draws[d + 16].vs_bank].dwords + 76 * 4);
+        const char* w = reinterpret_cast<const char*>(fr.constant_banks.Block(fr.draws[d + 16].vs_bank, 19));
         __builtin_prefetch(w), __builtin_prefetch(w + 47);
       }
     }
@@ -714,7 +775,7 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
     if (!og || (og->call_site != rdr_adapter::kCrowdBlocksSite && !(og->call_site == rdr_adapter::kCrowdCardsSite && (options_.cards_as_bodies || options_.fault_no_cards)) && !floor_site)) continue;  // S101 lane CD: cards on (InjectCards) are not members of this seam
     floor_stream_draws += floor_site;
     ++stream_draws;
-    claimed.emplace_back(WorldHashOfBank(fr.constant_banks[fr.draws[d].vs_bank]), d);
+    claimed.emplace_back(WorldHashOfBank(fr.constant_banks.Block(fr.draws[d].vs_bank, 19)), d);
     stream.emplace(claimed.back().first, d);
   }
 
@@ -728,7 +789,7 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
   }
   int undrawable_type = -1;  // the planted fault: the type of the first dropped draw (its member found by world)
   if (options_.fault_undrawable_first) {
-    const uint64_t first_world = WorldHashOfBank(fr.constant_banks[in.draw->vs_bank]);
+    const uint64_t first_world = WorldHashOfBank(fr.constant_banks.Block(in.draw->vs_bank, 19));
     for (const Object& o : t.objects)
       if (o.klass == rdr_adapter::DrawClass::Crowd && (o.flags & kObjVisible) && o.asset < info.size() && info[o.asset].valid && WorldHashOfMat(o.world) == first_world) {
         undrawable_type = int(info[o.asset].type);
@@ -798,10 +859,10 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
 
   // lane 272 (members thin, SKIP_GAME_WORK_MAP 20.3 / 20.4): the class of every claimed stream draw (by its world), the uniformity of each class's draws (every full frame: the claim the cut rests on), and, on a THIN
   // frame, the tally check that replaces the pairing proof below plus the class material from the kept draws. A thin frame ours cannot draw is a HOLE (counted; the gate resets; 3 in 10 s latch the cut).
-  const bool thin = member_on && options_.members_thin && mt_.signal;
+  const bool thin = member_on && MembersThin() && mt_.signal;
   if (member_on) {
     // The census (class map + uniformity compare) runs on every thin frame and every full frame of a real skip run (full frames are rare there: the proofs); a census-only run samples every 8th frame.
-    const bool map_on = thin || options_.members_thin || (member_sample_++ % 8 == 0);
+    const bool map_on = thin || MembersThin() || (member_sample_++ % 8 == 0);
     fast::FlatU64Map& by_world = member_world_map_;   // world hash -> (floor ? 256 : 0) | class of the record's visible member
     if (map_on) by_world.Reset(t.objects.size() + 64);
     bool ambiguous = false, unmapped = false, wrong_site = false;
@@ -849,7 +910,7 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
     for (int site = 0; site < 2; ++site) mt_.probe_members[site] = sdraws[site], mt_.probe_world[site] = rec_world[site], mt_.rec_members[site] = rec_members[site];
     mt_.counted = true;
     mt_.stream_short = !thin && (sdraws[0] + sdraws[1]) < (rec_members[0] + rec_members[1]);
-    if (options_.members_thin && !thin && mt_.stream_short) {   // SF3: a thin frame the tally did not announce would be drawn with sd = null (wrong outfits) and read as clean: it is a hole, nothing is drawn
+    if (MembersThin() && !thin && mt_.stream_short) {   // SF3: a thin frame the tally did not announce would be drawn with sd = null (wrong outfits) and read as clean: it is a hole, nothing is drawn
       mt_.hole_counted = true;
       ++stats_.member_thin_holes, ++stats_.member_why[mt_.elsewhere ? wwe2k14::member_thin::kWhyElsewhere : "stream holds fewer member draws than the record has members, tally says not thin"];
       return 0;
@@ -918,6 +979,43 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
   const uint32_t fs_bytes = in.fs_block_bytes;
   const uint64_t first_vs_hash = in.draw->vs_hash, first_ps_hash = in.draw->ps_hash;
   const rdr_adapter::Draw* first_floor_sd = nullptr;  // S101 lane 82 (the floor_first_texture plant)
+  // S102 R21-C step 3 (wwe2k14_rdr_crowd_workers, 0-2, per frame): the pose of every class's meshes (a pure function of the class's own meshes and palette, written into its own posed vectors) runs on the pool
+  // before the class loop and is joined here, before anything reads or pushes a posed vertex. 0 workers: the loop poses each class itself, as before.
+  // (R21-C review F1: a pool only on a machine with 8 or more hardware threads and never on Android (big.LITTLE); its threads are named "rdr_crowd_pose N" and run below normal priority.)
+  static const bool pool_ok = [] {
+#if defined(__ANDROID__)
+    return false;
+#else
+    return std::thread::hardware_concurrency() >= 8;
+#endif
+  }();
+  bool pre_posed = false;
+  std::vector<uint32_t> pose_classes;
+  struct JoinGuard {  // the planted workers_unjoined twin returns from Run early: the pool is joined here on every way out of the function (never later than the locals the jobs read)
+    CrowdWorkers* w;
+    ~JoinGuard() {
+      if (w) w->WaitIdle();
+    }
+  } join_guard{nullptr};
+  if (const int workers_n = pool_ok ? std::clamp(int(rdr_sw::IntSeen(rdr_sw::kCrowdWorkers, rdr_adapter::g_crowd_workers.load(std::memory_order_relaxed), in.frame ? in.frame->header.guest_frame : 0)), 0, 2) : 0; workers_n > 0) {
+    for (uint32_t cls = 0; cls < kClassCount; ++cls)
+      if (!scratch_[cls].members.empty()) pose_classes.push_back(cls);
+    if (pose_classes.size() >= 2) {
+      const bool unjoined = rdr_adapter::g_crowd_workers_unjoined.load(std::memory_order_relaxed);   // TEST ONLY twin
+      if (unjoined) join_guard.w = &workers_;
+      workers_.Run(workers_n, pose_classes.size(), [&](size_t job) {
+        const uint32_t cls = pose_classes[job];
+        ClassScratch& s = scratch_[cls];
+        const TypeBody& body = bodies_[cls];
+        const PaletteRef& pal = palette[cls];
+        const float* palette_floats = (pal.score >= 0 && !options_.fault_bind_pose && size_t(pal.first) + pal.count <= t.bones.size()) ? t.bones[pal.first].m : nullptr;
+        for (size_t k = 0; k < body.meshes.size(); ++k) PoseVertices(body.meshes[k].vertices, palette_floats, palette_floats ? pal.count : 0, s.posed[k]);
+      }, unjoined);
+      ph_.Lap(kPose);   // (R21-C review F2: the pose time is the pose's, not the first class's setup)
+      pre_posed = true;
+      ++stats_.workers_frames, stats_.workers_runs = workers_.Runs(), stats_.workers_jobs = workers_.Jobs();
+    }
+  }
   for (uint32_t cls = 0; cls < kClassCount; ++cls) {
     ClassScratch& s = scratch_[cls];
     s.blocks.clear();
@@ -930,7 +1028,8 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
     if (!palette_floats) stats_.unposed += s.members.size();  // (only the planted bind-pose fault gets here)
     ph_.Lap(kSetup);
     // (lane 270 measured a cross-frame pose cache: 0 hits in 27 797 class-frames, the palettes change on every record; removed. PoseVertices itself is the 4-wide version below.)
-    for (size_t k = 0; k < body.meshes.size(); ++k) PoseVertices(body.meshes[k].vertices, palette_floats, palette_floats ? pal.count : 0, s.posed[k]);
+    if (!pre_posed)  // (S102 R21-C step 3: the pool posed it already)
+      for (size_t k = 0; k < body.meshes.size(); ++k) PoseVertices(body.meshes[k].vertices, palette_floats, palette_floats ? pal.count : 0, s.posed[k]);
     ph_.Lap(kPose);
     if (pose_check_)  // lane 270 (env RDR_CROWD_POSE_CHECK=1): the 4-wide pose must equal the scalar reference bit for bit, on every vertex of every class of every frame
       for (size_t k = 0; k < body.meshes.size(); ++k) {
@@ -958,8 +1057,8 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
     for (size_t m = 0; m < s.members.size(); ++m) {
       if (m + kAhead < s.members.size() && s.sds[m + kAhead]) {
         const rdr_adapter::Draw* ahead = s.sds[m + kAhead];
-        if (in.vs >= 0) PrefetchBank(kVariants[in.vs], fr.constant_banks[ahead->vs_bank]);
-        if (in.ps >= 0) PrefetchBank(kVariants[in.ps], fr.constant_banks[ahead->ps_bank]);
+        if (in.vs >= 0) PrefetchBank(kVariants[in.vs], fr.constant_banks, ahead->vs_bank);
+        if (in.ps >= 0) PrefetchBank(kVariants[in.ps], fr.constant_banks, ahead->ps_bank);
       }
       const bool floor_m = m < s.is_floor.size() && s.is_floor[m];
       uint8_t* block = s.blocks.data() + m * block_bytes;
@@ -975,10 +1074,10 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
       ph_.Lap(kFind);
       if (sd && sd->vs_hash == first_vs_hash && in.vs >= 0) {
         if (PackedBytes(kVariants[in.vs]) <= block_bytes) {  // lane 270: straight into the member's block (the same bytes the 8 KB temp copy gave)
-          PackFromBank(kVariants[in.vs], fr.constant_banks[sd->vs_bank], fr.bool_loops[sd->bool_loop], block);
+          PackFromBank(kVariants[in.vs], fr.constant_banks.Ref(sd->vs_bank), fr.bool_loops[sd->bool_loop], block);
         } else {
           uint8_t tmp[8192];
-          const uint32_t n = PackFromBank(kVariants[in.vs], fr.constant_banks[sd->vs_bank], fr.bool_loops[sd->bool_loop], tmp);
+          const uint32_t n = PackFromBank(kVariants[in.vs], fr.constant_banks.Ref(sd->vs_bank), fr.bool_loops[sd->bool_loop], tmp);
           std::memcpy(block, tmp, std::min(n, block_bytes));
         }
       } else {
@@ -987,14 +1086,22 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
       ph_.Lap(kPackVs);
       if (sd && sd->ps_hash == first_ps_hash && in.ps >= 0) {
         if (PackedBytes(kVariants[in.ps]) <= fs_bytes) {
-          PackFromBank(kVariants[in.ps], fr.constant_banks[sd->ps_bank], fr.bool_loops[sd->bool_loop], fblock);
+          PackFromBank(kVariants[in.ps], fr.constant_banks.Ref(sd->ps_bank), fr.bool_loops[sd->bool_loop], fblock);
         } else {
           uint8_t tmp[8192];
-          const uint32_t n = PackFromBank(kVariants[in.ps], fr.constant_banks[sd->ps_bank], fr.bool_loops[sd->bool_loop], tmp);
+          const uint32_t n = PackFromBank(kVariants[in.ps], fr.constant_banks.Ref(sd->ps_bank), fr.bool_loops[sd->bool_loop], tmp);
           std::memcpy(fblock, tmp, std::min(n, fs_bytes));
         }
       } else {
         std::memcpy(fblock, in.fs_block, fs_bytes);
+      }
+      if (rdr_adapter::g_members_perturb.load(std::memory_order_relaxed) && (m & 1) && in.ps >= 0) {   // S102 T6 test only: the fragment block's float constants x 1.01 for every second member (both arms)
+        const rdr::fx::Variant& pv = kVariants[in.ps];
+        for (uint16_t ci = 0; ci < pv.constant_count; ++ci) {
+          if (size_t(pv.constants[ci].offset) + size_t(pv.constants[ci].count) * 16 > fs_bytes) continue;
+          float* f = reinterpret_cast<float*>(fblock + pv.constants[ci].offset);
+          for (uint32_t q = 0; q < uint32_t(pv.constants[ci].count) * 4; ++q) f[q] *= 1.01f;
+        }
       }
       ph_.Lap(kPackPs);
       // S101 lane 82: the planted fault `floor_first_texture`: every floor member takes the first floor draw's slot 0 ("several outfits", lane 35's bug, re-found)
@@ -1122,6 +1229,58 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
   // swizzle). Same ids in the same order as the uncached calls (a table's id is its first appearance). The planted fault `cache_tex_stale` leaves the picture out of the key.
   tex_keys_.clear(), tex_ids_.clear();
   tex_map_.Reset(256);
+  // S102 T6: members as one instanced draw per (group, mesh). The switch is read every frame (the table's per-frame switch; the fallback is fview's / rplay's flag). A frame without the twin's pieces
+  // (no program hook, no pixel stage, no twin of this variant, no layout) draws one draw per member exactly as before and counts inst_fallback.
+  const bool inst_asked = rdr_sw::BoolSeen(rdr_sw::kMembersInstanced, rdr_adapter::g_members_instanced.load(std::memory_order_relaxed), in.frame ? in.frame->header.guest_frame : 0);
+  int inst_vs = -1;
+  rdr::DrawOp base_inst{};
+  uint64_t inst_frame_draws = 0;
+  if (inst_asked) {
+    const int twin = InstVariantOf(in.vs);
+    const uint16_t inst_layout = twin >= 0 ? InstLayoutFor(in.vs) : uint16_t(0xFFFF);
+    if (twin >= 0 && inst_layout != 0xFFFF && in.program && in.ps >= 0) {
+      rdr::DrawState inst_state = state;
+      inst_state.vertex_layout = inst_layout;
+      inst_state.program = in.program(twin, in.ps, in.alpha_test);
+      base_inst = base;
+      base_inst.state = builder.State(inst_state);
+      inst_vs = twin;
+    } else {
+      if (++stats_.inst_fallback == 1)
+        rdr::Log("[rdr][crowd] members instanced asked but not possible: vertex stage %s, twin variant %d, layout %s, program hook %s, pixel stage %d: every member stays one draw", in.vs >= 0 ? kVariants[in.vs].name : "?", twin, inst_layout != 0xFFFF ? "ok" : "none", in.program ? "yes" : "no", in.ps);
+    }
+  }
+  // The texture-set id of a member's slot 0 for mesh k (the cached lookup of the per-member path below, once per group here).
+  const auto texture_id_for = [&](const ClassScratch::Material& mat, const TypeBody& body, size_t k) -> uint32_t {
+    TexKey key;
+    std::memset(&key, 0, sizeof key);
+    key.has = mat.has ? 1u : 0u;
+    key.image = mat.has ? mat.image : (body.meshes[k].diffuse != rdr::kNoImage ? body.meshes[k].diffuse : white_);
+    if (mat.has) key.sampler = mat.sampler, key.view_format = uint32_t(mat.view_format), std::memcpy(key.swizzle, mat.swizzle, sizeof key.swizzle);
+    else key.fallback_sampler = fallback_sampler;
+    uint64_t hash = 0xcbf29ce484222325ull;
+    for (size_t b = 0; b < sizeof key; ++b) hash = (hash ^ reinterpret_cast<const uint8_t*>(&key)[b]) * 0x100000001b3ull;
+    const uint32_t* found = options_.caches ? tex_map_.Find(hash) : nullptr;
+    if (found && tex_keys_[*found] == key) return ++stats_.tex_hit, tex_ids_[*found];
+    rdr::TextureSet set = in.textures;
+    rdr::TextureSlot& slot = set.slots[0];
+    if (mat.has) {
+      slot.image = mat.image;
+      slot.sampler = builder.Sampler(mat.sampler);
+      slot.view_format = mat.view_format;
+      std::memcpy(slot.swizzle, mat.swizzle, sizeof slot.swizzle);
+    } else {
+      slot.image = body.meshes[k].diffuse != rdr::kNoImage ? body.meshes[k].diffuse : white_;
+      slot.sampler = fallback_sampler;
+      slot.view_format = rdr::Format::Undefined;
+      std::memset(slot.swizzle, 0, sizeof slot.swizzle);
+    }
+    slot.vertex = 0;
+    const uint32_t id = builder.Textures(set);
+    ++stats_.tex_miss;
+    if (options_.caches && !found) tex_map_.Emplace(hash, uint32_t(tex_keys_.size())), tex_keys_.push_back(key), tex_ids_.push_back(id);
+    return id;
+  };
   for (uint32_t cls = 0; cls < kClassCount; ++cls) {
     ClassScratch& s = scratch_[cls];
     if (s.members.empty()) continue;
@@ -1129,6 +1288,98 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
     for (size_t k = 0; k < body.meshes.size(); ++k)
       s.geometry_offset[k] = builder.PushGeometry(s.posed[k].data(), uint32_t(s.posed[k].size() * sizeof(PosedVertex)), 16);
     ph_.Lap(kPushGeom);
+    if (inst_vs >= 0) {
+      // Group the members that share EVERYTHING but the world: slot 0 (picture, sampler, view format, swizzle), the vertex block outside the three world rows, the fragment block. R6 measured every class
+      // uniform, so a class is one group; a member that differs opens another (counted: inst_splits), never merged. Each group is one draw per mesh with the first member's block and one world row triple per instance.
+      InstWork& iw = inst_;
+      const size_t n = s.members.size();
+      iw.group_rep.clear(), iw.group_first.clear(), iw.group_count.clear(), iw.group_pos.clear();
+      iw.group_of.resize(n);
+      const uint32_t world_at = world_field->offset;
+      const auto same_group = [&](size_t a, size_t b) {
+        const ClassScratch::Material& ma = s.materials[a];
+        const ClassScratch::Material& mb = s.materials[b];
+        if (ma.has != mb.has || ma.image != mb.image || ma.view_format != mb.view_format || std::memcmp(ma.swizzle, mb.swizzle, sizeof ma.swizzle) != 0 || std::memcmp(&ma.sampler, &mb.sampler, sizeof ma.sampler) != 0) return false;
+        const uint8_t* ba = s.blocks.data() + a * block_bytes;
+        const uint8_t* bb = s.blocks.data() + b * block_bytes;
+        if (std::memcmp(ba, bb, world_at) != 0 || std::memcmp(ba + world_at + 48, bb + world_at + 48, block_bytes - world_at - 48) != 0) return false;
+        if (options_.fault_inst_group_ignores_fs) return true;   // (planted: the fragment block is not compared)
+        return std::memcmp(s.fblocks.data() + a * fs_bytes, s.fblocks.data() + b * fs_bytes, fs_bytes) == 0;
+      };
+      // RUNS ONLY (review F2): a member joins the group of the member before it or opens a new one, never an earlier group, so the instances stay in the stream's draw order exactly (a class that
+      // goes A B A is three groups, not two) and the work is O(n). A uniform class is still one group.
+      uint32_t last = 0;
+      for (size_t m = 0; m < n; ++m) {
+        int g = -1;
+        if (!iw.group_rep.empty() && same_group(iw.group_rep[last], m)) g = int(last);
+        if (options_.fault_inst_first_fit)   // (planted: first fit over every earlier group)
+          for (size_t q = 0; g < 0 && q < iw.group_rep.size(); ++q)
+            if (q != last && same_group(iw.group_rep[q], m)) g = int(q);
+        if (g < 0) {
+          g = int(iw.group_rep.size());
+          iw.group_rep.push_back(uint32_t(m));
+          iw.group_count.push_back(0);
+        }
+        iw.group_of[m] = uint32_t(g);
+        ++iw.group_count[size_t(g)];
+        last = uint32_t(g);
+      }
+      const size_t groups = iw.group_rep.size();
+      iw.group_first.assign(groups, 0);
+      iw.group_pos.assign(groups, 0);
+      for (size_t g = 1; g < groups; ++g) iw.group_first[g] = iw.group_first[g - 1] + iw.group_count[g - 1];
+      iw.rows.resize(n * 12);
+      iw.slot_of.resize(n);
+      for (size_t m = 0; m < n; ++m) {
+        const uint32_t g = iw.group_of[m];
+        const Mat4& w = t.objects[s.members[options_.fault_inst_world_first ? iw.group_rep[g] : m]].world;   // (planted: every instance takes its group's first world)
+        iw.slot_of[m] = iw.group_first[g] + iw.group_pos[g]++;
+        float* row = iw.rows.data() + size_t(iw.slot_of[m]) * 12;
+        for (int r = 0; r < 3; ++r)
+          for (int k = 0; k < 4; ++k) row[r * 4 + k] = options_.fault_inst_rows_transposed ? w.m[r * 4 + k] : w.m[k * 4 + r];   // row r of c76-c78 = column r of the member's row-vector matrix (as the plain path writes it into the block)
+      }
+      if (options_.verify_pairing) {   // S102 T6 AUDIT (offline): each member rebuilt the way the GPU sees it: its group's rep block with the rows of ITS instance slot in place of c76-c78, the rep's fragment block and material, against the member's own
+        for (size_t m = 0; m < n; ++m) {
+          const size_t rep = iw.group_rep[iw.group_of[m]];
+          std::vector<uint8_t>& eff = audit_block_;
+          eff.assign(s.blocks.data() + rep * block_bytes, s.blocks.data() + (rep + 1) * block_bytes);
+          std::memcpy(eff.data() + world_at, iw.rows.data() + size_t(iw.slot_of[m]) * 12, 48);
+          const ClassScratch::Material& ma = s.materials[rep];
+          const ClassScratch::Material& mb = s.materials[m];
+          const bool same_mat = ma.has == mb.has && ma.image == mb.image && ma.view_format == mb.view_format && std::memcmp(ma.swizzle, mb.swizzle, sizeof ma.swizzle) == 0 && std::memcmp(&ma.sampler, &mb.sampler, sizeof ma.sampler) == 0;
+          const bool ok = std::memcmp(eff.data(), s.blocks.data() + m * block_bytes, block_bytes) == 0 && std::memcmp(s.fblocks.data() + rep * fs_bytes, s.fblocks.data() + m * fs_bytes, fs_bytes) == 0 && same_mat;
+          ++stats_.inst_audit_members, stats_.inst_audit_bad += !ok, stats_.inst_order_bad += iw.slot_of[m] != m;
+        }
+      }
+      const uint32_t inst_offset = builder.PushGeometry(iw.rows.data(), uint32_t(n * 48), 16);
+      ph_.Lap(kPushGeom);
+      for (size_t g = 0; g < groups; ++g) {
+        const size_t rep = iw.group_rep[g];
+        const uint32_t count = iw.group_count[g] - (options_.fault_inst_drop_last && iw.group_count[g] > 1 ? 1u : 0u);   // (planted: the group's last instance is not drawn)
+        const uint32_t vs_constants = builder.PushConstants(s.blocks.data() + rep * block_bytes, block_bytes);
+        const uint32_t fs_constants = builder.PushConstants(s.fblocks.data() + rep * fs_bytes, fs_bytes);
+        ph_.Lap(kPushConst);
+        for (size_t k = 0; k < body.meshes.size(); ++k) {
+          rdr::DrawOp op = base_inst;
+          op.textures = texture_id_for(s.materials[rep], body, k);
+          ph_.Lap(kTexSet);
+          op.vs_constants = vs_constants;
+          op.fs_constants = fs_constants;
+          op.vertex[0] = {rdr::kFrameGeometry, s.geometry_offset[k]};
+          op.vertex[1] = {rdr::kFrameGeometry, inst_offset + iw.group_first[g] * 48u};
+          op.index = {body.meshes[k].index, 0};
+          op.count = body.meshes[k].index_count;
+          op.instances = count;
+          if (!options_.hide_ours) builder.Draw(op);
+          ++inst_frame_draws;
+          ph_.Lap(kDraw);
+        }
+      }
+      stats_.inst_groups += groups, stats_.inst_splits += groups - 1, stats_.inst_members += n;
+      drawn += uint32_t(n);
+      for (size_t m = 0; m < n; ++m) cards += info[t.objects[s.members[m]].asset].card;
+      continue;
+    }
     for (size_t m = 0; m < s.members.size(); ++m) {
       const uint32_t vs_constants = builder.PushConstants(s.blocks.data() + m * block_bytes, block_bytes);
       const uint32_t fs_constants = builder.PushConstants(s.fblocks.data() + m * fs_bytes, fs_bytes);
@@ -1184,6 +1435,10 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
       cards += info[t.objects[s.members[m]].asset].card;
     }
   }
+  if (inst_vs >= 0) {
+    ++stats_.inst_frames, stats_.inst_draws += inst_frame_draws;
+    stats_.inst_max_draws = std::max<uint64_t>(stats_.inst_max_draws, inst_frame_draws);
+  }
   if (!said_first_) {  // once: what the dropped draw was and what we drew (the first thing to read when a picture is wrong)
     said_first_ = true;
     uint32_t classes = 0, meshes = 0;
@@ -1225,20 +1480,26 @@ uint32_t CrowdOurs::InjectCards(rdr_adapter::CrowdInject& in) {
     ~PhEnd() { c.End(kCTail); }
   } cph_end{cph_};
   ++stats_.card_frames;
-  const std::shared_ptr<const SceneTables> rec = frame_record_;
+  RefreshCardsThin(in.frame ? in.frame->header.guest_frame : 0);   // S102 T13 review F1: the hook's run mode of this frame (never sticky)
+  const bool thin_on = CardsThin();   // S102 T2: the switch may turn on between frames, never inside one
+  std::shared_ptr<const SceneTables> rec = frame_record_;
   // lane 175 (review B1 / S3): THIN is a positive signal, not a guess from counts: the hook's tally for this frame says how many card draws the game recorded and how many it dropped. Unknown = not thin.
   uint32_t thin_seen = 0, thin_dropped = 0;
   uint64_t thin_world = 0;
   bool thin_signal = false;
-  if (options_.cards_thin && options_.thin_counts && in.frame) {
+  if (thin_on && options_.thin_counts && in.frame) {
     const uint64_t fno = in.frame->header.guest_frame;
     if (fno >= options_.thin_offset && options_.thin_counts(fno - options_.thin_offset, thin_seen, thin_dropped, thin_world)) thin_signal = thin_dropped > 0;
   }
+  // S102 T2 F4: a THINNED frame (the tally says the game dropped cards) whose own record is missing / refused tries the last record that gave a usable plan. Nothing is guessed: BuildPlan's delivery check
+  // (the tally's card count == the record's cards, stream + dropped == seen, the sum of the card-world hashes equal) proves the record holds exactly THIS frame's card set; a mismatch stays a hole.
+  bool prev_used = false;
+  if (!rec && thin_signal && thin_on && last_card_rec_ && in.frame && in.draw) rec = last_card_rec_, prev_used = true, ++stats_.card_prev_record_tried;
   if (!rec || !in.frame || !in.draw) {
     if (thin_signal) {   // the game dropped cards from this frame and there is no record to draw them from: a hole
       in.card_result = 4;
       ++stats_.card_thin_holes;
-    } else if (options_.cards_thin) {
+    } else if (thin_on) {
       in.card_result = 2;
     }
     return ++stats_.card_no_record, ++stats_.card_fallback, 0;
@@ -1259,17 +1520,25 @@ uint32_t CrowdOurs::InjectCards(rdr_adapter::CrowdInject& in) {
   input.read_geometry = in.read_geometry;
   input.enforce = !options_.cards_unchecked;
   input.verify = true;  // the proof is cheap (one hash per card): every frame, offline and live
-  input.thin = options_.cards_thin;  // lane 175
+  input.thin = thin_on;  // lane 175
   input.thin_seen = thin_seen, input.thin_dropped = thin_dropped, input.thin_world = thin_world;
   cph_.Lap(kCSetup);
   cards::Plan& plan = card_plan_;   // lane 270: reused (its arrays keep their memory)
   cards::BuildPlan(input, plan);
+  if (thin_on && thin_signal && !prev_used && last_card_rec_ && last_card_rec_.get() != rec.get() && !(plan.usable && plan.thin)) {   // S102 T2 F4: the record we were given fails the delivery check: the previous one may be this frame's set
+    input.record = last_card_rec_.get();
+    cards::BuildPlan(input, plan);
+    ++stats_.card_prev_record_tried;
+    if (plan.usable && plan.thin && !plan.thin_hole) rec = last_card_rec_, prev_used = true;
+  }
+  if (prev_used && plan.usable && plan.thin && !plan.thin_hole) ++stats_.card_prev_record_drawn;
+  if (plan.usable && !prev_used) last_card_rec_ = rec;
   cph_.Lap(kCPlan);
   in.card_result = plan.thin_hole ? 4 : plan.thin ? 3 : plan.usable ? 1 : (thin_signal ? 4 : 2);  // lane 175
   // SF1 backstop: with the thin switch on, a refused frame that holds no more card draws than types and has record cards without a stream draw has probably lost cards (the tally was unknown or evicted:
   // a wrong stamp offset): a hole whatever the tally says, so a wrong offset latches after 3 instead of flickering missing far cards for the whole session.
-  if (options_.cards_thin && !plan.usable && !plan.thin_hole && plan.unpaired_record > 0 && plan.stream_cards <= cards::kTypes) in.card_result = 4;
-  if (options_.thin_probe && options_.thin_counts && plan.usable && !plan.thin && in.frame) {   // SF2: which stamp offset matches the full frame the game recorded (census only)
+  if (thin_on && !plan.usable && !plan.thin_hole && plan.unpaired_record > 0 && plan.stream_cards <= cards::kTypes) in.card_result = 4;
+  if ((options_.thin_probe || thin_on) && options_.thin_counts && plan.usable && !plan.thin && in.frame) {   // S102 T2 (run 7239: no stamp line because the start-time probe option was off when the switch came on mid-run): per frame, with the cut   // SF2: which stamp offset matches the full frame the game recorded (census only)
     ++stats_.thin_probe_frames;
     for (uint32_t k = 0; k < 3; ++k) {
       uint32_t s = 0, d = 0;
@@ -1277,15 +1546,17 @@ uint32_t CrowdOurs::InjectCards(rdr_adapter::CrowdInject& in) {
       const uint64_t fno = in.frame->header.guest_frame;
       if (fno >= k && options_.thin_counts(fno - k, s, d, w) && s == plan.stream_cards && w == plan.record_world_sum) ++stats_.thin_probe_match[k];
     }
-    if (stats_.thin_probe_frames % 600 == 0)
+    if (stats_.thin_probe_frames % 600 == 0 || stats_.thin_probe_frames == 16)   // S102 T2 F3: also at probe frame 16 (a short run) and in Report()
       rdr::Log("[rdr][crowd] card thin stamp: offset 0 / 1 / 2 match %llu / %llu / %llu of %llu full frames", static_cast<unsigned long long>(stats_.thin_probe_match[0]),
                static_cast<unsigned long long>(stats_.thin_probe_match[1]), static_cast<unsigned long long>(stats_.thin_probe_match[2]), static_cast<unsigned long long>(stats_.thin_probe_frames));
   }
-  if (options_.cards_thin && plan.usable && !plan.thin && plan.record_order_differs) in.card_result = 2;   // review S5: a full proof frame whose record order differs from the stream's disproves the thin order rule
+  if (thin_on && plan.usable && !plan.thin && plan.record_order_differs) in.card_result = 2;   // review S5: a full proof frame whose record order differs from the stream's disproves the thin order rule
   if (in.card_result == 4 && !plan.thin_hole) ++stats_.card_thin_holes;
   if (plan.thin_hole) {
     ++stats_.card_thin_holes;
-    if (++card_thin_logged_ <= 5) rdr::Log("[rdr][crowd] WARN cards: a THIN frame ours cannot draw (%s; record cards %u, kept stream cards %u): its dropped cards are missing on this frame", plan.thin_why, plan.record_cards, plan.stream_cards);
+    if (++card_thin_logged_ <= 5) rdr::Log("[rdr][crowd] WARN cards: a THIN frame ours cannot draw (%s; record cards %u, kept stream cards %u): its dropped cards are missing on this frame [S102 T2 diagnosis: stream frame %llu, tally of hook frame %llu: seen %u dropped %u world %016llx, own record %s, previous record tried %d]", plan.thin_why, plan.record_cards, plan.stream_cards,
+                                                    static_cast<unsigned long long>(in.frame ? in.frame->header.guest_frame : 0), static_cast<unsigned long long>(in.frame && in.frame->header.guest_frame >= options_.thin_offset ? in.frame->header.guest_frame - options_.thin_offset : 0),
+                                                    thin_seen, thin_dropped, static_cast<unsigned long long>(thin_world), frame_record_ ? "present" : "none", prev_used ? 1 : 0);
   }
   if (plan.thin) ++stats_.card_thin_frames, stats_.card_thin_cards += plan.drawn, stats_.card_thin_dropped += plan.thin_dropped;
   stats_.card_record += plan.record_cards, stats_.card_stream += plan.stream_cards, stats_.card_unaccounted += plan.unaccounted, stats_.card_unpaired_record += plan.unpaired_record;
@@ -1309,7 +1580,7 @@ uint32_t CrowdOurs::InjectCards(rdr_adapter::CrowdInject& in) {
   cph_.Lap(kCDraw);
   cph_.Count(drawn);
   if (!drawn) {
-    if (options_.cards_thin && in.card_result != 4) in.card_result = plan.thin ? 4 : 2;   // review S4: a Draw that drew nothing is not a clean frame (a thin one is a hole)
+    if (thin_on && in.card_result != 4) in.card_result = plan.thin ? 4 : 2;   // review S4: a Draw that drew nothing is not a clean frame (a thin one is a hole)
     if (plan.thin) ++stats_.card_thin_holes;
     ++stats_.card_why[cards_drawer_->refusal().empty() ? std::string("drawer: drew nothing") : cards_drawer_->refusal()];   // lane 219: every drawer refusal names itself in the census
     return ++stats_.card_fallback, ++stats_.card_other, 0;
@@ -1346,7 +1617,7 @@ std::string CrowdOurs::MemberSkipLine() const {
                   "hook kept in full because: stamp unproven %llu, not proven %llu, latched %llu, tiled %llu, no palette %llu, unknown class %llu (proof runs %llu, first of run %llu); "
                   "stamp: offset 1 only %llu, ambiguous %llu, miss %llu, none (thin ok) %llu, streak %u, proven %s, resets %llu; "
                   "verify: frames %llu, members %llu, mismatching %llu (material %llu, bank %llu), unsourced %llu, non-uniform frames %llu, calls = records checked %llu differ %llu",
-                  options_.members_thin ? "skip" : "census", static_cast<unsigned long long>(stats_.member_thin_frames), static_cast<unsigned long long>(stats_.member_thin_members), static_cast<unsigned long long>(stats_.member_thin_dropped),
+                  MembersThin() ? "skip" : "census", static_cast<unsigned long long>(stats_.member_thin_frames), static_cast<unsigned long long>(stats_.member_thin_members), static_cast<unsigned long long>(stats_.member_thin_dropped),
                   static_cast<unsigned long long>(stats_.member_thin_holes), static_cast<unsigned long long>(stats_.member_full_refused), static_cast<unsigned long long>(stats_.member_full_clean), static_cast<unsigned long long>(stats_.member_judge_disagrees),
                   K(mth::kStampUnproven), K(mth::kNotProven), K(mth::kLatched), K(mth::kTiled), K(mth::kNoPalette), K(mth::kUnknownClass), K(mth::kProofRun), K(mth::kFirstOfRun),
                   static_cast<unsigned long long>(stats_.member_stamp_evidence[1]), static_cast<unsigned long long>(stats_.member_stamp_evidence[2]), static_cast<unsigned long long>(stats_.member_stamp_evidence[3]), static_cast<unsigned long long>(stats_.member_stamp_evidence[0]),
@@ -1366,10 +1637,31 @@ std::string CrowdOurs::Report() const {
                 static_cast<unsigned long long>(stats_.unsupported_variant), static_cast<unsigned long long>(stats_.arena_loads), static_cast<unsigned long long>(stats_.other_program), static_cast<unsigned long long>(stats_.pair_match),
                 static_cast<unsigned long long>(stats_.pair_total), static_cast<unsigned long long>(stats_.stream_draws), static_cast<unsigned long long>(stats_.pair_bad_frames), static_cast<unsigned long long>(stats_.class_geom_ok), static_cast<unsigned long long>(stats_.class_total), static_cast<unsigned long long>(stats_.class_pose_ok));
   std::string text = line;
+  if (stats_.thin_probe_frames) {   // S102 T2 F3: the stamp census in the final report too (a short run never reaches 600 probe frames)
+    char sp[300];
+    std::snprintf(sp, sizeof sp, "\n[rdr][crowd] card thin stamp: offset 0 / 1 / 2 match %llu / %llu / %llu of %llu full frames", static_cast<unsigned long long>(stats_.thin_probe_match[0]),
+                  static_cast<unsigned long long>(stats_.thin_probe_match[1]), static_cast<unsigned long long>(stats_.thin_probe_match[2]), static_cast<unsigned long long>(stats_.thin_probe_frames));
+    text += sp;
+  }
   if (ph_.on()) {
     char c[400];
     std::snprintf(c, sizeof c, "\n[rdr][crowd][phase] caches: textures %llu hit / %llu miss (member meshes); checks: asset parse %llu assets %llu mismatches, 4-wide pose %llu meshes %llu mismatches", static_cast<unsigned long long>(stats_.tex_hit), static_cast<unsigned long long>(stats_.tex_miss), static_cast<unsigned long long>(stats_.parse_checked),
                   static_cast<unsigned long long>(stats_.parse_mismatch), static_cast<unsigned long long>(stats_.pose_checked), static_cast<unsigned long long>(stats_.pose_mismatch));
+    text += c;
+  }
+  if (stats_.inst_audit_members) text += "\n[rdr][crowd] members instanced audit: " + std::to_string(stats_.inst_audit_members) + " members rebuilt from their group, " + std::to_string(stats_.inst_audit_bad) + " rebuilt wrong, " + std::to_string(stats_.inst_order_bad) + " out of stream order";
+  if (stats_.inst_frames || stats_.inst_fallback) {   // S102 T6: only with the switch on, so the switch-off report is unchanged
+    char c[420];
+    std::snprintf(c, sizeof c, "\n[rdr][crowd] members instanced: %llu frames, %llu draws (%.1f a frame, at most %llu), %llu groups for %llu members (%llu groups beyond one per class), %llu frames asked and fell back to one draw per member",
+                  static_cast<unsigned long long>(stats_.inst_frames), static_cast<unsigned long long>(stats_.inst_draws), stats_.inst_frames ? double(stats_.inst_draws) / double(stats_.inst_frames) : 0.0,
+                  static_cast<unsigned long long>(stats_.inst_max_draws), static_cast<unsigned long long>(stats_.inst_groups), static_cast<unsigned long long>(stats_.inst_members), static_cast<unsigned long long>(stats_.inst_splits),
+                  static_cast<unsigned long long>(stats_.inst_fallback));
+    text += c;
+  }
+  {  // S102 R21-C (review F3): the pose pool's census (0 with the switch off, so a "no gain" and a "never ran" tell apart)
+    char c[200];
+    std::snprintf(c, sizeof c, "\n[rdr][crowd] workers: pose on the pool %llu frames, %llu pool runs, %llu class jobs, %llu threads", static_cast<unsigned long long>(stats_.workers_frames), static_cast<unsigned long long>(stats_.workers_runs),
+                  static_cast<unsigned long long>(stats_.workers_jobs), static_cast<unsigned long long>(workers_.Threads()));
     text += c;
   }
   if (ph_.on()) text += "\n" + ph_.Report("crowd members Inject", "members") + "\n" + cph_.Report("InjectCards", "cards") + "\n" + cards::PhaseReport();  // lane 270
@@ -1399,15 +1691,15 @@ std::string CrowdOurs::Report() const {
     text += c;
     text += "; types whose picture is the stream's own (no bake join) " + std::to_string(stats_.card_joined_stream) + "; frames with a bake " + std::to_string(stats_.card_bake_frames) + ", without " + std::to_string(stats_.card_nobake_frames);
     for (const auto& w : stats_.card_why) text += "; cards fallback " + std::to_string(w.second) + " x [" + w.first + "]";   // lane 219: why each fallback frame fell back
-    if (options_.cards_thin) {  // lane 175: only with the thin switch, so the switch-off report is unchanged
-      char t[320];
-      std::snprintf(t, sizeof t, ", THIN cards: frames %llu, cards drawn in them %llu, the game's dropped card draws %llu, holes (thin frames ours could not draw) %llu",
+    if (CardsThin()) {  // lane 175: only with the thin switch, so the switch-off report is unchanged
+      char t[480];
+      std::snprintf(t, sizeof t, ", THIN cards: frames %llu, cards drawn in them %llu, the game's dropped card draws %llu, holes (thin frames ours could not draw) %llu, previous record tried %llu drawn %llu",
                     static_cast<unsigned long long>(stats_.card_thin_frames), static_cast<unsigned long long>(stats_.card_thin_cards), static_cast<unsigned long long>(stats_.card_thin_dropped),
-                    static_cast<unsigned long long>(stats_.card_thin_holes));
+                    static_cast<unsigned long long>(stats_.card_thin_holes), static_cast<unsigned long long>(stats_.card_prev_record_tried), static_cast<unsigned long long>(stats_.card_prev_record_drawn));
       text += t;
     }
   }
-  if (options_.member_probe || options_.members_thin) {   // lane 272: only with the member switches, so the switch-off report is unchanged
+  if (options_.member_probe || MembersThin()) {   // lane 272: only with the member switches, so the switch-off report is unchanged
     char m[900];
     std::snprintf(m, sizeof m,
                   ", THIN members: frames %llu, members in them %llu, the game's dropped member draws %llu, holes (thin frames ours could not draw) %llu; full frames clean %llu, refused %llu; verify: members %llu, material differs %llu, bank differs %llu, "

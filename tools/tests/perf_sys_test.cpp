@@ -5,6 +5,7 @@
 #include "perf_sys.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <thread>
 
@@ -12,7 +13,44 @@ using namespace wwe2k14::perf_sys;
 static int g_fail = 0;
 #define CHECK(c, ...) do { if (!(c)) { ++g_fail; std::printf("FAIL %s: ", #c); std::printf(__VA_ARGS__); std::printf("\n"); } else { std::printf("ok   %s\n", #c); } } while (0)
 
-int main() {
+// S102 S0-2: `perf_sys_test.exe --seconds N [--out FILE]`: the standalone sampler. Runs N seconds with one named and one unnamed busy thread of this
+// process, takes one [perf][sys] window per second (the same Take / Format the game uses) and prints / appends each line. tools\perf\thread_busy.ps1
+// -ProcessName perf_sys_test samples this process's threads at the same time (the gate lane checks both outputs).
+static int RunSampler(int seconds, const char* out_path) {
+  std::atomic<bool> stop{false};
+  auto burn = [&] { volatile double x = 0; while (!stop.load()) x += 1.0; };
+  std::thread named([&] {
+#if defined(_WIN32)
+    SetThreadDescription(GetCurrentThread(), L"heat_burn_named");
+#endif
+    burn();
+  });
+  std::thread unnamed(burn);
+  FILE* f = out_path ? std::fopen(out_path, "w") : nullptr;
+  Sample s;
+  Take(s, 0, 0, 0);  // primes
+  for (int i = 0; i < seconds; ++i) {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (!Take(s, 0, 0, 0)) continue;
+    const std::string line = Format(s, double(i + 1), false);
+    std::printf("%s\n", line.c_str());
+    if (f) std::fprintf(f, "%s\n", line.c_str());
+  }
+  stop = true;
+  named.join();
+  unnamed.join();
+  if (f) std::fclose(f);
+  return 0;
+}
+
+int main(int argc, char** argv) {
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (std::string(argv[i]) == "--seconds") {
+      const char* out = nullptr;
+      for (int j = 1; j + 1 < argc; ++j) if (std::string(argv[j]) == "--out") out = argv[j + 1];
+      return RunSampler(std::atoi(argv[i + 1]), out);
+    }
+  }
   // Pure math: 10 s window, 4 cores. 100 ns ticks: 40 cores-seconds of total = 10 s * 4 * 1e7.
   Raw a, b;
   a.ok = b.ok = true;
@@ -38,6 +76,20 @@ int main() {
   a.page_reads = b.page_reads = ~0ull;
   CHECK(Format(Derive(a, b, -1, -1, -1, -1), 1.0, true).find("hard_faults_s") == std::string::npos, "unreadable field left out");
   CHECK(Format(Derive(a, b, -1, -1, -1, -1), 1.0, true).find("log_write_ms") == std::string::npos, "unknown log fields left out");
+  // S102 S0-2: heat fields. A platform that does not probe prints none; one that probes prints n/a (never 0) for a counter it lacks.
+  CHECK(Format(Derive(a, b, -1, -1, -1, -1), 1.0, true).find("perf_pct") == std::string::npos, "no heat probe: no heat fields");
+  {
+    Sample h = Derive(a, b, -1, -1, -1, -1);
+    h.heat.probed = true;
+    h.heat.perf_pct = 131.4, h.heat.perf_limit = 88, h.heat.limit_flags = 2;  // package watts unreadable
+    const std::string hl = Format(h, 1.0, false);
+    std::printf("%s\n", hl.c_str());
+    CHECK(hl.find("perf_pct=131") != std::string::npos && hl.find("perf_limit=88") != std::string::npos && hl.find("limit_flags=2") != std::string::npos, "heat fields");
+    CHECK(hl.find("pkg_w=n/a") != std::string::npos, "unreadable package watts says n/a");
+    CHECK(hl.find("pkg_w=0") == std::string::npos, "never a 0 for an unreadable counter");
+    h.heat.pkg_w = 12.64;
+    CHECK(Format(h, 1.0, false).find("pkg_w=12.6") != std::string::npos, "package watts when readable");
+  }
 
   // Live: prime, burn one core for ~1 s, read the window.
   Sample live;
@@ -58,7 +110,19 @@ int main() {
   CHECK(live.cores > 0, "cores=%d", live.cores);
   CHECK(live.free_mb > 0, "free_mb=%f", live.free_mb);
   CHECK(live.file_write_ms > 41.9 && live.file_write_ms < 42.1, "file_write_ms=%f (the note must come through once)", live.file_write_ms);
+  CHECK(live.heat.probed, "heat is probed on Windows");
+  std::printf("heat: perf_pct=%.0f perf_limit=%.0f limit_flags=%.0f pkg_w=%.1f (-1 = n/a on this machine)\n", live.heat.perf_pct, live.heat.perf_limit,
+              live.heat.limit_flags, live.heat.pkg_w);
+  CHECK(live.heat.perf_pct > 0 && live.heat.perf_pct < 1000, "real performance %% on this machine, got %f", live.heat.perf_pct);
   std::printf(live.hard_faults_s >= 0 ? "hard-fault struct: trusted (self-check passed), %.0f /s\n" : "hard-fault struct: dropped by its self-check\n", live.hard_faults_s);
+  {  // S102 S0-2 review item 8: the wwe2k14_perf_heat escape hatch (perf_heat::Enabled) is read per window; off = no heat fields at all
+    wwe2k14::perf_heat::Enabled().store(false);
+    Sample off;
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    const bool ok_off = Take(off, 0, 0, 0);
+    CHECK(ok_off && !off.heat.probed && Format(off, 1.0, false).find("perf_pct") == std::string::npos, "heat switch off: no heat fields, no PDH");
+    wwe2k14::perf_heat::Enabled().store(true);
+  }
   std::printf(g_fail ? "RESULT: FAIL (%d)\n" : "RESULT: PASS\n", g_fail);
   return g_fail ? 1 : 0;
 }

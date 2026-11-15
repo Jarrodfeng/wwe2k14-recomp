@@ -1,0 +1,43 @@
+#version 450
+// S102 lane G7 (docs\renderer\SKIN_ONCE.md): the skin-once kernel for the SHADOW LAYOUT (the 32-byte skinned vertex the shadow maps, the rim map and the plane mask all draw:
+// src\scene\vs_skin_shadow.vert, vs_skin_rim.vert, vs_plane_shadow_skin.vert). One invocation skins one vertex to its WORLD position (xyz, w = 1) the way those vertex shaders do
+// before their view-projection, so a pass that draws the result needs no bone blend at all. Our own code; written from vs_skin_shadow.vert, not from game data.
+//
+// Input vertex (`stride_dw` dwords: 8 for the shadow / rim map's skinned 32-byte layout, 9 for the plane mask's skinned 36-byte one; the rigid 24 / 28-byte layouts are one bone with `ids_dw` 5): [0..3] position x y z w (floats; w is the file's, 1.0), [4] weight of bone 0, [5] weight of bone 1, [6] weight of bone 2 (the LAST bone used gets the rest:
+// 1 - the weights before it), [ids_dw = 7] four bone bytes (byte k = bone k; the palette index is 3 x byte). `bones` (1..4) is the draw's bool constants b1 / b2 / b3 (one bone, two, three, four).
+// Palette: the draw's 256 vertex-constant registers (the same uniform block the guest vertex shader reads, std140 vec4 c[256]); bone b = rows c[76 + 3b], c[77 + 3b], c[78 + 3b]
+// (three rows of a 3x4, translation in w): world = (row0 . p, row1 . p, row2 . p). The index clamp is the vertex shaders' own (XeBone: -76..177).
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer Verts { uint dw[]; } verts;
+layout(std140, set = 0, binding = 1) uniform Palette { vec4 c[256]; } pal;
+layout(std430, set = 0, binding = 2) writeonly buffer Out { vec4 pos[]; } outv;
+layout(push_constant) uniform Push { uint count; uint bones; uint stride_dw; uint ids_dw; } pc;
+
+vec3 Bone(vec4 p, uint byte_id) {
+  // XeAddress(3 x byte): floor(x + 0.5), then XeBone's clamp.
+  int a = clamp(int(floor(float(byte_id) * 3.0 + 0.5)), -76, 177);
+  return vec3(dot(pal.c[76 + a], p), dot(pal.c[77 + a], p), dot(pal.c[78 + a], p));
+}
+
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  if (i >= pc.count) return;
+  uint at = i * pc.stride_dw;
+  vec4 p = vec4(uintBitsToFloat(verts.dw[at]), uintBitsToFloat(verts.dw[at + 1u]), uintBitsToFloat(verts.dw[at + 2u]), uintBitsToFloat(verts.dw[at + 3u]));
+  // the weights exist only for 2+ bones (the rigid 24 / 28-byte layouts have none: one bone, `ids_dw` = 5)
+  float w0 = 0.0, w1 = 0.0, w2 = 0.0;
+  if (pc.bones > 1u) w0 = uintBitsToFloat(verts.dw[at + 4u]), w1 = uintBitsToFloat(verts.dw[at + 5u]), w2 = uintBitsToFloat(verts.dw[at + 6u]);
+  uint ids = verts.dw[at + pc.ids_dw];
+  vec3 r;
+  if (pc.bones >= 4u) {
+    r = Bone(p, ids & 255u) * w0 + Bone(p, (ids >> 8) & 255u) * w1 + Bone(p, (ids >> 16) & 255u) * w2 + Bone(p, ids >> 24) * (1.0 - (w0 + w1 + w2));
+  } else if (pc.bones == 3u) {
+    r = Bone(p, ids & 255u) * w0 + Bone(p, (ids >> 8) & 255u) * w1 + Bone(p, (ids >> 16) & 255u) * (1.0 - (w0 + w1));
+  } else if (pc.bones == 2u) {
+    r = Bone(p, ids & 255u) * w0 + Bone(p, (ids >> 8) & 255u) * (1.0 - w0);
+  } else {
+    r = Bone(p, ids & 255u);
+  }
+  outv.pos[i] = vec4(r, 1.0);
+}

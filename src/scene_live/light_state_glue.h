@@ -15,6 +15,15 @@ __attribute__((noinline))
 #endif
 inline void ModelEntryHook(uint32_t model, uint32_t r13, uint64_t frame) {
   if (!rdr_scene::live::lights::LightStatesRegistered() || !rdr_scene::live::Enabled()) return;
+  if (wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry)) {   // S102 U2 (R22 cut 3): the in-place compare for a call whose state is already the slot's
+    bool took = false;
+    rdr_scene::live::lights::States().tracker.OnModelCallLean(
+        model, r13, frame, [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
+        [](uint32_t a, const void* ref, size_t n) { return wwe2k14::wrestlers::CompareGuest(a, ref, n); },
+        [](uint32_t a, void* dst, size_t n) { return wwe2k14::wrestlers::ReadGuest(a, dst, n); }, [](const char* line) { REXLOG_INFO("{}", line); }, &took);
+    wwe2k14::upd_lean::Count(took ? wwe2k14::upd_lean::kLightFast : wwe2k14::upd_lean::kLightFull);
+    return;
+  }
   rdr_scene::live::lights::States().tracker.OnModelCall(
       model, r13, frame, [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
       [](uint32_t a, void* dst, size_t n) { return wwe2k14::wrestlers::ReadGuest(a, dst, n); }, [](const char* line) { REXLOG_INFO("{}", line); });

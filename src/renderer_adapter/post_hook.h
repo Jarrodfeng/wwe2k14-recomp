@@ -66,6 +66,7 @@ struct PostInject {
   rdr::FrameBuilder* builder = nullptr;
   const rdr::ImageId* images = nullptr;   // capture image id -> renderer image
   uint32_t image_count = 0;
+  const uint32_t* formats = nullptr;      // S102 R24-E: capture image id -> rdr::Format value (the binder's image_formats_), null = unknown
 };
 
 class PostHook {

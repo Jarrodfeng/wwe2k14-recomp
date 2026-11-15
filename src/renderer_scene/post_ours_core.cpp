@@ -1,5 +1,6 @@
 // Session 101, lane PO: the post chain's promotion, the GPU-free half. See post_ours_core.h.
 #include "post_ours_core.h"
+#include "../renderer_adapter/plan_memo.h"  // S102 R23-P
 
 #include <cstdio>
 #include <cstring>
@@ -96,7 +97,12 @@ PostDecision DecidePost(const rdr_adapter::PostPlanIn& in, const PostFaults& fau
     w = i.width, h = i.height;
     return true;
   };
-  if (!ReadStreamChain(size, f, sc, error)) {
+  bool read_ok;
+  {
+    rdr_adapter::plan_memo::Timer tm_(rdr_adapter::plan_memo::kTmPostRead);   // S102 R23-P
+    read_ok = ReadStreamChain(size, f, sc, error);
+  }
+  if (!read_ok) {
     d.keep = PostKeep::Shape, d.detail = "the frame's post draws could not be read: " + error, d.failed = true;
     return d;
   }
@@ -108,7 +114,10 @@ PostDecision DecidePost(const rdr_adapter::PostPlanIn& in, const PostFaults& fau
   g_plan_plant = faults.last_pass_by_hash ? PlanPlant::LastPassByHash : faults.old_restore_rule ? PlanPlant::OldRestoreRule : faults.t2_source_stale ? PlanPlant::T2SourceStale :
                  faults.t2_slots_foreign ? PlanPlant::T2SlotsForeign : faults.t2_needs_dof ? PlanPlant::T2NeedsDof : faults.t2_one_only ? PlanPlant::T2OneOnly : faults.far_copy_unchecked ? PlanPlant::FarCopyUnchecked : PlanPlant::None;
   d.stream_chain_draws = uint32_t(sc.draws.size());
-  d.plan = BuildPostPlan(sc);
+  {
+    rdr_adapter::plan_memo::Timer tm_(rdr_adapter::plan_memo::kTmPostBuild);   // S102 R23-P
+    d.plan = BuildPostPlan(sc);
+  }
   g_plan_plant = saved;
   const PostPlan& plan = d.plan;
   d.sequence = plan.sequence, d.shape = plan.shape;
@@ -309,19 +318,29 @@ PostDecision DecidePost(const rdr_adapter::PostPlanIn& in, const PostFaults& fau
   for (uint32_t t : targets)
     if (t != d.out) made_all.insert(t);
   uint32_t reads = 0;
+  // S102 R23-P (plan_memo.h kPostChain): the set holds a handful of images and is asked about every texture slot of every draw after the chain's start (the HUD, hundreds): a short flat list, no hashing
+  std::vector<uint32_t> made_flat;
+  const bool flat = rdr_adapter::plan_memo::Has(rdr_adapter::plan_memo::kPostChain) && made_all.size() <= 32;
+  if (flat) made_flat.assign(made_all.begin(), made_all.end());
+  const auto made_has = [&](uint32_t image) {
+    if (!flat) return made_all.count(image) != 0;
+    for (const uint32_t m : made_flat)
+      if (m == image) return true;
+    return false;
+  };
   for (uint32_t k = first_op + 1; k < f.ops.count; ++k) {
     const rdr_adapter::Op& op = f.ops[k];
     if (op.kind == rdr_adapter::OpKind::Draw) {
       if (claimed[op.index]) continue;
       const rdr_adapter::Draw& dr = f.draws[op.index];
       for (uint32_t s = 0; s < dr.texture_count && dr.texture_first + s < f.texture_slots.count; ++s)
-        if (made_all.count(f.texture_slots[dr.texture_first + s].image)) ++reads;
+        if (made_has(f.texture_slots[dr.texture_first + s].image)) ++reads;
     } else if (op.kind == rdr_adapter::OpKind::Copy) {
       if (c.drop[k]) continue;
       const rdr::CopyOp& cp = f.copies[op.index];
-      if (made_all.count(cp.source.image) && !(k < last_op && targets.count(cp.source.image))) ++reads;   // (a kept copy OF a claimed target is judged below by who reads its destination)
+      if (made_has(cp.source.image) && !(k < last_op && targets.count(cp.source.image))) ++reads;   // (a kept copy OF a claimed target is judged below by who reads its destination)
     } else if (op.kind == rdr_adapter::OpKind::Present) {
-      if (made_all.count(f.presents[op.index].source.image)) ++reads;
+      if (made_has(f.presents[op.index].source.image)) ++reads;
     }
   }
   // a copy from a claimed target that stays (no claimed draw reads its destination) copies pictures our pass never made: nobody after it may read the destination either

@@ -1,0 +1,14 @@
+{
+ "owner": "S102 lane T1b (constants by a 64-entry block map per def, not 4 KB banks): src/renderer_adapter/capture_reader.h (BankView::Block / CopyBytes / Ref / SameMap, BankRef, BuildMaps), bank_switch.h (g_bank_blocks), rdr_switches.h (BankBlocks, PerFrame), live.cpp (ParseFrame blocks arg + banks line), reader.h (cvar wwe2k14_rdr_bank_blocks), binder.h (PackBlock / PackConstants take a BankRef; the draw-packing call sites use Ref), pack_once.h (CopyBytes when the bank has it), crowd_ours.cpp (PackFromBank call sites only), particle_runs.h (SameMap before a bank memcmp), fview/main.cpp + rplay.cpp (--bank-blocks, --bank-block-plant), bank_blocks_test.cpp + tools/renderer/bank_blocks_unit.py + bank_blocks_check.py. 0 game runs.",
+ "claim": {"scene": "bryan", "side": "our render thread", "ms": [0.5, 2], "basis": "T1 left ~7.2 MB a frame of 4 KB bank copies on Bryan (the packers' reads); block maps copy 256 B a def (0.4 MB) and the packers copy only the register ranges they pack. About 7 MB less memory traffic and ~1700 fewer 4 KB assemblies a frame at a few GB/s: an estimate of 0.5-2 ms of our render thread, unmeasured (the offline counter is the proof of the bytes, not of the ms)."},
+ "note": "unit = every frame of both captures: every block of every bank (Block), seeded random byte ranges (CopyBytes, Ref), SameMap => equal banks, zero reads past the table / block 64, and no bank assembled by those reads, all against the eager expansion; plants 4 (patches skipped in the map) and 5 (a map's base off by one) must be caught. check = fview replays Bryan's entrance and a match capture with block maps off / lazy / on (hash of every presented frame byte-equal, KB zeroed + copied a frame: blocks < lazy and <= 60 % of off) and the planted twin which must break the equality.",
+ "checks": [
+  {"name": "s102_t1b.unit", "cmd": ["py", "-I", "tools/renderer/bank_blocks_unit.py", "--root", "."], "timeout_s": 1500, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip"]},
+  {"name": "s102_t1b.blocks", "cmd": ["py", "-I", "tools/renderer/bank_blocks_check.py", "--root", "."], "timeout_s": 3000, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
+    "game_data/extracted"]}
+ ]
+}

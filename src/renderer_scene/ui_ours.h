@@ -95,7 +95,8 @@ class UiOurs final : public rdr_adapter::DrawReplaceHook, private UiTextureProvi
   mutable std::mutex deep_mu_;                      // lane 126: guards the queue and the deep counters
   std::condition_variable deep_cv_;
   std::deque<uint8_t> deep_queue_;
-  std::vector<int> record_arenas_;          // lane 126: the bgNN pacs the last scene record names (first = the arena), guarded by deep_mu_
+  std::vector<std::string> last_pacs_;   // S102 RT1 (render_lean bit 4): the pac names of the record SetRecord took last
+  std::vector<int> record_arenas_;        // lane 126: the bgNN pacs the last scene record names (first = the arena), guarded by deep_mu_
   std::set<uint8_t> deep_requested_;
   unsigned deep_pending_ = 0, deep_walked_ = 0, deep_failed_ = 0;
   uint64_t deep_entries_ = 0;

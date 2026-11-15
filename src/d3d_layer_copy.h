@@ -609,12 +609,12 @@ inline bool GprSplit(PPCContext& ctx, uint8_t* base) {
 #include "owner_null_copy.h"  // Session 100 (strip-360 B3): owner mode's clears / resolves = their device bookkeeping only
 
 REX_HOOK_RAW(sub_82CB52B8) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnClear(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnClear(ctx, base);
   if (wwe2k14::owner_null_copy::Clear(ctx, base)) return;
   if (!wwe2k14::d3d_copy::Clear(ctx, base)) __imp__sub_82CB52B8(ctx, base);
 }
 REX_HOOK_RAW(sub_82CAFB88) {
-  if (REXCVAR_GET(wwe2k14_rdr_capture)) wwe2k14::rdr_reader::OnResolve(ctx, base);
+  if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnResolve(ctx, base);
   if (wwe2k14::owner_null_copy::Resolve(ctx, base)) return;
   if (!wwe2k14::d3d_copy::Resolve(ctx, base)) __imp__sub_82CAFB88(ctx, base);
 }

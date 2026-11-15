@@ -1,4 +1,5 @@
 // See ui_ours.h. Session 101, lane 66.
+#include "../thread_name.h"  // S102 H1
 #include "ui_ours.h"
 
 #include <chrono>
@@ -6,6 +7,7 @@
 #include <cstdio>
 
 #include "arena_ours_core.h"   // ArenaCore::ArenaOfRecord (lane 126: the record's arena, the one rule the arena hook uses)
+#include "../renderer/render_lean.h"   // S102 RT1
 
 namespace rdr_scene {
 namespace {
@@ -78,7 +80,7 @@ void UiOurs::RequestDeep(uint8_t pac) {
     ++deep_pending_;
   }
   if (options_.live) {
-    if (!deep_thread_.joinable()) deep_thread_ = std::thread([this] { DeepWorker(); });
+    if (!deep_thread_.joinable()) deep_thread_ = std::thread([this] { wwe2k14::NameThread(L"ours_ui_deep"); DeepWorker(); });
     deep_cv_.notify_one();
   }
 }
@@ -143,6 +145,20 @@ bool UiOurs::MaybeStartDeep(uint64_t unjoined_before) {
 
 void UiOurs::SetRecord(std::shared_ptr<const SceneTables> record) {
   if (!record) return;
+  const bool lean = (rdr::g_lean_hooks.load(std::memory_order_relaxed) & rdr::kLeanHandoff) != 0;
+  if (lean) {   // S102 RT1 (render_lean bit 4, Q9): a new record every frame, but its pac names are the last record's: arena and pac list are a function of those names alone, so nothing is parsed again (byte compares, no std::string, no sscanf)
+    bool same = last_pacs_.size() == record->assets.size() && !last_pacs_.empty();
+    for (size_t i = 0; same && i < last_pacs_.size(); ++i) same = record->Str(record->assets[i].pac) == last_pacs_[i];
+    if (same && rdr::g_lean_plant.load(std::memory_order_relaxed) != 5) {
+      rdr::LeanAdd(rdr::kLcSetRecordSkip);
+      return;
+    }
+  }
+  rdr::LeanAdd(rdr::kLcSetRecordRun);
+  if (lean) {
+    last_pacs_.resize(record->assets.size());
+    for (size_t i = 0; i < last_pacs_.size(); ++i) last_pacs_[i].assign(record->Str(record->assets[i].pac));
+  }
   const int arena = ArenaCore::ArenaOfRecord(*record);
   if (arena < 0) return;   // (kept across frames without a record)
   arena_ = arena;
@@ -160,7 +176,7 @@ void UiOurs::SetRecord(std::shared_ptr<const SceneTables> record) {
 
 void UiOurs::StartIndex() {
   index_started_ = true;
-  if (options_.live) index_thread_ = std::thread([this] { IndexAll(); });
+  if (options_.live) index_thread_ = std::thread([this] { wwe2k14::NameThread(L"ours_ui_index"); IndexAll(); });
   else IndexAll();
 }
 
@@ -259,7 +275,7 @@ const UiTexture* UiOurs::Texture(uint32_t entry_id, const UiFileEntry& e, uint32
     if (options_.live) {
       s.state = 1;
       queue_.push_back(entry);
-      if (!load_thread_.joinable()) load_thread_ = std::thread([this] { LoadWorker(); });
+      if (!load_thread_.joinable()) load_thread_ = std::thread([this] { wwe2k14::NameThread(L"ours_ui_load"); LoadWorker(); });
       cv_.notify_one();
       return pending = true, nullptr;
     }

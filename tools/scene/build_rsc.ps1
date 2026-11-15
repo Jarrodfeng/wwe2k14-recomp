@@ -22,7 +22,7 @@ $srcs = @((Join-Path $PSScriptRoot 'rsc_draw.cpp'), (Join-Path $v 'loader_seam_g
           (Join-Path $repo 'src\renderer_scene\front_end.cpp'), (Join-Path $repo 'src\renderer_scene\char_effects.cpp'), (Join-Path $repo 'src\renderer_scene\shader_reload.cpp'), (Join-Path $repo 'src\renderer_scene\post_pass.cpp'),  # S101 lane24: front_end.cpp calls ShaderReload; lane 34: and the post pass
           (Join-Path $repo 'src\importer\importer_core.cpp'), (Join-Path $v 'mods_win32.cpp'),
           (Join-Path $repo 'src\assets\crowd_body.cpp'), (Join-Path $repo 'src\scene_live\crowd_contrib.cpp'), (Join-Path $PSScriptRoot 'crowd_make.cpp'))  # S101 lane27: the crowd contributor + its offline driver
-$srcs += @(Get-ChildItem (Join-Path $repo 'src\renderer') -Recurse -Filter '*.cpp' | Where-Object { $_.FullName -notmatch '\\player\\' } | Select-Object -ExpandProperty FullName)
+$srcs += @(Get-ChildItem (Join-Path $repo 'src\renderer') -Recurse -Filter '*.cpp' | Where-Object { $_.FullName -notmatch '\\player\\' -and $_.Name -notlike '*_test.cpp' } | Select-Object -ExpandProperty FullName)  # S102: tests carry their own main (surface_lifecycle_test.cpp), as in the fview / rplay builds
 $newestHdr = (Get-ChildItem (Join-Path $repo 'src') -Recurse -Include *.h, *.hpp | Measure-Object LastWriteTimeUtc -Maximum).Maximum
 $repoLen = $repo.Path.Length + 1
 $fails = $srcs | ForEach-Object -ThrottleLimit 16 -Parallel {

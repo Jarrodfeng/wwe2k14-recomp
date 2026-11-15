@@ -20,7 +20,7 @@ void Emit(const char* line) {
   }
 }
 
-constexpr int kMaxNames = 128;
+constexpr int kMaxNames = kMaxProblemNames;
 struct Slot {
   std::atomic<const char*> name{nullptr};
   std::atomic<uint64_t> count{0};
@@ -71,7 +71,10 @@ void Problem(const char* name, const char* fmt, ...) {
   char line[1024];
   std::snprintf(line, sizeof(line), "[rdr][PROBLEM] %s: %s", name, detail);
   Emit(line);
-  if (stop) std::abort();
+  if (stop && !g_problem_nonfatal.load(std::memory_order_relaxed)) {
+    std::fflush(nullptr);  // S102 D1 (review F4): the lines before the stop (a lost device's dump) reach the file / pipe
+    std::abort();
+  }
 }
 
 int ProblemCounts(ProblemCount* out, int max) {

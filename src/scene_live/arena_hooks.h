@@ -21,6 +21,7 @@
 //   wwe2k14::scene_live::InstallArena(game_data_root());   // once, after the live writer exists; it installs the provider and registers the contributor
 #pragma once
 
+#include "../thread_name.h"  // S102 H1
 #include <rex/hook.h>
 #include <rex/ppc/context.h>
 
@@ -141,7 +142,7 @@ inline void OnLightSets(const uint8_t* base, uint32_t mgr) {
       std::lock_guard<std::mutex> lk(TriedLock());
       if (!Tried().insert(arena).second) return;  // loading, or failed before
     }
-    std::thread([arena, look] {
+    std::thread([arena, look] { wwe2k14::NameThread(L"arena_hook");
       std::vector<ra::SlotSnap> slots;
       std::vector<ra::ScreenSnap> screens;
       if (Provider()(arena, slots, screens)) {

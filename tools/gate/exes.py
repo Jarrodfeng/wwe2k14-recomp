@@ -18,10 +18,50 @@ HELD_RE = re.compile(r'permission denied|cannot open output file|being used by a
 BUILD_RE = re.compile(r'link failed|file\(s\) failed to compile|(fview|renderer|rplay) build \(exit \d+\)|cannot open output file|unable to open output|'
                       r'error: linker command failed|ld\.lld: error|clang(\+\+)?: error|missing objects', re.I)
 
-_FVIEW_SRC = {'dirs': ['src/renderer', 'src/fview', 'src/renderer_scene', 'src/assets'],
-              'files': ['tools/fview/session_deps.txt'], 'skip': ['src/renderer/player']}
-_RPLAY_SRC = {'dirs': ['src/renderer', 'src/renderer_scene', 'src/assets', 'src/fview'],
-              'files': ['tools/fview/session_deps.txt'], 'skip': []}
+# S102 main (08:56): fview / rplay also compile src/renderer_adapter, src/scene_live and more through includes; the old list missed them, so a
+# merge that touched reader.h left a stale fview the gate called fresh (G12's own check caught it: "fview.exe built 08:34 is older than ...").
+# The dirs and top-level headers below are every #include "../..." reached from the tool sources; `exes.py selftest-sources` re-greps them.
+_TOOL_DIRS = ['src/renderer', 'src/fview', 'src/renderer_scene', 'src/assets', 'src/renderer_adapter', 'src/scene_live', 'src/nf', 'src/case',
+              'src/importer', 'src/platform', 'src/renderer_game']
+_TOOL_TOP = ['android_lifecycle.h', 'blackbox.h', 'caw_text.h', 'copy_batch.h', 'cost_counters.h', 'crowd_wide.h', 'd3d_shader_bind.h',
+             'frame_builder.h', 'frame_pump.h', 'frame_stats.h', 'guest_read.h', 'guest_view.h', 'host_write.h', 'native_fn.h', 'native_skin.h',
+             'output_switches.h', 'pending_work.h', 'perf_file_write.h', 'problem.h', 'render_signal.h', 'renderer.h', 'thread_name.h', 'xctd_file.h', 'dlc_catalog.h', 'native_bpe.h', 'frame_split.h', 'frame_split_math.h']
+_FVIEW_SRC = {'dirs': list(_TOOL_DIRS),
+              'files': ['tools/fview/session_deps.txt'] + ['src/' + f for f in _TOOL_TOP], 'skip': ['src/renderer/player']}
+_RPLAY_SRC = {'dirs': list(_TOOL_DIRS),
+              'files': ['tools/fview/session_deps.txt'] + ['src/' + f for f in _TOOL_TOP], 'skip': []}
+
+
+def selftest_sources(root, plant=False):
+    # Every '#include "../X/..."' or '#include "../X.h"' reached from the tool dirs must be covered by _TOOL_DIRS / _TOOL_TOP (1 if not).
+    # plant=True drops src/renderer_adapter from the list first: it must then be reported (the bug of 08:56).
+    root = Path(root)
+    dirs = [d for d in _TOOL_DIRS if not (plant and d == 'src/renderer_adapter')]
+    inc = re.compile(r'#include "((?:\.\./)+)([A-Za-z0-9_]+)(/|\.h")')
+    src_root = (root / 'src').resolve()
+    missing = set()
+    for d in _TOOL_DIRS:
+        for f in (root / d).rglob('*'):
+            if f.suffix not in ('.h', '.hpp', '.cpp', '.inl') or not f.is_file():
+                continue
+            for m in inc.finditer(f.read_text(encoding='utf-8', errors='replace')):
+                is_dir = m.group(3) == '/'
+                target = (f.parent / (m.group(1) + m.group(2) + ('' if is_dir else '.h'))).resolve()
+                try:
+                    parts = target.relative_to(src_root).parts
+                except ValueError:
+                    continue
+                if is_dir:
+                    if parts[0] in ('thirdparty', 'launcher'):
+                        continue
+                    if not any(('src/' + '/'.join(parts[:k])) in dirs for k in (1, 2)):
+                        missing.add('src/' + parts[0])
+                elif len(parts) == 1 and parts[0] not in _TOOL_TOP:
+                    missing.add('src/' + parts[0])
+    if not plant:
+        for m in sorted(missing):
+            print('MISSING tool source', m)
+    return missing
 
 
 def registry():
@@ -57,8 +97,8 @@ def infer(check, root, reg):
     if 'exes' in check:
         return list(check['exes'])
     cmd = check.get('cmd', [])
-    if '--no-build' not in cmd:
-        return []
+    # S102 main (03:40): every python check that names fview / rplay, not only --no-build ones. s102_g2.bryan ran the shared
+    # out\renderer\dev\fview.exe built before G2 merged (it did not know G2's flags: every arm "validation -1"); nothing checked it.
     text = ''
     for a in cmd:
         p = Path(root) / a
@@ -243,10 +283,14 @@ def build_cause(output):
 if __name__ == '__main__':
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument('cmd', choices=['ensure'])
-    ap.add_argument('exe')
+    ap.add_argument('cmd', choices=['ensure', 'selftest-sources'])
+    ap.add_argument('exe', nargs='?')
     ap.add_argument('--root', default=str(Path(__file__).resolve().parents[2]))
     a = ap.parse_args()
+    if a.cmd == 'selftest-sources':   # S102 main 08:56: the tool-source list covers every include; the plant (adapter dropped) must be caught
+        miss, caught = selftest_sources(a.root), 'src/renderer_adapter' in selftest_sources(a.root, plant=True)
+        print(('PASS' if not miss and caught else 'FAIL') + f' tool sources: {len(_TOOL_DIRS)} dirs, {len(_TOOL_TOP)} top-level headers, {len(miss)} missing; plant (renderer_adapter dropped) ' + ('caught' if caught else 'NOT caught'))
+        sys.exit(0 if not miss and caught else 1)
     sp = spec_for(a.exe, registry())
     if not sp:
         print('unknown exe', a.exe)

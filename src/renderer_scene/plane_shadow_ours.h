@@ -48,6 +48,7 @@ class PlaneShadowOurs final : public rdr_adapter::DrawReplaceHook {
     uint64_t by_delta[plane::kDeltaLast - plane::kDeltaFirst + 1] = {};
     uint64_t joined = 0, alone = 0;   // lane 255: mask draws made with the shadow casters' mesh AND our program (binder join)
     uint64_t rows_compared = 0, rows_min = 0, rows_max = 0;   // rows verified per replaced draw: min / max (a draw with fewer than the module's 17 has lost a row)
+    uint64_t stream_eye = 0, stream_palette = 0, stream_bools = 0, stream_c34 = 0;   // S102 P3: inputs of a replaced draw that are still the STREAM's (EyePos c72, the bone palette, the bone switches, the blur's c34): what the live hook must read at the game's source
   };
   const Stats& stats() const { return stats_; }
   int delta() const { return delta_known_ ? delta_ : 99; }
@@ -64,9 +65,21 @@ class PlaneShadowOurs final : public rdr_adapter::DrawReplaceHook {
   bool locked_ = false;   // R stamp_lock
   // lane 159: our programs and the two constant blocks (the mask's 1,232 bytes and the blur's 112, std140 as the shaders declare them)
   uint16_t mask_program_ = 0, blur_program_ = 0;
+  // S102 L2 (plane_bake.h): the bake's fullscreen program (soften x / z, composite), its empty vertex layout, its two constant blocks, and what the hook learns about the rope proxy.
+  uint16_t bake_program_ = 0, bake_layout_ = 0;
+  alignas(16) float bake_vs_[16] = {};
+  alignas(16) float bake_fs_[24] = {};
+  struct EyeSet { uint32_t object = 0; uint32_t n = 0; float eye[4][3] = {}; };
+  EyeSet eyes_[6];                 // per object seen this frame: up to 4 distinct EyePos values (the rope proxy has 4, a wrestler's proxy 1)
+  uint32_t eyes_used_ = 0;
+  void NoteEye(uint32_t object, const float* eye);
+  void FinishEyes();               // at the start of the next frame: the object with 3+ distinct eyes is the rope proxy
+  bool ReplaceBakePass(const rdr_adapter::ReplaceIn& in, rdr_adapter::ReplaceOut& out, rdr_adapter::KeepWhy& why);
   alignas(16) float mask_vs_[308] = {};
   alignas(16) float blur_vs_[28] = {};
   alignas(16) float fs_[4] = {};
+  alignas(16) float prev_palette_[63 * 4] = {};   // S102 P3: the previous mask draw's palette (the planted palette_prev fault)
+  bool have_prev_palette_ = false;
   Stats stats_;
 };
 

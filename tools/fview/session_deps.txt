@@ -5,6 +5,7 @@ src\renderer_scene\shader_reload.cpp
 src\renderer_scene\crowd_ours.cpp
 src\renderer_scene\crowd_cards_core.cpp
 src\renderer_scene\crowd_cards.cpp
+src\renderer_scene\card_bake_ours.cpp
 src\renderer_scene\record_io.cpp
 src\assets\crowd_body.cpp
 src\renderer_scene\wrestler_ours.cpp

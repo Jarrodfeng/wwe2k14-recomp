@@ -98,6 +98,7 @@ inline uint32_t MemberIndex(uint8_t* base, uint32_t record, uint32_t type) {
 // Called by scene_crowd.h's op-21 hook before it does anything else. Observes only.
 inline void OnOp21(PPCContext& ctx, uint8_t* base) {
   const uint32_t lr = uint32_t(ctx.lr);
+  if (wwe2k14::card_thin::ObserverKnockOut()) return;   // S102 OBS1 TEST ONLY (wwe2k14_rdr_record_skip bit 0x100)
   if (!IsCrowdOp21(lr)) return;
   if (lr == rdr_scene::live::crowd::kFloorOp21Return) {  // (before the r4 / r6 test: a wrong r4 / r6 is FloorReject::Regs, counted live)  // S101 lane 82: a seated floor person (sub_8276EAA0): decoded by crowd_floor.h, recorded as a member (or counted rejected)
     if (!g_floor_observe.load(std::memory_order_relaxed)) return;
@@ -106,7 +107,7 @@ inline void OnOp21(PPCContext& ctx, uint8_t* base) {
     const rdr_scene::live::crowd::FloorReject why = rdr_scene::live::crowd::DecodeFloorMember(ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r26.u32, ctx.r29.u32, ctx.r31.u32, mem, o);
     ++g_floor_stats.seen;
     ++g_floor_stats.rejected[uint32_t(why)];
-    if (wwe2k14::member_thin::RawMode() > 0) {   // lane 272: the floor member's world as recorded (the tally of the thin record) and its class (the palette test of the op 15 that follows)
+    if (wwe2k14::member_thin::Observing()) {   // lane 272 (S102 T13: the run's mode): the floor member's world as recorded (the tally of the thin record) and its class (the palette test of the op 15 that follows)
       uint32_t w[12];
       for (uint32_t k = 0; k < 12; ++k) w[k] = Be32(base, ctx.r5.u32 + 4 * k);
       wwe2k14::member_thin::OnMemberOp21(wwe2k14::member_thin::kFloor, w, why == rdr_scene::live::crowd::FloorReject::None, o.block, o.lod);
@@ -141,12 +142,13 @@ inline void OnOp21(PPCContext& ctx, uint8_t* base) {
     }
   }
   const uint32_t m = ctx.r5.u32;
-  if (lr == kBlockOp21Return && wwe2k14::member_thin::RawMode() > 0) {   // lane 272: the stands member's world as recorded and its class
+  if (lr == kBlockOp21Return && wwe2k14::member_thin::Observing()) {   // lane 272: the stands member's world as recorded and its class
     uint32_t w[12];
     for (uint32_t k = 0; k < 12; ++k) w[k] = Be32(base, m + 4 * k);
     wwe2k14::member_thin::OnMemberOp21(wwe2k14::member_thin::kStands, w, o.block < rdr_scene::live::crowd::kTypes, o.block, o.lod);
   }
-  if (o.card && wwe2k14::card_thin::RawMode() > 0) {   // lane 175 (review B1): the card's world as recorded, summed into this frame's tally (the delivery check of the thin record)
+  if (o.card && wwe2k14::card_thin::Observing()) {   /* S102 T2 F1: the run's mode (taken once at its start), census or skip */
+      // lane 175 (review B1): the card's world as recorded, summed into this frame's tally (the delivery check of the thin record)
     uint32_t w[12];
     for (uint32_t k = 0; k < 12; ++k) w[k] = Be32(base, m + 4 * k);
     wwe2k14::card_thin::g_counts.NoteWorld(wwe2k14::g_guest_frame.load(std::memory_order_relaxed), w);
@@ -169,6 +171,7 @@ inline constexpr uint32_t kRemapOffset = 0x20000u - 30452u;
 // last non-zero row + 1 [U]), LOD 1 / 2 = slots up to the last remap entry that is not -1 (skipped slots are identity, never written by the game).
 inline void OnPalettes(uint8_t* base, uint32_t manager) {
   using namespace rdr_scene::live::crowd;
+  if (wwe2k14::card_thin::ObserverKnockOut()) return;   // S102 OBS1 TEST ONLY (bit 0x100)
   const uint32_t pal = Be32(base, manager + kPaletteBasePtr);
   const uint32_t ring = Be32(base, manager + kWriteRingOffset);
   if (!pal || ring > 1) return;  // (the game copies only when [548] >= 0; the rings are 0 / 1)
@@ -223,9 +226,9 @@ REX_HOOK_RAW(sub_82509CB8) {
 REX_HOOK_RAW(sub_82519508) {
   wwe2k14::bake_skip::OnCrowdDraw();  // lane 155
   wwe2k14::card_thin::OnCrowdDraw();  // lane 175
-  if (wwe2k14::member_thin::RawMode() > 0) {  // lane 272: a new crowd draw run (the stands / floor members); the ring the draw reads is the palette set the eligibility test uses
+  if (wwe2k14::member_thin::OnCrowdDrawBegin() != wwe2k14::member_thin::Mode::Off) {  // lane 272 (S102 T13: the per-frame switch is read in Begin, once per run; the guest manager only when observed): a new crowd draw run (the stands / floor members); the ring the draw reads is the palette set the eligibility test uses
     const uint32_t mgr = wwe2k14::crowd_live::Be32(base, wwe2k14::crowd_live::kManagerGlobal);
-    wwe2k14::member_thin::OnCrowdDraw(mgr ? wwe2k14::crowd_live::Be32(base, mgr + wwe2k14::crowd_live::kReadRingOffset) : 0);
+    wwe2k14::member_thin::OnCrowdDrawRun(mgr ? wwe2k14::crowd_live::Be32(base, mgr + wwe2k14::crowd_live::kReadRingOffset) : 0);
   }
   wwe2k14::crowd_skip::t_draws.BeginRun();  // S101 lane 50: a new run of the crowd draw entry (P2b keeps its first block draw)
   if (!wwe2k14::crowd_live::Active()) {

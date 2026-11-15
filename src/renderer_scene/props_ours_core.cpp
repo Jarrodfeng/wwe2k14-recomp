@@ -127,6 +127,7 @@ void PropsCore::SetProps(std::shared_ptr<const assets::prop_gs::PropSet> props) 
   byte_fails_.clear();
   content_ok_.clear();
   file_hash_.clear();
+  pre_.reset();   // S102 T17 (the owner sets it again after SetProps)
   uv_mode_ = 0;
   verified_key_.clear();
   if (!props_) return;
@@ -278,6 +279,7 @@ bool PropsCore::DetectUvSign(const rdr_adapter::ReplaceIn& in, const rdr_adapter
 }
 
 uint64_t PropsCore::FileHash(int texture, uint32_t mips) {
+  if (pre_ && size_t(texture) < pre_->hash.size() && mips >= 1 && mips <= pre_->hash[size_t(texture)].size()) return pre_->hash[size_t(texture)][mips - 1];   // S102 T17: made on the worker
   const uint64_t key = (uint64_t(uint32_t(texture)) << 8) | std::min<uint32_t>(mips, 255);
   const auto it = file_hash_.find(key);
   if (it != file_hash_.end()) return it->second;
@@ -535,11 +537,11 @@ std::string PropsCore::Report() const {
   char b[1000];
   std::snprintf(b, sizeof b,
                 "props: objects joined [%s] (by content %llu, texture tie %llu, tie left open %llu), not a prop of ours %llu, unjoined %llu; draw checks failed: part %llu, vertices %llu, indices %llu, bytes %llu (layout refused %llu); "
-                "content: checks %llu ok %llu differs %llu no feed %llu, view %llu; slots left to the stream: open tie %llu, no file texture %llu, base level %llu; joins dropped %llu, verify runs %llu, lookalike objects given up %llu",
+                "content: checks %llu ok %llu differs %llu no feed %llu, view %llu; slots left to the stream: open tie %llu, no file texture %llu, base level %llu; joins dropped %llu, verify runs %llu, lookalike objects given up %llu, stale worker tables refused %llu",
                 objs.c_str(), (unsigned long long)stats_.joined_content, (unsigned long long)stats_.joined_tie_texture, (unsigned long long)stats_.joined_tie_open, (unsigned long long)stats_.foreign, (unsigned long long)stats_.unjoined,
                 (unsigned long long)stats_.bad_part, (unsigned long long)stats_.bad_vertices, (unsigned long long)stats_.bad_indices, (unsigned long long)stats_.bad_bytes, (unsigned long long)stats_.layout_refused,
                 (unsigned long long)stats_.content_checks, (unsigned long long)stats_.content_ok, (unsigned long long)stats_.content_differs, (unsigned long long)stats_.content_unknown, (unsigned long long)stats_.bad_view,
-                (unsigned long long)stats_.slot_kept_tie, (unsigned long long)stats_.slot_kept_no_file, (unsigned long long)stats_.slot_kept_levels, (unsigned long long)stats_.joins_dropped, (unsigned long long)stats_.verify_runs, (unsigned long long)stats_.lookalike);
+                (unsigned long long)stats_.slot_kept_tie, (unsigned long long)stats_.slot_kept_no_file, (unsigned long long)stats_.slot_kept_levels, (unsigned long long)stats_.joins_dropped, (unsigned long long)stats_.verify_runs, (unsigned long long)stats_.lookalike, (unsigned long long)stats_.pre_stale);
   return b + notes;
 }
 

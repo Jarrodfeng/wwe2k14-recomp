@@ -64,6 +64,7 @@
 #endif
 #endif
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
@@ -200,7 +201,7 @@ class Clip {
   void Begin() {
     started_ = Clock::now();
     for (int i = 0; i < workers_n_; ++i) workers_.emplace_back([this] { WorkerLoop(); });
-    writer_ = std::thread([this] { WriterLoop(); });
+    writer_ = std::thread([this] { wwe2k14::NameThread(L"clip_writer"); WriterLoop(); });
   }
 
   // Game thread, once per VdSwap. Never waits for a capture.
@@ -838,7 +839,7 @@ class Manager {
     any_.store(false, std::memory_order_release);
     if (!c) return;
     REXLOG_INFO("[wwe2k14][clip] clip_stop {} (frame {}; {}): finishing on a worker thread", c->name(), frame, why);
-    std::thread([this, c, frame] {
+    std::thread([this, c, frame] { wwe2k14::NameThread(L"clip_encode");
       c->End(frame);
       {
         std::lock_guard<std::mutex> lock(m_);

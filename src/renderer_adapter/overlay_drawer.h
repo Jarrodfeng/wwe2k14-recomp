@@ -17,6 +17,7 @@
 #include <rex/ui/window.h>
 
 #include "../renderer/overlay.h"
+#include "../renderer_scene/swap_once.h"   // S102 SW1: the census counters of the paint-request skip
 #include "live.h"
 
 namespace wwe2k14::rdr_overlay {
@@ -77,15 +78,18 @@ class Drawer final : public rex::ui::ImmediateDrawer {
     rex::ui::ImmediateDrawer::End();
     if (list_) sink_.SetOverlay(std::move(list_));
     list_.reset();
-    shown_ = true;
+    shown_.store(true, std::memory_order_release);
   }
 
   // No dialog open: the last list is taken off the screen (once).
   void Clear() {
-    if (!shown_) return;
+    if (!shown_.load(std::memory_order_acquire)) return;
     sink_.SetOverlay(nullptr);
-    shown_ = false;
+    shown_.store(false, std::memory_order_release);
   }
+
+  // S102 SW1: an overlay list is on the screen (written on the UI thread, read by RequestPaint on the game's swap thread).
+  bool Shown() const { return shown_.load(std::memory_order_acquire); }
 
  private:
   rdr_adapter::LiveSink& sink_;
@@ -93,7 +97,7 @@ class Drawer final : public rex::ui::ImmediateDrawer {
   uint32_t next_id_ = 1;  // 0 is the renderer's plain white
   uint32_t vertex_base_ = 0, index_base_ = 0;
   bool indexed_ = false;
-  bool shown_ = false;
+  std::atomic<bool> shown_{false};   // (S102 SW1: atomic, read by the swap thread)
 };
 
 // ImGuiDrawer::Draw wants a draw context; the app-driven one has no presenter.
@@ -105,9 +109,24 @@ class Context final : public rex::ui::UIDrawContext {
 inline Drawer* g_drawer = nullptr;                // set by the app's OnCreateImmediateDrawer (owner mode)
 inline std::atomic<bool> g_paint_pending{false};  // one UI paint queued at a time
 
+// S102 SW1 (wwe2k14_rdr_swap_once bit 4): whether a paint request has anything to do. The UI thread's task does exactly this much when no dialog is open: `Clear()`, which returns at once unless a list is
+// still on the screen. So with no dialog and nothing on the screen the request (a std::function, a post to the UI thread, a wake-up) is not made at all, and the next present asks again. The
+// dialog list is read without the UI thread's lock (ImGuiDrawer::HasDialogs is a plain `!dialogs_.empty()`: a benign formal race, two pointers compared and never dereferenced). The worst case is one
+// present early or late in showing a dialog; nothing flickers, since an overlay list stays on screen until SetOverlay changes it and a closed dialog still gets its one Clear().
+inline bool PaintHasWork(rex::ui::ImGuiDrawer* imgui, bool skip_idle) {
+  return rdr_scene::swap_once::OverlayHasWork(skip_idle, imgui->HasDialogs(), g_drawer && g_drawer->Shown());
+}
+
 // From the game's present (any thread): the UI thread runs the dialogs once and records them (`post` = the app context's CallInUIThread).
-inline void RequestPaint(const std::function<void(std::function<void()>)>& post, rex::ui::Window* window, rex::ui::ImGuiDrawer* imgui) {
-  if (!g_drawer || !window || !imgui || g_paint_pending.exchange(true)) return;
+// `skip_idle` = swap_once bit 4: no request while no dialog is open and no list is on the screen.
+inline void RequestPaint(const std::function<void(std::function<void()>)>& post, rex::ui::Window* window, rex::ui::ImGuiDrawer* imgui, bool skip_idle = false) {
+  if (!g_drawer || !window || !imgui) return;
+  if (!PaintHasWork(imgui, skip_idle)) {
+    rdr_scene::swap_once::g_count.overlay_skipped.fetch_add(1, std::memory_order_relaxed);
+    return;
+  }
+  if (g_paint_pending.exchange(true)) return;
+  rdr_scene::swap_once::g_count.overlay_posted.fetch_add(1, std::memory_order_relaxed);
   post([window, imgui] {
     g_paint_pending.store(false);
     if (!imgui->HasDialogs()) {

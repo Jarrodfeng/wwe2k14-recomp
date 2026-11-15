@@ -1,5 +1,7 @@
 // Our arena drawn in place. See arena_ours.h and arena_ours_core.h. Session 101, lane 40.
+#include "../thread_name.h"  // S102 H1
 #include "arena_ours.h"
+#include "../renderer/frame_facts.h"  // S102 R21-A
 
 #include <algorithm>
 #include <chrono>
@@ -145,7 +147,7 @@ void ArenaOurs::StartLoad(int arena) {
   load_state_ = 1;
   load_for_ = arena;
   const bool viewer_space = options_.faults.viewer_space;
-  worker_ = std::thread([this, arena, root, viewer_space] {
+  worker_ = std::thread([this, arena, root, viewer_space] { wwe2k14::NameThread(L"ours_arena");
     Loaded loaded;
     loaded.arena = arena;
     if (!assets::arena_gs::Init(root)) {
@@ -237,7 +239,14 @@ bool ArenaOurs::FrameReady(const rdr_adapter::LoadedFrame&) {
   }
   core_.SetRecord(record);
   if (!record) return ++not_ready_frames_, false;
-  const int arena = ArenaCore::ArenaOfRecord(*record);
+  int arena;
+  if (rdr::FrameFactsOn()) {   // S102 R21-A: the arena of a record is a fact of that record: found once per record (arena_rec_ keeps the record alive, so its address cannot be reused)
+    if (record != arena_rec_) arena_rec_ = record, arena_of_rec_ = ArenaCore::ArenaOfRecord(*record);
+    arena = arena_of_rec_;
+  } else {
+    arena_rec_.reset();
+    arena = ArenaCore::ArenaOfRecord(*record);
+  }
   if (arena < 0) return ++not_ready_frames_, false;
   if (arena != arena_) {
     DropAll();

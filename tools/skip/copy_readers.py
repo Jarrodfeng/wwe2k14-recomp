@@ -37,7 +37,7 @@ import dead_passes as dp  # noqa: E402
 
 FATE_NAMES = ["stream", "replaced", "crowd_ours", "arena_ours", "wrestlers_ours", "crowd_injected", "ring_ours", "ui_ours", "flash_ours", "particle_run", "props_ours",
               "shadow_casters_ours", "ui_text_ours", "screens_ours", "post_ours", "rim_ours", "circles_ours", "movie_ours", "small_passes_ours", "plane_shadow_ours", "ui_quads_ours",
-              "rim_chain_ours", "caw_ours"]  # = src\fview\main.cpp kFateNames (asserted there against the highest fate constant)
+              "rim_chain_ours", "caw_ours", "dead_work", "frame_cut", "frame_identity"]  # = src\fview\main.cpp kFateNames (asserted there against the highest fate constant)
 DRAW_CLASS = ['unnamed', 'model_part', 'crowd', 'sprite', 'text', 'movie', 'particle', 'shadow', 'post', 'clear', 'other']  # src\renderer_adapter\names.h DrawClass
 PLANTS = ('extra_reader', 'drop_reader', 'fate_all_stream', 'src_dirty', 'node_reader')
 UNKNOWN = '(no fates)'

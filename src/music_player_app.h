@@ -31,6 +31,7 @@
 //   its handler to that one call: Pump takes ONE handler, wrap both in a lambda there.)
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/perf/audio_inject.h>
@@ -131,7 +132,7 @@ inline void PublishArenaFx(music::MusicPlayer& player, const music::Chain* desir
 inline void UpdateArenaFx(music::MusicPlayer& player) {
   const bool want = REXCVAR_GET(wwe2k14_music_arena_fx);
   music::ArenaFx* fx = g_arena_fx.load();
-  if (want && !fx && !g_arena_fx_preparing.exchange(true)) std::thread([] { PrepareArenaFx(); }).detach();
+  if (want && !fx && !g_arena_fx_preparing.exchange(true)) std::thread([] { wwe2k14::NameThread(L"music_arenafx"); PrepareArenaFx(); }).detach();
   if (want && !fx) return;  // still preparing: nothing to publish yet (no false "OFF")
   PublishArenaFx(player, want ? fx->AsChain() : nullptr);
 }

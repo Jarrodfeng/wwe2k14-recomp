@@ -171,12 +171,12 @@ private:
   void D3REndFrame(const LoadedFrame& frame, const Source& capture) {
     std::vector<d3::Run> runs;
     const std::function<int(uint64_t)> scan_variant = [](uint64_t hash) { return FindVariant(hash); };   // lane 274
-    d3::D3Core::ScanRuns(frame, runs, &rc_->d3r_.c.marker_ordinal_mismatch, !rc_->d3r_.verify, false, rc_->d3r_.RingSplits(), &scan_variant);   // lane 258: one run per instance. markers count as keyed runs; a marker whose ordinal is not the run count is counted
+    { d3t::Sub t(d3t::kSubScan); d3::D3Core::ScanRuns(frame, runs, &rc_->d3r_.c.marker_ordinal_mismatch, !rc_->d3r_.verify, false, rc_->d3r_.RingSplits(), &scan_variant); }   // lane 258: one run per instance. markers count as keyed runs; a marker whose ordinal is not the run count is counted
     rc_->d3r_.reserved.clear();   // lane 258: a sweep that binds without the emulation never applies a stale cut list
     const d3::Hooks h = D3RHooks(frame, capture);
-    rc_->d3r_.Observe(frame, runs, thin_keys_, thin_full_, h);
+    { d3t::Sub t(d3t::kSubObserve); rc_->d3r_.Observe(frame, runs, thin_keys_, thin_full_, h); }
     rc_->d3r_.verify_keys.clear();
-    rc_->d3r_.Publish(h, frame.header.guest_frame);
+    { d3t::Sub t(d3t::kSubPublish); rc_->d3r_.Publish(h, frame.header.guest_frame); }
     if (!rc_->d3r_offline_) {
       const uint64_t before = rc_->d3r_.packets->stats().evicted_unconsumed;
       rc_->d3r_.packets->Evict(frame.header.guest_frame);

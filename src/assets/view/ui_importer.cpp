@@ -1,5 +1,6 @@
 // Session 98 (Superstar Importer): see ui_importer.h. Pure Dear ImGui + std; the look is the launcher's (red header, slanted red
 // buttons, dark panels, the game's menu face read from the player's own files by ui.cpp).
+#include "../../thread_name.h"  // S102 H1
 #include "ui_importer.h"
 
 #include <algorithm>
@@ -583,7 +584,7 @@ struct ImporterPanel::Impl {
     auto j = job;
     const importer::PackState st = pack;
     const std::string mods = host->mods_dir, game = host->game, dlc = host->dlc_dir, off = host->dlc_off;
-    job_thread = std::thread([j, st, mods, game, dlc, off] {
+    job_thread = std::thread([j, st, mods, game, dlc, off] { wwe2k14::NameThread(L"sup_import_job");
       launcher::GameFiles g;
       g.SetRoot(fs::u8path(game));
       std::string err;

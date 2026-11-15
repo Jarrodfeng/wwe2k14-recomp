@@ -17,6 +17,7 @@
   X(vkEnumeratePhysicalDevices)               \
   X(vkGetPhysicalDeviceProperties)            \
   X(vkGetPhysicalDeviceFeatures)              \
+  X(vkGetPhysicalDeviceFeatures2)             \
   X(vkGetPhysicalDeviceQueueFamilyProperties) \
   X(vkGetPhysicalDeviceMemoryProperties)      \
   X(vkGetPhysicalDeviceFormatProperties)      \
@@ -64,6 +65,8 @@
   X(vkDestroyPipelineCache)          \
   X(vkGetPipelineCacheData)          \
   X(vkCreateGraphicsPipelines)       \
+  X(vkCreateComputePipelines)        \
+  X(vkCmdDispatch)                   \
   X(vkDestroyPipeline)               \
   X(vkCreatePipelineLayout)          \
   X(vkDestroyPipelineLayout)         \
@@ -73,6 +76,7 @@
   X(vkDestroyDescriptorPool)         \
   X(vkResetDescriptorPool)           \
   X(vkAllocateDescriptorSets)        \
+  X(vkFreeDescriptorSets)            \
   X(vkUpdateDescriptorSets)          \
   X(vkCreateRenderPass)              \
   X(vkDestroyRenderPass)             \
@@ -112,6 +116,11 @@
   X(vkCmdClearColorImage)            \
   X(vkCmdClearDepthStencilImage)     \
   X(vkCmdCopyBuffer)                 \
+  X(vkCmdUpdateBuffer)               /* S102 D1: the GPU marker words (breadcrumbs.h) */ \
+  X(vkCmdWaitEvents)                /* S102 D1: rplay's breadcrumb selftest stalls the GPU at a step */ \
+  X(vkCreateEvent)                   \
+  X(vkSetEvent)                      \
+  X(vkDestroyEvent)                  \
   X(vkCmdCopyImage)                  \
   X(vkCmdBlitImage)                  \
   X(vkCmdCopyBufferToImage)          \
@@ -119,6 +128,8 @@
   X(vkCreateQueryPool)               \
   X(vkDestroyQueryPool)              \
   X(vkCmdResetQueryPool)             \
+  X(vkCmdBeginQuery)                 \
+  X(vkCmdEndQuery)                   \
   X(vkCmdWriteTimestamp)             \
   X(vkGetQueryPoolResults)           \
   X(vkCreateSwapchainKHR)            \

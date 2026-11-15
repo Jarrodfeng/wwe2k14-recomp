@@ -31,12 +31,14 @@
 #include "../frame_stats.h"  // wwe2k14::g_guest_frame
 #include "../guest_read.h"   // GuestWordReadableFast
 #include "../renderer_adapter/d3_guest_core.h"
+#include "../renderer_adapter/d3_timers.h"   // S102 K3 review F5
 
 REX_EXTERN(sub_82BB10C0);   // the HOOKED op-15 recorder (scene_crowd.h): it opens the origin tag from the thread's t_part and the return address
 
 namespace wwe2k14::d3hook {
 
 namespace d3 = rdr_adapter::d3;
+namespace d3t = rdr_adapter::d3t;   // S102 K3 review F5
 
 // fp_probe.h installs the model-entry readers (light state, arena worlds) here: on a skipped call the mid-asm hook inside the function does not run, so the glue calls them itself.
 inline void (*g_entry)(uint32_t model, uint32_t palette, uint32_t r13, uint64_t frame) = nullptr;
@@ -71,6 +73,8 @@ class CallScope {
   CallScope(PPCContext& ctx, uint8_t* base, PartScope& t_part) {
     if (!d3::g_hook_on.load(std::memory_order_acquire)) return;   // (N5) pairs with the release stores of the live start-up and the gate's latch
     if (t_open.active) return;   // a nested call: never decided, never counted
+    d3t::HookSample hook_sample;   // S102 K3 review F5: 1 call in 16 timed (the swap thread's armed-off census)
+    const bool idle = skips_auto::HookIdle();   // review F5: armed by K3 and nothing to skip: the path and the mark set are not read (the ledger still is)
     const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
     d3::CallInputs in;
     in.object = ctx.r3.u32, in.frame = frame, in.owner = true, in.state_readable = true, in.state_count = 0;
@@ -90,12 +94,12 @@ class CallScope {
       };
       in.probe = &probe;
     }
-    in.path = d3::PredictPath([base](uint32_t a, uint32_t& v) {
+    in.path = idle ? d3::CachePath::Unreadable : d3::PredictPath([base](uint32_t a, uint32_t& v) {
       if (!wwe2k14::GuestWordReadableFast(a)) return false;
       v = Ld32(base, a);
       return true;
     }, in.object, ctx.r13.u32);
-    const std::shared_ptr<const d3::MarkSet> marks = d3::g_marks.Acquire();
+    const std::shared_ptr<const d3::MarkSet> marks = idle ? nullptr : d3::g_marks.Acquire();
     ++g_calls;
     call_ = d3::BeginGuestCall(g_objs, in, marks.get(), d3::g_packets, d3::g_tally, d3::g_gate);
     if (call_.out.why == d3::Why::Skip && d3::g_verify) {   // lane 152 (10): the verify arm: the marker is written, the original still runs (nothing is dropped); the binder compares the stream's draws with the sequence

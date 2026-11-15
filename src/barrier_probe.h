@@ -54,6 +54,7 @@
 #endif
 
 #include "frame_stats.h"
+#include "renderer_adapter/tail_release.h"  // S102 U1: the barrier window (arrival .. release)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_barrier_probe, false, "wwe2k14",
                     "Write logs/barrier_NNN.csv: per frame, when each frame-barrier client thread was released and "
@@ -175,6 +176,7 @@ void wwe2k14_barrier_render_release() {
 // sub_82BB5CC0 at 0x82BB5F5C: the render thread is about to wait for the clients (sub_82C3BAE0).
 void wwe2k14_barrier_render_wait_begin() {
   using namespace wwe2k14::barrier;
+  wwe2k14::frame_split::BarrierBegin();  // S102 H3: the wait for the update thread's frame barrier, wall time (--wwe2k14_frame_split; independent of the probe)
   if (!REXCVAR_GET(wwe2k14_barrier_probe)) return;
   g_wait_begin.store(Qpc(), std::memory_order_release);
 }
@@ -229,6 +231,8 @@ void wwe2k14_barrier_cb_end() {
 // sub_82BB5CC0 at 0x82BB5F60: the wait returned; every active client has arrived for this iteration.
 void wwe2k14_barrier_render_wait_end() {
   using namespace wwe2k14::barrier;
+  rdr_adapter::tail::The().OnArrive();  // S102 U1: every client has arrived and is parked until the release (tail_release.h)
+  wwe2k14::frame_split::BarrierEnd();  // S102 H3
   if (!REXCVAR_GET(wwe2k14_barrier_probe)) return;
   const int64_t now = Qpc();
   const int64_t rel = g_release.load(std::memory_order_acquire);

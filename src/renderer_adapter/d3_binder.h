@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include "d3_timers.h"   // S102 K3 review F1: the resume counters
 #include <cstring>
 #include <functional>
 #include <map>
@@ -283,7 +284,8 @@ class D3Core {
   bool have_prev_ = false;
 
   D3Counters c;
-  CompareStats readiness;                    // sourced-mode: marker draws composed vs the stream truth, every frame
+  const std::vector<uint8_t>* observe_keep = nullptr;   // S102 K2: set by the binder around its End calls on a lasting bind with the ordinal view: per op of the FULL frame, 1 = the bind kept it; Observe learns / proves only those runs
+  CompareStats readiness;                   // sourced-mode: marker draws composed vs the stream truth, every frame
   std::unordered_map<uint64_t, Sequence> seqs;
   std::unordered_map<uint64_t, std::pair<std::bitset<256>, std::bitset<256>>> ledger;   // key -> drift registers (learned online, or fed from an earlier pass: fview --d3-ledger-in)
   uint64_t skippable = 0, pinned_objects = 0;
@@ -818,6 +820,7 @@ class D3Core {
     if (ring() || caster()) GuardCalls(frame, runs);   // lane 229; lane 299: + the caster route's plane objects
     for (const Run& r : runs) {
       if (!r.Keyed()) continue;
+      if (observe_keep && !(r.first_op < observe_keep->size() && (*observe_keep)[r.first_op])) { ++c.observe_skipped_runs; continue; }   // S102 K2: a run of a pass the lasting bind left out: counted in the scan (ordinals, guards), not learned or proved this frame
       const uint64_t mk = MarkKey(KeyObject(r), r.ordinal);
       std::vector<PartDesc> fresh(r.draws.size());
       bool ok = true;
@@ -1007,6 +1010,8 @@ class D3Core {
   // Publish the mark set: complete sequences (every part's key still pinned). `lag` handled by the reader emulation.
   // lane 152: the objects NOT marked are counted by named reason (`reasons`), the sequences that never got a proof compare are counted (item 12), and a marked sequence that carries an unsourced register is counted
   // (required 0: only the plant mark_unsourced makes one).
+  uint64_t resume_frame = 0;   // S102 K3 review F1: the first chain frame after a gap (binder.h D3NoteChain)
+  bool g_no_resume_rule = std::getenv("D3_NO_RESUME_RULE") != nullptr;   // TEST ONLY (the twin of the F1 check): the old behaviour
   void Publish(const Hooks& h, uint64_t fno = 0) {
     std::vector<uint64_t> keys;
     std::vector<std::pair<uint64_t, std::vector<uint64_t>>> entries;   // lane 289 (ring route): each marked key with the part triples of its sequence (published with the set: the READER's and the BINDER's ordinal fill at a marker)
@@ -1032,14 +1037,17 @@ class D3Core {
       const bool is_unstable = unstable.count(it->first) != 0;
       // (S7) a mark expires when the last proof compare is older than 2 x K frames while the object is being drawn (it reappeared, or the proof clocks drifted apart). `proof_overdue` COUNTS only an object drawn without a gap for
       // that long: its proof frame never came although it was there = the hook-to-reader offset is skewed (an object that was off screen and came back is unmarked too, but is not the detector's case).
-      const bool stale = !force_mark && s.complete && fno && s.proof_frame && fno > s.proof_frame + 2 * kProofK && fno <= s.last_seen + 2;
+      const bool stale = !force_mark && s.complete && fno && s.proof_frame && fno > s.proof_frame + thin::kProofOverdue && fno <= s.last_seen + 2;   // S102 K4: 4 x K (was 2 x K: the proof frames now rotate through both parities)
       const bool overdue = stale;
       // lane 268 (17.13): an object that is not marked AND has not been drawn for 64+ frames is a STALE sequence (menus / entrance / an earlier scene; seqs_alive keeps it until a key leaves the pin set): its reason says so, so "marked 16 of 44" can be read against the objects that are actually drawn
       const std::string gone = (fno && fno > s.last_seen + 64) ? " [not drawn for 64+ frames]" : "";
-      if (stale && fno >= s.streak_start + 2 * kProofK) ++c.proof_overdue;
+      if (stale && fno >= s.streak_start + thin::kProofOverdue) ++c.proof_overdue;   // S102 K4
       if (overdue) {
         if (DebugOn()) std::fprintf(stderr, "[d3dbg] overdue frame %llu object %08X ordinal %u proof_frame %llu last_seen %llu streak %llu\n", (unsigned long long)fno, s.object, s.ordinal, (unsigned long long)s.proof_frame, (unsigned long long)s.last_seen, (unsigned long long)s.streak_start);
         ++reasons[UnmarkedName(UnmarkedWhy::ProofOverdue)];
+      } else if (!force_mark && resume_frame && s.complete && s.proof_frame < resume_frame && !g_no_resume_rule) {   // S102 K3 review F1: the chains did not watch the frames before `resume_frame`: no mark until the object is proved again
+        ++reasons["not re-proved since the chains resumed" + gone];
+        d3t::g_resume_refused.fetch_add(1, std::memory_order_relaxed);
       } else if (caster() && !s.parts.empty() && s.parts[0].pass == rdr_scene::kCpPlane && (!plane_marks_allowed || fault == Fault::LiveGuard) && fault != Fault::LiveGuardOff) {   // lane 226 follow-up (S1): the live guard
         ++reasons["plane: not marked live (its sources are made inside the call; the entry snapshot is not proven live; --wwe2k14_rdr_caster_d3_plane lifts this)" + gone];
       } else if (arena() && (s.complete || force_mark) && !is_unstable && (records.IsRingObject(s.object) || IsLiveRingModel(s.object) || instanced.count(s.object))) {   // lane 274 (S2): a RING model is the ring chain's: the arena chain never marks it (instances, kMaxCalls, per-call rows the arena records do not carry), whatever the ring hook's state
@@ -1048,6 +1056,7 @@ class D3Core {
       } else if (Guarded(s.object, fno) && (s.complete || force_mark) && !is_unstable) {   // lane 229: the call-count guard (R4): the object's number of calls changed within 2 x K frames
         ++reasons["call count changed (rope LOD / skirt quadrant / object appeared or left)" + gone];
       } else if ((s.complete || force_mark) && !is_unstable) {
+        if (!force_mark && resume_frame && s.complete && s.proof_frame < resume_frame) d3t::g_resume_unproved_published.fetch_add(1, std::memory_order_relaxed);   // only the twin (D3_NO_RESUME_RULE) gets here
         keys.push_back(it->first);
         if (ring()) {   // lane 289: the sequence's candidate draws, as ComputeKeys counts them (a ModelPart draw with an object at one of the two colour sites); a doubled part is listed twice
           std::vector<uint64_t> triples;
@@ -1165,7 +1174,7 @@ class D3Core {
       ++step_edits;
     }
     if (added.empty()) return;
-    step_banks.assign(frame.constant_banks.data, frame.constant_banks.data + base);
+    step_banks = frame.constant_banks.ToVector();   // S102 T1: the view has no plain array (lazy banks); a full copy is taken here, debug path only
     step_banks.insert(step_banks.end(), added.begin(), added.end());
     frame.constant_banks = {step_banks.data(), uint32_t(step_banks.size())};
   }

@@ -1,0 +1,8 @@
+{
+ "owner": "lane U1 (S102): the black title card on a Mali-G615 phone: BC textures decoded on the CPU where the device cannot sample them (src/renderer/bc_decode.h, Renderer::CreateImage / UpdateImage, --wwe2k14_rdr_bc_decode), the start-failure message (src/renderer_adapter/start_failure_text.h), the launcher's card choice reaching the renderer's device pick (--wwe2k14_gpu), the [rdr][verdict] lines. docs/renderer/TITLE_CARD_MALI.md",
+ "note": "0 game runs, 0 Surface runs. The decoder is bit-exact with Pillow's DDS decoder; the boot / menu case's title card is replayed with the native BC, the forced decode and a PC pretending it has no BC (--format-caps-mask 40); the same pretend-no-BC device with the decode off re-finds the player's `image_format_unsupported: format 26, usage 1`. needs out/renderer/dev/rplay.exe + fview.exe built from the tree under test.",
+ "claim": {"scene": "none", "side": "correctness (a title card that shows on devices without BC; no change where BC exists)", "ms": [0, 0]},
+ "checks": [
+  {"name": "s102_u1.proof", "cmd": ["py", "-I", "tools/bc/title_card_check.py", "--root", "."], "timeout_s": 1800, "exes": ["out/renderer/dev/rplay.exe", "out/renderer/dev/fview.exe"], "needs": ["out/s101/runs/20261112_122344_s100_owner_boot_menu_quit"]}
+ ]
+}

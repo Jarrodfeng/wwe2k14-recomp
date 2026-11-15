@@ -39,6 +39,7 @@
 // NEXT MOMENT, PHOTO MODE, QUIT MATCH.
 #pragma once
 
+#include "thread_name.h"  // S102 H1
 #include <functional>
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -195,7 +196,7 @@ inline std::filesystem::path PhotoDir() {
 inline std::function<bool(const std::filesystem::path&)> g_owner_save;
 
 inline void SavePhoto() {
-  std::thread([] {
+  std::thread([] { wwe2k14::NameThread(L"photo_mode");
     auto* runtime = REX_KERNEL_STATE()->emulator();
     auto* graphics = runtime ? runtime->graphics_system() : nullptr;
     auto* presenter = graphics ? graphics->presenter() : nullptr;

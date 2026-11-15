@@ -31,9 +31,15 @@
 #    The finished zip's entry list is scanned again.
 # 5. Writes out\release\wwe2k14-recomp-<Version>.zip, its .sha256 and a copy of the docs.
 #
-#   -V3Exe      (Session 95) also build and ship wwe2k14_v3.exe: the same game code compiled for x86-64-v3 (AVX2, BMI, FMA, MOVBE;
-#               -ffp-contract=off keeps the results bit-identical), tools\perf\guest_variant_exe.py from this build's own objects
-#               (+~3 min); the launcher starts it when the CPU has every feature (src\launcher\cpu_features.h).
+#   -V3Exe      (Session 95; Session 102: OPT-IN. Off until one wide build has compiled, the W1 determinism pair has passed and Jarrod has OK'd
+#               the player default; -NoV3Exe is accepted and does nothing, -V3Exe with -NoV3Exe is refused; -V3Narrow = the old guest-code-only way)
+#               also build and ship wwe2k14_v3.exe: the same game code compiled for x86-64-v3 (AVX2, BMI, FMA, MOVBE;
+#               -ffp-contract=off keeps the results bit-identical); the launcher starts it when the CPU has every feature (src\launcher\cpu_features.h)
+#               and its version matches wwe2k14.exe's. The wide build is a second configure (our sources AND the guest code at v3) in out\release\build_v3.
+#   -GuestProfdata F  (Session 102 W2) profile-guided guest code AND our sources (-GuestProfileNarrow: guest code only), both exes; forces a clean build
+#               (a profile is never mixed with objects of another one); the build log's out-of-date profile warnings are counted and the release stops above
+#               -MaxStaleProfileTUs (default 200, unconfirmed: set from the first real training build).
+#   -PlanOnly   print the cmake configure lines of both exes and exit (before the lock, the git checks and any build).
 #   -SelfTest   test the scan itself (no build, no zip): a scratch stage with three planted forbidden files (a game
 #               file's bytes under a harmless name, an nvngx_*.dll, a .bik2) must give three hits; exit 0 = the scan
 #               caught all three.
@@ -44,12 +50,33 @@
 #               which release.ps1 publishes from out\release\), and the performance test ships with it: the route
 #               s41_perf_breakdown.txt as perf_test.txt (Session 41; the launcher then offers its PERFORMANCE TEST) and
 #               tools\native\PERFORMANCE_TEST.txt (the steps). Same build, same forbidden scan.
-param([string]$Version = '', [switch]$Playtest, [switch]$Incremental, [switch]$SelfTest, [string]$LocalTest = '', [switch]$V3Exe)
+param([string]$Version = '', [switch]$Playtest, [switch]$Incremental, [switch]$SelfTest, [string]$LocalTest = '', [switch]$V3Exe, [switch]$NoV3Exe, [switch]$V3Narrow, [switch]$BenchButton,
+      [string]$GuestProfdata = '', [switch]$GuestProfileNarrow, [int]$MaxStaleProfileTUs = 200, [switch]$PlanOnly)
+# Session 102 W2: profile-guided builds, see the header. (The SDK DLL profile path was removed again: docs\research\part2\W1_W2_build.md "SDK profile".)
+# Session 102 W1: the AVX2 build is OPT-IN (-V3Exe). -NoV3Exe stays accepted as a no-op alias; both together is a mistake.
+if ($V3Exe -and $NoV3Exe) { "make_release: FAILED: -V3Exe and -NoV3Exe together"; exit 1 }
 $ErrorActionPreference = 'Stop'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 Set-Location $R
 
 function Fail([string]$why) { "make_release: FAILED: $why"; exit 1 }
+. (Join-Path $PSScriptRoot 'release_configure_args.ps1')
+# Session 102: the profile and the configure lines, before anything else can fail (the gate runs -PlanOnly).
+$profFull = ''
+if ($GuestProfdata) {
+    if (-not (Test-Path -LiteralPath $GuestProfdata -PathType Leaf)) { Fail "-GuestProfdata: $GuestProfdata not found" }
+    $profFull = (Resolve-Path -LiteralPath $GuestProfdata).Path
+}
+$baseCfg = Get-ReleaseConfigureArgs -Profdata $profFull -Narrow:$GuestProfileNarrow
+$wideCfg = Get-ReleaseConfigureArgs -Wide -Profdata $profFull -Narrow:$GuestProfileNarrow
+$forceClean = [bool]$GuestProfdata
+if ($PlanOnly) {
+    "plan: clean build: $(if ($forceClean -or -not $Incremental) { 'yes' } else { 'no' })$(if ($forceClean) { ' (forced by -GuestProfdata)' })"
+    "plan: base configure: cmake --preset win-amd64-release -B out\release\build -DWWE2K14_RELEASE=ON $($baseCfg -join ' ')"
+    if ($V3Exe -and -not $V3Narrow) { "plan: wide configure: cmake --preset win-amd64-release -B out\release\build_v3 -DWWE2K14_RELEASE=ON $($wideCfg -join ' ')" }
+    else { "plan: no wide configure ($(if ($V3Exe) { '-V3Narrow' } else { 'the AVX2 exe is opt-in: -V3Exe' }))" }
+    exit 0
+}
 
 $badExt = '.pac', '.bik', '.bik2', '.xex', '.iso', '.cac', '.pdb', '.map', '.pck', '.dlc', '.arc'  # Session 32: + DLC files
 # Session 32: DLC is the player's own game content too. Xbox 360 content packages (STFS: CON / LIVE / PIRS) and DLC
@@ -183,12 +210,13 @@ $build = Join-Path $R 'out\release\build'
 . "$R\tools\env.ps1" *> $null
 . "$R\tools\runlock.ps1"
 $sdkCmake = (Select-String -Path "$R\out\build\win-amd64-release\CMakeCache.txt" -Pattern '^rexglue_DIR:PATH=(.*)$').Matches[0].Groups[1].Value
+if ($GuestProfdata) { "profile: guest code$(if (-not $GuestProfileNarrow) { ' and our sources' }) from $GuestProfdata (clean build)" }
 $lock = Enter-RunLock -Name "make_release $Version"
 try {
-    if (-not $Incremental -and (Test-Path $build)) { Remove-Item -Recurse -Force $build }
+    if ((-not $Incremental -or $forceClean) -and (Test-Path $build)) { Remove-Item -Recurse -Force $build }
     $t0 = Get-Date
     $log = Join-Path $R "logs\release_build_$Version.log"
-    cmake --preset win-amd64-release -B $build -DWWE2K14_RELEASE=ON "-DWWE2K14_VERSION_SUFFIX=$suffix" "-Drexglue_DIR=$sdkCmake" *>&1 | Out-File $log
+    cmake --preset win-amd64-release -B $build -DWWE2K14_RELEASE=ON "-DWWE2K14_VERSION_SUFFIX=$suffix" "-Drexglue_DIR=$sdkCmake" @baseCfg *>&1 | Out-File $log
     if ($LASTEXITCODE) { Fail "configure failed (see $log)" }
     cmake --build $build -j 16 *>&1 | Out-File $log -Append
     if ($LASTEXITCODE) { Fail "build failed (see $log)" }
@@ -197,13 +225,31 @@ try {
     pwsh -NoProfile -File "$R\tools\assets\build_viewer.ps1" *>&1 | Out-File $log -Append
     if ($LASTEXITCODE) { Fail "wwe2k14_assets.exe failed (see $log)" }
     Copy-Item (Join-Path $R 'out\tools\wwe2k14_assets.exe') (Join-Path $build 'wwe2k14_assets.exe') -Force
-    if ($V3Exe) {
-        & py "$R\tools\perf\guest_variant_exe.py" --name v3 --variant v3 --tus all --jobs 16 --build-dir $build --dlls $build `
+    if ($V3Exe -and $V3Narrow) {
+        & py "$R\tools\perf\guest_variant_exe.py" --name v3 --variant $(if ($profFull) { "pgouse+v3" } else { "v3" }) $(if ($profFull) { "--profdata", $profFull }) --tus all --jobs 16 --build-dir $build --dlls $build `
             --out (Join-Path $build 'v3') --exe-name wwe2k14_v3.exe *>&1 | Out-File $log -Append
         if ($LASTEXITCODE) { Fail "wwe2k14_v3.exe failed (see $log)" }
         Copy-Item (Join-Path $build 'v3\exe\wwe2k14_v3.exe') (Join-Path $build 'wwe2k14_v3.exe') -Force
         # Its own map, kept here and never zipped: a crash line's wwe2k14_v3.exe+0x... offset means nothing against wwe2k14.map.
         Copy-Item (Join-Path $build 'v3\exe\wwe2k14_v3.map') (Join-Path $build 'wwe2k14_v3.map') -Force
+    } elseif ($V3Exe) {
+        # Session 102 W1: the wide build, a second build folder with its own configure (our sources AND the generated guest code at x86-64-v3,
+        # -ffp-contract=off in both). Only the game exe target is built; the DLLs, launcher and viewer are the ones above (the SDK stays SSE4.1).
+        $buildV3 = Join-Path $R 'out\release\build_v3'
+        if ((-not $Incremental -or $forceClean) -and (Test-Path $buildV3)) { Remove-Item -Recurse -Force $buildV3 }
+        cmake --preset win-amd64-release -B $buildV3 -DWWE2K14_RELEASE=ON "-DWWE2K14_VERSION_SUFFIX=$suffix" "-Drexglue_DIR=$sdkCmake" `
+            @wideCfg *>&1 | Out-File $log -Append
+        if ($LASTEXITCODE) { Fail "wwe2k14_v3.exe configure failed (see $log)" }
+        cmake --build $buildV3 --target wwe2k14 -j 16 *>&1 | Out-File $log -Append
+        if ($LASTEXITCODE) { Fail "wwe2k14_v3.exe build failed (see $log)" }
+        Copy-Item (Join-Path $buildV3 'wwe2k14.exe') (Join-Path $build 'wwe2k14_v3.exe') -Force
+        # Its own map, kept here and never zipped: a crash line's wwe2k14_v3.exe+0x... offset means nothing against wwe2k14.map.
+        Copy-Item (Join-Path $buildV3 'wwe2k14.map') (Join-Path $build 'wwe2k14_v3.map') -Force
+    }
+    if ($GuestProfdata) {  # review G: how much of the profile the compiler found out of date
+        $stale = Get-ProfileStaleCount $log
+        "profile: $stale translation unit(s) report an out-of-date profile (limit $MaxStaleProfileTUs)"
+        if ($stale -gt $MaxStaleProfileTUs) { Fail "the profile is stale for $stale translation units (> $MaxStaleProfileTUs): train again (tools\release\pgo_guest_train.txt)" }
     }
     "build: $([int]((Get-Date) - $t0).TotalSeconds) s"
 } finally { Exit-RunLock $lock }
@@ -239,6 +285,15 @@ if (Test-Path -LiteralPath (Join-Path $R 'db\shaders\shader_list.txt')) {
 # Determinism check (ABOUT) plays this recording (controller inputs only: CLAUDE.md rule 1 exception) with this route.
 $files['xdet\xdet_check.rec'] = Join-Path $R 'tools\xdet\refs\xdet_check.rec'
 $files['xdet\check_route.txt'] = Join-Path $R 'tools\xdet\check_route.txt'
+# S102 U4: the launcher's BENCHMARK button needs bench\ (3 routes without screenshot lines, nav\boot_to_menu.txt, states.toml) next to the exe. OFF until the button's
+# first real run (-BenchButton, default off): without the files the launcher does not show the button.
+if ($BenchButton) {
+    $benchStage = Join-Path $R 'out\release\bench_stage'
+    if (Test-Path $benchStage) { Remove-Item -Recurse -Force $benchStage }
+    py -I (Join-Path $R 'tools\launcher\make_bench_dir.py') $benchStage
+    if ($LASTEXITCODE -ne 0) { throw 'make_bench_dir.py failed' }
+    foreach ($f in 'brock_entrance.txt', 'bryan_entrance.txt', 'match.txt', 'nav\boot_to_menu.txt', 'states.toml') { $files["bench\$f"] = Join-Path $benchStage "bench\$f" }
+}
 if ($LocalTest) {  # our route: the launcher's performance test
     $files['perf_test.txt'] = Join-Path $R 'tools\input_scripts\short\s41_perf_breakdown.txt'  # Session 41
     $files['PERFORMANCE_TEST.txt'] = Join-Path $R 'tools\native\PERFORMANCE_TEST.txt'  # the steps for the tester
@@ -307,6 +362,9 @@ foreach ($e in $entries) {
     if ($allowedRedist -contains $e.Replace('\', '/')) { continue }  # checked byte for byte in the scan
     if ($badExt -contains $ext -or $leaf -match '^(nvngx_|sl\.)' -or (Test-DlcPath $e)) { Remove-Item -Force $zip; Fail "the zip holds $e" }
 }
+# S102 S0-6: the game exe's pdb never ships: a second, content-based check on the finished zip (a renamed pdb is caught too).
+& py -I (Join-Path $R 'tools\release\check_zip_symbols.py') $zip
+if ($LASTEXITCODE -ne 0) { Remove-Item -Force $zip; Fail "the zip holds a symbol file (check_zip_symbols.py)" }
 $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
 "$sha  $name.zip" | Set-Content -LiteralPath "$zip.sha256"
 if (-not $LocalTest) {  # the release's docs (a local test leaves them alone)

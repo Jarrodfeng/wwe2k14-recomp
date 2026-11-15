@@ -67,12 +67,13 @@ def main():
     ap.add_argument('decisions')
     ap.add_argument('out')
     ap.add_argument('--plant', choices=['cut_read'])
+    ap.add_argument('--all', action='store_true', help='S102 P1: cut EVERY bake pass of EVERY frame (no policy; DECISIONS.csv is ignored, pass -): the "no bake at all" frame the owned bake starts from')
     ap.add_argument('--only-frames', default='', help='A:B, modify only the frames of that range of the capture (test arms)')
     ap.add_argument('--poison-inherit', action='store_true', help='test only (with --inherit-fix): the inherited blocks are set to 42.0 instead of the values the cut leaves')
     ap.add_argument('--inherit-fix', action='store_true', help='also give every later draw the constant registers the cut leaves it (review S2: the banks are the register file of the game, the writes of a cut iteration are gone)')
     a = ap.parse_args()
     masks = {}
-    for line in open(a.decisions):
+    for line in ([] if a.all else open(a.decisions)):
         if line.strip() and not line.startswith('#'):
             k, m = line.split(',')
             masks[int(k)] = int(m)
@@ -88,6 +89,8 @@ def main():
     for fi, name in enumerate(cap.frames):
         num = cap.nums[fi]
         mask = masks.get(num, 0)
+        if a.all:
+            mask = (1 << 20) - 1   # S102 P1: every pass of the frame (bake_spans yields at most 20)
         if a.only_frames and not (int(a.only_frames.split(':')[0]) <= fi < int(a.only_frames.split(':')[1])):
             continue
         if a.plant == 'cut_read':

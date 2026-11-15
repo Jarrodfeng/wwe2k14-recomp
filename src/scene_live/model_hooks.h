@@ -29,9 +29,11 @@ inline thread_local std::vector<rdr_scene::Mat4> t_palette;  // the hook's scrat
 
 // Pure decision + copy, split from the register plumbing so the host test can drive it with a fake guest memory (model_hooks selftest).
 // `read_word` / `read_mats` are the guest reads (ReadWord / ReadMatrices in the game).
+// S102 U2 (R22 cut 3): `census` false = a model nobody wants is not counted (NoteEntryUnknownModel: a mutex, a map find and a walk over the known skeletons per call, to feed two counters that only the
+// periodic [scene][live] wrestlers log line prints). Nothing the contributor emits reads them.
 template <class ReadWordFn, class ReadMatsFn>
 inline void ModelEntry(rdr_scene::live::WrestlerContributor& w, uint32_t model, uint32_t palette_ptr, uint64_t frame, ReadWordFn read_word,
-                       ReadMatsFn read_mats, std::vector<rdr_scene::Mat4>& scratch) {
+                       ReadMatsFn read_mats, std::vector<rdr_scene::Mat4>& scratch, bool census = true, bool in_place = false) {
   const uint32_t count = w.WantCount(model);
   if (count == 0) {
     // S101 lane 209: an own-skeleton piece (Rock Retro's pads, Diesel's hair) the scene core WANTS but the update hook never reports under that key. This hook has the exact key: r3 = the
@@ -45,10 +47,10 @@ inline void ModelEntry(rdr_scene::live::WrestlerContributor& w, uint32_t model, 
       if (!read_mats(palette_ptr, want, scratch)) { w.NoteEntryUnreadable(); return; }
       // review S1: no NotePalettePtr here - a piece-only entry must not become a 'lender' that hides a second wanted piece drawn from the same r5
       w.NoteOwnSkelConsumer(!have_field || field != palette_ptr);
-      w.SubmitConsumer(model, want, scratch.data(), frame);
+      w.SubmitConsumer(model, want, scratch.data(), frame, in_place);
       return;
     }
-    w.NoteEntryUnknownModel(model, palette_ptr);
+    if (census) w.NoteEntryUnknownModel(model, palette_ptr);
     return;
   }
   uint32_t field = 0;
@@ -56,7 +58,7 @@ inline void ModelEntry(rdr_scene::live::WrestlerContributor& w, uint32_t model, 
   if (field != palette_ptr || palette_ptr == 0) { w.NoteEntryPtrMismatch(); return; }
   if (!read_mats(palette_ptr, count, scratch)) { w.NoteEntryUnreadable(); return; }
   w.NotePalettePtr(model, palette_ptr);
-  w.SubmitConsumer(model, count, scratch.data(), frame);
+  w.SubmitConsumer(model, count, scratch.data(), frame, in_place);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------

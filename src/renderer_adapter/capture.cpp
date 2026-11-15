@@ -1,4 +1,5 @@
 // The disk side of a capture: one thread, a bounded queue, a byte budget. No game or SDK includes.
+#include "../thread_name.h"  // S102 H1
 #include "capture.h"
 
 #include <atomic>
@@ -159,7 +160,7 @@ bool CaptureWriter::Begin(const std::filesystem::path& folder, uint64_t budget_b
     s.streams[0] = s.streams[1] = nullptr;
     return false;
   }
-  s.thread = std::thread([p = impl_] { p->Run(); });
+  s.thread = std::thread([p = impl_] { wwe2k14::NameThread(L"rdr_capture"); p->Run(); });
   s.running = true;
   return true;
 }

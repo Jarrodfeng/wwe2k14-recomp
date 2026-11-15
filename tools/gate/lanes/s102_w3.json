@@ -1,0 +1,228 @@
+{
+ "owner": "S102 lane W3 (native versions of the game's hottest replay functions on the render-command / VdSwap thread): src/nf/replay_native.h (ReplayLists = sub_82BB5BE8, Dispatch = sub_82BB53D0), src/replay_call_check.h, hooks and switches in src/replay_watch.h, two PerFrame entries in src/renderer_adapter/rdr_switches.h; tools/w3/. 0 game runs, 0 Surface runs. Review fixes F1-F7 (lr / back chain, hook lints, fault comparison, guard arm, census, claim).",
+ "claim": {
+  "scene": "bryan",
+  "side": "swap",
+  "ms": [
+   0.25,
+   0.5
+  ],
+  "switch": "wwe2k14_nf_replay_loop + wwe2k14_nf_render_dispatch (PerFrame)",
+  "basis": "Reconciled with R13 (docs/research/part2/W3_native_replay.md section 5): R13 cut 7 (4.7 %, 0.89 ms) is self time by linker symbol, i.e. mostly OUR hook wrappers; rank_guest.py counts 9.5 % gross (interpreter 4.38 + loop 3.03 generated-code leaf, wrapper 2.1) on the same Bryan profile. A native version removes the wrapper (about 0.4 ms profiled, nearly all on the fast path) and about half of the instruction cost (offline microbenchmark: 46 -> 22 us per 1350 records, 52 %, warm cache) but not the first-touch cache misses that make a 54-instruction loop show 3 %; expected 0.25-0.5 ms profiled on the swap thread, unprofiled x 0.935. Unmeasured on the Surface."
+ },
+ "note": "check 1 = tools/w3/diff/run.py: extracts the recompiled sub_82BB5BE8 / sub_82BB53D0 from the local generated code, builds w3_diff.cpp with the game flags and runs 6000 constructed states x 4 configurations (native loop fast + native dispatcher; native loop slow + recompiled interpreter; recompiled loop + native dispatcher; native loop with the replay guard on and one forced trip, FakeRecords stubbed) against the recompiled reference behind the game's own HookedDispatch (src/replay_guard.h): guest memory outside the dead stack, non-volatile registers, lr and the call trace (handler, r3, r4, record words, slot, position, ctx.lr, and the back chain + saved lr at the op 81 hook entry) must be equal; when both sides fault the calls before the fault and the fault address are compared. 13 planted twins plus the fault-comparison twin must each be caught. Check 2/3 = tools/w3/check_table.py: the header table (kind, handler, lr) equals the recompiler output, a Call case must be exactly load/lr/call/goto, sha256 pins of the generated loop, dispatcher entry and epilogue; planted twins kind, lr, probe, loop. Check 4 = tools/w3/hook_lint.py --selftest and the lint itself (no StartOnly cvar read inside a REX_HOOK body; the 53D0 hook reads only kFast's cvars + replay_call_check). Check 5 = tools/gate/game_syntax.py. Check 6 = tools/w3/rank_guest.py.",
+ "checks": [
+  {
+   "name": "s102_w3.differential",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/diff/run.py",
+    "--states",
+    "6000"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "generated/default",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "tools/w3/diff/*",
+    "tools/w3/game_tu_check.py",
+    "src/nf/replay_native.h",
+    "src/replay_call_check.h",
+    "src/replay_guard.h",
+    "src/replay_watch.h",
+    "config/*.toml"
+   ]
+  },
+  {
+   "name": "s102_w3.table",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/check_table.py",
+    "--gen",
+    "C:/Users/Jarrod/wwe2k14-recomp/generated/default"
+   ],
+   "timeout_s": 120,
+   "needs": [
+    "generated/default"
+   ],
+   "affects": [
+    "tools/w3/check_table.py",
+    "tools/w3/classify_dispatch.py",
+    "src/nf/replay_native.h",
+    "config/*.toml"
+   ]
+  },
+  {
+   "name": "s102_w3.table_plant_kind",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/check_table.py",
+    "--gen",
+    "C:/Users/Jarrod/wwe2k14-recomp/generated/default",
+    "--plant",
+    "kind",
+    "--expect-fail"
+   ],
+   "timeout_s": 120,
+   "needs": [
+    "generated/default"
+   ],
+   "affects": [
+    "tools/w3/check_table.py",
+    "tools/w3/classify_dispatch.py",
+    "src/nf/replay_native.h",
+    "config/*.toml"
+   ]
+  },
+  {
+   "name": "s102_w3.table_plant_lr",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/check_table.py",
+    "--gen",
+    "C:/Users/Jarrod/wwe2k14-recomp/generated/default",
+    "--plant",
+    "lr",
+    "--expect-fail"
+   ],
+   "timeout_s": 120,
+   "needs": [
+    "generated/default"
+   ],
+   "affects": [
+    "tools/w3/check_table.py",
+    "tools/w3/classify_dispatch.py",
+    "src/nf/replay_native.h",
+    "config/*.toml"
+   ]
+  },
+  {
+   "name": "s102_w3.table_plant_probe",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/check_table.py",
+    "--gen",
+    "C:/Users/Jarrod/wwe2k14-recomp/generated/default",
+    "--plant",
+    "probe",
+    "--expect-fail"
+   ],
+   "timeout_s": 120,
+   "needs": [
+    "generated/default"
+   ],
+   "affects": [
+    "tools/w3/check_table.py",
+    "tools/w3/classify_dispatch.py",
+    "src/nf/replay_native.h",
+    "config/*.toml"
+   ]
+  },
+  {
+   "name": "s102_w3.table_plant_loop",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/check_table.py",
+    "--gen",
+    "C:/Users/Jarrod/wwe2k14-recomp/generated/default",
+    "--plant",
+    "loop",
+    "--expect-fail"
+   ],
+   "timeout_s": 120,
+   "needs": [
+    "generated/default"
+   ],
+   "affects": [
+    "tools/w3/check_table.py",
+    "tools/w3/classify_dispatch.py",
+    "src/nf/replay_native.h",
+    "config/*.toml"
+   ]
+  },
+  {
+   "name": "s102_w3.hook_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/hook_lint.py"
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "tools/w3/hook_lint.py",
+    "src/replay_watch.h",
+    "src/replay_guard.h",
+    "src/renderer_adapter/rdr_switches.h",
+    "src/nf/replay_native.h"
+   ]
+  },
+  {
+   "name": "s102_w3.hook_lint_selftest",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/hook_lint.py",
+    "--selftest"
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "tools/w3/hook_lint.py",
+    "src/replay_watch.h",
+    "src/replay_guard.h",
+    "src/renderer_adapter/rdr_switches.h",
+    "src/nf/replay_native.h"
+   ]
+  },
+  {
+   "name": "s102_w3.game_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/game_syntax.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include"
+   ],
+   "affects": [
+    "src/replay_watch.h",
+    "src/replay_guard.h",
+    "src/nf/replay_native.h",
+    "src/replay_call_check.h",
+    "src/renderer_adapter/rdr_switches.h"
+   ]
+  },
+  {
+   "name": "s102_w3.rank",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/w3/rank_guest.py",
+    "C:/Users/Jarrod/wwe2k14-recomp/out/s102/prof1/stacks3/x/stacks/stacks_260.txt",
+    "--gen",
+    "C:/Users/Jarrod/wwe2k14-recomp/generated/default",
+    "--top",
+    "5"
+   ],
+   "timeout_s": 300,
+   "needs": [
+    "out/s102/prof1/stacks3/x/stacks/stacks_260.txt",
+    "generated/default"
+   ],
+   "affects": [
+    "tools/w3/rank_guest.py"
+   ]
+  }
+ ]
+}

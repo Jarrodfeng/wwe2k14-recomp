@@ -1,0 +1,19 @@
+{
+ "owner": "S102 lane G1 (LOW's missing levers): src/renderer_adapter/low_levers.h, src/renderer/present_clear.h, the lever wiring in reader.h / live.cpp / renderer.cpp / swapchain.cpp, tools/g1/*, docs/renderer/LOW_LEVERS.md. 0 game runs, 0 Surface runs.",
+ "claim": [
+  {"lever": "wwe2k14_rdr_low_shadow_small", "scene": "bryan", "side": "GPU", "ms": [0.8, 1.4]},
+  {"lever": "wwe2k14_rdr_low_present_noclear", "scene": "bryan", "side": "GPU", "ms": [0.8, 1.0]},
+  {"lever": "wwe2k14_rdr_low_no_fullsize_copies", "scene": "bryan", "side": "GPU", "ms": [0.2, 0.6]},
+  {"lever": "wwe2k14_rdr_low_skin_once", "scene": "bryan", "side": "GPU", "ms": [0.0, 0.0], "note": "not built: skinning is per pass in the vertex shader, see docs/renderer/LOW_LEVERS.md"}
+ ],
+ "note": "unit = the decisions (low_levers.h, present_clear.h) on the real headers + 11 planted-fault headers that must each fail; wiring = every switch read in reader.h and carried to the code that uses it, each link removed in a copy must fail; bryan = fview headless on the Bryan entrance: lever 3 hash-equal on every frame + a planted twin that differs, lever 1 changes the picture with validation 0.",
+ "checks": [
+  {"name": "s102_g1.unit_wiring", "cmd": ["py", "-I", "tools/g1/g1_check.py", "--root", "."], "timeout_s": 900},
+  {"name": "s102_g1.bryan", "cmd": ["py", "-I", "tools/g1/g1_bryan.py", "--root", ".", "--capture", "bryan"], "timeout_s": 2400, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "game_data/extracted"]},
+  {"name": "s102_g1.match", "cmd": ["py", "-I", "tools/g1/g1_bryan.py", "--root", ".", "--capture", "match", "--frames", "40,100"], "timeout_s": 2400, "needs": [
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "game_data/extracted"]}
+ ]
+}

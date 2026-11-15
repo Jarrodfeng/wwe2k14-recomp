@@ -191,6 +191,9 @@ void main() {
 #endif
 
 layout(set = 0, binding = 1, std140) uniform FragmentConstants {
+#ifdef FX_PRELIGHT_ANALYTIC
+  vec4 PreLightK[18];     // S102 L1: the pre-light bake's constants (fx_prelight.glsl)
+#endif
   vec4 Level;             // w: the fixed mip level of the diffuse map
   vec4 MatAmbCol;
   vec4 MatDifCol;
@@ -247,6 +250,7 @@ layout(set = 0, binding = 1, std140) uniform FragmentConstants {
   vec4 DebugPS1;          // x, y rim-light controls; z, w output blends
 #endif
 } fc;
+#include "fx_prelight.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[16];
 layout(set = 1, binding = 0) uniform samplerCube cubes[16];
@@ -394,7 +398,11 @@ void main() {
 #endif
 
   // Light arriving at the surface: a blurred cube, its alpha driving a sub-surface tint, and a sky/ground hemisphere.
+#ifdef FX_PRELIGHT_ANALYTIC
+  vec4 cubeLight = fx_prelight_eval(n);   // S102 L1: the four lights per pixel, not the baked cube
+#else
   vec4 cubeLight = texture(cubes[13], n);
+#endif
   vec3 cubeDiffuse = min(cubeLight.rgb * fc.DifLghMax.xyz, fc.LightLimit.xyz);
   float scatterAmount = fc.DifLghMaxA.x * cubeLight.a * lit;
   vec3 scatter = mix(fc.SSSSinCol2.xyz, fc.SSS.xyz, scatterAmount) * fc.SSS.w;

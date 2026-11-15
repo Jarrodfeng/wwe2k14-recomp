@@ -151,7 +151,7 @@ struct Settings {
   std::string user_data_dir;   // the game's save folder (empty = Documents\wwe2k14, the game's default)
   bool first_run_done = false; // the first-run wizard has been finished
   int resolution = 0;          // 0 720p (the default since Session 95, Jarrod), 1 1440p, 2 4K
-  int draw_height = 0;         // Session 54: NATIVE draws at 360 / 480 / 540 (resolution 0) or 1080 (1); 0 = none
+  int draw_height = 0;         // Session 54: NATIVE draws at 360 / 480 / 540 / 576 / 600 / 648 (resolution 0) or 1080 (1); 0 = none
   int frame_rate = 1;          // 0 classic (30 fps entrances, 60 matches), 1 60 everywhere, 2 high refresh
   int refresh_hz = 0;          // high refresh: game steps per second (0 = the monitor's refresh rate)
   int perf_report = -1;        // write logs\perf_report_NNN.txt: 1 on, 0 off, -1 the build's default (playtest: on)
@@ -342,6 +342,7 @@ inline void SaveSettings(const fs::path& p, const Settings& s) {
 // the player keeps them (Settings -> Game data), the player's scenarios and recordings in LocalDataDir().
 
 struct Paths {
+  std::string exe_note;  // S102: non-empty = the launcher changed the exe on purpose (a status line says why)
   fs::path launcher_dir, repo, game_exe, game_data, mods, ids, scenarios, replays, director, seeds, shots, routes;
   fs::path dlc;        // Session 32: the DLC folder (it may not exist)
   fs::path user_data;  // the game's save folder
@@ -365,6 +366,13 @@ inline bool HasStreamline(const std::string& dir) {
   return !dir.empty() && fs::is_regular_file(fs::path(Widen(dir)) / "sl.interposer.dll", ec);
 }
 
+// S102 W1: the exe from Settings (Game exe), the Extra flags (--wwe2k14_build) and this CPU; called again when the Extra flags field is edited.
+inline void RepickGameExe(Paths& p, const Settings& s) {
+  const ExePick pick = PickGameExe(p.launcher_dir, s.game_exe, s.extra);
+  p.game_exe = fs::path(Widen(pick.path));
+  p.exe_note = pick.note;
+}
+
 inline Paths FindPaths(const Settings& s) {
   Paths p;
   wchar_t buf[MAX_PATH * 2];
@@ -379,7 +387,7 @@ inline Paths FindPaths(const Settings& s) {
     if (d == d.parent_path()) break;
   }
   if (!p.repo_found) p.repo = p.launcher_dir;
-  p.game_exe = s.game_exe.empty() ? PickGameExe(p.launcher_dir) : fs::path(Widen(s.game_exe));
+  RepickGameExe(p, s);
   p.logs = p.game_exe.parent_path() / "logs";
   {
     std::error_code ec;
@@ -1245,7 +1253,10 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     default:
       break;
   }
-  if (!s.extra.empty()) f.push_back(s.extra);
+  if (!s.extra.empty()) {  // S102 W1: --wwe2k14_build=avx2|base is the launcher's (exe_pick.h), the game does not know it
+    const std::string extra = StripBuildChoice(s.extra);
+    if (!extra.empty()) f.push_back(extra);
+  }
   std::string out;
   for (const auto& x : f) out += (out.empty() ? "" : " ") + x;
   return out;

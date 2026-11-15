@@ -15,6 +15,11 @@
 #   -SdkBin DIR[,DIR]            check another "would stage" folder instead of the SDK bin (testing; , or ; separated)
 #   (-CheckOnly with -AllowUnpinnedSdk reports "WOULD BE OVERRIDDEN" and writes nothing to the override log.)
 #   -PinFile FILE                use another pin list (testing)
+#   -Symbols                     S102 S0-6: also emit out\build\<Preset>\wwe2k14.pdb (CMake option WWE2K14_EXE_SYMBOLS=ON, set in the folder's cache
+#                                under the lock, then the normal build). For Surface stacks profiles (tools\surface\push_kit.ps1 -Symbols). The pdb stays on
+#                                Jarrod's machines: never committed, never in a release zip (make_release.ps1, tools\release\check_zip_symbols.py).
+#                                The option sticks in that folder's cache until -NoSymbols turns it off (a plain build prints a note while it is on).
+#                                Code bytes are unchanged (docs\harness\symbols.md). -GuestLines adds line tables for the guest code (bigger, slower).
 # Pin a new SDK build: pwsh -File tools\build_sdk.ps1 -Run NAME -Pin "what this build is".
 # Session 76 (Jarrod: "maybe set a timeout in builds? 3 minutes for PC ones since they're quite quick"; a build had
 # queued 7 min behind a live game nobody would quit): the run lock must be free within -LockWaitMinutes (default 3),
@@ -22,7 +27,8 @@
 # behind a sweep passes a longer wait.
 param([string]$Run = '002', [string]$Preset = 'win-amd64-release', [string]$AllowUnpinnedSdk = '',
       [switch]$CheckOnly, [string]$ExeDir = '', [string[]]$SdkBin = @(), [string]$PinFile = '',
-      [double]$LockWaitMinutes = 3, [double]$LockMaxMinutes = 30)
+      [double]$LockWaitMinutes = 3, [double]$LockMaxMinutes = 30,
+      [switch]$Symbols, [switch]$NoSymbols, [switch]$GuestLines)
 $repo = 'C:\Users\Jarrod\wwe2k14-recomp'
 . "$repo\tools\sdk_pins.ps1"
 $overrideGiven = $PSBoundParameters.ContainsKey('AllowUnpinnedSdk')
@@ -111,6 +117,7 @@ Set-Location $repo
 # NATIVE fence 4 KB off). Use ::rex::memory::detail::PhysicalHostOffset / GuestPtr. tools\analysis\fix_e0_offset.py.
 & py -I "$repo\tools\analysis\fix_e0_offset.py" --check src | Select-Object -Last 3
 if ($LASTEXITCODE -ne 0) { "build.ps1: NOT BUILT - hard-coded 0xE0000000 offset(s) in src (see above)"; exit 5 }
+if ($Symbols -and $NoSymbols) { 'build.ps1: -Symbols and -NoSymbols together make no sense'; exit 2 }
 # Session 95 (process report item 5: "build.ps1 s95d3 timed out after 301 s" while the queue was moving): QUEUE-AWARE. The
 # -LockWaitMinutes clock restarts whenever the line moves (our position drops or the holder changes) up to -LockMaxMinutes
 # (default 30) in all; a live game nobody started (a manual session) still times out at -LockWaitMinutes as before.
@@ -129,6 +136,15 @@ if (-not $script:pinOk) {
     "build.ps1: REFUSED, nothing built or copied (exit $buildExit)"
 } else {
 $log = "logs\build_$Run.log"
+# S102 S0-6: the symbols option lives in the folder's CMake cache; reconfigure only when it must change (inside the lock).
+$cache = Join-Path $repo "out\build\$Preset\CMakeCache.txt"
+$symNow = (Test-Path -LiteralPath $cache) -and ((Get-Content -LiteralPath $cache) -contains 'WWE2K14_EXE_SYMBOLS:BOOL=ON')
+if ($Symbols) {
+    $gl = if ($GuestLines) { 'ON' } else { 'OFF' }
+    cmake -S . -B "out/build/$Preset" -DWWE2K14_EXE_SYMBOLS=ON -DWWE2K14_EXE_SYMBOLS_GUEST_LINES=$gl *>&1 | Select-Object -Last 3
+} elseif ($NoSymbols -and $symNow) {
+    cmake -S . -B "out/build/$Preset" -DWWE2K14_EXE_SYMBOLS=OFF -DWWE2K14_EXE_SYMBOLS_GUEST_LINES=OFF *>&1 | Select-Object -Last 3
+} elseif ($symNow) { "build.ps1: note: wwe2k14.pdb symbols are ON in this build folder (-NoSymbols turns them off)" }
 $t0 = Get-Date
 cmake --build "out/build/$Preset" -j 16 *>&1 | Out-File $log
 $buildExit = $LASTEXITCODE

@@ -8,7 +8,7 @@
 # worktree: the folders are made in the MAIN checkout's out\ (game-derived, local only, hard rule 1).
 # Each restored folder gets a KEEP file naming the gate files that read it (tools\harness\tidy.py: KEEP = never deleted; its reason says why).
 # Every path here is also named in the gate lane jsons / check scripts, which tidy protects whatever their age (lane 294).
-import argparse, json, os, shutil, subprocess, sys, zipfile
+import argparse, json, os, shutil, subprocess, sys, time, zipfile
 from pathlib import Path
 
 
@@ -61,6 +61,13 @@ INPUTS = {
         frames=375,
         holds='Run 7149: Brock caster verify capture (caster records + wrestler bones), scene records.',
         gates='tools/gate/lanes/d3_wrestlers.json, d3_ring.json, tools/d3/d3_ring_check.py, d3_wrestler_check.py'),
+    # S102 lane M1: the Bryan entrance capture (the case crowd_card_thin.json names), the fixed capture the budget lane counts on.
+    'bryan': dict(
+        dest=LANE92 + '/case_20261112_122719_969_0_pc_run_exit',
+        zip=RUNS + '/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip',
+        frames=237,
+        holds='Run of 2026-11-12 12:27: the Bryan entrance capture (237 frames, scene records).',
+        gates='tools/gate/lanes/s102_budget.json, tools/budget/budget_check.py, tools/gate/lanes/crowd_card_thin.json'),
 }
 
 
@@ -73,6 +80,34 @@ def _frames(dest):
     return sum(1 for _ in d.glob('frame_*.rsc')) if d.is_dir() else 0
 
 
+LOCK_WAIT_S = int(os.environ.get('RDR_INPUTS_LOCK_WAIT_S', '900'))   # (the selftest shortens it)how long a second restorer waits for the first (an unpack of a big capture takes seconds to a minute)
+LOCK_STALE_S = 1800  # a lock file older than this belongs to a dead restorer
+
+
+def _lock(dest):
+    """Per-input lock (S102 M1, review I): O_CREAT|O_EXCL on <dest>.lock, waiting for the holder; returns the lock path. Two gates restoring the same input
+    used to share one <dest>.part and one rmtree(dest): one deleted the other's folder."""
+    lock = dest.with_name(dest.name + '.lock')
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.time() + LOCK_WAIT_S
+    while True:
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            return lock
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > LOCK_STALE_S:
+                    lock.unlink()
+                    continue
+            except OSError:
+                continue
+            if time.time() > deadline:
+                raise TimeoutError('lock %s held for over %d s' % (lock, LOCK_WAIT_S))
+            time.sleep(0.2)
+
+
 def restore_one(name, quiet=False):
     spec = INPUTS[name]
     dest, zp = MAIN / spec['dest'], MAIN / spec['zip']
@@ -80,19 +115,31 @@ def restore_one(name, quiet=False):
         return 'present'
     if not zp.is_file():
         return 'FAIL zip missing: ' + str(zp)
-    part = dest.with_name(dest.name + '.part')
-    if part.exists():
-        shutil.rmtree(part, ignore_errors=True)
-    part.mkdir(parents=True)
-    with zipfile.ZipFile(zp) as z:
-        z.extractall(part)
-    if dest.exists():   # a half folder (some other tool, an interrupted tidy)
-        shutil.rmtree(dest, ignore_errors=True)
-    part.rename(dest)
-    keep = ('KEEP: gate input "%s" (lane 300): %s Unpacked from %s. Read by: %s. Rebuild any time with `py -I tools\\gate\\inputs.py restore`.'
-            % (name, spec['holds'], spec['zip'], spec['gates']))
-    (dest / 'KEEP').write_text(keep + '\n', encoding='utf-8')
-    return 'restored'
+    lock = _lock(dest)
+    try:
+        if _present(dest):   # another restorer finished while this one waited
+            return 'present'
+        part = dest.with_name('%s.part.%d' % (dest.name, os.getpid()))   # (unique: never another restorer's folder)
+        if part.exists():
+            shutil.rmtree(part, ignore_errors=True)
+        part.mkdir(parents=True)
+        with zipfile.ZipFile(zp) as z:
+            z.extractall(part)
+        if _present(dest):   # appeared meanwhile (a restorer that did not take the lock): keep it, discard mine
+            shutil.rmtree(part, ignore_errors=True)
+            return 'present'
+        if dest.exists():   # a half folder (some other tool, an interrupted tidy), and only then
+            shutil.rmtree(dest, ignore_errors=True)
+        part.rename(dest)
+        keep = ('KEEP: gate input "%s" (lane 300): %s Unpacked from %s. Read by: %s. Rebuild any time with `py -I tools\\gate\\inputs.py restore`.'
+                % (name, spec['holds'], spec['zip'], spec['gates']))
+        (dest / 'KEEP').write_text(keep + '\n', encoding='utf-8')
+        return 'restored'
+    finally:
+        try:
+            lock.unlink()
+        except OSError:
+            pass
 
 
 def verify_one(name):

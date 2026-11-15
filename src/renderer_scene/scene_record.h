@@ -11,6 +11,11 @@ namespace rdr_scene {
 
 inline constexpr uint32_t kSceneMagic = 0x4E435352;  // "RSCN"
 inline constexpr uint32_t kSceneVersion = 1;
+// S102 T19: a record that carries crowd run markers (kScCrowdRuns / kScCrowdMembers) is written as version 2; a record without them is still version 1, byte for byte
+// as before. A reader accepts both (ParseRecord expands the markers into the plain member objects at once; docs\formats\scene_record_crowd_runs.md).
+inline constexpr uint32_t kSceneVersionRuns = 2;
+inline constexpr uint32_t kScCrowdRuns = 40;     // S102 T19: CrowdRun[]: one marker per run of same-type stands members. Version 2 only. Optional
+inline constexpr uint32_t kScCrowdMembers = 41;  // S102 T19: CrowdMember[]: what differs per member (the world's 12 constants, the index); the runs index it
 
 // Space: world units and axes of the GAME (the matrices the engine gives its draws); a source in another space converts once, at the
 // source (the viewer's "Y up, +Z toward the stage" space is converted by its backend; the conversion is lodged in SCENE_RECORD.md).
@@ -50,6 +55,7 @@ enum SceneSectionId : uint32_t {
   kScCasterExtras,        // lane 221 (SKIP_GAME_WORK_MAP.md 17.10): CasterExtra[], PARALLEL to kScCasterCalls (same count, same order): the rim pass's camera (the thread slot's current-camera product), RimLightDepth and the map-A collapse point. Optional
   kScCasterMats,          // lane 226 (SKIP_GAME_WORK_MAP.md 17.11, E5): Mat4[]: the palette matrices a PLANE pass entry read from [model+200] (the plane proxies are in no other record); a CasterCall with kCcMats indexes it by node_first
   kScSphereOcc,           // lane 242 (SKIP_GAME_WORK_MAP.md 18.8, H3): SphereOccRow[]: per wrestler skeleton the 'CCSO' component's two spheres as sub_826DF8E0 left them (P, V = the stream's VS c168-c171) + its table. Optional
+  kScOwnedPasses,         // S102 P0 / P4P5 (OWN_THE_PASS.md 6): OwnedPassStamp[]: one per pass decided this frame (node_switch.h). Optional; absent = every pass is the game's
   kScCount
 };
 
@@ -122,6 +128,31 @@ struct Object {
                                      // (S101 lane 1, after the lane 28 review: one id space shared by every contributor's Light rows)
   float tint[4] = {1, 1, 1, 1};      // fades (object alpha), 1 = none
 };
+
+// S102 T19 (docs\formats\scene_record_crowd_runs.md): one marker for a run of consecutive crowd members that share kind, person type and LOD group (so also asset and palette).
+// A reader expands it into `count` Objects inserted at Objects[at]: class Crowd, layer = `layer`, flags = kObjVisible (| kObjSkinned when `skinned`), asset / bones as here, world =
+// the member's 12 constants as rdr_scene::live::crowd::WorldFromConstants makes it, id = "crowd:<kind>:<block>:<member:>N" with N = the member's index, or, for a member with
+// no readable index (CrowdMember::index = 0xFFFFFFFF), the next number of the record's per-record ordinal (counted over all runs in order, from 0, "u" prefixed). Every other
+// Object field is the default. 28 bytes.
+enum CrowdRunKind : uint8_t { kRunBlock = 0, kRunFloor = 1, kRunCard = 2 };
+struct CrowdRun {
+  uint32_t at = 0;            // index in the expanded Objects[] where the run's members start (runs are in nondecreasing `at`)
+  uint32_t first_member = 0;  // into kScCrowdMembers
+  uint32_t count = 0;
+  uint32_t asset = 0;         // index into kScAssets
+  uint32_t bones_first = 0, bones_count = 0;
+  uint8_t kind = 0;           // CrowdRunKind
+  uint8_t block = 0;          // the person type (the id's TT)
+  uint8_t layer = 0;          // Object::layer
+  uint8_t skinned = 0;        // 1 = kObjSkinned set, bones as above
+};
+static_assert(sizeof(CrowdRun) == 28, "CrowdRun is a flat POD table");
+struct CrowdMember {
+  float c[12];                // the draw's VS constants c76-c78: row r is column r of the world matrix (rdr_scene::live::crowd::WorldFromConstants)
+  uint32_t index;             // the member's index in its type's array, or 0xFFFFFFFF = none readable
+};
+static_assert(sizeof(CrowdMember) == 52, "CrowdMember is a flat POD table");
+inline constexpr uint32_t kCrowdNoIndex = 0xFFFFFFFFu;
 
 // A material value by name (the effect's named parameter, g_*), for one object. Unset parameters take the file's value.
 struct ParamValue {

@@ -45,7 +45,7 @@ using namespace rdr_scene::live::casters;
 using rdr_scene::live::Counters;
 using rdr_scene::live::FrameInfo;
 
-static_assert(kScCasterNodes == 24 && kScCasterExtras == 25 && kScCasterMats == 26 && kScCount == 28 && sizeof(Mat4) == 64 && sizeof(CasterExtra) == 96 && sizeof(uint32_t) == 4, "lane 217: section 24 (the per-node hash pool); lane 221: section 25 (CasterExtra, 96 bytes; the Python reader pins the same)");
+static_assert(kScCasterNodes == 24 && kScCasterExtras == 25 && kScCasterMats == 26 && kScCount >= 28 && sizeof(Mat4) == 64 && sizeof(CasterExtra) == 96 && sizeof(uint32_t) == 4, "lane 217: section 24 (the per-node hash pool); lane 221: section 25 (CasterExtra, 96 bytes; the Python reader pins the same)");
 static_assert(kScCasterCalls == 22 && kScCasterStates == 23 && sizeof(CasterCall) == 64 && sizeof(LightState) == 1232, "sections 22 / 23; the Python reader pins the same sizes");
 static_assert(!kCasterSkipBuilt, "lane 202 builds no skipping");
 

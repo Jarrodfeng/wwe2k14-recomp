@@ -48,8 +48,10 @@
 //   --show-xdet-check       (open its window, for a look)
 //   --export-for-phone ZIP  (Session 98: Trons -> Export for phone... into ZIP, no Save dialog; waits for it)
 
+#include "../thread_name.h"  // S102 H1
 #include "launcher_core.h"
 #include "tab_strip.h"
+#include "bench_button.h"  // S102 U4: the benchmark button's numbers and results writer
 
 #include <d3d11.h>
 #include <d3d11_4.h>  // ID3D11Multithread
@@ -88,6 +90,7 @@
 #include "wm30_list.h"  // Session 34: the 30 Years of WrestleMania matches from the player's game files
 #include "../diag_plan.h"  // Session 95: the diagnostic run (shared with the phone launcher)
 #include "../diag_logcut.h"  // Session 95 (diag4): the game log cut for the zip (shared)
+#include "../gfx_applied.h"  // S102 S0-1: SuggestIntegrated (shared with the Surface bench's profile generator)
 #include "../vk_devices.h"  // Session 37: integrated graphics? interlock? (the renderer and FSR choices)
 #include "../tron_zip.h"  // Session 98: EXPORT FOR PHONE (the tron previews as one zip for the phone launcher)
 #include "../audio_import/audio_import.h"  // lane 283: song import (decode, loudness-normalise, cover art)
@@ -524,7 +527,7 @@ class Player {
     w_ = probe.w, h_ = stacked_ ? probe.h / 2 : probe.h, full_h_ = probe.h;
     stop_ = false, running_ = true;
     start_set_ = false, have_frame_ = false;
-    thread_ = std::thread([this, f] { Decode(f); });
+    thread_ = std::thread([this, f] { wwe2k14::NameThread(L"lnch_decode"); Decode(f); });
     return true;
   }
 
@@ -767,7 +770,7 @@ class ThumbLoader {
   }
   void Request(int tron, const fs::path& f, fs::file_time_type stamp) {
     std::lock_guard<std::mutex> l(mu_);
-    if (!thread_.joinable()) thread_ = std::thread([this] { Run(); });
+    if (!thread_.joinable()) thread_ = std::thread([this] { wwe2k14::NameThread(L"lnch_run"); Run(); });
     for (const auto& q : todo_)
       if (q.tron == tron && q.file == f) return;
     todo_.push_back({tron, f, stamp, {}, 0, 0});
@@ -903,7 +906,7 @@ class App {
       if (update_->info.state == UpdateInfo::kChecking) return;
       update_->info = {}, update_->info.state = UpdateInfo::kChecking;
     }
-    std::thread([st = update_, ver = MyVersion(), file = update_file_] {
+    std::thread([st = update_, ver = MyVersion(), file = update_file_] { wwe2k14::NameThread(L"lnch_update");
       UpdateInfo u;
       if (file.empty()) {
         u = CheckForUpdate(ver);
@@ -992,7 +995,7 @@ class App {
     job_ = std::make_shared<InstallJob>();
     job_->stage = 1;
     Log("update: downloading " + u.asset_name + " (" + MB(u.asset_size) + ")");
-    std::thread([job = job_, install, u, test = update_test_files_, ver = MyVersion()] {
+    std::thread([job = job_, install, u, test = update_test_files_, ver = MyVersion()] { wwe2k14::NameThread(L"lnch_install");
       auto fail = [&](const std::string& why) {
         std::lock_guard<std::mutex> lock(job->m);
         job->error = why, job->stage = 5;
@@ -1182,6 +1185,7 @@ class App {
 
   void Reload() {
     paths_ = FindPaths(s);
+    if (!paths_.exe_note.empty()) Status(paths_.exe_note);  // S102 W1: an explicit AVX2 exe on a CPU that cannot run it
     std::string err;
     chars_ = LoadCharacters(paths_.ids, err);
     if (!err.empty()) Status("characters: " + err);
@@ -1337,6 +1341,7 @@ class App {
     CollectThumbs();
     PollGame();
     DiagTick();  // Session 95
+    BenchTick();  // S102 U4: a benchmark scene's wall-clock limit
     PollPrecompile();  // Session 70
     PollStars();       // Session 101: the superstars pack built before a start
     DirectStartPoll();  // Session 53
@@ -1880,6 +1885,15 @@ class App {
       y += ImGui::GetTextLineHeightWithSpacing() + 10 * d;
       ImGui::SetCursorScreenPos(ImVec2(wx + (ww - 0.22f * wh) / 2 - 110 * d, y));
       if (ImGui::Button("PERFORMANCE TEST (test build)", ImVec2(220 * d, 0))) want_perf_popup_ = true;
+      y += ImGui::GetFrameHeight();
+    }
+    if (BenchAvailable()) {  // S102 U4: the benchmark button (three short games, results into the report zip)
+      y += ImGui::GetTextLineHeightWithSpacing() + 6 * d;
+      ImGui::SetCursorScreenPos(ImVec2(wx + (ww - 0.22f * wh) / 2 - 110 * d, y));
+      if (ImGui::Button(bench_step_ >= 0 ? "STOP THE BENCHMARK" : "BENCHMARK (Lesnar vs Bryan)", ImVec2(220 * d, 0))) {
+        if (bench_step_ >= 0) StopBench();
+        else StartBench();
+      }
       y += ImGui::GetFrameHeight();
     }
 
@@ -2503,7 +2517,7 @@ class App {
     }
     if (StarsBeforeStart(cmd, ok_msg)) return;  // Session 101 (lane 199): the imported superstars' pack is brought up to date first
     // Session 70: the precompile first, when this build / card / driver / pipeline settings have not had one.
-    if (cmd.exe == paths_.game_exe.wstring() && s.precompile && !s.harness && perf_step_ < 0 && !check_running_ && !diag_running_ &&
+    if (cmd.exe == paths_.game_exe.wstring() && s.precompile && !s.harness && perf_step_ < 0 && bench_step_ < 0 /* S102 U4 */ && !check_running_ && !diag_running_ &&
         !importing_ &&
         !precompile_skip_once_ && PrecompileKey() != ReadPrecompileStamp()) {
       StartPrecompile(cmd, ok_msg);
@@ -2543,7 +2557,7 @@ class App {
     const wwe2k14::vkdev::Device dev = ChosenDevice(s.gpu);
     // (Review: the SDK's DLLs too - a release may change only them - and the renderer.)
     std::string files;
-    for (const char* f : {"wwe2k14.exe", "rexgpu-xenos.dll", "rexruntime.dll"}) {
+    for (const std::string f : {PathStr(paths_.game_exe.filename()), std::string("rexgpu-xenos.dll"), std::string("rexruntime.dll")}) {  // S102: the exe actually started (wwe2k14.exe or the v3 exe)
       std::error_code ec;
       const fs::path p = paths_.game_exe.parent_path() / f;
       files += std::string(f) + " " + std::to_string(fs::file_size(p, ec)) + " " +
@@ -2557,7 +2571,7 @@ class App {
            // Session 92 M6: TRUE NATIVE has its own translation store (the precompile fills it from the list's V lines),
            // so turning it on or off must run the precompile again.
            " true_native " + std::to_string(int(s.true_native)) + "; extra " +
-           s.extra;  // Session 72: the post effects choice swaps two pipelines
+           StripBuildChoice(s.extra);  // Session 72: the post effects choice swaps two pipelines
   }
   fs::path PrecompileStampPath() const { return fs::path(settings_path).parent_path() / "precompile_stamp.txt"; }
   std::string ReadPrecompileStamp() const {
@@ -2713,7 +2727,7 @@ class App {
     if (cmd.display == stars_ok_for_) return false;  // (built for this start)
     // (review S2) the precompile's exclusions: a test run (harness, performance test, determinism check, diagnostic run, logo
     // import) never waits on a build - it would abort the test and start an orphan game run later
-    if (s.harness || perf_step_ >= 0 || check_running_ || diag_running_ || importing_) return false;
+    if (s.harness || perf_step_ >= 0 || bench_step_ >= 0 /* S102 U4 */ || check_running_ || diag_running_ || importing_) return false;
     const std::string mods = PathStr(paths_.mods);
     const importer::PlayCheck c = importer::CheckBeforePlay(mods, StarsDlcDir(), s.dlc_off);
     if (!c.build) return false;
@@ -2724,7 +2738,7 @@ class App {
     stars_next_ = cmd, stars_next_msg_ = ok_msg, stars_why_ = c.why, stars_fail_.clear();
     auto j = stars_job_ = std::make_shared<StarsJob>();
     const std::string game = s.game_data_dir.empty() ? PathStr(paths_.game_data) : s.game_data_dir, dlc = StarsDlcDir(), off = s.dlc_off;
-    std::thread([j, st, mods, game, dlc, off] {
+    std::thread([j, st, mods, game, dlc, off] { wwe2k14::NameThread(L"lnch_import");
       launcher::GameFiles g;
       g.SetRoot(fs::u8path(game));
       std::string e;
@@ -2883,6 +2897,7 @@ class App {
     }
     ReloadGraphicsSettings();
     last_exit_ = ExitCodeText(code) + " at " + NowStamp("%Y-%m-%d %H:%M");  // Session 58: for Report a problem
+    if (bench_step_ >= 0) return BenchRunEnded(code);  // S102 U4: a benchmark scene's game closed
     if (perf_step_ >= 0) {  // Session 39: a performance test run (its exit code goes into the test's about.txt)
       if (code) Log("performance test run exited with " + ExitCodeText(code));
       PerfRunEnded(code);
@@ -3270,6 +3285,12 @@ class App {
     const fs::path perf = Newest(paths_.logs, "perf_report_", ".txt");
     about += "Performance report: " + (perf.empty() ? std::string("(none: turn it on in Settings)") : PathStr(perf.filename())) + "\n";
     if (!perf.empty()) files.emplace_back(PathStr(perf.filename()), Redact(ReadTail(perf, 4u << 20)));
+    {  // S102 U4: the latest benchmark's results (numbers and hardware only), when the player has run the button
+      const std::string bench_text = ReadTail(ReportsDir() / "benchmark_latest.txt", 1u << 20);  // the dir FinishBench wrote to
+      if (!bench_text.empty()) files.emplace_back("benchmark_results.txt", Redact(bench_text)), about += "Benchmark: benchmark_results.txt\n";
+      const std::string bench_json = ReadTail(ReportsDir() / "benchmark_latest.json", 1u << 20);
+      if (!bench_json.empty()) files.emplace_back("benchmark_results.json", Redact(bench_json));
+    }
     about += DlcReportText();  // Session 32: pack names and states, never their files
     files.emplace_back("launcher_settings.json", Redact(json(s).dump(2)));
     std::string recent;
@@ -3465,6 +3486,147 @@ class App {
       out += '\n';
     }
     return out;
+  }
+
+  // ---------------- S102 U4: the benchmark button. Three short games in a row (Brock's entrance, Bryan's, the match; the Surface bench's per-scene
+  // routes launched the way the shipped performance test is, "@quick" on Over the Limit; scene list, judging and numbers in bench_button.h) at the player's OWN
+  // settings, on a copy of the save and of the settings file (LocalDataDir()\bench). Then benchmark_<stamp>.txt / .json in reports\ (and benchmark_latest.* that the
+  // report zip picks up). No popup: Status says where the file is. Offered only when bench\ is shipped next to the exe (bench_button.h RequiredFiles()).
+  // A scene that runs past kSceneLimitSeconds is ended (NO RESULT); STOP ends the game and the benchmark; a game closed by the player (or crashed) before the route's
+  // `bench: done` ends the benchmark; earlier scenes keep their numbers.
+  struct BenchRun {
+    launcher::bench::SceneResult result;
+    std::string device, tier;
+    bool ran = false;
+  };
+  int bench_step_ = -1;  // the scene going now; -1 = no benchmark running
+  std::vector<BenchRun> bench_runs_;
+  long bench_prev_log_ = -1;
+  bool bench_stop_ = false, bench_timed_out_ = false;
+  std::chrono::steady_clock::time_point bench_t0_;
+  fs::path ReportsDir() const {  // the one place the benchmark files are written and Report a problem reads them (MakeReport falls back the same way)
+    fs::path dir = paths_.launcher_dir / "reports";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) dir = LocalDataDir() / "reports", fs::create_directories(dir, ec);
+    return dir;
+  }
+  bool BenchAvailable() const { return gd_.ok && launcher::bench::MissingFiles(paths_.game_exe.parent_path()).empty(); }
+  void StartBench() {
+    if (game_proc_) return Status("Close the game first");
+    const fs::path root = LocalDataDir() / "bench";
+    std::error_code ec;
+    fs::create_directories(root, ec);
+    if (!fs::exists(root / "save", ec)) {  // once: a copy of the player's save, so the benchmark never touches the real one
+      fs::create_directories(root / "save", ec);
+      if (fs::exists(paths_.user_data, ec)) fs::copy(paths_.user_data, root / "save", fs::copy_options::recursive | fs::copy_options::skip_existing, ec);
+      if (ec) {
+        fs::remove_all(root / "save", ec);
+        return Status("Could not copy the save folder for the benchmark: " + ec.message());
+      }
+    }
+    fs::copy_file(settings_path, root / "settings_copy.json", fs::copy_options::overwrite_existing, ec);  // the game reads this copy (a missing original: it runs on defaults)
+    bench_runs_.assign(launcher::bench::Scenes().size(), BenchRun{});
+    bench_step_ = 0, bench_stop_ = false, bench_timed_out_ = false;
+    StartBenchRun();
+  }
+  void StartBenchRun() {
+    namespace bn = launcher::bench;
+    const bn::Scene& sc = bn::Scenes()[size_t(bench_step_)];
+    const fs::path root = LocalDataDir() / "bench";
+    Settings t = PlainSettings();  // the player's own resolution, tier and options: the number is what this player gets
+    t.mods = t.lighting = t.superstars = t.discord = false;
+    t.cinecam = t.photo_mode = t.runin = false, t.perf_report = 0;
+    t.scenario = "@quick", t.quick_type = 0, t.quick_ids = sc.quick_ids, t.quick_cpu_only = true, t.quick_arena = bn::kArenaOverTheLimit, t.skip_entrances = sc.skip_entrances;
+    t.user_data_dir = PathStr(root / "save");
+    t.extra = s.extra + (s.extra.empty() ? "" : " ") + sc.flags + " --wwe2k14_input_script=" + Quote(PathStr(paths_.game_exe.parent_path() / sc.route)) +
+              " --wwe2k14_settings_file=" + Quote(PathStr(root / "settings_copy.json"));
+    const fs::path before = Newest(paths_.logs, "wwe2k14_", ".log");
+    bench_prev_log_ = before.empty() ? -1 : bn::LogNumber(PathStr(before.filename()));
+    bench_timed_out_ = false;
+    bench_t0_ = std::chrono::steady_clock::now();
+    StartGame(BuildCommand(t, paths_), std::string("Benchmark ") + std::to_string(bench_step_ + 1) + " of " + std::to_string(bench_runs_.size()) + ": " + sc.label);
+    if (!game_proc_) {  // could not start: Status says why
+      bench_runs_[size_t(bench_step_)].result = bn::SceneResult{sc.id, sc.label, "the game could not be started"};
+      bench_runs_[size_t(bench_step_)].ran = true;
+      bench_stop_ = true;
+      bench_step_ = -1;
+      FinishBench();
+    }
+  }
+  void StopBench() {  // the STOP button: ends the game and the benchmark; the scene going gets NO RESULT, earlier ones keep their numbers
+    bench_stop_ = true;
+    if (game_proc_) TerminateProcess(game_proc_, 6);
+  }
+  void BenchTick() {  // every frame: the wall-clock limit of a scene
+    if (bench_step_ < 0 || !game_proc_ || bench_timed_out_) return;
+    const double ran = std::chrono::duration<double>(std::chrono::steady_clock::now() - bench_t0_).count();
+    if (launcher::bench::OverLimit(ran)) {
+      Log("benchmark: ending a scene that ran " + std::to_string(int(ran)) + " s");
+      bench_timed_out_ = true;
+      TerminateProcess(game_proc_, 7);
+    }
+  }
+  void BenchRunEnded(DWORD code) {
+    namespace bn = launcher::bench;
+    const bn::Scene& sc = bn::Scenes()[size_t(bench_step_)];
+    BenchRun& r = bench_runs_[size_t(bench_step_)];
+    r.ran = true;
+    const fs::path log = Newest(paths_.logs, "wwe2k14_", ".log");
+    const std::string log_name = log.empty() ? std::string() : PathStr(log.filename());
+    const bool is_new = !log_name.empty() && bn::LogIsNew(bench_prev_log_, log_name);
+    std::string log_text, csv_text;
+    if (is_new) {
+      log_text = ReadTail(log, 48u << 20);
+      csv_text = ReadTail(paths_.logs / Widen("frames_" + log_name.substr(8, log_name.size() - 8 - 4) + ".csv"), 64u << 20);
+    }
+    r.result = bn::MeasureRun(sc.id, sc.label, csv_text, log_text, bench_timed_out_, is_new);
+    if (!r.result.error.empty() && !bench_timed_out_ && !bench_stop_) r.result.error += " (exit " + ExitCodeText(code) + ")";
+    if (bench_stop_) r.result.error = r.result.error.empty() ? std::string("stopped by the player") : "stopped by the player (" + r.result.error + ")";
+    r.device = bn::DeviceFromLog(log_text), r.tier = bn::TierFromLog(log_text);
+    if (code) Log("benchmark scene exited with " + ExitCodeText(code));
+    // The benchmark goes on only after a scene the route finished or our own time limit ended; a game that ended by itself without 'bench: done' (closed by the player,
+    // crashed, a route step failed) or a STOP ends it.
+    const bool go_on = !bench_stop_ && (bench_timed_out_ || bn::HasDone(log_text)) && size_t(bench_step_) + 1 < bench_runs_.size();
+    bench_timed_out_ = false;
+    if (go_on) {
+      ++bench_step_;
+      StartBenchRun();
+      return;
+    }
+    bench_step_ = -1;
+    FinishBench();
+  }
+  void FinishBench() {
+    namespace bn = launcher::bench;
+    std::vector<bn::SceneResult> results;
+    std::string device, tier;
+    for (size_t i = 0; i < bench_runs_.size(); ++i) {
+      bn::SceneResult res = bench_runs_[i].result;
+      if (!bench_runs_[i].ran) res = bn::SceneResult{bn::Scenes()[i].id, bn::Scenes()[i].label, "not run (the benchmark stopped before this scene)"};
+      if (device.empty()) device = bench_runs_[i].device;
+      if (tier.empty()) tier = bench_runs_[i].tier;
+      results.push_back(res);
+    }
+    bn::Info info;
+    info.version = Version(), info.made = NowStamp("%Y-%m-%d %H:%M"), info.gpu = hw_.gpu + " (" + std::to_string(hw_.gpu_vram_mb) + " MB)", info.driver_and_api = device;
+    info.cpu = hw_.cpu, info.ram = std::to_string(int(hw_.ram_gb + 0.5)) + " GB", info.windows = hw_.windows, info.resolution = ResolutionName(s);
+    static const char* kTiers[] = {"AUTO", "LOW", "STANDARD"};
+    info.tier = tier.empty() ? std::string("setting ") + kTiers[std::clamp(s.quality_tier, 0, 2)] + " (the game's applied line was not found)" : tier + " (setting " + kTiers[std::clamp(s.quality_tier, 0, 2)] + ")";
+    const fs::path dir = ReportsDir();
+    const std::string text = Redact(bn::ResultsText(info, results)), json = Redact(bn::ResultsJson(info, results));
+    const std::string stamp = NowStamp("%Y%m%d_%H%M");
+    for (const auto& [name, data] : {std::pair<std::string, std::string>{"benchmark_" + stamp + ".txt", text}, {"benchmark_latest.txt", text},
+                                     {"benchmark_" + stamp + ".json", json}, {"benchmark_latest.json", json}}) {
+      std::ofstream out(dir / Widen(name), std::ios::binary);
+      out.write(data.data(), std::streamsize(data.size()));
+    }
+    Status("Benchmark saved: " + PathStr(dir / Widen("benchmark_" + stamp + ".txt")) + " (Report a problem adds it to the zip)");
+    Log("benchmark saved " + PathStr(dir / Widen("benchmark_" + stamp + ".txt")));
+    if (open_folders_) {
+      const std::wstring arg = L"/select,\"" + (dir / Widen("benchmark_" + stamp + ".txt")).wstring() + L"\"";
+      ShellExecuteW(hwnd_, nullptr, L"explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+    }
   }
 
   // ---------------- Session 77 (XDET_PLAN.md "P7 testers", step 3): the determinism check. Jarrod's interview
@@ -4506,7 +4668,7 @@ class App {
   }
   void MusicEnqueue(MusicJob j, bool is_import) {
     std::lock_guard lock(music_->m);
-    if (!music_->started) music_->started = true, std::thread(MusicWorker, music_).detach();
+    if (!music_->started) music_->started = true, std::thread([m = music_] { wwe2k14::NameThread(L"lnch_music"); MusicWorker(m); }).detach();
     if (is_import) {
       if (!music_->working) music_->batch_total = music_->batch_done = 0, music_->cancel_all = false;
       music_->working = true;
@@ -5742,13 +5904,13 @@ class App {
     std::string note = extra_note ? extra_note : "";
     if (enabled && native && e.draw_height) {
       char drawn[160];
-      std::snprintf(drawn, sizeof(drawn), " Drawn at %dx%d and scaled to your screen%s.", (e.draw_height * 16 + 8) / 9,
+      std::snprintf(drawn, sizeof(drawn), " Drawn at %dx%d and scaled to your screen%s.", (e.draw_height * 1280 + 719) / 720,
                     e.draw_height, e.draw_height < 720 ? ": less work for the graphics card, softer picture" : "");
       note += drawn;
     }
     if (enabled && !native)
-      note += t.renderer != 2 ? " 360p, 480p, 540p and 1080p need the NATIVE renderer."
-                              : " 360p, 480p, 540p and 1080p are not available with upscaling.";
+      note += t.renderer != 2 ? " 360p to 648p and 1080p need the NATIVE renderer."
+                              : " 360p to 648p and 1080p are not available with upscaling.";
     if (OptionRow("RESOLUTION", vi, names.data(), int(names.size()), enabled, note.c_str())) {
       const auto& n = wwe2k14::gfxs::kResolutions[entries[size_t(std::clamp(vi, 0, int(entries.size()) - 1))]];
       t.resolution = n.resolution, t.draw_height = n.draw_height;
@@ -6047,6 +6209,7 @@ class App {
     ImGui::Dummy(ImVec2(0, 6 * dpi));
     ImGui::SetNextItemWidth(-200 * dpi);
     ImGui::InputTextWithHint("Extra flags", "--name=value ...", &s.extra);
+    if (ImGui::IsItemDeactivatedAfterEdit()) RepickGameExe(paths_, s);  // S102 W1: --wwe2k14_build=avx2|base takes effect without a reload
     bool changed = false;
     ImGui::SetNextItemWidth(-200 * dpi);
     changed |= ImGui::InputTextWithHint("Save folder", PathStr(DefaultUserRoot()).c_str(), &s.user_data_dir);
@@ -6660,7 +6823,8 @@ class App {
     const wwe2k14::vkdev::Device dev = ChosenDevice(t.gpu);
     if ((!dev.name.empty() && !dev.interlock) || dev.integrated()) t.renderer = 2;
     // (Session 95, Jarrod: "720p the default": integrated graphics start at true 720p, no longer 540p; 540P is still a hand pick.)
-    if (dev.integrated()) t.resolution = 0, t.draw_height = 0, t.frame_rate = 3, t.refresh_hz = 0, t.upscale = 0, t.original_look = false;
+    // S102 S0-1: the values live in gfx_applied.h (the Surface bench's "auto" profile is generated from the same function).
+    if (dev.integrated()) wwe2k14::gfxs::SuggestIntegrated(t.resolution, t.draw_height, t.frame_rate, t.refresh_hz, t.upscale, t.original_look);
     // Session 95 (Jarrod: "they start with our safe low defaults"): first-run auto-detect writes the LOW tier's starting values
     // into the settings the player sees (once; the sliders are his after that). Not with the original look.
     t.crowd_density = s.crowd_density;  // (a card change in the wizard starts from the file's value again)
@@ -6971,7 +7135,7 @@ class App {
     job->zip = to;
     phone_export_ = job;
     Log("export for phone: " + PathStr(to));
-    std::thread([job, cache = TronCacheDir(), ver = MyVersion()] {
+    std::thread([job, cache = TronCacheDir(), ver = MyVersion()] { wwe2k14::NameThread(L"lnch_trons");
       try {
         job->err = tron_zip::Export(cache, job->zip, "pc", "wwe2k14 launcher " + ver, job->counts, &job->prog);
       } catch (const std::exception& e) {

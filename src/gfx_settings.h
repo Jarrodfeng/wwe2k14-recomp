@@ -8,7 +8,7 @@
 //   upscale      0 off, 1 DLAA, 2 DLSS performance, 3 DLSS quality, 4 DLSS ultra performance,
 //                5 FSR native, 6 FSR quality, 7 FSR performance (Session 33: AMD FSR 3, any graphics card)
 //   resolution   0 720p (the default since Session 95), 1 1440p, 2 4K
-//   draw_height  Session 54 (Jarrod: "360p, 480, 540p, 720p, 1080p, 1440p, and 4k"): 0, or 360 / 480 / 540 (with
+//   draw_height  Session 54 (Jarrod: "360p, 480, 540p, 720p, 1080p, 1440p, and 4k"): 0, or 360 / 480 / 540 / 576 / 600 / 648 (S102 G13; with
 //                resolution 0) or 1080 (with resolution 1): the NATIVE renderer draws at that height and makes its
 //                copies at the resolution's whole size (SDK gpu_native_truth_draw_height). A key of its own, so a
 //                build from before it reads 720p / 1440p (unknown resolution values would clamp to 4K there)
@@ -65,7 +65,7 @@ struct Choice {
   int refresh_hz = 0;
   bool original_look = false;
   int texture_filter = 0;  // Session 33
-  int draw_height = 0;     // Session 54: 0, 360 / 480 / 540 (resolution 0), 1080 (resolution 1); NATIVE only
+  int draw_height = 0;     // Session 54: 0, 360 / 480 / 540 / 576 / 600 / 648 (resolution 0), 1080 (resolution 1); NATIVE only
   int renderer = 2;        // Session 37: 0 accurate, 1 light (--wwe2k14_light_renderer); Session 41: 2 native
                            // (the accurate renderer with the native renderer drawing the scene, --gpu_native=2);
                            // Session 51: 2 by default (Jarrod: "NATIVE for everyone")
@@ -196,11 +196,16 @@ struct ResolutionEntry {
   const char* name;
   int resolution, draw_height;
   bool native_only;
+  bool in_game_menu = true;  // S102 G13: false = the launcher's list only (the in-game GRAPHICS row has 8 value slots); a file that holds it still shows it there
 };
-inline constexpr ResolutionEntry kResolutions[] = {{"360P", 0, 360, true},   {"480P", 0, 480, true},
-                                                   {"540P", 0, 540, true},   {"720P", 0, 0, false},
-                                                   {"1080P", 1, 1080, true}, {"1440P", 1, 0, false},
-                                                   {"4K", 2, 0, false}};
+// S102 G13 (Surface: 720 drawn = 50.0 fps, 540 drawn = 55.6 fps in Bryan's entrance at AUTO = LOW): 576 / 600 / 648 between 540P and 720P, NATIVE only,
+// resolution 0, no default changes. The scale is draw_height / 720 everywhere (reader.h render_scale, the SDK's OwnedRowRatio / TruthDrawRatio), exact in float
+// for each (tools\g13\g13_check.py).
+inline constexpr ResolutionEntry kResolutions[] = {{"360P", 0, 360, true},         {"480P", 0, 480, true},
+                                                   {"540P", 0, 540, true},         {"576P", 0, 576, true, false},
+                                                   {"600P", 0, 600, true, false},  {"648P", 0, 648, true, false},
+                                                   {"720P", 0, 0, false},          {"1080P", 1, 1080, true},
+                                                   {"1440P", 1, 0, false},         {"4K", 2, 0, false}};
 inline constexpr int kResolutionCount = int(std::size(kResolutions));
 // The draw height that goes with a resolution, or 0.
 inline int ValidDrawHeight(int resolution, int draw_height) {
@@ -215,7 +220,9 @@ inline int ResolutionIndex(int resolution, int draw_height, bool native = true) 
     if (kResolutions[i].resolution == resolution && kResolutions[i].draw_height == draw_height) return i;
   for (int i = 0; i < kResolutionCount; ++i)
     if (kResolutions[i].resolution == resolution && !kResolutions[i].draw_height) return i;
-  return 5;  // 1440p
+  for (int i = 0; i < kResolutionCount; ++i)  // S102 G13: by name, not a position (the list grew)
+    if (kResolutions[i].resolution == 1 && !kResolutions[i].draw_height) return i;  // 1440p
+  return 0;
 }
 
 inline Present Parse(const std::string& json, Choice& c) {
@@ -726,8 +733,10 @@ inline std::vector<std::pair<std::string, std::string>> GraphicsFlags(const Choi
   const bool low_scaled = low_tier && c.upscale == 0;
   // Session 95 (item K): half-rate wrestler maps (gpu_shadow_half_rate), the 8-bit maps at 256 (S82, -0.8 ms),
   // and the dependent passes skipped on the frames every map is skipped (gpu_native_owned_shadow_skip). Not with shadows off.
+  // Session 102 (Jarrod 2026-11-14 19:5x: "I've seen the half rate shadows, they're very difficult to notice, I'd be willing to simply have these
+  // be a default for everyone, not just LOW"): the half-rate wrestler maps (the new renderer reads gpu_shadow_half_rate) for EVERY tier with shadows on.
+  if (c.shadows && c.renderer == 2 && c.true_native) f.push_back({"gpu_shadow_half_rate", "true"});
   if (low_tier && c.shadows && c.renderer == 2 && c.true_native) {  // (the typed cut is TRUE NATIVE's; the flags do nothing without it)
-    f.push_back({"gpu_shadow_half_rate", "true"});
     f.push_back({"gpu_native_owned_shadow_half", "true"});
     f.push_back({"gpu_native_owned_shadow_skip", "true"});
     // Session 95 (Jarrod judged the clips: "Half rate looks good"): the wrestlers' rim-light map, one frame behind the wrestler.

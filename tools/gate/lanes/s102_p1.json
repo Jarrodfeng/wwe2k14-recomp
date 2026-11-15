@@ -1,0 +1,13 @@
+{
+ "owner": "S102 lane P1 (offline step): the crowd card bake owned whole. tools/crowd/bake_skip_cut.py --all (every bake pass of every frame cut), src/renderer_adapter/bake_hook.h + binder.h (BakePlan / BakeRun, marked S102 P1), src/renderer_scene/card_bake_ours.* (the pose from the scene record), fview / rplay --own-card-bake[=none] [--bake-fault wrong_slot|wrong_pose|no_pose] [--bake-record-offset N], tools/crowd/own_card_bake_check.py. 0 game runs. Captures are named relative to the main checkout.",
+ "claim": {"scene": "bryan", "side": "gpu + swap thread (the game's recording and our render thread's walk of the node); live only once P0's node switch lands - the offline step re-issues the group", "ms": [0.3, 1.2],
+           "basis": "MEASURED on the PC only: rplay --timing, Bryan, 237 frames, 3 interleaved runs a arm, RTX 4090: GPU median per frame game 0.682 ms, ours 0.677 ms, bake cut 0.559 ms (the 20 bake passes = ~0.12 ms; bind time within noise). The Surface range below is an estimate from that and from counts (no per-pass GPU timestamps exist on the Surface: R7 section 7), not a measurement: 20 SetTargets + 20 Clear + 20 Draw + 20 Copy of 64x64 a Bryan frame = 80 of ~1,790 ops (4.5 %), 15 of 35 render passes and 15 of 49 copies of a match frame; on the Surface's integrated GPU a render-pass switch + copy is ~0.02-0.06 ms, plus 4.5 % of the swap thread's per-op walk. Matches: all of it (nothing reads the pictures); Bryan: only the types whose cards are in view stay."},
+ "note": "proof = fview --sweep over every frame of two captures (Bryan 237 frames / 20 passes, the 15-type match 503 frames / 15 passes), 8 arms each (game, ours, no_pose control, none, cut, wrong_slot, wrong_pose, stale record): ours equals the game on every frame (presented surface + the card pictures), the pose comes from the record bit for bit, the counts fall by the bake passes with none / cut, and every planted twin (wrong card slot, wrong palette slot, stale record) changes the card pictures; the Bryan atlas statistics (PNG of the 20 pictures at one frame) and the sheet go to out/s102/sheets/p1 of the main checkout. The proof needs an fview.exe built from this tree (tools/fview/build.ps1) and the main checkout's captures.",
+ "checks": [
+  {"name": "s102_p1.proof", "cmd": ["py", "-I", "tools/crowd/own_card_bake_check.py"], "timeout_s": 5400, "needs": [
+    "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
+    "out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip",
+    "game_data/extracted"],
+   "exes": ["out/renderer/dev/fview.exe"]}
+ ]
+}

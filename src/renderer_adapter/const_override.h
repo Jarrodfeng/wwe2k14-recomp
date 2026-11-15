@@ -184,6 +184,7 @@ inline bool ParseSpec(const std::string& spec, Rule& r, std::string& err) {
 struct State {
   bool active = false;
   bool want_census = false;
+  uint64_t bind_lo = 0, bind_hi = ~0ull;   // S102 G4c (TEST ONLY): the rules apply only to binds [lo, hi) (1-based: bind N is capture frame N-1 of a replay); --const-override-binds LO HI
   std::vector<Rule> rules;
   std::vector<DropRule> drops;
   std::vector<FrameCensus> census;  // one per bind, only while want_census
@@ -282,6 +283,7 @@ struct State {
   // Edit the packed block of this stage in place. Returns true when a byte changed.
   bool Apply(const Ctx& c, bool pixel, const rdr::fx::Variant& variant, uint8_t* block) {
     bool changed_any = false;
+    if (bind < bind_lo || bind >= bind_hi) return false;   // S102 G4c
     for (Rule& r : rules) {
       if (r.pixel != pixel || !Matches(r.filter, c)) continue;
       ++r.seen_frame, ++r.seen;

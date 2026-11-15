@@ -2,18 +2,31 @@
 // WriteRecord / ReadRecord for `scene\frame_NNNNNN.rsc`. Layout: SceneHeader, section_count SectionEntry, then the sections
 // (8-byte aligned, offsets from the record's start). No game or SDK includes. A bad file fails loudly with the reason.
 #pragma once
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 
 #include "scene_record.h"
+#include "string_pool.h"   // S102 T11b
 
 namespace rdr_scene {
 
 // All of a record's tables. Strings: Str(field) reads a name field (offset + 1, 0 = none), AddString makes one.
+// S102 RT1 (render_lean bit 2, Q7): the arena (bgNN of the first arena asset) of THIS record, found once and kept ON the record: a pure function of the immutable tables, so a new record
+// is a new memo (no pointer key that could outlive its record). Copying a record starts the copy's memo empty.
+struct ArenaMemo {
+  mutable std::atomic<int> v{-2};   // -2 = not computed
+  ArenaMemo() = default;
+  ArenaMemo(const ArenaMemo&) {}
+  ArenaMemo& operator=(const ArenaMemo&) { v.store(-2, std::memory_order_relaxed); return *this; }
+};
+
 struct SceneTables {
+  ArenaMemo arena_memo;   // S102 RT1
   SceneHeader header;
   bool has_camera = false;
   Camera camera;
@@ -49,15 +62,78 @@ struct SceneTables {
   std::vector<CasterExtra> caster_extras;// kScCasterExtras (lane 221): parallel to caster_calls (empty = none recorded, or the same count)
   uint32_t sphere_errors = 0;            // lane 242: the sphere section ParseRecord dropped (wrong element size / unknown layout / a count past kSphereMax)
   std::vector<SphereOccRow> sphere_occ;  // kScSphereOcc (lane 242): the 'CCSO' component's spheres per wrestler skeleton; empty = none recorded
+  // S102 T19: one marker per run of same-type stands members (kScCrowdRuns / kScCrowdMembers, version 2 records); empty = every member is a plain Object. A live record the crowd
+  // contributor made with wwe2k14_rdr_crowd_run_markers carries them; a reader that wants the plain list calls ExpandCrowdRuns / ExpandedForReading (ParseRecord does).
+  std::vector<CrowdRun> crowd_runs;
+  std::vector<CrowdMember> crowd_members;
 
   SceneTables();  // camera matrices = identity (the v2 candidate: an unset Mat4 was garbage)
+  // S102 SW1 (wwe2k14_rdr_swap_once bit 1; tables_pool.h): back to the state of a freshly constructed table, KEEPING every vector's capacity (and the string blob's), so a recycled table
+  // allocates nothing once it has grown. EVERY member is reset here: add a new member to this function too (the offline test serialises a recycled table, fed with every section, against a
+  // fresh one, and fails when sizeof(SceneTables) is not the size it was written for).
+  void Recycle();
+#ifdef RDR_SWAP_PLANTS
+  static inline int g_recycle_plant = 0;   // test only (tools\swap\swap_once_test.cpp): 2 = Recycle leaves two members behind (caster_nodes, sphere_errors); 3 = it keeps the seed link and the flat index
+#endif
   uint32_t AddString(std::string_view s);  // "" = 0 (none); equal strings share one field
   std::string_view Str(uint32_t field) const;  // "" for 0 or a field outside the section
+  // S102 T11: a flat string index (open addressing over the blob, one vector of fields) instead of the node hash map: AddString then allocates nothing
+  // per string (the map made two heap strings per call), and the fields and bytes are the same. `strings_hint` / `bytes_hint` reserve (0 = none). Callable
+  // at any point of a record (it indexes what the blob holds); a copy of the tables keeps the mode. Default off: only the crowd contributor, with
+  // wwe2k14_rdr_crowd_ids_once on, calls it.
+  void UseFlatStringIndex(size_t strings_hint, size_t bytes_hint);
+  // S102 T11b (wwe2k14_rdr_scene_strings_once; string_pool.h): a FRESH table (no strings yet) starts as a copy of the pool: the blob is the pool's, the flat index is the pool's slots, so
+  // AddString finds every pool string with no rebuild and a contributor writes a pool field with no AddString at all. False (and nothing done) for a table that already holds strings.
+  bool SeedStrings(StringPool& pool);
+  // The pool this table was seeded from, or null. A MOVED-FROM table is null (its link moves with its strings: a pool field written into a shell that lost the blob would name nothing; T11 F1's class); a copy keeps it.
+  StringPool* SeedPool() const { return seed_.pool; }
+  // After the record is built (live_scene.cpp, after Validate): the table no longer points into the writer's mutable pool (R20 review F4); the seeded prefix length stays, so the table is still
+  // written compact and counted without its prefix.
+  void DropSeedPool() { seed_.pool = nullptr; }
+  size_t SeedPrefixBytes() const { return seed_.bytes; }   // the pool strings the blob starts with (0 = not a seeded table)
+  // The blob rewritten to the strings the tables' name fields name, in the order the fields are visited (header, assets, objects, params, targets, sprites, texts); every field is rewritten
+  // to match. Drops the pool link and the index (the next AddString rebuilds it). SerializeRecord does it for a seeded table, so no file carries the pool; the offline proofs compare tables through it.
+  void CompactStrings();
+  std::vector<uint32_t> StringFields() const;   // every name field of the tables (0 = none included), for the offline proofs: equal strings must share one field
+#ifdef RDR_CROWD_IDS_PLANTS
+  int seed_plant = 0;   // test only: 3 = UseFlatStringIndex keeps an index whose blob size matches even when the blob was replaced (F3's old fast path); 1 = SeedStrings copies the blob but not the index (the index stays empty while the blob is full: a pool string added again is a duplicate)
+  static inline bool g_seed_link_survives_move = false;   // test only: 1 = a moved-from table keeps its link (planted)
+#endif
+#ifdef RDR_CROWD_IDS_PLANTS
+  // Test only (tools\crowd\crowd_ids_test.cpp): a planted flat-index fault. 0 none; 1 the index is rebuilt only the first time (a blob extended behind its back is not seen);
+  // 2 the NUL test of a lookup is dropped (a stored string that merely starts with the new one matches); 3 the empty-slots guard is dropped (a moved-from table).
+  int flat_plant = 0;
+#endif
   // S101 lane 27: AddString looks equal strings up in a hash index (built lazily, rebuilt when `strings` was changed behind its back), not by a
   // linear scan: a live crowd record adds thousands of ids. Same fields, same bytes as the scan.
  private:
   std::unordered_map<std::string, uint32_t> string_index_;
   size_t indexed_size_ = 0;  // strings.size() when the index was last in step
+  bool flat_ = false;                  // S102 T11: the flat index is the one in use (string_index_ is then empty)
+  // S102 T11b: the pool the blob was seeded from and the seeded blob's size (a pool field a contributor writes is inside it). The link moves with the strings.
+  struct SeedLink {
+    StringPool* pool = nullptr;
+    size_t bytes = 0;
+    SeedLink() = default;
+    SeedLink(const SeedLink&) = default;
+    SeedLink& operator=(const SeedLink&) = default;
+    SeedLink(SeedLink&& o) noexcept : pool(o.pool), bytes(o.bytes) { Release(o); }
+    SeedLink& operator=(SeedLink&& o) noexcept { pool = o.pool, bytes = o.bytes; if (this != &o) Release(o); return *this; }
+    static void Release(SeedLink& o) {
+#ifdef RDR_CROWD_IDS_PLANTS
+      if (g_seed_link_survives_move) return;
+#endif
+      o.pool = nullptr, o.bytes = 0;
+    }
+  } seed_;
+  std::vector<uint32_t> flat_slots_;   // fields (0 = empty), a power of two long, at most half full
+  size_t flat_count_ = 0;
+  void FlatGrow();
+  void FlatRebuild();
+  bool PoolSeeded() const;                          // S102 T11b
+  bool PoolHas(std::string_view s, uint64_t h) const;
+  uint32_t FlatAdd(std::string_view s);
+  void FlatInsert(uint32_t field, uint64_t hash);
 };
 
 // lane 136: why the circle tables are not usable ("" = fine): at most one mesh, counts inside the fixed capacity, every index inside the vertices.
@@ -125,6 +201,28 @@ inline Mat4 IdentityMat4() {
 }
 
 // Bytes of the record (deterministic: the same tables always give the same bytes).
+// S102 T19: why the crowd run markers are not usable ("" = fine): runs index the members in order and cover them all, assets / bones inside their tables, `at` inside the objects
+// and nondecreasing, known kinds, counts above 0. (The bone range is checked against `bones`, the asset against `assets`.)
+std::string CrowdRunsProblem(const SceneTables& t);
+// S102 T19: the plain list: a copy of `t` with every marker replaced by its members' Objects at the run's `at` (engine_objects grows by zeros in step), the member ids interned into the
+// copy's strings; crowd_runs / crowd_members of the copy are empty. A table with no markers returns an equal copy. Not for the game's thread (it allocates a whole table).
+SceneTables ExpandCrowdRuns(const SceneTables& t);
+// The same for a shared live record: one of three pooled tables of the calling thread (the render thread), reused once nothing else holds it, keyed by the record (the same record
+// asked again gives the same table); a record with no markers is returned as it is. The record itself is never changed.
+std::shared_ptr<const SceneTables> ExpandedForReading(const std::shared_ptr<const SceneTables>& t);
+// S102 T19 (offline: fview --crowd-run-markers, the proof): the inverse. Every run of consecutive crowd member Objects whose id, asset, layer, flags and bones this form can name
+// (all other fields at their defaults, world's last column 0 0 0 1) becomes one marker. Returns the number of runs made.
+uint32_t CompactCrowdRuns(SceneTables& t);
+// fview: ReadRecord / ParseRecord's result is passed through CompactCrowdRuns + SerializeRecord + ParseRecord (the marker form's whole round trip) when this is set.
+extern bool g_crowd_run_roundtrip;
+#ifdef RDR_CROWD_IDS_PLANTS
+extern bool g_expand_keeps_prefix;   // test only (scene_strings_test.cpp): ExpandInto does not compact a seeded source (R20 review F1)
+#endif
+#ifdef RDR_CROWD_RUNS_PLANTS
+extern int g_run_plant;   // test only (tools\crowd\crowd_run_markers_test.cpp): 1 a run is not broken where the LOD changes; 2 a member dropped from a run; 3 the old format not read; 4 ids off by one
+#endif
+// Bytes of the record (deterministic: the same tables always give the same bytes).
+// A table with crowd run markers is written as version 2; the FILE writers (the folder sink, the case ring) expand first, so every file on disk is version 1 (S102 T19 F1).
 std::vector<uint8_t> SerializeRecord(const SceneTables& t);
 // Parses bytes. False with `error` (what and where) on a bad magic / version / directory / element_size / truncation / index.
 bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string& error);

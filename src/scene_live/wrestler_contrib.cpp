@@ -2,6 +2,8 @@
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "wrestler_contrib.h"
 
+#include "../renderer_adapter/upd_lean.h"   // S102 U3 (the plant macro, the census)
+
 #include <algorithm>
 #include <cstdio>
 #include <map>
@@ -150,9 +152,41 @@ void WrestlerContributor::SubmitWorld(uint32_t skel, int32_t slot, uint32_t coun
   Put(skel, slot, frame, std::move(skin));
 }
 
-void WrestlerContributor::SubmitConsumer(uint32_t skel, uint32_t count, const Mat4* skin, uint64_t frame) {
+// S102 U3 (R26 lane A (b)): Put's consumer path, minus the allocation. A wrestler's parts call sub_82C04DF0 many times a frame with the same skeleton and (usually) the same palette; the general path
+// builds a fresh std::vector<Mat4> of count x 64 bytes for each call (a heap allocation, a copy, then the free of the previous one inside Put). When this frame already holds a consumer update for the
+// skeleton, Put would do exactly: slot = Known.slot (the call passes -1); Known.has_consumer / consumer_frame; erase the derived updates the consumer outranks; then, at the update of the frame,
+// slot / consumer / skin replaced ("the last update of a frame wins"). This does the same steps and assigns the skin into the existing vector (same size = no allocation). Anything else (no Known, no
+// pending list for the skeleton, no update of this frame, the planted first-wins) returns false with NOTHING touched and the caller uses Put.
+bool WrestlerContributor::PutConsumerInPlace(uint32_t skel, uint64_t frame, const Mat4* skin, uint32_t count) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (first_wins_) return false;
+  auto pc = cur_.find(skel);
+  if (pc == cur_.end() || known_.find(skel) == known_.end()) return false;
+  bool have = false;
+  for (const Upd& x : pc->second.upds)
+    if (x.frame == frame && x.consumer) { have = true; break; }
+  if (!have) return false;
+  Known* k = KnownFor(skel);   // the same one call Put makes (the LRU stamp moves exactly once)
+  int32_t slot = k->slot;      // the consumer hook cannot match a slot; the update hook did
+  k->has_consumer = true;
+  k->consumer_frame = std::max(k->consumer_frame, frame);
+  auto& pu = pc->second.upds;
+  pu.erase(std::remove_if(pu.begin(), pu.end(), [&](const Upd& x) { return !x.consumer && x.frame <= frame + kConsumerFresh; }), pu.end());
+  for (Upd& x : pu)
+    if (x.frame == frame) {
+      if (!UPD_PLANT(11)) x.slot = slot >= 0 ? slot : x.slot;   // (x.consumer is true here: Put's `slot >= 0 || !x.consumer ? slot : x.slot`)
+      x.consumer = true;
+      if (!UPD_PLANT(11)) x.skin.assign(skin, skin + count);   // (planted: the palette of the frame's first call stays)
+      wwe2k14::upd_lean::Count(wwe2k14::upd_lean::kConsumerInPlace);
+      return true;
+    }
+  return true;   // unreachable: the update of this frame is a consumer one and the erase keeps those
+}
+
+void WrestlerContributor::SubmitConsumer(uint32_t skel, uint32_t count, const Mat4* skin, uint64_t frame, bool in_place) {
   if (!skin || count == 0) { NoteUnreadable(); return; }
   consumer_submits_.fetch_add(1, std::memory_order_relaxed);
+  if (in_place && PutConsumerInPlace(skel, frame, skin, count)) return;
   Put(skel, -1, frame, std::vector<Mat4>(skin, skin + count), true);
 }
 
@@ -247,9 +281,36 @@ void WrestlerContributor::ApplyDelta(uint32_t skel, float dx, float dy, float dz
   for (Mat4& m : *skin) m.m[12] += dx, m.m[13] += dy, m.m[14] += dz;
 }
 
+// S102 U1: the latch (tail_latch.h): the item list and the light set, taken while the game threads are parked; Emit then formats only these.
+bool WrestlerContributor::Latch(const FrameInfo& f) {
+  latch_items_.clear();
+  latch_counts_ = Counters{};
+  Collect(f, latch_items_, latch_counts_);
+  latch_light_ = light_set_.load(std::memory_order_relaxed);
+  latch_.Set(f.guest_frame);
+  return true;
+}
+
 void WrestlerContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) {
-  struct Item { uint32_t skel; int32_t slot; bool consumer; Link link; std::vector<Mat4> skin; };
+  using Item = EmitItem;
   std::vector<Item> items;
+  uint32_t light = kUnknown;
+  if (latch_.Use(f.guest_frame, Name())) {   // S102 U1
+    items.swap(latch_items_);
+    c.stale += latch_counts_.stale;
+    c.unknown += latch_counts_.unknown;
+    light = latch_light_;
+  } else {
+    Collect(f, items, c);
+    light = light_set_.load(std::memory_order_relaxed);
+  }
+  if (items.empty()) return;
+  EmitItems(f, t, c, items, light);
+}
+
+// Emit's two locked blocks (unchanged; S102 U1 moved them here so the latch can run them before the update thread is released).
+void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& items, Counters& c) {
+  using Item = EmitItem;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     std::set<uint32_t> refreshed;
@@ -310,8 +371,12 @@ void WrestlerContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) 
     }
   }
   c.unknown += uint32_t(unreadable_.exchange(0, std::memory_order_relaxed));
-  if (items.empty()) return;
+}
 
+// Emit's formatting (unchanged; S102 U1: reads only `items` and `light`, never the hooks' shared state).
+void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters& c, std::vector<EmitItem>& items, uint32_t light) {
+  (void)f;
+  using Item = EmitItem;
   // Slot-matched skeletons first (slot order), then the rest by address: a deterministic order.
   std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
     const bool sa = a.slot >= 0, sb = b.slot >= 0;
@@ -329,7 +394,7 @@ void WrestlerContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) 
   none.kind = uint8_t(AssetKind::Model);
   none.variant = 0xFFFFFFFFu;
   t.assets.push_back(none);
-  const uint32_t light = light_set_.load(std::memory_order_relaxed);
+  // (S102 U1: `light` is the latched / read light set, a parameter)
   std::set<int32_t> used_slots;
   std::map<std::string, uint32_t> linked;
   for (const Item& s : items) {
